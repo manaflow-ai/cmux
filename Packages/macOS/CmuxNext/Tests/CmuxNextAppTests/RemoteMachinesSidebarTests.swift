@@ -227,6 +227,80 @@ struct RemoteMachinesSidebarTests {
         #expect(RemoteMachinesStrings.resources(.init(ramFreeGB: 1, coresBusy: 1, cores: 1, diskFreeGB: nil, over: false)) == "1 GB free · CPU 1/1")
     }
 
+    /// A machine's own health loop reports what it found wrong (`problems` on the reading, from
+    /// /run/cmux/machine-health.json). Only `check` and `detail` are kept, so the same problem read again
+    /// with another `since` leaves the value equal; a malformed entry is skipped, never made up.
+    @Test func peerListReadsEachMachinesProblemsAndSkipsAMalformedOne() {
+        let health: [String: Any] = ["cpus": 32, "load": [3.0], "ram": ["freeBytes": 31_000_000_000],
+                                     "problems": [["check": "dns", "detail": "DNS: github.com does not resolve", "since": "2026-10-25T11:40:00Z"],
+                                                  ["check": "disk"], ["detail": "no check"], ["check": "", "detail": "empty"],
+                                                  ["check": 7, "detail": "a number"], "dns", NSNull(),
+                                                  ["check": "PEER", "detail": "peer link\nto cosmic-gray down"]]]
+        func room(_ h: [String: Any]) -> AcpmuxPeerList.Resources? {
+            AcpmuxPeerList.peers(["peers": [["name": "m", "connected": true, "health": h]]])[0].resources
+        }
+        let problems = [AcpmuxPeerList.Resources.Problem(check: "dns", detail: "DNS: github.com does not resolve"),
+                        .init(check: "peer", detail: "peer link to cosmic-gray down")]
+        #expect(room(health)?.problems == problems)
+        var later = health
+        later["problems"] = [["check": "dns", "detail": "DNS: github.com does not resolve", "since": "2026-10-25T11:41:00Z"],
+                             ["check": "peer", "detail": "peer link\nto cosmic-gray down"]]
+        #expect(room(later) == room(health))
+        // None, a list that is not one, or no loop on the machine: no problems, the same room as before.
+        for none: Any? in [[Any](), "dns", 3, nil] {
+            var h = health
+            h["problems"] = none
+            #expect(room(h)?.problems == [], "\(String(describing: none))")
+        }
+        var many = health
+        many["problems"] = (0..<20).map { ["check": "ram", "detail": "RAM \($0)" + String(repeating: "x", count: 300)] }
+        let capped = room(many)?.problems ?? []
+        #expect(capped.count == 8 && capped.allSatisfy { $0.detail.count == 200 })
+    }
+
+    /// The first problem's word leads the room row (the default), or ends it, or a warning triangle
+    /// replaces the gauge; the tooltip and VoiceOver say each problem in the machine's words.
+    @Test func aMachineWithAProblemSaysItsWordOnTheRoomRowAndItsDetailsOnHover() {
+        let problems = [AcpmuxPeerList.Resources.Problem(check: "dns", detail: "DNS: github.com does not resolve"),
+                        .init(check: "peer", detail: "peer link to cosmic-gray: handshake not finished")]
+        let room = AcpmuxPeerList.Resources(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false, problems: problems)
+        let machines = RemoteMachinesSidebar.machines(lanes: [], peers: [AcpmuxPeerList.Peer(name: "huge-blue", connected: true, resources: room)])
+        func roomRow(_ style: RemoteMachineProblemStyle) -> SidebarItemInfo {
+            RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue"], pages: [:], problem: style, displayName: { _ in nil })[1].info
+        }
+        let leading = roomRow(.leading)
+        #expect(leading.title == "DNS down · 31 GB free · CPU 12/32")
+        #expect(leading.symbol == "gauge.with.dots.needle.33percent")
+        #expect(leading.helpText == "DNS: github.com does not resolve\npeer link to cosmic-gray: handshake not finished")
+        #expect(leading.accessibilityTitle == "huge-blue: DNS down · 31 GB free · CPU 12/32 · DNS: github.com does not resolve"
+            + " · peer link to cosmic-gray: handshake not finished")
+        #expect(roomRow(.trailing).title == "31 GB free · CPU 12/32 · DNS down")
+        let glyph = roomRow(.glyph)
+        #expect(glyph.title == "31 GB free · CPU 12/32" && glyph.symbol == "exclamationmark.triangle")
+        #expect(glyph.helpText == leading.helpText)
+        // The header style leads with the word too.
+        let header = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .header, displayName: { _ in nil })
+        #expect(header.map(\.info.title) == ["huge-blue · DNS down · 31 GB free"])
+        // Busy still shows, after the problem's word.
+        var hot = room
+        hot.over = true
+        #expect(RemoteMachinesStrings.resources(hot) == "DNS down · Busy · 31 GB free · CPU 12/32")
+        // Each check has its word; a check this build does not know gives none, and the next known one leads.
+        let words = ["dns", "disk", "ram", "acpmux", "peer", "loop"].map(RemoteMachinesStrings.problem)
+        #expect(words == ["DNS down", "Disk low", "RAM low", "acpmux down", "Link down", "Not checked"])
+        let unknown = AcpmuxPeerList.Resources.Problem(check: "gpu", detail: "GPU: driver gone")
+        #expect(RemoteMachinesStrings.problemWord([unknown]) == nil)
+        #expect(RemoteMachinesStrings.problemWord([unknown, .init(check: "loop", detail: "x")]) == "Not checked")
+        // A healthy machine's row is as before: no word, the gauge, no tooltip.
+        var healthy = room
+        healthy.problems = []
+        let calm = RemoteMachinesSidebar.rows(machines: RemoteMachinesSidebar.machines(lanes: [], peers: [.init(name: "huge-blue", connected: true,
+                                                                                                                resources: healthy)]),
+                                              expanded: ["huge-blue"], pages: [:], problem: .glyph, displayName: { _ in nil })[1].info
+        #expect(calm.title == "31 GB free · CPU 12/32" && calm.symbol == "gauge.with.dots.needle.33percent" && calm.helpText == nil)
+        #expect(calm.accessibilityTitle == "huge-blue: 31 GB free · CPU 12/32")
+    }
+
     /// Closed chats never count: they sit behind an Older row, dimmed, a page at a time.
     @Test func olderShowsTheReadClosedChatsDimmedThenShowMore() {
         let machines = RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue")], peers: nil)

@@ -140,10 +140,11 @@ public final class RemoteMachinesSidebar {
     /// The rows now, every group in order. Read inside an observation scope, so a group, fold or
     /// page change re-yields.
     public func rows() -> [SidebarTransientItem] {
-        // A capture shows the first sample machine unfolded until a click folds or unfolds one.
-        let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? ["linux-box"] : expanded
+        // A capture shows sample machines unfolded (`fixtureUnfolded`) until a click folds or unfolds one.
+        let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? Self.fixtureUnfolded : expanded
         return Self.rows(machines: machines, expanded: shown, pages: pages, resources: SidebarTunables.remoteMachineResources.value,
-                         olderShown: olderShown, older: older, displayName: { [host] in host?.displayName($0) })
+                         problem: SidebarTunables.remoteMachineProblem.value, olderShown: olderShown, older: older,
+                         displayName: { [host] in host?.displayName($0) })
     }
 
     /// The rows the sidebar draws: remote chats as plain rows, not a block of machine groups.
@@ -227,14 +228,22 @@ public final class RemoteMachinesSidebar {
         }
     }
 
-    /// Three machines for captures: two reachable with chats in each state, one offline.
+    /// Four machines for captures: two reachable with chats in each state, one reachable whose health
+    /// loop reports DNS and a peer link down, one offline.
     static let fixturePeers = [
         AcpmuxPeerList.Peer(name: "linux-box", connected: true,
                             resources: .init(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false)),
         AcpmuxPeerList.Peer(name: "build-mac", connected: true,
                             resources: .init(ramFreeGB: 2, coresBusy: 12, cores: 12, diskFreeGB: 40, over: true)),
+        AcpmuxPeerList.Peer(name: "cloud-vm", connected: true,
+                            resources: .init(ramFreeGB: 31, coresBusy: 3, cores: 32, diskFreeGB: 120, over: false, problems: [
+                                .init(check: "dns", detail: "DNS: github.com does not resolve"),
+                                .init(check: "peer", detail: "peer link to build-mac: handshake not finished"),
+                            ])),
         AcpmuxPeerList.Peer(name: "gpu-box", connected: false),
     ]
+    /// The sample machines a capture shows unfolded.
+    static let fixtureUnfolded: Set<String> = ["linux-box", "cloud-vm"]
     static var fixtureLanes: [AgentActivityLane] {
         let chats: [(String, String, AgentActivityLane.State, String)] = [
             ("linux-box", "sidebar", .working, "Sidebar rows keep their place"), ("linux-box", "review-1", .input, "Review the peer list"),
@@ -326,7 +335,8 @@ public final class RemoteMachinesSidebar {
 
     @MainActor
     static func rows(machines: [Machine], expanded: Set<String>, pages: [String: Int],
-                     resources style: RemoteMachineResourcesStyle = .row, olderShown: Set<String> = [], older: [String: Older] = [:],
+                     resources style: RemoteMachineResourcesStyle = .row, problem: RemoteMachineProblemStyle = .leading,
+                     olderShown: Set<String> = [], older: [String: Older] = [:],
                      displayName: (String) -> String?) -> [SidebarTransientItem] {
         var items: [SidebarTransientItem] = []
         // The groups draw right after the top items (the App Store, else Channels, else Home), above the workspaces.
@@ -340,17 +350,23 @@ public final class RemoteMachinesSidebar {
         for machine in machines {
             let name = displayName(machine.peer) ?? machine.peer
             let room = machine.online ? machine.resources : nil
-            let title = if let room, style == .header { RemoteMachinesStrings.named(name, RemoteMachinesStrings.ramFree(room.ramFreeGB)) }
-                else { name }
+            // The header style leads with the first problem's word too: "huge-blue · DNS down · 31 GB free".
+            let title = if let room, style == .header {
+                RemoteMachinesStrings.named(name, ([RemoteMachinesStrings.problemWord(room.problems)]
+                    + [RemoteMachinesStrings.ramFree(room.ramFreeGB)]).compactMap { $0 }.joined(separator: " · "))
+            } else { name }
             var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: "cloud", icon: .cloud,
                                          badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil, isMissing: !machine.online)
             header.activity = activity(machine.chats)
             add(machinePrefix + machine.peer, header)
             guard machine.online, expanded.contains(machine.peer) else { continue }
             if let room, style == .row {
-                var row = SidebarItemInfo(title: RemoteMachinesStrings.resources(room), symbol: "gauge.with.dots.needle.33percent")
+                let glyph = problem == .glyph && !room.problems.isEmpty
+                var row = SidebarItemInfo(title: RemoteMachinesStrings.resources(room, problem: problem),
+                                          symbol: glyph ? "exclamationmark.triangle" : "gauge.with.dots.needle.33percent")
                 row.indent = 1
                 row.accessibilityTitle = RemoteMachinesStrings.resourcesLabel(name, room)
+                row.helpText = RemoteMachinesStrings.problemDetails(room.problems)
                 add(resourcesPrefix + machine.peer, row)
             }
             let shown = pageSize * max(1, pages[machine.peer] ?? 1)
@@ -396,8 +412,10 @@ enum RemoteMachinesStrings {
     }
     /// A machine's room on one line that fits the sidebar: "31 GB free · CPU 12/32", led by "Busy"
     /// when its own budget says it is over, and ending with its free disk only when that is low.
-    /// "CPU n/m" names no counted noun, so it reads right for any count.
-    static func resources(_ r: AcpmuxPeerList.Resources) -> String {
+    /// "CPU n/m" names no counted noun, so it reads right for any count. The first problem its health
+    /// loop reports leads it ("DNS down · 31 GB free · CPU 12/32"), or ends it, or (`glyph`) only
+    /// changes the row's glyph (`problemWord`).
+    static func resources(_ r: AcpmuxPeerList.Resources, problem style: RemoteMachineProblemStyle = .leading) -> String {
         var parts = [ramFree(r.ramFreeGB),
                      String(format: String(localized: "sidebar.remoteMachines.cpu", defaultValue: "CPU %1$lld/%2$lld", bundle: .module),
                             r.coresBusy, r.cores)]
@@ -405,12 +423,41 @@ enum RemoteMachinesStrings {
             parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .module), disk))
         }
         if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .module), at: 0) }
+        if let word = problemWord(r.problems) {
+            switch style {
+            case .leading: parts.insert(word, at: 0)
+            case .trailing: parts.append(word)
+            case .glyph: break
+            }
+        }
         return parts.joined(separator: " · ")
     }
-    /// What VoiceOver reads for a machine's room row: the machine, then its room.
+    /// What VoiceOver reads for a machine's room row: the machine, then its room, then each problem in
+    /// the machine's own words.
     static func resourcesLabel(_ name: String, _ r: AcpmuxPeerList.Resources) -> String {
         String(format: String(localized: "sidebar.remoteMachines.resourcesLabel", defaultValue: "%1$@: %2$@", bundle: .module),
-               name, resources(r))
+               name, ([resources(r)] + r.problems.map(\.detail)).joined(separator: " · "))
+    }
+    /// The word the row shows for its problems: the first one with a check of the contract's ("DNS down",
+    /// "Disk low", "RAM low", "acpmux down", "Link down", "Not checked" when the health loop stopped); nil
+    /// when every check is one this build does not know (the tooltip and VoiceOver still say them).
+    static func problemWord(_ problems: [AcpmuxPeerList.Resources.Problem]) -> String? {
+        problems.lazy.compactMap { problem($0.check) }.first
+    }
+    static func problem(_ check: String) -> String? {
+        switch check {
+        case "dns": String(localized: "sidebar.remoteMachines.problem.dns", defaultValue: "DNS down", bundle: .module)
+        case "disk": String(localized: "sidebar.remoteMachines.problem.disk", defaultValue: "Disk low", bundle: .module)
+        case "ram": String(localized: "sidebar.remoteMachines.problem.ram", defaultValue: "RAM low", bundle: .module)
+        case "acpmux": String(localized: "sidebar.remoteMachines.problem.acpmux", defaultValue: "acpmux down", bundle: .module)
+        case "peer": String(localized: "sidebar.remoteMachines.problem.peer", defaultValue: "Link down", bundle: .module)
+        case "loop": String(localized: "sidebar.remoteMachines.problem.loop", defaultValue: "Not checked", bundle: .module)
+        default: nil
+        }
+    }
+    /// The room row's tooltip: each problem in the machine's own words, one per line; nil for none.
+    static func problemDetails(_ problems: [AcpmuxPeerList.Resources.Problem]) -> String? {
+        problems.isEmpty ? nil : problems.map(\.detail).joined(separator: "\n")
     }
     /// Free disk under this many GB shows on the row (lane hosts' usual floor in fleet-registry.json).
     static let lowDiskGB = 20

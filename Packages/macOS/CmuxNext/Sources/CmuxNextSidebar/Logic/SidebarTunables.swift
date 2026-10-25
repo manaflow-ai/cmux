@@ -21,6 +21,26 @@ public nonisolated enum RemoteMachineResourcesStyle: String, Sendable, CaseItera
     }
 }
 
+/// How a machine's room row shows what its own health loop found wrong (`sidebar.remoteMachines.problem`):
+/// DNS down, disk or RAM low, acpmux or a peer link down, or the loop stopped. The row's tooltip and
+/// VoiceOver read the machine's own words in every style.
+public nonisolated enum RemoteMachineProblemStyle: String, Sendable, CaseIterable, Hashable, TunableChoice {
+    /// The first problem's word leads the row: "DNS down · 31 GB free · CPU 12/32".
+    case leading
+    /// The word ends the row: "31 GB free · CPU 12/32 · DNS down".
+    case trailing
+    /// A warning triangle replaces the row's gauge; the words stay in the tooltip.
+    case glyph
+
+    public var tunableTitle: String {
+        switch self {
+        case .leading: "Word before the numbers"
+        case .trailing: "Word after the numbers"
+        case .glyph: "Warning triangle"
+        }
+    }
+}
+
 /// Prototype variants for the sidebar's width transition (Debug Settings
 /// `sidebar.collapseMotion`). The default keeps the existing slide-only
 /// behavior; the fade variant is opt-in so the two looks can be compared
@@ -168,6 +188,12 @@ public nonisolated enum SidebarTunables {
         help: "How a machine's group shows its free RAM, cores busy and free disk, from the reading acpmux takes every minute.",
         default: .row, code: "SidebarTunables.remoteMachineResources")
 
+    /// How a remote machine's room row shows its health loop's problems (`RemoteMachinesSidebar`).
+    public static let remoteMachineProblem = Tunable<RemoteMachineProblemStyle>.choice(
+        "sidebar.remoteMachines.problem", .sidebar, "Remote machines' problems",
+        help: "How a machine's room row shows what its health check found wrong (DNS, disk, RAM, acpmux, a peer link).",
+        default: .leading, code: "SidebarTunables.remoteMachineProblem")
+
     /// Every row carries its pull requests' badge, with or without the session tree
     /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
     /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
@@ -264,6 +290,7 @@ public nonisolated enum SidebarTunables {
             pullRequestBadges.descriptor,
             laneFixture.descriptor,
             remoteMachineResources.descriptor,
+            remoteMachineProblem.descriptor,
             sinceLooked.descriptor,
             slideHoldsContent.descriptor,
             nowLine.descriptor,

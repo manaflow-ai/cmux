@@ -33,9 +33,49 @@ public nonisolated struct AcpmuxPeerList: Sendable {
         public var diskFreeGB: Int?
         /// The machine's own budget says it is over (load, memory pressure, swap).
         public var over: Bool
+        /// What the machine's health loop found wrong and could not fix, in its order (`problems` on the
+        /// reading, from `/run/cmux/machine-health.json`); empty when it reports none or runs no loop.
+        public var problems: [Problem]
 
-        public init(ramFreeGB: Int, coresBusy: Int, cores: Int, diskFreeGB: Int?, over: Bool) {
+        public init(ramFreeGB: Int, coresBusy: Int, cores: Int, diskFreeGB: Int?, over: Bool, problems: [Problem] = []) {
             (self.ramFreeGB, self.coresBusy, self.cores, self.diskFreeGB, self.over) = (ramFreeGB, coresBusy, cores, diskFreeGB, over)
+            self.problems = problems
+        }
+
+        /// One thing the machine's health loop found wrong. Only what the row shows: `since` is left
+        /// out, so the value stays equal while the same problem lasts.
+        public struct Problem: Hashable, Sendable {
+            /// The check that failed: `dns`, `disk`, `ram`, `acpmux`, `peer` or `loop` (the loop itself
+            /// stopped); another name is still a problem, shown without its own word.
+            public var check: String
+            /// The machine's own words, one line (`DNS: github.com does not resolve`).
+            public var detail: String
+
+            public init(check: String, detail: String) {
+                (self.check, self.detail) = (check, detail)
+            }
+
+            /// The most a reading carries (acpmux caps it the same way).
+            static let maxCount = 8
+            static let maxDetail = 200
+
+            /// The well-formed entries of a reading's `problems`: an entry without a non-empty `check`
+            /// and `detail` string is skipped, never shown made up.
+            static func parse(_ value: Any?) -> [Problem] {
+                guard let list = value as? [Any] else { return [] }
+                return Array(list.lazy.compactMap { entry -> Problem? in
+                    guard let e = entry as? [String: Any], let check = e["check"] as? String, let detail = e["detail"] as? String
+                    else { return nil }
+                    let (c, d) = (check.trimmingCharacters(in: .whitespacesAndNewlines), Self.oneLine(detail))
+                    return c.isEmpty || d.isEmpty ? nil : Problem(check: c.lowercased(), detail: d)
+                }.prefix(maxCount))
+            }
+
+            /// `text` on one line (control characters as spaces), trimmed, at most `maxDetail` characters.
+            static func oneLine(_ text: String) -> String {
+                let flat = String(text.unicodeScalars.prefix(maxDetail * 2).map { CharacterSet.controlCharacters.contains($0) ? " " : Character($0) })
+                return String(flat.prefix(maxDetail)).trimmingCharacters(in: .whitespaces)
+            }
         }
 
         /// From a peer row's `health` (`_acpmux/host_health` fields); nil for an older build's
@@ -49,7 +89,7 @@ public nonisolated struct AcpmuxPeerList: Sendable {
                   let cores = whole(pressure?["cores"]) ?? whole(h["cpus"]), cores > 0 else { return nil }
             return Resources(ramFreeGB: ram, coresBusy: min(cores, load), cores: cores,
                              diskFreeGB: whole((h["disk"] as? [String: Any])?["freeBytes"], per: 1e9),
-                             over: (pressure?["ok"] as? Bool) == false)
+                             over: (pressure?["ok"] as? Bool) == false, problems: Problem.parse(h["problems"]))
         }
 
         /// `value / per` rounded to a whole number when it is a finite, non-negative number that fits an Int.
