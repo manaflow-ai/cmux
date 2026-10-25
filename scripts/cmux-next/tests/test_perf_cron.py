@@ -400,6 +400,23 @@ class DisplayTests(OneRunRule):
             self.assertEqual([r["name"] for r in state["regressions"]], ["panes.split.4x2.frame" + B],
                              "a budgets part on the virtual display is compared at its refresh")
 
+    def test_count250_is_the_sum_the_benches_copied_from_debug_hangs(self):
+        report = {"runs": [{"action": "split", "count250": 1}, {"action": "close", "count250": 0}, {"count250": None}],
+                  "nested": {"count250": 2}, "display": {"count250": 9}}
+        self.assertEqual(cron.count250_of(report), 3, "every bench window's count, not the display's")
+        self.assertIsNone(cron.count250_of({"runs": [{"hangs": 0}]}), "no bench printed one")
+        self.assertIsNone(cron.count250_of({"count250": True}), "a bool is not a count")
+
+    def test_count250_is_printed_and_never_a_row(self):
+        stress = {"refresh_ms": 8.33, "runs": [{"action": "close", "count250": 1}, {"action": "close", "count250": 1}],
+                  "summary": [{"action": "close", "layout": "stress", "frames_p50_ms": 8.3, "frames_p95_ms": 8.4, "missed": 0}]}
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, mock.patch("sys.stdout", out):
+            state = self.report_tick(d, {"stress": stress}, {})
+        self.assertIn("perf-cron report: stress count250 2 (main-thread stalls >= 250 ms; read only)", out.getvalue())
+        self.assertFalse([n for n in state["last"]["rows"] if "count250" in n], "read only: no row, no target, no gate")
+        self.assertEqual(state["regressions"], [])
+
     def test_an_incomplete_budget_report_does_not_become_a_done_part(self):
         report = {"rows": [{"name": "panes.split.4x2.frame", "p95": 8.4}],
                   "incomplete": [{"name": "panes.close.4x2.frame", "reason": "missing current p95"}]}

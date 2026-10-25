@@ -441,6 +441,26 @@ def refresh_ms_of(report):
     return float(r) if isinstance(r, (int, float)) and 2 <= r <= 50 else None
 
 
+def count250_of(report):
+    """The main-thread stalls of 250 ms and up a part's app had (pure): the sum of every whole-number `count250` its
+    benches copied from `debug.hangs` (each bench window clears the counter first), or None when no bench printed one.
+    Printed and kept with the part, never a row: no target, no regression, no gate (the Nightly readout)."""
+    found = []
+
+    def walk(v):
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if k == "count250" and isinstance(x, int) and not isinstance(x, bool) and x >= 0:
+                    found.append(x)
+                elif k != "display":
+                    walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(report)
+    return sum(found) if found else None
+
+
 def rows_of_part(part, report, budgets_mod, budgets):
     """{row name: {p50, p95, unit, budget, floor}} from one part's report."""
     out = {}
@@ -2897,6 +2917,12 @@ def report(o):
                 mark_host(state, result["worker"], macos=cur["macos"], at=iso(t))
             with open(os.path.join(o.dir, "parts", f"{part}.json"), "w") as dst:
                 json.dump({"measurement": measurement_id(cur), "report": report_value}, dst)
+            if not is_linux_part(part):
+                stalls = count250_of(report_value)
+                if stalls is not None:
+                    entry["count250"] = stalls
+                print(f"perf-cron report: {part} count250 {'not reported' if stalls is None else stalls} "
+                      "(main-thread stalls >= 250 ms; read only)", flush=True)
     if cur and not cur["parts_todo"] and (changed or o.finish):
         changed = True
         mod = load_budgets_module()

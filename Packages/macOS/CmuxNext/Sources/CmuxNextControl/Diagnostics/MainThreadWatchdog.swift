@@ -137,6 +137,11 @@ public final class MainThreadWatchdog: Sendable {
     private let mainWakeCount = Atomic<UInt64>(0)
     private let gapMaxNanos = Atomic<UInt64>(0)
     static let frame120Nanos: UInt64 = 8_333_333
+    /// Work gaps of 100 ms and up and of 250 ms and up (``StallCounts``), counted on the main thread.
+    private let gaps100 = Atomic<UInt64>(0)
+    private let gaps250 = Atomic<UInt64>(0)
+    static let count100Nanos = nanos(StallCounts.edge100)
+    static let count250Nanos = nanos(StallCounts.edge250)
     let mainAsleep = Atomic<Bool>(true)
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
@@ -219,6 +224,18 @@ public final class MainThreadWatchdog: Sendable {
     /// longest gap of any length.
     public var gapStats: (over120HzFrame: Int, max: Duration) {
         (Int(clamping: frames120.load(ordering: .relaxed)), .nanoseconds(Int64(clamping: gapMaxNanos.load(ordering: .relaxed))))
+    }
+
+    /// Main-thread work gaps of 100 ms and up and of 250 ms and up since ``start()`` or the last
+    /// ``resetStallCounts()``, whatever the stall threshold (`debug.hangs` `count100` and `count250`).
+    public var stallCounts: StallCounts {
+        StallCounts(count100: Int(clamping: gaps100.load(ordering: .relaxed)),
+                    count250: Int(clamping: gaps250.load(ordering: .relaxed)))
+    }
+
+    public func resetStallCounts() {
+        gaps100.store(0, ordering: .relaxed)
+        gaps250.store(0, ordering: .relaxed)
     }
 
     /// A decided quit is ending: from now on a hang is still reported, but
@@ -304,6 +321,8 @@ public final class MainThreadWatchdog: Sendable {
                 longFrames.add(1, ordering: .relaxed)
                 Self.raise(longFrameMaxNanos, to: gap)
             }
+            if gap >= Self.count100Nanos { gaps100.add(1, ordering: .relaxed) }
+            if gap >= Self.count250Nanos { gaps250.add(1, ordering: .relaxed) }
         }
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
             let previousCPU = beatCPUNanos.load(ordering: .acquiring)
