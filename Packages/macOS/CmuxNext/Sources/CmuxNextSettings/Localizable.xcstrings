@@ -154943,6 +154943,270 @@
         }
       }
     },
+    "settings.agentPane.display.environment": {
+      "comment": "Settings > Appearance > Agent Chat: the machine and folder Session Info chip's placement below the tab row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريحة معلومات الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čip s informacijama o sesiji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip med sessionsinfo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsinfo-Chip"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Info Chip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip de información de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastille d’infos de la session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip info sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション情報チップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទះព័ត៌មានវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 정보 칩"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktinfo-brikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip informacji o sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip de informações da sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чип сведений о сеансе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชิปข้อมูลเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum bilgileri çipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чип відомостей про сеанс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip thông tin phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话信息标签"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段資訊標籤"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.environment.help": {
+      "comment": "Settings > Appearance > Agent Chat > Session Info Chip: help for the Left / Right / Off choice",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يضع اليسار الشريحة في صف أسفل صف علامات التبويب؛ يُبقيها اليمين في الرأس (أو في مقدمة أدوات صف التبويب)؛ ويخفيها إيقاف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lijevo stavlja čip u red ispod reda kartica; Desno ga zadržava u zaglavlju (ili ispred alata reda kartica); Isključeno ga skriva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre placerer chippen i en række under fanerækken; Højre beholder den i sidehovedet (eller foran værktøjerne i fanerækken); Fra skjuler den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links platziert den Chip in einer Zeile unter der Tabzeile; Rechts lässt ihn im Header (oder vor den Tabzeilen-Werkzeugen); Aus blendet ihn aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Izquierda coloca el chip en una fila bajo las pestañas; Derecha lo mantiene en el encabezado (o delante de las herramientas de pestañas); Desactivado lo oculta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gauche place la pastille dans une ligne sous les onglets ; Droite la garde dans l’en-tête (ou devant les outils de la rangée d’onglets) ; Désactivé la masque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sinistra mette il chip in una riga sotto la riga delle schede; Destra lo mantiene nell’intestazione (o davanti agli strumenti della riga delle schede); Disattivato lo nasconde."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左はチップをタブ行の下の行に置き、右はヘッダー（またはタブ行ツールの先頭）に残し、オフは非表示にします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆ្វេងដាក់បន្ទះក្នុងជួរខាងក្រោមជួរផ្ទាំង; ស្ដាំរក្សាទុកវានៅក្បាល (ឬនៅមុខឧបករណ៍ជួរផ្ទាំង); បិទលាក់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "왼쪽은 탭 행 아래의 별도 행에 칩을 놓고, 오른쪽은 헤더(또는 탭 행 도구 앞)에 유지하며, 끄기는 숨깁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Venstre plasserer brikken på en rad under faneraden; Høyre beholder den i toppteksten (eller foran verktøyene i faneraden); Av skjuler den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lewo umieszcza chip w wierszu pod rzędem kart; Prawo zostawia go w nagłówku (lub przed narzędziami rzędu kart); Wyłącz ukrywa go."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esquerda coloca o chip em uma linha abaixo das abas; Direita o mantém no cabeçalho (ou à frente das ferramentas da linha de abas); Desativado o oculta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Слева помещает чип в строку под рядом вкладок; Справа оставляет его в заголовке (или перед инструментами ряда вкладок); Выкл. скрывает его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ้ายจะวางชิปในแถวใต้แถวแท็บ ขวาจะคงชิปไว้ในส่วนหัว (หรือไว้หน้าปุ่มของแถวแท็บ) และปิดจะซ่อนไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sol, çipi sekme satırının altındaki bir satıra yerleştirir; Sağ, başlıkta (veya sekme satırı araçlarının önünde) tutar; Kapalı gizler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ліворуч розміщує чип у рядку під рядком вкладок; Праворуч залишає його в заголовку (або перед інструментами рядка вкладок); Вимкнено приховує його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trái đặt chip trong một hàng bên dưới hàng tab; Phải giữ chip trong tiêu đề (hoặc trước các công cụ hàng tab); Tắt sẽ ẩn chip."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左侧将标签放在标签栏下方的单独一行；右侧将其保留在标题栏中（或放在标签栏工具前）；关闭则隐藏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左側將標籤放在標籤列下方的獨立一列；右側將其保留在標題列中（或放在標籤列工具前）；關閉則隱藏。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.inspector": {
       "comment": "Settings > Appearance > Agent Chat: the row choosing how Session Info (the chat's right-hand panel, formerly the Inspector) opens",
       "extractionState": "manual",
