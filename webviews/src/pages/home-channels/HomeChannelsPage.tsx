@@ -81,6 +81,9 @@ export function HomeChannelsPage({
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
   const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  // WEB-SWAP: an open thread, run sheet, palette or edit lives only in this page's state, so a reload
+  // would close it: the update waits until it closes (pages/shared/webSwap.ts).
+  useWebSwapHold(snap.thread || openRun || palette || editing || sheetState.route ? "home.sheet" : null);
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,

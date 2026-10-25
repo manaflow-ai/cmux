@@ -46,22 +46,27 @@ export function useKeptAttachments(
   const readOne = useRef(false);
   /// Writes sent and not answered yet.
   const inFlight = useRef(0);
+  /// Each chat's newest write, and the chats whose newest write the host refused (with what it held).
+  const lastWrite = useRef(new Map<string, number>());
+  const refused = useRef(new Map<string, ComposerAttachment[]>());
   /// What a web update's reload would bring back (pages/shared/webSwap.ts).
   const shown = useRef({ sessionId, attachments, readFor, store });
   shown.current = { sessionId, attachments, readFor, store };
 
-  const send = (sessionId: string, chips: ComposerAttachment[]) => {
+  /// Writes chat `sessionId`'s chips: the shown chat's (`shownChat`) also says what the host holds now.
+  const write = (sessionId: string, chips: ComposerAttachment[], sent: ComposerAttachment[], shownChat: boolean) => {
     if (!store) return;
-    // Only chips still here keep their "already sent": one sent, then put back, goes again in full.
-    const had = written.current.sessionId === sessionId ? written.current.stored : new Set<string>();
-    const stored = new Set(chips.filter((chip) => had.has(chip.id)).map((chip) => chip.id));
-    written.current = { sessionId, ids: signature(chips), stored };
-    const sent = chips.map((chip) => (chip.data && stored.has(chip.id) ? { ...chip, data: undefined } : chip));
-    const write = ++sequence.current;
+    const n = ++sequence.current;
+    lastWrite.current.set(sessionId, n);
     inFlight.current += 1;
     const settle = (held: Set<string>, failed = false) => {
       inFlight.current -= 1;
-      if (write !== sequence.current || written.current.sessionId !== sessionId) return;
+      // Only the chat's newest write says what the host keeps for it.
+      if (lastWrite.current.get(sessionId) !== n) return;
+      // A refused write goes again on the next ask, even once another chat shows.
+      if (failed) refused.current.set(sessionId, chips);
+      else refused.current.delete(sessionId);
+      if (!shownChat || written.current.sessionId !== sessionId) return;
       written.current.stored = held;
       // A refused write holds nothing: the same chips coming back go again.
       if (failed) written.current.ids = "\u0000refused";
@@ -71,6 +76,17 @@ export function useKeptAttachments(
       () => settle(new Set(), true),
     );
   };
+  const send = (sessionId: string, chips: ComposerAttachment[]) => {
+    if (!store) return;
+    // Only chips still here keep their "already sent": one sent, then put back, goes again in full.
+    const had = written.current.sessionId === sessionId ? written.current.stored : new Set<string>();
+    const stored = new Set(chips.filter((chip) => had.has(chip.id)).map((chip) => chip.id));
+    written.current = { sessionId, ids: signature(chips), stored };
+    const sent = chips.map((chip) => (chip.data && stored.has(chip.id) ? { ...chip, data: undefined } : chip));
+    write(sessionId, chips, sent, true);
+  };
+  const writeNow = useRef(write);
+  writeNow.current = write;
   const flush = () => {
     const next = pending.current;
     if (!next) return;
@@ -142,6 +158,14 @@ export function useKeptAttachments(
         if (attachments.some((chip) => chip.shellRun)) return "composer.shell-run";
         // A write resting or in flight (a removal's empty list too): what a reload reads back is not known yet.
         if (pending.current || inFlight.current) return "composer.attachments-unsaved";
+        // Another chat's refused write: it goes again now, in full, once per ask.
+        let other = false;
+        for (const [chat, chips] of refused.current) {
+          if (chat === sessionId) continue;
+          writeNow.current(chat, chips, chips, false);
+          other = true;
+        }
+        if (other) return "composer.attachments-unsaved";
         const chips = keptChips(attachments);
         // The host's chips not read back yet: a page that reloads now reads them then.
         if (sessionId && store && readFor !== sessionId) return "composer.attachments-unread";
