@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 480,
+  "count": 489,
   "sections": [
     {
       "id": "general",
@@ -92,6 +92,14 @@
           "help": "The microphone beside Send in every composer, including the New Tab page.",
           "kind": "toggle",
           "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.spellChecking",
+          "title": "Check Spelling While Typing",
+          "help": "Underlines misspellings and offers system suggestions in the composer.",
+          "kind": "toggle",
+          "default": false,
           "group": "Agent Chat"
         },
         {
@@ -618,6 +626,18 @@
           "group": "Columns"
         },
         {
+          "key": "layout.scrollModifier",
+          "title": "Scroll Columns and Rows With",
+          "help": "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.",
+          "kind": "choice",
+          "default": "command",
+          "group": "Columns",
+          "values": [
+            "command",
+            "none"
+          ]
+        },
+        {
           "key": "layout.splitSizing",
           "title": "Split Sizing",
           "help": "Even gives every pane in the column the same size after a split.",
@@ -1007,6 +1027,14 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabWidgets.clock",
+          "title": "Show Clock on New Tab",
+          "help": "A quiet local time display beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabWidgets.greeting",
           "title": "Ask What to Work On on New Tab",
           "help": "A headline over the composer that asks what to work on, with the project as a picker.",
@@ -1043,9 +1071,33 @@
           "group": "Tabs"
         },
         {
+          "key": "tabs.newTabWidgets.quote",
+          "title": "Show Quote of the Day on New Tab",
+          "help": "A bundled public-domain quote, changing daily.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
           "key": "tabs.newTabWidgets.styleDots",
           "title": "Show Template Dots on New Tab",
           "help": "Dots under the page that switch its template.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.timer",
+          "title": "Show Stopwatch on New Tab",
+          "help": "A small elapsed-time stopwatch beside the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabWidgets.warmGreeting",
+          "title": "Show Warm Greeting on New Tab",
+          "help": "A time-of-day greeting such as Good afternoon.",
           "kind": "toggle",
           "default": false,
           "group": "Tabs"
@@ -1918,6 +1970,32 @@
           }
         },
         {
+          "key": "appearance.metrics.dividerHitWidth",
+          "title": "Divider Drag Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 1,
+            "max": 24,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.dividerThickness",
+          "title": "Divider Thickness",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 0,
+            "max": 6,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.sidebarWidth",
           "title": "Sidebar Width",
           "help": "",
@@ -2430,9 +2508,10 @@
           "title": "Layout",
           "help": "",
           "kind": "choice",
-          "default": "unified",
+          "default": "auto",
           "group": "Diff Viewer",
           "values": [
+            "auto",
             "split",
             "unified"
           ]
@@ -2448,6 +2527,14 @@
         {
           "key": "diff.showBackgrounds",
           "title": "Change Backgrounds",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Diff Viewer"
+        },
+        {
+          "key": "diff.showBulkActions",
+          "title": "Stage All and Revert All Bar",
           "help": "",
           "kind": "toggle",
           "default": true,
