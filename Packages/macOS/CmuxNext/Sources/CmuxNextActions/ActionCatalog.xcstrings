@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.debug.blockingCalls.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset Main-Thread Blocking Counts"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة تعيين عدادات حظر السلسلة الرئيسية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poništi brojače blokiranja glavne niti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nulstil tællere for blokering af hovedtråden"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zähler für Hauptthread-Blockierungen zurücksetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Restablecer contadores de bloqueo del hilo principal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réinitialiser les compteurs de blocage du thread principal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Azzera i contatori di blocco del thread principale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "メインスレッドのブロック回数をリセット"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ចំនួនការរារាំងខ្សែស្រឡាយមេឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메인 스레드 차단 횟수 재설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilbakestill tellere for blokkering av hovedtråden"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyzeruj liczniki blokad wątku głównego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redefinir contadores de bloqueio da thread principal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сбросить счётчики блокировок главного потока"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีเซ็ตจำนวนการบล็อกเธรดหลัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ana iş parçacığı engelleme sayaçlarını sıfırla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скинути лічильники блокувань головного потоку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt lại bộ đếm chặn luồng chính"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重置主线程阻塞计数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重設主執行緒阻塞計數"
+          }
+        }
+      }
+    },
     "action.debug.actionLatencyHUD": {
       "extractionState": "manual",
       "localizations": {
