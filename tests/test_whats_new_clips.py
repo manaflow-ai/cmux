@@ -69,6 +69,12 @@ class CutTests(unittest.TestCase):
         failed["steps"][1]["status"] = "failed"
         with self.assertRaisesRegex(clips.ClipError, "steps failed: Archive"):
             clips.clip_frames(SPEC, failed, self.frames)
+        failed["steps"][1]["status"] = "unavailable"
+        with self.assertRaisesRegex(clips.ClipError, "steps failed: Archive"):
+            clips.clip_frames(SPEC, failed, self.frames)
+        failed["steps"][1]["status"] = "ok"
+        failed["steps"][0]["status"] = "unavailable"  # an optional scene step
+        self.assertTrue(clips.clip_frames(SPEC, failed, self.frames))
 
 
 class TimelineTests(unittest.TestCase):

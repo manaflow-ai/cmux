@@ -154,10 +154,13 @@ def clip_frames(spec: dict, result: dict, frames: list[Path]) -> list[Path]:
     steps = result.get("steps") or []
     if len(steps) != len(spec["steps"]) or any("frame" not in s for s in steps):
         raise ClipError("result.json has no frame per step: record with a cmux-ci capture that writes them (HQ#4314)")
-    failed = [s["title"] for s in steps if s.get("status") == "failed"]
+    marked = [i for i, step in enumerate(spec["steps"]) if step.get("clip") is True]
+    # An optional step the mini could not run reports "unavailable" and the capture still passes:
+    # fine for setting the scene, never for a step the clip shows.
+    failed = [s["title"] for i, s in enumerate(steps)
+              if s.get("status") == "failed" or (i in marked and s.get("status") != "ok")]
     if failed:
         raise ClipError(f"steps failed: {', '.join(failed)}")
-    marked = [i for i, step in enumerate(spec["steps"]) if step.get("clip") is True]
     # A step's frame is the first one taken after its command started, which a quick command has
     # already changed: the frame before it is the state the clip starts from.
     start = max(0, steps[marked[0]]["frame"] - 1)
