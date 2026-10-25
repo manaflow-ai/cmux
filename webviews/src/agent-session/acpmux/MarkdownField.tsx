@@ -126,6 +126,8 @@ export type MarkdownFieldProps = {
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
   /// The element each attachment placed in the text draws its chip into, by id, as they change.
+  /// Only a field given one when it is made has placed attachments (composer/inlineNode.ts); any
+  /// other keeps every U+FFFC as its text and pastes plain text.
   onInlineViews?(views: ReadonlyMap<string, HTMLElement>): void;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
   plugins?: Plugin[];
@@ -467,6 +469,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const mount = useCallback((root: HTMLDivElement | null) => {
     if (!root) return;
     let disposed = false;
+    // Placed attachments only in a field made with a place to draw them (`onInlineViews`): the
+    // composer's, in either attachment view, so the view's switch never remakes the editor.
+    const placesInline = latest.current.onInlineViews !== undefined;
     // A paste shows its end, the caret right after it (Leo 2026-10-20, as in Claude Code desktop).
     // Milkdown's clipboard plugin dispatches the paste without asking ProseMirror to scroll, so a
     // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
@@ -585,7 +590,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             handlePaste: (editorView, event, slice) => {
               // A copy of the prompt's own text with an attachment placed in it carries that
               // attachment (its node, by id); the rest of a paste is its plain text.
-              if (sliceHoldsInline(slice)) {
+              if (placesInline && sliceHoldsInline(slice)) {
                 editorView.dispatch(editorView.state.tr.replaceSelection(slice).scrollIntoView());
                 return true;
               }
@@ -773,8 +778,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       .use(gfm)
       .use(history)
       .use(clipboard)
-      .use(inlineAttachmentNode)
-      .use(inlinePlugin(inline.current))
+      .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
       .create()
       .then((made) => {
         if (disposed) {
