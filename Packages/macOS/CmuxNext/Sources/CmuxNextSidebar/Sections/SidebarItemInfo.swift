@@ -52,6 +52,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// What VoiceOver reads for the row; nil reads `title`. For a row whose title only makes sense
     /// under the item before it (a remote machine's room row names its machine here).
     public var accessibilityTitle: String?
+    /// What hovering a row says; nil says nothing (an icon or tile keeps its own tooltip). For a row
+    /// whose title is a summary of more (a remote machine's problems).
+    public var helpText: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
