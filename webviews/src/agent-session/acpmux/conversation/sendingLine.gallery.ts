@@ -45,12 +45,12 @@ export default agentPaneEntry({
       note: "The same through reach and a perl alarm: the session reads host/name.",
       snapshot: chat(
         [
-          user("Ask the reviewer on cmux16 to look again.", 1),
+          user("Ask the reviewer on build-box to look again.", 1),
           activity(
             [
               shellSend(
-                `reach cmux16 'perl -e "alarm 60; exec @ARGV" acpmux send review-astra "Re-review #4182 at 9c1e0f2."'`,
-                "Ask the reviewer on cmux16 to look again",
+                `reach build-box 'perl -e "alarm 60; exec @ARGV" acpmux send review-astra "Re-review #4182 at 9c1e0f2."'`,
+                "Ask the reviewer on build-box to look again",
               ),
             ],
             0.8,

@@ -53,7 +53,7 @@ describe("acpmuxSend", () => {
 
   test("an expansion in the prompt leaves the text unknown; in the session, no send", () => {
     expect(acpmuxSend(`acpmux send --no-wait lane "$(cat /tmp/report.md)"`)).toEqual({ target: "lane", noWait: true });
-    expect(acpmuxSend("acpmux send lane \"PR $PR merged\"")).toEqual({ target: "lane", noWait: false });
+    expect(acpmuxSend('acpmux send lane "PR $PR merged"')).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend("acpmux send lane `cat x`")).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend('acpmux send "$LANE" hi')).toBeUndefined();
     // A `$` that expands nothing is a dollar sign.
@@ -100,9 +100,10 @@ describe("acpmuxSend", () => {
       noWait: true,
     });
     expect(acpmuxSend("reach --timeout 20 cmux16 acpmux send reports:leo done")?.target).toBe("reports:leo");
-    expect(
-      acpmuxSend(`reach cmux16 'timeout 30 perl -e "alarm 30; exec @ARGV" acpmux send x "deep"'`),
-    ).toMatchObject({ target: "cmux16/x", text: "deep" });
+    expect(acpmuxSend(`reach cmux16 'timeout 30 perl -e "alarm 30; exec @ARGV" acpmux send x "deep"'`)).toMatchObject({
+      target: "cmux16/x",
+      text: "deep",
+    });
   });
 
   test("output plumbing and reporting are not other work; other work is", () => {
