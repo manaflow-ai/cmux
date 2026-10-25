@@ -160,37 +160,31 @@ struct FeatureListTests {
 
     // MARK: Cost
 
+    /// A lookup adds no allocation to the loop that makes it: each count is
+    /// compared with the same loop around a constant, because the Debug
+    /// build's loop allocates by itself (7 per outer pass on the fleet).
     @Test func aLookupAllocatesNothing() throws {
         let list = FeatureList(registry: Self.registry, channel: .nightly, overrides: FeatureOverrides(remote: ["labsThing": true]))
         let slot = FeatureList.Slot(registry: Self.registry, channel: .nightly)
         slot.install(list)
         let features = Self.registry.features
         var on = 0
+        func allocations(_ lookup: (Feature) -> Bool) -> Int? {
+            MallocProbe.allocations {
+                for _ in 0..<10_000 {
+                    for feature in features where lookup(feature) { on += 1 }
+                }
+            }
+        }
 
         let control = MallocProbe.allocations { on += ContiguousArray(repeating: 1, count: 64).count }
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
 
-        let loop = MallocProbe.allocations {
-            for _ in 0..<10_000 {
-                for feature in features where feature.index >= 0 { on += 1 }
-            }
-        }
-        let listLookups = MallocProbe.allocations {
-            for _ in 0..<10_000 {
-                for feature in features where list.isEnabled(feature) { on += 1 }
-            }
-        }
-        let slotLookups = MallocProbe.allocations {
-            for _ in 0..<10_000 {
-                for feature in features where slot.isEnabled(feature) { on += 1 }
-            }
-        }
-        let contains = MallocProbe.allocations {
-            for _ in 0..<10_000 {
-                for feature in features where Self.registry.contains(feature) { on += 1 }
-            }
-        }
-        #expect(listLookups == 0 && slotLookups == 0, "loop \(String(describing: loop)) list \(String(describing: listLookups)) slot \(String(describing: slotLookups)) contains \(String(describing: contains))")
+        let baseline = try #require(allocations { _ in true })
+        let listLookups = allocations { list.isEnabled($0) }
+        let slotLookups = allocations { slot.isEnabled($0) }
+        #expect(listLookups == baseline, "the loop alone made \(baseline)")
+        #expect(slotLookups == baseline, "the loop alone made \(baseline)")
         #expect(on > 0)
     }
 }
