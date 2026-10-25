@@ -7,6 +7,7 @@ import Foundation
 /// terminal of a connected machine in a tab or a split, or focuses the one a first run made.
 extension RemoteHandlers {
     static func bindOpenRemote(into registry: ActionRegistry, context: AppActionContext) {
+        // action-wait-allow: the terminal is created on the remote daemon over the network, so nothing local can show before its reply.
         registry.bind("remote.openRemote", run: { invocation in
             let request: OpenRemoteRequest
             do { request = try OpenRemoteRequest(invocation) } catch let failure as OpenRemoteRequest.Failure {
