@@ -163,6 +163,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.acpmux-quick-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
 /* The check moves to the trailing edge, where the other rows show their number key. */
 .acpmux-quick-item .ui-menu-check {
   grid-column: 2;
