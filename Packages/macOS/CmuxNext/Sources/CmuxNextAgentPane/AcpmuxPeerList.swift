@@ -54,9 +54,9 @@ public nonisolated struct AcpmuxPeerList: Sendable {
 
         /// `value / per` rounded to a whole number when it is a finite, non-negative number that fits an Int.
         static func whole(_ value: Any?, per: Double = 1) -> Int? {
-            guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+            guard let n = value as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue >= 0 else { return nil }
             let x = (n.doubleValue / per).rounded()
-            guard x.isFinite, x >= 0, x < Double(Int.max) else { return nil }
+            guard x.isFinite, x < Double(Int.max) else { return nil }
             return Int(x)
         }
     }
