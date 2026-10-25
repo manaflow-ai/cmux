@@ -231,9 +231,9 @@ export function ComposerBox({
           </ComposerFoot>
         </ChromeArea>
       )}
-      {/* One place for both looks, so a look switched from the dots by keys keeps the same dots and
-          their focus (they would remount under the box and drop it): with the quiet row they draw
-          over its empty middle, with Codex's look in the band under the box (composerLook.css). */}
+      {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
+          radios and focus: with the quiet row they draw over its empty middle, with Codex's look
+          the host is positioned inside the box's dead-space row (composerLook.css). */}
       {bottom && (
         <div className="acpmux-composer-under" data-beside-foot={quietRow ? "" : undefined}>
           {bottom}
