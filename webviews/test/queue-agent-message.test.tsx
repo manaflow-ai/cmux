@@ -53,8 +53,8 @@ afterAll(() => {
 
 const { createRoot } = await import("react-dom/client");
 const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
-const { QueuedMessageActionsContext, QueuedMessageCard } =
-  await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
+const { QueuedMessageCard } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
+const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { queuedMessageRows } = await import("../src/agent-session/acpmux/conversation/queuedMessages");
 
 const t = translatorFor("en");
@@ -156,9 +156,9 @@ async function card(entry: ReturnType<typeof agent> & { next?: boolean; images?:
     sideChat: async (id: string, text: string) => (calls.push(`side ${id} ${text}`), true),
   };
   await show(
-    <QueuedMessageActionsContext.Provider value={actions}>
+    <TurnActionsContext.Provider value={{ queuedMessages: () => actions }}>
       <QueuedMessageCard row={row!} onOpen={(id) => void calls.push(`open ${id}`)} />
-    </QueuedMessageActionsContext.Provider>,
+    </TurnActionsContext.Provider>,
   );
 }
 async function openMenu() {
