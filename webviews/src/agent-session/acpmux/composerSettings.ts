@@ -116,6 +116,21 @@ export function registerComposerHost(write: ComposerHost | undefined) {
   composerHost = write;
 }
 
+/// The host's write of `agentPane.attachmentView` (`pane.setAttachmentView {view}`).
+let attachmentViewHost: ((view: AttachmentView) => void) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerAttachmentViewHost(write: ((view: AttachmentView) => void) | undefined) {
+  attachmentViewHost = write;
+}
+
+/// Shows attachments inline or in a strip in every composer and sent message, and asks the host to
+/// persist it. Only the look changes; no draft or message is touched.
+export function setAttachmentView(view: AttachmentView) {
+  setComposerSettings({ attachmentView: view });
+  attachmentViewHost?.(view);
+}
+
 /// Shows or hides a composer control in every composer, and asks the host to persist it.
 export function showComposerControl(key: "showContextUsage" | "showDictation", show: boolean) {
   setComposerSettings({ [key]: show });
