@@ -30,6 +30,16 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_START_MODE,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    // Briefs are daemon-scoped and dispatch selects its peer explicitly.
+    method::MUX_DISPATCH,
+    method::MUX_STEER,
+    method::MUX_BRIEFS,
+    method::MUX_REPORT,
+    // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
+    method::MUX_TASK_NEW,
+    method::MUX_TASKS,
+    // Resolving reads this daemon's own and mirrored session lists (`hub/locate.rs`).
+    method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
@@ -43,6 +53,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_START,
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
+    "_acpmux/peer_status",
+    "_acpmux/host_health",
+    "_acpmux/place",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
@@ -54,20 +67,18 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
 
 /// The reply when `m` is for a peer's session (forwarded there), else None
 /// (this daemon handles it).
-/// `_meta.acpmux.fromAgent` for a forwarded `session/prompt` with a supersede key and no sender of
-/// its own, from the session this connection proved it runs in.
-fn name_keyed_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
-    let Some(mux) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {
+/// `_meta.acpmux.fromAgent` for a forwarded `session/prompt` with no sender of its own, from the
+/// session this connection proved it runs in: the peer sees neither that session nor the caller
+/// proof (`mark_forwarded` drops the provenance), so without it the peer records the agent's
+/// report as the person's (claude-sr2, 2026-10-24: every remote lane's report a plain bubble), and
+/// a keyed prompt could replace another sender's (`hub/supersede.rs`). The person names no one.
+fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
+    if conn.is_person() {
         return;
-    };
-    let keyed = mux.get("supersede").is_some_and(|k| !k.is_null());
-    let named = mux.get("fromAgent").is_some_and(|f| !f.is_null());
-    if keyed
-        && !named
-        && !conn.is_person()
-        && let Some(caller) = conn.caller()
-    {
-        mux.insert("fromAgent".into(), Value::String(hub.session_name(caller)));
+    }
+    let Some(caller) = conn.caller() else { return };
+    if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
+        crate::hub::merge_mux_meta(p, json!({"fromAgent": hub.session_name(caller)}));
     }
 }
 
@@ -123,11 +134,22 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        if m == method::MUX_FILE_PUT_CHUNK {
+            crate::hub::file_uploads::check_chunk(params)?;
+            if !peer.supports_file_put() {
+                return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+            }
+        }
         // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
         if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
             && !peer.supports_media_read()
         {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m));
+        }
+        // So does a subagent's transcript (`hub/subagent_transcript.rs`).
+        if m == method::MUX_SUBAGENT_TRANSCRIPT && !peer.supports_subagent_transcript() {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m)
+                .with_data(json!({"reason": "transcriptRead.unsupported"})));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
@@ -137,10 +159,9 @@ async fn forward_inner(
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         bound_page(m, params, &mut p);
-        // A keyed prompt replaces only its sender's (`hub/supersede.rs`): the peer cannot see the
-        // session this connection runs in, so it gets that session's name.
+        // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
-            name_keyed_sender(hub, conn, &mut p);
+            name_sender(hub, conn, &mut p);
         }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
@@ -190,7 +211,11 @@ async fn forward_inner(
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }
         let mut result = result.map_err(|e| {
-                        if e.message.contains("Method not found") {
+            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL)
+                && e.message.contains("Method not found")
+            {
+                crate::hub::file_uploads::peer_unsupported(&peer)
+            } else if e.message.contains("Method not found") {
                             RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
                         } else {
                             e

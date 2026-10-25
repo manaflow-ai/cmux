@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCloud
@@ -118,9 +119,8 @@ final class SidebarBridge {
         let creations = services.cloud.creations
         let services = services
         guard let windowState = state else { return }
-        let feed = rowFeed
         // Decorations go on after the feed: the pass names rows by stub (no title yet), and a patched row is undecorated.
-        let customization = services.sidebarCustomization
+        let feed = rowFeed, customization = services.sidebarCustomization
         feed.onChange = { [weak self] changed in
             let decorations = customization.rowDecorations
             self?.rows.patch(changed.map { $0.decorated(by: decorations) })
@@ -152,13 +152,13 @@ final class SidebarBridge {
             guard let self else { return }
             self.showProfiles(profiles, active: active, launching: launching)
             self.show(SidebarSection.decorated(feed.fill(sections), decorations), layout: shown, launching: launching, failed: failed, creating: PendingWorkspaceRows.shared.rows(in: windowState.id))
-            // A workspace the window lists shows its own row from here on (cx-9a7wx).
-            let membership = WindowProfiles.membership(machines)
+            // A workspace the window lists shows its own row from here on (cx-9a7wx). No create waits: no walk of every row.
+            guard !PendingWorkspaceRows.shared.rows.isEmpty else { return }
             PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue)),
                                                held: { machines.workspace(id: $0) != nil }) { id in
                 if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
                 guard let workspace = WindowProfiles.qualified(id, machines: machines),
-                      let pin = membership?.pins[workspace] else { return false }
+                      let pin = WindowProfiles.membership(machines)?.pins[workspace] else { return false }
                 return pin != windowState.profileID
             }
         }
@@ -179,8 +179,7 @@ final class SidebarBridge {
                               tabTitle: Self.tabTitle(services))
             }
         }
-        let state = windowState
-        let model = model
+        let state = windowState, model = model
         widthObservation = Task { [weak self] in
             for await (width, presentation) in ObservationStream({ (model.width, model.presentation) }) {
                 guard let self else { return }
@@ -236,10 +235,13 @@ final class SidebarBridge {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
+        let hadDocDrag = model.docDrag != nil
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
-        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
+        // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
+        // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
+        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)), unlessShown: hadDocDrag == (model.docDrag != nil))
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()

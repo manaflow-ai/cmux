@@ -310,6 +310,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         steering: false,
         html_previews: false,
         modes: None,
+        mode_set_by_cmux: None,
         config_options: None,
         models: None,
         permission_policy: d.policy.map(|p| p.to_string()),
@@ -349,6 +350,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         pull_requests: vec![],
         git_branch: None,
         git_head: None,
+        worktree: None,
         subsession: None,
         subsession_limits: Default::default(),
     }

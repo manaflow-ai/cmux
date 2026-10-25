@@ -127,6 +127,9 @@ const LEADER_CHECK: std::time::Duration = std::time::Duration::from_millis(500);
 /// How long the reader keeps draining stdout after the agent process exits.
 const LEADER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Bounded stderr drain after stdout closes, before failing pending requests.
+const STDERR_DRAIN: std::time::Duration = std::time::Duration::from_secs(1);
+
 struct Pending {
     map: HashMap<String, oneshot::Sender<Result<Value, RpcError>>>,
     /// Answers that arrived with nobody waiting (a replayed answer to a
@@ -266,7 +269,6 @@ impl ChildAgent {
             job,
         });
 
-        // Writer task.
         tokio::spawn(async move {
             let mut stdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
@@ -285,18 +287,16 @@ impl ChildAgent {
             agent.codex_lines(first.server).await;
         }
 
-        // Stderr task.
-        {
+        let stderr_done = {
             let inbound = inbound.clone();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let _ = inbound.send(Inbound::Stderr(line, None)).await;
                 }
-            });
-        }
+            })
+        };
 
-        // Reader task.
         {
             let inbound = inbound.clone();
             let pending = pending.clone();
@@ -353,15 +353,7 @@ impl ChildAgent {
                             }
                         };
                         // Keep the raw claude line in the log under its own kind.
-                        let kind = format!(
-                            "claude.{}{}",
-                            raw.get("type").and_then(Value::as_str).unwrap_or("?"),
-                            raw.get("subtype")
-                                .and_then(Value::as_str)
-                                .map(|s| format!(".{s}"))
-                                .unwrap_or_default()
-                        );
-                        tap(Direction::In, &Message::notification(&kind, raw.clone()), None);
+                        tap(Direction::In, &crate::claude_stdio::logged_line(&raw), None);
                         let translated = tr.inbound(&raw).await;
                         // Answers the translator owes claude itself.
                         for l in tr.take_stdin_replies().await {
@@ -456,13 +448,13 @@ impl ChildAgent {
                         }
                     }
                 }
-                // The app-server is gone: the translator answers what waits on
-                // it and refuses what comes later.
+                // Settle the app-server translator's requests too.
                 if let Some(cx) = &agent_for_exit.codex {
                     let closed = crate::codex_app_server::split(cx.tr.server_closed("it exited"));
                     agent_for_exit.codex_to_hub(cx, closed.hub).await;
                 }
-                // Fail every pending request, then report exit.
+                // Queue stderr first so limit/sign-in deaths are not continued.
+                let _ = tokio::time::timeout(STDERR_DRAIN, stderr_done).await;
                 let mut p = pending.lock().await;
                 for (_, tx) in p.map.drain() {
                     let _ = tx.send(Err(RpcError::internal("agent process closed")));

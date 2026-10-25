@@ -50,7 +50,13 @@ public struct PushOutbox: Sendable {
 
     func file(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).json") }
 
+    public struct Refused: Error, Equatable, Sendable {}
+
+    /// Queues `reply` for the app. Text into a terminal is refused: the outbox
+    /// is written before the phone unlocks, and only the unlock-gated Reply
+    /// button may type into a terminal (PR B security review H2).
     public func put(_ reply: PushReply) throws {
+        if case .text = reply.action, reply.kind == .terminal { throw Refused() }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try JSONEncoder().encode(reply).write(to: file(reply.id), options: Data.WritingOptions.pushFile)
     }

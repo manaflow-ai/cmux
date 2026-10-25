@@ -212,6 +212,25 @@ export default agentPaneEntry({
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
+    "after-latest-message": {
+      note: "Labs/fixture placement: the running command tray sits directly after the latest message while the default remains above the composer. A click opens the command's row; its live tail needs a connected process source, which the gallery has none of.",
+      theme: { subagentTrayPlacement: "after-latest-message" },
+      play: async (ctx) => {
+        await trayLines(1)(ctx);
+        const tray = ctx.document.querySelector<HTMLElement>(".acpmux-transcript-after-latest .acpmux-running-tray");
+        if (!tray) throw new Error("after-latest placement must stay in the transcript flow");
+        const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock");
+        const reserve = ctx.document.querySelector<HTMLElement>(".acpmux-transcript-after-latest");
+        if (dock && reserve && reserve.getBoundingClientRect().bottom > dock.getBoundingClientRect().top + 1)
+          throw new Error("after-latest tray must remain above the full dock");
+        await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
+        await ctx.waitFor(() => {
+          const row = ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__button");
+          return row?.getAttribute("aria-expanded") === "true";
+        });
+      },
+      snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
+    },
     "several-running": {
       note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each (up to three show open). The ended task remains a compact status card.",
       play: trayLines(3),

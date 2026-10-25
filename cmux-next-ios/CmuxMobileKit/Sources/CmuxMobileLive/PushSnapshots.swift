@@ -23,6 +23,8 @@ public struct PushSnapshots {
         return Array(out.suffix(PushSnapshotStore.maxMessages))
     }
 
+    #if os(iOS)
+    // AgentSessionDirectory is iOS only; the package's macOS `swift test` builds this file too.
     public func save(directory: AgentSessionDirectory = .shared, store: PushSnapshotStore? = PushSnapshotStore(group: .current())) {
         guard let store else { return }
         for chat in directory.loadedStores {
@@ -32,6 +34,7 @@ public struct PushSnapshots {
             store.save(PushSnapshot(mac: chat.summary.macID, session: source.sessionID, title: chat.summary.name, messages: messages))
         }
     }
+    #endif
 
     /// Sign-out: no account's chats stay on disk.
     public func removeAll() {

@@ -17,7 +17,7 @@ public struct NewRowCommand: Sendable {
 
     /// Whether `daemon` takes the optimistic row: it serves client keys on `new-row`.
     @MainActor public func isOptimistic(on daemon: DaemonService) -> Bool {
-        PaneSplitCommand.optimisticSplitEnabled && daemon.supports(DaemonCapabilities.rowClientKeys)
+        PaneSplitCommand.optimisticSplitEnabled && daemon.supports(DaemonCapability.rowClientKeys.rawValue)
     }
 
     /// The optimistic row in two steps: `provisional` (``ProvisionalPane/init(rowHeight:)``) is in

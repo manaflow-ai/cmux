@@ -1,12 +1,13 @@
 // `branch`, `chevronRight`, `file`, `fileSearch`, `image`, `minus`, `package`, `plus`, `plusMinus`, `revert` and `worktree` are
 // custom stroke icons drawn for the diff toolbar and its menus (20px grid). The
 // `pill*` icons redraw the classic viewer's toolbar pill glyphs (wrap, collapse
-// or expand all, files); the layout button shows `split` or `unified`.
+// or expand all, files); the layout button shows `unified`, `split` or `auto`.
 // Filled icons use Primer Octicons 19.38.0 path data (MIT, 16px grid), the
-// icon set of GitHub's own diff view. `bars`, `split`, and `unified` stay
+// icon set of GitHub's own diff view. `bars`, `split`, `unified` and `auto` stay
 // custom stroke icons because they preview the indicator style and layout.
 export type IconName =
   | "arrow"
+  | "auto"
   | "background"
   | "bars"
   | "branch"
@@ -177,6 +178,15 @@ function StrokeIconPaths({ name }: { name: IconName }) {
           <rect x="4" y="4" width="12" height="12" rx="2" />
           <rect x="6" y="6" width="3.5" height="8" rx="1" data-diff-deletion="true" />
           <rect x="10.5" y="6" width="3.5" height="8" rx="1" data-diff-addition="true" />
+        </>
+      );
+    case "auto":
+      // The frame cut on the diagonal: split when wide, unified when narrow.
+      return (
+        <>
+          <rect x="4" y="4" width="12" height="12" rx="2" />
+          <path d="M6 6h7.2L6 13.2Z" data-diff-deletion="true" />
+          <path d="M14 6.8V14H6.8Z" data-diff-addition="true" />
         </>
       );
     case "unified":

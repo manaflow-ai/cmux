@@ -91,7 +91,9 @@ export function useNow(live: boolean): number {
 /// (ui/wave.ts) when `wave` is set. No status dot on its corner: the row says the state in words
 /// (Leo 2026-10-22: "the bottom right dots in most situations is kinda weird and unnecsesary").
 export function Avatar({ agent, wave }: { agent: Subagent; wave?: number }) {
-  const harness = useContext(SubagentHarnessContext);
+  // An agent a shell call started (`codex exec`) runs on its own harness, not the chat's.
+  const chat = useContext(SubagentHarnessContext);
+  const harness = agent.harness ?? chat;
   const { className, style } = waveProps(wave);
   return (
     <span
@@ -209,7 +211,8 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
       <Icon name="disclosure.collapsed" size={12} />
     </button>
   );
-  if (!stop || !running(agent)) return line;
+  // An agent a shell call started stops with that call, not through Claude.
+  if (!stop || !running(agent) || agent.command) return line;
   return (
     <div className="cv-subagent-stoppable">
       {line}

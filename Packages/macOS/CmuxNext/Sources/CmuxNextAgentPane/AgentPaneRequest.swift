@@ -11,6 +11,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
+    /// A bounded element report from the debug app-owned webview picker.
+    case uiPointerReport(String)
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
@@ -257,6 +259,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
+    case uploadStage(AgentPaneUploadStageRequest)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -279,6 +282,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// An upload: the person's files, never logged.
     public var carriesFiles: Bool {
         if case .upload = self { return true }
+        if case .uploadStage = self { return true }
         return false
     }
 

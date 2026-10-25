@@ -1,5 +1,6 @@
 import CmuxMobileAgentChat
 import Foundation
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileNotifications
 import Testing
@@ -63,6 +64,72 @@ import UserNotifications
         #expect(decide(route, phase: .live) == .feed)
         #expect(decide(route, phase: .offline) == .feed)
     }
+
+    /// Nothing a push names has to exist on the phone: a missing workspace, tab, Mac
+    /// or session settles for the Feed (or waits for the Mac's tree), never traps.
+    @Test func missingPiecesSettleForTheFeed() {
+        let ws = workspace("w2", mac: "m", tabs: ["s7"])
+        // Workspace gone.
+        #expect(decide(NotificationRoute(kind: "terminal", mac: "m", workspaceID: "gone", tabID: "s7"), workspaces: [ws]) == .feed)
+        // Tab gone from a workspace still listed: an agent event settles for the Feed; a terminal opens the workspace.
+        #expect(decide(NotificationRoute(kind: "question", mac: "m", workspaceID: "w2", tabID: "gone"), workspaces: [ws]) == .feed)
+        #expect(decide(NotificationRoute(kind: "terminal", mac: "m", workspaceID: "w2", tabID: "gone"), workspaces: [ws]) == .workspace(id: "w2", tabID: nil))
+        // Session unknown, no workspace.
+        #expect(decide(NotificationRoute(kind: "completed", mac: "m", sessionID: "unknown")) == .feed)
+        // No Mac at all, and an empty payload.
+        #expect(decide(NotificationRoute(kind: "failed", sessionID: "s")) == .feed)
+        #expect(decide(NotificationRoute(kind: "")) == .feed)
+        // A Mac the phone may not dial does not wait.
+        let route = NotificationRoute(kind: "question", mac: "unknown-mac", sessionID: "s")
+        #expect(NotificationTarget.decide(route, chat: { _ in nil }, workspace: { _ in nil }, phase: { _ in .idle },
+                                          canLink: { _ in false }, expired: false) == .feed)
+        // Its budget spent, a waiting route opens the Feed.
+        #expect(NotificationTarget.decide(route, chat: { _ in nil }, workspace: { _ in nil }, phase: { _ in .loading },
+                                          canLink: { _ in true }, expired: true) == .feed)
+    }
+
+    /// Two Macs: a push from the Mac that is not the chosen one opens that Mac's workspace.
+    @Test func aPushFromTheOtherMacOpensItsOwnWorkspace() {
+        let mine = workspace("w-a", mac: "mac-a", tabs: ["t1"])
+        let other = workspace("w-b", mac: "mac-b", tabs: ["t2"])
+        #expect(decide(NotificationRoute(kind: "terminal", mac: "mac-b", workspaceID: "w-b", tabID: "t2"), workspaces: [mine, other])
+            == .workspace(id: "w-b", tabID: "t2"))
+        // Its tree not here yet: wait for it rather than open the chosen Mac's screen.
+        #expect(decide(NotificationRoute(kind: "terminal", mac: "mac-b", workspaceID: "w-b2", tabID: "t9"), workspaces: [mine, other],
+                       phase: .loading) == .wait)
+    }
+
+    /// A tap that named a screen and got the Feed says why; a Chief tap or a bare one says nothing.
+    @Test func aFallbackToTheFeedSaysWhy() {
+        let toast = NotificationTarget.fallbackToast(NotificationRoute(kind: "question", mac: "m", sessionID: "s"), macName: "Studio")
+        #expect(toast?.symbol == "exclamationmark.circle")
+        #expect(toast?.text.contains("Studio") == true)
+        #expect(NotificationTarget.fallbackToast(NotificationRoute(kind: "terminal", workspaceID: "w"), macName: nil) != nil)
+        #expect(NotificationTarget.fallbackToast(NotificationRoute(kind: "chief", mac: "m", conversationID: "c"), macName: "Studio") == nil)
+        #expect(NotificationTarget.fallbackToast(NotificationRoute(kind: "completed", mac: "m"), macName: "Studio") == nil)
+    }
+}
+
+/// PR B security review M3, M4: only the Mac's signed outcome counts.
+@MainActor @Suite struct MailboxRefusalTests {
+    @Test func onlyASignedOutcomeIsSuccessOrRefusal() {
+        let applied = LiveAPI.MailboxState(state: "applied", sig: "ab")
+        // The service says applied, without the Mac's signature: still pending, never "sent".
+        #expect(PushReplies.mailboxVerdict(applied, signed: nil) == .pending)
+        #expect(PushReplies.mailboxVerdict(applied, signed: (true, nil)) == .applied)
+        let refused = LiveAPI.MailboxState(state: "rejected", reason: "not_pending", sig: "ab")
+        #expect(PushReplies.mailboxVerdict(refused, signed: (false, "not_pending")) == .refused("This was already answered."))
+        // Another reply's nonce is a refusal, not a success.
+        #expect(PushReplies.mailboxRefusal("replayed") == "Your Mac didn't accept the reply.")
+        #expect(PushReplies.mailboxVerdict(LiveAPI.MailboxState(state: "expired"), signed: nil) == .expired)
+        #expect(PushReplies.mailboxVerdict(LiveAPI.MailboxState(state: "queued"), signed: nil) == .pending)
+    }
+
+    /// Review H2: a terminal reply the outbox somehow holds is never sent.
+    @Test func anOutboxTerminalReplyIsDropped() {
+        #expect(PushReplies.fromOutboxRefused(PushReply(mac: "m", kind: .terminal, notificationId: "1", action: .text("y", attachments: []))))
+        #expect(!PushReplies.fromOutboxRefused(PushReply(mac: "m", kind: .completed, sessionId: "s", action: .text("y", attachments: []))))
+    }
 }
 
 @MainActor @Suite struct PushResponseTests {
@@ -116,6 +183,14 @@ import UserNotifications
         #expect(PushReplies.outcome(pushed) == .open(finished))
         let local = PushReplies.Response(actionIdentifier: "cmux.retry", text: nil, userInfo: reply.retryUserInfo, fromPush: false, retries: store)
         #expect(local.retry == reply)
+    }
+
+    /// PR B security review H1: a push the gate won't trust only opens the app.
+    @Test func anUntrustedPushOnlyOpensTheApp() {
+        let untrusted = PushReplies.Response(actionIdentifier: "cmux.option.0", text: nil, payload: question, retry: nil, actionable: false)
+        #expect(PushReplies.outcome(untrusted) == .open(question))
+        let reply = PushReplies.Response(actionIdentifier: "cmux.reply", text: "go", payload: finished, retry: nil, actionable: false)
+        #expect(PushReplies.outcome(reply) == .open(finished))
     }
 
     /// Review L2: with Require Face ID on, a background reply opens the app instead.

@@ -239,6 +239,7 @@ impl Hub {
             // The chat's own mode, model and effort, which the fork's agent is told again when it
             // loads (`replay_config`): an agent may answer session/fork with its defaults
             // instead (Codex), and the fork would then run another model than the chat.
+            mode_set_by_cmux: None,
             modes: parent_meta
                 .modes
                 .clone()
@@ -290,6 +291,8 @@ impl Hub {
             },
             git_branch: git.branch,
             git_head: git.head,
+            // Read for the fork's own folder when its agent starts.
+            worktree: None,
             // The fork's own spend. Claude Code restores the parent's running cost into a
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,

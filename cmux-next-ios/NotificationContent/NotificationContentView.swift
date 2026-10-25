@@ -19,6 +19,8 @@ final class NotificationContentModel {
     private(set) var attachments: [String] = []
     var sent = false
     var failure: String?
+    /// False: shown, but no row, Submit or composer acts (PR B security review H1).
+    var actionable = true
 
     @ObservationIgnored var send: (PushReply.Action) -> Void = { _ in }
     @ObservationIgnored var openApp: () -> Void = {}
@@ -126,13 +128,13 @@ struct NotificationContentView: View {
                 header(payload)
                 if model.showsContent {
                     preview(payload)
-                    if let form = model.form { options(form) }
+                    if model.actionable, let form = model.form { options(form) }
                     if model.sent {
                         Label("Opening cmux to send…", systemImage: "paperplane").font(.footnote).foregroundStyle(.secondary)
                     } else if let failure = model.failure {
                         Text(failure).font(.footnote).foregroundStyle(.red)
                     }
-                    if model.form?.hasComposer == true { composer }
+                    if model.actionable, model.form?.hasComposer == true { composer }
                 } else {
                     Label("Unlock to see this notification", systemImage: "lock").font(.subheadline).foregroundStyle(.secondary)
                 }

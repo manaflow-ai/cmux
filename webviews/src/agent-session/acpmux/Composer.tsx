@@ -5,18 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import {
-  MAX_ATTACHMENTS,
-  type AttachmentError,
-  type ComposerAttachment,
-  type DroppedKind,
-  type LinkItem,
-} from "./attachments";
+import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
+import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import type { Subsessions } from "./subagents/subsessions";
 import {
@@ -82,19 +77,21 @@ import {
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
+import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
+import { stopTurnFromAction } from "./stopTurnAction";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
-/// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
-const UNSENT_DRAFT_SETTLE_MS = 300;
+/// How often at most a new chat's text goes to the host while the person types (`onUnsentDraft`).
+const UNSENT_DRAFT_INTERVAL_MS = 300;
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
@@ -128,7 +125,6 @@ export const COMPOSER_LABELS = {
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
-  tooMany: "composer.tooMany",
   cut: "composer.menu.cut",
   copy: "composer.menu.copy",
   paste: "composer.menu.paste",
@@ -182,6 +178,8 @@ type Props = {
   onStop(): void;
   /// Withdraws a queued prompt (`_acpmux/queue_remove`); false when it already started.
   onQueueRemove?(promptId: string): Promise<boolean>;
+  /// Pulls a queued prompt back into the composer, retaining its text and attachments.
+  onQueueCancelEdit?(promptId: string, text: string, attachments: ComposerAttachment[]): Promise<boolean>;
   /// Changes a queued prompt (`_acpmux/queue_edit`): its text, its place, or send it now.
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
@@ -301,6 +299,7 @@ export function Composer({
   onSend,
   onStop,
   onQueueRemove,
+  onQueueCancelEdit,
   onQueueChange,
   onQueueLost,
   onQueueSideChat,
@@ -452,7 +451,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress } = useComposerSettings();
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -475,37 +474,48 @@ export function Composer({
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
-  const { attachments, setAttachments, pending, attachError, setAttachError, drop, dropLanded, attach } =
-    useAttachmentIntake({
-      allowImages,
-      dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
-      // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
-      pasteTarget: (target) =>
-        shellField.current?.contains(target)
-          ? { uploads: false }
-          : field.current?.element()?.contains(target)
-            ? { uploads: true }
-            : undefined,
-      ...(upload ? { upload } : {}),
-      ...(localPaths ? { localPaths } : {}),
-      // A screenshot still being read when the composer moves to another chat stays the chat's it was
-      // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
-      // the prompt to its new session.
-      scope: sessionId,
-      elsewhere: (chat, chips) => {
-        if (!keptAttachments) return;
-        void keptAttachments
-          .read(chat)
-          .catch(() => [])
-          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips).slice(0, MAX_ATTACHMENTS)))
-          .catch(() => {});
-      },
-      carries: () => carryPrompt.current || Boolean(switching),
-    });
+  const {
+    attachments,
+    setAttachments,
+    pending,
+    loading,
+    cancel,
+    retry,
+    attachError,
+    setAttachError,
+    drop,
+    dropLanded,
+    attach,
+  } = useAttachmentIntake({
+    allowImages,
+    dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
+    // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
+    pasteTarget: (target) =>
+      shellField.current?.contains(target)
+        ? { uploads: false }
+        : field.current?.element()?.contains(target)
+          ? { uploads: true }
+          : undefined,
+    ...(upload ? { upload } : {}),
+    ...(localPaths ? { localPaths } : {}),
+    // A screenshot still being read when the composer moves to another chat stays the chat's it was
+    // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
+    // the prompt to its new session.
+    scope: sessionId,
+    elsewhere: (chat, chips) => {
+      if (!keptAttachments) return;
+      void keptAttachments
+        .read(chat)
+        .catch(() => [])
+        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
+        .catch(() => {});
+    },
+    carries: () => carryPrompt.current || Boolean(switching),
+  });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
-  const holdForAttachments = useSendWhenAttached(pending.length, sessionId);
+  const holdForAttachments = useSendWhenAttached(loading, sessionId);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
   const box = useRef<ComposerBoxHandle>(null);
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
@@ -563,15 +573,11 @@ export function Composer({
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
-        if (next.length > MAX_ATTACHMENTS) {
-          setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
-          return;
-        }
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
         attachmentsRef.current = next;
         setAttachments((current) => {
           const next = appendAttachments(current, [attachment]);
-          return next.length > MAX_ATTACHMENTS ? current : next;
+          return next;
         });
       },
       detach(ids) {
@@ -597,9 +603,10 @@ export function Composer({
       wake(state) {
         const back = state.attachments ?? [];
         if (back.length)
-          setAttachments((current) =>
-            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(0, MAX_ATTACHMENTS),
-          );
+          setAttachments((current) => [
+            ...back,
+            ...current.filter((chip) => !back.some((kept) => kept.id === chip.id)),
+          ]);
         if (state.shell) {
           setShell(true);
           setShellText(state.shellText ?? "");
@@ -607,7 +614,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments, setAttachError],
+    [setAttachments],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -642,6 +649,27 @@ export function Composer({
   }, [sessionId, text, draft]);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
+  // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
+  // dictated, no shell mode (pages/shared/webSwap.ts).
+  const swapState = useRef({ dictating, reading: 0, sessionId, chips: 0 });
+  swapState.current = { dictating, reading: pending.length, sessionId, chips: attachments.length };
+  useEffect(
+    () =>
+      holdWebSwap(() => {
+        const state = swapState.current;
+        if (sending.current) return "composer.sending";
+        if (state.dictating) return "composer.dictation";
+        if (state.reading) return "composer.attachment-reading";
+        if (shellRef.current.shell) return "composer.shell";
+        // A new chat's prompt has no chat to keep it with yet.
+        if (!state.sessionId)
+          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
+        if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        return null;
+      }),
+    [],
+  );
   // After the session effect, so a switch that ends with its session change still carries.
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
@@ -663,6 +691,13 @@ export function Composer({
       }
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
+      // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
+      // caret after the text as it was (pages/shared/webSwap.ts).
+      if (takeWebSwapFocus("composer"))
+        requestAnimationFrame(() => {
+          field.current?.focus();
+          field.current?.setCaret(Number.MAX_SAFE_INTEGER);
+        });
     });
     return () => {
       current = false;
@@ -676,12 +711,30 @@ export function Composer({
     if (hydratedSession.current !== sessionId) return;
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
+  // A new chat's text goes to the host at most every 300 ms while typing, and at once when the page is
+  // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts).
+  const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
   useEffect(() => {
-    // Once the typing settles, so the host writes its file once per pause, not per keystroke.
     if (sessionId || !onUnsentDraft) return;
-    const settled = setTimeout(() => onUnsentDraft(text), UNSENT_DRAFT_SETTLE_MS);
-    return () => clearTimeout(settled);
-  }, [sessionId, text, onUnsentDraft]);
+    const throttle = createUnsentDraftThrottle({ send: onUnsentDraft, intervalMs: UNSENT_DRAFT_INTERVAL_MS });
+    unsentDraft.current = throttle;
+    const flush = () => throttle.flush();
+    const hidden = () => {
+      if (document.visibilityState === "hidden") throttle.flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", hidden);
+      throttle.flush();
+      throttle.dispose();
+      if (unsentDraft.current === throttle) unsentDraft.current = undefined;
+    };
+  }, [sessionId, onUnsentDraft]);
+  useEffect(() => {
+    unsentDraft.current?.push(text);
+  }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -853,7 +906,9 @@ export function Composer({
           return true;
         }
       }
-      setAttachments((current) => current.filter((attachment) => !attachments.includes(attachment)));
+      // By id: a chip patched after it went (its original's path arriving) is still the one sent.
+      const went = new Set(attachments.map((attachment) => attachment.id));
+      setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
       edit("", 0);
@@ -861,12 +916,14 @@ export function Composer({
       return true;
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    unsentDraft.current?.flush();
     const sent = attachments;
     const taken = onSend(prompt, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
-      setAttachments((current) => current.filter((attachment) => !sent.includes(attachment)));
+      const went = new Set(sent.map((attachment) => attachment.id));
+      setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
@@ -980,12 +1037,32 @@ export function Composer({
       exitShell();
     }
   };
-  const stopTurn = () => {
+  const stopTurn = useCallback(() => {
     if (Date.now() - sentAt.current > STOP_GUARD_MS) {
       refocusField.current = document.activeElement === sendButton.current;
       onStop();
     }
-  };
+  }, [onStop]);
+  // The native command palette and keyboard route Stop Agent Turn through this same composer
+  // callback. Ignore a stale action after the turn ended while the page was switching sessions.
+  const actionSessionId = snapshot.sessionId;
+  const actionWorking = snapshot.isWorking;
+  useEffect(() => {
+    const stopFromAction = (event: Event) => {
+      const detail =
+        event instanceof CustomEvent && event.detail && typeof event.detail === "object" ? event.detail : undefined;
+      const requestedSessionId =
+        detail && "sessionId" in detail && typeof detail.sessionId === "string" ? detail.sessionId : undefined;
+      stopTurnFromAction(
+        { sessionId: actionSessionId, isWorking: actionWorking },
+        requestedSessionId,
+        actionSessionId,
+        stopTurn,
+      );
+    };
+    window.addEventListener("cmux-acpmux-stopTurn", stopFromAction);
+    return () => window.removeEventListener("cmux-acpmux-stopTurn", stopFromAction);
+  }, [actionSessionId, actionWorking, stopTurn]);
   // Enter sends unless it picks a command: with the menu closed, with nothing to pick (an unknown
   // command or a pasted path), or on a command already typed in full that takes no arguments.
   const returnSends = () => {
@@ -1298,6 +1375,7 @@ export function Composer({
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    unsentDraft.current?.flush();
     const original = unwrapped();
     plusDraft.current = undefined;
     if (original !== text) edit(original, original.length);
@@ -1454,6 +1532,8 @@ export function Composer({
     <form
       ref={form}
       className="acpmux-composer"
+      // A web update's reload gives the prompt the keyboard back (pages/shared/webSwap.ts).
+      {...{ [WEB_SWAP_FOCUS]: "composer" }}
       data-cmux-component="Composer"
       data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
       data-shell={shell ? "" : undefined}
@@ -1504,6 +1584,7 @@ export function Composer({
         {...(pauseReason ? { pauseReason } : {})}
         t={t}
         onRemove={onQueueRemove}
+        onCancelEdit={onQueueCancelEdit}
         onChange={onQueueChange}
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}
@@ -1541,6 +1622,9 @@ export function Composer({
                 : mentionAt && mentionSelected >= 0
                   ? `acpmux-mention-${mentionSelected}`
                   : undefined,
+            spellcheck: String(spellChecking),
+            // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
+            [WEB_SWAP_KEPT_TEXT]: "",
           },
           onBeforeInput: stablePromptCallbacks.onBeforeInput,
           onChange: stablePromptCallbacks.onChange,
@@ -1559,6 +1643,11 @@ export function Composer({
           setAttachments((current) => current.filter((item) => item.id !== id));
           field.current?.focus();
         }}
+        onCancelAttachment={(id) => {
+          cancel(id);
+          field.current?.focus();
+        }}
+        onRetryAttachment={retry}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
@@ -1574,7 +1663,7 @@ export function Composer({
                 value={shellText}
                 aria-label={t("composer.shell")}
                 placeholder={t("composer.shellPlaceholder")}
-                spellCheck={false}
+                spellCheck={spellChecking}
                 autoCapitalize="off"
                 autoCorrect="off"
                 onChange={(event) => setShellText(event.target.value)}

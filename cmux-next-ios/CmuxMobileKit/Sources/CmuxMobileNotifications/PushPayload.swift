@@ -102,17 +102,34 @@ public struct PushPayload: Codable, Sendable, Equatable {
     public var title: String?
     public var body: String?
     public var options: [PushOption]
+    /// What a phone may answer, the same rule as the Feed (`ACPPermissionRequest.phoneOptions`):
+    /// with a single-use Allow, Allow once and the one-time reject only; acpmux refuses a lasting
+    /// grant from a phone (`remote.lasting_grant_refused`). Without one, the options as sent, so
+    /// acpmux's refusal says why rather than the prompt showing a lone Deny.
+    public var phoneOptions: [PushOption] {
+        guard options.contains(where: { $0.kind == .allowOnce }) else { return options }
+        return options.filter { $0.kind == .allowOnce || $0.kind == .rejectOnce }
+    }
     public var questions: [PushQuestion]
     public var tail: [String]
     public var state: State?
     /// False when the phone turned Show previews off: the banner is generic.
     public var previews: Bool
+    /// A terminal notification whose poster takes a typed reply (`notify --reply`).
+    public var replyable: Bool
+    /// The acpmux prompt's `decisionNonce` and daemon run (`personInstance`):
+    /// only in a sealed push, so a mailbox Allow can be signed offline.
+    public var decisionNonce: String?
+    public var personInstance: String?
+    /// When the Mac posted it (Unix seconds; sealed pushes): an old one replayed later gets no buttons.
+    public var postedAt: Int?
 
     public init(v: Int = 2, mac: String?, macName: String? = nil, kind: PushKind, eventId: String? = nil, agent: String? = nil,
                 place: String? = nil, workspace: String? = nil, workspaceId: String? = nil, tabId: String? = nil,
                 sessionId: String? = nil, permissionId: String? = nil, conversationId: String? = nil, notificationId: String? = nil,
                 title: String? = nil, body: String? = nil, options: [PushOption] = [], questions: [PushQuestion] = [],
-                tail: [String] = [], state: State? = nil, previews: Bool = true) {
+                tail: [String] = [], state: State? = nil, previews: Bool = true, replyable: Bool = false,
+                decisionNonce: String? = nil, personInstance: String? = nil, postedAt: Int? = nil) {
         self.v = v
         self.mac = mac
         self.macName = macName
@@ -134,11 +151,16 @@ public struct PushPayload: Codable, Sendable, Equatable {
         self.tail = tail
         self.state = state
         self.previews = previews
+        self.replyable = replyable
+        self.decisionNonce = decisionNonce
+        self.personInstance = personInstance
+        self.postedAt = postedAt
     }
 
     enum CodingKeys: String, CodingKey {
         case v, mac, macName, kind, eventId, agent, place, workspace, workspaceId, tabId, sessionId, permissionId, conversationId
-        case notificationId, title, body, options, questions, tail, state, previews
+        case notificationId, title, body, options, questions, tail, state, previews, replyable, decisionNonce, personInstance
+        case postedAt
     }
 
     public init(from decoder: any Decoder) throws {
@@ -152,6 +174,11 @@ public struct PushPayload: Codable, Sendable, Equatable {
         }
         self.kind = kind
         v = (try? c.decodeIfPresent(Int.self, forKey: .v)) ?? 1
+        // A sealed push the service extension could not open (v3) carries no
+        // content to act on: none of its buttons may reach the Mac.
+        guard v < 3 else {
+            throw DecodingError.dataCorruptedError(forKey: .v, in: c, debugDescription: "an unopened sealed push")
+        }
         mac = text(.mac)
         macName = text(.macName)
         eventId = text(.eventId)
@@ -172,6 +199,10 @@ public struct PushPayload: Codable, Sendable, Equatable {
         tail = (try? c.decodeIfPresent([String].self, forKey: .tail)) ?? []
         state = text(.state).flatMap(State.init(rawValue:))
         previews = (try? c.decodeIfPresent(Bool.self, forKey: .previews)) ?? true
+        replyable = (try? c.decodeIfPresent(Bool.self, forKey: .replyable)) ?? false
+        decisionNonce = text(.decisionNonce)
+        personInstance = text(.personInstance)
+        postedAt = try? c.decodeIfPresent(Int.self, forKey: .postedAt)
     }
 
     /// Reads `userInfo["cmuxMobile"]`; nil for any other notification.
