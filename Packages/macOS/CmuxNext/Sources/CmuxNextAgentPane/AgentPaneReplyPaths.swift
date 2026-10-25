@@ -40,6 +40,18 @@ nonisolated struct AgentPaneReplyPaths {
         self.base = base
     }
 
+    /// The folders as spelled, before they are made canonical (which reads the disk).
+    struct Scope: Equatable, Sendable {
+        var roots: [String]
+        var imageRoots: [String]
+        var home: String
+        var base: String?
+    }
+
+    init(_ scope: Scope) {
+        self.init(roots: scope.roots, imageRoots: scope.imageRoots, home: scope.home, base: scope.base)
+    }
+
     /// Longest path the page may send (a path is far shorter).
     static let maximumLength = 4096
 

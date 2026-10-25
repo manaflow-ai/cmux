@@ -27,7 +27,8 @@ nonisolated enum AgentPaneVideoInfo {
     struct Frame: Equatable, Sendable {
         /// Where in the video the frame is, in milliseconds.
         var atMs: Int
-        var jpeg: Data
+        /// Its JPEG, base64 (encoded with the read, off the main actor).
+        var jpeg: String
     }
 
     struct Info: Equatable, Sendable {
@@ -35,8 +36,8 @@ nonisolated enum AgentPaneVideoInfo {
         /// The size the video shows at, after its track's rotation.
         var width: Int
         var height: Int
-        /// The first key frame, at most ``posterSide`` on its longest side.
-        var poster: Data
+        /// The first key frame's JPEG, base64, at most ``posterSide`` on its longest side.
+        var poster: String
         var frames: [Frame]
 
         /// The page's answer: the poster as a `data:` URL, each frame's JPEG as base64 for an
@@ -44,8 +45,8 @@ nonisolated enum AgentPaneVideoInfo {
         var reply: [String: Any] {
             [
                 "durationMs": durationMs, "width": width, "height": height,
-                "poster": "data:image/jpeg;base64," + poster.base64EncodedString(),
-                "frames": frames.map { ["atMs": $0.atMs, "data": $0.jpeg.base64EncodedString()] },
+                "poster": "data:image/jpeg;base64," + poster,
+                "frames": frames.map { ["atMs": $0.atMs, "data": $0.jpeg] },
             ]
         }
     }
@@ -58,10 +59,12 @@ nonisolated enum AgentPaneVideoInfo {
     }
 
     /// The video at `file` (a regular file), or nil when it is not one AVFoundation can show: no
-    /// video track, no length, or no frame it can decode.
+    /// video track, no length, or no frame it can decode. Only the file's own media is read: a
+    /// reference movie's media in other files (which may be outside the roots, or on the deny
+    /// list) is refused (`forbidAll`), so its frames never decode.
     @concurrent static func read(_ file: URL) async -> Info? {
-        guard (try? file.blockingResourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else { return nil }
-        let asset = AVURLAsset(url: file)
+        guard isRegularFile(file) else { return nil }
+        let asset = AVURLAsset(url: file, options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
         guard let duration = try? await asset.load(.duration), let track = try? await asset.loadTracks(withMediaType: .video).first,
               let geometry = try? await track.load(.naturalSize, .preferredTransform) else { return nil }
         let seconds = duration.seconds
@@ -80,10 +83,23 @@ nonisolated enum AgentPaneVideoInfo {
                   let data = jpeg(frame.image) else { continue }
             first = first ?? frame.image
             let at = frame.actualTime.seconds.isFinite ? frame.actualTime.seconds : time
-            frames.append(Frame(atMs: Int((min(max(at, 0), seconds) * 1000).rounded()), jpeg: data))
+            frames.append(Frame(atMs: Int((min(max(at, 0), seconds) * 1000).rounded()), jpeg: data.base64EncodedString()))
         }
         guard let first, let poster = scaled(first, toFit: posterSide).flatMap(jpeg) else { return nil }
-        return Info(durationMs: Int((seconds * 1000).rounded()), width: width, height: height, poster: poster, frames: frames)
+        return Info(durationMs: Int((seconds * 1000).rounded()), width: width, height: height, poster: poster.base64EncodedString(), frames: frames)
+    }
+
+    /// Whether `file` is a regular file (not a folder named like a movie, nor a pipe).
+    static func isRegularFile(_ file: URL) -> Bool {
+        (try? file.blockingResourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
+    }
+
+    /// The video file `src` names in `scope` (``AgentPaneReplyPaths/resolveVideo(_:)``), when it is
+    /// a regular file inside it: made canonical and checked here, off the main actor.
+    @concurrent static func file(_ src: String, in scope: AgentPaneReplyPaths.Scope) async -> URL? {
+        guard let resolved = AgentPaneReplyPaths(scope).resolveVideo(src), resolved.place == .root, !resolved.isFolder else { return nil }
+        let file = URL(fileURLWithPath: resolved.path, isDirectory: false)
+        return isRegularFile(file) ? file : nil
     }
 
     /// `image` as JPEG at ``quality``.
@@ -111,23 +127,24 @@ nonisolated enum AgentPaneVideoInfo {
 
 extension AgentPaneModel {
     /// The video file `src` (a path or `file://` URL) names, when the pane may show it: a chat on
-    /// this Mac, a `.mov`, `.mp4` or `.m4v` that exists inside the chat's roots, its folder, `/tmp`
-    /// or home (where a screen recording lands), and not on the deny list. A chat on another
-    /// machine names its own files: this Mac's are never read for it.
-    func videoFile(_ src: String) -> URL? {
-        guard !remoteChat, let resolved = replyPaths().resolveVideo(src), resolved.place == .root, !resolved.isFolder else { return nil }
-        return URL(fileURLWithPath: resolved.path, isDirectory: false)
+    /// this Mac, a regular `.mov`, `.mp4` or `.m4v` file inside the chat's roots, its folder, `/tmp`
+    /// or home (where a screen recording lands, as for a reply's image), and not on the deny list.
+    /// A chat on another machine names its own files: this Mac's are never read for it. The disk is
+    /// read off the main actor.
+    func videoFile(_ src: String) async -> URL? {
+        guard !remoteChat else { return nil }
+        return await AgentPaneVideoInfo.file(src, in: replyPathScope())
     }
 
     /// `video.info {src}`: the video's length, size, poster and key frames (``AgentPaneVideoInfo``).
     func videoInfo(_ src: String) async -> [String: Any] {
-        guard let file = videoFile(src), let info = await AgentPaneVideoInfo.read(file) else { return Self.replyFailure(.mediaRefused) }
+        guard let file = await videoFile(src), let info = await AgentPaneVideoInfo.read(file) else { return Self.replyFailure(.mediaRefused) }
         return AgentPaneReply.success(info.reply)
     }
 
     /// `video.quickLook {src}`: plays the video in Quick Look, on the person's click.
-    func quickLookVideo(_ src: String) -> [String: Any] {
-        guard let file = videoFile(src) else { return Self.replyFailure(.mediaRefused) }
+    func quickLookVideo(_ src: String) async -> [String: Any] {
+        guard let file = await videoFile(src) else { return Self.replyFailure(.mediaRefused) }
         guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
         replyLinks.quickLookFile(file)
         return AgentPaneReply.success()

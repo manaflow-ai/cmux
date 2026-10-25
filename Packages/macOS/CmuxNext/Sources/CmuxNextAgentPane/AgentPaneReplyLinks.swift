@@ -112,12 +112,18 @@ extension AgentPaneModel {
     /// behind the ordinary outside-root gate. A remote chat never reads this Mac's image roots;
     /// its `image.load` request is handled by the remote wire.
     func replyPaths() -> AgentPaneReplyPaths {
+        AgentPaneReplyPaths(replyPathScope())
+    }
+
+    /// What ``replyPaths()`` is made of, read on the main actor; making the paths from it reads the
+    /// disk (each root made canonical), which a caller off the main actor can do there.
+    func replyPathScope() -> AgentPaneReplyPaths.Scope {
         let base = sessionRoots().first ?? primaryRoot()
         let local = !remoteChat
         let imageRoots = local ? [base, "/tmp", replyLinks.home].compactMap { $0 } : []
         // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
         // roots as a fallback: a same-named local file must not be read or opened here.
-        return AgentPaneReplyPaths(roots: local ? fileOpenRoots() : [], imageRoots: imageRoots, home: replyLinks.home, base: local ? base : nil)
+        return AgentPaneReplyPaths.Scope(roots: local ? fileOpenRoots() : [], imageRoots: imageRoots, home: replyLinks.home, base: local ? base : nil)
     }
 
     /// The reply for one reply link request.
@@ -163,7 +169,7 @@ extension AgentPaneModel {
         case .videoInfo(let src):
             return await videoInfo(src)
         case .quickLookVideo(let src):
-            return quickLookVideo(src)
+            return await quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
             return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:

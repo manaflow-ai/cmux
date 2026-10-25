@@ -67,7 +67,8 @@ struct AgentPaneVideoInfoTests {
         #expect(writer.status == .completed, "\(String(describing: writer.error))")
     }
 
-    private static func image(_ jpeg: Data) throws -> CGImage {
+    private static func image(_ base64: String) throws -> CGImage {
+        let jpeg = try #require(Data(base64Encoded: base64))
         let source = try #require(CGImageSourceCreateWithData(jpeg as CFData, nil))
         #expect(CGImageSourceGetType(source) as String? == "public.jpeg")
         return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
@@ -132,6 +133,32 @@ struct AgentPaneVideoInfoTests {
         #expect(info.width == 180 && info.height == 320)
         let poster = try Self.image(info.poster)
         #expect(poster.width < poster.height)
+    }
+
+    /// A reference movie: its own file holds only a header, and its media is `source`'s.
+    nonisolated private static func referenceMovie(at url: URL, to source: URL) async throws {
+        let original = AVURLAsset(url: source)
+        let duration = try await original.load(.duration)
+        let movie = AVMutableMovie()
+        try await movie.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: original, at: .zero, copySampleData: false)
+        try movie.writeHeader(to: url, fileType: .mov, options: .truncateDestinationToMovieHeaderOnly)
+    }
+
+    @Test func aReferenceMovieNeverReadsTheMediaOfAnotherFile() async throws {
+        // Leo's chat may read a movie in its folders, home or /tmp; one that only points at media
+        // elsewhere (a secret folder, outside the roots) must not hand over that media's frames.
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let secret = folder.appendingPathComponent("secret.mov")
+        try await Self.movie(at: secret, width: 320, height: 180, seconds: 1)
+        #expect(await AgentPaneVideoInfo.read(secret) != nil)
+        let pointer = folder.appendingPathComponent("pointer.mov")
+        try await Self.referenceMovie(at: pointer, to: secret)
+        // The pointer is a real movie of the same length that only references the secret's samples.
+        #expect(try await AVURLAsset(url: pointer).load(.duration).seconds > 0)
+        let size = { (url: URL) in (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0 }
+        #expect(size(pointer) > 0 && size(pointer) < size(secret) / 4)
+        #expect(await AgentPaneVideoInfo.read(pointer) == nil)
     }
 
     @Test func aFileThatIsNotAVideoGivesNothing() async throws {
