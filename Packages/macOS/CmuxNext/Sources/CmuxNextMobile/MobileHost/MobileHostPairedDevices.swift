@@ -108,6 +108,13 @@ public struct MobileHostPairedDevices: Sendable, Equatable, Codable {
         devices.removeAll { $0.id == id }
     }
 
+    /// The acpmux pairing name of phone `id`'s own credential (acpmux role `phone`): what
+    /// Settings > Devices joins the phone's row to for its Full-access setting
+    /// (`DeviceDirectory.phoneRecordName`, kept equal by a test).
+    public static func acpmuxRecordName(_ id: String) -> String {
+        "phone-" + String(id.lowercased().filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }.prefix(74))
+    }
+
     /// The approvers acpmux gets (`_acpmux/approvers_set`).
     public func approversParams(macDevice: String) -> [String: Any] {
         ["macDevice": macDevice,

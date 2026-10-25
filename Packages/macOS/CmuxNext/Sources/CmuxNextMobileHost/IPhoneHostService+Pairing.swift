@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextMobile
 import Foundation
@@ -36,7 +37,7 @@ extension IPhoneHostService {
         if paired?.userID != account?.userID { resetPrompts() }
         paired = account.map { file.load(userID: $0.userID) }
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-            approverSync = MobileHostApproverSync(environment: environment)
+            approverSync = makeApproverSync(environment)
         }
         pushPaired()
     }
@@ -207,6 +208,17 @@ extension IPhoneHostService {
             Self.logger.error("paired phones not saved: \(String(describing: error), privacy: .public)")
         }
         pushPaired()
+    }
+
+    /// The approver sync, which also hands hostd each phone's own acpmux credential.
+    func makeApproverSync(_ environment: AcpmuxEnvironment) -> MobileHostApproverSync {
+        let sync = MobileHostApproverSync(environment: environment)
+        let supervisor = supervisor
+        sync.phoneCredentialsChanged = { credentials in
+            // task-owner: one hop to the supervisor actor; setPhoneCredentials replaces the whole set
+            Task { await supervisor.setPhoneCredentials(credentials) }
+        }
+        return sync
     }
 
     /// hostd's `devices` line and acpmux's approvers follow the list.

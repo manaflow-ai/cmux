@@ -57,6 +57,9 @@ public actor MobileHostSupervisor {
     private let pairingContinuation: AsyncStream<MobileHostEvent>.Continuation
     /// The last `devices` line: sent to each new hostd and on every change.
     private var devicesLine: Data?
+    /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
+    /// every change.
+    private var phoneCredentialsLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
@@ -144,6 +147,14 @@ public actor MobileHostSupervisor {
     public func setDevices(_ devices: MobileHostPairedDevices) {
         let line = MobileHostLaunch.devicesLine(devices)
         devicesLine = line
+        process?.send(line)
+    }
+
+    /// Each paired phone's own acpmux credential: kept for each new hostd and sent to the
+    /// running one now (the phone's next acpmux channel presents it).
+    public func setPhoneCredentials(_ credentials: [String: String]) {
+        let line = MobileHostLaunch.phoneCredentialsLine(credentials)
+        phoneCredentialsLine = line
         process?.send(line)
     }
 
@@ -272,6 +283,7 @@ public actor MobileHostSupervisor {
         lastToken = nil
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine { child.send(devicesLine) }
+        if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
         await sendToken(child, inputs: inputs)
         await sendAcpmux(child, inputs: inputs)
     }
