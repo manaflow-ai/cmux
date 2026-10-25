@@ -19,10 +19,14 @@ export class LineReveal {
     const endLineNumber = Math.min(location.endLine ?? lineNumber, model.getLineCount());
     const center = () => {
       this.editor.setPosition({ lineNumber, column });
+      // The position, not only the line: a column far right on a long line scrolls sideways too.
       // Immediate scrolling obeys the motion gate even when editor.smoothScrolling is enabled.
-      this.editor.revealLineInCenter(lineNumber, 1 /* ScrollType.Immediate */);
+      this.editor.revealPositionInCenter({ lineNumber, column }, 1 /* ScrollType.Immediate */);
     };
     center();
+    // The page's keyboard focus goes to the editor (a Find result is typed into next), as base's
+    // reveal did. The host still decides whether the page itself takes the window's focus.
+    this.editor.focus();
     if (this.editor.getLayoutInfo().height === 0) {
       this.layout = this.editor.onDidLayoutChange(({ height }) => {
         if (height === 0) return;

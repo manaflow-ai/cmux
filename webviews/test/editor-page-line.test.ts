@@ -94,10 +94,12 @@ function editorTarget(height = 640) {
     setPosition: (value: unknown) => {
       position = value;
     },
-    revealLineInCenter: (...args: unknown[]) => {
-      centered = args;
-      centers.push(args);
+    // Recorded as [line, scroll type]; the column is checked in src/pages/editor/lineReveal.test.ts.
+    revealPositionInCenter: (value: { lineNumber: number }, scrollType: number) => {
+      centered = [value.lineNumber, scrollType];
+      centers.push(centered);
     },
+    focus: () => {},
     getLayoutInfo: () => ({ height }),
     onDidLayoutChange: (listener: typeof layout) => {
       layout = listener;
