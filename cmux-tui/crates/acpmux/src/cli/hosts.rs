@@ -1056,7 +1056,11 @@ mod tests {
         // Already this build's text: not rewritten, no reload.
         let run = linux_restart_run("refresh-same", false, host);
         assert_eq!(run.unit, SYSTEMD_UNIT);
-        assert!(!run.calls.iter().any(|c| c == "systemctl --user daemon-reload"), "{:?}", run.calls);
+        assert!(
+            !run.calls.iter().any(|c| c == "systemctl --user daemon-reload"),
+            "{:?}",
+            run.calls
+        );
         // Someone's own edit of the unit is theirs.
         let edited = "[Service]\nExecStart=%h/.local/bin/acpmux daemon run\nRestart=on-failure\n";
         let run = linux_restart_run(
