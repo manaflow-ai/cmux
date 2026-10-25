@@ -297,11 +297,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::New(args) => {
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
+            let client = connect(true).await?;
+            let host = match crate::cli::place::auto_work(args.host.as_deref()) {
+                Some(work) => {
+                    crate::cli::place::resolve(&client, work, launch.name.as_deref(), launch.reuse)
+                        .await?
+                }
+                None => args.host.clone(),
+            };
             let cwd = match &launch.worktree {
                 Some((_, repo)) => Some(repo.clone()),
-                None => new_session_cwd(args.host.as_deref(), args.cwd.clone())?,
+                None => new_session_cwd(host.as_deref(), args.cwd.clone())?,
             };
-            let client = connect(true).await?;
             let mut meta = json!({});
             if let Some(spec) = &args.model {
                 let (h, m) = orchestrate::split_target(spec);
@@ -313,7 +320,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(p) = &args.preset {
                 meta["preset"] = json!(p);
             }
-            if let Some(h) = &args.host {
+            if let Some(h) = &host {
                 meta["peer"] = json!(h);
             }
             if let Some(n) = &launch.name {
@@ -359,7 +366,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
             // launcher with the same name.
-            let key = launch.name.as_ref().map(|n| match &args.host {
+            let key = launch.name.as_ref().map(|n| match &host {
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });

@@ -1,4 +1,5 @@
 import type { ChatUnavailable } from "./chatUnavailable";
+import { isInterleaved } from "./conversation/promptContent";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
@@ -138,6 +139,8 @@ export type QueuedPrompt = {
   next?: boolean;
   sending?: boolean;
   images?: QueuedPromptImage[];
+  /// The prompt's ordered text and attachment runs while it waits for the turn.
+  inlineParts?: PromptContentPart[];
   /// Another agent's message waiting here (direct.ts `queuedMessage`): its row draws as the
   /// message's received line (ComposerQueue.tsx), not as the person's prompt.
   message?: IncomingMessage;
@@ -145,7 +148,36 @@ export type QueuedPrompt = {
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
 /// carries them, so its thumbnail is reserved at its own shape before it is read.
-export type PromptImage = { id: string; mimeType: string; name?: string; width?: number; height?: number };
+export type PromptImage = {
+  id: string;
+  mimeType: string;
+  name?: string;
+  width?: number;
+  height?: number;
+  /// A just-sent image can draw from the composer's bytes before acpmux names it.
+  src?: string;
+};
+
+/**
+ * One part of a sent prompt in the order it was composed. The daemon may add this to a row as
+ * `inlineParts` (the provisional name for the ACP prompt's ordered content). Legacy rows keep
+ * using `text` and `images`; conversation/promptContent.ts adapts both shapes.
+ */
+export type PromptContentPart =
+  | { kind: "text"; text: string; pasted?: readonly PasteRange[] }
+  | (PromptImage & { kind: "image"; persisted?: false })
+  | {
+      kind: "file" | "document" | "audio" | "recording" | "pasted";
+      id?: string;
+      name: string;
+      mimeType?: string;
+      size?: number;
+      text?: string;
+      pageCount?: number;
+      uri?: string;
+      start?: number;
+      end?: number;
+    };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
 /// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
 /// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
@@ -202,6 +234,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// Ordered prompt content, when the daemon records the ACP blocks interleaved at the caret.
+  /// This is deliberately optional while older transcript rows still expose `text` and `images`.
+  inlineParts?: PromptContentPart[];
   /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
   /// as a chip that opens in place (conversation/promptCollapse.ts).
   pasted?: PasteRange[];
@@ -1203,6 +1238,26 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
+  // Inline attachments occupy the same bubble as the text. Estimate each attachment's own
+  // decorated line before the DOM mounts so a newly echoed prompt cannot overlap the next row.
+  // Summing attachment slots is intentionally conservative when text and a file share a line;
+  // underestimating would make virtual scrolling jump as thumbnails decode.
+  const inline = row.inlineParts;
+  if (row.kind === "user" && isInterleaved(inline)) {
+    let inlineHeight = 0;
+    const { lineHeight } = metrics();
+    const inlineWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);
+    for (const part of inline) {
+      if (part.kind === "text")
+        inlineHeight += Math.max(
+          lineHeight,
+          textHeight(part.text, inlineWidth, cache.get(row.id)?.prepared ?? new Map()),
+        );
+      else inlineHeight += part.kind === "image" ? 124 : part.kind === "pasted" ? PASTE_CHIP_HEIGHT : 34;
+    }
+    const height = messageBelow(beforeFooter) + chromeHeight(row) + inlineHeight;
+    return finish(beforeFooter ? height : Math.max(34, height));
+  }
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
   let entry = cache.get(row.id);

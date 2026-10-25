@@ -134,18 +134,6 @@ fn dispatch_name(params: &Value, brief: &str) -> String {
     out
 }
 
-fn peer_allowed(name: &str, brief: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    if ["air-blue", "cosmic-gray", "big-red"].contains(&n.as_str()) {
-        return false;
-    }
-    if n == "cmux16" {
-        let text = brief.to_ascii_lowercase();
-        return text.contains("capture") || text.contains("build");
-    }
-    true
-}
-
 fn peer_approve_all_allowed(
     policy: Option<&str>,
     preset_policy: Option<PermissionPolicy>,
@@ -155,17 +143,16 @@ fn peer_approve_all_allowed(
         || (approved && preset_policy == Some(PermissionPolicy::ApproveAll))
 }
 
-fn auto_peer(hub: &Arc<Hub>, brief: &str) -> Option<String> {
-    hub.peers()
-        .into_iter()
-        .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-        .filter_map(|p| {
-            let name = p.get("name").and_then(Value::as_str)?.to_owned();
-            peer_allowed(&name, brief)
-                .then_some((p.get("sessions").and_then(Value::as_u64).unwrap_or(0), name))
-        })
-        .min_by_key(|(sessions, _)| *sessions)
-        .map(|(_, name)| name)
+/// `dispatch --host auto`: the placement engine's pick for the brief
+/// (`server/place.rs`), `None` for this machine, or why no host has room.
+async fn auto_host(hub: &Arc<Hub>, brief: &str) -> Result<Option<String>, String> {
+    let v = super::place::pick(hub, super::place::brief_work(brief)).await;
+    let why = v.get("why").and_then(Value::as_str).unwrap_or_default().to_owned();
+    match v.get("pick").and_then(Value::as_str) {
+        Some(_) if v.get("local").and_then(Value::as_bool) == Some(true) => Ok(None),
+        Some(name) => Ok(Some(name.to_owned())),
+        None => Err(why),
+    }
 }
 
 async fn dispatch_brief(
@@ -200,11 +187,13 @@ async fn dispatch_brief(
     let host = if forwarded || selected == "local" {
         None
     } else if selected == "auto" {
-        auto_peer(hub, &brief).ok_or_else(|| RpcError::not_found("no allowed connected agent host for dispatch; use --host HOST or connect a peer")) .map(Some)?
+        auto_host(hub, &brief).await.map_err(|why| {
+            RpcError::not_found(format!("{why}; use --host HOST or connect a peer"))
+        })?
     } else {
-        if !peer_allowed(&selected, &brief) {
+        if let Some(why) = super::place::role_refusal(&selected, super::place::brief_work(&brief)) {
             return Err(RpcError::invalid_params(format!(
-                "host {selected:?} is not allowed for this dispatch; choose an agent host (cmux16 is capture/build only)"
+                "host {selected:?} is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
             )));
         }
         Some(selected.clone())
@@ -372,7 +361,7 @@ async fn dispatch_brief(
         .ok_or_else(|| RpcError::internal("dispatch session/new returned no sessionId"))?
         .to_owned();
     let session = hub.resolve(&sid)?;
-    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":params.get("host").cloned().unwrap_or(json!("local")),"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
+    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":match params.get("host").and_then(Value::as_str) { None => json!("local"), Some("auto") if !forwarded => json!("local"), Some(h) => json!(h) },"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
     if let Some(key) = idempotency {
         record["idempotencyKey"] = json!(key);
     }
@@ -425,10 +414,11 @@ async fn dispatch_brief(
         .pointer("/host_pressure/warning")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    let suggestion = pressure
-        .as_ref()
-        .and_then(|_| auto_peer(hub, &brief))
-        .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
+    let suggestion = match &pressure {
+        Some(_) => auto_host(hub, &brief).await.ok().flatten(),
+        None => None,
+    }
+    .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
     let row = hub
         .briefs
         .update(&id, |r| {
@@ -1097,6 +1087,11 @@ async fn dispatch_request(
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
+        // Names every machine and its numbers: this machine's own clients only.
+        "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
+            "_acpmux/place answers on this machine's unix socket only",
+        )),
+        "_acpmux/place" => Ok(super::place::place(hub, &params).await),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());

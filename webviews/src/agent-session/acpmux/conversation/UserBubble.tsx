@@ -24,6 +24,8 @@ import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
+import { InlinePromptContent } from "./InlinePromptContent";
+import { promptContentParts, isInterleaved } from "./promptContent";
 import {
   ForkButton,
   forkWithFeedback,
@@ -53,6 +55,9 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
+  const orderedParts = useMemo(() => promptContentParts(row), [row]);
+  // Text alone keeps the plain bubble (PromptText's collapse and height); media makes it ordered.
+  const hasOrderedParts = isInterleaved(orderedParts);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
@@ -72,12 +77,21 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   }
   return (
     <>
-      {row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {!hasOrderedParts && row.images && row.images.length > 0 && <SentImages images={row.images} />}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
-      {text.trim() && (
+      {(hasOrderedParts || text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
-          <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          {hasOrderedParts ? (
+            <InlinePromptContent
+              rowId={row.id}
+              parts={orderedParts}
+              show={show}
+              renderImage={(image) => <SentImage image={image} />}
+            />
+          ) : (
+            <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          )}
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
         </div>
@@ -179,11 +193,11 @@ export function sentImageWidth(size: { width?: number; height?: number }): numbe
 /// from its first frame when its size is known (the pane sent it, it drew before, its header says
 /// it), and says "Couldn't load image" when the image cannot be drawn. An image acpmux no longer
 /// has shows nothing. It fades in on its first draw only.
-const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
+export const SentImage = memo(function SentImage({ image }: { image: PromptImage }) {
   const t = useT();
   const { promptImage } = useContext(TurnActionsContext);
   const openImage = useContext(ImageViewerContext);
-  const shown = useStableImage({ id: image.id, read: promptImage }, image);
+  const shown = useStableImage(image.src ? { src: image.src } : { id: image.id, read: promptImage }, image);
   const [failed, setFailed] = useState<string>();
   if (shown.status === "missing") return null;
   const width = sentImageWidth(shown);
