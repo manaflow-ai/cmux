@@ -109,12 +109,17 @@
     72ms
   );
 }
-.acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__bar {
-  animation: acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards;
-  animation: acpmux-minimap-tick-in var(--cmux-motion-micro) var(--acpmux-minimap-spring) var(--acpmux-minimap-stagger) backwards;
-}
-.acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__dot {
-  animation: acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards;
+/* Only while the system allows motion: the media query, not a later override, so turning Reduce
+   Motion on with the rail mounted stops the entrance for every tick added after (the rail's own
+   `data-reduce` is read only at mount, hover and focus). */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__bar {
+    animation: acpmux-minimap-tick-in var(--cmux-motion-micro) cubic-bezier(0.25, 1, 0.5, 1) var(--acpmux-minimap-stagger) backwards;
+    animation: acpmux-minimap-tick-in var(--cmux-motion-micro) var(--acpmux-minimap-spring) var(--acpmux-minimap-stagger) backwards;
+  }
+  .acpmux-minimap__rail:not(.acpmux-scrollmap) .acpmux-minimap__dot {
+    animation: acpmux-minimap-dot-in var(--cmux-motion-micro) ease-out var(--acpmux-minimap-stagger) backwards;
+  }
 }
 @keyframes acpmux-minimap-tick-in {
   from {

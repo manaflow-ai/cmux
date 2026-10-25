@@ -87,12 +87,18 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
   /// A tick's bar and dot as drawn once its entrance is over: color and opacity.
   const look = (page: Page, index: number) =>
     page.evaluate(async (at) => {
-      await Promise.all(
-        document
+      // Until nothing is left running over two painted frames: the lit band's color glide can start
+      // a frame after the scroll that moves it.
+      const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      for (let tries = 0; tries < 30; tries++) {
+        const running = document
           .getAnimations()
-          .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity)
-          .map((animation) => animation.finished.catch(() => undefined)),
-      );
+          .filter((animation) => animation.effect?.getComputedTiming().endTime !== Infinity);
+        await Promise.all(running.map((animation) => animation.finished.catch(() => undefined)));
+        await frame();
+        await frame();
+        if (document.getAnimations().every((animation) => animation.playState !== "running")) break;
+      }
       const tick = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!;
       const bar = getComputedStyle(tick.querySelector(".acpmux-minimap__bar")!);
       const dotNode = tick.querySelector(".acpmux-minimap__dot");
@@ -179,6 +185,33 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
       expect(delays[index]!).toBeGreaterThanOrEqual(delays[index - 1]!);
     expect(delays.at(-1)!).toBeGreaterThan(delays[0]!);
     expect(Math.max(...delays)).toBeLessThanOrEqual(80);
+    await page.close();
+  });
+
+  // The system preference turned on with the rail already mounted: the rail's own check ran at mount
+  // (motion allowed), so only the stylesheet can stop the entrance of a tick added after.
+  test("a tick added after Reduce Motion turns on, with the rail mounted, does not animate in", async () => {
+    const page = await open({ hold: true });
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const more = [
+      ...rows,
+      row("user-19", "user", "Reply with only the word ok and the number 19. No tools."),
+      row("answer-19", "assistant", "ok 19\n\nA second paragraph so the turn has some height."),
+      row("summary-19", "turnSummary", undefined, { status: "completed", durationMs: 1_000 }),
+    ];
+    await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), more);
+    await page.waitForSelector('[data-tick="18"]');
+    const state = await page.evaluate(() => {
+      const bar = document.querySelector<HTMLElement>('[data-tick="18"] .acpmux-minimap__bar')!;
+      return {
+        reduce: document.querySelector(".acpmux-minimap__rail")!.hasAttribute("data-reduce"),
+        animations: bar
+          .getAnimations()
+          .filter((entry) => (entry as CSSAnimation).animationName?.startsWith("acpmux-minimap-")).length,
+      };
+    });
+    // The rail has not rechecked (no hover or focus), so this is the stylesheet's doing.
+    expect(state).toEqual({ reduce: false, animations: 0 });
     await page.close();
   });
 
