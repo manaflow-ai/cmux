@@ -14,7 +14,7 @@ struct IconAssetStore {
     /// The store of `daemon`, or nil when it has no blob store (an older or remote daemon): the
     /// picker then keeps its Image and SVG tabs off.
     @MainActor static func owner(_ daemon: DaemonService?) -> IconAssetStore? {
-        guard let daemon, daemon.supports(DaemonCapabilities.iconAssets) else { return nil }
+        guard let daemon, daemon.supports(DaemonCapability.iconAssets.rawValue) else { return nil }
         return IconAssetStore { [weak daemon] mediaType, data in
             guard let connection = daemon?.connection else { throw DaemonError.notConnected }
             return try await IconAssetClient(connection).put(mediaType: mediaType, data: data).icon

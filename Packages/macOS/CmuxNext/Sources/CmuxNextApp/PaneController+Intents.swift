@@ -155,7 +155,7 @@ extension PaneController {
     /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
     /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
     /// the daemon's terminal, as before.
-    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?,
+    private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
                                    keys: CreationInputBuffer.Ticket?, window: NSWindow?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
@@ -299,8 +299,8 @@ extension PaneController {
         let surface = tab.surface
         // `tab.pin`/`tab.unpin` on a daemon with state resources.
         let resource = daemon.store.servesStateResources ? tab.resourceID : nil
-        guard resource != nil || daemon.supports(DaemonCapabilities.tabMetadata) else {
-            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.tabMetadata))
+        guard resource != nil || daemon.supports(DaemonCapability.tabMetadata.rawValue) else {
+            services.registry.refuse(daemon.missingCapabilityMessage(DaemonCapability.tabMetadata.rawValue))
             return
         }
         services.registry.track(Task { [services] in
@@ -369,7 +369,9 @@ extension PaneController {
         let registry = services.registry
         switch target {
         case .tab(let id, let selection):
-            select(id) // one of the selected tabs keeps the selection (TabMultiSelection)
+            // Building the menu selects nothing and moves no focus (#24913: the selection's focus
+            // move made a Chromium page window key inside the right-click). The rows act on the
+            // right-clicked tab, or on the selection it is one of (`AppActionContext.actionTabs`).
             return Self.tabMenu(id.rawValue, tab: tab(id), keepsTab: TabPromotion.staysPut(tab: id.rawValue, in: workspace?.workspace),
                                 sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services),
                                 registry: registry, selectionPins: selection.count > 1 ? stripModel.pinsAll(selection) : nil).themeRows(in: view.themeScope.fullStrength)

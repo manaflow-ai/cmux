@@ -13,6 +13,7 @@ import { CHIEF_VM_MJS } from "./chief-vm-source.ts"
 import { stageAttachments } from "./attachments.ts"
 import { mergeTurnFiles, toolsOf } from "./tools.ts"
 import { githubLine, githubOf } from "./github.ts"
+import { wakeCall } from "./wake.ts"
 import { BOOT_MS, CcError, RUN_MS, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -83,6 +84,8 @@ Network: by default you reach the public Internet over IPv4 and IPv6 with DNS, a
 addresses and other local ports are closed. \`chief-net show\`, \`chief-net set internet=on|off dns=on|off
 tailnet=on|off local=on|off\`, \`chief-net allow|deny|unallow|undeny HOST-OR-RANGE...\`, \`chief-net reset\`
 change it for this machine at once and for your next turns.
+Timers: \`chief-wake SECONDS "note"\` (30 s to 24 h) wakes you later with "[wake] note" as a new turn; \`chief-wake
+list|clear\`. Use it to come back to something (a sign-in code that ends, a deploy) instead of waiting.
 Your own tools: \`chief-tools put PATH FILE\` keeps a file for all your next turns and writes it here now;
 \`chief-tools ls\`, \`chief-tools rm PATH\`. PATH is .local/bin/NAME (a command on your PATH),
 .claude/skills/NAME/SKILL.md (a skill), .claude/agents/NAME.md or .chief/tools/...; at most 64 KB a file,
@@ -392,6 +395,8 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   // The Chief's `chief-tools` (tools.ts): its own tools, kept per Chief for its next turns.
   const action = (body.vm as { action?: unknown } | null | undefined)?.action
   if (typeof action === "string" && action.startsWith("tools_")) return toolsOf(b.doEnv, b.config().agent!).ccTools(body.vm)
+  // The Chief's `chief-wake` (wake.ts): a timer on this conversation that starts a turn later.
+  if (typeof action === "string" && action.startsWith("wake_")) return wakeCall(b, b.turnConversation ?? "", body.vm)
   // The Chief's `chief-github` (github.ts): its own GitHub login, kept per Chief.
   if (typeof action === "string" && action.startsWith("github_")) return githubOf(b.doEnv, b.config().agent!).ccGithub(b.config().agent!, body.vm, true)
   // The Chief's `chief-vm` (chief-turn-runner): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`

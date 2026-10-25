@@ -481,10 +481,26 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: a paired client machine's Full access on or off, then re-read the host lists. */
+  async setDeviceFullAccess(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.full_access", { id, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });
     await this.refreshHost();
+  }
+
+  /** Settings > Server: Restart… opens the host's confirm for one server; nothing restarts without it. */
+  async restartServer(kind: string, host: string | null): Promise<void> {
+    await this.request("cmux.settings.server.restart", { kind, host });
+  }
+
+  /** Settings > Server: Pair opens the Server panel's pairing card. */
+  async pairServer(): Promise<void> {
+    await this.request("cmux.settings.server.pair", {});
   }
 
   /** Settings > Mobile: this Mac was removed; allow iPhone connections again, then re-read the host lists. */

@@ -2,6 +2,7 @@
 /* The chat header's height (.acpmux-header); the Inspector over the chat starts under it (inspector/inspector.css). */
 .acpmux-shell{--acpmux-header-height:44px}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:hidden}
+.acpmux-transcript-after-latest{flex:none;min-width:0}
 
 .acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
 .acpmux-diff-empty-edit{padding:8px 16px;color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}
@@ -34,7 +35,6 @@
 .ui-popup.ui-context-menu{max-width:min(360px,calc(100vw - 8px))}
 .ui-context-menu .ui-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
-@media (prefers-reduced-motion:no-preference){.ui-popup.ui-context-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
@@ -103,7 +103,6 @@
 .acpmux-context-ring svg{width:12px;height:12px}
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
 /* Send, Stop and ↵ are plain line glyphs in the secondary text color (--agent-muted), as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's; then: the secondary text color, only a hover background): no fill, no ring; hover takes the mic's soft pill and keeps the glyph's color (composerStates.css). */
@@ -592,6 +591,7 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-instructions-notice button[data-notice-action=dismiss]{background:transparent;color:var(--agent-muted)}
 .acpmux-composer{flex-wrap:wrap}.acpmux-composer-dropping .acpmux-composer-box{border-color:var(--agent-accent)}
 .acpmux-switch-notice{display:block;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 6px;color:var(--agent-muted);font-size:12px;line-height:16px}
+.acpmux-newtab-folder-ask{position:relative;z-index:var(--layer-raised,2);padding-top:8px}
 .acpmux-folder-choice-button{padding:0;border:0;background:none;color:var(--agent-accent,inherit);font:inherit;text-decoration:underline;cursor:pointer}
 /* Agent question card (question/QuestionCard.tsx), after the Claude app's (Leo 2026-10-19): an amber "Needs your input" pill over a rounded card whose header strip is the question; radio (or checkbox) rows with a bold label and a muted description, divided by hairlines; Other types inline; Skip and Submit (⌘↩) at the bottom right. The app's gray language otherwise: the highlighted row is a soft fill, Submit is the text color inverted. Previews sit beside the list and wrap under it when narrow. appearance.borders none drops the edge (--acpmux-question-edge). */
 /* Needs your input: one mark for a chat that waits on the user, on every surface (the question card's pill, the Needs you dot, badge and pill, the sidebar and Chief dock marks, the status lines). It is the theme's attention colour, which the app sends as --agent-warning (AgentPaneTheme.swift, tokens.attention), the same Palette.attention the native sidebar, tabs and priority rows draw; never the accent, which a grey-accent theme turns into the idle grey. test/needs-input-mark-color.test.ts reads every surface. */
@@ -678,8 +678,6 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A single permission card's receipt (permissions/record.ts): one muted line where it was answered. */
 .acpmux-permission-record{padding:4px 2px;color:var(--agent-muted);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
-/* Menus and popovers open from their trigger (ui/popupSurface.css), only when motion is allowed. */
-@media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 
 /* Keep the legacy cascade and slash surfaces on the same surface as Base UI's Menu and Popover: the
    liquid glass (.ui-glass, ui/popupSurface.css), whose frost keeps the transcript under it from
@@ -730,8 +728,9 @@ fieldset.acpmux-question[hidden]{display:none}
 
 /* A permission ask (PermissionCard.tsx), after Claude Code desktop's prompt: a compact glass card
    (.ui-glass, src/ui/glass/glass.css) with the tool's glyph and what the call does, the command in
-   mono clamped to two lines (Show full command opens it in a scrolling block), and a row of buttons:
-   Allow once filled with the accent, Always allow and Deny quiet. */
+   mono clamped to two lines (Show full command opens it in a scrolling block), and one row of short
+   buttons of one size (equal cells, a full row only when it cannot hold them all): Allow once filled with the accent, Always allow, Deny and any other option
+   quiet. What they cover is one muted line under them, cut with an ellipsis (its title has it whole). */
 .acpmux-permission-card.acpmux-permission-ask{border:0;border-radius:12px;padding:12px;background:var(--glass-tint);--glass-elevation:var(--elevation-1)}
 .acpmux-permission-request{display:flex;flex-direction:column;gap:6px;min-width:0}
 .acpmux-permission-request-head{display:flex;align-items:center;gap:8px;min-width:0}
@@ -746,20 +745,20 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
-.acpmux-permission-ask .acpmux-permission-buttons{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
-.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;gap:6px;min-height:26px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25}
+.acpmux-permission-ask .acpmux-permission-buttons{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,10em),1fr));max-width:calc(var(--permission-answers,3)*10.5em);align-items:center;gap:6px;margin-top:10px}
+.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:26px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base));font-weight:500}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-permission-ask .acpmux-permission-action-shortcut{margin:0;opacity:1}
-.acpmux-permission-always-scope{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;overflow-wrap:anywhere}
-/* Options beyond the three answers (a second grant, Codex's "No, continue without running it"), by their own names. */
-.acpmux-permission-others{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px}
-.acpmux-permission-others button{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
-.acpmux-permission-others button:hover{color:var(--agent-text)}
-.acpmux-permission-others button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
-.acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-description{color:color-mix(in srgb,currentColor 72%,transparent);font-size:var(--text-caption);line-height:1.3}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity var(--cmux-motion-micro)}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
+.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0;opacity:1}
+.acpmux-permission-ask .acpmux-permission-action-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* An option beyond the three answers keeps a short label: a long agent name is cut, so one option never widens them all. */
+.acpmux-permission-ask .acpmux-permission-other .acpmux-permission-action-label{max-width:14ch}
+/* Read by screen readers only: clipped to nothing, still in the accessibility tree. */
+.acpmux-permission-sr-only{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
+.acpmux-permission-ask .acpmux-permission-scope{margin:6px 0 0;font-size:var(--text-caption);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity var(--cmux-motion-micro)}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
 .acpmux-permission-panel .acpmux-permission-action-shortcut{opacity:1}
 /* Deny with what to do instead (PermissionCard.tsx): Deny opens a field in the card. */
 .acpmux-permission-feedback{display:flex;flex-direction:column;gap:6px;margin-top:8px}

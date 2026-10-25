@@ -58,10 +58,21 @@ public nonisolated final class HomeSidebarLaunchCache: Sendable {
         self.url = url
     }
 
-    /// `Caches/cmux-home/<owner>/sidebar.json`, beside the conversations' `HomeCache` of the same owner.
+    /// `Caches/cmux-home/<owner>/sidebar.json` in the user's Caches folder, beside the conversations'
+    /// `HomeCache` of the same owner.
     public static func standard(owner: String) -> HomeSidebarLaunchCache {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        return standard(owner: owner, caches: caches)
+    }
+
+    /// `<caches>/cmux-home/<owner>/sidebar.json`, beside the conversations' `HomeCache` of the same owner.
+    ///
+    /// - Parameters:
+    ///   - owner: The Chief owner the cache belongs to.
+    ///   - caches: The folder that holds the Home caches (the user's Caches folder in the app).
+    /// - Returns: The cache at that path.
+    public static func standard(owner: String, caches: URL) -> HomeSidebarLaunchCache {
         let component = String(owner.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" })
         return HomeSidebarLaunchCache(url: caches.appendingPathComponent("cmux-home/\(component)/sidebar.json"))
     }

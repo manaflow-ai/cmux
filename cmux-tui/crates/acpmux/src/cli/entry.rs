@@ -179,6 +179,27 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Task(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::task::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Resolve { query }) => {
+            let json_out = cli.json;
+            match crate::cli::resolve::run(query, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Bead(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::beads::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Forum(cmd)) => {
             let json_out = cli.json;
             match crate::cli::forum::run(cmd, json_out).await {

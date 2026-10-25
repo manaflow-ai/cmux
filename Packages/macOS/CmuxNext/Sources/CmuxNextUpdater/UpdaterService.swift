@@ -1,5 +1,5 @@
 public import CmuxUpdater
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Network
 public import Foundation
 import Observation
@@ -19,6 +19,9 @@ import Observation
 @Observable
 public final class UpdaterService {
     public let identity: UpdateBuildIdentity
+    /// The blocking-work lanes the kept-versions listing runs on (the app's one, AppServices; tests and
+    /// previews get lanes of their own).
+    let work: BackgroundWork
     public let log: UpdateLogBuffer
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
@@ -63,6 +66,8 @@ public final class UpdaterService {
     /// The installing card's one-second tick, only while an install runs.
     @ObservationIgnored let installTimer: DemandTimer
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
+    /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
+    @ObservationIgnored let tipCheck: TipUpdateCheck
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -155,7 +160,7 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?
     #endif
@@ -200,12 +205,15 @@ public final class UpdaterService {
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
-                clock: any Clock<Duration> = ContinuousClock()) {
+                clock: any Clock<Duration> = ContinuousClock(),
+                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
         self.now = now
+        self.work = work
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
         stagedRefresh = StagedUpdateRefresh(clock: clock)
+        tipCheck = TipUpdateCheck(clock: clock)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -220,7 +228,9 @@ public final class UpdaterService {
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {
-            let controller = UpdateController(log: log, defaults: defaults, isDisabledByPolicy: { policy.disablesUpdates })
+            // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
+            let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
+                                              isDisabledByPolicy: { policy.disablesUpdates })
             // Never prompt: download in the background and wait for a click.
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
@@ -230,14 +240,15 @@ public final class UpdaterService {
             controller.holdsUserInstalls = false
             // The nightly feed lists each build's deltas minutes after its DMG
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
-            // waits once instead of downloading the full DMG.
-            if identity.track == .nightly { controller.pendingDeltaWindow = 45 * 60 }
+            // waits once instead of downloading the full DMG. The tip feed lists an
+            // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
+            if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
             // A nightly installs a downloaded update by itself once agents, commands and input
             // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
             controller.installsUpdatesWhenIdle = identity.track == .nightly
             self.controller = controller
         } else {
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             controller = enableSparkle ? UpdateHarness.current?.controller(identity: identity, log: log, defaults: defaults, policy: policy) : nil
             #else
             controller = nil
@@ -271,6 +282,7 @@ public final class UpdaterService {
         refreshAnnouncements()
         refreshTip()
         refreshUpdateSnooze()
+        tipCheck.refresh(self)
         guard let controller else {
             log.append("sparkle not started (\(disabledReason?.rawValue ?? "no driver"), track=\(identity.track.rawValue))")
             return
@@ -278,7 +290,7 @@ public final class UpdaterService {
         controller.actionDelegate = self
         pulledWatch.start(controller: controller)
         controller.startUpdaterIfNeeded()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if UpdateHarness.current?.backgroundCheck == true {
             UpdateHarness.mark("background_check")
             controller.checkInBackground()
@@ -375,7 +387,7 @@ public final class UpdaterService {
     /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
         if needsSheet { presentUpdateUI?() }

@@ -15,6 +15,8 @@ import { BackgroundTaskNote } from "./BackgroundTaskNote";
 import {
   BACKGROUND_TAIL_BYTES,
   BackgroundTaskOutputContext,
+  readBackgroundTaskOutput,
+  tailLines,
   type BackgroundTaskOutputReader,
 } from "./backgroundTaskOutput";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
@@ -305,4 +307,28 @@ test("a task the registry does not list still opens with its command and nothing
   expect(container.querySelector(".cv-shell__command")!.textContent).toBe("$ pytest -x");
   expect(container.querySelector(".cv-shell__output")).toBeNull();
   expect(container.querySelector(".cv-shell__exit")).toBeNull();
+});
+
+test("a known process id wins over a reused tool call id", async () => {
+  const bytes = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+  const reader: BackgroundTaskOutputReader = {
+    sessionId: "s1",
+    source: {
+      listProcesses: async () => ({
+        processes: [
+          { id: "s1/old", toolCallId: "bg", harness: "claude", state: "running" },
+          { id: "s1/new", toolCallId: "bg", harness: "claude", state: "running" },
+        ],
+      }),
+      tailProcess: async (processId) => ({ data: bytes(processId), fromByte: 0 }),
+    },
+  };
+  const output = await readBackgroundTaskOutput(reader, "bg", "s1/old");
+  expect(output.output).toBe("s1/old");
+});
+
+test("a live tail keeps the last lines and removes terminal control escapes", () => {
+  expect(
+    tailLines("first\n\u001b]8;;https://example.test\u0007\u001b[31msecond\u001b[0m\u001b]8;;\u0007\nthird\n", 2),
+  ).toBe("second\nthird");
 });

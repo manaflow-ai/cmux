@@ -17,7 +17,7 @@ public struct NewColumnCommand: Sendable {
 
     /// Whether `daemon` takes the optimistic column: it serves the client keys.
     @MainActor public func isOptimistic(on daemon: DaemonService) -> Bool {
-        PaneSplitCommand.optimisticSplitEnabled && daemon.supports(DaemonCapabilities.splitClientKeys)
+        PaneSplitCommand.optimisticSplitEnabled && daemon.supports(DaemonCapability.splitClientKeys.rawValue)
     }
 
     /// Sends the column and returns the new surface (the reply path).

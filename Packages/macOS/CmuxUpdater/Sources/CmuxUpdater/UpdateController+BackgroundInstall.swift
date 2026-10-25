@@ -7,7 +7,11 @@ extension UpdateController {
     /// Whether found updates download without a prompt and wait staged for the user.
     public var installsUpdatesInBackground: Bool {
         get { driver.installsInBackground }
-        set { driver.installsInBackground = newValue }
+        set {
+            driver.installsInBackground = newValue
+            guard newValue, disableSparkleSilentStagingIfNeeded() else { return }
+            log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
+        }
     }
 
     /// Whether a staged background update should enter the safe idle relaunch gate automatically.
@@ -59,6 +63,13 @@ extension UpdateController {
     /// the click ends in a visible error that offers a manual download, never a dead button.
     public func installStagedUpdate() {
         if driver.installStaged() {
+            armStagedInstallWatchdog()
+            return
+        }
+        if case .installing(let installing) = model.state, installing.relaunchBlockers != nil {
+            // An automatic install the relaunch gate holds: the click is Install Now.
+            log.append("background install: click on a held relaunch; installing now")
+            installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
             return
         }

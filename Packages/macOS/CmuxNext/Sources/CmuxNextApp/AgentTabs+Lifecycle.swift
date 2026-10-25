@@ -77,7 +77,7 @@ extension AgentTabStore {
         let provisional = ProvisionalTab()
         let key = provisional.id, snapshot = provisional.conversation(ConversationTabRef(agentSession: record))
         let splitPane = split.map { ($0, ProvisionalPane(holding: snapshot)) }
-        let sendsSplitID = daemon.supports(DaemonCapabilities.splitClientSplitID)
+        let sendsSplitID = daemon.supports(DaemonCapability.splitClientSplitID.rawValue)
         let store = daemon.store
         store.onTabCreated = { [weak self] provisional, tab in
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
@@ -279,7 +279,10 @@ extension AgentTabStore {
 
     /// The tab already resuming the outside chat `adopt` while a tree lists it.
     func tab(resuming adopt: AgentPaneAdopt) -> String? {
-        guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"], isAgentTab(key) else { return nil }
+        guard let key = adoptions["\(adopt.harness):\(adopt.agentSessionId)"],
+              let (record, store) = lookup(key), isAgentTab(key),
+              case .connected = store.connectionState,
+              record.host == localHost else { return nil }
         return key
     }
 
@@ -336,31 +339,26 @@ extension AgentTabStore {
     /// with a live tree. While the daemon is away its tabs keep their views; a tab the tree has
     /// not listed yet (its creation just answered) is kept.
     func releaseGoneTabs(in store: DaemonStore) {
-        guard let live = Self.liveTabs(store) else { return }
+        guard store.liveTabListRevision != nil else { return }
         for (key, owner) in tabStores where owner === store {
-            if live.contains(key) {
+            if store.liveTreeLists(tab: key) == true {
                 seenLive.insert(key)
             } else if seenLive.contains(key) {
                 release(key)
             }
         }
-        aliases = aliases.filter { live.contains($0.key) || !ProvisionalTab.isProvisional($0.key) }
-    }
-
-    static func liveTabs(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
+        aliases = aliases.filter { store.liveTreeLists(tab: $0.key) == true || !ProvisionalTab.isProvisional($0.key) }
     }
 
     /// Follows tab `key` in `store`'s tree, so its view state goes when the tree drops it.
     func track(_ key: String, in store: DaemonStore) {
         tabStores[key] = store
-        if Self.liveTabs(store)?.contains(key) == true { seenLive.insert(key) }
+        if store.liveTreeLists(tab: key) == true { seenLive.insert(key) }
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once no tab belongs to the store
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ Self.liveTabs(store) }) where live != nil {
+            for await revision in ObservationStream({ store.liveTabListRevision }) where revision != nil {
                 guard let self else { return }
                 self.releaseGoneTabs(in: store)
             }

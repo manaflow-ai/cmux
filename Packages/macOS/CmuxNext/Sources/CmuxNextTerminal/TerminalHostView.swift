@@ -253,10 +253,40 @@ public final class TerminalHostView: NSView {
         return max(0, hostWidth - reserved)
     }
 
-    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay).
+    /// The surface's frame: the host, less a legacy scroller's strip (none: the scroller is overlay). While
+    /// a pane's layout spring runs, the surface keeps the size it will rest at (``holdSurface(size:anchor:)``),
+    /// pinned to the area's top or bottom edge; the host clips it and paints the terminal background beside it.
     private var surfaceFrame: CGRect {
         let area = terminalBounds
+        if let hold = surfaceHold {
+            let y = hold.anchor == .bottom ? area.minY : area.maxY - hold.size.height
+            return CGRect(x: area.minX, y: y, width: hold.size.width, height: hold.size.height)
+        }
         return CGRect(x: area.minX, y: area.minY, width: max(0, area.width - scroller.reservedWidth), height: area.height)
+    }
+
+    /// The size the surface takes in a host of `hostSize` points: less the accessory's strip and a legacy
+    /// scroller's.
+    func surfaceSize(forHostSize hostSize: CGSize) -> CGSize {
+        CGSize(width: max(0, hostSize.width - scroller.reservedWidth), height: max(0, hostSize.height - accessoryHeight))
+    }
+
+    /// The surface's size and edge while its pane's layout spring runs; nil at rest.
+    private var surfaceHold: (size: CGSize, anchor: PaneMotionAnchor)?
+
+    /// Keeps the surface at `size`, the size it will have when its pane's layout spring lands (a split or a
+    /// close, Lawrence 2026-10-23): the terminal draws its final grid on every frame of the spring and reflows
+    /// once, not once per frame. `anchor`: the edge it rides (the bottom keeps a prompt on the last row in view).
+    func holdSurface(size: CGSize, anchor: PaneMotionAnchor) {
+        surfaceHold = (size, anchor)
+        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
+    }
+
+    /// The spring landed: the surface takes the host's area again (the same size, unless the landing differs).
+    func releaseSurfaceHold() {
+        guard surfaceHold != nil else { return }
+        surfaceHold = nil
+        if let current, current.frame != surfaceFrame { current.frame = surfaceFrame }
     }
 
     public override func layout() {

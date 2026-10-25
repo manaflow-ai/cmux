@@ -229,6 +229,13 @@ export function ContextMenu({
         const shown = items;
         native({ items: rows, point: at }).then(
           (reply) => {
+            // An older legacy bridge can acknowledge an unknown method with a successful null
+            // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
+            // page menu so a right-click never disappears without an actionable surface.
+            if (!reply || typeof reply !== "object" || !("picked" in reply)) {
+              setPoint(at);
+              return;
+            }
             const chosen = shown.find((item) => item.id === pickedId(reply));
             if (chosen) run(chosen);
             else close(true);

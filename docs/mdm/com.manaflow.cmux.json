@@ -134,6 +134,12 @@
       "title" : "Show Dictation Button",
       "type" : "boolean"
     },
+    "agentPane.spellChecking" : {
+      "default" : false,
+      "description" : "Underlines misspellings and offers system suggestions in the composer.",
+      "title" : "Check Spelling While Typing",
+      "type" : "boolean"
+    },
     "agentPane.zoom" : {
       "default" : 1,
       "description" : "The display size for agent chat. Cmd-0 resets it.",
@@ -1705,9 +1711,10 @@
       "type" : "boolean"
     },
     "diff.layout" : {
-      "default" : "unified",
+      "default" : "auto",
       "description" : "diff.layout",
       "enum" : [
+        "auto",
         "split",
         "unified"
       ],
@@ -1724,6 +1731,12 @@
       "default" : true,
       "description" : "diff.showBackgrounds",
       "title" : "Change Backgrounds",
+      "type" : "boolean"
+    },
+    "diff.showBulkActions" : {
+      "default" : true,
+      "description" : "diff.showBulkActions",
+      "title" : "Stage All and Revert All Bar",
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
@@ -2211,7 +2224,7 @@
       "type" : "string"
     },
     "focusRing.enabled" : {
-      "default" : true,
+      "default" : false,
       "description" : "focusRing.enabled",
       "title" : "Show Focus Ring",
       "type" : "boolean"
@@ -2527,6 +2540,16 @@
       "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
       "title" : "Scroll Areas",
       "type" : "boolean"
+    },
+    "layout.scrollModifier" : {
+      "default" : "command",
+      "description" : "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.",
+      "enum" : [
+        "command",
+        "none"
+      ],
+      "title" : "Scroll Columns and Rows With",
+      "type" : "string"
     },
     "layout.splitSizing" : {
       "default" : "even",
@@ -4190,6 +4213,12 @@
       "title" : "Show Recent Chats on New Tab",
       "type" : "boolean"
     },
+    "tabs.newTabWidgets.clock" : {
+      "default" : false,
+      "description" : "A quiet local time display beside the composer.",
+      "title" : "Show Clock on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabWidgets.greeting" : {
       "default" : false,
       "description" : "A headline over the composer that asks what to work on, with the project as a picker.",
@@ -4226,10 +4255,28 @@
       "title" : "Show Projects on New Tab",
       "type" : "boolean"
     },
+    "tabs.newTabWidgets.quote" : {
+      "default" : false,
+      "description" : "A bundled public-domain quote, changing daily.",
+      "title" : "Show Quote of the Day on New Tab",
+      "type" : "boolean"
+    },
     "tabs.newTabWidgets.styleDots" : {
       "default" : false,
       "description" : "Dots under the page that switch its template.",
       "title" : "Show Template Dots on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.timer" : {
+      "default" : false,
+      "description" : "A small elapsed-time stopwatch beside the composer.",
+      "title" : "Show Stopwatch on New Tab",
+      "type" : "boolean"
+    },
+    "tabs.newTabWidgets.warmGreeting" : {
+      "default" : false,
+      "description" : "A time-of-day greeting such as Good afternoon.",
+      "title" : "Show Warm Greeting on New Tab",
       "type" : "boolean"
     },
     "tabs.newTabWidgets.weather" : {
