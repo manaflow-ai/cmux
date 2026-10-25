@@ -471,6 +471,7 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
@@ -537,7 +538,7 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
-            briefs: dispatch::Briefs::open(),
+            briefs,
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -551,6 +552,7 @@ impl Hub {
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
             hub.watch_titles();
+            hub.watch_orphans();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
