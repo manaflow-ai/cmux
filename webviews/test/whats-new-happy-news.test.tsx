@@ -96,7 +96,8 @@ test("a pull request's screenshot is not a clip: it leads as before", () => {
   const doc = render(v);
   expect([...doc.querySelectorAll(".cln-clip .cln-clip-title")].map((t) => t.textContent)).toEqual(["Title n2"]);
   expect(doc.body.textContent).toContain("Title hero");
-  expect(doc.querySelector(`img[src="${screenshot.light}"]`)).toBeNull();  // the hero leads in words beside clips
+  expect(doc.querySelector(`.cln-clip img[src="${screenshot.light}"]`)).toBeNull();
+  expect(doc.querySelector(`img[src="${screenshot.light}"]`)).not.toBeNull();  // the hero keeps its picture
 });
 
 test("the lead layout: the changes with pictures lead, up to three; the rest are cards; Fixed is one line", () => {
