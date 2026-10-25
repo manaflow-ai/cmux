@@ -25850,6 +25850,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "open-remote",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "remote.openRemote",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.remote",
+        "order" : 111,
+        "title" : "Remote Machines",
+        "title_key" : "category.remote",
+        "title_table" : "RemoteActions"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Remote Terminal",
+      "title_key" : "action.remote.openRemote",
+      "title_table" : "RemoteActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "remote reconnect",
       "context_menu" : "offered",
       "context_menus" : [
@@ -28049,6 +28077,34 @@
       "palette_suggested" : null,
       "title" : "Toggle Action Latency HUD",
       "title_key" : "action.debug.actionLatencyHUD",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-blocking-calls-reset",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.blockingCalls.reset",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reset Main-Thread Blocking Counts",
+      "title_key" : "action.debug.blockingCalls.reset",
       "title_table" : "ActionCatalog"
     },
     {
@@ -38750,14 +38806,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "remote.openRemote",
+              "kind" : "action",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "remoteHosts",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 6
+              "order" : 7
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.newSimulatorPane",
               "kind" : "action",
-              "order" : 7,
+              "order" : 8,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38768,7 +38837,7 @@
             },
             {
               "kind" : "separator",
-              "order" : 8
+              "order" : 9
             },
             {
               "choices" : {
@@ -38804,7 +38873,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.setBackground",
               "kind" : "choices",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38883,7 +38952,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.setTint",
               "kind" : "choices",
-              "order" : 10,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38896,7 +38965,7 @@
               "enabled_when" : "can_perform",
               "id" : "pane.clearBackground",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -38907,24 +38976,11 @@
             },
             {
               "kind" : "separator",
-              "order" : 12
+              "order" : 13
             },
             {
               "enabled_when" : "can_perform",
               "id" : "pane.moveToNewWorkspace",
-              "kind" : "action",
-              "order" : 13,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "swapPaneLeft",
               "kind" : "action",
               "order" : 14,
               "visible_when" : {
@@ -38937,7 +38993,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "swapPaneRight",
+              "id" : "swapPaneLeft",
               "kind" : "action",
               "order" : 15,
               "visible_when" : {
@@ -38950,7 +39006,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "swapPaneUp",
+              "id" : "swapPaneRight",
               "kind" : "action",
               "order" : 16,
               "visible_when" : {
@@ -38963,7 +39019,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "swapPaneDown",
+              "id" : "swapPaneUp",
               "kind" : "action",
               "order" : 17,
               "visible_when" : {
@@ -38976,7 +39032,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "pane.moveToNewWindow",
+              "id" : "swapPaneDown",
               "kind" : "action",
               "order" : 18,
               "visible_when" : {
@@ -38989,7 +39045,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.moveLeft",
+              "id" : "pane.moveToNewWindow",
               "kind" : "action",
               "order" : 19,
               "visible_when" : {
@@ -39002,7 +39058,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "column.moveRight",
+              "id" : "column.moveLeft",
               "kind" : "action",
               "order" : 20,
               "visible_when" : {
@@ -39014,8 +39070,21 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "column.moveRight",
+              "kind" : "action",
+              "order" : 21,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 21
+              "order" : 22
             },
             {
               "children" : [
@@ -39271,20 +39340,20 @@
               ],
               "folder" : "layout",
               "kind" : "folder",
-              "order" : 22,
+              "order" : 23,
               "title" : "Layout",
               "title_key" : "menu.folder.layout",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 23
+              "order" : 24
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.swapWithSession",
               "kind" : "action",
-              "order" : 24,
+              "order" : 25,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -39297,7 +39366,7 @@
               "enabled_when" : "can_perform",
               "id" : "reconnectPane",
               "kind" : "action",
-              "order" : 25,
+              "order" : 26,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -39308,13 +39377,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 26
+              "order" : 27
             },
             {
               "enabled_when" : "can_perform",
               "id" : "triggerFlash",
               "kind" : "action",
-              "order" : 27,
+              "order" : 28,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -39328,7 +39397,7 @@
               "id" : "agentPane.togglePointerInspector",
               "kind" : "action",
               "label" : "Inspect Element",
-              "order" : 28,
+              "order" : 29,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -39339,24 +39408,11 @@
             },
             {
               "kind" : "separator",
-              "order" : 29
+              "order" : 30
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.copyPaneID",
-              "kind" : "action",
-              "order" : 30,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyPaneLink",
               "kind" : "action",
               "order" : 31,
               "visible_when" : {
@@ -39369,7 +39425,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "pane.screenshot",
+              "id" : "palette.copyPaneLink",
               "kind" : "action",
               "order" : 32,
               "visible_when" : {
@@ -39381,14 +39437,27 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "pane.screenshot",
+              "kind" : "action",
+              "order" : 33,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 33
+              "order" : 34
             },
             {
               "enabled_when" : "can_perform",
               "id" : "pane.closeOthers",
               "kind" : "action",
-              "order" : 34,
+              "order" : 35,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

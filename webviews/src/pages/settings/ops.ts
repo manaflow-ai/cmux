@@ -98,6 +98,10 @@ export type DeviceRow = {
   /** connected, offline, pending or error. */
   state: string;
   removable: boolean;
+  /** A paired client machine's Full-access setting; absent on a row without one. */
+  full_access?: boolean;
+  /** What turning Full access on allows, beside the switch. */
+  full_access_help?: string;
 };
 
 /** Settings > Devices as the app serves it (`devices` in the host lists), every text localized. */
@@ -109,6 +113,7 @@ export type DevicesHostState = {
   remove_title: string;
   remove_confirm_title: string;
   remove_help: string;
+  full_access_title: string;
   activity_title: string;
   error: string | null;
   rows: DeviceRow[];
@@ -759,6 +764,8 @@ export type SettingsOps = {
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */
   "cmux.settings.devices.remove": [{ id: string }, { error?: string }];
+  /** Native: Settings > Devices' Full access switch on a paired client machine (the person's gesture only). */
+  "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */

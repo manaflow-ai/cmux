@@ -16,6 +16,7 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -28,6 +29,8 @@ use serde_json::{Value, json};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
+use super::github::{self, TokenAsk};
+use super::github_minter::{Minter, Stop};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -194,6 +197,9 @@ struct WorkerHandle {
     control: UnixStream,
     /// Disconnects when the worker thread ends.
     done: Receiver<()>,
+    /// Set before `stop`: from then on the minter hands out no token,
+    /// even if the worker is stuck in a request past the deadline.
+    github_stop: Arc<Stop>,
 }
 
 impl CloudRole {
@@ -208,6 +214,9 @@ impl CloudRole {
     }
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
+        if let Some(worker) = self.worker.as_ref() {
+            worker.github_stop.set();
+        }
         self.send("stop");
         let Some(worker) = self.worker.take() else { return Ok(()) };
         // The worker ends after its current request (each is bounded by
@@ -239,17 +248,19 @@ impl Role for CloudRole {
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
+        let github_stop = Arc::new(Stop::default());
+        let worker_stop = Arc::clone(&github_stop);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs);
+                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop);
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
             })
             .map_err(|e| RoleError(e.to_string()))?;
-        self.worker = Some(WorkerHandle { thread, control: ours, done });
+        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop });
         Ok(())
     }
 
@@ -304,6 +315,8 @@ struct Worker {
     clients: Vec<Client>,
     activity: Activity,
     live: Option<Live>,
+    /// GitHub token asks, off the poll loop (`github_minter.rs`).
+    github: Minter<PosterHttp>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -316,6 +329,7 @@ impl Worker {
         instance_id: String,
         heartbeat_env: Option<String>,
         control: UnixStream,
+        github_stop: Arc<Stop>,
     ) -> io::Result<Worker> {
         let state_dir = paths.at(STATE_DIR);
         fs::create_dir_all(&state_dir)?;
@@ -342,6 +356,7 @@ impl Worker {
                 unsupported: false,
             },
             live: None,
+            github: Minter::spawn(wall_ms, log, github_stop)?,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -479,7 +494,15 @@ impl Worker {
     fn accept(&mut self) {
         let Some(listener) = self.listener.as_ref() else { return };
         while let Ok((stream, _)) = listener.accept() {
-            if self.clients.len() >= MAX_CLIENTS || stream.set_nonblocking(true).is_err() {
+            if self.clients.len() >= MAX_CLIENTS {
+                // A GitHub token asker gets an answer rather than an EOF.
+                let mut stream = stream;
+                let busy = github::refusal("busy", "the Cloud agent's socket is full; retry");
+                let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+                let _ = stream.write_all(format!("{busy}\n").as_bytes());
+                continue;
+            }
+            if stream.set_nonblocking(true).is_err() {
                 continue;
             }
             self.clients.push(Client { stream, buf: Vec::new() });
@@ -493,7 +516,7 @@ impl Worker {
             let Some(client) = self.clients.get_mut(i) else { continue };
             match read_available(&mut client.stream, &mut client.buf) {
                 Ok(open) => {
-                    lines.extend(take_lines(&mut client.buf));
+                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
                     if !open || client.buf.len() > MAX_LINE {
                         closed.push(i);
                     }
@@ -501,10 +524,40 @@ impl Worker {
                 Err(_) => closed.push(i),
             }
         }
-        for i in closed.into_iter().rev() {
-            self.clients.remove(i);
+        // A GitHub token ask takes its connection to the minter, which
+        // answers it with one line and closes it: one ask per connection,
+        // and the poll loop never waits on a mint.
+        let mut session_lines = Vec::new();
+        let mut asks: Vec<(usize, Result<TokenAsk, String>)> = Vec::new();
+        for (i, line) in lines {
+            // One ask per connection, and none from a client already gone:
+            // nobody would read the token.
+            if asks.iter().any(|(asker, _)| *asker == i) {
+                continue;
+            }
+            if closed.contains(&i) && github_ask(&line).is_some() {
+                continue;
+            }
+            match github_ask(&line) {
+                Some(ask) => asks.push((i, ask)),
+                None => session_lines.push(line),
+            }
         }
-        for line in lines {
+        closed.extend(asks.iter().map(|(i, _)| *i));
+        closed.sort_unstable();
+        closed.dedup();
+        let mut taken = Vec::new();
+        for i in closed.into_iter().rev() {
+            if i < self.clients.len() {
+                taken.push((i, self.clients.remove(i).stream));
+            }
+        }
+        for (i, ask) in asks {
+            if let Some(pos) = taken.iter().position(|(at, _)| *at == i) {
+                self.github.ask(ask, taken.swap_remove(pos).1);
+            }
+        }
+        for line in session_lines {
             let now = self.now();
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
@@ -587,6 +640,10 @@ impl Worker {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
             log(&format!("heartbeat test override: {heartbeat} ms (dev only)"));
+        }
+        match github_client(&bound, &key) {
+            Ok(client) => self.github.bound(client),
+            Err(e) => log(&format!("github minter: {e}")),
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -740,6 +797,21 @@ impl Worker {
         // Diagnostic only; a failed write is ignored.
         let _ = self.store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644);
     }
+}
+
+/// The minter's own client for the bound machine: the same install key,
+/// its own HTTPS poster and bearer cache.
+fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
+    let key = InstallKey::from_pkcs8(key.pkcs8(), &SystemRandom::new())?;
+    Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
+}
+
+/// The ask of a `{"github_token": {...}}` line (checked), or `None` for
+/// every other line (the session's).
+fn github_ask(line: &str) -> Option<Result<TokenAsk, String>> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    let ask = msg.get(github::REQUEST_KEY)?;
+    Some(TokenAsk::from_json(ask))
 }
 
 /// Reads what is available; `Ok(false)` at end of stream.

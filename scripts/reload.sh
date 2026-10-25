@@ -1698,8 +1698,10 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # (check-no-bench-hooks.sh).
   # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
   # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
-  SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS"
-  echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
+  # shellcheck source=cmux-next/lib/bench-swift-defines.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/cmux-next/lib/bench-swift-defines.sh"
+  SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
+  echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
 if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}" == "1" || "${CMUX_SWIFT_DISABLE_GLOBAL_ISEL:-}" == "1" ]]; then
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=1
@@ -2144,8 +2146,10 @@ fi
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
   # A startup process may not service its quit request yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; the helper forces only
-  # this tag's executables after a bounded graceful window.
+  # resource-bearing bundle while it is still mapped: the helper waits for the
+  # clean quit (it saves sessions and agent wake states), sends a second
+  # SIGTERM (the app's force exit) after a bounded window, never SIGKILLs, and
+  # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal

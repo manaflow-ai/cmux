@@ -127,6 +127,13 @@ export type Lane = {
   error: (string | null);
   /** Unix ms the state began; null when the daemon does not know. */
   since: (number | null);
+  /**
+   * A `working` lane that has stalled: since when its turn has had no tool
+   * call in flight and no sign of its model (`turn.stalledSince`); null
+   * otherwise. The state stays `working`, so a client that reads only it
+   * is unchanged.
+   */
+  stalledSince: (number | null);
   state: LaneState;
   /**
    * What the session is doing now, one line: the running turn's prompt,
@@ -550,6 +557,12 @@ export type SessionDetail = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /**
+   * Who supplied `title`: `prompt` is the first-prompt fallback, while
+   * `harness`, `generated` and `adopted` are real chat titles. Older peers
+   * may omit this field.
+   */
+  titleSource?: (string | null);
   /** The chat's tools (`hub/tools.rs`). */
   tools: ToolSummary[];
   /** `_acpmux/set_tools` can change them. */
@@ -738,6 +751,16 @@ export interface SessionsParams {
   cursor?: (string | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
+   * (its name, e.g. `huge-blue`). Empty is no filter.
+   */
+  peer?: (string | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
+   * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
+   */
+  status?: (string | null);
 }
 
 export type SessionsResult = {
@@ -776,6 +799,12 @@ export type TurnSummary = {
   planStep: (string | null);
   prompt: string;
   promptId: string;
+  /**
+   * Since when it has stalled: no tool call in flight and no sign of its
+   * model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
+   * null while it has not.
+   */
+  stalledSince: (number | null);
   startedAt: number;
   turnId: string;
   turnSeq: number;

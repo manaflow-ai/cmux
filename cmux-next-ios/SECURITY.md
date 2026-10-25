@@ -84,6 +84,17 @@ allowlist gets a local `forbidden` error line and never reaches the daemon.
     LocalApp token, so the pane-only methods stay closed.
   - The endpoint comes from the app over hostd's stdin and is never written to
     disk.
+  - **A phone's own credential.** When the app gives a paired phone its own
+    acpmux credential (`phone_credentials` on stdin; acpmux pairing role `phone`,
+    which only the person issues), that phone's channel presents it instead of
+    the dashboard token. acpmux still serves it as `Web`, with every Web rule,
+    but knows which phone it is. What hostd's phone filter refuses (a mode that
+    does not ask, a chat in one) then goes on marked
+    `_meta.acpmux.requireFullAccess`, and acpmux runs it only when that phone's
+    Full-access setting is on (Settings > Devices on the Mac, off by default,
+    off again at once when turned off or the phone is removed). Without a
+    credential, or when acpmux refuses it, the dashboard token and hostd's own
+    refusal apply as before.
 - **Executing commands.** The phone can prompt agents, and agents run commands
   on the Mac. This is the product, and it runs under acpmux's permission
   policy: tool approvals reach the phone as questions, and the agent waits for

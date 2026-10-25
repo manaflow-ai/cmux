@@ -297,7 +297,16 @@ extension FieldChrome {
     /// cmux: the field's Liquid Glass, "+" and emoji follow the theme: light
     /// glass on a light theme (the glass renders for its view's appearance),
     /// MessagesLab's dark glass and white symbols otherwise.
-    func applyTheme(light: Bool, symbol: NSColor) {
+    ///
+    /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
+    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+        field.wantsLayer = true
+        if let layer = field.layer {
+            let width: CGFloat = light && edge != nil ? 1 : 0
+            if layer.borderWidth != width { layer.borderWidth = width }
+            if let edge, light { layer.borderColor = edge.cgColor }
+        }
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         if self.appearance?.name != appearance?.name { self.appearance = appearance }
         let tint: NSColor = light ? symbol : .white
