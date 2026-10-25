@@ -57,19 +57,42 @@ static int check(uint64_t* block, size_t size, unsigned slot) {
 
 // The foreign-pointer check (see the top): 64 PartitionAlloc blocks, each reallocated and then freed
 // with its size through the delegating zone's own function pointers. 0, 4 or 5 (main's exit codes).
+static malloc_zone_t* zone_named(const char* wanted, char* names, size_t room) {
+  vm_address_t* zones = NULL;
+  unsigned count = 0;
+  malloc_zone_t* found = NULL;
+  if (names) names[0] = 0;
+  if (malloc_get_all_zones(mach_task_self(), NULL, &zones, &count) != KERN_SUCCESS) return NULL;
+  for (unsigned z = 0; z < count; z++) {
+    malloc_zone_t* zone = (malloc_zone_t*)zones[z];
+    const char* name = malloc_get_zone_name(zone);
+    if (names) {
+      strlcat(names, z ? ", " : "", room);
+      strlcat(names, name ? name : "?", room);
+    }
+    if (!found && name && strcmp(name, wanted) == 0) found = zone;
+  }
+  return found;
+}
+
 static int foreign_check(malloc_zone_t* delegating) {
   if (!delegating) {
     printf("NO VERDICT: the delegating zone was not zones[0] after its registration\n");
     return 5;
   }
+  // The blocks come from PartitionAlloc's zone itself (the framework's constructor registered it;
+  // whether malloc() reaches it before CefInitialize does not matter here).
+  char names[512];
+  malloc_zone_t* partition = zone_named("PartitionAlloc", names, sizeof names);
+  if (!partition) {
+    printf("NO VERDICT: no PartitionAlloc zone after the dlopen (zones: %s)\n", names);
+    return 5;
+  }
   for (unsigned n = 0; n < 64; n++) {
     size_t size = 0x250;
-    uint64_t* block = malloc(size);
-    if (!block) return 5;
-    malloc_zone_t* owner = malloc_zone_from_ptr(block);
-    const char* name = owner ? malloc_get_zone_name(owner) : NULL;
-    if (!name || strcmp(name, "PartitionAlloc") != 0) {
-      printf("NO VERDICT: a block after the dlopen is owned by %s, not PartitionAlloc\n", name ? name : "no zone");
+    uint64_t* block = partition->malloc(partition, size);
+    if (!block || malloc_zone_from_ptr(block) != partition) {
+      printf("NO VERDICT: PartitionAlloc's zone gave a block it does not own (zones: %s)\n", names);
       return 5;
     }
     for (size_t w = 0; w < size / 8; w++) block[w] = canary(n, w);
