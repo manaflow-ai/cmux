@@ -12,6 +12,9 @@ from __future__ import annotations
 import collections
 import importlib.util
 import json
+import os
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -271,6 +274,179 @@ class IndexStoreTests(unittest.TestCase):
         self.assertIn(("Cloud/AppServices+Cloud.swift", "", "AppServices.swift", "AppServices", ""), facts.refs)
 
 
+class ReexportTests(unittest.TestCase):
+    """A module an App file re-exports is visible in every App file without an import: a feature file that names
+    one of its types needs the module in its destination's deps once it moves."""
+
+    FILES = {
+        "CmuxNextApp/DaemonServiceExport.swift": "@_exported import CmuxNextDaemonService\n",
+        "CmuxNextApp/AppServices.swift": "final class AppServices { let daemon = DaemonService() }\n",
+        "CmuxNextApp/Sidebar/GroupOwnership.swift": """import Foundation
+final class GroupOwnership {
+    private let daemon: DaemonService
+    init(daemon: DaemonService) { self.daemon = daemon }
+}
+""",
+        # An App type named like a re-exported one shadows it: no import is implied.
+        "CmuxNextApp/Themes/ThemeCoordinator.swift": """struct Choice {}
+final class ThemeCoordinator { let choice = Choice() }
+""",
+        "CmuxNextDaemonService/DaemonService.swift": """public final class DaemonService { public init() {} }
+public enum Choice { case a }
+struct InternalOnly {}
+""",
+    }
+    TABLE = {"Sidebar": ag.Dest("CmuxNextSidebarFeatures"), "Themes": ag.Dest("CmuxNextAppearance"),
+             "top:AppServices": ag.Dest(ag.APP), "top:DaemonServiceExport": ag.Dest(ag.APP)}
+    WORLD = {"CmuxNextSidebarFeatures": set(), "CmuxNextAppearance": set(), "CmuxNextDaemonService": set()}
+    LAYERS = {"CmuxNextSidebarFeatures": "ui", "CmuxNextAppearance": "domain", "CmuxNextDaemonService": "service"}
+
+    def test_feature_file_using_a_reexported_type_gets_the_module(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            app = write_app(Path(tmp), self.FILES) / "CmuxNextApp"
+            facts = ag.regex_facts(app)
+        self.assertEqual(facts.reexports, {"CmuxNextDaemonService": "DaemonServiceExport.swift"})
+        self.assertEqual(facts.implicit_imports.get("Sidebar/GroupOwnership.swift"), {"CmuxNextDaemonService"})
+        self.assertNotIn("Themes/ThemeCoordinator.swift", facts.implicit_imports)
+        graph = ag.build(facts, world(self.WORLD, self.LAYERS), self.TABLE)
+        self.assertEqual(graph["groups"]["Sidebar"]["deps"], ["CmuxNextDaemonService"])
+        self.assertEqual(graph["destinations"]["CmuxNextSidebarFeatures"]["deps"], ["CmuxNextDaemonService"])
+        self.assertEqual(graph["destinations"]["CmuxNextAppearance"]["deps"], [])
+
+    def test_module_types_are_the_visible_top_level_types(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_app(Path(tmp), self.FILES)
+            types = ag.module_types(root, "CmuxNextDaemonService")
+        self.assertEqual(sorted(types), ["Choice", "DaemonService"])
+
+    def test_index_store_reference_into_a_reexported_module_is_an_import(self):
+        self.assertEqual(ag.usr_module("s:21CmuxNextDaemonService0aB0C"), "CmuxNextDaemonService")
+        self.assertEqual(ag.usr_module("s:SS21CmuxNextDaemonServiceE4trimSSyF"), "CmuxNextDaemonService")
+        self.assertEqual(ag.usr_module("s:11CmuxNextApp11AppServicesC"), "CmuxNextApp")
+        self.assertIsNone(ag.usr_module("c:objc(cs)NSView"))
+        daemon = ag.Sym("s:21CmuxNextDaemonService0aB0C", "DaemonService", ag.KIND_CLASS)
+        records = {"Sidebar/GroupOwnership.swift": [ag.Occurrence(daemon, ag.ROLE_REFERENCE)]}
+        with tempfile.TemporaryDirectory() as tmp:
+            app = write_app(Path(tmp), self.FILES) / "CmuxNextApp"
+            facts = ag.index_facts(app, records)
+        self.assertEqual(facts.implicit_imports, {"Sidebar/GroupOwnership.swift": {"CmuxNextDaemonService"}})
+
+
+class GateTests(unittest.TestCase):
+    """Ungated work never waits for an owner: an edge from an ungated group into an owner-gated one is a Host
+    cut, so the ungated unit moves first."""
+
+    FILES = {
+        "Browser/BrowserPanel.swift": "final class BrowserPanel { func f(_ s: SidebarRows) { s.reload() } }\n",
+        "Sidebar/SidebarRows.swift": "final class SidebarRows { func reload() {} func b(_ p: BrowserPanel) {} }\n",
+        "Handlers/WorkspaceHandlers.swift": "final class WorkspaceHandlers { func f(_ t: TabHandlers) { t.close() } }\n",
+        "Handlers/TabHandlers.swift": "final class TabHandlers { func close() {} }\n",
+    }
+    TABLE = {"Browser": ag.Dest("CmuxNextBrowserFeatures"), "Sidebar": ag.Dest("CmuxNextSidebarFeatures", gated="a590"),
+             "Handlers/Workspace": ag.Dest("CmuxNextWorkbench"),
+             "Handlers/Tab": ag.Dest("CmuxNextWorkbench", gated="PL-switch")}
+    WORLD = {"CmuxNextBrowserFeatures": set(), "CmuxNextSidebarFeatures": set(), "CmuxNextWorkbench": set()}
+    LAYERS = {"CmuxNextBrowserFeatures": "ui", "CmuxNextSidebarFeatures": "ui", "CmuxNextWorkbench": "domain"}
+
+    def graph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            facts = ag.regex_facts(write_app(Path(tmp), self.FILES))
+        return ag.build(facts, world(self.WORLD, self.LAYERS), self.TABLE)
+
+    def test_ungated_group_reaches_a_gated_group_through_a_cut(self):
+        graph = self.graph()
+        browser = graph["groups"]["Browser"]
+        self.assertEqual([(c["to"], c["reason"]) for c in browser["cuts"]], [("Sidebar", "gated")])
+        self.assertIn("SidebarRows.reload", browser["host_members"])
+        self.assertEqual(browser["deps"], [])
+        # The gated group may still depend on the ungated one: that edge is a package edge.
+        self.assertEqual(graph["groups"]["Sidebar"]["deps"], ["CmuxNextBrowserFeatures"])
+        self.assertEqual(graph["summary"]["cuts"]["gated"], 2)
+
+    def test_same_destination_edge_into_a_gated_group_is_cut_too(self):
+        graph = self.graph()
+        ws = graph["groups"]["Handlers/Workspace"]
+        self.assertEqual([(c["to"], c["reason"]) for c in ws["cuts"]], [("Handlers/Tab", "gated")])
+        self.assertNotEqual(ws["order"], graph["groups"]["Handlers/Tab"]["order"])
+
+    def test_ungated_units_come_first_and_wait_on_no_gate(self):
+        graph = self.graph()
+        units = graph["order"]
+        self.assertEqual([bool(u["waits_on"]) for u in units], [False, False, True, True])
+        sidebar = units[graph["groups"]["Sidebar"]["order"]]
+        self.assertEqual(sidebar["waits_on"], ["a590"])
+        self.assertEqual(graph["summary"]["ungated_units"], 2)
+
+
+class TaskTests(unittest.TestCase):
+    def test_each_task_id_names_one_unit_and_each_unit_one_task(self):
+        # One task-table row (100) whose groups land in two destinations, so two units: 100a and 100b.
+        files = {"Alpha/A.swift": "final class A {}\n", "Beta/B.swift": "final class B { let a = A() }\n"}
+        table = {"Alpha": ag.Dest("CmuxNextAlpha", "100"), "Beta": ag.Dest("CmuxNextBeta", "100")}
+        with tempfile.TemporaryDirectory() as tmp:
+            facts = ag.regex_facts(write_app(Path(tmp), files))
+        graph = ag.build(facts, world({"CmuxNextAlpha": set(), "CmuxNextBeta": set()},
+                                      {"CmuxNextAlpha": "ui", "CmuxNextBeta": "ui"}), table)
+        self.assertEqual([u["task"] for u in graph["order"]], ["100a", "100b"])
+        self.assertEqual(graph["tasks"], {"100a": 0, "100b": 1})
+        self.assertEqual(graph["families"], {"100": [0, 1]})
+        self.assertEqual(graph["groups"]["Alpha"]["q1_task"], "100a")
+
+
+class IndexStoreRecordTests(unittest.TestCase):
+    def test_newest_unit_wins_for_each_path(self):
+        units = [((10, 0), {"/a.swift": "old-a", "/b.swift": "only-b"}), ((20, 5), {"/a.swift": "new-a"}),
+                 ((20, 1), {"/a.swift": "older-a"})]
+        self.assertEqual(ag.newest_records(units), {"/a.swift": "new-a", "/b.swift": "only-b"})
+
+
+@unittest.skipUnless(os.environ.get("APP_GRAPH_SWIFT_TOOLCHAIN"),
+                     "set APP_GRAPH_SWIFT_TOOLCHAIN to a toolchain's usr/ (bin/swiftc, lib/libIndexStore) to run")
+class LibIndexStoreTests(unittest.TestCase):
+    """read_index_store against a real store: swiftc indexes a two-module fixture, the ctypes reader reads it back.
+    Opt-in (a compile): `APP_GRAPH_SWIFT_TOOLCHAIN=<toolchain>/usr python3 -m pytest ... -k LibIndexStore`."""
+
+    def test_reader_returns_the_app_references(self):
+        usr = Path(os.environ["APP_GRAPH_SWIFT_TOOLCHAIN"])
+        lib = next(p for p in (usr / "lib/libIndexStore.dylib", usr / "lib/libIndexStore.so") if p.exists())
+        files = {
+            "CmuxNextDaemonService/DaemonService.swift": "public final class DaemonService {\n"
+                                                         "    public init() {}\n    public func connect() {}\n}\n",
+            "CmuxNextApp/DaemonServiceExport.swift": "@_exported import CmuxNextDaemonService\n",
+            "CmuxNextApp/AppServices.swift": "final class AppServices {\n    let daemon = DaemonService()\n}\n",
+            "CmuxNextApp/Cloud/AppServices+Cloud.swift": "extension AppServices {\n"
+                                                         "    var cloudStore: CloudStore { CloudStore(services: self) }\n}\n",
+            "CmuxNextApp/Cloud/CloudStore.swift": """final class CloudStore {
+    let services: AppServices
+    let home: DaemonService
+    init(services: AppServices) { self.services = services; self.home = services.daemon }
+    func open() { _ = services.cloudStore; home.connect() }
+}
+""",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = write_app(Path(tmp) / "Sources", files)
+            out, store = Path(tmp) / "build", Path(tmp) / "store"
+            out.mkdir()
+            swiftc = str(usr / "bin/swiftc")
+            subprocess.run([swiftc, "-emit-module", "-parse-as-library", "-module-name", "CmuxNextDaemonService",
+                            "-o", str(out / "CmuxNextDaemonService.swiftmodule"),
+                            *map(str, (root / "CmuxNextDaemonService").glob("*.swift"))], check=True, cwd=out)
+            subprocess.run([swiftc, "-c", "-parse-as-library", "-module-name", ag.APP, "-I", str(out),
+                            "-index-store-path", str(store), *map(str, sorted((root / ag.APP).rglob("*.swift")))],
+                           check=True, cwd=out)
+            app = root / ag.APP
+            records = ag.read_index_store(store, app, str(lib))
+            facts = ag.index_facts(app, records)
+        self.assertEqual(sorted(Path(p).relative_to(app.resolve()).as_posix() for p in records),
+                         sorted(r for r in facts.files))
+        self.assertEqual(facts.types, {"AppServices": "AppServices.swift", "CloudStore": "Cloud/CloudStore.swift"})
+        self.assertIn(("Cloud/CloudStore.swift", "CloudStore", "Cloud/AppServices+Cloud.swift", "AppServices",
+                       "cloudStore"), facts.refs)
+        self.assertIn(("Cloud/CloudStore.swift", "CloudStore", "AppServices.swift", "AppServices", "daemon"), facts.refs)
+        self.assertEqual(facts.implicit_imports.get("Cloud/CloudStore.swift"), {"CmuxNextDaemonService"})
+
+
 class OutputTests(unittest.TestCase):
     def test_design_table_replaces_only_the_marked_block(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -298,6 +474,50 @@ class OutputTests(unittest.TestCase):
         self.assertEqual(orders, list(range(len(orders))))
         for unit in graph["order"]:
             self.assertTrue(all(d < unit["order"] for d in unit["depends_on"]), unit)
+
+    def test_committed_graph_keeps_ungated_units_free_of_gates(self):
+        graph = json.loads((REPO / ag.OUT).read_text())
+        units = graph["order"]
+        waits: dict[int, set[str]] = {}
+        for u in units:
+            waits[u["order"]] = set(u["gated"]).union(*(waits[d] for d in u["depends_on"]))
+            self.assertEqual(sorted(waits[u["order"]]), u["waits_on"], u["order"])
+        ungated = [u["order"] for u in units if not u["waits_on"]]
+        self.assertEqual(ungated, list(range(len(ungated))), "every ungated unit comes before the first gated one")
+        self.assertEqual(graph["summary"]["ungated_lines"], sum(units[i]["lines"] for i in ungated))
+
+    def test_committed_graph_maps_each_q1_task_to_one_entry(self):
+        graph = json.loads((REPO / ag.OUT).read_text())
+        ids = [u["task"] for u in graph["order"]]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertEqual(graph["tasks"], {u["task"]: u["order"] for u in graph["order"]})
+        for name, entry in graph["groups"].items():
+            if entry["destination"] != ag.APP:
+                self.assertEqual(graph["order"][entry["order"]]["task"], entry["q1_task"], name)
+                if "task" in entry:
+                    self.assertIn(entry["order"], graph["families"][entry["task"]], name)
+
+    def test_committed_graph_is_provisional_until_an_index_store_run(self):
+        graph = json.loads((REPO / ag.OUT).read_text())
+        self.assertEqual(graph["provisional"], graph["source"] != "index-store")
+
+    def test_new_targets_are_the_spec_3a_list_plus_the_documented_additions(self):
+        spec = (REPO / "plans/cmux-next/chrome-parity/p11-codebase.md").read_text()
+        section = spec[spec.index("New targets are created in one push"):spec.index("- Test-support (testonly)")]
+        listed = {}
+        for layer, names in re.findall(r"^- (core|domain|service|ui): (.*?)(?=^- |\Z)", section, re.M | re.S):
+            for name in re.findall(r"CmuxNext\w+", re.sub(r"\([^)]*\)", "", names)):
+                listed[name] = layer
+        self.assertEqual(ag.SPEC_TARGETS, listed)
+        design = (REPO / ag.DESIGN).read_text()
+        for name in ag.ADDED_TARGETS:
+            self.assertIn(name, design[:design.index(ag.TABLE_BEGIN)], f"{name} is not written in DESIGN section 4")
+        graph = json.loads((REPO / ag.OUT).read_text())
+        self.assertEqual(set(graph["new_targets"]), set(ag.NEW_TARGETS))
+        w = ag.World.read(REPO)
+        created = {t for t, d in graph["destinations"].items() if d["new"]}
+        self.assertTrue(created <= set(graph["new_targets"]))
+        self.assertFalse({t for t in graph["destinations"] if t not in w.layers})
 
     def test_committed_design_table_matches_the_committed_graph(self):
         graph = json.loads((REPO / ag.OUT).read_text())

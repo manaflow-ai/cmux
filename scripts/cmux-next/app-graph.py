@@ -10,30 +10,40 @@ the destination's Host protocol. This script finds those references and plans th
      from one App file to a type or member defined in another, and every file's imports. Read from the index
      store of one fleet Debug build (`--index-store`, exact: Swift's own resolution through libIndexStore) or,
      for dry runs, from a regex scan of the sources (`strip`/`Braces` of arch_counts.py; typed variables and
-     member chains such as `services.cloud.start` are followed one property at a time).
+     member chains such as `services.cloud.start` are followed one property at a time). A module an App file
+     re-exports (`@_exported import CmuxNextDaemonService`) is visible in every App file without an import, so a
+     file that names one of its public types (regex) or one of its symbols (index store: the USR's module) counts
+     as importing it: the module stays visible after the move only as a declared dependency.
   2. Groups. Files group by first-level directory; Handlers and Control by domain prefix, Pages by
      subdirectory, top-level files by name family (`PaneController+Drag.swift` is family PaneController).
      When a group's destination is below ui and names a `ui` destination, its view files (SwiftUI, WebKit or
      a ui-layer import, or an NSView/NSWindow subclass) form a second group `<group>:ui` that goes there
-     (Chrome's components/foo/core next to components/foo/browser). A feature directory's
+     (Chrome's components/foo/core next to components/foo/browser, components/README.md). A feature directory's
      `AppServices+X.swift` / `AppActionContext+X.swift` is its Host conformance and stays as `Hosts/<group>`.
   3. Destinations. DESTINATIONS below: an existing target first, a target the spec creates (task 007) only
      where none fits, CmuxNextApp for the composition root (it stays). The same map is written into
      architecture-refactor-DESIGN.md section 4 by `--write`.
   4. Cuts. A reference into the composition root, or up the layer order or the TIERS (features never name
      Workbench or WorkbenchUI concretes, and only the App names AppControl), can only go through the
-     Host protocol or WorkbenchInterface: it is a Host member of the group. The remaining references
-     between destinations become package edges, heaviest first, and an edge that would close a cycle in the package graph (existing
-     Package.swift edges and imports included) is cut instead: also a Host member. This is the greedy
-     acyclic subgraph; cycles between groups of one destination need no cut (one module).
+     Host protocol or WorkbenchInterface (Chrome's BrowserWindowInterface,
+     chrome/browser/ui/browser_window/public/browser_window_interface.h, and the FooDelegate an embedder
+     implements, content/public/browser/web_contents_delegate.h): it is a Host member of the group. A reference
+     from ungated work into an owner-gated group (Phase W) is cut the same way, so no ungated unit waits for an
+     owner. The remaining references between destinations become package edges, heaviest first, and an edge that
+     would close a cycle in the package graph (existing Package.swift edges and imports included) is cut
+     instead: also a Host member. This is the greedy acyclic subgraph; cycles between groups of one destination
+     need no cut (one module). The allowed edges are Chrome's DEPS model (buildtools/checkdeps/checkdeps.py).
   5. Order. After the cuts every strongly connected component lies inside one destination; each is one move
      unit (one seam commit plus one move commit, the Q1 queue), sorted leaf-first: a unit moves after every
-     unit it depends on, lower layers and ungated work first.
+     unit it depends on, lower layers and ungated work first. Each unit is one Q1 task: the task-table row that
+     holds most of its lines, lettered when that row spans several units.
 
 Output (plans/cmux-next/app-graph.json): per group its destination, layer, host_members (`Type.member`, or
 `Type` where the reference names no member), deps (the destinations and modules its code needs), cuts (each
 cut edge with its reason and members), scc_id (its component in the uncut graph, root edges aside), order (its
-move unit's index), plus `order` (the units), `tasks` (each p11 task id -> its units), `cycles` (each
+move unit's index), plus `order` (the units, each with its Q1 task id and the owner gates it waits on), `tasks`
+(each Q1 task id -> its one unit), `families` (each task-table row -> its units), `new_targets` (what task 007
+creates), `provisional` (true for a regex plan), `cycles` (each
 component of more than one group and the cuts that open it) and `destinations` (each target's final dependency list, the deps it adds, and any import that
 breaks the layer order or would close a package cycle).
 
@@ -93,7 +103,7 @@ counts = _load_counts()
 
 # Targets task 007 creates, with their layer (p11-codebase.md section 3A). Only those that receive App code
 # appear in DESTINATIONS; the rest are listed so a destination's layer is known before 007 lands.
-NEW_TARGETS = {
+SPEC_TARGETS = {
     "CmuxNextSignals": "core", "CmuxNextSettingsSchema": "core", "CmuxNextPagesCore": "core",
     "CmuxNextIconsCore": "core", "CmuxNextDaemonWire": "core", "CmuxNextActionsCatalog": "core",
     "CmuxNextChromiumWire": "core",
@@ -105,10 +115,17 @@ NEW_TARGETS = {
     "CmuxNextWorkbenchUI": "ui", "CmuxNextAgentTabs": "ui", "CmuxNextBrowserFeatures": "ui",
     "CmuxNextCloudFeatures": "ui", "CmuxNextRemoteMachines": "ui", "CmuxNextNotifications": "ui",
     "CmuxNextAppControl": "ui", "CmuxNextPresenters": "ui",
-    # Added by this map (section 3A had none above these kits, and each kit sits below code the glue imports:
-    # HomeEngine -> Home, Bridge -> Sidebar, AgentPane and Sidebar -> Palette).
-    "CmuxNextHomeFeatures": "ui", "CmuxNextSidebarFeatures": "ui", "CmuxNextPaletteSources": "ui",
 }
+# Added by this map: section 3A has no target above these kits, and each kit sits below code the glue imports.
+# app-graph.json `new_targets` lists them with the 3A targets (what task 007 creates); DESIGN section 4 names them.
+ADDED_TARGETS = {
+    "CmuxNextHomeFeatures": "HomeEngine and HostedChief depend on CmuxNextHome, and the Home glue imports both",
+    "CmuxNextSidebarFeatures": "Bridge depends on CmuxNextSidebar, and the Sidebar glue imports Bridge",
+    "CmuxNextPaletteSources": "the palette sources read AgentTabs, SidebarFeatures, BrowserFeatures and other "
+                              "features, and those features depend on the CmuxNextPalette kit",
+}
+NEW_TARGETS = {**SPEC_TARGETS, **{t: "ui" for t in ADDED_TARGETS}}
+CUT_REASONS = ("app", "upward", "gated", "cycle")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -389,7 +406,16 @@ class Facts:
     types: dict[str, str] = dataclasses.field(default_factory=dict)  # top-level App type -> declaring path
     # (src path, src type or "", dst path, dst type, member or "") -> reference count
     refs: collections.Counter = dataclasses.field(default_factory=collections.Counter)
+    # module -> the App file that re-exports it (`@_exported import M`): every App file sees M without an import,
+    # so a file that names one of M's types needs M once it leaves the App
+    reexports: dict[str, str] = dataclasses.field(default_factory=dict)
+    implicit_imports: dict[str, set[str]] = dataclasses.field(default_factory=dict)  # path -> modules seen that way
     source: str = "regex"
+
+    def add_implicit(self, rel: str, module: str) -> None:
+        if module not in self.imports.setdefault(rel, set()):
+            self.imports[rel].add(module)
+            self.implicit_imports.setdefault(rel, set()).add(module)
 
 
 IMPORT = re.compile(r"^[ \t]*(?:@[\w()]+[ \t]+)*(?:(?:public|package|internal|private|fileprivate)[ \t]+)?import[ \t]+"
@@ -403,6 +429,9 @@ PROP_TYPE = re.compile(r"\b(?:var|let)\s+([A-Za-z_]\w*)\s*:\s*(?:any\s+|some\s+)
 TYPED_NAME = re.compile(r"(?<![\w.])([a-z_]\w*)\s*:\s*(?:any\s+|some\s+|inout\s+)?\(?([A-Z]\w*)")
 CONSTRUCTED = re.compile(r"\b(?:let|var)\s+([a-z_]\w*)\s*=\s*([A-Z]\w*)\s*(?:\.\s*init\s*)?\(")
 TYPE_TOKEN = re.compile(r"(?<![\w.])([A-Z]\w*)")
+REEXPORT = re.compile(r"^[ \t]*@_exported[ \t]+(?:(?:public|package|internal)[ \t]+)?import[ \t]+(\w+)", re.M)
+VISIBLE = re.compile(r"\b(?:public|package|open)\s")
+USR_MODULE = re.compile(r"^s:\D*?(\d+)")
 MEMBER_AFTER = re.compile(r"\s*\.\s*([a-z_]\w*)")
 CHAIN = re.compile(r"(?:\s*[?!]?\s*\.\s*([A-Za-z_]\w*))")
 
@@ -425,6 +454,30 @@ def _top_blocks(code: str, braces) -> list[tuple[int, int, str]]:
     return out
 
 
+def module_types(sources: Path, module: str, seen: frozenset[str] = frozenset()) -> dict[str, set[str]]:
+    """Type name -> the modules whose import makes it visible: MODULE's top-level public, package or open types
+    (in SOURCES/MODULE), and those of the modules MODULE re-exports in turn (credited to MODULE)."""
+    out: dict[str, set[str]] = collections.defaultdict(set)
+    for path in sorted((sources / module).rglob("*.swift")):
+        code = counts.strip(path.read_text(errors="replace"))
+        braces = counts.Braces(code)
+        for m in TOP_DECL.finditer(code):
+            if not braces.enclosing(m.start()) and VISIBLE.search(m.group(0)):
+                out[m.group(2)].add(module)
+        for inner in REEXPORT.findall(code):
+            if inner not in seen and inner != module:
+                for name in module_types(sources, inner, seen | {module}):
+                    out[name].add(module)
+    return out
+
+
+def usr_module(usr: str) -> str | None:
+    """The module a Swift USR's symbol belongs to: its first length-prefixed identifier (`s:21CmuxNextDaemonService
+    13DaemonServiceC`, or `s:SS21CmuxNextDaemonServiceE...` for an extension member of a standard type)."""
+    m = USR_MODULE.match(usr)
+    return usr[m.end():m.end() + int(m.group(1))] if m else None
+
+
 def regex_facts(app_dir: Path) -> Facts:
     """Facts from the sources alone: top-level non-private type declarations, members of type bodies and
     extensions, and references by type name, `Type.member`, typed variables and their property chains."""
@@ -444,6 +497,15 @@ def regex_facts(app_dir: Path) -> Facts:
     for name, paths in declared.items():
         if len(set(paths)) == 1:
             facts.types[name] = paths[0]
+    external: dict[str, set[str]] = collections.defaultdict(set)
+    for module in facts.reexports:
+        for name, mods in module_types(app_dir.parent, module).items():
+            external[name] |= mods
+    for rel, code in codes.items():
+        for name in set(TYPE_TOKEN.findall(code)) & external.keys():
+            if name not in declared:  # an App type of the same name shadows the imported one
+                for module in external[name]:
+                    facts.add_implicit(rel, module)
 
     members: dict[tuple[str, str], str] = {}  # (type, member) -> path that declares it
     prop_types: dict[tuple[str, str], str] = {}  # (type, property) -> App type of the property
@@ -574,6 +636,9 @@ def index_facts(app_dir: Path, records: dict[str, list[Occurrence]]) -> Facts:
             if occ.roles & ROLE_REFERENCE:
                 context = next((s.usr for r, s in occ.relations if r & REL_CONTAINEDBY), "")
                 refs.append((rel, sym.usr, context))
+                module = usr_module(sym.usr)
+                if module in facts.reexports:
+                    facts.add_implicit(rel, module)
 
     def owner_type(usr: str) -> str | None:
         seen = set()
@@ -613,6 +678,8 @@ def scan_files(app_dir: Path) -> tuple[Facts, dict[str, str]]:
         codes[rel] = code
         facts.files[rel] = raw.count("\n") + (0 if raw.endswith("\n") or not raw else 1)
         facts.imports[rel] = {MODULE_RENAMES.get(m, m) for m in IMPORT.findall(code)}
+        for m in REEXPORT.findall(code):
+            facts.reexports.setdefault(MODULE_RENAMES.get(m, m), rel)
         if UI_SUBCLASS.search(code):
             facts.ui_files.add(rel)
     return facts, codes
@@ -644,6 +711,17 @@ def find_libindexstore(explicit: str | None) -> str:
     raise SystemExit("app-graph.py: libIndexStore not found; pass --libindexstore PATH")
 
 
+def newest_records(units: list[tuple[tuple[int, int], dict[str, str]]]) -> dict[str, str]:
+    """Source path -> record name, from the unit written last that names the path. A Debug store keeps the units
+    of earlier builds and configurations, so the first unit enumerated can hold an old version of a file."""
+    best: dict[str, tuple[tuple[int, int], str]] = {}
+    for mtime, records in units:
+        for path, record in records.items():
+            if path not in best or mtime > best[path][0]:
+                best[path] = (mtime, record)
+    return {path: record for path, (_, record) in best.items()}
+
+
 def read_index_store(store: Path, app_dir: Path, lib_path: str) -> dict[str, list[Occurrence]]:
     """Occurrences of every record whose source file is under APP_DIR, from the units of module CmuxNextApp."""
     lib = ctypes.CDLL(lib_path)
@@ -659,6 +737,8 @@ def read_index_store(store: Path, app_dir: Path, lib_path: str) -> dict[str, lis
         "indexstore_unit_reader_create": (vp, [vp, cp, ctypes.POINTER(vp)]),
         "indexstore_unit_reader_dispose": (None, [vp]),
         "indexstore_unit_reader_get_module_name": (_StringRef, [vp]),
+        "indexstore_unit_reader_get_modification_time": (None, [vp, ctypes.POINTER(ctypes.c_int64),
+                                                                ctypes.POINTER(ctypes.c_int64)]),
         "indexstore_unit_reader_dependencies_apply_f": (b, [vp, vp, dep_cb]),
         "indexstore_unit_dependency_get_kind": (ctypes.c_int, [vp]),
         "indexstore_unit_dependency_get_filepath": (_StringRef, [vp]),
@@ -697,25 +777,34 @@ def read_index_store(store: Path, app_dir: Path, lib_path: str) -> dict[str, lis
                    lib.indexstore_symbol_get_kind(handle))
 
     app_root = str(app_dir.resolve()) + "/"
-    records: dict[str, str] = {}
+    unit_records: list[tuple[tuple[int, int], dict[str, str]]] = []
     for unit in units:
         reader = lib.indexstore_unit_reader_create(store_h, unit.encode(), ctypes.byref(error))
         if not reader:
             continue
         if lib.indexstore_unit_reader_get_module_name(reader).text() == APP:
+            seconds, nanos = ctypes.c_int64(), ctypes.c_int64()
+            lib.indexstore_unit_reader_get_modification_time(reader, ctypes.byref(seconds), ctypes.byref(nanos))
+            mine: dict[str, str] = {}
+
             def on_dep(_c, dep):
                 if lib.indexstore_unit_dependency_get_kind(dep) == DEPENDENCY_RECORD:
-                    path = lib.indexstore_unit_dependency_get_filepath(dep).text()
-                    if os.path.realpath(path).startswith(app_root):
-                        records.setdefault(os.path.realpath(path), lib.indexstore_unit_dependency_get_name(dep).text())
+                    path = os.path.realpath(lib.indexstore_unit_dependency_get_filepath(dep).text())
+                    if path.startswith(app_root):
+                        mine[path] = lib.indexstore_unit_dependency_get_name(dep).text()
                 return True
             lib.indexstore_unit_reader_dependencies_apply_f(reader, None, dep_cb(on_dep))
+            unit_records.append(((seconds.value, nanos.value), mine))
         lib.indexstore_unit_reader_dispose(reader)
 
     out: dict[str, list[Occurrence]] = {}
-    for path, record in records.items():
-        reader = check(lib.indexstore_record_reader_create(store_h, record.encode(), ctypes.byref(error)), error,
-                       f"record {record}")
+    for path, record in newest_records(unit_records).items():
+        reader = lib.indexstore_record_reader_create(store_h, record.encode(), ctypes.byref(error))
+        if not reader:
+            why = lib.indexstore_error_get_description(error).decode() if error else "unknown error"
+            print(f"app-graph.py: warning: {path}: record {record} unreadable ({why}); its references are left out",
+                  file=sys.stderr)
+            continue
         occurrences: list[Occurrence] = []
 
         def on_occ(_c, occ):
@@ -1012,10 +1101,14 @@ def build(facts: Facts, world: World, table: dict[str, Dest] | None = None) -> d
             cut(a, b, "app")
             continue
         da, db = dest[a].target, dest[b].target
-        if da == db:
-            internal[a].add(b)
-        elif world.above(db, da):
+        if world.above(db, da):
             cut(a, b, "upward")
+        elif dest[b].gated and not dest[a].gated:
+            # Ungated work never waits for an owner: B stays in the App until its owner releases it, so A reaches
+            # it through its Host (and the seam folds back into a package edge once B has moved).
+            cut(a, b, "gated")
+        elif da == db:
+            internal[a].add(b)
         else:
             pair_weight[(da, db)] += weight[(a, b)]
             pair_edges[(da, db)].append((a, b))
@@ -1064,6 +1157,36 @@ def build(facts: Facts, world: World, table: dict[str, Dest] | None = None) -> d
                 heapq.heappush(ready, (priority(v), v))
     position = {u: i for i, u in enumerate(sequence)}
     root_order = len(sequence)
+    unit_lines = {u: sum(lines[g] for g in units[u]) for u in sequence}
+
+    # The owner gates each unit waits for, its own and those of every unit it needs (sequence is leaf-first).
+    waits: dict[int, set[str]] = {}
+    for u in sequence:
+        waits[u] = {dest[g].gated for g in units[u] if dest[g].gated}
+        for v in needs[u]:
+            waits[u] |= waits[v]
+
+    # One Q1 task per unit: the task-table row (DESTINATIONS' task, the "family") holding most of its lines, with a
+    # letter when the family spans several units (100a, 100b, ...), so each task id names exactly one order entry.
+    def family(u: int) -> str | None:
+        by: collections.Counter = collections.Counter()
+        for g in units[u]:
+            if dest[g].task:
+                by[dest[g].task] += lines[g]
+        return min(by, key=lambda t: (-by[t], t)) if by else None
+
+    by_family: dict[str | None, list[int]] = collections.defaultdict(list)
+    for u in sequence:
+        by_family[family(u)].append(u)
+    task_of: dict[int, str] = {}
+    for fam, us in by_family.items():
+        for k, u in enumerate(us):
+            if fam is None:
+                task_of[u] = f"q1-{position[u]}"
+            elif len(us) == 1:
+                task_of[u] = fam
+            else:
+                task_of[u] = fam + (chr(ord("a") + k) if len(us) <= 26 else f"-{k + 1}")
 
     def host_members(g: str) -> list[str]:
         out = set()
@@ -1086,6 +1209,7 @@ def build(facts: Facts, world: World, table: dict[str, Dest] | None = None) -> d
             "lines": lines[g],
             "scc_id": scc_of[g],
             "order": root_order if g in root else position[unit_of[g]],
+            "q1_task": None if g in root else task_of[unit_of[g]],
             "moves_with": [] if g in root else [h for h in units[unit_of[g]] if h != g],
             "host_members": [] if g in root else host_members(g),
             "deps": sorted(group_deps[g]) if g not in root else sorted(
@@ -1113,11 +1237,12 @@ def build(facts: Facts, world: World, table: dict[str, Dest] | None = None) -> d
             members.update(host_members(g))
             unit_cuts += [{"from": g, "to": c["to"], "reason": c["reason"], "weight": c["weight"]} for c in cuts[g]]
         order_json.append({
-            "order": i, "groups": comp, "destination": dest[comp[0]].target,
+            "order": i, "task": task_of[u], "groups": comp, "destination": dest[comp[0]].target,
             "scc_id": sorted({scc_of[g] for g in comp}),
-            "lines": sum(lines[g] for g in comp),
-            "tasks": sorted({dest[g].task for g in comp if dest[g].task}),
+            "lines": unit_lines[u],
+            "families": sorted({dest[g].task for g in comp if dest[g].task}),
             "gated": sorted({dest[g].gated for g in comp if dest[g].gated}),
+            "waits_on": sorted(waits[u]),
             "depends_on": sorted(position[v] for v in needs[u]),
             "host_members": sorted(members),
             "cuts": sorted(unit_cuts, key=lambda c: (c["from"], c["to"])),
@@ -1142,6 +1267,7 @@ def build(facts: Facts, world: World, table: dict[str, Dest] | None = None) -> d
         dest_json[target] = {
             "layer": world.layers.get(target),
             "new": target in NEW_TARGETS,
+            "added_by_map": target in ADDED_TARGETS,
             "groups": mine,
             "lines": sum(lines[g] for g in mine),
             "deps": final,
@@ -1153,27 +1279,42 @@ def build(facts: Facts, world: World, table: dict[str, Dest] | None = None) -> d
     for (a, b) in weight:
         all_edges[a].add(b)
     largest = max((len(c) for c in tarjan(groups, all_edges)), default=0)
+    ungated_lines = sum(unit_lines[u] for u in sequence if not waits[u])
     return {
         "_doc": ("CmuxNextApp move plan from scripts/cmux-next/app-graph.py (p11-codebase task 000a). Regenerate with "
                  "`app-graph.py --write` (regex) or `--index-store PATH --write` (fleet Debug build); never hand-edit. "
                  "groups: destination, host_members (Type.member the group reaches through its Host), deps, cuts "
                  "(reason app = into the composition root, upward = up the layer order or into a higher tier, "
-                 "cycle = would close a package cycle), scc_id (component of the uncut graph, root edges aside), order (index into `order`; the "
-                 "composition root has the last index). order: move units leaf-first, one seam commit plus one move "
-                 "commit each. destinations: final dependency list per target."),
+                 "gated = from ungated work into an owner-gated group, cycle = would close a package cycle), scc_id "
+                 "(component of the uncut graph, root edges aside), order (index into `order`; the composition root "
+                 "has the last index). order: move units leaf-first, one seam commit plus one move commit each; "
+                 "task is the unit's Q1 task id (tasks: id -> its one entry; families: task-table row -> entries), "
+                 "waits_on the owner gates it or a unit it needs waits for. destinations: final dependency list per "
+                 "target. new_targets: what task 007 creates. provisional: true until the facts come from an index "
+                 "store (the regex scan guesses variable types file-wide, so host_members, cut weights and deps are "
+                 "approximate); task 007 lands final deps only from a non-provisional plan."),
         "source": facts.source,
+        "provisional": facts.source != "index-store",
+        "new_targets": {t: {"layer": layer, "in_spec_3a": t in SPEC_TARGETS, "why": ADDED_TARGETS.get(t, ""),
+                            "receives_app_code": any(dest[g].target == t for g in groups)}
+                        for t, layer in sorted(NEW_TARGETS.items())},
         "summary": {
             "files": len(facts.files), "lines": sum(facts.files.values()), "types": len(facts.types),
             "groups": len(groups), "root_groups": len(root), "unmapped_groups": sorted(g for g in groups if not mapped[g]),
             "references": sum(facts.refs.values()), "type_edges": len(type_edges),
             "largest_scc_with_root": largest, "largest_scc": max((len(c) for c in sccs), default=0),
             "cycles": len(cycles), "move_units": len(sequence),
-            "cuts": {r: sum(1 for g in cuts for c in cuts[g] if c["reason"] == r) for r in ("app", "upward", "cycle")},
+            "cuts": {r: sum(1 for g in cuts for c in cuts[g] if c["reason"] == r) for r in CUT_REASONS},
+            "movable_lines": sum(unit_lines.values()),
+            "ungated_units": sum(1 for u in sequence if not waits[u]), "ungated_lines": ungated_lines,
+            "app_lines_after_ungated": sum(facts.files.values()) - ungated_lines,
+            "app_lines_after_all": sum(lines[g] for g in root),
         },
         "groups": group_json,
         "order": order_json,
-        "tasks": {t: [u["order"] for u in order_json if t in u["tasks"]]
-                  for t in sorted({t for u in order_json for t in u["tasks"]})},
+        "tasks": {u["task"]: u["order"] for u in order_json},
+        "families": {t: [u["order"] for u in order_json if t in u["families"]]
+                     for t in sorted({t for u in order_json for t in u["families"]})},
         "cycles": cycles,
         "destinations": dest_json,
     }
@@ -1192,11 +1333,11 @@ def to_json(graph: dict) -> str:
 
 
 def queue_lines(graph: dict) -> list[str]:
-    out = ["order\tdestination\tlines\ttasks\tgated\thost_members\tcuts\tgroups"]
+    out = ["order\ttask\tdestination\tlines\tfamilies\twaits_on\thost_members\tcuts\tgroups"]
     for u in graph["order"]:
-        out.append("\t".join([str(u["order"]), u["destination"], str(u["lines"]), ",".join(u["tasks"]) or "-",
-                              ",".join(u["gated"]) or "-", str(len(u["host_members"])), str(len(u["cuts"])),
-                              " ".join(u["groups"])]))
+        out.append("\t".join([str(u["order"]), u["task"], u["destination"], str(u["lines"]),
+                              ",".join(u["families"]) or "-", ",".join(u["waits_on"]) or "-",
+                              str(len(u["host_members"])), str(len(u["cuts"])), " ".join(u["groups"])]))
     return out
 
 
@@ -1210,15 +1351,19 @@ def design_table(graph: dict) -> str:
             f"Source: {graph['source']} scan of {s['files']} files, {s['lines']:,} lines, {s['types']:,} top-level types, "
             f"{s['groups']} groups. Uncut, {s['largest_scc_with_root']} groups form one component; without the "
             f"composition root's {s['root_groups']} groups the largest has {s['largest_scc']}. Cuts: "
-            f"{s['cuts']['app']} into the root, {s['cuts']['upward']} upward, {s['cuts']['cycle']} cycle; "
-            f"{s['move_units']} move units.", "",
-            "| First move | Destination | Layer | New | App groups (lines) | Lines | Deps added | Tasks |",
+            f"{s['cuts']['app']} into the root, {s['cuts']['upward']} upward, {s['cuts']['gated']} into owner-gated "
+            f"groups, {s['cuts']['cycle']} cycle; {s['move_units']} move units. {s['ungated_units']} units "
+            f"({s['ungated_lines']:,} lines) wait for no owner; after them the App has {s['app_lines_after_ungated']:,} "
+            f"lines, and {s['app_lines_after_all']:,} after every unit."
+            + (" Provisional: the regex scan guesses variable types, so Host members and deps are approximate until "
+               "the fleet index-store run." if graph.get("provisional") else ""), "",
+            "| First move | Destination | Layer | New | App groups (lines) | Lines | Deps added | Q1 tasks |",
             "|---|---|---|---|---|---|---|---|"]
     for target, d in sorted(graph["destinations"].items(), key=lambda kv: (first.get(kv[0], 10 ** 6), kv[0])):
         groups = ", ".join(f"{g} ({graph['groups'][g]['lines']:,})" for g in d["groups"])
-        tasks = sorted({graph["groups"][g].get("task") for g in d["groups"]} - {None})
+        tasks = sorted({graph["groups"][g].get("q1_task") for g in d["groups"]} - {None})
         added = ", ".join(m.replace("CmuxNext", "") for m in d["added_deps"]) or "-"
-        rows.append(f"| {first.get(target, '-')} | {target} | {d['layer']} | {'yes' if d['new'] else ''} | {groups} | "
+        rows.append(f"| {first.get(target, '-')} | {target} | {d['layer']} | {('added' if d.get('added_by_map') else 'yes') if d['new'] else ''} | {groups} | "
                     f"{d['lines']:,} | {added} | {', '.join(tasks) or '-'} |")
     root = [g for g, e in graph["groups"].items() if e["destination"] == APP]
     rows.append(f"| last | {APP} (stays) | app | | " + ", ".join(
