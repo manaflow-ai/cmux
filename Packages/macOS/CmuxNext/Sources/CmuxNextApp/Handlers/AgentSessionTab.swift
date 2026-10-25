@@ -31,6 +31,7 @@ enum AgentSessionTab {
             switch AgentPeerSession.resolve(session, peer: peer, lanes: AgentLaneStore.shared.lanes.values) {
             case .session(let mirrored): (session, host) = (mirrored, nil)
             case .unknownSession: throw ActionFailure(message: MiscHandlerStrings.noPeerSession(session, peer))
+            case .ambiguous: throw ActionFailure(message: MiscHandlerStrings.ambiguousPeerSession(session, peer))
             case .notAPeer: break // the tab's host check refuses it with its own reason
             }
         }

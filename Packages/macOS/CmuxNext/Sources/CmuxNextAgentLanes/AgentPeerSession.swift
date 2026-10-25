@@ -11,17 +11,24 @@ public enum AgentPeerSession {
         case session(String)
         /// `host` is a peer this Mac mirrors, but it has no live chat named `session`.
         case unknownSession
+        /// More than one live chat of `host` has that name (acpmux names can repeat): name it by id.
+        case ambiguous
         /// `host` is no peer this Mac mirrors.
         case notAPeer
     }
 
     /// `session` may be the session id, the qualified id (`<peer>/<id>`), the acpmux name
-    /// (`<peer>/<name>`) or the bare name.
+    /// (`<peer>/<name>`) or the bare name. An id wins; a name must name one chat.
     public static func resolve(_ session: String, peer host: String, lanes: some Collection<AgentActivityLane>) -> Match {
         let mirrored = lanes.filter { $0.peer == host }
         guard !mirrored.isEmpty else { return .notAPeer }
         let bare = session.hasPrefix(host + "/") ? String(session.dropFirst(host.count + 1)) : session
-        let match = mirrored.first { $0.id == bare } ?? mirrored.first { $0.name == host + "/" + bare || $0.name == bare }
-        return match.map { .session($0.id) } ?? .unknownSession
+        if let byID = mirrored.first(where: { $0.id == bare }) { return .session(byID.id) }
+        let named = mirrored.filter { $0.name == host + "/" + bare }
+        switch named.count {
+        case 0: return .unknownSession
+        case 1: return .session(named[0].id)
+        default: return .ambiguous
+        }
     }
 }
