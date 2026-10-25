@@ -172,11 +172,14 @@ test("Remove asks once more, then removes the device everywhere and the list upd
   page.unmount();
 });
 
-test("only a paired client machine has a Full access switch, off until turned on, saying what it allows", async () => {
+test("only a paired client machine or phone has a Full access switch, off until turned on, saying what it allows", async () => {
   const page = await renderPage({ path: "/settings/machines" });
   const card = page.container.querySelector('[data-card="devices"]')!;
   const lines = card.querySelectorAll("[data-device-full-access]");
-  expect(Array.from(lines).map((line) => line.getAttribute("data-device-full-access"))).toEqual(["paired:dv_leo"]);
+  expect(Array.from(lines).map((line) => line.getAttribute("data-device-full-access"))).toEqual([
+    "paired:dv_leo",
+    "phone:p1",
+  ]);
   const line = () => card.querySelector('[data-device-full-access="paired:dv_leo"]')!;
   const toggle = () => line().querySelector<HTMLButtonElement>('[role="switch"]')!;
   expect(toggle().getAttribute("aria-checked")).toBe("false");
@@ -193,6 +196,13 @@ test("only a paired client machine has a Full access switch, off until turned on
   const off = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
   expect(off.params).toEqual({ id: "paired:dv_leo", on: false });
   expect(toggle().getAttribute("aria-checked")).toBe("false");
+  // A phone paired with this Mac: the same switch, by its phone row's id.
+  const phone = card.querySelector('[data-device-full-access="phone:p1"]')!;
+  expect(phone.querySelector('[role="switch"]')!.getAttribute("aria-checked")).toBe("false");
+  await act(async () => phone.querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+  await settle();
+  const phoneOn = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
+  expect(phoneOn.params).toEqual({ id: "phone:p1", on: true });
   page.unmount();
 });
 
