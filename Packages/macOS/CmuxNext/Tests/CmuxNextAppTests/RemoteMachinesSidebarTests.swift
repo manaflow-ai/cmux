@@ -256,6 +256,10 @@ struct RemoteMachinesSidebarTests {
         many["problems"] = (0..<20).map { ["check": "ram", "detail": "RAM \($0)" + String(repeating: "x", count: 300)] }
         let capped = room(many)?.problems ?? []
         #expect(capped.count == 8 && capped.allSatisfy { $0.detail.count == 200 })
+        // Whole characters: a family emoji (several scalars) is never cut, and leading spaces do not count.
+        let family = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}"
+        let oneLine = AcpmuxPeerList.Resources.Problem.oneLine(String(repeating: " ", count: 300) + String(repeating: family, count: 250))
+        #expect(oneLine == String(repeating: family, count: 200))
     }
 
     /// The first problem's word leads the room row (the default), or ends it, or a warning triangle

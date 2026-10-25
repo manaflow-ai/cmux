@@ -71,10 +71,11 @@ public nonisolated struct AcpmuxPeerList: Sendable {
                 }.prefix(maxCount))
             }
 
-            /// `text` on one line (control characters as spaces), trimmed, at most `maxDetail` characters.
+            /// `text` on one line (a character with a control scalar as a space), trimmed, then at most
+            /// `maxDetail` whole characters, so an emoji or accented letter is never cut in half.
             static func oneLine(_ text: String) -> String {
-                let flat = String(text.unicodeScalars.prefix(maxDetail * 2).map { CharacterSet.controlCharacters.contains($0) ? " " : Character($0) })
-                return String(flat.prefix(maxDetail)).trimmingCharacters(in: .whitespaces)
+                let flat = String(text.map { c in c.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) } ? " " : c })
+                return String(flat.trimmingCharacters(in: .whitespaces).prefix(maxDetail)).trimmingCharacters(in: .whitespaces)
             }
         }
 

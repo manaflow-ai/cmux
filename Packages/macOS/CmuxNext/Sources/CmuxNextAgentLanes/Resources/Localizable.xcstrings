@@ -1728,13 +1728,13 @@
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lidt disk"
+            "value": "Lidt diskplads"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Festplatte knapp"
+            "value": "Wenig Speicherplatz"
           }
         },
         "es": {
@@ -1776,7 +1776,7 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lite disk"
+            "value": "Lite diskplass"
           }
         },
         "pl": {
