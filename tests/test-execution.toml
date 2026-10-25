@@ -1637,6 +1637,14 @@ path = "tests/test_release_notes_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_release_notes_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_whats_new_clips.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_idea_ledger.py"
 lane = "linux-guard"
 

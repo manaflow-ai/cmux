@@ -414,6 +414,9 @@ jobs:
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
           python3 tests/test_release_notes_pr_media.py
+          python3 tests/test_release_notes_clips.py
+          python3 tests/test_whats_new_clips.py
+          python3 scripts/cmux-next/media/whats-new-clips.py check
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
