@@ -50,9 +50,9 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
 - `LayoutModel.showPaneClose(_:)` (`LayoutModel+PaneClose.swift`) hides the pane from the shown
   screens (`overlaid`) and holds the close sizing as unsent ratio overrides under one transaction;
   it moves the model's focus to the `successor` (the first pane of the closed pane's sibling) when
-  the closed pane had it. Only a pane with a sibling in its split tree closes this way: the last
-  pane of a screen, the only pane of a column and a pane in a column with rows leave with the
-  daemon's tree, as before (see Doubts). The hold ends when a snapshot no longer holds the pane, or
+  the closed pane had it. A pane with a sibling in its split tree, or a column's only pane while
+  another column stays (its column goes with it, see Doubts), closes this way: the last pane of a
+  screen and a pane in a column with rows leave with the daemon's tree, as before. The hold ends when a snapshot no longer holds the pane, or
   after `settlePaneClose` (the next snapshot wins); `cancelPaneClose` brings the pane back.
 - **The last tab:** `PaneController.close(_:)` shows the pane close when its strip has no tab left
   (`PaneController+PaneClose.swift`), moves the window's focus to the successor when the pane had
@@ -91,9 +91,16 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
 
 ## Doubts
 
-- A column's only pane (the strip loses a column) still leaves with the daemon's tree: the strip
-  camera and the fit-screen widths move with it, and showing that locally needs the column widths
-  too. Next step if the round trip shows there.
+- A column's only pane leaves with its column in the key's turn too (Leo 2026-10-25: "it's weird
+  how closing the right pane seems be like... waiting for the right tab's closing animation to PLAY
+  before closing...? we should never block shit on the tab animation"). It used to wait for the
+  daemon's tree, so the emptied column showed its strip's tab close (`ui.animations.newTab`, on by
+  default since) before it left. `LayoutModel.removingColumn(at:from:)` shows the columns as
+  cmux-tui leaves them (`project_layout_columns`: a lone column is the screen's tree, a lone pinned
+  dock stays; `normalize_dock_columns`), the fit-screen widths the close leaves are held under the
+  close's transaction like the split ratios, and the focus goes to the nearest column on the left,
+  else the right (close-focus.md), at its first pane: if the coordinator picks the column's most
+  recent pane instead, the focus moves again on the echo.
 - The window's fade is alpha only: AppKit gives no public way to scale a window, and its content
   cannot be snapshotted with its Metal and page layers.
 - The grid hold is app-wide (every window's terminals) for the ~0.4 s of a close, not per pane.

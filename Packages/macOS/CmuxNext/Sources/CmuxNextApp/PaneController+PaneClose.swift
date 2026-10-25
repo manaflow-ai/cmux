@@ -9,7 +9,7 @@ import CmuxNextLayout
 /// the pane back.
 extension PaneController {
     /// Shows this pane's close now; nil when the layout leaves it to the daemon's tree (the
-    /// screen's or a column's last pane). The focus goes to the pane taking its space when this
+    /// screen's last pane, a pane in a column with rows). A column's only pane takes its column. The focus goes to the pane taking its space when this
     /// pane had it, so keys never go to a pane that left.
     func showPaneClose() -> PendingPaneClose? {
         guard let workspace, let close = workspace.layoutModel.showPaneClose(layoutPaneID) else { return nil }
