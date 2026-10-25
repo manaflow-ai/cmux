@@ -155,6 +155,10 @@ export default agentPaneEntry({
         fixture?.setAttribute("data-hover-action-fixture", "user");
         await ctx.hover({ text: "Now cover it with a test that fakes two timeouts" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__actions"));
+        const bubble = [...ctx.document.querySelectorAll<HTMLElement>("[data-hover-action-fixture] .cv-user__bubble")].at(-1)!;
+        const actions = [...ctx.document.querySelectorAll<HTMLElement>("[data-hover-action-fixture] .cv-user__actions")].at(-1)!;
+        if (Math.abs(bubble.getBoundingClientRect().right - actions.getBoundingClientRect().right) > 1)
+          throw new Error("user-style action row is not right-aligned under its bubble");
       },
     },
     "running-edit-branches": {

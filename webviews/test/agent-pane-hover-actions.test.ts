@@ -43,13 +43,13 @@ await requireBrowserLane("agent-pane-hover-actions.test.ts", async () => {
     const actions = row.locator(".cv-received-actions");
     await row.waitFor();
     await line.hover();
-    await expect(actions).toHaveCSS("opacity", "1");
+    expect(await actions.evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
     const actionCount = await actions.locator("button").count();
     expect(actionCount).toBeGreaterThan(0);
     for (let index = 0; index < actionCount; index++) {
       const button = actions.locator("button").nth(index);
       await button.hover();
-      await expect(actions).toHaveCSS("opacity", "1");
+      expect(await actions.evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
       expect(await row.evaluate((node) => node.matches(":hover"))).toBe(true);
     }
     const edges = await page.evaluate(() => {

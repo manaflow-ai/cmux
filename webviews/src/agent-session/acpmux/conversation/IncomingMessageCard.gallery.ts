@@ -190,6 +190,16 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-received-actions"));
         await ctx.hover({ selector: ".cv-received__line" });
         await ctx.waitFor(() => ctx.document.querySelector<HTMLElement>(".cv-received-actions")?.style.opacity !== "0");
+        const row = ctx.document.querySelector<HTMLElement>(".cv-received")!;
+        const line = row.querySelector<HTMLElement>(".cv-received__line")!;
+        const actions = row.querySelector<HTMLElement>(".cv-received-actions")!;
+        for (const [index, button] of [...actions.querySelectorAll<HTMLButtonElement>("button")].entries()) {
+          button.dataset.hoverActionIndex = String(index);
+          await ctx.hover({ selector: `[data-hover-action-index="${index}"]` });
+          if (!row.matches(":hover")) throw new Error("received action lane lost row hover");
+        }
+        if (Math.abs(line.getBoundingClientRect().right - actions.getBoundingClientRect().right) > 1)
+          throw new Error("received action lane is not flush with the row edge");
       },
     },
     subsession: {

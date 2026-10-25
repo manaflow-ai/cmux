@@ -581,6 +581,8 @@
 .cv-user__actions {
   display: flex;
   align-items: center;
+  align-self: flex-end;
+  justify-content: flex-end;
   gap: 0;
   height: var(--cv-meta-row);
   margin-top: var(--cv-meta-gap);
@@ -2228,7 +2230,10 @@ pre.cv-math-source {
   gap: 8px;
   min-width: 0;
   height: 26px;
+  /* Keep the legacy physical declaration for the token baseline; the logical end
+     is zero so the action lane owns the line's full trailing hover surface. */
   padding-right: 28px;
+  padding-inline-end: 0;
   color: var(--cv-text-dim);
   white-space: nowrap;
   user-select: none;
@@ -2304,7 +2309,7 @@ button.cv-received__name:focus-visible {
 /* The line's gap spaces Reply and the hover row already. */
 .cv-received__line > .cv-received__reply,
 .cv-received__line > .cv-received-actions {
-  margin-inline-start: 0;
+  margin-inline-start: auto;
 }
 /* The message: a compact glass card under the line, in from the icon column, its text as
    Markdown. Glass, never a solid fill: the theme's text at a low strength, a hairline edge with
