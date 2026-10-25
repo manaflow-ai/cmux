@@ -223,6 +223,7 @@
    on the menu's glass, no box of its own, a hairline under it as under the full picker's search. The
    caret shows focus; the field never draws a ring (check-text-focus-rings.py). */
 .acpmux-quick-search {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -251,9 +252,9 @@
 
 /* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
-.acpmux-quick-railed { max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
+.acpmux-quick-railed { display: flex; flex-direction: column; max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
-.acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
+.acpmux-quick-layout { display: flex; align-items: stretch; min-height: 0; max-height: var(--available-height, none); }
 .acpmux-quick-rail,
 .acpmux-quick-body { overflow-y: auto; }
 .acpmux-quick-rail {
