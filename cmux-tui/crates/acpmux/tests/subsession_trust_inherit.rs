@@ -13,6 +13,8 @@
 //! - a chat whose harness reports full access on its own (no mode cmux set) still waits on a card;
 //! - a chat whose launch command skips the checks, in no mode cmux set, still waits on a card;
 //! - a chat named through a link still waits on a card under the link's target;
+//! - a chat in full access whose agent was started again lends its trust once cmux set the mode
+//!   again, and a fallback agent that reports full access on its own lends none;
 //! - a chat a Web client started still waits on a card.
 //!
 //! Stand-in agents (fake_agent.py). One test function: the settings file is read from this
@@ -110,8 +112,19 @@ impl Client {
 /// Whether `parent`'s start in `cwd` (on the parent's own harness) waits on a trust card: the card
 /// shows on `parent` while the start has not ended. Not now then answers it, and the start ends.
 async fn start_waits_on_a_card(hub: &Arc<Hub>, app: &mut Client, parent: &str, cwd: &Path) -> bool {
-    let (h, p) = (hub.clone(), parent.to_owned());
     let harness = hub.resolve(parent).unwrap().meta().harness;
+    start_on_waits_on_a_card(hub, app, parent, cwd, &harness).await
+}
+
+/// `start_waits_on_a_card` for a child on `harness`.
+async fn start_on_waits_on_a_card(
+    hub: &Arc<Hub>,
+    app: &mut Client,
+    parent: &str,
+    cwd: &Path,
+    harness: &str,
+) -> bool {
+    let (h, p) = (hub.clone(), parent.to_owned());
     let params = json!({"prompt": "echo hi", "name": "lane", "cwd": cwd, "harness": harness});
     let start =
         tokio::spawn(async move { Client::as_session(&h, &p).await.call(START, params).await });
@@ -167,6 +180,8 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "linked-target/lanes",
         "skips/lanes",
         "roundtrip/lanes",
+        "again/lanes",
+        "failover/lanes",
         "elsewhere/lanes",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -189,6 +204,11 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
             "skipper": {"argv": ["python3", FAKE, "--dangerously-skip-permissions"], "family": "fake"},
             // Starts in the sample harness's one mode, which asks.
             "fake-ask": fake("fake", json!({"FAKE_ASK_MODE": "1"})),
+            // Falls over to a profile that starts in full access by itself and refuses mode changes.
+            "fake-full-fo": {"argv": ["python3", FAKE], "family": "fake",
+                             "env": {"FAKE_FULL_ACCESS": "1"}, "fallback": "fake-claims"},
+            "fake-claims": fake("fake", json!({"FAKE_FULL_ACCESS": "1", "FAKE_NEW_MODE": "full-access",
+                                              "FAKE_LOAD_MODE": "full-access", "FAKE_SET_MODE_FAIL": "1"})),
         },
         "defaultHarness": "fake-full",
         "permissionPolicy": "approve-all",
@@ -261,6 +281,36 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     assert!(
         start_waits_on_a_card(&hub, &mut app, &roundtrip, &root.join("roundtrip/lanes")).await,
         "a mode the harness came back to by itself lent its folder's trust"
+    );
+
+    // A chat in full access whose agent died and was started again: cmux set the mode again on
+    // the new agent, so it still lends its folder's trust.
+    decide("again", "trusted");
+    let again = app.new_session(&root.join("again"), "fake-full").await;
+    let die = json!({"sessionId": again, "prompt": [{"type": "text", "text": "die: gone"}]});
+    let _ = app.call("session/prompt", die).await;
+    let hello = json!({"sessionId": again, "prompt": [{"type": "text", "text": "hello"}]});
+    app.ok("session/prompt", hello).await;
+    assert!(
+        !start_waits_on_a_card(&hub, &mut app, &again, &root.join("again/lanes")).await,
+        "a restarted agent cmux put back in full access lent nothing"
+    );
+
+    // A chat in full access that fell over to a profile which starts in full access by itself and
+    // refuses cmux's mode change: that agent's mode is its own, so it lends nothing. (The child
+    // runs on a profile that takes its mode.)
+    decide("failover", "trusted");
+    let fo = app.new_session(&root.join("failover"), "fake-full-fo").await;
+    let limit = json!({"sessionId": fo, "prompt": [{"type": "text", "text": "limit: now"}]});
+    let _ = app.call("session/prompt", limit).await;
+    let meta = hub.resolve(&fo).unwrap().meta();
+    assert_eq!(meta.harness, "fake-claims");
+    let info = app.ok("_acpmux/info", json!({"sessionId": fo})).await;
+    assert_eq!(info["modes"]["currentModeId"], "full-access", "{info}");
+    assert!(
+        start_on_waits_on_a_card(&hub, &mut app, &fo, &root.join("failover/lanes"), "fake-full")
+            .await,
+        "a fallback agent's own full access lent its folder's trust"
     );
 
     // Outside its folder it still asks.
