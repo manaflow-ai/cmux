@@ -35,6 +35,7 @@ mod idle;
 mod launch_roots;
 mod launchers;
 mod live_models;
+mod locate;
 pub mod media_handles;
 pub mod media_read;
 pub(crate) mod subagent_transcript;
