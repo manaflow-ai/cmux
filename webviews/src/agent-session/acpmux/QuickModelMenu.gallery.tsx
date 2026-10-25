@@ -35,10 +35,10 @@ const families: QuickFamily[] = [
       "opencode/DeepSeek V4.1 Flash Free",
       "opencode/Flint 40B Free",
     ]),
-    more: models(
-      "opencode",
-      Array.from({ length: 40 }, (_, index) => `opencode/Sample Model ${index + 1}`),
-    ),
+    more: models("opencode", [
+      "opencode/Qwen3 Coder 480B A35B Instruct Turbo Free (preview)",
+      ...Array.from({ length: 40 }, (_, index) => `opencode/Sample Model ${index + 1}`),
+    ]),
   },
   { id: "unii", name: "Unii", models: [], more: [], note: "Signed out" },
 ];

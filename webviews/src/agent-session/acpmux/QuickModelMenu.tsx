@@ -357,8 +357,6 @@ export function QuickModelMenu({
                 ? { label: model.name, check: true }
                 : { label: model.name, shortcut: true },
             ),
-          // The shown More models rows: their width holds once they show (only the open tab's).
-          ...(family.id === moreFor ? family.more.map((model) => ({ label: model.name, check: true })) : []),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
           ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
@@ -410,6 +408,8 @@ export function QuickModelMenu({
                   closeOnClick
                   disabled={choice.disabled}
                   className="acpmux-quick-item"
+                  // tooltip-allow: New Tab's menu keeps its width, so a long model name ends in "…"; the tooltip names it whole.
+                  {...(newTab ? { title: choice.hint ? `${choice.name} · ${choice.hint}` : choice.name } : {})}
                   shortcut={
                     !newTab && !query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined
                   }
@@ -458,6 +458,8 @@ export function QuickModelMenu({
                     closeOnClick
                     disabled={choice.disabled}
                     className="acpmux-quick-item"
+                    // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
+                    title={choice.name}
                   >
                     <span className="acpmux-menu-label">{choice.name}</span>
                   </MenuRadioItem>
