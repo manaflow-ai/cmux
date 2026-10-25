@@ -4,7 +4,8 @@ import { type RefObject, useLayoutEffect } from "react";
 // narrower pane swaps whole units, never letters: the model, effort (its own chip, Leo 2026-10-15:
 // "move it back out"; since Leo 2026-10-20 the model button's detail) and the permission mode each
 // take a shorter form, and +, the access glyph, the mic, Send or Stop and every chevron always stay.
-// There is no speed bolt to drop: Fast mode is a row of the model button's menu.
+// Claude Code's Fast mode is a row of the model button's menu; Codex's bolt beside the mic never
+// leaves (it is Codex's only speed control), as the mic never does.
 //
 // The steps are composer widths, in COMPOSER_FIT_STEPS. composerLocation.css applies them with
 // container queries on the composer (`composer`, #20548), whose widths are literals that
@@ -52,8 +53,8 @@ export type FitForm = "full" | "short" | "family" | "icon" | "hidden";
 
 /** The row's steps: at its width (COMPOSER_FIT_STEPS) `unit` takes the form `to`. Labels shorten
  *  early and whole, a little before the row runs out of room: effort's short name, the model's
- *  family, the permission label (its glyph stays), the model's mark alone (its name only while the
- *  row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
+ *  family, the permission label (its glyph stays), and the model's mark alone (its name only while
+ *  the row can hold it, #20548). The mic never leaves (Leo 2026-10-19, as Claude Code's): the prompt gives way instead. A row too long
  *  for its width's steps takes the next ones too, in this order.
  *  One table: the steps change here. */
 export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; unit: FitUnit; to: FitForm }[] = [

@@ -50,9 +50,13 @@ final class PaneOverlayView: NSView {
     private var focusRing = FocusRingSettings()
     private var ringAlphaOverride: CGFloat?
     private var attentionSettings = AttentionSettings()
+    /// The attention ring glows (`notifications.attention.ringStyle` glow), `PaneOverlayView+Glow`.
+    var ringGlows: Bool { attentionSettings.ringStyle == .glow }
     private var attentionMark: AttentionMark?
     /// The source color of the ring flashing out: the flash keeps it after its mark is gone.
     private var dismissingColor: ThemeRGB?
+    /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
+    private var attentionAgentChat = false
     /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
     private var attentionLook = AttentionHighlightLook.tunable.defaultValue
     /// One observation of the look is registered at a time.
@@ -207,17 +211,30 @@ final class PaneOverlayView: NSView {
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
                 readByEntry: Bool = false, focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
         self.dimFill = dimFill
+        // The pane's own look and flash count: an agent chat's or a terminal's. A ring going away
+        // keeps its pane's look through its dismiss flash.
+        attentionAgentChat = mark?.agentChat ?? attentionMark?.agentChat ?? attentionAgentChat
+        let attentionSettings = attentionSettings.surface(agentChat: attentionAgentChat)
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
         let showsBorder = borderStyle.shows
+        let glowChanged = attentionSettings.ringStyle != self.attentionSettings.ringStyle
         self.borderStyle = borderStyle
         self.focusRing = focusRing
         self.ringAlphaOverride = ringAlphaOverride
         self.attentionSettings = attentionSettings
         if shapeChanged { layoutLayers() }
+        if glowChanged {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            applyRingGlow()
+            // A look without glow (ring, none) stops a dismiss flash's glow that is running.
+            if !ringGlows { attention.removeAnimation(forKey: "attention-dismiss-glow") }
+            CATransaction.commit()
+        }
         let style = showsRing ? focusRing.effectiveStyle : .none
         // A ring that rests invisible (the flash look) keeps the border.
-        let marksAttention = mark != nil && attentionSettings.style != .none
+        let marksAttention = mark != nil && attentionSettings.drawsRing
             && Motion.attentionRestingOpacity(attentionSettings, look: AttentionHighlightLook.tunable.value) > 0
         // Focus moving between panes never crossfades two rings (cx-f6i7): a
         // ring or glow leaving goes at once and the one arriving eases in, as
@@ -276,7 +293,7 @@ final class PaneOverlayView: NSView {
     private func attentionLookChanged() {
         observesAttentionLook = false
         attentionLook = observedAttentionLook()
-        if attentionMark != nil, attentionSettings.style != .none {
+        if attentionMark != nil, attentionSettings.drawsRing {
             Motion.feedback.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
         }
         applyColors()
@@ -290,8 +307,13 @@ final class PaneOverlayView: NSView {
         let previous = attentionMark
         attentionMark = mark
         attentionLook = observedAttentionLook()
-        guard let mark, attentionSettings.style != .none else {
+        guard let mark, attentionSettings.drawsRing else {
             attention.removeAnimation(forKey: "attention")
+            // The look turned off (none) mid-flash: the flash and its glow go with it.
+            if !attentionSettings.drawsRing {
+                attention.removeAnimation(forKey: "attention-dismiss")
+                attention.removeAnimation(forKey: "attention-dismiss-glow")
+            }
             if previous != nil, readByEntry, animated,
                let flash = Motion.indicators.attentionDismissAnimation(attentionSettings, look: attentionLook) {
                 dismissingColor = previous?.color
@@ -317,7 +339,7 @@ final class PaneOverlayView: NSView {
         CATransaction.setDisableActions(true)
         attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook)
         attention.removeAnimation(forKey: "attention")
-        if let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
+        if !mark.quiet, let animation = Motion.indicators.attentionAnimation(attentionSettings, look: attentionLook, showing: previous != nil) {
             attention.add(animation, forKey: "attention")
         }
         CATransaction.commit()

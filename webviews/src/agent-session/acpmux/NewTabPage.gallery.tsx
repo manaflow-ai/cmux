@@ -3,7 +3,7 @@
 // This is the legacy (variant-A) New Tab page that remains selectable while the newer
 // NewTabScreen is dogfooded. Keep its keyboard and host receipts visible in the gallery: it is
 // the first navigation surface a user sees before a tab becomes a terminal, browser, or chat.
-import { useState, type ComponentProps } from "react";
+import { useEffect, useState, type ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
 import { CATALOG, manySessions, noChat } from "../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "./model";
@@ -12,7 +12,44 @@ import type { OmnibarContext } from "./omnibar";
 import type { Project } from "./ProjectChooser";
 import type { Play } from "../../gallery/play";
 
-type Props = ComponentProps<typeof NewTabPage>;
+import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
+
+type GlassPreview = "plain" | "lens" | "spectrum" | "reduce";
+type Props = ComponentProps<typeof NewTabPage> & { glassPreview?: GlassPreview };
+
+function useGlassPreview(mode?: GlassPreview) {
+  useEffect(() => {
+    if (!mode) return;
+    const root = document.documentElement;
+    const names = ["style", "data-glass", "data-reduce-transparency"];
+    const saved = names.map((name) => root.getAttribute(name));
+    root.setAttribute("data-glass", mode === "reduce" ? "plain" : mode);
+    root.toggleAttribute("data-reduce-transparency", mode === "reduce");
+    root.style.setProperty("--agent-page-bg", "transparent");
+    root.style.setProperty("--cmux-surface-background", "transparent");
+    root.style.setProperty("background", `url("${wallpaper}") 0 0 / 100vw 100vh no-repeat fixed`, "important");
+    const host = window as unknown as { cmuxTheme?: { backdrop?: (value: unknown) => void } };
+    const send = () =>
+      host.cmuxTheme?.backdrop?.({
+        image: wallpaper,
+        key: "gallery-omnibar-glass",
+        rect: { x: 0, y: 0, width: root.clientWidth, height: root.clientHeight },
+        blur: 0,
+        tint: "transparent",
+      });
+    send();
+    window.addEventListener("resize", send);
+    return () => {
+      window.removeEventListener("resize", send);
+      host.cmuxTheme?.backdrop?.({ image: null, key: null });
+      names.forEach((name, index) => {
+        const value = saved[index];
+        if (value === null) root.removeAttribute(name);
+        else root.setAttribute(name, value);
+      });
+    };
+  }, [mode]);
+}
 
 const projects: Project[] = [
   { cwd: "/Users/you/src/atlas-web", label: "atlas-web" },
@@ -57,7 +94,8 @@ const base: Props = {
 };
 
 function withReceipt(Component: typeof NewTabPage) {
-  return function GalleryNewTabPage(props: Props) {
+  return function GalleryNewTabPage({ glassPreview, ...props }: Props) {
+    useGlassPreview(glassPreview);
     const [receipt, setReceipt] = useState("");
     const record = (value: string) => setReceipt(value);
     return (
@@ -131,6 +169,11 @@ const keyboard: Play = async (ctx) => {
   );
 };
 
+const openOmnibar: Play = async (ctx) => {
+  await ctx.type("release", { selector: ".acpmux-newtab-field" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-omni"));
+};
+
 const escapeClear: Play = async (ctx) => {
   await ctx.focus({ selector: ".acpmux-newtab-field" });
   await ctx.press("Escape");
@@ -196,6 +239,26 @@ export default componentEntry<Props>({
   },
   load: () => import("./NewTabPage").then(({ NewTabPage: Component }) => withReceipt(Component)),
   variants: {
+    "omnibar-plain": {
+      note: "Chosen default: the shared popup frost shows the fixture wallpaper through the suggestions and selected row.",
+      props: { ...base, glassPreview: "plain" },
+      play: openOmnibar,
+    },
+    "omnibar-lens": {
+      note: "The same popup in the opt-in Lens mode; no extra edge or elevation.",
+      props: { ...base, glassPreview: "lens" },
+      play: openOmnibar,
+    },
+    "omnibar-spectrum": {
+      note: "The same popup with the opt-in Spectrum rim, using shared glass tokens.",
+      props: { ...base, glassPreview: "spectrum" },
+      play: openOmnibar,
+    },
+    "omnibar-reduce-transparency": {
+      note: "Reduce Transparency makes the popup solid over the same fixture wallpaper and disables blur.",
+      props: { ...base, glassPreview: "reduce" },
+      play: openOmnibar,
+    },
     idle: {
       note: "The classic page opens on Agent with recent sessions, project context, model chips, and the three-kind switch.",
       props: base,

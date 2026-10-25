@@ -219,3 +219,46 @@ async fn a_cancelled_subagents_late_line_stays_its_own() {
         assert_eq!(out[0].0, "acp-1/toolu_1", "{out:?}");
     }
 }
+
+/// Claude Code sends a subagent's model output as whole `assistant` lines, with
+/// no stream events (Leo: "why subagents have so little talking?"): its text
+/// and thinking go to its own session as message and thought chunks, before
+/// the tool calls the same line makes. A subagent that does stream its text
+/// is not sent it twice, and the chat's own lines stay streamed only.
+#[tokio::test]
+async fn a_subagents_whole_assistant_lines_carry_its_text_and_thinking() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&spawn_line("toolu_1", None)).await;
+    let line = json!({"type": "assistant", "parent_tool_use_id": "toolu_1", "message": {"id": "msg_1", "content": [
+        {"type": "thinking", "thinking": "Which hook?"},
+        {"type": "text", "text": "Checking the merge hook."},
+        {"type": "tool_use", "id": "toolu_2", "name": "Read", "input": {"file_path": "/a/b.rs"}}
+    ]}});
+    let out = updates(&t.inbound(&line).await);
+    let kinds: Vec<_> = out
+        .iter()
+        .map(|(sid, u)| (sid.as_str(), u["sessionUpdate"].as_str().unwrap_or("")))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            ("acp-1/toolu_1", "agent_thought_chunk"),
+            ("acp-1/toolu_1", "agent_message_chunk"),
+            ("acp-1/toolu_1", "tool_call")
+        ],
+        "{out:?}"
+    );
+    assert_eq!(out[1].1["content"]["text"], "Checking the merge hook.");
+    assert_eq!(out[1].1["messageId"], "msg_1");
+
+    // A subagent whose text streams: its whole line adds no second copy.
+    t.inbound(&spawn_line("toolu_3", None)).await;
+    let delta = json!({"type": "stream_event", "parent_tool_use_id": "toolu_3", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Reading"}}});
+    t.inbound(&delta).await;
+    let whole = json!({"type": "assistant", "parent_tool_use_id": "toolu_3", "message": {"content": [{"type": "text", "text": "Reading"}]}});
+    assert!(updates(&t.inbound(&whole).await).is_empty());
+
+    // The chat's own whole lines: its text came as stream events.
+    let own = json!({"type": "assistant", "parent_tool_use_id": null, "message": {"content": [{"type": "text", "text": "Done."}]}});
+    assert!(updates(&t.inbound(&own).await).is_empty());
+}

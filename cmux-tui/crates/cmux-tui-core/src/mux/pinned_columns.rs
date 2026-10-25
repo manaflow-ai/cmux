@@ -35,6 +35,13 @@ pub(crate) fn pinned_columns(state: &State) -> Vec<PinnedColumn> {
     pinned_column_views(state).map(|(column, _)| column).collect()
 }
 
+/// The pinned tab (first tab) of every pinned column of `state`. A close
+/// that picks its own tabs (a `layout.bulk` preset, a Workspace-form stash)
+/// leaves these out, as it leaves out pinned tabs.
+pub(crate) fn pinned_dock_tabs(state: &State) -> HashSet<SurfaceId> {
+    pinned_column_views(state).filter_map(|(column, _)| column.tabs.first().copied()).collect()
+}
+
 fn pinned_column_views(state: &State) -> impl Iterator<Item = (PinnedColumn, bool)> + '_ {
     state.workspaces.iter().flat_map(move |workspace| {
         workspace.screens.iter().flat_map(move |screen| {
@@ -159,8 +166,9 @@ pub(crate) fn ensure_pane_takes_tabs(
 
 /// The width of the column that opens right of a lone pinned column
 /// (`pinned-dock-alone-v1`): a conversation split from Home's dock and a link
-/// Home opens (`workspace.open_url`) both get it.
-pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 0.5;
+/// Home opens (`workspace.open_url`) both get it. A column width is a share of
+/// the strip right of the dock, so 1.0 fills that space; 0.5 left half of it empty.
+pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 1.0;
 
 /// Whether `pane` is in a pinned column alone on its screen
 /// (`pinned-dock-alone-v1`: Home's dock with nothing beside it).

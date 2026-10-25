@@ -5,9 +5,11 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
-import type { ConnectKind, EnvironmentKind, OffloadKind } from "./environments";
+import { machineColor } from "./machineColor";
+import { knownMachines, type ConnectKind, type EnvironmentKind, type OffloadKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
+import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
@@ -227,7 +229,19 @@ export function ComposerContext({
               menu="Location"
               face={
                 <LocationFace
-                  icon={<FolderIcon />}
+                  icon={
+                    currentLocation ? (
+                      <ProjectBadge
+                        project={{
+                          cwd: currentLocation.id,
+                          label: currentName ?? currentLocation.label,
+                          ...(currentLocation.repo ? { repo: currentLocation.repo } : {}),
+                        }}
+                      />
+                    ) : (
+                      <FolderIcon />
+                    )
+                  }
                   value={
                     currentName ? currentName : noProject ? t(CONTEXT_LABELS.noProject) : t(CONTEXT_LABELS.chooseFolder)
                   }
@@ -290,7 +304,12 @@ export function ComposerContext({
               value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               face={
                 <LocationFace
-                  icon={<EnvironmentIcon kind={savedPick?.kind ?? currentComputer?.kind ?? "local"} />}
+                  icon={
+                    <EnvironmentIcon
+                      kind={savedPick?.kind ?? currentComputer?.kind ?? "local"}
+                      name={savedPick ? undefined : currentComputer?.label}
+                    />
+                  }
                   value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
                   chevron
                 />
@@ -308,7 +327,7 @@ export function ComposerContext({
               label={t(CONTEXT_LABELS.computer)}
               menu="Computer"
               kind="computer"
-              icon={<ComputerIcon />}
+              icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
               value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               options={computers}
               selected={selectedComputer}
@@ -389,29 +408,10 @@ function availableComputers(
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
   const computers: Computer[] = [{ id: "local", label: localLabel, kind: "local" }];
-  const seen = new Set<string>();
-  // A peer's transport names its section: an `ssh://` peer is SSH, any other (or a Cloud chat's
-  // host acpmux no longer lists) is Cloud.
-  const add = (id: string, label: string, cloudHost = false) => {
-    if (seen.has(id)) return;
-    seen.add(id);
-    const kind = !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud";
-    const connected = cloudHost ? undefined : peerConnected[id];
-    computers.push({
-      id,
-      label,
-      kind,
-      detail: t(kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud),
-      ...(connected !== undefined ? { connected } : {}),
-    });
-  };
-  for (const peer of peers) add(peer, peer);
-  for (const session of sessions) {
-    const peer = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
-    if (peer) add(peer, session.host ?? peer, !session.peer);
+  for (const machine of knownMachines(peers, sessions, peerKinds, summary ? [summary] : [], peerConnected)) {
+    const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
+    computers.push({ ...machine, detail });
   }
-  const summaryPeer = computerId(summary);
-  if (summaryPeer !== "local") add(summaryPeer, summary?.host ?? summaryPeer, !summary?.peer);
   return computers;
 }
 
@@ -507,10 +507,12 @@ function FolderIcon() {
   );
 }
 
-function ComputerIcon() {
+/// The computer chip's icon, in another machine's own color (machineColor); this Mac's stays quiet.
+function ComputerIcon({ name }: { name?: string }) {
   return (
     <svg
       className="acpmux-icon acpmux-location-icon ui-ghost-icon"
+      style={name ? { color: machineColor(name) } : undefined}
       width={14}
       height={14}
       viewBox="0 0 16 16"

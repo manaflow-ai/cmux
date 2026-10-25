@@ -39,6 +39,10 @@ extension SidebarDocProjection {
             }
             return section
         }
+        // A list arranged before (a fold passes the shown list back in) holds the document's sections
+        // already: their groups are pulled above, and they come again below, once.
+        let made = Set(projection.layout.sections.filter { $0.content != .workspaces }.map(\.id.rawValue))
+        arranged.removeAll { if case .custom(let id) = $0.id { made.contains(id) } else { false } }
         // Every section of the document in its order: the sections before the machine lists (Pinned,
         // custom, app sections) draw their items in their own arrangement (a block) and their groups as
         // list rows; the machine lists follow; a section after them lists its groups only.
@@ -58,7 +62,39 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        return Self.withMemberItems(arranged, projection, drag: drag)
+        return Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+    }
+
+    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md).
+    @MainActor private static func markingArchived(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+                                                   drag: SidebarDocDrag) -> [SidebarSection] {
+        // Every row, also with none archived: a list arranged before (a fold) may carry an old mark.
+        let archived = projection.archived
+        func mark(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
+            var workspace = workspace
+            workspace.isArchived = drag.item(.workspace(workspace.id)).map { archived.contains($0) } ?? false
+            return workspace
+        }
+        func mark(_ item: SidebarListItem) -> SidebarListItem {
+            var item = item
+            item.isArchived = archived.contains(item.id)
+            return item
+        }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.map { node in
+                switch node {
+                case .workspace(let workspace): return .workspace(mark(workspace))
+                case .item(let item): return .item(mark(item))
+                case .group(var group):
+                    group.isArchived = archived.contains(group.id.rawValue)
+                    group.workspaces = group.workspaces.map(mark)
+                    group.items = group.items.map { SidebarGroupItem(item: mark($0.item), after: $0.after) }
+                    return .group(group)
+                }
+            }
+            return section
+        }
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the
@@ -123,7 +159,7 @@ extension SidebarDocProjection {
             switch entry {
             case .workspace(_, let item): if let node = byItem[item] { placedIDs.insert(node.id) }
             case .group(let group): if let node = byItem[group.id] { placedIDs.insert(node.id) }
-            case .link: break
+            case .link(let listed): if let node = byItem[listed.id] { placedIDs.insert(node.id) }
             }
         }
         var before: [SidebarNode.ID: [SidebarNode]] = [:]
@@ -145,7 +181,9 @@ extension SidebarDocProjection {
             case .group(let group):
                 if let node = byItem.removeValue(forKey: group.id) { append(node) }
             case .link(let listed):
-                nodes.append(.item(titled(listed)))
+                // A link row arranged before is this one again.
+                byItem.removeValue(forKey: listed.id)
+                append(.item(titled(listed)))
             }
         }
         // Unplaced rows after the last placed one keep their mapped order at the end.

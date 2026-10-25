@@ -212,6 +212,7 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         codex_config: root.join("home/config.toml"),
         record: root.join("home/trust.json"),
         agent_home: None,
+        cmux_worktrees: None,
     };
     hub.set_trust_gate(Some(paths.clone()));
     let mut app = Client::new(&hub);

@@ -43,6 +43,7 @@
 mod offers;
 mod stats;
 
+use crate::no_panic::JsonExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -64,6 +65,11 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
+    let params = super::pairing::gate(conn, m, params)?;
+    if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -270,7 +276,7 @@ pub(super) async fn route(
                     Some(service) if running => service.roots_view(),
                     _ => json!({"ready": false}),
                 };
-                view["applied"] = json!(true);
+                view.set("applied", json!(true));
                 Ok(view)
             })
             .await
@@ -308,7 +314,7 @@ async fn settled_page(
     query: ChatQuery,
 ) -> Result<Value, RpcError> {
     let mut page = page(hub, service, query).await?;
-    page["settled"] = Value::Bool(true);
+    page.set("settled", Value::Bool(true));
     Ok(page)
 }
 

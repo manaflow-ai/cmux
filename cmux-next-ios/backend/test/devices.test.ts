@@ -1,6 +1,8 @@
 import { exportPKCS8, generateKeyPair, decodeProtectedHeader } from "jose"
 import { describe, expect, it } from "vitest"
-import { apnsPayload, clean, sendApns } from "../src/push.ts"
+import { env } from "cloudflare:workers"
+import { apnsPayload, apnsRequest, clean, collapseId, sendApns, turnPushKey } from "../src/push.ts"
+import { userHubName, type TeamHub } from "../src/team-hub.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, connect, PROD_PROJECT, register, token } from "./helpers.ts"
 
@@ -60,7 +62,7 @@ describe("device list and removal", () => {
     await call("PUT", "/v1/teams/personal-kate/prefs", t, { color: "#112233" })
     expect(await call("DELETE", "/v1/me", t)).toEqual({ status: 200, json: { deleted: { devices: 2 } } })
     expect((await call("GET", "/v1/me/devices", t)).json.devices).toEqual([])
-    expect((await call("GET", "/v1/teams/personal-kate/prefs", t)).json).toEqual({ color: null, emoji: null })
+    expect((await call("GET", "/v1/teams/personal-kate/prefs", t)).json).toEqual({ color: null, emoji: null, transparent: false })
   })
 })
 
@@ -91,7 +93,7 @@ describe("push registration and notify", () => {
     expect((await call("POST", `/v1/devices/${mac}/notify`, await token("owen"), body)).status).toBe(403)
     expect((await call("POST", `/v1/devices/${mac}/notify`, t, { ...body, kind: "shell" })).status).toBe(400)
     expect((await call("POST", `/v1/devices/${mac}/notify`, t, { ...body, eventId: "has space" })).status).toBe(400)
-    expect(await call("POST", `/v1/devices/${mac}/notify`, t, body)).toEqual({ status: 200, json: { configured: false, sent: 0, failed: 0, dropped: 0 } })
+    expect(await call("POST", `/v1/devices/${mac}/notify`, t, body)).toEqual({ status: 200, json: { configured: false, sent: 0, failed: 0, dropped: 0, wants: [] } })
   })
 
   it("ice reports whether TURN is included", async () => {
@@ -108,11 +110,54 @@ describe("APNs payload and sender", () => {
     const p = apnsPayload(event)
     expect(p.aps.alert).toEqual({ title: "Claude needs permission", body: "cmux · Studio" })
     expect(p.aps["interruption-level"]).toBe("time-sensitive")
-    expect(p.cmuxMobile).toEqual({ mac: "m1", kind: "permission", eventId: "e1", tabId: "t1", sessionId: "s1" })
+    // 0.13.0: the v2 object adds the Mac's name, the labels and previews; still no agent output.
+    expect(p.cmuxMobile).toEqual({ v: 2, mac: "m1", macName: "Studio", kind: "permission", eventId: "e1", agent: "Claude", place: "cmux", tabId: "t1", sessionId: "s1", previews: true })
     expect(apnsPayload({ ...event, kind: "chief" }).aps.alert.title).toBe("Chief replied")
     expect(apnsPayload({ ...event, kind: "completed", agent: "" }).aps.alert.title).toBe("Your agent finished")
     expect(clean("a\u0000b‮\nc", 40)).toBe("a b c")
     expect(clean("x".repeat(100), 40)).toHaveLength(40)
+  })
+
+  it("collapses a session's finished turns into one notification and keeps each ask", () => {
+    const target: PushRegistration = { deviceId: "d", ownerUserId: "o", token: "aa", environment: "production", topic: "dev.cmux.mobile", kinds: ["completed"], mutedMacs: [], previews: true, updatedAt: "" }
+    const done = { ...event, kind: "completed" as const, eventId: "t-s1-t9" }
+    // A newer finished turn (or error, or Chief reply) of the same session replaces the older one.
+    expect(collapseId(done)).toBe("turn-s1")
+    expect(collapseId({ ...done, eventId: "t-s1-t10", kind: "failed" })).toBe("turn-s1")
+    expect(collapseId({ ...done, kind: "chief" })).toBe("turn-s1")
+    expect(apnsRequest(target, done, "tok", Date.now()).headers.get("apns-collapse-id")).toBe("turn-s1")
+    // Each ask stays its own notification.
+    expect(collapseId(event)).toBe("e1")
+    // No session: the event's own id.
+    const { sessionId: _, ...bare } = done
+    expect(collapseId(bare)).toBe("t-s1-t9")
+    // A long session id still fits APNs' 64 bytes, stably.
+    const long = collapseId({ ...done, sessionId: "x".repeat(128) })
+    expect(long.length).toBeLessThanOrEqual(64)
+    expect(long).toBe(collapseId({ ...done, sessionId: "x".repeat(128) }))
+    expect(long).not.toBe(collapseId({ ...done, sessionId: "x".repeat(127) + "y" }))
+    // Grouped per Mac and session (0.13.0; was the bare session id).
+    expect(apnsPayload(done).aps["thread-id"]).toBe("m1:s1")
+  })
+
+  it("lets one turn end per Mac, session and finished-or-error through the window; asks always pass", async () => {
+    const done = { ...event, kind: "completed" as const }
+    expect(turnPushKey("mac1", done)).toBe("mac1:s1:done")
+    expect(turnPushKey("mac1", { ...done, kind: "chief" })).toBe("mac1:s1:done")
+    expect(turnPushKey("mac1", { ...done, kind: "failed" })).toBe("mac1:s1:failed")
+    expect(turnPushKey("mac1", event)).toBeNull()
+    expect(turnPushKey("mac1", { kind: "completed" })).toBeNull()
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    const owner = "turn-push-test"
+    const hub = ns.get(ns.idFromName(userHubName(owner)))
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:done", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:done", 60_000)).toBe(false)
+    // An error right after a finished turn is its own news.
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:failed", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac1:s2:done", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed(owner, "mac2:s1:done", 60_000)).toBe(true)
+    // Past the window (0 ms here) the key passes again.
+    expect(await hub.turnPushAllowed(owner, "mac1:s1:done", 0)).toBe(true)
   })
 
   it("signs a provider token, routes by environment and classifies answers", async () => {
@@ -125,6 +170,8 @@ describe("APNs payload and sender", () => {
       environment,
       topic: "dev.cmux.mobile",
       kinds: ["permission"],
+      mutedMacs: [],
+      previews: true,
       updatedAt: ""
     })
     const seen: Array<Request> = []

@@ -15,6 +15,7 @@
 //! and refuses every other call, from a script too.
 
 mod action_tools;
+mod agent_dispatch_tools;
 mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
@@ -25,6 +26,7 @@ mod keybinding_tools;
 mod messages;
 mod render_tool;
 mod schema;
+mod terminal_talk_tools;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -101,7 +103,12 @@ const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its sess
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus.";
+    call passes focus: true or the tool's purpose is focus. \
+    Name workspaces and tabs to the person by their titles, never by an id they cannot see. \
+    When the person must act in a tab (log in, confirm, approve, pick), mark it: tab_update \
+    {tab, attention: \"reason\"}; when they ask to go there, tab_focus it. \
+    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
+    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,6 +148,23 @@ pub(super) trait Backend {
         request: browser_tools::Request,
         mutation: bool,
     ) -> Result<Value, CallFailure>;
+    /// One harness-agnostic agent dispatch request. The acpmux daemon owns
+    /// target selection, brief persistence and sender attribution; this
+    /// surface deliberately carries no shell command or remote path.
+    fn acpmux(
+        &self,
+        _method: &str,
+        _params: Value,
+        _timeout: Duration,
+        _idempotency_key: Option<&str>,
+        _mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        Err(CallFailure::local(
+            FailureKind::NotRun,
+            "acpmux.unavailable",
+            "this server cannot reach acpmux agent dispatch",
+        ))
+    }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
     /// first, or with `cursor` the journal batches after it), and with
@@ -235,6 +259,17 @@ impl Backend for LiveBackend {
         mutation: bool,
     ) -> Result<Value, CallFailure> {
         transport::browser_host(request.method, request.params, request.timeout, mutation)
+    }
+
+    fn acpmux(
+        &self,
+        method: &str,
+        params: Value,
+        timeout: Duration,
+        idempotency_key: Option<&str>,
+        mutation: bool,
+    ) -> Result<Value, CallFailure> {
+        agent_dispatch_tools::acpmux_request(method, params, timeout, idempotency_key, mutation)
     }
 
     fn chat(
@@ -547,9 +582,11 @@ impl<B: Backend> Server<B> {
         tools.push(action_tools::window_list_tool());
         tools.push(super::agents::snapshot_tool());
         tools.extend(agent_tools::TOOLS.iter().map(agent_tools::AgentTool::descriptor_json));
+        tools.extend(agent_dispatch_tools::descriptors());
         tools.push(super::agents_doctor::mcp_tool());
         tools.push(agent_wait_tool::descriptor());
         tools.push(agent_events_tool::descriptor());
+        tools.extend(terminal_talk_tools::descriptors());
         tools.push(render_tool::descriptor());
         tools.extend(
             keybinding_tools::TOOLS.iter().map(keybinding_tools::KeybindingTool::descriptor_json),
@@ -741,12 +778,22 @@ impl<B: Backend> Server<B> {
         if let Some(tool) = agent_tools::find(name) {
             return Ok(tool.call(&self.backend, &arguments));
         }
+        if let Some(tool) = agent_dispatch_tools::find(name) {
+            return Ok(tool.call(&self.backend, &arguments));
+        }
         if name == agent_wait_tool::NAME {
             let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
             return Ok(agent_wait_tool::call(&self.backend, &arguments, progress));
         }
         if name == agent_events_tool::NAME {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
+        }
+        if name == terminal_talk_tools::LIST {
+            return Ok(terminal_talk_tools::call_list(&self.backend, &arguments));
+        }
+        if name == terminal_talk_tools::SEND {
+            let progress = agent_wait_tool::Progress::requested(params, self.notes.as_ref());
+            return Ok(terminal_talk_tools::call_send(&self.backend, &arguments, progress));
         }
         if name == render_tool::NAME {
             return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
@@ -869,7 +916,11 @@ fn initialize(params: &Value, list_changed: bool, code_mode: bool) -> Value {
         "protocolVersion": version,
         "capabilities": {"tools": {"listChanged": list_changed}},
         "serverInfo": {"name": "cmux", "title": "cmux", "version": env!("CARGO_PKG_VERSION")},
-        "instructions": if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+        "instructions": format!(
+            "{} {}",
+            if code_mode { code_mode::INSTRUCTIONS } else { INSTRUCTIONS },
+            acpmux::agent_tools::ASKING_RULE
+        ),
     })
 }
 

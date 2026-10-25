@@ -49,8 +49,9 @@ impl Hub {
         // Never to a session that asks less than the sender (`subsession_guard.rs`); a queued
         // one is checked again when it runs (`turns.rs`).
         self.receiver_check(caller, target).await?;
-        let accepted =
-            self.send_family_prompt(caller, target, text, prompt_id, steer, interrupt).await?;
+        let accepted = self
+            .send_family_prompt(caller, target, text, prompt_id, steer, interrupt, None)
+            .await?;
         Ok(sent_reply(target, &accepted))
     }
 }
@@ -95,12 +96,16 @@ impl Delivery {
 }
 
 /// `send_message`'s answer: how the text went (`delivery`: `started` a turn,
-/// `next_step` into the running one, or `queued` behind it at `position`),
+/// `next_step` into the running one, `queued` behind it at `position`, or
+/// `waiting_for_slot` of its parent's run slots),
 /// and the receiver's queue, so the sender knows when it will be read.
 fn sent_reply(target: &Session, accepted: &Value) -> Value {
     let queued = accepted["queued"].as_bool().unwrap_or(false);
     let delivery = if accepted["steer"].as_bool().unwrap_or(false) {
         "next_step"
+    } else if accepted["waitsForSlot"].as_bool().unwrap_or(false) {
+        // No turn runs: its parent's run slots are all taken (`subsession_runs.rs`).
+        "waiting_for_slot"
     } else if queued {
         "queued"
     } else {

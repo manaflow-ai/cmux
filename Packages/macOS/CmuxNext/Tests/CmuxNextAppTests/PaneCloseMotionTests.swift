@@ -1,7 +1,4 @@
 import AppKit
-import CmuxNextBridge
-// Only the grid size: CmuxNextDaemon has its own PaneID and SplitID (the daemon's handles).
-import struct CmuxNextDaemon.CellSize
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextLayout
@@ -197,41 +194,16 @@ struct PaneCloseMotionTests {
 
     // MARK: Terminals
 
-    /// The neighbours' grids wait while they spring into the closed pane's space and go at rest.
-    @Test func aCloseHoldsTheTerminalGridsUntilItsPanesLand() throws {
+    /// The neighbours' terminals resize at the start of the close (Lawrence 2026-10-23): no grid is held while
+    /// they spring into the closed pane's space.
+    @Test func aCloseHoldsNoTerminalGrid() throws {
         let screen = Screen(.splits(Self.row))
         _ = try #require(screen.close("p2"))
-        #expect(screen.root.holdsTerminalGrids, "the close's first frame does not hold the grids")
-        var heldFrames = 0
         for _ in 1...240 {
-            let moving = screen.step()
-            if screen.root.holdsTerminalGrids { heldFrames += 1 }
-            if !moving { break }
+            #expect(!screen.root.holdsTerminalGrids, "the close holds the grids")
+            if !screen.step() { break }
         }
-        #expect(!screen.root.holdsTerminalGrids, "the grids are still held at rest")
-        #expect(heldFrames > 5, "the grids were held for \(heldFrames) frames only")
-        #expect(screen.holds == [true, false], "hold changes: \(screen.holds)")
-    }
-
-    /// While held, a terminal's PTY gets nothing; once let go, its newest grid goes once.
-    @Test func aHeldTerminalResizesItsPTYOnceWhenLetGo() {
-        final class Terminal: ResizeTarget {
-            var applied: [CellSize] = []
-            var awaitsEcho: Bool { false }
-            func applySettled(_ size: CellSize) { applied.append(size) }
-        }
-        final class Holder {}
-        let coordinator = ResizeCoordinator()
-        let terminal = Terminal(), holder = Holder()
-        coordinator.setHeld(true, by: holder)
-        for frame in 0..<45 {
-            coordinator.submit(terminal, size: CellSize(cols: 160 - frame, rows: 48))
-            _ = coordinator.tick()
-        }
-        #expect(terminal.applied.isEmpty, "\(terminal.applied.count) PTY resizes during the close")
-        coordinator.setHeld(false, by: holder)
-        for _ in 0..<5 { _ = coordinator.tick() }
-        #expect(terminal.applied == [CellSize(cols: 116, rows: 48)], "applied \(terminal.applied)")
+        #expect(screen.holds.isEmpty, "hold changes: \(screen.holds)")
     }
 
     @Test func reduceMotionClosesInOneFrameAndHoldsNoGrid() throws {

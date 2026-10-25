@@ -7,6 +7,7 @@ by who is calling, not by what is possible.
 | You are | Start an agent for a task | Talk to it, wait | Show it to the person |
 | --- | --- | --- | --- |
 | A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME --group G -d` | `acpmux send`, `acpmux wait`, `acpmux last` | `--group G` on the same command (runs `cmux agent open`) |
+| An agent inside acpmux that wants a child of another harness, from its shell | `acpmux run --parent $ACPMUX_SESSION_ID -m codex PROMPT` (prints its reply), or `acpmux new --parent ... -d` | as below: it is the same sub-session | it lists under the parent's chat |
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}` | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
 | The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
@@ -32,6 +33,10 @@ acpmux new -n gui/composer \
   absolute path; a missing or empty file fails before anything starts. The
   first prompt is: who started the session and how to report back
   (`--report-to`), where its worktree is, the prompt words, then the file.
+- **No questions.** Nobody sits at a launched session's chat, so it starts
+  without Claude Code's AskUserQuestion (`--disallowedTools`, kept through
+  respawns, resumes and restarts): a multiple-choice question there would
+  wait for a pick that never comes. It decides, says why and goes on.
 - **Idempotent.** Running the same command again gives the same session and
   worktree and sends nothing (`--reuse`, which `--worktree` implies), except
   the first prompt to a session that never got one (a launcher stopped

@@ -75,12 +75,14 @@ extension ActionRegistry {
 
     /// Groups of actions that claim the same shortcut with the same required
     /// context, so neither can win. Different contexts are intentional
-    /// overlaps (Cmd-[ is focus back in a terminal and back in a browser).
+    /// overlaps (Cmd-[ is focus back in a terminal and back in a browser;
+    /// Ctrl-Tab is the next Home chat on Home and the next tab elsewhere).
     public func shortcutConflicts() -> [[ActionID]] {
         var groups: [String: [ActionID]] = [:]
         for descriptor in descriptors {
             guard let shortcut = effectiveShortcut(for: descriptor.id) else { continue }
-            let key = "\(shortcut.displayString)|\(descriptor.requires.rawValue)|\(descriptor.shortcutFamily == nil)"
+            let onHome = KeyBindingDefaults.homeChatScoped.contains(descriptor.id)
+            let key = "\(shortcut.displayString)|\(descriptor.requires.rawValue)|\(descriptor.shortcutFamily == nil)|\(onHome)"
             groups[key, default: []].append(descriptor.id)
         }
         return groups.values.filter { $0.count > 1 }.sorted { $0[0].rawValue < $1[0].rawValue }

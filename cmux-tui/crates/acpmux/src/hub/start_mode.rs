@@ -482,6 +482,8 @@ impl Hub {
             return Err(full_access_off());
         }
         tracing::info!(session = %session.id, "resume: full access is off; {current} runs as {mode}");
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+            Some(mode.clone());
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
         Ok(())
     }
@@ -654,7 +656,7 @@ impl Hub {
             if profile.kind == crate::config::HarnessKind::ClaudeStdio {
                 crate::claude_stdio::MODES
                     .iter()
-                    .map(|(id, name)| ((*id).to_owned(), Some((*name).to_owned())))
+                    .map(|(id, name, _)| ((*id).to_owned(), Some((*name).to_owned())))
                     .collect()
             } else {
                 Vec::new()

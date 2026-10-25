@@ -1,0 +1,28 @@
+# Meta Muse Code in a terminal tab (`cmux harness run muse-terminal`), for a
+# Mac without the muse-acp adapter (see muse.toml for chats through ACP).
+# Install: curl -fsSL https://dev.meta.ai/install.sh | sh   (then `muse login`)
+# Status in the terminal comes from its hooks: `cmux agent hook install muse`.
+schema = 1
+id = "muse-terminal"
+name = "Muse Code (terminal)"
+family = "muse"
+icon = "meta"
+protocol = "terminal"
+command = "muse"
+args = ["--model", "${model}"]
+
+[defaults]
+model = "muse-spark-1.3"
+
+# Models: muse-spark-1.3, muse-spark-1.2, muse-wonder-1.0 and the
+# -contributor variants; a terminal harness has no model picker.
+
+[auth]
+login = "muse login"
+docs = "https://dev.meta.ai/docs/muse-code"
+
+[sessions]
+adapter = "muse"
+[sessions.resume]
+argv = ["muse", "resume", "{id}"]
+cwd = "{cwd}"

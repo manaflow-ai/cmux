@@ -56,7 +56,7 @@ pub fn origin_refused() -> RpcError {
 }
 
 /// A workspace id: a UUID (8-4-4-4-12 hex digits, either case).
-fn is_workspace_id(value: &str) -> bool {
+pub(crate) fn is_workspace_id(value: &str) -> bool {
     let groups: Vec<&str> = value.split('-').collect();
     groups.len() == 5
         && groups

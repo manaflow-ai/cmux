@@ -7,7 +7,8 @@ import Foundation
 /// and a `browser_…` selector (a daemon-owned browser) to the daemon.
 public struct BrowserPageService: Sendable {
     let engine: any BrowserPageEngine
-    /// Which agent drives which tab through `browser.page.right`.
+    /// Which agent drives which tab: `browser.page.right` and every write verb
+    /// that names an `agent` (``leasing(_:)``).
     let leases: BrowserTabLeases
     /// The passkey hand-off (`browser.page.passkey`); nil serves no such method.
     let passkeys: BrowserPasskeyRequests?
@@ -40,6 +41,8 @@ public struct BrowserPageService: Sendable {
 
     public func install(on router: ControlRouter) {
         let engine = engine
+        let leases = leases
+        let register: ([ControlMethod]) -> Void = { router.register($0.map(self.leasing)) }
         func page(_ name: String, _ operation: @escaping @Sendable (ControlCall) throws -> BrowserPageOperation) -> ControlMethod {
             .async("browser.page.\(name)") { call in
                 let tab = try Self.tab(call)
@@ -47,7 +50,7 @@ public struct BrowserPageService: Sendable {
                 return .object(Self.base(tab))
             }
         }
-        router.register([
+        register([
             page("navigate") { .navigate(try Self.string($0, "url")) },
             page("back") { _ in .back },
             page("forward") { _ in .forward },
@@ -59,6 +62,8 @@ public struct BrowserPageService: Sendable {
                 result["url"] = state["url"] ?? .string(tab.url ?? "about:blank")
                 result["title"] = state["title"] ?? ""
                 result["profile"] = .string(tab.browserProfileID ?? "default")
+                // Who drives this tab now (#24413), so an agent sees it before it acts.
+                if let driver = await leases.holder(of: tab.id) { result["driver"] = .string(driver) }
                 return .object(result)
             },
             .async("browser.page.eval") { call in
@@ -103,14 +108,14 @@ public struct BrowserPageService: Sendable {
             element("text", BrowserPageScripts.text, engine: engine),
             element("value", BrowserPageScripts.value, engine: engine),
         ])
-        router.register(waitAndCaptureMethods())
-        router.register(tabMethods(router: router))
+        register(waitAndCaptureMethods())
+        register(tabMethods(router: router))
         router.register([rightMethod(router: router)])
-        router.register(passkeyMethods())
-        router.register(inputMethods())
-        router.register(rawInputMethods())
-        router.register(browserUseMethods())
-        router.register(cookieAndStorageMethods())
+        register(passkeyMethods())
+        register(inputMethods())
+        register(rawInputMethods())
+        register(browserUseMethods())
+        register(cookieAndStorageMethods())
     }
 
     /// Selector or snapshot ref (`e3`, `@e3`) actions run as page scripts.

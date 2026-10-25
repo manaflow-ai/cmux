@@ -45,6 +45,10 @@ pub(super) const EXCLUDED_APP_METHODS: &[(&str, &str)] = &[
     ("events.stream", "A stream; a bounded events read is a later phase."),
     ("history.list", "The user's browsing and command history; not an operation or a CLI action."),
     ("bookmark.list", "The user's bookmarks; not an operation or a CLI action."),
+    (
+        "bookmark.importSources",
+        "The other browsers' profiles on this Mac a bookmark import would read; not an operation or a CLI action.",
+    ),
     ("accounts.list", "Provider account records; not an operation or a CLI action."),
     (
         "browser.page.*",
