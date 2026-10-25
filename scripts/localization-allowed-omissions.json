@@ -63,6 +63,10 @@
       "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
   },
+  "cli.surface.newDisplay.usage": {
+    "class": "syntax",
+    "source": "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"
+  },
   "CFBundleDisplayName": {
     "source": "cmux Cloud Tunnel",
     "class": "brand"

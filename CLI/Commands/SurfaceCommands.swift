@@ -243,6 +243,7 @@ struct SurfaceNewTerminalCommand: SharedLegacyFacadeCommand {
     )
 }
 
+/// Creates a cloud VNC display and optionally projects it into a workspace.
 struct SurfaceNewDisplayCommand: SharedLegacyFacadeCommand {
     @Option(name: .customLong("machine"), completion: vmCompletion) var machine: String?
     @Option(name: .customLong("workspace"), completion: workspaceCompletion) var workspaceID: String?

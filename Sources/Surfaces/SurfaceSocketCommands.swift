@@ -27,6 +27,9 @@ extension TerminalController {
         )
     }
 
+    /// Handles the synchronous in-process surface socket adapter. Network socket
+    /// connections use the async display path below so cloud display creation
+    /// never parks a socket worker thread behind `v2VmCall`.
     nonisolated func socketWorkerSurfaceResponse(method: String, id: Any?, params: [String: Any]) -> String {
         switch method {
         case "surface.catalog":
@@ -116,18 +119,39 @@ extension TerminalController {
 
         case "surface.new_display":
             guard let machineRaw = Self.surfaceString(params["machine"]), !machineRaw.isEmpty else {
-                return v2Error(id: id, code: "invalid_params", message: "surface.new_display requires `machine` (a cloud machine id).")
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.surface.newDisplay.machineRequired",
+                        defaultValue: "surface.new_display requires `machine` (a cloud machine id)."
+                    )
+                )
             }
             let machine = SurfaceMachineID(rawValue: machineRaw)
             guard machine.cloudMachineID != nil else {
-                return v2Error(id: id, code: "invalid_params", message: "surface.new_display requires a cloud machine id; local display creation is not supported.")
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.surface.newDisplay.cloudOnly",
+                        defaultValue: "surface.new_display requires a cloud machine id; local display creation is not supported."
+                    )
+                )
             }
             if let error = cloudDisabledSocketError(id: id) { return error }
             let open = Self.surfaceBool(params["open"]) ?? true
             let focus = Self.surfaceBool(params["focus"]) ?? false
             let workspaceID = open ? surfaceTargetWorkspaceID(params, strictExplicit: true) : nil
             if open, workspaceID == nil {
-                return v2Error(id: id, code: "invalid_params", message: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`).")
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: String(
+                        localized: "socket.surface.newDisplay.workspaceRequired",
+                        defaultValue: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
+                    )
+                )
             }
             let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
             return v2VmCall(id: id, timeoutSeconds: 240) {
@@ -140,15 +164,22 @@ extension TerminalController {
                 payload["resource"] = resource.id.rawValue
                 payload["open"] = open
                 if let destination {
-                    let opened = try await catalog.project(
-                        resource.id,
-                        into: destination,
-                        focus: focus,
-                        reuseExisting: false
-                    )
-                    payload = Self.surfaceResourcePayload(resource, projections: [opened.projection])
-                    payload["resource"] = resource.id.rawValue
-                    payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
+                    do {
+                        let opened = try await catalog.project(
+                            resource.id,
+                            into: destination,
+                            focus: focus,
+                            reuseExisting: false
+                        )
+                        payload = Self.surfaceResourcePayload(resource, projections: [opened.projection])
+                        payload["resource"] = resource.id.rawValue
+                        payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
+                    } catch {
+                        if error is CancellationError { throw error }
+                        payload["open"] = false
+                        payload["projection_failed"] = true
+                        payload["projection_error"] = Self.surfaceDisplayProjectionFailureMessage
+                    }
                 }
                 return await Self.markBackgroundOpen(payload, focus: focus)
             }
@@ -157,6 +188,111 @@ extension TerminalController {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
+
+    /// Handles `surface.new_display` on the suspendable socket connection task.
+    /// The synchronous adapter above remains for in-process callers, while this
+    /// path keeps cloud creation and projection off the blocking worker lane.
+    nonisolated func socketWorkerSurfaceNewDisplayResponseAsync(_ request: ControlRequest) async -> String {
+        let params = request.params.mapValues(\.foundationObject)
+        let id = request.id?.foundationObject
+        guard let machineRaw = Self.surfaceString(params["machine"]), !machineRaw.isEmpty else {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surface.newDisplay.machineRequired",
+                    defaultValue: "surface.new_display requires `machine` (a cloud machine id)."
+                )
+            )
+        }
+        let machine = SurfaceMachineID(rawValue: machineRaw)
+        guard machine.cloudMachineID != nil else {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surface.newDisplay.cloudOnly",
+                    defaultValue: "surface.new_display requires a cloud machine id; local display creation is not supported."
+                )
+            )
+        }
+        if let error = cloudDisabledSocketError(id: id) { return error }
+        let open = Self.surfaceBool(params["open"]) ?? true
+        let focus = Self.surfaceBool(params["focus"]) ?? false
+        let workspaceID = open ? surfaceTargetWorkspaceID(params, strictExplicit: true) : nil
+        if open, workspaceID == nil {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surface.newDisplay.workspaceRequired",
+                    defaultValue: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
+                )
+            )
+        }
+        let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
+        do {
+            return try await CloudRequestBudget.live.withBudget(seconds: 240) {
+                let catalog = await SurfaceCatalog.shared
+                guard try await Self.surfaceProvider(for: machine, catalog: catalog) != nil else {
+                    throw SurfaceCatalogError.noProvider(machine)
+                }
+                let resource = try await catalog.createDisplay(on: machine)
+                var payload = Self.surfaceResourcePayload(resource, projections: [])
+                payload["resource"] = resource.id.rawValue
+                payload["open"] = open
+                if let destination {
+                    do {
+                        let opened = try await catalog.project(
+                            resource.id,
+                            into: destination,
+                            focus: focus,
+                            reuseExisting: false
+                        )
+                        payload = Self.surfaceResourcePayload(resource, projections: [opened.projection])
+                        payload["resource"] = resource.id.rawValue
+                        payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
+                    } catch {
+                        if error is CancellationError { throw error }
+                        payload["open"] = false
+                        payload["projection_failed"] = true
+                        payload["projection_error"] = Self.surfaceDisplayProjectionFailureMessage
+                    }
+                }
+                return v2Ok(id: id, result: await Self.markBackgroundOpen(payload, focus: focus))
+            }
+        } catch is CancellationError {
+            return v2Error(
+                id: id,
+                code: "timeout",
+                message: String(
+                    localized: "socket.surface.newDisplay.timedOut",
+                    defaultValue: "Creating the cloud display timed out. Check the catalog before retrying."
+                )
+            )
+        } catch let error as SurfaceCatalogError {
+            let code = switch error {
+            case .nothingToOpen: "not_ready"
+            case .destinationNotFound: "not_found"
+            default: "vm_error"
+            }
+            return v2Error(id: id, code: code, message: error.localizedDescription)
+        } catch {
+            return v2Error(
+                id: id,
+                code: "vm_error",
+                message: String(
+                    localized: "socket.surface.newDisplay.failed",
+                    defaultValue: "Could not create the cloud display. Check the machine status and retry."
+                )
+            )
+        }
+    }
+
+    private nonisolated static let surfaceDisplayProjectionFailureMessage = String(
+        localized: "socket.surface.newDisplay.projectionFailed",
+        defaultValue: "The display was created, but it could not be opened in the selected workspace. Retry with `cmux surface open <resource>`."
+    )
 
     // MARK: - vm.* wrappers (kept for existing callers; same catalog underneath)
 
