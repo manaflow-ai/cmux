@@ -72,6 +72,7 @@ impl Hub {
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
             }
             let (d, kind) = match (dir, msg) {

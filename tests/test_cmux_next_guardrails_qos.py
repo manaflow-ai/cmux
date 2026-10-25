@@ -24,6 +24,10 @@ REFUSED = [
     "DispatchQueue.global().async {",
     "let q = DispatchQueue(label: \"com.x.y\")",
     "let q = DispatchQueue(label: \"com.x.y\",\n        attributes: .concurrent)",
+    "let q = DispatchQueue(label: \"com.x.y\", qos: .userInteractive)",
+    "let q = DispatchQueue(label: \"com.x.y\", qos: .unspecified)",
+    "DispatchQueue.global(qos: .background).async {",
+    "Task.detached(priority: .background) {",
 ]
 ALLOWED = [
     "Task.detached(priority: .utility) {",
@@ -38,6 +42,8 @@ ALLOWED = [
     "let task: Task<Void, Never>? = nil",
     "group.addTask {",
     "MyTask {",
+    "let q = DispatchQueue(label: \"com.x.y\", qos: .userInteractive) // qos-allow: the frame waits for this parse",
+    "Task.detached(priority: .background) { // qos-allow: telemetry upload, nothing waits for it",
     "let q = DispatchQueue(\n        label: \"com.x.y\",\n        qos: .utility)",
     "Task.detached(\n        priority: .utility\n    ) {",
 ]

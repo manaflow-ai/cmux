@@ -120,6 +120,11 @@
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   animation: acpmux-effort-track-in var(--cmux-motion-standard) cubic-bezier(0.2, 0, 0, 1) both;
 }
+/* In the model menu the track opens with its popup, at once (Leo, 2026-10-24: "No fade in ever");
+   standing on its own it keeps its entrance. */
+.ui-popup .acpmux-effort-track {
+  animation: none;
+}
 .acpmux-effort-fill {
   position: absolute;
   inset: 0 auto 0 0;

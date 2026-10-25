@@ -30,6 +30,36 @@ import WebKit
         #expect(try await Self.hasBeenActive(page) == true, "an agent's script no longer acts as the user")
     }
 
+    /// cmux's own scripts that went around `evaluate` (review of 0c60222dd4b): Find's match count,
+    /// clearing the find selection, leaving pane fullscreen, refusing a fullscreen request made
+    /// without the person, and listing the page's links for window hints. Each used a public WebKit
+    /// call, which forces a gesture.
+    @Test func cmuxScriptsAroundEvaluateGiveThePageNoActivation() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let page = try await Self.page("around", rig)
+        _ = await page.find("around", direction: .forward, caseSensitive: false)
+        page.clearFind()
+        page.exitContentFullscreen()
+        _ = await WindowHintTargets.pageTargets(of: [page.webView], clip: CGRect(x: 0, y: 0, width: 800, height: 600))
+        // The page asks for fullscreen by itself: the refusal runs the exit script.
+        _ = try await Self.read("(document.documentElement.requestFullscreen?.(), true)", page)
+        // The fire-and-forget scripts have run once a later script answers (one script queue per page).
+        _ = try await Self.read("true", page)
+        #expect(try await Self.hasBeenActive(page) == false, "a cmux script around evaluate gave the page the person's activation")
+    }
+
+    /// Media commands: only those that may start playback act as the user; Pause (which macOS sends
+    /// by itself on a headphone unplug), seek and mute do not.
+    @Test(arguments: [BrowserMediaCommand.pause, .toggleMute, .seek(1), .muteTab(true)])
+    func aMediaCommandThatCannotStartPlaybackGivesNoActivation(_ command: BrowserMediaCommand) async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let page = try await Self.page("media", rig)
+        await page.media(command)
+        #expect(try await Self.hasBeenActive(page) == false, "\(command) gave the page the person's activation")
+    }
+
     /// `navigator.userActivation.hasBeenActive`, read without a user gesture.
     static func hasBeenActive(_ page: WebKitTab) async throws -> Bool {
         try await read("navigator.userActivation.hasBeenActive", page) as? Bool ?? false

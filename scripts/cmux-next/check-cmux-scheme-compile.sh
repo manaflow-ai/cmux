@@ -81,11 +81,18 @@ remove_derived_data=0
 (( kept_path )) || remove_derived_data=1
 browser_sources="Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
 browser_sources_backup=""
+# shellcheck source-path=SCRIPTDIR source=lib/workspace-resolved.sh
+source "$repo_root/scripts/cmux-next/lib/workspace-resolved.sh"
 # shellcheck disable=SC2329 # run by the EXIT trap
 on_exit() {
   if [[ -n "$browser_sources_backup" ]]; then
     cp -f "$browser_sources_backup" "$repo_root/$browser_sources" && rm -f "$browser_sources_backup"
   fi
+  # xcodebuild may rewrite the committed Package.resolved; a dirty tracked
+  # file makes the next job on a reused GitHub runner reset the whole
+  # workspace and rebuild every module (lib/workspace-resolved.sh). Only on
+  # a GitHub runner: a fleet step's checkout is its own.
+  [[ "${GITHUB_ACTIONS:-}" != true ]] || cmux_next_restore_workspace_resolved "$repo_root"
   if (( remove_log )); then rm -f "$log"; fi
   if (( remove_derived_data )); then rm -rf -- "$derived_data"; fi
 }
@@ -109,6 +116,8 @@ build() {
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
+    # This is a compile check; release packaging retains the project dSYM setting.
+    DEBUG_INFORMATION_FORMAT=dwarf
   )
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")

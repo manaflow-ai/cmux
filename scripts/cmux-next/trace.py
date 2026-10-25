@@ -15,7 +15,7 @@ into one Chrome trace event file (JSON, gzip) keyed by pid and thread, that ui.p
                    (categories stalls, tab-switch, pane-focus), on per-category tracks of the emitting process
   stalls           the app's main-thread watchdog (`debug.hangs`, threshold --hang-ms): every stall with its
                    main-thread stack sample and CPU time, on a track of the app
-  daemon spans     CMUX_TUI_DEBUG_SPANS (the daemon's create-path timing marks): each request's marks as
+  daemon spans     CMUX_TUI_DEBUG_SPANS (the daemon's create-path timing marks; set as CMUX_NEXT_TUI_DEBUG_SPANS on the app): each request's marks as
                    nested slices on a track of the daemon (placed by when its line was written; see the doc)
   chromium         Chromium's own trace over CDP (`Tracing.start` on the DevTools port the Debug build opens
                    with CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=N), clock-checked with
@@ -1041,9 +1041,11 @@ class TraceApp:
         self.probe = os.path.join(out, "typing.csv")
         self.flows = os.path.join(out, "flows")
         os.makedirs(self.flows, exist_ok=True)
-        # CMUX_TRACE_FLOWS reaches the daemon (a CMUX_ key, TerminalEnvironment) and from it the hosts and the holder.
+        # The app keeps only CMUX_NEXT_* launch knobs (LaunchIdentity strips every other inherited CMUX* variable):
+        # the daemon launch passes these two on as CMUX_TRACE_FLOWS and CMUX_TUI_DEBUG_SPANS (DaemonDiagnosticKnobs),
+        # and the daemon's terminal hosts and holder inherit them.
         env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms), "CMUX_NEXT_TYPING_PROBE": self.probe,
-               "CMUX_TUI_DEBUG_SPANS": self.spans, "CMUX_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
+               "CMUX_NEXT_TUI_DEBUG_SPANS": self.spans, "CMUX_NEXT_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
         self.cdp_port = None
         if not opts.no_cef:
             self.cdp_port = opts.cdp_port or free_port()
@@ -1622,7 +1624,9 @@ def parse_toc(path):
     return toc
 
 
-THREAD_FMT = re.compile(r"^(.*?)\s+0x[0-9a-fA-F]+\s*\((.*?)(?:,\s*pid:\s*(\d+))?\)\s*$")
+# A thread's `fmt`: `Main Thread 0x1a (cmux DEV, pid: 42)` (xctrace 26.0) or `Main Thread (0x10f45bf)
+# (fixture-emitter, pid: 70219)` (Xcode 26.6, tests/trace-fixtures/xcode-26): the name, the id, then the process.
+THREAD_FMT = re.compile(r"^(.*?)\s+\(?0x[0-9a-fA-F]+\)?\s*\((.*?)(?:,\s*pid:\s*(\d+))?\)\s*$")
 
 
 def parse_value(elem, vals):
@@ -3827,7 +3831,51 @@ def check_focus_quiet_terminal():
     assert "typed pane: p1 -> p1 (NOT a quiet terminal" in text, text
 
 
-SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
+FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")
+
+
+def check_real_xctrace_exports():
+    """Real exports (scripts/cmux-next/trace_fixtures.py on a fleet Mac, one folder per Xcode major): the column
+    tags time_profile_samples, xctrace_signposts, syscall_waits and parse_toc read are the ones xctrace writes.
+
+    At least one folder must exist. Each folder present is checked; a missing major is not a failure: the fleet
+    has no macOS 14 or 15 host today (every worker reports macos-26 or macos-27, 2026-10-24), so the Xcode 15 and
+    16 sets are added when such a host exists. A syscall table with no rows (a System Trace that ended before
+    its kernel tracing started) checks only its columns."""
+    folders = sorted(d for d in os.listdir(FIXTURES) if d.startswith("xcode-")) if os.path.isdir(FIXTURES) else []
+    assert folders, f"no real xctrace exports in {FIXTURES} (record them with trace_fixtures.py on a fleet Mac)"
+    for folder in folders:
+        where = os.path.join(FIXTURES, folder)
+        emitter = read_json(os.path.join(where, "fixture.json"))["emitter"]
+        toc = parse_toc(os.path.join(where, "profile-toc.xml"))
+        assert {"time-profile", "os-signpost"} <= set(toc["schemas"]) and toc["start_date"], (folder, toc)
+        assert "syscall" in parse_toc(os.path.join(where, "system-toc.xml"))["schemas"], folder
+        samples = time_profile_samples(os.path.join(where, "time-profile.xml"))
+        main = [x for x in samples if x[2].get("name") == "Main Thread" and isinstance(x[2].get("pid"), int)
+                and isinstance(x[2].get("tid"), int)]
+        assert main and all(x[1] > 0 for x in main), (folder, samples[:2])
+        spin = [x for x in main if any(emitter["spin_function"] in str(f) for f in x[3])]
+        # 20 rounds of 20 ms at 1 ms sampling: about 400 samples in the spin; half of that is a broken parse.
+        assert len(spin) >= emitter["rounds"] * emitter["spin_ms"] // 2, (folder, len(spin), main[0][3][:5])
+        stats = {}
+        posts = xctrace_signposts(os.path.join(where, "os-signpost.xml"), stats)
+        begins = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("begin")]
+        ends = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("end")]
+        assert len(begins) == len(ends) == emitter["rounds"], (folder, stats, posts[:3])
+        assert all(isinstance(x[0], int) for x in begins), begins[:2]
+        syscall = os.path.join(where, "syscall.xml")
+        rows = sum(1 for _ in xctrace_rows(syscall))
+        columns = re.findall(r"<mnemonic>([^<]+)</mnemonic>", open(syscall).read(4000))
+        assert {"start", "thread", "call", "duration", "backtrace"} <= set(columns), (folder, columns)
+        if rows:
+            waits = syscall_waits(syscall)
+            sleeps = [x for x in waits if x[2].get("name") == "Main Thread" and "semwait" in x[3]
+                      and x[1] >= emitter["usleep_ms"] * 1_000_000 * 0.8]
+            assert len(sleeps) >= emitter["rounds"] // 2, (folder, len(waits), [(x[3], x[1]) for x in waits[:5]])
+        print(f"{folder}: {len(spin)} spin samples, {len(begins)} signpost intervals, {rows} syscall rows")
+
+
+SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
               check_wrapped_group_ends,

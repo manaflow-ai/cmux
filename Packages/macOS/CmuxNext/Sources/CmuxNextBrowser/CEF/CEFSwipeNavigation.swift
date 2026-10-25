@@ -62,8 +62,9 @@ final class CEFSwipeNavigation {
         } else if tab == nil {
             return event
         }
-        // Asked on moving events only (`BrowserSwipeGesture.scroll`): a superview walk, no allocation.
-        let takenByLayout = phase == .changed && hostView?.isScrollGestureTakenByEnclosingView == true
+        // Asked on began and moving events (`BrowserSwipeGesture.scroll`): a superview walk, no allocation.
+        // On began it is true when the layout decided at the touch, so a Command gesture never probes the page.
+        let takenByLayout = (phase == .began || phase == .changed) && hostView?.isScrollGestureTakenByEnclosingView == true
         switch gesture.scroll(phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, takenByLayout: takenByLayout) {
         case .none:
             return event
