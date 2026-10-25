@@ -374,14 +374,13 @@ fn run_bounded(
     use std::process::Stdio;
     let mut file = None;
     let stdout = if output {
-        let path = std::env::temp_dir()
-            .join(format!("acpmux-run-{}-{}", std::process::id(), uuid::Uuid::now_v7()));
-        let opened = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-            .ok()?;
+        let path = std::env::temp_dir().join(format!(
+            "acpmux-run-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let opened =
+            std::fs::OpenOptions::new().read(true).write(true).create_new(true).open(&path).ok()?;
         let _ = std::fs::remove_file(&path);
         let stdout = Stdio::from(opened.try_clone().ok()?);
         file = Some(opened);
