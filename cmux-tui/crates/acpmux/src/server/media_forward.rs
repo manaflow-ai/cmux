@@ -26,6 +26,16 @@ struct Remote {
     session: String,
     handle: String,
     used: Instant,
+    /// The peer's link epoch when it opened the handle; a later one means the link that held it
+    /// ended, and the peer closed it then.
+    epoch: u64,
+}
+
+impl Remote {
+    /// The peer closed this handle when the link it was opened on ended.
+    fn link_gone(&self) -> bool {
+        self.peer.link_epoch() != self.epoch
+    }
 }
 
 #[derive(Default)]
@@ -92,10 +102,12 @@ impl RemoteMedia {
         }
     }
 
-    async fn open(&self, peer: &Arc<Peer>, session: &str, p: Value) -> Result<Value, RpcError> {
-        let room = self.with(|table| {
-            // An idle handle is the peer's to sweep; it is closed there now too, so it never
-            // outlives its place here.
+    /// Takes a place for an open, if there is one: None once the connection ended. A handle
+    /// whose peer link ended is dropped first (the peer closed it with the link), and an idle one
+    /// is dropped and closed on the peer too, so neither keeps a place here.
+    fn reserve(&self) -> Option<bool> {
+        self.with(|table| {
+            table.held.retain(|_, remote| !remote.link_gone());
             let idle: Vec<String> = table
                 .held
                 .iter()
@@ -108,8 +120,11 @@ impl RemoteMedia {
             let room = table.held.len() + table.opening < MAX_HANDLES;
             table.opening += usize::from(room);
             room
-        });
-        match room {
+        })
+    }
+
+    async fn open(&self, peer: &Arc<Peer>, session: &str, p: Value) -> Result<Value, RpcError> {
+        match self.reserve() {
             None => return Err(refused("media.closed", "the connection has ended")),
             Some(false) => {
                 let message = "too many media files are open; read one to its end";
@@ -118,9 +133,16 @@ impl RemoteMedia {
             Some(true) => {}
         }
         let opening = Opening(self);
+        let epoch = peer.link_epoch();
         let mut result = peer.request(method::MUX_MEDIA_OPEN, p).await?;
         let theirs = result.get("handle").and_then(Value::as_str).map(str::to_owned);
         let theirs = theirs.ok_or_else(|| RpcError::internal("the peer answered no handle"))?;
+        // The link changed while the open was out: which link holds the handle is unknown, so it
+        // is closed on the peer's current one (refused harmlessly if it went with the old one).
+        if peer.link_epoch() != epoch {
+            release(peer.clone(), session.to_owned(), theirs);
+            return Err(refused("media.closed", "the link to the peer changed; open the file again"));
+        }
         let mut raw = [0u8; 16];
         getrandom::fill(&mut raw).map_err(|e| RpcError::internal(format!("no handle: {e}")))?;
         let mine: String = raw.iter().map(|b| format!("{b:02x}")).collect();
@@ -129,6 +151,7 @@ impl RemoteMedia {
             session: session.to_owned(),
             handle: theirs.clone(),
             used: Instant::now(),
+            epoch,
         };
         let kept = self.with(|table| table.held.insert(mine.clone(), remote));
         drop(opening);
@@ -146,7 +169,13 @@ impl RemoteMedia {
     async fn range(&self, session: &str, mut p: Value) -> Result<Value, RpcError> {
         let mine = p.get("handle").and_then(Value::as_str).unwrap_or_default().to_owned();
         let found = self.with(|table| {
-            let remote = table.held.get_mut(&mine).filter(|remote| remote.session == session)?;
+            let remote = table.held.get(&mine).filter(|remote| remote.session == session)?;
+            // The peer closed it with the link it was opened on.
+            if remote.link_gone() {
+                table.held.remove(&mine);
+                return None;
+            }
+            let remote = table.held.get_mut(&mine)?;
             remote.used = Instant::now();
             Some((remote.peer.clone(), remote.handle.clone()))
         });
@@ -195,8 +224,34 @@ pub(super) async fn forward(
 
 #[cfg(test)]
 mod tests {
-    use super::decoded_len;
+    use super::*;
     use base64::Engine;
+
+    /// A peer link that ends (the peer closes every handle it held for it) gives this
+    /// connection's places back at once, not after IDLE.
+    #[tokio::test]
+    async fn a_handle_of_an_ended_peer_link_holds_no_place() {
+        let (notices, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = Peer::new("b", "ws://127.0.0.1:9", None, None, notices);
+        let media = RemoteMedia::default();
+        let epoch = peer.link_epoch();
+        media.with(|table| {
+            for n in 0..MAX_HANDLES {
+                let remote = Remote {
+                    peer: peer.clone(),
+                    session: "s".into(),
+                    handle: format!("theirs-{n}"),
+                    used: Instant::now(),
+                    epoch,
+                };
+                table.held.insert(format!("mine-{n}"), remote);
+            }
+        });
+        assert_eq!(media.reserve(), Some(false), "a full table has no room");
+        peer.link_ended();
+        assert_eq!(media.reserve(), Some(true), "the ended link's handles kept their places");
+        assert_eq!(media.with(|table| table.held.len()), Some(0));
+    }
 
     #[test]
     fn the_decoded_length_matches_the_bytes() {

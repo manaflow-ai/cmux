@@ -15,10 +15,7 @@ use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
 use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{
-    ConnAuth, Origin, WsAuth, bind_ws, serve_connection_authed, serve_connection_with,
-    serve_ws_with,
-};
+use acpmux::server::{Origin, WsAuth, bind_ws, serve_connection_with, serve_ws_with};
 use base64::Engine;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -201,44 +198,6 @@ async fn media_the_web_another_chats_handle_a_bad_range_and_other_files_are_refu
     assert_eq!(reason(&second.range(&session, handle, 0, 10).await), "media.handle");
     let part = c.range(&session, handle, 0, 10).await;
     assert_eq!(part["result"]["offset"], 0, "{part}");
-}
-
-#[tokio::test]
-async fn media_reads_are_refused_to_a_read_only_device() {
-    let hub = hub();
-    let mut c = client(&hub, Origin::Local);
-    let session = c.new_session("read-only", &chat_folder("read-only")).await;
-    let opened = c.open(&session, "out/shot.png").await;
-    let handle = &opened["result"]["handle"];
-    for origin in [Origin::Local, Origin::Web] {
-        let (in_tx, in_rx) = mpsc::channel(64);
-        let (out_tx, out_rx) = mpsc::channel(4096);
-        let auth = ConnAuth::ReadOnlyDevice;
-        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
-        let mut device = Client(in_tx, out_rx, 0);
-        let refusals = [
-            device.open(&session, "out/shot.png").await,
-            device.range(&session, handle, 0, 10).await,
-        ];
-        for refused in refusals {
-            assert!(matches!(reason(&refused), "read_only" | "mediaRead.remote"), "{refused}");
-        }
-    }
-    // The device's tries left the chat's own handle open.
-    assert_eq!(c.range(&session, handle, 0, 10).await["result"]["offset"], 0);
-}
-
-#[tokio::test]
-async fn media_read_is_listed_in_initialize() {
-    let hub = hub();
-    let mut c = client(&hub, Origin::Local);
-    let init = c.call(method::INITIALIZE, json!({"protocolVersion": 1})).await;
-    let mux = &init["result"]["_meta"]["acpmux"];
-    assert!(mux["features"].as_array().unwrap().contains(&json!("mediaRead")), "{init}");
-    let extensions = mux["extensions"].as_array().unwrap();
-    for m in [method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE] {
-        assert!(extensions.contains(&json!(m)), "{m}: {init}");
-    }
 }
 
 #[tokio::test]

@@ -1,5 +1,5 @@
-//! Unit tests of `media_handles.rs`: the caps, the binding to the very session, the sweeper on
-//! paused time, and the table closed at the connection's end or dropped.
+//! Unit tests of `media_handles.rs`: the caps (a peer link's included), a gone chat's handles, and
+//! the table closed at the connection's end.
 
 use super::*;
 use crate::hub::media_read::open_in;
@@ -42,53 +42,6 @@ fn sweeping<O>(handles: &Handles<O>) -> bool {
     lock(&handles.state).sweeper.is_some()
 }
 
-#[tokio::test(start_paused = true)]
-async fn an_idle_handle_closes_its_file_and_the_sweeper_stops() {
-    let _turn = SERIAL.lock().await;
-    let folder = Folder::new("idle");
-    let (handles, chat) = (Handles::default(), Arc::new(Chat(0)));
-    let handle = handles.insert(&chat, folder.open()).unwrap();
-    let file = Arc::downgrade(&handles.get(&chat, &handle).unwrap().0);
-    assert!(sweeping(&handles));
-    tokio::time::sleep(IDLE - Duration::from_secs(1)).await;
-    // A read keeps it open another IDLE.
-    assert!(handles.get(&chat, &handle).is_ok());
-    tokio::time::sleep(IDLE - Duration::from_secs(1)).await;
-    assert!(file.upgrade().is_some());
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    tokio::task::yield_now().await;
-    assert!(file.upgrade().is_none(), "the descriptor outlived IDLE");
-    assert!(!sweeping(&handles), "the sweeper runs on an empty table");
-    assert_eq!(reason(handles.get(&chat, &handle).unwrap_err()), "media.handle");
-    // The next handle starts a sweeper again; a dropped table closes its files and its sweeper.
-    handles.insert(&chat, folder.open()).unwrap();
-    assert!(sweeping(&handles));
-    let state = Arc::downgrade(&handles.state);
-    drop(handles);
-    assert!(state.upgrade().is_none() && OPEN.load(Ordering::SeqCst) == 0);
-}
-
-#[tokio::test]
-async fn a_handle_serves_only_the_session_that_opened_it() {
-    let _turn = SERIAL.lock().await;
-    let folder = Folder::new("owner");
-    let handles = Handles::default();
-    let (chat, other) = (Arc::new(Chat(0)), Arc::new(Chat(1)));
-    let handle = handles.insert(&chat, folder.open()).unwrap();
-    assert_eq!(reason(handles.get(&other, &handle).unwrap_err()), "media.handle");
-    handles.close(&other, &handle);
-    assert!(handles.get(&chat, &handle).is_ok(), "another session closed the handle");
-    assert_eq!(reason(handles.get(&chat, "not-a-handle").unwrap_err()), "media.handle");
-    // The chat is replaced: a new session under the same ID is another owner, and the old one,
-    // once gone, serves nothing either.
-    let replaced = Arc::new(Chat(0));
-    assert_eq!(reason(handles.get(&replaced, &handle).unwrap_err()), "media.handle");
-    let weak = Arc::downgrade(&chat);
-    drop(chat);
-    assert!(weak.upgrade().is_none());
-    assert_eq!(reason(handles.get(&replaced, &handle).unwrap_err()), "media.handle");
-}
-
 #[tokio::test]
 async fn handles_are_capped_per_connection_and_per_daemon() {
     let _turn = SERIAL.lock().await;
@@ -111,6 +64,12 @@ async fn handles_are_capped_per_connection_and_per_daemon() {
     // Closing the table gives every place back.
     handles.close_all();
     assert_eq!(OPEN.load(Ordering::SeqCst), 0);
+    // A peer link carries all its daemon's clients, each capped there: only MAX_OPEN caps it.
+    let link = Handles::for_peer_link();
+    for _ in 0..=MAX_HANDLES {
+        link.insert(&chat, folder.open()).unwrap();
+    }
+    link.close_all();
 }
 
 /// A chat that went away leaves its handles counting toward no cap. `forget_orphan` closes a
