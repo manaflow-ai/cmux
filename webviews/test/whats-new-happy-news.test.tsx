@@ -25,7 +25,8 @@ const strings = {
   format: (key: string, ...args: string[]) => `${key} ${args.join(" ")}`,
 };
 
-const picture = { light: "media/a.png", dark: "media/a.png", alt: "", video: false };
+const picture = { light: "data:image/webp;base64,UklGRg==", dark: "data:image/webp;base64,UklGRg==", alt: "", video: false };
+const screenshot = { light: "data:image/png;base64,iVBORw==", dark: "data:image/png;base64,iVBORw==", alt: "", video: false };
 const clip = { light: "media/b.mp4", dark: "media/b.mp4", alt: "", video: true };
 
 function item(id: string, category: ReleaseItem["category"], extra: Partial<ReleaseItem> = {}): ReleaseItem {
@@ -86,6 +87,16 @@ test("beside clips, a hero without one leads in words", () => {
   const doc = render(view(item("hero", "new"), [{ category: "new", items: [item("n1", "new", { media: picture })] }]));
   expect([...doc.querySelectorAll(".cln-lead-title")].map((l) => l.textContent)).toEqual(["Title hero"]);
   expect(doc.querySelectorAll(".cln-clip").length).toBe(1);
+});
+
+test("a pull request's screenshot is not a clip: it leads as before", () => {
+  const hero = item("hero", "new", { media: screenshot });
+  const v = view(hero, [{ category: "new", items: [item("n1", "new"), item("n2", "new", { media: picture })] }]);
+  expect(clipItems(v).map((i) => i.id)).toEqual(["n2"]);
+  const doc = render(v);
+  expect([...doc.querySelectorAll(".cln-clip .cln-clip-title")].map((t) => t.textContent)).toEqual(["Title n2"]);
+  expect(doc.body.textContent).toContain("Title hero");
+  expect(doc.querySelector(`img[src="${screenshot.light}"]`)).toBeNull();  // the hero leads in words beside clips
 });
 
 test("the lead layout: the changes with pictures lead, up to three; the rest are cards; Fixed is one line", () => {

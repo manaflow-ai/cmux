@@ -42,12 +42,20 @@ function firstParagraph(text: string): string {
   return text.split(/\n{2,}/)[0] ?? "";
 }
 
+/** A recorded clip (whats-new-clips.py publishes only animated WebP) or a video, not a pull
+    request's screenshot (pr-media.py never uploads WebP). The app inlines both as data: URLs and
+    calls both "image", so the format is what tells them apart. */
+export function isClip(item: ReleaseItem): boolean {
+  const src = item.media?.light ?? "";
+  return !!item.media?.video || /^data:image\/webp[;,]/.test(src) || /\.webp$/i.test(src);
+}
+
 /** The changes that show a clip: the hero first, then New, Improved and Fixed in order (a fix
     with a clip shows it working; Security keeps its own list). */
 export function clipItems(view: ReleaseView): ReleaseItem[] {
   const fixes = view.groups.find((g) => g.category === "fixed")?.items ?? [];
   const items = [...(view.hero ? [view.hero] : []), ...newsItems(view), ...fixes];
-  return items.filter((item, index) => item.media && items.indexOf(item) === index);
+  return items.filter((item, index) => isClip(item) && items.indexOf(item) === index);
 }
 
 export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }) {
@@ -55,7 +63,7 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
   const clips = layout === "lead" ? [] : clipItems(view);
   // Without clips (or in the old layout) the lead row stays as it was; beside clips, only a hero
   // with none leads, in words.
-  const lead = clips.length === 0 ? leadItems(view) : view.hero && !view.hero.media ? [view.hero] : [];
+  const lead = clips.length === 0 ? leadItems(view) : view.hero && !clips.includes(view.hero) ? [view.hero] : [];
   const cards = newsItems(view).filter((item) => !lead.includes(item) && !clips.includes(item));
   const security = view.groups.filter((g) => g.category === "security");
   const fixed = (view.groups.find((g) => g.category === "fixed")?.items ?? []).filter(
