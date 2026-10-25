@@ -15,12 +15,16 @@
 //! friend list, `scoped_blocking_call`, the site table read with
 //! [`blocking::snapshot`]) and [`checked`] has checked forms of the blocking
 //! std primitives.
+//!
+//! Blocking work runs on [`work`] lanes by kind, priority and shutdown
+//! behavior (Chrome's base/task/thread_pool).
 
 pub mod blocking;
 pub mod checked;
 pub mod qos;
 pub mod registry;
 pub mod spawn;
+pub mod work;
 
 pub use blocking::{
     AllowReason, BlockingKind, BlockingMode, BlockingSite, BlockingSnapshot, allow_blocking,
