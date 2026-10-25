@@ -26,7 +26,10 @@ impl Hub {
                             .is_some();
                         if breakdown {
                             let child = session.child.lock().await;
-                            if child.as_ref().is_some_and(|c| c.generation == agent && !c.is_retired()) {
+                            if child
+                                .as_ref()
+                                .is_some_and(|c| c.generation == agent && !c.is_retired())
+                            {
                                 self.on_update(&session, params.as_ref());
                             }
                             continue;

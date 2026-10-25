@@ -239,7 +239,10 @@ impl Hub {
         let params = json!({"sessionId": meta.agent_session_id, "server": server});
         // The translator forgets its own entry when Claude Code answers, late or not; a late answer
         // then reaches no one here (`request_within`).
-        match child.request_within(crate::claude_stdio::MCP_RECONNECT, params, RECONNECT_TIMEOUT).await {
+        match child
+            .request_within(crate::claude_stdio::MCP_RECONNECT, params, RECONNECT_TIMEOUT)
+            .await
+        {
             Some(Ok(_)) => {}
             Some(Err(e)) => return Err(e),
             None => {
