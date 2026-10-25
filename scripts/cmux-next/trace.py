@@ -71,6 +71,9 @@ Usage (a fleet GUI host, never Lawrence's Mac):
                                load DIR/trace.json.gz with Perfetto's trace_processor_shell: every signposts,
                                watchdog-stalls and daemon-spans track is its own named thread track with all its
                                slices, and the importer reports no error or data loss (DIR/import-check.json)
+  trace.py check-clock DIR     exit 1 when a key press's hop or a daemon request's flow-in in DIR is earlier than
+                               its cause (a source off CLOCK_UPTIME_RAW), 2 when DIR has nothing to check
+                               (DIR/clock-check.json)
   trace.py --self-test         check the parsers (hand-written export shapes, not yet a real xctrace export),
                                the merge, the clock alignment, the stage bounds, the stop path, the export,
                                the signals, the one SIGINT to xctrace, the uint32 track ids and the
@@ -151,12 +154,20 @@ def read_json(path, default=None):
         return default
 
 
+PERCENTILES_PER_MILLE = {"p50": 500, "p95": 950, "p99": 990}
+
+
 def pct(values):
+    """n, p50, p95, p99 and max by the nearest-rank method: the p-th percentile is the smallest value with at
+    least p% of the values at or below it (rank ceil(p * n), in integers so no float rounding moves a rank)."""
     if not values:
         return None
     s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "max": round(s[-1], 2)}
+    row = {"n": len(s)}
+    for key, per_mille in PERCENTILES_PER_MILLE.items():
+        row[key] = round(s[max(1, -(-per_mille * len(s) // 1000)) - 1], 2)
+    row["max"] = round(s[-1], 2)
+    return row
 
 
 # ---------------------------------------------------------------- stages
@@ -2142,7 +2153,8 @@ FLOW_HOPS = [
     ("app.key.dispatch",), ("app.key.terminal",), ("app.io_write",), ("app.send",),
     ("daemon.send.write",), ("host.pty.write", "daemon.pty.write"), ("daemon.send.written",),
     ("host.pty.read", "holder.pty.read"), ("daemon.output.host", "daemon.output.holder"), ("daemon.output.attach",),
-    ("app.output.decoded",), ("app.output.received",), ("app.output.parsed",), ("app.frame.contents",), ("app.frame.commit",),
+    ("app.output.decoded",), ("app.output.received",), ("app.output.parsed",), ("ghostty.render",),
+    ("app.frame.contents",), ("app.frame.commit",), ("frame.gpu_done",), ("frame.present_estimate",),
 ]
 # For each flow-0 hop: the hop whose time it must follow (the cause): a press's window for the hop starts there
 # and ends at the next press's cause on the same terminal (assemble_flows). `daemon.send.written` is not a cause
@@ -2156,7 +2168,10 @@ FLOW_GROUP = {"host.pty.write": "pty.write", "daemon.pty.write": "pty.write", "h
               "holder.pty.read": "pty.read", "daemon.output.host": "output", "daemon.output.holder": "output"}
 # Hops a complete press may lack. `app.key.terminal` (TerminalSurfaceView.keyDown) is drawn when the app emits it,
 # but a key can reach Ghostty's IO thread without it, so `app.io_write` / `app.send` also say "reached a terminal".
-FLOW_OPTIONAL = {"app.key.terminal"}
+# `ghostty.render` (the renderer thread's hook), `frame.gpu_done` (the Metal completion handler) and
+# `frame.present_estimate` (the first vsync at or after both the commit and the GPU's end) come from the Release
+# trace ring, so a recording without it still has complete presses.
+FLOW_OPTIONAL = {"app.key.terminal", "ghostty.render", "frame.gpu_done", "frame.present_estimate"}
 # The hops that say the key router handed the press to a terminal (else it ran a chord: not a flow).
 FLOW_AT_TERMINAL = ("app.key.terminal", "app.io_write", "app.send")
 # The flow-0 stages in causal order: (group, alternatives, the group or hop each one's window starts at).
@@ -2179,7 +2194,8 @@ def read_flow_records(out):
                 if "dropped" in row:
                     dropped[name] = row["dropped"]
                 elif row.get("hop"):
-                    records.append({"hop": row["hop"], "flow": int(row.get("flow") or 0), "terminal": row.get("terminal") or "",
+                    records.append({"hop": row["hop"], "ph": row.get("ph"), "flow": int(row.get("flow") or 0),
+                                    "terminal": row.get("terminal") or "",
                                     "pid": row.get("pid"), "tid": row.get("tid"), "at_us": float(row["t_ns"]) / 1000.0})
     return records, dropped
 
@@ -2268,8 +2284,8 @@ def assemble_flows(app_events, records):
             elif not set(alternatives) <= FLOW_OPTIONAL:
                 missing.append("|".join(alternatives))
         chain.sort(key=lambda h: h["at_us"])
-        flows.append({"flow": press["flow"], "terminal": press["terminal"], "hops": chain, "missing": missing,
-                      "ambiguous": press["ambiguous"], "complete": not missing})
+        flows.append({"flow": press["flow"], "target": "terminal", "terminal": press["terminal"], "hops": chain,
+                      "missing": missing, "ambiguous": press["ambiguous"], "complete": not missing})
     return flows
 
 
@@ -2320,28 +2336,239 @@ def flow_events(flows, tracks, lane_names):
     return events
 
 
+# A key press starts at the app's dispatch, its frame commits at the app's commit (`frame.commit` for a target
+# drawn without the terminal's own commit hop) and shows at the estimated present.
+KEY_START_HOP = "app.key.dispatch"
+KEY_COMMIT_HOPS = ("app.frame.commit", "frame.commit")
+KEY_PRESENT_HOP = "frame.present_estimate"
+
+
+def press_latencies(entry):
+    """One press's times in ms: each hop's time from the previous hop the press has (FLOW_HOPS order), key to
+    the echo frame's commit, and key to that frame's estimated present (None without the hop)."""
+    at = {h["hop"]: h["at_us"] for h in entry["hops"]}
+    ordered = [next(hop for hop in alternatives if hop in at) for alternatives in FLOW_HOPS
+               if any(hop in at for hop in alternatives)]
+    steps = [(hop, (at[hop] - at[previous]) / 1000) for previous, hop in zip(ordered, ordered[1:])]
+    start = at.get(KEY_START_HOP)
+    commit = next((at[hop] for hop in KEY_COMMIT_HOPS if hop in at), None)
+    present = at.get(KEY_PRESENT_HOP)
+    since_key = lambda end: None if start is None or end is None else (end - start) / 1000
+    return steps, since_key(commit), since_key(present)
+
+
+def flow_percentiles(flows):
+    """Over the complete presses, per target (what the key went to; `terminal` for every press assemble_flows
+    builds): key to commit, key to the estimated present and each hop, as pct() rows. A target with no present
+    hop has None there (a recording without frame.present_estimate)."""
+    commits, presents = collections.defaultdict(list), collections.defaultdict(list)
+    steps = collections.defaultdict(lambda: collections.defaultdict(list))
+    for entry in flows:
+        if not entry["complete"]:
+            continue
+        target = entry.get("target") or "terminal"
+        hops, to_commit, to_present = press_latencies(entry)
+        for hop, ms in hops:
+            steps[target][hop].append(ms)
+        if to_commit is not None:
+            commits[target].append(to_commit)
+        if to_present is not None:
+            presents[target].append(to_present)
+    targets = sorted(set(commits) | set(presents) | set(steps))
+    return {"key_to_commit_ms": {t: pct(commits[t]) for t in targets},
+            "key_to_present_estimate_ms": {t: pct(presents[t]) for t in targets},
+            "hop_ms": {t: {hop: pct(values) for hop, values in steps[t].items()} for t in targets}}
+
+
 def flow_summary(flows, dropped, warnings=()):
     """Per hop: the time from the previous hop the press has (FLOW_HOPS order) over the complete presses; key to
-    the frame's commit; the incomplete presses with what they miss and which flow-0 hops were ambiguous; and
-    `warnings` (flow_warnings) when the recording's flow data could not assemble."""
+    the frame's commit and to its estimated present; the incomplete presses with what they miss and which flow-0
+    hops were ambiguous; and `warnings` (flow_warnings) when the recording's flow data could not assemble."""
     complete = [f for f in flows if f["complete"]]
     steps = collections.defaultdict(list)
-    totals = []
+    commits, presents = [], []
     for entry in complete:
-        at = {h["hop"]: h["at_us"] for h in entry["hops"]}
-        ordered = [next(hop for hop in alternatives if hop in at) for alternatives in FLOW_HOPS
-                   if any(hop in at for hop in alternatives)]
-        for previous, hop in zip(ordered, ordered[1:]):
-            steps[hop].append((at[hop] - at[previous]) / 1000)
-        totals.append((at["app.frame.commit"] - at["app.key.dispatch"]) / 1000)
-    return {"presses": len(flows), "complete": len(complete), "key_to_commit_ms": pct(totals),
+        hops, to_commit, to_present = press_latencies(entry)
+        for hop, ms in hops:
+            steps[hop].append(ms)
+        if to_commit is not None:
+            commits.append(to_commit)
+        if to_present is not None:
+            presents.append(to_present)
+    return {"presses": len(flows), "complete": len(complete), "key_to_commit_ms": pct(commits),
+            "key_to_present_estimate_ms": pct(presents),
             "hop_ms": {hop: pct(values) for hop, values in steps.items()},
             "incomplete": [{"flow": f"0x{f['flow']:x}", "missing": f["missing"], "ambiguous": f.get("ambiguous") or {}}
                            for f in flows if not f["complete"]][:10],
             "dropped_records": dropped, "warnings": list(warnings),
-            "flows": [{"flow": f"0x{f['flow']:x}", "terminal": f["terminal"], "complete": f["complete"],
+            "flows": [{"flow": f"0x{f['flow']:x}", "target": f.get("target"), "terminal": f["terminal"],
+                       "complete": f["complete"],
                        "hops": [{"hop": h["hop"], "at_us": round(h["at_us"], 1), "pid": h["pid"]} for h in f["hops"]]}
                       for f in flows[:60]]}
+
+
+# ---------------------------------------------------------------- clock order and request links
+
+# Every process on the host stamps CLOCK_UPTIME_RAW, so an effect is never earlier than its cause; a hop that is
+# means a source is off the clock (a signpost offset read before a sleep, a writer on another clock, a remote
+# domain without its offset). For each hop, the hops it follows. A cause the press lacks is replaced by its own
+# causes (present_causes): of the alternatives host.pty.write / daemon.pty.write one is present. The daemon's
+# `daemon.send.written` and the host's PTY write have no order (the send returns once the frame is on the
+# host's socket).
+CLOCK_CAUSES = {
+    "app.key.terminal": ("app.key.dispatch",),
+    "app.io_write": ("app.key.terminal",),
+    "app.send": ("app.io_write",),
+    "daemon.send.write": ("app.send",),
+    "host.pty.write": ("daemon.send.write",), "daemon.pty.write": ("daemon.send.write",),
+    "daemon.send.written": ("daemon.send.write",),
+    "host.pty.read": ("host.pty.write", "daemon.pty.write"), "holder.pty.read": ("host.pty.write", "daemon.pty.write"),
+    "daemon.output.host": ("host.pty.read", "holder.pty.read"),
+    "daemon.output.holder": ("host.pty.read", "holder.pty.read"),
+    "daemon.output.attach": ("daemon.output.host", "daemon.output.holder"),
+    "app.output.decoded": ("daemon.output.attach",),
+    "app.output.received": ("app.output.decoded",),
+    "app.output.parsed": ("app.output.received",),
+    "ghostty.render": ("app.output.parsed",),
+    "app.frame.contents": ("ghostty.render",),
+    "app.frame.commit": ("app.frame.contents",),
+    "frame.gpu_done": ("ghostty.render",),
+    "frame.present_estimate": ("app.frame.commit", "frame.gpu_done"),
+}
+# A daemon request's flow records (task 103: both sides derive the flow id from the app's pid and the request
+# id, no wire change): flow-out (`s`) at the app's send and at the daemon's reply, flow-in (`f`) at the daemon's
+# receive and at the app's reply-receive. Perfetto counts the same break as `flow_end_without_start`
+# (src/trace_processor/storage/stats.h); here it is a request the daemon never received.
+REQUEST_FLOW_NAME = "daemon.request"
+# Sources stamp whole microseconds or finer and some are rounded to the us: an effect up to this much earlier
+# than its cause is rounding, not a clock error.
+CLOCK_ORDER_SLACK_US = 1.0
+
+
+def present_causes(hop, at):
+    """The nearest causes of `hop` that the press has (`at`: hop name to hop): CLOCK_CAUSES, through a cause the
+    press lacks to that cause's causes."""
+    found, frontier, seen = [], list(CLOCK_CAUSES.get(hop, ())), set()
+    while frontier:
+        cause = frontier.pop()
+        if cause in seen:
+            continue
+        seen.add(cause)
+        if cause in at:
+            found.append(cause)
+        else:
+            frontier.extend(CLOCK_CAUSES.get(cause, ()))
+    return found
+
+
+def request_flows(records):
+    """The daemon requests' flow records (REQUEST_FLOW_NAME with phase `s` or `f` and a flow id) by flow id, each
+    list in time order."""
+    by_flow = collections.defaultdict(list)
+    for record in records:
+        if record.get("hop") == REQUEST_FLOW_NAME and record.get("ph") in ("s", "f") and record.get("flow"):
+            by_flow[record["flow"]].append(record)
+    for rows in by_flow.values():
+        rows.sort(key=lambda r: r["at_us"])
+    return by_flow
+
+
+def clock_order_violations(flows, records):
+    """One entry per hop that is earlier than a cause: a key press's hop before a hop CLOCK_CAUSES says it
+    follows, and a request's flow-in before every flow-out of another process (the daemon's receive before the
+    app's send, the app's reply-receive before the daemon's reply). A flow-in with no flow-out of another
+    process is an unlinked request (request_flow_summary), not a clock error."""
+    violations = []
+    for entry in flows:
+        at = {h["hop"]: h for h in entry["hops"]}
+        for hop in entry["hops"]:
+            late = [at[c] for c in present_causes(hop["hop"], at) if hop["at_us"] < at[c]["at_us"] - CLOCK_ORDER_SLACK_US]
+            if late:
+                violations.append({"kind": "key", "flow": f"0x{entry['flow']:x}", "target": entry.get("target"),
+                                   "hop": hop["hop"], "pid": hop.get("pid"), "at_us": round(hop["at_us"], 3),
+                                   "before": [{"hop": c["hop"], "pid": c.get("pid"), "at_us": round(c["at_us"], 3)}
+                                              for c in late],
+                                   "by_us": round(max(c["at_us"] for c in late) - hop["at_us"], 3)})
+    for flow, rows in request_flows(records).items():
+        for row in rows:
+            if row["ph"] != "f":
+                continue
+            outs = [r for r in rows if r["ph"] == "s" and r.get("pid") != row.get("pid")]
+            if outs and all(row["at_us"] < r["at_us"] - CLOCK_ORDER_SLACK_US for r in outs):
+                cause = outs[0]
+                violations.append({"kind": "request", "flow": f"0x{flow:x}", "hop": "flow-in", "pid": row.get("pid"),
+                                   "at_us": round(row["at_us"], 3),
+                                   "before": [{"hop": "flow-out", "pid": cause.get("pid"),
+                                               "at_us": round(cause["at_us"], 3)}],
+                                   "by_us": round(cause["at_us"] - row["at_us"], 3)})
+    return violations
+
+
+def request_flow_summary(records):
+    """How many daemon requests link across processes. A request is a flow id with a flow-out; it is linked when
+    another process has a flow-in on it (the daemon received it), and a round trip when two processes have both
+    (the reply came back). `request_flow_linked` is the linked percentage, None without request records (a
+    recording from before task 103 has none to link, which is not 0%)."""
+    requests = linked = round_trips = 0
+    unlinked = []
+    for flow, rows in request_flows(records).items():
+        outs = {r.get("pid") for r in rows if r["ph"] == "s"}
+        ins = {r.get("pid") for r in rows if r["ph"] == "f"}
+        if not outs:
+            continue
+        requests += 1
+        if any(i != o for i in ins for o in outs):
+            linked += 1
+            round_trips += len(outs & ins) >= 2
+        else:
+            unlinked.append(f"0x{flow:x}")
+    return {"request_flow_linked": round(100.0 * linked / requests, 1) if requests else None,
+            "request_flows": {"requests": requests, "linked": linked, "round_trips": round_trips,
+                              "unlinked": unlinked[:10]}}
+
+
+def clock_report(flows, records):
+    """The summary's clock fields: the violation count, what was checked and the first violations."""
+    violations = clock_order_violations(flows, records)
+    return {"clock_order_violations": len(violations),
+            "clock_order": {"checked_presses": len(flows), "checked_requests": len(request_flows(records)),
+                            "violations": violations[:20]}}
+
+
+def violation_text(violation):
+    """One clock-order violation in words."""
+    before = ", ".join(f"{c['hop']} (pid {c['pid']})" for c in violation["before"])
+    return (f"{violation['kind']} {violation['flow']}: {violation['hop']} (pid {violation['pid']}) "
+            f"{violation['by_us']} us before {before}")
+
+
+def clock_text(code, report):
+    """check-clock's report in words."""
+    checked = report["clock_order"]
+    verdict = {0: "ok", 1: "FAILED", 2: "nothing to check"}[code]
+    return "\n".join([f"trace: clock order {verdict}: {report['clock_order_violations']} violation(s) in "
+                      f"{checked['checked_presses']} key presses and {checked['checked_requests']} daemon requests"]
+                     + [f"  {violation_text(v)}" for v in checked["violations"]])
+
+
+def key_flow_records(records):
+    """The flow records a key press can join: every record but the daemon requests' own."""
+    return [r for r in records if r["hop"] != REQUEST_FLOW_NAME]
+
+
+def check_clock(out):
+    """`check-clock DIR`: the clock order of DIR's key presses (signposts.ndjson's key.flow events and the flows/
+    records) and daemon requests, without rebuilding the trace; also DIR/clock-check.json. Returns (exit code,
+    report): 1 on a violation; 2 when DIR has no press and no request (nothing was checked); else 0."""
+    signposts = read_signposts(os.path.join(out, "signposts.ndjson"))
+    records, _ = read_flow_records(out)
+    flows = assemble_flows([e for e in signposts["events"] if e["name"] == "key.flow"], key_flow_records(records))
+    report = {**clock_report(flows, records), "signpost_clock": signposts["clock"]}
+    write_json(os.path.join(out, "clock-check.json"), report)
+    if report["clock_order_violations"]:
+        return 1, report
+    checked = report["clock_order"]["checked_presses"] or report["clock_order"]["checked_requests"]
+    return (0 if checked else 2), report
 
 
 def build(out):
@@ -2476,9 +2703,10 @@ def build(out):
                        "cat": "driver", "name": item["name"], "args": item.get("args") or {}})
     # Key-press flows: the app's key.flow hops and the daemon's, hosts' and holder's flow records.
     flow_records, flow_dropped = read_flow_records(out)
+    key_records = key_flow_records(flow_records)
     flow_signposts = [e for e in signposts["events"] if e["name"] == "key.flow"]
-    key_flows = assemble_flows(flow_signposts, flow_records)
-    flow_gaps = flow_warnings(flow_signposts, flow_records, key_flows)
+    key_flows = assemble_flows(flow_signposts, key_records)
+    flow_gaps = flow_warnings(flow_signposts, key_records, key_flows)
     events += flow_events(key_flows, tracks, lane_names)
     for pid in {r["pid"] for r in flow_records if r.get("pid")}:
         roles.setdefault(pid, (known.get(pid) or {}).get("role") or "bundle-other")
@@ -2514,6 +2742,9 @@ def build(out):
     summary = summarize(meta, roles, app_pid, samples, offset_us, signposts, stall_records, blocked, span_rows, chrome,
                         chrome_info, threads_by_pid)
     summary["key_flows"] = flow_summary(key_flows, flow_dropped, flow_gaps)
+    summary.update(flow_percentiles(key_flows))
+    summary.update(clock_report(key_flows, flow_records))
+    summary.update(request_flow_summary(flow_records))
     summary["sources"] = {
         "trace": trace_path, "trace_bytes": os.path.getsize(trace_path), "events": len(events),
         "samples": len(samples), "sampled_processes": len(names), "xctrace_clock": offset_how,
@@ -2855,16 +3086,23 @@ def summary_text(s):
         total = flows.get("key_to_commit_ms") or {}
         if flows.get("presses"):
             lines.append(f"Key-press flows: {flows['complete']} of {flows['presses']} presses complete; key to the echo "
-                         f"frame's commit p50 {total.get('p50')} p95 {total.get('p95')} max {total.get('max')} ms")
+                         f"frame's commit p50 {total.get('p50')} p95 {total.get('p95')} p99 {total.get('p99')} "
+                         f"max {total.get('max')} ms")
         else:
             lines.append("Key-press flows: 0 presses assembled")
+        for kind, label in (("key_to_commit_ms", "key to commit"), ("key_to_present_estimate_ms", "key to present (est.)")):
+            for target, row in sorted((s.get(kind) or {}).items()):
+                if row:
+                    lines.append(f"  {target} {label}: {row['p50']}/{row['p95']}/{row['p99']}/{row['max']} ms "
+                                 f"(p50/p95/p99/max, n={row['n']})")
         for warning in flows.get("warnings") or []:
             lines.append(f"  WARNING: {warning}")
         for alternatives in FLOW_HOPS[1:]:
             for hop in alternatives:
                 row = (flows.get("hop_ms") or {}).get(hop)
                 if row:
-                    lines.append(f"  {hop:24} +{row['p50']}/{row['p95']}/{row['max']} ms (p50/p95/max, n={row['n']})")
+                    lines.append(f"  {hop:24} +{row['p50']}/{row['p95']}/{row.get('p99')}/{row['max']} ms "
+                                 f"(p50/p95/p99/max, n={row['n']})")
         for entry in flows.get("incomplete") or []:
             why = "".join(f"; ambiguous {hop} ({row['candidates']} candidate(s)"
                           + (", the press before has none of its own" if row.get("earlier_unplaced") else "") + ")"
@@ -2872,6 +3110,14 @@ def summary_text(s):
             lines.append(f"  incomplete {entry['flow']}: missing {', '.join(entry['missing'])}{why}")
         if flows.get("dropped_records"):
             lines.append(f"  flow records dropped (queue full): {flows['dropped_records']}")
+    if s.get("clock_order_violations"):
+        lines.append(f"Clock order: {s['clock_order_violations']} hop(s) earlier than their cause "
+                     f"(a source is off CLOCK_UPTIME_RAW; `trace.py check-clock DIR` lists them):")
+        lines += [f"  {violation_text(v)}" for v in (s.get("clock_order") or {}).get("violations", [])[:5]]
+    requests = s.get("request_flows") or {}
+    if requests.get("requests"):
+        lines.append(f"Daemon request flows: {requests['linked']} of {requests['requests']} linked "
+                     f"({s.get('request_flow_linked')}%), {requests['round_trips']} round trips")
     lines.append("Cross-process waits (main thread off CPU):")
     for cls, w in sorted((s.get("waits") or {}).items(), key=lambda kv: -kv[1]["ms"]):
         lines.append(f"  {cls:22} {w['count']:4} x, {w['ms']} ms total, max {w['max_ms']} ms; e.g. {w['example']}")
@@ -3844,6 +4090,143 @@ def check_flow_gaps_warn():
     assert any("flow id" in w and "daemon.send.write" in w for w in warnings), warnings
     assert flow_warnings([], [], []) == [], "a recording without flows warns about nothing"
 
+
+def reference_percentile(values, p):
+    """The nearest-rank percentile from its definition, for the self-test: the smallest value with at least p% of
+    the values at or below it (counted, not computed from a rank)."""
+    return next(v for v in sorted(values) if 100 * sum(1 for x in values if x <= v) >= p * len(values))
+
+
+def check_percentiles():
+    """pct() is the nearest-rank percentile: p50/p95/p99/max match the definition on fixed and random samples
+    (ties, one value, sizes around the ranks' steps), and an empty sample is None."""
+    import random
+    assert pct([]) is None
+    assert pct(list(range(1, 101))) == {"n": 100, "p50": 50, "p95": 95, "p99": 99, "max": 100}, pct(list(range(1, 101)))
+    assert pct(list(range(1, 11))) == {"n": 10, "p50": 5, "p95": 10, "p99": 10, "max": 10}
+    assert pct([7.0]) == {"n": 1, "p50": 7.0, "p95": 7.0, "p99": 7.0, "max": 7.0}
+    rng = random.Random(24)
+    for n in (2, 3, 19, 20, 21, 99, 100, 101, 199, 200, 201, 1000):
+        values = [round(rng.lognormvariate(1.0, 0.8), 2) for _ in range(n)] + [3.0] * (n // 7)
+        row = pct(values)
+        expected = {"n": len(values), "max": max(values),
+                    **{key: reference_percentile(values, per_mille / 10) for key, per_mille in PERCENTILES_PER_MILLE.items()}}
+        assert row == expected, (n, row, expected)
+
+
+def complete_press(flow, base, extra=(), moved=None):
+    """A press through the host model on terminal `aa` as (app events, records), every hop `base` + a step. `extra`
+    adds app hops (name, offset); `moved` gives a hop (by name) another offset, the planted clock error."""
+    app, rec = flow_fixture_event, flow_fixture_record
+    offsets = dict([(hop, i) for i, hop in enumerate(APP_KEY_HOPS)]
+                   + [(hop, 100 + 10 * i) for i, hop in enumerate(APP_ECHO_HOPS)] + list(extra))
+    offsets.update(moved or {})
+    events = [app(flow, hop, base + offset) for hop, offset in offsets.items()]
+    records = [rec("daemon.send.write", base + 10, flow), rec("daemon.send.written", base + 12, flow),
+               rec("host.pty.write", base + 15, pid=30), rec("host.pty.read", base + 40, pid=30),
+               rec("daemon.output.host", base + 50), rec("daemon.output.attach", base + 60)]
+    return events, records
+
+
+def request_record(flow, ph, at, pid):
+    """One daemon request flow record (task 103) as read_flow_records gives it."""
+    return {"hop": REQUEST_FLOW_NAME, "ph": ph, "flow": flow, "terminal": "", "pid": pid, "tid": 1, "at_us": at}
+
+
+def check_clock_order_and_percentiles():
+    """Key to commit and key to the estimated present per target match the reference percentiles; complete
+    presses on one clock have 0 clock-order violations, and one planted hop before its cause gives exactly 1 (an
+    app hop, a daemon hop carrying the flow id, a present before its commit); a request whose daemon receive comes
+    before the app's send gives 1; request_flow_linked counts the requests another process received."""
+    # The app's echo hops are at +100 (decoded) to +130 (contents) and +140 (commit): Ghostty renders between the
+    # parse and the contents, the GPU ends after the render, the present is a vsync after the commit.
+    frame = (("ghostty.render", 125), ("frame.gpu_done", 128), ("frame.present_estimate", 150))
+    events, records = [], []
+    for n in range(40):
+        # The commit moves with n and the present is 10 to 44 us after it, so the two percentiles differ.
+        commit, present = 140 + n, 150 + n + 17 * (n % 3)
+        e, r = complete_press((10 << 32) | (n + 1), 10_000.0 * (n + 1), extra=frame[:2], moved={
+            "app.frame.commit": commit, "frame.present_estimate": present})
+        events += e
+        records += r
+    flows = assemble_flows(events, records)
+    assert len(flows) == 40 and all(f["complete"] and f["target"] == "terminal" for f in flows), \
+        [(hex(f["flow"]), f["missing"]) for f in flows if not f["complete"]]
+    rows = flow_percentiles(flows)
+    commits = [(140 + n) / 1000 for n in range(40)]
+    presents = [(150 + n + 17 * (n % 3)) / 1000 for n in range(40)]
+    for kind, values in (("key_to_commit_ms", commits), ("key_to_present_estimate_ms", presents)):
+        row = rows[kind]["terminal"]
+        expected = {"n": 40, "max": round(max(values), 2),
+                    **{key: round(reference_percentile(values, per_mille / 10), 2)
+                       for key, per_mille in PERCENTILES_PER_MILLE.items()}}
+        assert row == expected, (kind, row, expected)
+    assert rows["hop_ms"]["terminal"]["frame.present_estimate"]["n"] == 40, rows["hop_ms"]
+    report = clock_report(flows, records)
+    assert report["clock_order_violations"] == 0, report
+    summary = flow_summary(flows, {})
+    assert summary["key_to_present_estimate_ms"]["n"] == 40 and summary["key_to_commit_ms"]["p99"] is not None
+    # A press without the Release ring's frame hops is still complete, with no present.
+    e, r = complete_press((10 << 32) | 99, 900_000.0)
+    lone = assemble_flows(e, r)
+    assert lone[0]["complete"] and flow_percentiles(lone)["key_to_present_estimate_ms"] == {"terminal": None}
+    # Planted: one hop before its cause, each kind on its own press.
+    planted = [
+        ({"app.output.parsed": 105}, "app.output.parsed"),  # parsed (105) before received (110)
+        ({"app.send": -5}, "app.send"),  # the app's send before its io_write (the daemon's write still follows)
+        ({"frame.present_estimate": 130}, "frame.present_estimate"),  # shown before the commit (140) and the GPU
+    ]
+    for moved, hop in planted:
+        e, r = complete_press((10 << 32) | 7, 50_000.0, extra=frame, moved=moved)
+        found = clock_order_violations(assemble_flows(e, r), r)
+        assert len(found) == 1 and found[0]["hop"] == hop and found[0]["kind"] == "key", (hop, found)
+    e, r = complete_press((10 << 32) | 8, 50_000.0)
+    r[0]["at_us"] = 50_000.0 + 2  # the daemon's daemon.send.write (flow id) 3 us before the app's app.send (+5)
+    found = clock_order_violations(assemble_flows(e, r), r)
+    assert [v["hop"] for v in found] == ["daemon.send.write"] and found[0]["pid"] == 20, found
+    # Requests: a round trip, one the daemon never received, and one received before it was sent.
+    app_pid, daemon_pid = 10, 20
+    requests = [request_record(1, "s", 100, app_pid), request_record(1, "f", 110, daemon_pid),
+                request_record(1, "s", 120, daemon_pid), request_record(1, "f", 130, app_pid),
+                request_record(2, "s", 200, app_pid),
+                request_record(3, "s", 300, app_pid), request_record(3, "f", 290, daemon_pid)]
+    found = clock_order_violations([], requests)
+    assert len(found) == 1 and found[0]["kind"] == "request" and found[0]["flow"] == "0x3", found
+    linked = request_flow_summary(requests)
+    assert linked["request_flow_linked"] == 66.7 and linked["request_flows"]["round_trips"] == 1, linked
+    assert linked["request_flows"]["unlinked"] == ["0x2"], linked
+    assert request_flow_summary([])["request_flow_linked"] is None
+
+
+def check_clock_command():
+    """`check-clock DIR` reads DIR's flow records: exit 1 with a planted out-of-order request, 0 when every hop
+    follows its cause, 2 with nothing to check; build() writes the same fields into summary.json."""
+    def write(out, rows):
+        os.makedirs(os.path.join(out, "flows"), exist_ok=True)
+        with open(os.path.join(out, "flows", "flows-20.jsonl"), "w") as f:
+            for flow, ph, at, pid in rows:
+                f.write(json.dumps({"hop": REQUEST_FLOW_NAME, "ph": ph, "flow": flow, "pid": pid, "tid": 1,
+                                    "t_ns": int(at * 1000)}) + "\n")
+    good = [(1, "s", 1000, 10), (1, "f", 1010, 20), (1, "s", 1020, 20), (1, "f", 1030, 10)]
+    with tempfile.TemporaryDirectory() as out:
+        assert check_clock(out)[0] == 2
+        write(out, good)
+        code, report = check_clock(out)
+        assert code == 0 and report["clock_order"]["checked_requests"] == 1, report
+        write(out, good + [(2, "s", 2000, 10), (2, "f", 1990, 20)])
+        command = subprocess.run([sys.executable, os.path.abspath(__file__), "check-clock", out],
+                                 capture_output=True, text=True, timeout=60)
+        assert command.returncode == 1 and "1 violation(s)" in command.stdout, (command.returncode, command.stdout,
+                                                                                 command.stderr[-600:])
+        assert read_json(os.path.join(out, "clock-check.json"))["clock_order_violations"] == 1
+        summary = build_fixture(out)
+        assert summary["clock_order_violations"] == 1 and summary["request_flow_linked"] == 100.0, \
+            {k: summary.get(k) for k in ("clock_order_violations", "request_flow_linked", "request_flows")}
+        assert "key_to_present_estimate_ms" in summary and "key_to_commit_ms" in summary and "hop_ms" in summary
+        assert summary["key_flows"]["presses"] == 0, "a request's flow records were read as a key press's"
+        assert "Clock order: 1 hop(s)" in open(os.path.join(out, "SUMMARY.txt")).read()
+
+
 def check_focus_quiet_terminal():
     """The keys move to a quiet terminal and the summary names both panes; a focus that fails or raises is a
     warning, never the end of the build (review of flows3)."""
@@ -3941,7 +4324,8 @@ SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_b
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
               check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
               check_import_with_a_fake_trace_processor, check_key_flows, check_flow_hops_are_exclusive,
-              check_flow_gaps_warn, check_focus_quiet_terminal]
+              check_flow_gaps_warn, check_percentiles, check_clock_order_and_percentiles, check_clock_command,
+              check_focus_quiet_terminal]
 
 
 def self_test():
@@ -3992,6 +4376,9 @@ def main():
     imp = sub.add_parser("check-import", help="load DIR/trace.json.gz with trace_processor_shell and check its tracks")
     imp.add_argument("dir")
     imp.add_argument("--trace-processor", required=True, help="a trace_processor_shell binary (Perfetto)")
+    clock = sub.add_parser("check-clock", help="exit 1 when a hop of DIR's key presses or daemon requests is "
+                                               "earlier than its cause")
+    clock.add_argument("dir")
     opts = parser.parse_args()
     if opts.self_test:
         return self_test()
@@ -4012,6 +4399,13 @@ def main():
         print(f"trace: import check {'ok' if ok else 'FAILED'}: tracks {report['tracks_by_kind']}, "
               f"{report['threads_imported']} threads imported" + "".join(f"\n  {p}" for p in report["problems"]))
         return 0 if ok else 1
+    if opts.verb == "check-clock":
+        if not os.path.isdir(opts.dir):
+            print(f"trace: no recording directory {opts.dir}", file=sys.stderr)
+            return 2  # nothing to check; 1 means a violation
+        code, report = check_clock(opts.dir)
+        print(clock_text(code, report))
+        return code
     if opts.verb == "summary":
         summary = read_json(os.path.join(opts.dir, "summary.json"))
         if summary is None:
