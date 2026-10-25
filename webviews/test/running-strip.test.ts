@@ -154,7 +154,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           return {
             moreInside: more.height > 20 && more.bottom <= box.bottom + 0.5,
             // The list really scrolls wherever it has room; at the tightest squeeze it may have none.
-            listScrolled: list.scrollHeight > list.clientHeight && (list.clientHeight === 0 ? h === 72 : list.scrollTop > 0),
+            listScrolled:
+              list.scrollHeight > list.clientHeight && (list.clientHeight === 0 ? h === 72 : list.scrollTop > 0),
             trayScroll: tray.scrollTop,
             headTop: rect.top - box.top,
             headHeight: rect.height,
