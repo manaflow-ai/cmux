@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// The media hub's scripts in a Chromium page (`BrowserMediaState+Scripts`),
@@ -21,6 +22,8 @@ final class CEFMediaBridge {
     private var observation: ObservationLoop?
     /// The document phase the binding was last added for.
     private var gate = CEFDocumentGate()
+    /// The deadline of a media roll call after a frame detached (`BrowserMediaFrames`).
+    private let rollCallDeadline = DemandTimer(owner: "CEFMediaBridge.rollCall")
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -64,6 +67,8 @@ final class CEFMediaBridge {
     /// A `Runtime.bindingCalled` of the media binding: applies the page's
     /// report. False for every other message (the agent relay's).
     func handle(_ json: String) -> Bool {
+        // Read only: an agent relaying raw protocol messages still sees it.
+        if Self.isFrameDetached(json) { frameDetached() }
         if let refused = BrowserProtectedMedia.refused(bindingCall: json) {
             tab?.emit(.protectedMediaUnavailable(refused))
             return true
@@ -76,6 +81,29 @@ final class CEFMediaBridge {
         else { return false }
         if let payload = params["payload"] as? String { report(payload) }
         return true
+    }
+
+    /// Whether `json` is a `Page.frameDetached` event (a subframe removed, or swapped to another
+    /// process; the Page domain is on for the document scripts).
+    nonisolated static func isFrameDetached(_ json: String) -> Bool {
+        guard json.contains("\"Page.frameDetached\""), let data = json.data(using: .utf8),
+              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return message["method"] as? String == "Page.frameDetached"
+    }
+
+    /// A frame detached while the tab shows media: a roll call finds the frames still there
+    /// (`BrowserMediaFrames`), and drops the rest at its deadline. A page with no media costs
+    /// nothing.
+    private func frameDetached() {
+        guard let tab, tab.state.media != nil else { return }
+        tab.machine.apply(.mediaRollCallStarted)
+        Task { [weak tab] in
+            _ = try? await tab?.evaluate(BrowserMediaState.rollCallScript, world: .isolated, gesture: .cmux)
+        }
+        // A bounded, cancellable deadline: the answers come within it, a gone frame never does.
+        rollCallDeadline.schedule(after: BrowserMediaState.rollCallDeadline) { @MainActor [weak self] in
+            self?.tab?.machine.apply(.mediaRollCallEnded)
+        }
     }
 
     /// One frame's media report (a binding call's payload, or a page channel post): untrusted JSON,

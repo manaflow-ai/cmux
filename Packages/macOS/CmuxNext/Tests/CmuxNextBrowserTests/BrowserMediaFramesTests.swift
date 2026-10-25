@@ -47,4 +47,37 @@ import Testing
         machine.apply(.mediaChanged(nil, frame: "new"))
         #expect(machine.state.media == nil, "a frame of the old document came back")
     }
+
+    /// A playing iframe removed (or crashed) with no null of its own: the roll call after the
+    /// engine's frame-detached event drops it at its deadline, while the frames that answered
+    /// stay. Before, its "playing" entry stayed until the next document.
+    @Test func aRollCallDropsTheFramesThatDidNotAnswer() {
+        var machine = BrowserTabStateMachine()
+        machine.apply(.mediaChanged(Self.paused, frame: "main"))
+        machine.apply(.mediaChanged(Self.ad, frame: "ad"))
+        #expect(machine.state.media?.title == "Ad")
+        machine.apply(.mediaRollCallStarted)
+        #expect(machine.state.media?.title == "Ad", "the card changes before the deadline")
+        machine.apply(.mediaChanged(Self.paused, frame: "main"))
+        machine.apply(.mediaRollCallEnded)
+        #expect(machine.state.media?.title == "Talk", "the gone iframe's playing entry stayed")
+    }
+
+    @Test func aRollCallEveryFrameAnswersChangesNothing() {
+        var frames = BrowserMediaFrames()
+        _ = frames.apply(Self.ad, from: "ad")
+        frames.suspectAll()
+        _ = frames.apply(Self.ad, from: "ad")
+        #expect(frames.dropSuspects()?.title == "Ad")
+        // A later deadline with no roll call running drops nothing.
+        #expect(frames.dropSuspects()?.title == "Ad")
+    }
+
+    @Test func theOnlyFrameGoneClearsTheCard() {
+        var machine = BrowserTabStateMachine()
+        machine.apply(.mediaChanged(Self.ad, frame: "ad"))
+        machine.apply(.mediaRollCallStarted)
+        machine.apply(.mediaRollCallEnded)
+        #expect(machine.state.media == nil)
+    }
 }

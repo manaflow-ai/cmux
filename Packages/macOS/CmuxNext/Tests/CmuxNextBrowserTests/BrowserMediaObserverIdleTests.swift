@@ -132,6 +132,25 @@ import Testing
         #expect(Self.timers(context) == 0)
     }
 
+    /// The tab's roll call (a frame detached): a frame that reported sends its report again,
+    /// unchanged, so the tab knows it is still there; one that never reported stays quiet; and
+    /// the call goes on to the child frames. No timer stays.
+    @Test func aRollCallMakesAFrameThatReportedReportAgainAndReachesChildFrames() throws {
+        let context = try Self.context()
+        context.evaluateScript("var child = []; frames = { length: 1, 0: { postMessage: function (m) { child.push(m); } } };")
+        context.evaluateScript("document.dispatchEvent(new CustomEvent('cmux-media-rollcall')); runTimeouts();")
+        #expect(Self.posts(context) == 0, "a frame that never reported answered")
+        context.evaluateScript("var v = video(false); media = [v]; fire('pause', v);")
+        #expect(Self.posts(context) == 1)
+        context.evaluateScript(BrowserMediaState.rollCallScript + "; runTimeouts();")
+        #expect(Self.posts(context) == 2, "the roll call got no answer")
+        #expect(context.evaluateScript("lastReport().playing === false").toBool())
+        #expect(context.evaluateScript("child.length === 2 && child[1].cmuxMediaRollCall === true").toBool())
+        #expect(Self.timers(context) == 0)
+        context.evaluateScript("fire('volumechange', v);")
+        #expect(Self.posts(context) == 2, "the roll call's forced send stuck")
+    }
+
     /// A frame whose binding never comes (an iframe made after the last binding add) keeps no
     /// retry timer; a ready call that finds the binding still missing sends nothing, and the next
     /// media event tries again. Before, its 1 s retry ticker ran for the life of the page.

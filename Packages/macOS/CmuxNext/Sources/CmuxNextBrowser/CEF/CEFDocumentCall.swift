@@ -38,8 +38,8 @@ enum CEFDocumentCall {
                         _ = try await tab.runtime.devTools(browser, method: method, params: params)
                     case .readyHook(let world, let hook):
                         let result = try await tab.runtime.devTools(browser, method: call.method,
-                                                                    params: ["source": readySource(hook: hook), "worldName": world, "runImmediately": true])
-                        if let identifier = scriptIdentifier(result) {
+                                                                    params: ["source": CEFDocumentCall.readySource(hook: hook), "worldName": world, "runImmediately": true])
+                        if let identifier = CEFDocumentCall.scriptIdentifier(result) {
                             _ = try await tab.runtime.devTools(browser, method: "Page.removeScriptToEvaluateOnNewDocument",
                                                               params: ["identifier": identifier])
                         }

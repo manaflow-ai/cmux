@@ -29,6 +29,12 @@ public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     /// `frame` is the id the frame's observer picked for its document: a report replaces only
     /// its own frame's (`BrowserMediaFrames`).
     case mediaChanged(BrowserMediaState?, frame: String = "")
+    /// A frame of the page detached (removed, or its process ended): a media roll call starts
+    /// (``BrowserMediaFrames/suspectAll()``); each frame's next report says it is still there.
+    case mediaRollCallStarted
+    /// The roll call's deadline: the frames that did not report since it started are gone
+    /// (``BrowserMediaFrames/dropSuspects()``).
+    case mediaRollCallEnded
     /// The tab was muted (true) or unmuted (`BrowserAudioMuting`).
     case audioMutedChanged(Bool)
 }
@@ -197,6 +203,12 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
 
         case .mediaChanged(let media, let frame):
             state.media = BrowserMediaState.settled(state.media, mediaFrames.apply(media, from: frame))
+
+        case .mediaRollCallStarted:
+            mediaFrames.suspectAll()
+
+        case .mediaRollCallEnded:
+            state.media = BrowserMediaState.settled(state.media, mediaFrames.dropSuspects())
 
         case .audioMutedChanged(let muted):
             state.isAudioMuted = muted

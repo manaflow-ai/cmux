@@ -45,6 +45,8 @@ nonisolated extension BrowserMediaState {
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
           // What the last look found playing, and the one-second look-again while it plays (`follow`).
           let playing = false, ticks = 0, ticker = 0;
+          // A roll call asked: the next look sends what this frame reports even when unchanged.
+          let force = false;
           // The element last reported, weakly (a removed element is not kept alive): the page
           // showing again checks it is still in the document.
           let held = null;
@@ -76,6 +78,8 @@ nonisolated extension BrowserMediaState {
           };
           const look = () => {
             playing = false;
+            const forced = force;
+            force = false;
             const element = active();
             if (!element) {
               if (reported && send(null)) { reported = false; last = ''; held = null; }
@@ -98,7 +102,7 @@ nonisolated extension BrowserMediaState {
             state.duration = isFinite(element.duration) ? element.duration : null;
             state.rate = element.playbackRate;
             // Again every few seconds while it plays: the position the app runs on may have drifted.
-            if (key === last && !heartbeat) return;
+            if (key === last && !heartbeat && !forced) return;
             if (!send(state)) return;
             last = key;
             reported = true;
@@ -153,6 +157,17 @@ nonisolated extension BrowserMediaState {
           }, true);
           // The tab's look-again call (a same-document navigation may have removed the element).
           document.addEventListener('cmux-media-look', schedule, true);
+          // The tab's roll call (a frame detached): a frame that reported says it is still there,
+          // and passes the call on to its child frames. A frame that never reported stays quiet.
+          const rollCall = () => {
+            for (let i = 0; i < frames.length; i++) {
+              try { frames[i].postMessage({ cmuxMediaRollCall: true }, '*'); } catch (_) {}
+            }
+            if (!reported) return;
+            force = true;
+            schedule();
+          };
+          document.addEventListener('cmux-media-rollcall', rollCall, true);
           for (const type of ['seeked', 'ratechange']) {
             addEventListener(type, () => { seeked = true; schedule(); }, true);
           }
@@ -182,6 +197,7 @@ nonisolated extension BrowserMediaState {
           addEventListener('message', (event) => {
             const data = event.data;
             if (window !== top && data && typeof data.cmuxMediaMute === 'boolean') muteTab(data.cmuxMediaMute);
+            if (window !== top && data && data.cmuxMediaRollCall === true) rollCall();
           });
           document.addEventListener('cmux-media-actions', (event) => {
             actions = typeof event.detail === 'string' ? event.detail : '';
@@ -194,6 +210,14 @@ nonisolated extension BrowserMediaState {
     /// The tab's one look-again call to the observer (any isolated world; the event crosses
     /// worlds on the shared DOM): it looks at the frame's media once and reports what changed.
     static let lookAgainScript = "(() => { document.dispatchEvent(new CustomEvent('cmux-media-look')); return true; })()"
+
+    /// The tab's roll call to every observer of the page (a frame detached,
+    /// ``BrowserNavigationEvent/mediaRollCallStarted``): each frame that reported sends its
+    /// report again, and passes the call to its child frames.
+    static let rollCallScript = "(() => { document.dispatchEvent(new CustomEvent('cmux-media-rollcall')); return true; })()"
+
+    /// How long a roll call waits for the frames' answers before it drops the silent ones.
+    static let rollCallDeadline: Duration = .seconds(2)
 
     /// Whether an address change from `before` to `after` needs the observer to look again: a
     /// same-document navigation (pushState, a fragment) of a page that shows media may have
