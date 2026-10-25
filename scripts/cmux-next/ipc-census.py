@@ -6,23 +6,35 @@ Each queue is a list of sites, printed as JSON `[{file, line, key}]` (plus `grou
 groups a queue, for example Q1 by directory). Every queue that the spec defines by a `git grep` also
 carries that raw query: the census reports `raw_count` (what `RAW | wc -l` prints) next to `found`
 (its sites) and `count` (the sites outside the allowlist), so a reviewer can check the numbers with
-one shell command. Q1, Q2, Q7, Q10, Q11, Q13 and Q14 are their raw query (found == raw_count). No count is written in this file: `--record` writes them to
+one shell command. Q1, Q2, Q7, Q10, Q11, Q13 and Q14 are their raw query (found == raw_count). For
+Q3, Q4, Q8 and Q17, which refine it, `--explain QN` lists each raw line the queue drops and each
+site it adds, with a reason, so raw_count - dropped + added (+ further sites on one raw line) ==
+found; `--queue QN` prints that sum. No count is written in this file: `--record` writes them to
 plans/cmux-next/ipc-targets.json, and `--check` compares the tree against that file.
 
 Refinements over the raw queries (each is stated on its queue):
   Q3  Rust tests are dropped (test paths, `#[cfg(test)]` items and modules, `#[test]` functions),
       calls inside the primitives' own definitions are dropped, and the wrappers are derived: any
-      function whose body calls a primitive is a wrapper (one level; a name defined twice is
-      not), and each call of it is a site (caller-of-wrapper), so a new wrapper is counted
-      without a regex change.
+      function whose body calls a primitive is a wrapper (one level), and each call of it is a site
+      (caller-of-wrapper), so a new wrapper is counted without a regex change. A call reaches the
+      definitions of its name that fit its form (method, `Type::`, free) and argument count; when
+      they mix a wrapper and a function that wraps nothing, the site says `ambiguous wrapper`.
   Q4  `DaemonConnection(` counts with its first argument label on the same or the next line; raw
       `connect(fd, $0, ...)` calls, `NWConnection(to: .unix` and `DaemonBridge.open` count too;
       comments and strings never count. Sockets that are not a cmux-tui daemon (acpmux, the
       browser host, the control socket, Tasks) and LineTransport's own connect are allowlisted
       in ipc-targets.json with their reason, so the census still sees each one.
   Q8  thread name sites in cmux-tui/crates (tests dropped) whose spawned body does not begin with
-      `cmux_tui_platform::qos::set_current`, plus journal writers spawned by name.
+      `cmux_tui_platform::qos::set_current`, plus journal writers spawned by name. The body is the
+      `.spawn(` of the name's own builder chain (or of the `let` that holds the builder). A
+      `.name(var)` of a thread builder counts too: the variable resolves through its `let`, a
+      `for` loop over literals, or the arguments callers pass for a parameter; a name the census
+      cannot follow is `<unresolved>`, never dropped.
+  Q12 a decoder case that delegates to a name set (`case _ where T.eventNames.contains(name)`)
+      decodes that set's literals; a set the census cannot read is a site.
   Q17 one item per lock definition (rank and lock name), not per mention.
+  Q18 `ipc5_ops` in ipc-targets.json names the IPC-5 ops; sites without `op=` stay, and an empty
+      list keeps every sqlite site (`--check` refuses it once Q9 has data).
 
 Schema queues (Q5, Q6, Q12, Q15) compare source against cmux-tui/spec/sdk-schema.json. Runtime
 queues are read, not computed: Q9 and Q18 from a `CMUX_TUI_REQUEST_PATH_IO=record` run (lines with
@@ -33,9 +45,11 @@ or stored by `--record --io-record FILE`), Q16 from `runtime.Q16`, which bench-d
 Usage:
   ipc-census.py                       counts of every queue
   ipc-census.py --queue Q1 [--queue Q4]  the sites as JSON
+  ipc-census.py --explain Q3          the raw lines a refined queue drops and the sites it adds
   ipc-census.py --callers DIR         call-site files of the Swift request types declared in DIR
   ipc-census.py --record              write the counts to ipc-targets.json
-  ipc-census.py --check               fail on a queue above its recorded count or a bad allowlist entry
+  ipc-census.py --check               fail on a queue above its recorded count, a bad allowlist
+                                      entry or a bad ipc5_ops list
 
 Stdlib only; reads tracked files of the working tree (`git ls-files`), like `git grep`.
 """
@@ -43,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import functools
 from dataclasses import dataclass
 import json
 from pathlib import Path, PurePosixPath
@@ -59,6 +74,7 @@ RUST_CRATES = "cmux-tui/crates/*.rs"
 SCHEMA = "cmux-tui/spec/sdk-schema.json"
 EVENT_DECODER = f"{APP}/CmuxNextDaemon/Events/DaemonEvent+Decoding.swift"
 SERVER = f"{CORE}/server.rs"
+RESOURCE_WIRE_NAMES = f"{CORE}/resource/wire_name.rs"
 RUST_NOT_TESTS = (":!*tests*", ":!*_tests.rs")
 QUEUE_IDS = tuple(f"Q{n}" for n in range(1, 19))
 
@@ -86,6 +102,8 @@ class Result:
     raw_count: int | None = None
     source: str = "tree"
     found: int = 0  # sites before the allowlist
+    raw_lines: list[tuple[str, int, str]] | None = None  # what the raw query prints
+    raw_pattern: str | None = None
 
     @property
     def count(self) -> int:
@@ -97,6 +115,15 @@ class Result:
             if hit.group is not None:
                 counts[hit.group] = counts.get(hit.group, 0) + 1
         return dict(sorted(counts.items()))
+
+
+@dataclass(frozen=True)
+class RustDefinition:
+    file: str
+    impl_type: str | None
+    has_self: bool
+    arity: int  # parameters besides self
+    wraps: str | None  # the primitive its body calls
 
 
 class CensusError(Exception):
@@ -193,22 +220,53 @@ def blank_code(text: str, lang: str) -> str:
     return "".join(pieces)
 
 
+CLOSING = {"{": "}", "(": ")", "[": "]"}
+
+
 def match_brace(blanked: str, open_index: int) -> int:
-    """Index of the `}` closing the `{` at `open_index` (end of text when unbalanced)."""
+    """Index of the bracket closing the `{`, `(` or `[` at `open_index` (end of text when
+    unbalanced). Only that bracket kind is counted: comments and literals are blanked already."""
+    opening = blanked[open_index]
+    closing = CLOSING.get(opening, "}")
     depth = 0
     for k in range(open_index, len(blanked)):
         ch = blanked[k]
-        if ch == "{":
+        if ch == opening:
             depth += 1
-        elif ch == "}":
+        elif ch == closing:
             depth -= 1
             if depth == 0:
                 return k
     return len(blanked) - 1
 
 
+def split_top_level(blanked: str, start: int, end: int, angles: bool = False) -> list[tuple[int, int]]:
+    """(start, end) spans of the comma-separated items of `blanked[start:end]`, ignoring commas
+    inside brackets (and inside `<...>` when `angles`, for type lists); empty items are dropped."""
+    items, depth, k0 = [], 0, start
+    for k in range(start, end):
+        ch = blanked[k]
+        if ch in "([{" or (angles and ch == "<"):
+            depth += 1
+        elif ch in ")]}" or (angles and ch == ">" and blanked[k - 1] != "-"):
+            depth -= 1
+        elif ch == "," and depth == 0:
+            items.append((k0, k))
+            k0 = k + 1
+    items.append((k0, end))
+    return [(a, b) for a, b in items if blanked[a:b].strip()]
+
+
 def line_of(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
+
+
+def line_offset(text: str, number: int) -> int:
+    """Offset of the first character of line `number` (1-based)."""
+    offset = 0
+    for _ in range(number - 1):
+        offset = text.index("\n", offset) + 1
+    return offset
 
 
 class Repo:
@@ -239,9 +297,6 @@ class Repo:
                 if path and not any(fnmatch.fnmatchcase(path, glob) or path.startswith(glob.rstrip("/") + "/") for glob in exclude)
             )
         return self._files[pathspecs]
-
-    def exists(self, path: str) -> bool:
-        return (self.root / path).is_file()
 
     def text(self, path: str) -> str:
         if path not in self._text:
@@ -366,6 +421,42 @@ def raw_scan(repo: Repo, pattern: str, pathspecs: tuple[str, ...]) -> list[tuple
     return hits
 
 
+SWIFT_TYPE_DECLARATION = re.compile(
+    r"^\s*(?:@[\w.]+(?:\([^)]*\))?\s+)*((?:\w+\s+)*?)(?:class|struct|enum|actor|extension|protocol)\s+([A-Za-z_][\w.]*)"
+)
+
+
+@dataclass(frozen=True, order=True)
+class SwiftType:
+    qualified: str  # Outer.Inner
+    name: str
+    outer: str | None  # the enclosing type, for a nested type
+    file: str | None  # its file, when private or fileprivate (visible only there)
+
+
+def swift_type_chain(lines: list[str], index: int) -> list[tuple[str, bool]]:
+    """The types around line `index` (0-based), outermost first: (name as written, private or
+    fileprivate). Each less-indented line above is an enclosing scope; the type declarations
+    among them are the chain (`extension A.B` gives `A.B`)."""
+    indent = len(lines[index]) - len(lines[index].lstrip())
+    chain = []
+    for k in range(index - 1, -1, -1):
+        line = lines[k]
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("//", "*", "/*", "}", ")", "]", "#")):
+            continue
+        level = len(line) - len(line.lstrip())
+        if level >= indent:
+            continue
+        indent = level
+        found = SWIFT_TYPE_DECLARATION.match(line)
+        if found and not re.search(r"\b(?:func|var|let|case|return)\b", found.group(1)):
+            chain.append((found.group(2), bool(re.search(r"\b(?:private|fileprivate)\b", found.group(1)))))
+        if level == 0:
+            break
+    return chain[::-1]
+
+
 def swift_enclosing(lines: list[str], index: int) -> tuple[str, str]:
     """(type, member) around line `index` (0-based): the nearest less-indented declarations."""
     indent = len(lines[index]) - len(lines[index].lstrip())
@@ -394,6 +485,7 @@ def swift_enclosing(lines: list[str], index: int) -> tuple[str, str]:
     return type_name, member
 
 
+@functools.lru_cache(maxsize=256)
 def rust_functions(blanked: str) -> list[tuple[str, int, int, int]]:
     """(name, start offset, body open, body close) of every Rust fn with a body."""
     functions = []
@@ -424,6 +516,40 @@ def enclosing_function(functions: list[tuple[str, int, int, int]], offset: int) 
     return best
 
 
+RUST_SELF_PARAM = re.compile(r"\s*(?:&\s*(?:'\w+\s+)?)?(?:mut\s+)?self\b")
+RUST_IMPL = re.compile(r"\bimpl\b\s*(?:<[^{;]*?>\s*)?(?:[\w:]+(?:<[^{;]*?>)?\s+for\s+)?(?:[\w]+::)*([A-Z]\w*)[^{;]*\{")
+
+
+def rust_signature(blanked: str, function: tuple[str, int, int, int]) -> tuple[bool, list[tuple[int, int]]]:
+    """(has a self receiver, spans of the other parameters) of a `rust_functions` entry."""
+    open_ = blanked.find("(", function[1], function[2])
+    if open_ < 0:
+        return False, []
+    params = split_top_level(blanked, open_ + 1, match_brace(blanked, open_), angles=True)
+    if params and RUST_SELF_PARAM.match(blanked[params[0][0]:params[0][1]]):
+        return True, params[1:]
+    return False, params
+
+
+@functools.lru_cache(maxsize=256)
+def rust_impl_blocks(blanked: str) -> tuple[tuple[str, int, int], ...]:
+    return tuple((found.group(1), found.end() - 1, match_brace(blanked, found.end() - 1)) for found in RUST_IMPL.finditer(blanked))
+
+
+def rust_impl_type(blanked: str, offset: int) -> str | None:
+    """The type of the innermost `impl` block holding `offset`, if any."""
+    best = None
+    for name, open_, close in rust_impl_blocks(blanked):
+        if open_ <= offset <= close and (best is None or open_ > best[1]):
+            best = (name, open_)
+    return best[0] if best else None
+
+
+def call_arguments(blanked: str, open_paren: int) -> list[tuple[int, int]]:
+    """Spans of the arguments of the call whose `(` is at `open_paren`."""
+    return split_top_level(blanked, open_paren + 1, match_brace(blanked, open_paren))
+
+
 # ---------------------------------------------------------------------------------------------
 # Queues
 
@@ -435,6 +561,8 @@ class Census:
         self.io_record = io_record
         self._results: dict[str, Result] = {}
         self._unfiltered: dict[str, list[Hit]] = {}
+        self._drops: dict[str, dict[tuple[str, int], str]] = {}  # raw lines a refined queue drops, with why
+        self._added: dict[tuple[str, Hit], str] = {}  # why a site off the raw lines counts
 
     # The allowlist: entries `{queue, file, key?, reason}`; a key-less entry covers the file.
     def allowlist(self) -> list[dict]:
@@ -462,10 +590,68 @@ class Census:
 
     def exact(self, queue: str, title: str, pattern: str, pathspecs: tuple[str, ...], key, group=None) -> Result:
         """A queue that is its raw query: one site per matching line."""
-        hits = []
-        for path, number, line in raw_scan(self.repo, pattern, pathspecs):
-            hits.append(Hit(path, number, key(path, number, line), group(path) if group else None))
-        return Result(queue, title, hits, raw_command(pattern, pathspecs), len(hits))
+        raw = raw_scan(self.repo, pattern, pathspecs)
+        hits = [Hit(path, number, key(path, number, line), group(path) if group else None) for path, number, line in raw]
+        return Result(queue, title, hits, raw_command(pattern, pathspecs), len(raw), raw_lines=raw, raw_pattern=pattern)
+
+    def refined(self, queue: str, title: str, hits: list[Hit], pattern: str, pathspecs: tuple[str, ...]) -> Result:
+        """A queue that refines its raw query; `breakdown` explains the difference line by line."""
+        raw = raw_scan(self.repo, pattern, pathspecs)
+        return Result(queue, title, hits, raw_command(pattern, pathspecs), len(raw), raw_lines=raw, raw_pattern=pattern)
+
+    def drop(self, queue: str, path: str, line: int, reason: str) -> None:
+        """Note why a candidate on `line` is no site (the first reason for a line wins)."""
+        self._drops.setdefault(queue, {}).setdefault((path, line), reason)
+
+    def added(self, queue: str, hit: Hit, reason: str) -> Hit:
+        """Note why `hit` counts when the raw query does not print its line."""
+        self._added[(queue, hit)] = reason
+        return hit
+
+    def breakdown(self, queue: str) -> dict | None:
+        """How the raw query's `wc -l` becomes the queue's `found`, for a queue with a raw query:
+        raw_count - sum(dropped) + sum(added) + same_line == found. `dropped` are raw lines with no
+        site (each with its reason), `added` are sites on lines the raw query does not print, and
+        `same_line` counts the second and later sites of one raw line."""
+        result = self.result(queue)
+        if result.raw_lines is None:
+            return None
+        hits = self.unfiltered(queue)
+        on_line: dict[tuple[str, int], int] = {}
+        for hit in hits:
+            on_line[(hit.file, hit.line)] = on_line.get((hit.file, hit.line), 0) + 1
+        raw_lines = {(path, number): line for path, number, line in result.raw_lines}
+        pattern = re.compile(result.raw_pattern)
+        dropped_lines = []
+        for (path, number), line in sorted(raw_lines.items()):
+            if (path, number) in on_line:
+                continue
+            reason = self._drops.get(queue, {}).get((path, number))
+            if reason is None:
+                offset = line_offset(self.repo.text(path), number) + pattern.search(line).start()
+                in_prose = self.repo.blanked(path)[offset] != self.repo.text(path)[offset]
+                reason = "comment or string" if in_prose else "unexplained"
+            dropped_lines.append({"file": path, "line": number, "reason": reason, "text": line.strip()})
+        added_sites = [
+            {**hit.as_json(), "reason": self._added.get((queue, hit), "a site the raw pattern does not print")}
+            for hit in sorted(hits) if (hit.file, hit.line) not in raw_lines
+        ]
+
+        def tally(items: list[dict]) -> dict[str, int]:
+            counts: dict[str, int] = {}
+            for item in items:
+                counts[item["reason"]] = counts.get(item["reason"], 0) + 1
+            return dict(sorted(counts.items()))
+
+        return {
+            "raw_count": result.raw_count,
+            "dropped": tally(dropped_lines),
+            "added": tally(added_sites),
+            "same_line": sum(count - 1 for line, count in on_line.items() if line in raw_lines),
+            "found": len(hits),
+            "dropped_lines": dropped_lines,
+            "added_sites": added_sites,
+        }
 
     # Q1 ------------------------------------------------------------------------------------
     Q1_PATTERN = r'static (let|var) command(: String)? = "'
@@ -499,12 +685,12 @@ class Census:
         r"|\.send_producer\(|commit_registry_intent(_with)?\(|flush_terminal_journal\("
     )
 
-    def q3_wrappers(self, files: list[str]) -> dict[str, str]:
-        """Wrapper name -> the primitive it calls: non-test functions whose body calls a
-        primitive. A name defined more than once in the crate is not a wrapper: its calls could be
-        any of the definitions."""
+    def q3_wrappers(self, files: list[str]) -> dict[str, list[RustDefinition]]:
+        """Wrapper name -> every non-test definition of that name. A wrapper is a non-test function
+        whose body calls a primitive; a name can also have definitions that wrap nothing (another
+        type's method), so each call resolves to its definitions in `q3_resolve`."""
         primitive = re.compile(r"(?<![\w])(" + "|".join(self.Q3_PRIMITIVES) + r")\s*\(")
-        wrappers: dict[str, str] = {}
+        wrapping: set[str] = set()
         for path in files:
             if not primitive.search(self.repo.text(path)):
                 continue
@@ -512,21 +698,48 @@ class Census:
             for name, start, open_, close in rust_functions(blanked):
                 if name in self.Q3_PRIMITIVES or self.repo.in_rust_test(path, line_of(blanked, start)):
                     continue
-                called = primitive.search(blanked, open_, close)
-                if called:
-                    wrappers.setdefault(name, called.group(1))
-        if not wrappers:
+                if primitive.search(blanked, open_, close):
+                    wrapping.add(name)
+        if not wrapping:
             return {}
-        definition = re.compile(r"\bfn\s+(" + "|".join(map(re.escape, wrappers)) + r")\b")
-        definitions: dict[str, int] = {}
+        definition = re.compile(r"\bfn\s+(" + "|".join(map(re.escape, sorted(wrapping))) + r")\b")
+        definitions: dict[str, list[RustDefinition]] = {}
         for path in files:
             if not definition.search(self.repo.text(path)):
                 continue
             blanked = self.repo.blanked(path)
-            for found in definition.finditer(blanked):
-                if not self.repo.in_rust_test(path, line_of(blanked, found.start())):
-                    definitions[found.group(1)] = definitions.get(found.group(1), 0) + 1
-        return {name: callee for name, callee in wrappers.items() if definitions.get(name) == 1}
+            for function in rust_functions(blanked):
+                name, start, open_, close = function
+                if name not in wrapping or self.repo.in_rust_test(path, line_of(blanked, start)):
+                    continue
+                has_self, params = rust_signature(blanked, function)
+                called = primitive.search(blanked, open_, close)
+                definitions.setdefault(name, []).append(RustDefinition(
+                    path, rust_impl_type(blanked, start), has_self, len(params), called.group(1) if called else None,
+                ))
+        return definitions
+
+    @staticmethod
+    def q3_resolve(definitions: list[RustDefinition], blanked: str, path: str, start: int, open_paren: int) -> list[RustDefinition]:
+        """The definitions a call can reach, by its form (`x.name(` a method, `Type::name(` /
+        `Self::name(` an impl's function, `module::name(` or `name(` a free function) and its
+        argument count. A call no definition fits keeps them all: it is never dropped."""
+        before = blanked[max(0, start - 200):start]
+        if re.search(r"\.\s*$", before):
+            candidates = [d for d in definitions if d.has_self]
+            if re.search(r"(?<![\w.])self\s*\.\s*$", before):
+                own = rust_impl_type(blanked, start)
+                candidates = [d for d in candidates if d.impl_type == own] or candidates
+        elif owner := re.search(r"(\w+)\s*::\s*$", before):
+            name = rust_impl_type(blanked, start) if owner.group(1) == "Self" else owner.group(1)
+            if name and name[0].isupper():
+                candidates = [d for d in definitions if d.impl_type == name]
+            else:
+                candidates = [d for d in definitions if d.impl_type is None and PurePosixPath(d.file).stem == name]
+        else:
+            candidates = [d for d in definitions if d.impl_type is None and not d.has_self]
+        arity = len(call_arguments(blanked, open_paren))
+        return [d for d in candidates if d.arity == arity] or candidates or definitions
 
     def q3(self) -> Result:
         pathspecs = (CORE, *RUST_NOT_TESTS)
@@ -542,19 +755,30 @@ class Census:
             functions = rust_functions(blanked)
             for found in call.finditer(blanked):
                 name = found.group(1)
-                if re.search(r"\bfn\s+$", blanked[max(0, found.start() - 8):found.start()]):
-                    continue  # the definition itself
                 number = line_of(blanked, found.start())
+                if re.search(r"\bfn\s+$", blanked[max(0, found.start() - 8):found.start()]):
+                    self.drop("Q3", path, number, "definition")
+                    continue
                 if self.repo.in_rust_test(path, number):
+                    self.drop("Q3", path, number, "test")
                     continue
                 inside = enclosing_function(functions, found.start())
                 caller = inside[0] if inside else "<module>"
-                if caller in self.Q3_PRIMITIVES or caller == name:
-                    continue  # a primitive's own definition delegating to another primitive
-                what = name if name in self.Q3_PRIMITIVES else f"{name} (wraps {wrappers[name]})"
-                hits.append(Hit(path, number, f"{caller} -> {what}"))
-        raw = raw_scan(self.repo, self.Q3_RAW, pathspecs)
-        return Result("Q3", "F10 receipt waits", hits, raw_command(self.Q3_RAW, pathspecs), len(raw))
+                if caller in self.Q3_PRIMITIVES:
+                    self.drop("Q3", path, number, "inside a primitive's own definition")
+                    continue
+                if name in self.Q3_PRIMITIVES:
+                    hits.append(self.added("Q3", Hit(path, number, f"{caller} -> {name}"), "a primitive call the raw pattern misses"))
+                    continue
+                reached = self.q3_resolve(wrappers[name], blanked, path, found.start(), found.end() - 1)
+                wraps = sorted({d.wraps for d in reached if d.wraps})
+                if not wraps:
+                    self.drop("Q3", path, number, "a same-named function that wraps no primitive")
+                    continue
+                ambiguous = "ambiguous wrapper: " if any(d.wraps is None for d in reached) else ""
+                hit = Hit(path, number, f"{caller} -> {name} ({ambiguous}wraps {', '.join(wraps)})")
+                hits.append(self.added("Q3", hit, "a caller of a wrapper"))
+        return self.refined("Q3", "F10 receipt waits", hits, self.Q3_RAW, pathspecs)
 
     # Q4 ------------------------------------------------------------------------------------
     Q4_RAW = (
@@ -584,9 +808,10 @@ class Census:
                     number = line_of(blanked, start)
                     type_name, member = swift_enclosing(lines, number - 1)
                     where = ".".join(part for part in (type_name, member) if part) or "<file>"
-                    hits.append(Hit(path, number, f"{where}: {token}"))
-        raw = raw_scan(self.repo, self.Q4_RAW, self.Q4_PATHS)
-        return Result("Q4", "side connections", hits, raw_command(self.Q4_RAW, self.Q4_PATHS), len(raw))
+                    hit = Hit(path, number, f"{where}: {token}")
+                    why = "argument label on the next line" if token == "DaemonConnection(" else "spacing or a module prefix the raw pattern misses"
+                    hits.append(self.added("Q4", hit, why))
+        return self.refined("Q4", "side connections", hits, self.Q4_RAW, self.Q4_PATHS)
 
     # Schema helpers ------------------------------------------------------------------------
     def schema(self) -> dict:
@@ -661,22 +886,43 @@ class Census:
 
     # Q8 ------------------------------------------------------------------------------------
     Q8_NAME = r'"(mux-[^"]*|surface-[^"]*|terminal-host-(?:client|client-input|parser)|cmux-link-(?:in|out))"'
+    Q8_NAME_SET = re.compile(r"(?s:mux-.*|surface-.*|terminal-host-(?:client|client-input|parser)|cmux-link-(?:in|out))")
     Q8_RAW = (
         r'\.name\((format!\()?"(mux-|surface-|terminal-host-(client|client-input|parser)"|cmux-link-(in|out)")'
         r'|spawn_journal_writer\("'
     )
     Q8_PATHS = (RUST_CRATES, *RUST_NOT_TESTS)
     Q8_QOS = re.compile(r"\s*(?:cmux_tui_platform::)?qos::set_current\b")
+    Q8_LITERAL_SITE = re.compile(r"\.name\(\s*(?:format!\(\s*)?" + Q8_NAME + r"|spawn_journal_writer\(\s*" + Q8_NAME)
+    Q8_VARIABLE = r"&?\s*([a-z_][a-z0-9_]*)\s*(?:\.\s*(?:into|to_string|to_owned|clone)\s*\(\s*\)\s*)?"
+    Q8_VARIABLE_SITE = re.compile(r"\.name\(\s*" + Q8_VARIABLE + r"\)")
+    Q8_LITERAL_VALUE = re.compile(r'\s*&?\s*(?:format!\(\s*|String::from\(\s*)?"((?:[^"\\]|\\.)*)"')
+    Q8_DEPTH = 4  # callers followed for a name passed in as a parameter
 
-    def q8_body_sets_qos(self, blanked: str, start: int) -> bool:
-        """Whether the thread spawned after `start` begins with the QoS call."""
-        spawn = re.compile(r"\.spawn\(\s*")
-        found = spawn.search(blanked, start, start + 600)
-        if found:
-            k = found.end()
-        else:  # spawn_journal_writer("name", body)
-            comma = blanked.find(",", start)
-            k = comma + 1 if comma >= 0 else start
+    @staticmethod
+    def q8_spawn(blanked: str, site: int, after: int) -> int | None:
+        """Offset of the argument of the `.spawn(` that starts the thread of the builder whose
+        `.name(...)` call begins at `site` and ends at `after`: only `.method(...)` calls (and `?`)
+        may come between, so another builder's spawn is never read. A builder bound by
+        `let b = ...;` counts through the `b.spawn(` that follows in the same function."""
+        k = after
+        step = re.compile(r"\s*\??\s*\.\s*(\w+)\s*\(")
+        while found := step.match(blanked, k):
+            if found.group(1) == "spawn":
+                return found.end()
+            k = match_brace(blanked, found.end() - 1) + 1
+        statement = max(blanked.rfind(ch, 0, site) for ch in ";{}") + 1
+        bound = re.match(r"\s*let\s+(?:mut\s+)?([a-z_]\w*)\s*(?::[^=]*)?=", blanked[statement:site])
+        if bound and re.match(r"\s*;", blanked[k:]):
+            function = enclosing_function(rust_functions(blanked), site)
+            end = function[3] if function else len(blanked)
+            later = re.compile(r"\b" + bound.group(1) + r"\s*\.\s*spawn\s*\(").search(blanked, k, end)
+            if later:
+                return later.end()
+        return None
+
+    def q8_body_sets_qos(self, blanked: str, k: int) -> bool:
+        """Whether the thread body passed at offset `k` begins with the QoS call."""
         rest = blanked[k:k + 2000]
         closure = re.match(r"\s*(?:move\s*)?\|[^|]*\|\s*", rest)
         if closure:
@@ -695,25 +941,144 @@ class Census:
                     return True
         return False
 
-    def q8(self) -> Result:
-        name_site = re.compile(r"\.name\(\s*(?:format!\(\s*)?" + self.Q8_NAME + r"|spawn_journal_writer\(\s*" + self.Q8_NAME)
-        hits = []
-        for path in self.repo.files(self.Q8_PATHS):
-            if not path.endswith(".rs"):
+    def q8_values(self, path: str, start: int, end: int, depth: int) -> list[tuple[str | None, tuple[str, int] | None]]:
+        """The names the expression `start:end` of `path` can hold, as (literal, (file, offset of
+        its quote)); (None, None) stands for a value the census cannot follow."""
+        literal = self.Q8_LITERAL_VALUE.match(self.repo.text(path), start, end)
+        if literal:
+            return [(literal.group(1), (path, literal.start(1) - 1))]
+        variable = re.fullmatch(r"\s*" + self.Q8_VARIABLE + r"\s*", self.repo.blanked(path)[start:end])
+        if variable:
+            return self.q8_resolve(path, start, variable.group(1), depth)
+        return [(None, None)]
+
+    def q8_resolve(self, path: str, offset: int, variable: str, depth: int = 0) -> list[tuple[str | None, tuple[str, int] | None]]:
+        """The names `variable` holds at `offset`: its `let` in the same function, the array a
+        `for` loop takes it from, or, for a parameter, the argument every non-test caller passes."""
+        blanked = self.repo.blanked(path)
+        function = enclosing_function(rust_functions(blanked), offset)
+        if function is None or depth > self.Q8_DEPTH:
+            return [(None, None)]
+        open_ = function[2]
+        word = re.compile(r"\b" + re.escape(variable) + r"\b")
+        binding = None
+        for found in re.finditer(r"\blet\s+(?:mut\s+)?" + re.escape(variable) + r"\b\s*(?::[^=;]*)?=", blanked[open_:offset]):
+            binding = ("let", found)
+        for found in re.finditer(r"\bfor\s+(\([^)]*\)|[a-z_]\w*)\s+in\s+(?:&\s*)?\[", blanked[open_:offset]):
+            if word.search(found.group(1)) and (binding is None or found.start() > binding[1].start()):
+                binding = ("for", found)
+        if binding and binding[0] == "let":
+            start = open_ + binding[1].end()
+            end = blanked.find(";", start, offset)
+            return self.q8_values(path, start, end if end >= 0 else offset, depth)
+        if binding:
+            return self.q8_loop_values(path, open_ + binding[1].end() - 1, binding[1].group(1), word, depth)
+        has_self, params = rust_signature(blanked, function)
+        parameter = re.compile(r"\s*(?:mut\s+)?" + re.escape(variable) + r"\s*:")
+        index = next((k for k, (a, b) in enumerate(params) if parameter.match(blanked[a:b])), -1)
+        if index < 0:
+            return [(None, None)]
+        return self.q8_caller_values(path, function, has_self, index, len(params), depth)
+
+    def q8_loop_values(self, path: str, array: int, pattern: str, word: re.Pattern, depth: int):
+        """The names of a `for PATTERN in [...]` loop variable: one per array element (for a tuple
+        pattern, the element's item at the variable's position)."""
+        blanked = self.repo.blanked(path)
+        index = None
+        if pattern.startswith("("):
+            parts = [pattern[a:b].strip() for a, b in split_top_level(pattern, 1, len(pattern) - 1)]
+            index = next((k for k, part in enumerate(parts) if word.fullmatch(part)), -1)
+        values = []
+        for a, b in split_top_level(blanked, array + 1, match_brace(blanked, array)):
+            if index is not None:
+                tuple_open = blanked.find("(", a, b)
+                items = split_top_level(blanked, tuple_open + 1, match_brace(blanked, tuple_open)) if tuple_open >= 0 else []
+                if not 0 <= index < len(items):
+                    values.append((None, None))
+                    continue
+                a, b = items[index]
+            values.extend(self.q8_values(path, a, b, depth + 1))
+        return values
+
+    def q8_caller_values(self, path: str, function: tuple[str, int, int, int], has_self: bool, index: int, arity: int, depth: int):
+        """The values every non-test caller of `function` passes as parameter `index`; a call with
+        another argument count is another function of that name."""
+        name = re.escape(function[0])
+        owner = rust_impl_type(self.repo.blanked(path), function[1])
+        if has_self:
+            call = re.compile(r"\.\s*" + name + r"\s*\(")
+        elif owner:
+            call = re.compile(r"\b(?:" + owner + r"|Self)\s*::\s*" + name + r"\s*\(")
+        else:
+            call = re.compile(r"(?<![\w.])" + name + r"\s*\(")
+        values = []
+        for caller in self.repo.files(self.Q8_PATHS):
+            if not caller.endswith(".rs") or function[0] not in self.repo.text(caller):
                 continue
+            blanked = self.repo.blanked(caller)
+            for found in call.finditer(blanked):
+                if re.search(r"\bfn\s+$", blanked[max(0, found.start() - 8):found.start()]):
+                    continue
+                if self.repo.in_rust_test(caller, line_of(blanked, found.start())):
+                    continue
+                arguments = call_arguments(blanked, found.end() - 1)
+                if len(arguments) == arity:
+                    values.extend(self.q8_values(caller, *arguments[index], depth + 1))
+        return values or [(None, None)]
+
+    def q8(self) -> Result:
+        files = [path for path in self.repo.files(self.Q8_PATHS) if path.endswith(".rs")]
+        counted: set[tuple[str, int]] = set()  # (file, offset of the quote) of literal-site names
+        hits = []
+        for path in files:
             text = self.repo.text(path)
             if ".name(" not in text and "spawn_journal_writer(" not in text:
                 continue
             blanked = self.repo.blanked(path)
-            for found in name_site.finditer(text):
-                if blanked[found.start()] != text[found.start()]:
-                    continue  # inside a comment or string
+            for found in self.Q8_LITERAL_SITE.finditer(text):
                 number = line_of(text, found.start())
-                if self.repo.in_rust_test(path, number) or self.q8_body_sets_qos(blanked, found.end()):
+                if blanked[found.start()] != text[found.start()]:
+                    self.drop("Q8", path, number, "comment or string")
                     continue
-                hits.append(Hit(path, number, found.group(1) or found.group(2)))
-        raw = raw_scan(self.repo, self.Q8_RAW, self.Q8_PATHS)
-        return Result("Q8", "threads without QoS", hits, raw_command(self.Q8_RAW, self.Q8_PATHS), len(raw))
+                group = 1 if found.group(1) is not None else 2
+                counted.add((path, found.start(group) - 1))
+                if self.repo.in_rust_test(path, number):
+                    self.drop("Q8", path, number, "test")
+                    continue
+                if group == 2:  # spawn_journal_writer("name", body)
+                    comma = blanked.find(",", found.end())
+                    body = comma + 1 if comma >= 0 else None
+                else:
+                    paren = blanked.index("(", found.start())
+                    body = self.q8_spawn(blanked, found.start(), match_brace(blanked, paren) + 1)
+                if body is not None and self.q8_body_sets_qos(blanked, body):
+                    self.drop("Q8", path, number, "the body begins with the QoS call")
+                    continue
+                hits.append(Hit(path, number, found.group(group)))
+        for path in files:
+            if ".name(" not in self.repo.text(path):
+                continue
+            blanked = self.repo.blanked(path)
+            for found in self.Q8_VARIABLE_SITE.finditer(blanked):
+                number = line_of(blanked, found.start())
+                if self.repo.in_rust_test(path, number):
+                    continue
+                body = self.q8_spawn(blanked, found.start(), found.end())
+                builder = re.search(r"Builder::new\(\)\s*$", blanked[max(0, found.start() - 200):found.start()])
+                if body is None and not builder:
+                    continue  # not a thread builder (clap's `Command::name`, for one)
+                if body is not None and self.q8_body_sets_qos(blanked, body):
+                    continue
+                keys = set()
+                for name, where in self.q8_resolve(path, found.start(), found.group(1)):
+                    if name is None:
+                        keys.add("<unresolved>")
+                    elif where not in counted and self.Q8_NAME_SET.fullmatch(name):
+                        keys.add(name)
+                for key in sorted(keys):
+                    why = "a name the census cannot follow" if key == "<unresolved>" else "a name through a variable"
+                    hits.append(self.added("Q8", Hit(path, number, key), why))
+        return self.refined("Q8", "threads without QoS", hits, self.Q8_RAW, self.Q8_PATHS)
 
     # Q9 and Q18 (runtime) ---------------------------------------------------------------------
     def io_sites(self) -> tuple[list[Hit], str]:
@@ -729,17 +1094,39 @@ class Census:
         return Result("Q9", "request-path I/O", hits, source=source)
 
     def q18(self) -> Result:
+        """The `kind=sqlite` sites of the Q9 run hit by an op of `ipc5_ops` (ipc-targets.json; the
+        IPC-5 ops of p05-ipc.md section 5). A site without `op=` stays: the record cannot show it is
+        off the IPC-5 path. An empty or missing `ipc5_ops` keeps every sqlite site, and `--check`
+        refuses it once Q9 has data, so the list never filters by being empty."""
         hits, source = self.io_sites()
-        ops = set(self.targets.get("ipc5_ops", []))
+        ops = set(self.targets.get("ipc5_ops") or [])
         chosen = []
         for hit in hits:
             fields = dict(part.split("=", 1) for part in hit.key.split() if "=" in part)
             if fields.get("kind") != "sqlite":
                 continue
-            if "op" in fields and fields["op"] not in ops:
+            if ops and "op" in fields and fields["op"] not in ops:
                 continue
             chosen.append(hit)
+        if not ops:
+            source += "; ipc5_ops is empty: every op"
         return Result("Q18", "request-path SQLite reads", chosen, source=source)
+
+    def ipc5_op_problems(self) -> list[str]:
+        """`ipc5_ops` must name the IPC-5 ops by wire name: a daemon Command variant, or a v2
+        resource operation of resource/wire_name.rs (a name with a dot)."""
+        ops = self.targets.get("ipc5_ops") or []
+        if not ops:
+            if self.result("Q9").count:
+                return ["ipc5_ops is empty, so Q18 keeps every sqlite site; list the IPC-5 ops (p05-ipc.md section 5)"]
+            return []
+        variants = {wire for wire, _ in self.command_variants()}
+        resource = self.repo.text(RESOURCE_WIRE_NAMES)
+        return [
+            f"ipc5_ops {op}: not a daemon Command variant or a v2 operation of {RESOURCE_WIRE_NAMES}"
+            for op in ops
+            if (f'"{op}"' not in resource if "." in op else op not in variants)
+        ]
 
     # Q10 -----------------------------------------------------------------------------------
     def q10(self) -> Result:
@@ -767,11 +1154,43 @@ class Census:
         return self.exact("Q11", "hand-built v2 envelopes", pattern, (f"{APP}/*.swift",), key, group=lambda path: path)
 
     # Q12 -----------------------------------------------------------------------------------
+    Q12_DELEGATE = re.compile(r"\bcase\s+_\s+where\s+([A-Z]\w*)\s*\.\s*([a-z]\w*)\s*\.\s*contains\(\s*name\s*\)")
+
+    def swift_string_set(self, type_name: str, member: str) -> set[str] | None:
+        """The literals of `static let MEMBER: Set<String> = [...]` declared in `type_name` (or
+        an extension of it) in the app sources; None when no such declaration is found."""
+        declaration = re.compile(r"\bstatic\s+(?:let|var)\s+" + re.escape(member) + r"\s*(?::\s*Set<String>\s*)?=\s*(?:Set\(\s*)?\[")
+        for path in self.repo.files((f"{APP}/*.swift",)):
+            text = self.repo.text(path)
+            if member not in text or type_name not in text:
+                continue
+            blanked = self.repo.blanked(path)
+            for found in declaration.finditer(blanked):
+                owner, _ = swift_enclosing(text.split("\n"), line_of(blanked, found.start()) - 1)
+                if owner.split(".")[-1] != type_name:
+                    continue
+                close = match_brace(blanked, found.end() - 1)
+                return set(re.findall(r'"((?:[^"\\\n]|\\.)*)"', text[found.end():close]))
+        return None
+
     def q12(self) -> Result:
+        """Schema events the app's DaemonEvent decoder has no case for. A case can delegate to a
+        name set (`case _ where CloudConversationsEvent.eventNames.contains(name):`); that set's
+        literals count as decoded. A delegate the census cannot read is a site of its own."""
+        text = self.repo.text(EVENT_DECODER)
+        blanked = self.repo.blanked(EVENT_DECODER)
         decoded: set[str] = set()
-        for found in re.finditer(r'\bcase\s+("[^"\n]+"(?:\s*,\s*"[^"\n]+")*)\s*:', self.repo.text(EVENT_DECODER)):
-            decoded.update(re.findall(r'"([^"]+)"', found.group(1)))
-        hits = [
+        for found in re.finditer(r'\bcase\s+("[^"\n]+"(?:\s*,\s*"[^"\n]+")*)\s*:', text):
+            if blanked[found.start()] == text[found.start()]:
+                decoded.update(re.findall(r'"([^"]+)"', found.group(1)))
+        hits = []
+        for found in self.Q12_DELEGATE.finditer(blanked):
+            names = self.swift_string_set(found.group(1), found.group(2))
+            if names is None:
+                hits.append(Hit(EVENT_DECODER, line_of(blanked, found.start()), f"<unread delegate {found.group(1)}.{found.group(2)}>"))
+            else:
+                decoded |= names
+        hits += [
             Hit(SCHEMA, self.schema_line("events", name), name)
             for name in self.schema().get("events", {})
             if name not in decoded
@@ -862,55 +1281,87 @@ class Census:
         seen: set[str] = set()
         hits = []
         for path in self.repo.files((CORE,)):
-            if not path.endswith(".rs") or path.endswith("/lock_rank.rs"):
-                continue  # lock_rank.rs defines the ranks, not locks
+            if not path.endswith(".rs"):
+                continue
             text = self.repo.text(path)
             if "LockRank::" not in text:
                 continue
             blanked = self.repo.blanked(path)
             for found in rank.finditer(blanked):
-                if re.search(r"HeldRank::check\(\s*(?:crate::lock_rank::)?$", blanked[max(0, found.start() - 60):found.start()]):
-                    continue  # a check of a held rank, not a definition
                 number = line_of(blanked, found.start())
+                if path.endswith("/lock_rank.rs"):
+                    self.drop("Q17", path, number, "lock_rank.rs defines the ranks, not locks")
+                    continue
+                if re.search(r"HeldRank::check\(\s*(?:crate::lock_rank::)?$", blanked[max(0, found.start() - 60):found.start()]):
+                    self.drop("Q17", path, number, "a check of a held rank, not a definition")
+                    continue
                 if self.repo.in_rust_test(path, number):
+                    self.drop("Q17", path, number, "test")
                     continue
                 label = name.match(text, found.end())
                 lock = (label.group(2) if label.group(2) is not None else label.group(3)) if label else "?"
                 key = f"{found.group(1)} {lock}"
                 if key in seen:
+                    self.drop("Q17", path, number, "a lock counted at an earlier line")
                     continue
                 seen.add(key)
                 hits.append(Hit(path, number, key))
-        raw = raw_scan(self.repo, pattern, (CORE,))
-        return Result("Q17", "ranked lock definitions", hits, raw_command(pattern, (CORE,)), len(raw))
+        return self.refined("Q17", "ranked lock definitions", hits, pattern, (CORE,))
 
     # --callers ------------------------------------------------------------------------------
-    def callers(self, directory: str) -> list[Hit]:
+    def request_types(self, directory: str) -> list[SwiftType]:
+        """The types that declare the Q1 commands of `directory`, with their enclosing types."""
         directory = directory.rstrip("/")
         if not directory.startswith(APP):
             directory = f"{APP}/{directory}"
-        types: set[str] = set()
+        types: dict[tuple[str, str | None], SwiftType] = {}
         for hit in self.unfiltered("Q1"):
-            if hit.file.startswith(directory + "/"):
-                type_name, _ = swift_enclosing(self.repo.lines(hit.file), hit.line - 1)
-                if type_name:
-                    types.add(type_name.split(".")[-1])
-        if not types:
-            return []
-        reference = re.compile(r"(?<![\w.])(" + "|".join(sorted(map(re.escape, types))) + r")\b")
-        declaration = re.compile(r"\b(?:struct|enum|class|actor|extension|typealias)\s+$")
-        hits = []
-        for path in self.repo.files((f"{APP}/*.swift", ":!*.generated.swift")):
-            if not any(name in self.repo.text(path) for name in types):
+            if not hit.file.startswith(directory + "/"):
                 continue
-            blanked = self.repo.blanked(path)
-            first: dict[str, int] = {}
-            for found in reference.finditer(blanked):
-                line_start = blanked.rfind("\n", 0, found.start()) + 1
-                if declaration.search(blanked[line_start:found.start()]):
+            chain = swift_type_chain(self.repo.lines(hit.file), hit.line - 1)
+            if not chain:
+                continue
+            path = [part for name, _ in chain for part in name.split(".")]
+            private = any(hidden for _, hidden in chain)
+            found = SwiftType(".".join(path), path[-1], path[-2] if len(path) > 1 else None, hit.file if private else None)
+            types[(found.qualified, found.file)] = found
+        return sorted(types.values())
+
+    def callers(self, directory: str) -> list[Hit]:
+        """The first reference in each app file to each request type of `directory`. A top-level
+        type matches by its name; a nested type matches as `Outer.Inner`, or by its own name only
+        inside `Outer` or its extensions; a private or fileprivate type only in its own file."""
+        types = self.request_types(directory)
+        sources = self.repo.files((f"{APP}/*.swift", ":!*.generated.swift"))
+        modules = {PurePosixPath(path).relative_to(APP).parts[0] for path in sources}  # `CmuxNextDaemon.Name`
+        declaration = re.compile(r"\b(?:struct|enum|class|actor|extension|typealias|protocol)\s+$")
+        hits = []
+        for path in sources:
+            text = self.repo.text(path)
+            for swift_type in types:
+                if (swift_type.file and swift_type.file != path) or swift_type.name not in text:
                     continue
-                first.setdefault(found.group(1), line_of(blanked, found.start()))
-            hits.extend(Hit(path, number, type_name) for type_name, number in first.items())
+                blanked, lines = self.repo.blanked(path), self.repo.lines(path)
+                first = None
+                for found in re.finditer(r"(?<![\w])(?:(\w+)\s*\.\s*)?" + re.escape(swift_type.name) + r"\b", blanked):
+                    qualifier = found.group(1)
+                    line_start = blanked.rfind("\n", 0, found.start()) + 1
+                    if declaration.search(blanked[line_start:found.start()]):
+                        continue
+                    prefix = re.search(r"(\w+)\s*\.\s*$", blanked[line_start:found.start()])
+                    if prefix and prefix.group(1) not in modules:
+                        continue  # a member of a value: `a.b.Name`
+                    number = line_of(blanked, found.start())
+                    if qualifier is not None and qualifier not in modules and qualifier != swift_type.outer:
+                        continue  # `value.Name` is a member, `Other.Name` another type's nested type
+                    if swift_type.outer is not None and qualifier != swift_type.outer:
+                        around = [part for name, _ in swift_type_chain(lines, number - 1) for part in name.split(".")]
+                        if swift_type.outer not in around:
+                            continue  # the bare name means another type here
+                    first = number
+                    break
+                if first is not None:
+                    hits.append(Hit(path, first, swift_type.qualified))
         return sorted(hits)
 
 
@@ -955,6 +1406,9 @@ def record(census: Census, path: Path) -> dict:
             entry["raw_count"] = result.raw_count
         if result.source != "tree":
             entry["source"] = result.source
+        explained = census.breakdown(queue)
+        if explained and (explained["dropped"] or explained["added"] or explained["same_line"]):
+            entry["breakdown"] = {key: explained[key] for key in ("dropped", "added", "same_line")}
         groups = result.groups()
         if groups:
             entry["groups"] = groups
@@ -964,6 +1418,16 @@ def record(census: Census, path: Path) -> dict:
         targets.setdefault("runtime", {})["Q9"] = [hit.as_json() for hit in census.result("Q9").hits]
     path.write_text(json.dumps(targets, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return targets
+
+
+def breakdown_line(explained: dict) -> str:
+    """`raw 38 - test 9 + wrapper caller 4 = found 33`, from `Census.breakdown`."""
+    parts = [f"raw {explained['raw_count']}"]
+    parts += [f"- {reason} {count}" for reason, count in explained["dropped"].items()]
+    parts += [f"+ {reason} {count}" for reason, count in explained["added"].items()]
+    if explained["same_line"]:
+        parts.append(f"+ more sites on one raw line {explained['same_line']}")
+    return " ".join(parts) + f" = found {explained['found']}"
 
 
 def check(census: Census) -> list[str]:
@@ -981,6 +1445,7 @@ def check(census: Census) -> list[str]:
         ]
         if not matches:
             problems.append(f"{label}: matches no site (stale; remove it)")
+    problems += census.ipc5_op_problems()
     recorded = census.targets.get("base", {}).get("queues", {})
     for queue in QUEUE_IDS:
         if queue not in recorded:
@@ -1003,6 +1468,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--targets", type=Path, help=f"targets file (default: REPO/{TARGETS})")
     parser.add_argument("--queue", action="append", choices=QUEUE_IDS, help="print a queue's sites as JSON")
     parser.add_argument("--callers", metavar="DIR", help="call-site files of the Swift request types in DIR (under the app Sources)")
+    parser.add_argument("--explain", metavar="QN", choices=QUEUE_IDS,
+                        help="how a queue's found count follows from its raw query: each dropped raw line and each added site, with a reason")
     parser.add_argument("--io-record", type=Path, metavar="FILE", help="output of a CMUX_TUI_REQUEST_PATH_IO=record run (Q9, Q18)")
     parser.add_argument("--record", action="store_true", help=f"write the counts to {TARGETS}")
     parser.add_argument("--check", action="store_true", help="fail on a queue above its recorded count or a bad allowlist entry")
@@ -1016,12 +1483,23 @@ def main(argv: list[str] | None = None) -> int:
         if args.callers:
             print(json.dumps([hit.as_json() for hit in census.callers(args.callers)], indent=1))
             return 0
+        if args.explain:
+            explained = census.breakdown(args.explain)
+            if explained is None:
+                print(f"ipc-census: {args.explain} has no raw query to explain", file=sys.stderr)
+                return 2
+            print(breakdown_line(explained), file=sys.stderr)
+            print(json.dumps(explained, indent=1))
+            return 0
         if args.queue:
             shown = {queue: [hit.as_json() for hit in census.result(queue).hits] for queue in args.queue}
             for queue in args.queue:
                 result = census.result(queue)
                 raw = f"; raw {result.raw_count}: {result.raw}" if result.raw is not None else ""
                 print(f"{queue} {result.title}: {result.count} ({result.found} before the allowlist){raw}", file=sys.stderr)
+                explained = census.breakdown(queue)
+                if explained and explained["raw_count"] != explained["found"]:
+                    print(f"  {breakdown_line(explained)}; each line: --explain {queue}", file=sys.stderr)
             print(json.dumps(shown[args.queue[0]] if len(args.queue) == 1 else shown, indent=1))
             return 0
         if args.record:

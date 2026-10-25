@@ -51,11 +51,44 @@
       "queue": "Q4",
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift",
       "reason": "Not a cmux-tui daemon socket: the Tasks owner (cmux task serve)."
+    },
+    {
+      "queue": "Q8",
+      "file": "cmux-tui/crates/cmux-tui/src/machine_agent/runtime.rs",
+      "key": "<unresolved>",
+      "reason": "Not a Q8 thread: spawn_cloud_reader_with passes the closure the name machine-agent-cloud-reader-{generation}."
     }
   ],
-  "ipc5_ops": [],
+  "ipc5_ops": [
+    "ping",
+    "identify",
+    "list-workspaces",
+    "send",
+    "new-tab",
+    "create-terminal",
+    "split",
+    "close-surface",
+    "close-tabs",
+    "rename-workspace",
+    "select-tab",
+    "select-workspace",
+    "move-tab",
+    "new-frontend-browser-tab",
+    "create-tab-group",
+    "update-tab-group",
+    "add-tabs-to-tab-group",
+    "remove-tabs-from-tab-group",
+    "move-tab-group",
+    "ungroup-tab-group",
+    "close-tab-group",
+    "workspace.create",
+    "tab.create_terminal",
+    "pane.split",
+    "pane.create",
+    "workspace.ensure_home"
+  ],
   "base": {
-    "sha": "a7373a1d0e5df065b63c199249443a9a24059cb3",
+    "sha": "c69e443c3dceed29a1d3d63336e3751de6976d69",
     "queues": {
       "Q1": {
         "title": "hand-written Swift commands",
@@ -101,10 +134,21 @@
       },
       "Q3": {
         "title": "F10 receipt waits",
-        "count": 29,
-        "found": 29,
+        "count": 34,
+        "found": 34,
         "raw": "git grep -n -E '\\.commit_terminal\\(|commit_workspace_registry\\(|commit_effect_intent\\(|\\.send_durable(_until)?\\(|\\.send_producer\\(|commit_registry_intent(_with)?\\(|flush_terminal_journal\\(' -- 'cmux-tui/crates/cmux-tui-core/src' ':!*tests*' ':!*_tests.rs' | wc -l",
-        "raw_count": 38
+        "raw_count": 38,
+        "breakdown": {
+          "dropped": {
+            "definition": 5,
+            "inside a primitive's own definition": 2,
+            "test": 10
+          },
+          "added": {
+            "a caller of a wrapper": 13
+          },
+          "same_line": 0
+        }
       },
       "Q4": {
         "title": "side connections",
@@ -172,10 +216,20 @@
       },
       "Q8": {
         "title": "threads without QoS",
-        "count": 78,
-        "found": 78,
+        "count": 81,
+        "found": 82,
         "raw": "git grep -n -E '\\.name\\((format!\\()?\"(mux-|surface-|terminal-host-(client|client-input|parser)\"|cmux-link-(in|out)\")|spawn_journal_writer\\(\"' -- 'cmux-tui/crates/*.rs' ':!*tests*' ':!*_tests.rs' | wc -l",
-        "raw_count": 80
+        "raw_count": 80,
+        "breakdown": {
+          "dropped": {
+            "test": 2
+          },
+          "added": {
+            "a name the census cannot follow": 1,
+            "a name through a variable": 3
+          },
+          "same_line": 0
+        }
       },
       "Q9": {
         "title": "request-path I/O",
@@ -245,8 +299,8 @@
       },
       "Q12": {
         "title": "events not decoded natively",
-        "count": 39,
-        "found": 39
+        "count": 29,
+        "found": 29
       },
       "Q13": {
         "title": "request-side SQLite transactions",
@@ -456,7 +510,17 @@
         "count": 15,
         "found": 15,
         "raw": "git grep -n -E 'LockRank::[A-Z]' -- 'cmux-tui/crates/cmux-tui-core/src' | wc -l",
-        "raw_count": 50
+        "raw_count": 50,
+        "breakdown": {
+          "dropped": {
+            "a check of a held rank, not a definition": 4,
+            "a lock counted at an earlier line": 20,
+            "lock_rank.rs defines the ranks, not locks": 1,
+            "test": 10
+          },
+          "added": {},
+          "same_line": 0
+        }
       },
       "Q18": {
         "title": "request-path SQLite reads",
