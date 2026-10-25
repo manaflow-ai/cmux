@@ -36,6 +36,7 @@ mod idle;
 mod launch_roots;
 mod launchers;
 mod live_models;
+mod locate;
 pub mod media_handles;
 pub mod media_read;
 pub(crate) mod subagent_transcript;
@@ -79,6 +80,7 @@ mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
+mod stalled_turn;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -471,6 +473,7 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
@@ -537,7 +540,7 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
-            briefs: dispatch::Briefs::open(),
+            briefs,
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -551,6 +554,7 @@ impl Hub {
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
             hub.watch_titles();
+            hub.watch_orphans();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -788,6 +792,11 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            heard_at: std::sync::atomic::AtomicI64::new(0),
+            stalled_recheck: AtomicU64::new(0),
+            open_tools: StdMutex::new(Default::default()),
+            stalled_counted: StdMutex::new(None),
+            stalled_gen: AtomicU64::new(0),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),

@@ -13,25 +13,25 @@ struct AgentPeerSessionTests {
 
     @Test func anIdQualifiedIdOrNameNamesThePeersMirroredSession() {
         for name in ["01a16a4d", "cmux16/01a16a4d", "cmux16/cx3-s10-dots", "cx3-s10-dots"] {
-            #expect(AgentPeerSession.resolve(name, peer: "cmux16", lanes: Self.lanes) == .session("01a16a4d"))
+            #expect(Self.lanes.peerSession(name, on: "cmux16") == .session("01a16a4d"))
         }
     }
 
     @Test func aNameOnlyMatchesOnItsOwnPeerNeverThisMacsOrAnothers() {
-        #expect(AgentPeerSession.resolve("nx-sidebar", peer: "huge-blue", lanes: Self.lanes) == .session("01a16b00"))
-        #expect(AgentPeerSession.resolve("nx-sidebar", peer: "cmux16", lanes: Self.lanes) == .unknownSession)
+        #expect(Self.lanes.peerSession("nx-sidebar", on: "huge-blue") == .session("01a16b00"))
+        #expect(Self.lanes.peerSession("nx-sidebar", on: "cmux16") == .unknownSession)
     }
 
     /// acpmux names can repeat: a repeated name is refused, never an arbitrary pick; its id still opens it.
     @Test func aRepeatedNameIsAmbiguousButItsIdStillOpens() {
         let twice = Self.lanes + [AgentActivityLane(id: "01a16a4e", name: "cmux16/cx3-s10-dots", title: "Dots 2", peer: "cmux16", parent: nil,
                                                     state: .working, since: nil, error: nil)]
-        #expect(AgentPeerSession.resolve("cx3-s10-dots", peer: "cmux16", lanes: twice) == .ambiguous)
-        #expect(AgentPeerSession.resolve("cmux16/01a16a4e", peer: "cmux16", lanes: twice) == .session("01a16a4e"))
+        #expect(twice.peerSession("cx3-s10-dots", on: "cmux16") == .ambiguous)
+        #expect(twice.peerSession("cmux16/01a16a4e", on: "cmux16") == .session("01a16a4e"))
     }
 
     @Test func aHostWithNoMirroredChatsIsNotAPeer() {
-        #expect(AgentPeerSession.resolve("anything", peer: "big-red", lanes: Self.lanes) == .notAPeer)
-        #expect(AgentPeerSession.resolve("anything", peer: "chief:home", lanes: Self.lanes) == .notAPeer)
+        #expect(Self.lanes.peerSession("anything", on: "big-red") == .notAPeer)
+        #expect(Self.lanes.peerSession("anything", on: "chief:home") == .notAPeer)
     }
 }

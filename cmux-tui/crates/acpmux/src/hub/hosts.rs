@@ -21,6 +21,13 @@ pub(super) struct OpenWork {
     /// `turn_started` without `turn_result`: (seq, turnId, promptId, prompt,
     /// client, control; a Web steer's `turn_control` raises it).
     turn: Option<(u64, String, String, String, String, Control)>,
+    /// When that turn started and when its model last showed a sign of work
+    /// (`tap.rs` `logged_from_the_model`; 0 for none), Unix ms: the
+    /// recovered turn keeps its age and its stalled count (`stalled_turn.rs`).
+    turn_at: u64,
+    heard_at: u64,
+    /// That turn's tool calls with no end logged (`stalled_turn.rs`).
+    open_tools: std::collections::HashSet<String>,
     /// The `session/prompt` request id written to this host for that turn,
     /// and its answer when it is already logged.
     prompt_request: Option<Value>,
@@ -491,6 +498,9 @@ impl Hub {
                         field("client"),
                         Control::from_recorded(e.msg.get("control").and_then(Value::as_str)),
                     ));
+                    work.turn_at = e.at;
+                    work.heard_at = 0;
+                    work.open_tools.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
@@ -577,6 +587,12 @@ impl Hub {
             if current && let Some(h) = e.host_seq {
                 work.last_host_seq = work.last_host_seq.max(h);
             }
+            if work.turn.is_some() && super::tap::logged_from_the_model(&e) {
+                work.heard_at = e.at;
+                if let Some(update) = e.msg.pointer("/params/update") {
+                    super::stalled_turn::track_tool(&mut work.open_tools, update);
+                }
+            }
             true
         });
         work.requests = requests
@@ -626,8 +642,12 @@ impl Hub {
                     self.save_meta(session);
                 }
                 (Some(request_id), answer) => {
+                    // Before anything can force its end (`turn_answer`).
+                    let ended = session.steer_end.subscribe();
+                    // Its start as logged: a restart does not make it new.
+                    let started_at = if work.turn_at > 0 { work.turn_at } else { now_ms() };
                     *session.turn.lock().unwrap() = Some(TurnInfo {
-                        started_at: now_ms(),
+                        started_at,
                         client,
                         masked_preview: crate::secret_scan::mask(&prompt),
                         prompt_preview: prompt,
@@ -649,6 +669,9 @@ impl Hub {
                     if self.full_access_hold(&session.meta(), control, None).is_err() {
                         self.remote_floor_cancel(session, "remote.full_access_ended");
                     }
+                    *session.open_tools.lock().unwrap_or_else(|e| e.into_inner()) =
+                        work.open_tools.clone();
+                    self.watch_stalled_turn(session, Some(work.heard_at.max(started_at)));
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).
@@ -673,7 +696,9 @@ impl Hub {
                         let guard = s.turn_lock.lock().await;
                         let result = match (answer, rx) {
                             (Some(msg), _) => response_result(&msg),
-                            (None, Some(rx)) => turn_answer(rx, steer_answers).await,
+                            (None, Some(rx)) => {
+                                turn_answer(rx, steer_answers, ended, &turn_id).await
+                            }
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
                         let _ = hub
@@ -817,11 +842,16 @@ fn steer_answer_ends_turn(msg: &Value) -> bool {
     msg.pointer("/result/stopReason").and_then(Value::as_str).is_some_and(|r| r != "steered")
 }
 
-/// The answer that settles a recovered turn: its own prompt's, or the first
-/// steer answer that ends the turn (`steered` answers do not).
+/// The answer that settles a recovered turn: its own prompt's, the first
+/// steer answer that ends the turn (`steered` answers do not), or the end
+/// acpmux forces on turn `turn_id` (`ended`: Stop past its grace, `cancel.rs`;
+/// a stalled turn, `stalled_turn.rs`). Without that last one Stop never ended
+/// a turn an adopted host ran whose agent did not answer the cancel.
 async fn turn_answer(
     own: tokio::sync::oneshot::Receiver<Result<Value, RpcError>>,
     steers: Vec<tokio::sync::oneshot::Receiver<Result<Value, RpcError>>>,
+    mut ended: tokio::sync::watch::Receiver<Option<(String, Value)>>,
+    turn_id: &str,
 ) -> Result<Value, RpcError> {
     use futures::StreamExt;
     let mut ending = steers
@@ -836,9 +866,24 @@ async fn turn_answer(
         })
         .collect::<futures::stream::FuturesUnordered<_>>()
         .filter_map(std::future::ready);
+    // acpmux ended this turn itself: Stop past its grace, or a stalled turn.
+    // The end may have come already, before this task ran.
+    let forced = async {
+        loop {
+            if let Some((turn, answer)) = ended.borrow_and_update().clone()
+                && turn == turn_id
+            {
+                return answer;
+            }
+            if ended.changed().await.is_err() {
+                return std::future::pending().await;
+            }
+        }
+    };
     tokio::select! {
         r = own => r.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped"))),
         Some(r) = ending.next() => r,
+        answer = forced => Ok(answer),
     }
 }
 

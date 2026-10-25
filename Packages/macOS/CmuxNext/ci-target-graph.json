@@ -685,7 +685,9 @@
         "CmuxNextChromiumRuntime"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "scripts/cmux-next/malloc-zone-race/run.sh"
+      ]
     },
     "CmuxNextChromiumWarmup": {
       "kind": "regular",
