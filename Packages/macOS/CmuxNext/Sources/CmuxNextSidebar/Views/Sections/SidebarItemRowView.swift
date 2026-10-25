@@ -58,9 +58,16 @@ class SidebarItemRowView: NSView {
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
     let title = ChromeLabel(labelWithString: "")
     let badge = UnreadBadgeView()
+    /// The blue unread dot of a workspace row (`info.unreadDot`, Home's unread): a row draws it on
+    /// the trailing column, as a workspace row does; an icon look dots its glyph with `badge`.
+    let rowBadge = RowBadgeView()
     let avatarView = SidebarAvatarView()
     /// The workspace item's status: the shared indicator (`info.activity`).
-    let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    let activity: StatusIndicatorView = {
+        let view = StatusIndicatorView()
+        (view.tracksWindowOcclusion, view.usesStatusColors) = (true, true) // the sidebar's status colors (Lawrence msg 11983)
+        return view
+    }()
     /// Set only by the hover owner (`PointerHover`, cx-3wu5): the pointer
     /// now over the row's frame now. Leaving also ends a press.
     private(set) var isHovered = false {
@@ -97,7 +104,7 @@ class SidebarItemRowView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
-        [pin, icon, title, badge, avatarView, activity].forEach(addSubview)
+        [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
@@ -134,7 +141,10 @@ class SidebarItemRowView: NSView {
         title.isHidden = style.isIconOnly
         pin.image = info.leadingPin ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
         title.alignment = style == .favorite ? .center : .natural
-        badge.configure(unreadState)
+        let trailingDot = info.unreadDot && !style.isIconOnly && style != .favorite
+        rowBadge.configure(trailingDot ? [.success] : [], look: .plain)
+        badge.notificationDot = info.unreadDot
+        badge.configure(trailingDot ? .none : unreadState)
         activity.configure(info.activity, style: info.activityStyle)
         // VoiceOver hears the count even where no badge draws (icons).
         setAccessibilityValue(info.unreadDot ? Strings.unreadDot : info.badge.map { String($0) })
@@ -142,7 +152,7 @@ class SidebarItemRowView: NSView {
         // caption can truncate, so it keeps the full title.
         // The profile control draws no name, so its tooltip says who it is: the email.
         themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
-        setAccessibilityLabel(info.title)
+        setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1
@@ -256,15 +266,43 @@ class SidebarItemRowView: NSView {
         let trailing = b.width
         let bh = SidebarStyle.badgeHeight
         let badgeWidth = badge.isHidden ? 0 : badge.preferredWidth
-        let badgeX = style == .chip
+        var badgeX = style == .chip
             ? (badge.isHidden ? trailing : trailing - Metrics.space2 - badgeWidth)
             : b.width - inset * 2 - badgeWidth
+        if let columnStart = layoutColumnMark(in: b) {
+            // A count beside the column's mark (a Chief's) sits left of the column.
+            badgeX = badge.isHidden || style == .chip ? columnStart : columnStart - Metrics.space2 - badgeWidth
+        }
         // A dot is round: as tall as it is wide, centered on the row.
         let badgeHeight = badge.state == .dot ? badgeWidth : bh
         badge.frame = NSRect(x: badgeX, y: (b.height - badgeHeight) / 2, width: badgeWidth, height: badgeHeight)
         let th = ceil(title.intrinsicContentSize.height)
         let textX = bare ? iconFrame.minX : iconFrame.maxX + (style == .chip ? Metrics.space2 : Metrics.space3)
         title.frame = NSRect(x: textX, y: (b.height - th) / 2, width: max(0, activityLeading(before: badgeX) - Metrics.space2 - textX), height: th)
+    }
+
+    /// Places the row's trailing mark as a workspace row places its own: the blue unread dot, else
+    /// the status (a band workspace that needs you or works, `info.activity`), centered on the
+    /// trailing column (the group header chevron's x, `SidebarStyle+TrailingColumn`); a chip puts
+    /// the dot after its label. Returns where the room left of the mark starts, nil with no mark.
+    /// A workspace row's bounds are its fill; this row's fill is inset by `horizontalInset`, so the
+    /// column is measured from the fill's end. Lawrence msg 11914: the status drew after the title,
+    /// 3.5 pt right of the column every other dot and spinner shares.
+    private func layoutColumnMark(in b: NSRect) -> CGFloat? {
+        let rowWidth = b.width - SidebarStyle.horizontalInset
+        let column = SidebarStyle.trailingColumnCenterX(rowWidth: rowWidth)
+        if !rowBadge.isHidden {
+            let side = rowBadge.cellSide, width = rowBadge.preferredWidth
+            let x = style == .chip ? b.width - Metrics.space2 - width : column - width + side / 2
+            rowBadge.frame = NSRect(x: x.rounded(.down), y: ((b.height - side) / 2).rounded(), width: width, height: side)
+            guard style != .chip else { return rowBadge.frame.minX }
+            return min(rowBadge.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
+        }
+        guard activityOnColumn else { return nil }
+        let side = SidebarStyle.indicatorSize, scale = window?.backingScaleFactor ?? 2
+        func snapped(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        activity.frame = NSRect(x: snapped(column - side / 2), y: snapped((b.height - side) / 2), width: side, height: side)
+        return min(activity.frame.minX, SidebarStyle.trailingColumnStart(rowWidth: rowWidth))
     }
 
     /// A large tile: the glyph well centered over a one-line caption, the

@@ -45,6 +45,7 @@ os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from bench_idle import usage  # noqa: E402
+from bench_launch import launch_app  # noqa: E402
 
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbstress-{opts.tag}-")
@@ -658,6 +659,7 @@ def scenario_hitches(pid, size):
 
 
 def main():
+    global SOCKET
     sizes = [int(s) for s in opts.sizes.split(",")]
     with open(CONFIG, "w") as f:
         json.dump({"appearance": {"theme": "Catppuccin Mocha"}}, f)
@@ -668,17 +670,11 @@ def main():
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
            "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": ",".join(map(str, WINDOW))}
-    log = open(os.path.join(OUT, "app.log"), "a")
-    # The app's executable (a tagged build names it after its tag), as the other benches find it.
-    binary = next((p for p in sorted(glob.glob(os.path.join(opts.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-    app = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    note(f"launched pid {app.pid} ({os.path.basename(binary or '-')})")
     results["load_at_start"] = os.getloadavg()
+    # One launch path (bench_launch.py): socket in the state folder, bench env, the reason when it does not come up.
+    app, SOCKET = launch_app(opts.app, env, os.path.join(OUT, "app.log"), timeout=180)
+    note(f"launched pid {app.pid}")
     try:
-        if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 180):
-            log.flush()
-            tail = open(os.path.join(OUT, "app.log"), errors="replace").read()[-1500:]
-            sys.exit(f"the tagged app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)} exit={app.poll()}\n{tail}")
         # A fresh profile may open on Home with no workspace yet: make one, so the list has a row to measure.
         if not wait(workspace_rows, 15):
             cli("workspace", "create", "--name", "bench start")
