@@ -187,12 +187,18 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll");
       return node !== null && node.scrollHeight >= height + 20;
     }, beforeHeight);
-    expect(
-      await page.evaluate(() => {
-        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        return node.scrollHeight - node.clientHeight - node.scrollTop;
-      }),
-    ).toBeGreaterThan(20);
+    const metrics = await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      return {
+        currentHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+        scrollTop: node.scrollTop,
+        fromEnd: node.scrollHeight - node.clientHeight - node.scrollTop,
+        follow: (window as unknown as { __followSnapshot(): { following: boolean } }).__followSnapshot().following,
+      };
+    });
+    console.log(`stream follow metrics: ${JSON.stringify({ beforeHeight, ...metrics })}`);
+    expect(metrics.fromEnd).toBeGreaterThan(20);
     await page.close();
   });
 });
