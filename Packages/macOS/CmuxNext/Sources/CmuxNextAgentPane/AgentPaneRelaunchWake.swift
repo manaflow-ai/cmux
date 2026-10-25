@@ -69,8 +69,9 @@ public final class AgentPaneRelaunchWake {
     public func begin(on work: BackgroundWork) {
         guard let file, launch == nil else { return }
         let (folder, budget, reader) = (attachmentsDirectory, maximumAttachmentBytes, reader)
-        // Quit waits for it (``collect(held:pages:live:limit:)``), so it always runs, even past a quit.
-        launch = LaunchRead(on: work, shutdown: .blockShutdown) {
+        // Quit never waits for it (``collect(held:pages:live:limit:)`` reads only an ended result), so a quit
+        // before it started drops it.
+        launch = LaunchRead(on: work) {
             Self.readAndRemove(file, attachments: folder, budget: budget, reader: reader)
         }
     }
@@ -133,14 +134,16 @@ public final class AgentPaneRelaunchWake {
         }
     }
 
-    /// What every chat holds for the next launch, by tab: the last quit's states no page took (after
-    /// the launch read), `held` (released pages' states, by tab) over them, then each page in `pages`. A page that has not taken its state yet (no `ready`, only a
+    /// What every chat holds for the next launch, by tab: the last quit's states no page took (only when the
+    /// launch read already ended: the quit never waits for it), `held` (released pages' states, by tab) over them, then each page in `pages`. A page that has not taken its state yet (no `ready`, only a
     /// reconnect) keeps it unasked; every other page is asked at once, each within `limit`, and
     /// one that does not answer keeps the tab's held state or the one its `ready` took. Tabs
     /// `live` refuses (gone from every tree) keep nothing.
     public func collect(held: [String: AgentPaneWakeState], pages: [(key: String, view: AgentPaneView)],
                         live: (String) -> Bool, limit: Duration = .seconds(1)) async -> [String: AgentPaneWakeState] {
-        let unclaimed = (await launch?.finished() ?? [:]).filter { !claimed.contains($0.key) }
+        // The quit never waits for the launch read (lead, 2026-10-25: a quit-time file wait): a read still running
+        // is dropped, and the last quit's states no page took are kept only when that read already ended.
+        let unclaimed = (launch?.value ?? [:]).filter { !claimed.contains($0.key) }
         var states = unclaimed.merging(held) { _, held in held }
         let read = read
         // task-owner: every ask is awaited below, before the quit goes on.

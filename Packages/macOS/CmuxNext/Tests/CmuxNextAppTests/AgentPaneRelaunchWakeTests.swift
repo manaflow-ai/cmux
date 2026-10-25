@@ -265,6 +265,26 @@ struct AgentPaneRelaunchWakeTests {
         #expect(!tabs.relaunchWake.mayHold("tab_chat"), "the state stayed in the store, so a later page could bring it back")
     }
 
+    /// The quit never waits for the launch read (lead, 2026-10-25): with the read held open, `collect` (the
+    /// quit's save step) still returns, without the last quit's untaken states.
+    @Test func theQuitDoesNotWaitForTheLaunchRead() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        await AgentPaneRelaunchWake(file: file).save(["tab_old": AgentPaneWakeState(shell: true, shellText: "make test")])
+
+        let probe = LaunchReadProbe(held: true)
+        let wake = AgentPaneRelaunchWake(file: file, reader: probe.reader)
+        wake.begin(on: Self.work)
+        let started = await probe.waitForStart()
+        #expect(started, "the read never started")
+        // The read is held: a quit that awaited it would never return here.
+        let states = await wake.collect(held: [:], pages: [], live: { _ in true })
+        #expect(states.isEmpty, "the quit took states from a read that had not ended")
+        probe.release()
+    }
+
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.
     @Test func anEmptyComposerLeavesNoFile() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
