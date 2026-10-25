@@ -451,6 +451,11 @@ def main():
     feed_url = f"http://127.0.0.1:{a.port}/appcast.xml"
     sock = f"/tmp/cmux-debug-{a.tag}.sock"
     server = app = None
+    owned_apps = {}
+    def remember_app(pid):
+        row = TagTeardown._table().get(pid)
+        if row and any(TagTeardown(copy).in_bundle(row[2]) for copy in (v1, v2)):
+            owned_apps[pid] = row[1:]  # start time and command; the Sparkle parent may exit
     result = {"tag": a.tag, "app": name}
     slug = "-".join(filter(None, "".join(c if c.isalnum() else " " for c in a.tag.lower()).split()))
     acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
@@ -568,6 +573,7 @@ def main():
         app = subprocess.Popen([binary, *arguments], env=env, cwd=os.path.join(work, "cwd"), stdin=subprocess.DEVNULL,
                                stdout=open(os.path.join(out, "v1.log"), "w"), stderr=subprocess.STDOUT, start_new_session=True)
         v1_pid = app.pid
+        remember_app(v1_pid)
         result["v1_pid"] = v1_pid
         log("v1 pid", v1_pid, "build", i1["CFBundleVersion"])
         if not marks.wait(lambda rows: first(rows, "launch.first_window_frame_committed", pid=v1_pid), 120):
@@ -720,6 +726,7 @@ def main():
         marks.wait(lambda rows: all(first(rows, m, not_pid=v1_pid) for m in RESTORED_MARKS), 20)
         rows = marks.read()
         v2_pid = next(r["pid"] for r in rows if r["pid"] != v1_pid)
+        remember_app(v2_pid)
         result["v2_pid"] = v2_pid
         with open(os.path.join(v1, "Contents/Info.plist"), "rb") as f:
             result["installed_build"] = plistlib.load(f)["CFBundleVersion"]
@@ -730,6 +737,7 @@ def main():
         if terminals:
             relaunched = first(rows, "launch.first_window_frame_committed", not_pid=v1_pid)["unix_ms"] / 1000
             # Capture the relaunched app while every agent is still blocked on its FIFO.
+            wait_socket(sock, 30)
             result["busy_relaunched_snapshot"] = rpc(sock, "debug.window_snapshot",
                 {"path": os.path.join(out, "busy-after-relaunch.png")})
             result["terminal_survivals"] = [terminal.check(v1, click / 1000, relaunched, handoff=a.handoff)
@@ -800,8 +808,9 @@ def main():
             os.chmod(os.path.dirname(v1), 0o755)
         with open(os.path.join(out, "timeline.json"), "w") as f:
             json.dump(result, f, indent=1)
-        for pid in [result.get("v2_pid"), result.get("v1_pid")]:
-            if pid:
+        for pid, identity in owned_apps.items():
+            current = TagTeardown._table().get(pid)
+            if current and current[1:] == identity:
                 try:
                     os.kill(pid, signal.SIGTERM)
                     wait_exit(pid, 20)
@@ -820,10 +829,6 @@ def main():
         log("LEFTOVERS", result["leftovers"])
         with open(os.path.join(out, "timeline.json"), "w") as f:
             json.dump(result, f, indent=1)
-        for agent in agents:
-            if agent.harness_pid and sessions_alive(agent.harness_pid):
-                log("stopping the test agent", agent.harness_pid)
-                os.kill(agent.harness_pid, signal.SIGTERM)
         if a.sessions:
             shutil.rmtree(acp_home, ignore_errors=True)
         if server:
