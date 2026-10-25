@@ -145,7 +145,8 @@ const inlineName = alternate(
 // Leo (2026-10-25), on an auto-resumed chat's received line: "overlapping ui on right side too
 // there's a weird pin button or something with teh commands or whatever". A long sender and a long
 // retryable error as the line, on the last ended turn (so Retry shows), at a wide and a narrow width.
-const ACTIONS_ROW = "auto-resume-actions";
+// A row id acpmux logged (`user-<seq>`), so the message can carry a Pin (promptMarks.ts markSeq).
+const ACTIONS_ROW = "user-90417";
 const retryError =
   "Your previous turn was cut off by a connection error (stream disconnected before completion: error sending request for url (https://api.anthropic.com/v1/messages)). Check what already finished, then continue.";
 const actionsChat = chat([
@@ -159,32 +160,39 @@ const actionsChat = chat([
   }),
   summary(5.5, { status: "failed", retryRowId: ACTIONS_ROW }),
 ]);
-/// The line's actions shown from the keyboard as from the pointer, each clear of the others, of the
-/// row's own controls and of the line's right edge; the preview cut before them. Throws otherwise.
+/// The line's actions shown by a hover (`pointer`) or from the keyboard, which reaches the row at its
+/// Copy (its tab stop): age, Copy, Retry with its model menu, and Pin, each clear of the others, of the
+/// row's own Copy (it takes the pointer even while hidden) and of the line's right edge; the preview cut
+/// before them. Retry and its menu are one split control (conversation.css .cv-turn-retry-menu sits
+/// 3px into Retry's empty padding, as in every turn footer), so they are measured as one. Throws otherwise.
 const actionsClear =
-  (width?: number): Play =>
+  (via: "pointer" | "keyboard", width?: number): Play =>
   async (ctx) => {
-    const row = () => ctx.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${ACTIONS_ROW}"]`);
-    await ctx.waitFor(() => row()?.querySelector(".cv-received-actions button"));
+    const selector = `.acpmux-row[data-row-id="${ACTIONS_ROW}"]`;
+    const row = () => ctx.document.querySelector<HTMLElement>(selector);
+    await ctx.waitFor(() => row()?.querySelector(".cv-received-actions .cv-message-pin"));
     if (width) Object.assign(row()!.style, { right: "auto", width: `${width}px` });
-    // The keyboard reaches the row at its Copy (its tab stop); the line's actions show for it as for a hover.
-    await ctx.focus({ selector: `.acpmux-row[data-row-id="${ACTIONS_ROW}"] .acpmux-row__copy` });
+    if (via === "pointer") await ctx.hover({ selector: `${selector} .cv-received__icon` });
+    else await ctx.focus({ selector: `${selector} .acpmux-row__copy` });
     const actions = row()!.querySelector<HTMLElement>(".cv-received-actions")!;
     await ctx.waitFor(() => getComputedStyle(actions).opacity === "1", { capMs: 1500 });
+    for (const [name, part] of [
+      ["Copy", "button[aria-label]"],
+      ["Retry", ".cv-message-retry"],
+      ["Pin", ".cv-message-pin"],
+    ] as const)
+      if (!actions.querySelector<HTMLElement>(part)?.getBoundingClientRect().width)
+        throw new Error(`the line's actions have no ${name}`);
     const line = row()!.querySelector<HTMLElement>(".cv-received__line")!.getBoundingClientRect();
-    const shown = [...row()!.querySelectorAll<HTMLElement>("button")].filter((button) => {
+    const units = new Map<Element, string>();
+    for (const button of row()!.querySelectorAll<HTMLElement>("button")) {
       const box = button.getBoundingClientRect();
-      return (
-        box.width > 0 &&
-        box.top < line.bottom &&
-        box.bottom > line.top &&
-        getComputedStyle(button).visibility !== "hidden"
-      );
-    });
-    const boxes = shown.map((button) => ({
-      label: button.getAttribute("aria-label") ?? button.className,
-      box: button.getBoundingClientRect(),
-    }));
+      if (!box.width || box.top >= line.bottom || box.bottom <= line.top) continue;
+      if (getComputedStyle(button).visibility === "hidden") continue;
+      const unit = button.closest(".cv-message-retry") ?? button;
+      if (!units.has(unit)) units.set(unit, button.getAttribute("aria-label") ?? button.className);
+    }
+    const boxes = [...units].map(([unit, label]) => ({ label, box: unit.getBoundingClientRect() }));
     for (const [index, a] of boxes.entries()) {
       if (a.box.right > line.right + 0.5) throw new Error(`${a.label} runs past the line's right edge`);
       for (const b of boxes.slice(index + 1)) {
@@ -475,16 +483,28 @@ export default agentPaneEntry({
       play: inlineName,
     },
     "auto-resume-actions": {
-      note: "Minimal Mode, a long sender and a long retryable error on the last turn, focused from the keyboard: age, Copy, Retry and Pin at the line's end, the preview cut before them, nothing over another or past the edge.",
+      note: "Minimal Mode, a long sender and a long retryable error on the last turn, under the pointer: age, Copy, Retry with its model menu and Pin at the line's end, the preview cut before them, nothing over another or past the edge.",
       display: MINIMAL,
       snapshot: actionsChat,
-      play: actionsClear(),
+      play: actionsClear("pointer"),
+    },
+    "auto-resume-actions-keyboard": {
+      note: "The same line reached from the keyboard (the row's Copy): the line's actions show as for a hover, the row's Copy clear of Pin.",
+      display: MINIMAL,
+      snapshot: actionsChat,
+      play: actionsClear("keyboard"),
     },
     "auto-resume-actions-narrow": {
-      note: "The same line in a 300px row: the preview goes first, then the sender's chip, so the actions stay whole and in the row.",
+      note: "The same line in a 300px row under the pointer: the preview goes first, then the sender's chip, so the actions stay whole and in the row.",
       display: MINIMAL,
       snapshot: actionsChat,
-      play: actionsClear(300),
+      play: actionsClear("pointer", 300),
+    },
+    "auto-resume-actions-narrow-keyboard": {
+      note: "The 300px row reached from the keyboard.",
+      display: MINIMAL,
+      snapshot: actionsChat,
+      play: actionsClear("keyboard", 300),
     },
     "minimal-off": {
       note: "The same chat with Minimal Mode off: unchanged, each message's line over its card.",
