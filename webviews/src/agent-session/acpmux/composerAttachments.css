@@ -162,7 +162,7 @@
   width: 104px;
 }
 .acpmux-attachment-file.acpmux-attachment-pending {
-  gap: var(--acpmux-attach-gap);
+  gap: 4px;
 }
 /* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
    rather than this placeholder that doesn't do anything"); its × cancels it. */
