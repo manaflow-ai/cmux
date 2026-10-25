@@ -6,6 +6,7 @@
 // child "page" window (as Chromium's page window). It times the key moving to the page window and back, and the
 // display pass after each, with the trees hidden in the window and with the same trees out of the window.
 // The numbers are the data: it exits 0 once it measured, 2 when it cannot test (no active app, no window server).
+// It runs itself again through LaunchServices so it is in the GUI login session (see relaunchInGUISession).
 // Self-contained, AppKit only.
 import AppKit
 import Foundation
@@ -73,6 +74,58 @@ func stats(_ values: [Double]) -> String {
     return String(format: "p50=%.2f max=%.2f", p50, maximum)
 }
 
+/// vm.sh runs the probe over SSH, outside the GUI login session: there the process can never become the
+/// active app, and a window of an inactive app is never key. The first run wraps its own binary in a small app
+/// bundle and starts that through LaunchServices (`open`), which runs it in the GUI session as a launched app;
+/// that copy measures and writes its output and exit status to files this run prints and returns.
+func relaunchInGUISession() -> Never {
+    let fm = FileManager.default
+    let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("key-change-cost-\(getpid())")
+    let bundle = dir.appendingPathComponent("KeyChangeCost.app")
+    let macos = bundle.appendingPathComponent("Contents/MacOS")
+    let out = dir.appendingPathComponent("out.txt"), status = dir.appendingPathComponent("status.txt")
+    do {
+        try fm.createDirectory(at: macos, withIntermediateDirectories: true)
+        let me = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        try fm.copyItem(at: me, to: macos.appendingPathComponent("KeyChangeCost"))
+        let plist: [String: Any] = ["CFBundleExecutable": "KeyChangeCost", "CFBundleIdentifier": "com.cmux.matrix.key-change-cost",
+                                    "CFBundleName": "KeyChangeCost", "CFBundlePackageType": "APPL", "NSPrincipalClass": "NSApplication"]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: bundle.appendingPathComponent("Contents/Info.plist"))
+    } catch {
+        print("key-change-cost macOS \(osName): cannot test (bundle: \(error))")
+        exit(2)
+    }
+    // The copied binary keeps its own ad hoc signature; sign the bundle as a whole so LaunchServices accepts it.
+    let sign = Process()
+    sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+    sign.arguments = ["--force", "--sign", "-", bundle.path]
+    try? sign.run()
+    sign.waitUntilExit()
+    let open = Process()
+    open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+    open.arguments = ["-W", "-n", "--env", "KEY_CHANGE_COST_OUT=\(out.path)", "--env", "KEY_CHANGE_COST_STATUS=\(status.path)", bundle.path]
+    do { try open.run() } catch {
+        print("key-change-cost macOS \(osName): cannot test (open: \(error))")
+        exit(2)
+    }
+    open.waitUntilExit()
+    print((try? String(contentsOf: out, encoding: .utf8)) ?? "key-change-cost macOS \(osName): cannot test (no output from the GUI run; open exited \(open.terminationStatus))", terminator: "")
+    let code = Int32((try? String(contentsOf: status, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") ?? 2
+    exit(code)
+}
+
+let env = ProcessInfo.processInfo.environment
+let outPath = env["KEY_CHANGE_COST_OUT"] ?? "", statusPath = env["KEY_CHANGE_COST_STATUS"] ?? ""
+if outPath.isEmpty || statusPath.isEmpty { relaunchInGUISession() }
+// The GUI copy: stdout goes to the file the SSH run prints; every exit writes its status first.
+freopen(outPath, "w", stdout)
+func finish(_ code: Int32) -> Never {
+    fflush(stdout)
+    try? "\(code)".write(toFile: statusPath, atomically: true, encoding: .utf8)
+    exit(code)
+}
+
 let app = NSApplication.shared
 app.setActivationPolicy(.regular)
 app.activate(ignoringOtherApps: true)
@@ -92,7 +145,7 @@ page.orderFront(nil)
 for _ in 0..<50 where !(app.isActive && cmux.isKeyWindow) { spin(0.1) }
 guard app.isActive, cmux.isKeyWindow else {
     print("key-change-cost macOS \(osName): cannot test (active=\(app.isActive) cmuxKey=\(cmux.isKeyWindow))")
-    exit(2)
+    finish(2)
 }
 
 func countViews(_ view: NSView) -> Int { view.subviews.reduce(1) { $0 + countViews($1) } }
@@ -143,7 +196,7 @@ for target in [0, 10, 40, 120] {
                      mode == "hidden-in-window" ? parkedControls : 0, stats(result.toPage) as NSString,
                      stats(result.toCmux) as NSString, stats(result.display) as NSString))
         fflush(stdout)
-        if Date() >= deadline { print("  stopped at the time limit"); exit(0) }
+        if Date() >= deadline { print("  stopped at the time limit"); finish(0) }
     }
 }
 // A key change into a window whose first responder takes text (a terminal, a Chromium page's
@@ -162,4 +215,4 @@ let text = measure(rounds: 15)
 print(String(format: "  text-input responders  to_page %@ to_cmux %@ display %@ (input sources: %@)",
              stats(text.toPage) as NSString, stats(text.toCmux) as NSString, stats(text.display) as NSString,
              (NSTextInputContext.current?.selectedKeyboardInputSource ?? "none") as NSString))
-exit(0)
+finish(0)
