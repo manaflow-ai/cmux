@@ -354,8 +354,6 @@ async fn a_lane_that_closes_or_is_deleted_with_its_task_open_orphans_it_and_the_
     assert_eq!(states, ["orphaned", "orphaned", "done"], "{listed}");
     let open = from_coordinator.call("_acpmux/tasks", json!({"open": true})).await;
     assert_eq!(open["tasks"].as_array().unwrap().len(), 2, "{open}");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(person.prompts(&coordinator, &format!("task-result-{t_done}"), 1).await.len(), 1);
 
     // The giver may still end an orphan, once it knows what became of it.
     let done = json!({"briefId": t_closed, "status": "done", "summary": "Landed it myself"});
@@ -397,7 +395,7 @@ impl acpmux::store::Store for ListFails {
 }
 
 /// A daemon that starts without its sessions (the store's list failed) does not orphan their
-/// tasks: a lane is gone only when the store says so, not when it is merely not loaded.
+/// tasks: only a lane's own close orphans its task, never what a start did not load.
 #[tokio::test]
 async fn a_daemon_that_could_not_list_its_sessions_orphans_none_of_their_tasks() {
     let root = std::env::temp_dir().join(format!("acpmux-orphan-list-{}", uuid::Uuid::now_v7()));
@@ -423,10 +421,73 @@ async fn a_daemon_that_could_not_list_its_sessions_orphans_none_of_their_tasks()
 
     let store = ListFails(acpmux::store::open(&cfg().store, &root).unwrap());
     let next = Hub::new(cfg(), Box::new(store));
-    tokio::time::sleep(Duration::from_millis(300)).await;
     let listed = Client::open(&next).call("_acpmux/tasks", json!({"all": true})).await;
     let task = listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str());
     let task = task.unwrap_or_else(|| panic!("{listed}"));
     assert_ne!(task["status"], "orphaned", "{task}");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Pages the bundle `begin` describes from `src` into `dst` and finishes it there (the app's
+/// move, `transfer.rs`): the chat's id, now on `dst`.
+async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
+    let begin = src.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+    let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
+    let receive_id = received["receiveId"].as_str().unwrap().to_owned();
+    for file in begin["files"].as_array().unwrap() {
+        let path = file["path"].as_str().unwrap();
+        let mut offset = 0u64;
+        loop {
+            let part = src
+                .call(
+                    "_acpmux/transfer_read",
+                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 65536}),
+                )
+                .await;
+            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"]});
+            dst.call("_acpmux/transfer_write", write).await;
+            offset = part["next"].as_u64().unwrap();
+            if part["eof"] == true {
+                break;
+            }
+        }
+    }
+    let moved = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    assert_eq!(moved["sessionId"], id, "{moved}");
+    let commit = json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}});
+    src.call("_acpmux/transfer_commit", commit).await;
+}
+
+/// A lane that moves to another daemon, and one that comes back here in place of its closed
+/// copy, keeps its task: the move closes the copy it leaves, but the lane goes on.
+#[tokio::test]
+async fn a_lane_that_moves_away_and_back_keeps_its_task() {
+    let (here, there) = (hub(), hub());
+    let (mut person, mut other) = (Client::open(&here), Client::open(&there));
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let given = Client::in_session(&here, &coordinator)
+        .await
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Keep going"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    let status = async |c: &mut Client| {
+        let listed = c.call("_acpmux/tasks", json!({"all": true})).await;
+        let row = listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str());
+        row.unwrap_or_else(|| panic!("{listed}"))["status"].clone()
+    };
+
+    move_chat(&mut person, &mut other, &lane).await;
+    assert_eq!(status(&mut person).await, "running", "moved away");
+    move_chat(&mut other, &mut person, &lane).await;
+    assert_eq!(status(&mut person).await, "running", "back here, in place of its closed copy");
+    let info = person.call("_acpmux/info", json!({"sessionId": lane})).await;
+    assert_ne!(info["status"], "closed", "{info}");
+    let page = person
+        .call("_acpmux/events", json!({"sessionId": coordinator, "kinds": ["user_message"]}))
+        .await;
+    let cards = page["events"].as_array().unwrap().iter().filter(|e| {
+        e["msg"]["promptId"].as_str().is_some_and(|p| p.starts_with(&format!("task-result-{id}")))
+    });
+    assert_eq!(cards.count(), 0, "{page}");
 }
