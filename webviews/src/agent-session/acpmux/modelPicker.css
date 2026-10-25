@@ -144,6 +144,10 @@
   grid-template-columns: minmax(0, 1fr) 24px;
   column-gap: 8px;
 }
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) > .acpmux-menu-label {
+  grid-column: 1;
+  grid-row: 1;
+}
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {
   background: var(--acpmux-menu-hover);
@@ -158,6 +162,7 @@
 /* The check moves to the trailing edge, where the other rows show their number key. */
 .acpmux-quick-item .ui-menu-check {
   grid-column: 2;
+  grid-row: 1;
   width: 24px;
   margin: 0;
   padding: 0;
@@ -168,6 +173,7 @@
 .acpmux-quick-item .ui-menu-check:empty { display: none; }
 .acpmux-quick-item .ui-menu-shortcut {
   grid-column: 2;
+  grid-row: 1;
   margin: 0;
   padding: 0;
   color: var(--agent-muted);
