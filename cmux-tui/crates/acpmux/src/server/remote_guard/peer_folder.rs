@@ -125,12 +125,13 @@ pub(super) async fn cwd_refused(cwd: &str) -> RpcError {
     e
 }
 
-/// `cwd` outside the roots, refused for a proven peer: told the configured roots (`roots`, and
+/// `cwd` outside the roots, refused; for a proven peer (`told`: the configured roots) told the configured roots (`roots`, and
 /// in the message) and `tryCwd`, a folder in the first one a start may use: `ROOT/<cwd's last
 /// name>` when nothing is there yet or it is a real folder (no link), else `ROOT` itself.
 pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcError {
     let mut e = super::outside_roots("cwd");
-    let roots = told.as_deref().unwrap_or_default();
+    // The Web is not told this machine's folders.
+    let Some(roots) = told.as_deref() else { return e };
     let listed: Vec<String> = roots.iter().map(|r| r.to_string_lossy().into_owned()).collect();
     e.message.push_str(&if listed.is_empty() {
         "; this machine has no webRoots".to_owned()

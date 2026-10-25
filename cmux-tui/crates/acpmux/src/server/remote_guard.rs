@@ -79,7 +79,9 @@ pub(super) mod hint;
 mod peer_folder;
 pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
-use peer_folder::{configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told};
+use peer_folder::{
+    configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
+};
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
