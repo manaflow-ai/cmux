@@ -1654,6 +1654,7 @@ let package = Package(
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
                 "CmuxNextNowPlaying",
+                "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
