@@ -9,10 +9,17 @@ public final class AgentUnsentDrafts {
     static let maximumCharacters = 1_000_000
 
     let file: URL?
+    private let writer: any AgentPaneStateFileWriting
     private var drafts: [String: String]
 
-    public init(file: URL?) {
+    public convenience init(file: URL?) {
+        self.init(file: file, writer: AgentPaneStateFileDiskWriter())
+    }
+
+    /// - Parameter writer: where the file's bytes go (tests record them).
+    init(file: URL?, writer: any AgentPaneStateFileWriting) {
         self.file = file
+        self.writer = writer
         // concurrency-allow: one read of a small local state file when the tab store is made
         let data = file.flatMap { try? Data(contentsOf: $0) }
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
@@ -60,13 +67,16 @@ public final class AgentUnsentDrafts {
         save()
     }
 
+    /// Returns when every draft kept so far is on disk (quit awaits it).
+    public func flush() async {}
+
     private func save() {
         guard let file else { return }
         if drafts.isEmpty {
-            try? FileManager.default.removeItem(at: file)
+            writer.remove(file)
             return
         }
-        // concurrency-allow: one small atomic write per settled edit of a new chat's text
-        try? JSONEncoder().encode(drafts).write(to: file, options: .atomic)
+        guard let data = try? JSONEncoder().encode(drafts) else { return }
+        writer.write(data, to: file)
     }
 }

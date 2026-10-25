@@ -29,11 +29,18 @@ public final class AgentPaneScrollAnchors {
     }
 
     let file: URL?
+    private let writer: any AgentPaneStateFileWriting
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
 
-    public init(directory: URL?) {
+    public convenience init(directory: URL?) {
+        self.init(directory: directory, writer: AgentPaneStateFileDiskWriter())
+    }
+
+    /// - Parameter writer: where the file's bytes go (tests record them).
+    init(directory: URL?, writer: any AgentPaneStateFileWriting) {
         file = directory?.appending(path: Self.fileName)
+        self.writer = writer
     }
 
     public func anchor(for sessionId: String) -> AgentPaneScrollAnchor? {
@@ -59,13 +66,16 @@ public final class AgentPaneScrollAnchors {
         return read
     }
 
+    /// Returns when every place kept so far is on disk (quit awaits it).
+    public func flush() async {}
+
     private func save() {
         guard let file, let entries else { return }
         if entries.isEmpty {
-            try? FileManager.default.removeItem(at: file)
+            writer.remove(file)
             return
         }
-        // concurrency-allow: one small atomic write per settled scroll of a chat
-        try? JSONEncoder().encode(entries).write(to: file, options: .atomic)
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        writer.write(data, to: file)
     }
 }
