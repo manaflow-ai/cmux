@@ -163,13 +163,14 @@ FILE_EXTENSIONS = frozenset(
     "jsonc toml yaml yml plist xcstrings strings xib storyboard sh bash zsh md txt tsv csv lock lockb "
     "xcconfig entitlements pbxproj resolved png jpg jpeg gif svg pdf ttf otf wasm".split())
 # Any line that says a test failed: it names the test, not the file with the bug.
-TEST_MARK = re.compile(r"\bfail\w*|\(fail\)|\bnot ok\b|assert|traceback|panic|✘|✗|✕|×", re.IGNORECASE)
+TEST_MARK = re.compile(r"\bfail\w*|\(fail\)|\bnot ok\b|assert|traceback|panic|✘|✗|✕|×|did not pass|not passed|unsuccessful|\bbroken\b|\bregress", re.IGNORECASE)
 # Any warning, in any case: a warning never pins a red to files.
 ANY_WARNING = re.compile(r"##\[warning\]|\bwarn(?:ing)?s?\b", re.IGNORECASE)
 # A URL, with or without its scheme: a scheme, `//host`, or a first segment shaped like a host
 # name (`docs.example.com/a.ts`). A repository folder with a dot in it reads as one too, which
 # only refuses (fails closed).
-URL_LIKE = re.compile(r"[A-Za-z][\w+.-]*:/|^//|^[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}(?::\d+)?/", re.IGNORECASE)
+URL_LIKE = re.compile(r"^[A-Za-z][\w+-]*:(?!\d)|[A-Za-z][\w+.-]*:/|^//|^[\w.-]+:\d+/|"
+                      r"^[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}(?::\d+)?/", re.IGNORECASE)
 # Any line that reports an error; each must name a file.
 ERRORISH = re.compile(r"##\[error\]|\berrors?\b|\bfatal\b|\bexceptions?\b", re.IGNORECASE)
 # A pull request may be excused by files only when every file it changes is source a check
@@ -531,6 +532,13 @@ def touched(path: str, changed: set[str]) -> str | None:
     return None
 
 
+def without_files(text: str) -> str:
+    """The line with every file it names blanked out."""
+    for path in sorted(file_paths(text), key=len, reverse=True):
+        text = text.replace(path, " ")
+    return text
+
+
 def file_paths(text: str) -> set[str]:
     """The files a line names, each token taken whole (`assets/Foo@2x.png`, never `2x.png`)."""
     found = set()
@@ -595,9 +603,10 @@ def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
                   and not WARNING.search(text)]
         if errors and all(RED_CHECK.search(text) for text in errors):
             continue  # the summary step: each step it lists is judged on its own
+        # Test language is looked for outside file names: `webviews/src/panic.ts` is not a panic.
         if failing := [text for text in said
-                       if any(pattern.search(text) for pattern in TESTS) or TEST_MARK.search(text)
-                       or CRASH.search(text)]:
+                       if any(pattern.search(text) for pattern in TESTS) or CRASH.search(text)
+                       or TEST_MARK.search(without_files(text))]:
             raise Refused(f"step '{step}' says a test failed ({failing[0][:160]}), which names the test, "
                           "not the file with the bug")
         if unpinned := [text for text in errors if not file_paths(text)]:

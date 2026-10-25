@@ -1284,6 +1284,22 @@ class OutsideTheDiff(unittest.TestCase):
             with self.assertRaisesRegex(excuse.Refused, "says a test failed"):
                 self.judge()
 
+    # Fifth review round of #25036.
+    def test_a_scheme_without_a_slash_and_a_host_port_are_no_file(self):
+        self.assertEqual(excuse.file_paths("file:Old.ts localhost:3000/assets/Old.ts 127.0.0.1:8080/a.css"), set())
+        # A file name with a line number is still a file.
+        self.assertEqual(excuse.file_paths("build.sh:42: x; Sources/A.swift:12:5: y"), {"build.sh", "Sources/A.swift"})
+
+    def test_a_file_named_like_test_language_is_not_a_test_failure(self):
+        self.gh.logs[1] = self.web_log("error: cannot load webviews/src/panic.ts or webviews/src/assertions.ts")
+        self.assertIn("panic.ts", "\n".join(self.judge()))
+
+    def test_other_failed_test_wording_blocks(self):
+        for line in ("Tests did not pass: webviews/src/Old.ts", "test run unsuccessful in webviews/src/Old.ts"):
+            self.gh.logs[1] = self.web_log(line)
+            with self.assertRaisesRegex(excuse.Refused, "says a test failed"):
+                self.judge()
+
     def test_a_pr_changing_a_build_input_blocks(self):
         for path in ("web/vercel.json", "Dockerfile", "cmux-tui/scripts/requirements-windows-conpty.txt",
                      "webviews/package.json", "webviews/bun.lock", "Packages/macOS/CmuxNext/Package.swift",
