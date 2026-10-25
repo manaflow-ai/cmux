@@ -1042,6 +1042,32 @@ mod tests {
         assert!(unit.find("StartLimitIntervalSec=0").unwrap() < service, "{unit}");
     }
 
+    /// Every Linux script parses as POSIX sh (a heredoc after `&&` continues
+    /// the list past its delimiter line, so the scripts are checked whole).
+    #[test]
+    #[cfg(unix)]
+    fn the_linux_scripts_parse_as_posix_sh() {
+        for (name, script) in [
+            ("setup", linux_restart(true, true)),
+            ("update", linux_restart(false, true)),
+            ("refresh", unit_refresh()),
+            ("migrate dry", migrate(true)),
+            ("migrate", migrate(false)),
+        ] {
+            for shell in ["sh", "dash", "bash"] {
+                let Ok(out) = std::process::Command::new(shell).args(["-n", "-c", &script]).output()
+                else {
+                    continue;
+                };
+                assert!(
+                    out.status.success(),
+                    "{name} under {shell}: {}",
+                    String::from_utf8_lossy(&out.stderr)
+                );
+            }
+        }
+    }
+
     #[test]
     #[cfg(unix)]
     fn linux_update_rewrites_a_unit_an_older_acpmux_wrote_and_keeps_anyone_elses() {

@@ -984,6 +984,25 @@ fn an_acpmux_service_someone_else_wrote_is_refused_and_a_matching_one_adopted() 
     assert!(!peer.exists(&format!("{UNITS}/acpmux.service.acpmux-new")));
     assert!(!peer.exists(&format!("{UNITS}/acpmux.service.acpmux-old")));
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{up:?}");
+
+    // The disk fills at a drop-in, after acpmux.service was put in place:
+    // everything this move wrote goes, so the host is as it was.
+    let peer = FakePeer::new("move-full-drop-in");
+    peer.under_foreign_unit(false);
+    peer.exe(
+        "fakebin/cp",
+        "#!/bin/sh\nfor a; do last=$a; done\ncase \"$last\" in *.conf.acpmux-new) printf x > \"$last\"; echo 'No space left on device' >&2; exit 1;; esac\nexec /bin/cp \"$@\"\n",
+    );
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_ne!(up.outcome, Outcome::Updated, "{up:?}");
+    assert!(!peer.exists(&format!("{UNITS}/acpmux.service")), "{up:?}");
+    let left: Vec<String> = std::fs::read_dir(peer.home.join(format!("{UNITS}/acpmux.service.d")))
+        .map(|d| d.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "the move left {left:?}");
+    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{up:?}");
+    assert!(!peer.exists(&format!("run/systemd/user/{FOREIGN}.d/zzz-acpmux-migrate.conf")));
 }
 
 #[test]
