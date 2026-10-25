@@ -142,6 +142,62 @@ const inlineName = alternate(
   },
 );
 
+// Leo (2026-10-25), on an auto-resumed chat's received line: "overlapping ui on right side too
+// there's a weird pin button or something with teh commands or whatever". A long sender and a long
+// retryable error as the line, on the last ended turn (so Retry shows), at a wide and a narrow width.
+const ACTIONS_ROW = "auto-resume-actions";
+const retryError =
+  "Your previous turn was cut off by a connection error (stream disconnected before completion: error sending request for url (https://api.anthropic.com/v1/messages)). Check what already finished, then continue.";
+const actionsChat = chat([
+  user("Keep the grid lane going while I'm away", 9),
+  assistant("Started grid-lane-with-a-much-longer-name; it will report here.", 8.5),
+  summary(8.5, { status: "completed" }),
+  user(retryError, 6, {
+    id: ACTIONS_ROW,
+    incoming: message("grid-lane-auto-resume-attempt-2-with-a-long-name", retryError, undefined, "child-5"),
+    untyped: true,
+  }),
+  summary(5.5, { status: "failed", retryRowId: ACTIONS_ROW }),
+]);
+/// The line's actions shown from the keyboard as from the pointer, each clear of the others, of the
+/// row's own controls and of the line's right edge; the preview cut before them. Throws otherwise.
+const actionsClear =
+  (width?: number): Play =>
+  async (ctx) => {
+    const row = () => ctx.document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${ACTIONS_ROW}"]`);
+    await ctx.waitFor(() => row()?.querySelector(".cv-received-actions button"));
+    if (width) Object.assign(row()!.style, { right: "auto", width: `${width}px` });
+    // The keyboard reaches the row at its Copy (its tab stop); the line's actions show for it as for a hover.
+    await ctx.focus({ selector: `.acpmux-row[data-row-id="${ACTIONS_ROW}"] .acpmux-row__copy` });
+    const actions = row()!.querySelector<HTMLElement>(".cv-received-actions")!;
+    await ctx.waitFor(() => getComputedStyle(actions).opacity === "1", { capMs: 1500 });
+    const line = row()!.querySelector<HTMLElement>(".cv-received__line")!.getBoundingClientRect();
+    const shown = [...row()!.querySelectorAll<HTMLElement>("button")].filter((button) => {
+      const box = button.getBoundingClientRect();
+      return (
+        box.width > 0 &&
+        box.top < line.bottom &&
+        box.bottom > line.top &&
+        getComputedStyle(button).visibility !== "hidden"
+      );
+    });
+    const boxes = shown.map((button) => ({
+      label: button.getAttribute("aria-label") ?? button.className,
+      box: button.getBoundingClientRect(),
+    }));
+    for (const [index, a] of boxes.entries()) {
+      if (a.box.right > line.right + 0.5) throw new Error(`${a.label} runs past the line's right edge`);
+      for (const b of boxes.slice(index + 1)) {
+        const overlap = Math.min(a.box.right, b.box.right) - Math.max(a.box.left, b.box.left);
+        if (overlap > 0.5) throw new Error(`${a.label} overlaps ${b.label}`);
+      }
+    }
+    const preview = row()!.querySelector<HTMLElement>(".cv-received__preview");
+    const lane = actions.getBoundingClientRect();
+    if (preview && preview.getBoundingClientRect().right > lane.left + 0.5)
+      throw new Error("the preview runs under the actions");
+  };
+
 export default agentPaneEntry({
   id: "agent-pane.incoming-message",
   title: "Messages from other agents",
@@ -417,6 +473,18 @@ export default agentPaneEntry({
       display: MINIMAL,
       snapshot: minimalChat,
       play: inlineName,
+    },
+    "auto-resume-actions": {
+      note: "Minimal Mode, a long sender and a long retryable error on the last turn, focused from the keyboard: age, Copy, Retry and Pin at the line's end, the preview cut before them, nothing over another or past the edge.",
+      display: MINIMAL,
+      snapshot: actionsChat,
+      play: actionsClear(),
+    },
+    "auto-resume-actions-narrow": {
+      note: "The same line in a 300px row: the preview goes first, then the sender's chip, so the actions stay whole and in the row.",
+      display: MINIMAL,
+      snapshot: actionsChat,
+      play: actionsClear(300),
     },
     "minimal-off": {
       note: "The same chat with Minimal Mode off: unchanged, each message's line over its card.",
