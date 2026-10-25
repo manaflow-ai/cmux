@@ -11,8 +11,8 @@ import Dispatch
 /// at the item's QoS), and the pool stays free for the async work that typing and frames wait for.
 ///
 /// Priority inversion: there is no synchronous wait in this API. Main-actor code either awaits
-/// ``run(_:mayBlock:shutdown:_:)`` (the main thread keeps running) or posts with
-/// ``post(_:mayBlock:shutdown:_:)``. A caller that awaits work below its own priority boosts it at
+/// ``run(_:mayBlock:shutdown:fileID:line:_:)`` (the main thread keeps running) or posts with
+/// ``post(_:mayBlock:shutdown:fileID:line:_:)``. A caller that awaits work below its own priority boosts it at
 /// the call: the item runs at the higher of its priority and the caller's (`Task.currentPriority`).
 ///
 /// No later escalation, on any macOS: when a low task awaits an item and a higher task later awaits
@@ -31,7 +31,13 @@ import Dispatch
 /// let data = try await work.run(.userVisible, mayBlock: .files) { try Data(contentsOf: url) }
 /// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { try? data.write(to: url, options: .atomic) }
 /// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
+/// let page = work.task(.userVisible) { try await fetch(url) }  // async work, no blocking call
 /// ```
+///
+/// Shutdown, as Chrome's `TaskTracker` (`base/task/thread_pool/task_tracker.cc`): ``shutdown()`` drops or
+/// cancels ``ShutdownBehavior/skipOnShutdown`` items, lets started ``ShutdownBehavior/continueOnShutdown``
+/// ones run, refuses new items other than ``ShutdownBehavior/blockShutdown`` ones, and returns when every
+/// block-shutdown item, lane item or ``task(_:shutdown:fileID:line:_:)``, has finished.
 public final class BackgroundWork: Sendable {
     /// How many ``BlockingLane/cpu`` items run at once.
     public let cpuWidth: Int
@@ -39,13 +45,28 @@ public final class BackgroundWork: Sendable {
     public let label: String
     private let lanes: [LaneScheduler]
     private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
-    // concurrency-allow: id counter and the shutdown count, read and written synchronously by submitters and lane threads (lock carve-out: a counter, no I/O under it).
-    private let state = Mutex(DrainState())
+    /// The clock a block-shutdown item's run time is measured with (``blockShutdownLimit``).
+    let uptimeNanos: @Sendable () -> UInt64
+    // concurrency-allow: id counter, the shutdown count and the registered tasks, read and written synchronously by submitters, lane threads and finishing tasks (lock carve-out: counters and a dictionary, no I/O under it).
+    let state = Mutex(DrainState())
 
-    private struct DrainState {
+    struct DrainState {
         var nextID: UInt64 = 1
+        /// Block-shutdown items (lane items and tasks) that have not finished.
         var blocking = 0
         var waiters: [CheckedContinuation<Void, Never>] = []
+        /// ``shutdown()`` has started: only block-shutdown items are taken.
+        var closed = false
+        /// The ``task(_:shutdown:fileID:line:_:)`` tasks that have not finished, by id.
+        var tasks: [UInt64: RegisteredTask] = [:]
+        /// Block-shutdown items that ran longer than ``blockShutdownLimit``, oldest first, at most
+        /// ``overrunLimit``.
+        var overruns: [BlockShutdownOverrun] = []
+
+        mutating func takeID() -> UInt64 {
+            defer { nextID += 1 }
+            return nextID
+        }
     }
 
     /// Creates the lanes.
@@ -57,11 +78,15 @@ public final class BackgroundWork: Sendable {
     ///     did not start at once), after it is queued and before it can start; default nothing. Traces
     ///     count waits with it; tests use it as the point after which a cancel or an escalation meets a
     ///     queued item, not the checks at the call.
+    ///   - uptimeNanos: the clock a block-shutdown item's run time is measured with, in nanoseconds; nil is
+    ///     `CLOCK_UPTIME_RAW`. Tests pass their own.
     public init(cpuWidth: Int = BackgroundWork.defaultCPUWidth, label: String = "com.cmuxterm.next.work",
-                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in }) {
+                onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void = { _, _ in },
+                uptimeNanos: (@Sendable () -> UInt64)? = nil) {
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
         self.onQueued = onQueued
+        self.uptimeNanos = uptimeNanos ?? { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
             case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority)
@@ -94,31 +119,34 @@ public final class BackgroundWork: Sendable {
     ///   - priority: how much a person waits for it; the item runs at the higher of this and the caller's.
     ///   - lane: the kind of blocking work `body` does.
     ///   - shutdown: what ``shutdown()`` does with it; default ``ShutdownBehavior/skipOnShutdown``.
+    ///   - fileID: the caller's `#fileID`, which names a slow block-shutdown item (leave the default).
+    ///   - line: the caller's `#line`.
     ///   - body: the blocking work. It runs on a lane thread, never on the cooperative pool.
     /// - Returns: what `body` returns.
     /// - Throws: what `body` throws; `CancellationError` when the caller's task is cancelled before the
     ///   item starts (the item then never runs), or when shutdown dropped it. A started item runs to its end.
     public func run<T: Sendable>(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                                  shutdown: ShutdownBehavior = .skipOnShutdown,
+                                 fileID: StaticString = #fileID, line: UInt = #line,
                                  _ body: @escaping @Sendable () throws -> T) async throws -> T {
         try Task.checkCancellation()
         let id = nextID()
-        let scheduler = lanes[lane.rawValue]
         let start = max(priority, WorkPriority(Task.currentPriority))
         // No withTaskPriorityEscalationHandler here: its runtime entry point
         // (swift_task_addPriorityEscalationHandler) is strong-linked, so any reference, even under
         // `#available(macOS 26.0, *)`, stops dyld before main on macOS 14 and 15. A later waiter's
         // escalation does not move a queued item up; the item runs at the caller's priority at submit.
-        return try await enqueue(id, on: lane, at: start, shutdown: shutdown, body)
+        return try await enqueue(id, on: lane, at: start, shutdown: shutdown,
+                                 site: CallSite(fileID: fileID, line: line), body)
     }
 
     private func enqueue<T: Sendable>(_ id: UInt64, on lane: BlockingLane, at priority: WorkPriority,
-                                      shutdown: ShutdownBehavior,
+                                      shutdown: ShutdownBehavior, site: CallSite,
                                       _ body: @escaping @Sendable () throws -> T) async throws -> T {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                let job = makeJob(id: id, shutdown: shutdown,
+                let job = makeJob(id: id, shutdown: shutdown, site: site,
                                   work: { continuation.resume(with: Result { try body() }) },
                                   abandoned: { continuation.resume(throwing: CancellationError()) })
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
@@ -134,12 +162,16 @@ public final class BackgroundWork: Sendable {
     /// - Parameters:
     ///   - priority: how much a person waits for it.
     ///   - lane: the kind of blocking work `body` does.
-    ///   - shutdown: what ``shutdown()`` does with it; a save whose loss loses data is
+    ///   - shutdown: what ``shutdown()`` does with it; one bounded save whose loss loses data is
     ///     ``ShutdownBehavior/blockShutdown``.
+    ///   - fileID: the caller's `#fileID`, which names a slow block-shutdown item (leave the default).
+    ///   - line: the caller's `#line`.
     ///   - body: the blocking work. It runs on a lane thread, never on the cooperative pool.
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
-                     shutdown: ShutdownBehavior = .skipOnShutdown, _ body: @escaping @Sendable () -> Void) {
-        let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: {})
+                     shutdown: ShutdownBehavior = .skipOnShutdown,
+                     fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Void) {
+        let job = makeJob(id: nextID(), shutdown: shutdown, site: CallSite(fileID: fileID, line: line),
+                          work: body, abandoned: {})
         submitted(lanes[lane.rawValue].submit(job, at: priority, unless: { false }), job, on: lane)
     }
 
@@ -152,10 +184,17 @@ public final class BackgroundWork: Sendable {
         }
     }
 
-    /// Starts shutdown: drops every item that has not started except ``ShutdownBehavior/blockShutdown``
-    /// ones, refuses new ones the same way, and returns when every block-shutdown item has finished.
-    /// Quit awaits it after its own saves.
+    /// Starts shutdown: drops every lane item that has not started except ``ShutdownBehavior/blockShutdown``
+    /// ones, cancels every ``ShutdownBehavior/skipOnShutdown`` task, refuses new items other than
+    /// block-shutdown ones (a refused ``task(_:shutdown:fileID:line:_:)`` throws `CancellationError`), and
+    /// returns when every block-shutdown item has finished. Started continue-on-shutdown items run on and
+    /// are not awaited. Quit awaits it once, after its own saves and inside its deadline (QuitCoordinator).
     public func shutdown() async {
+        let cancels = state.withLock { state in
+            state.closed = true
+            return state.skipTaskCancels()
+        }
+        for cancel in cancels { cancel() }
         for lane in lanes {
             for job in lane.close() { job.abandon() }
         }
@@ -170,26 +209,32 @@ public final class BackgroundWork: Sendable {
     }
 
     private func nextID() -> UInt64 {
-        state.withLock { state in
-            defer { state.nextID += 1 }
-            return state.nextID
-        }
+        state.withLock { $0.takeID() }
     }
 
-    private func makeJob(id: UInt64, shutdown: ShutdownBehavior, work: @escaping @Sendable () -> Void,
+    private func makeJob(id: UInt64, shutdown: ShutdownBehavior, site: CallSite, work: @escaping @Sendable () -> Void,
                          abandoned: @escaping @Sendable () -> Void) -> LaneJob {
-        let blocks = shutdown == .blockShutdown
-        if blocks { state.withLock { $0.blocking += 1 } }
-        return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: { [self] in
-            guard blocks else { return }
-            let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
-                state.blocking -= 1
-                guard state.blocking == 0 else { return [] }
-                defer { state.waiters = [] }
-                return state.waiters
-            }
-            for waiter in waiters { waiter.resume() }
-        })
+        guard shutdown == .blockShutdown else {
+            return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: {})
+        }
+        state.withLock { $0.blocking += 1 }
+        return LaneJob(id: id, shutdown: shutdown, work: { [self] in
+            let start = blockShutdownStarted()
+            work()
+            blockShutdownEnded(site, since: start)
+        }, abandoned: abandoned, done: { [self] in blockItemFinished() })
+    }
+
+    /// One block-shutdown item (lane item or task) finished or was abandoned: resumes ``shutdown()`` when it
+    /// was the last.
+    func blockItemFinished() {
+        let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            state.blocking -= 1
+            guard state.blocking == 0 else { return [] }
+            defer { state.waiters = [] }
+            return state.waiters
+        }
+        for waiter in waiters { waiter.resume() }
     }
 
 }

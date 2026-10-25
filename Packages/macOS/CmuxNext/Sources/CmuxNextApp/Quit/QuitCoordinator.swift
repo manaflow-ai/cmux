@@ -206,6 +206,7 @@ final class QuitCoordinator {
                 // does, and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
+                await services.work.shutdown()  // after the last save, inside the deadline: block writes finish, skip work ends
                 #if DEBUG || CMUX_BENCH_HOOKS
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
