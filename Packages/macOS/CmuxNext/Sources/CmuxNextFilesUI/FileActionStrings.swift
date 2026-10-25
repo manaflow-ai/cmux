@@ -8,6 +8,7 @@ nonisolated enum FileActionStrings {
 
     static var openInRightPane: String { t("files.menu.openInRightPane", "Open in Right Pane") }
     static var openWith: String { t("files.menu.openWith", "Open With") }
+    static var openAsText: String { t("files.menu.openAsText", "Open as Text") }
     static var other: String { t("files.menu.openWith.other", "Other…") }
     static var revealInFiles: String { t("files.menu.revealInFiles", "Reveal in cmux Files") }
     static var share: String { t("files.menu.share", "Share…") }

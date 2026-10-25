@@ -104,6 +104,12 @@ fn row_model(row: &Value) -> Option<LiveModel> {
         efforts,
         default_effort: text(row, "defaultReasoningEffort").map(str::to_owned),
         fast: fast(row),
+        service_tiers: row
+            .get("serviceTiers")
+            .or_else(|| row.get("additionalSpeedTiers"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         is_default: row.get("isDefault").and_then(Value::as_bool) == Some(true),
     })
 }

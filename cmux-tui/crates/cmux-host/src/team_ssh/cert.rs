@@ -17,25 +17,18 @@ struct Reader<'a>(&'a [u8]);
 
 impl<'a> Reader<'a> {
     fn take(&mut self, n: usize) -> Option<&'a [u8]> {
-        if self.0.len() < n {
-            return None;
-        }
-        let (head, rest) = self.0.split_at(n);
+        let (head, rest) = self.0.split_at_checked(n)?;
         self.0 = rest;
         Some(head)
     }
     fn u32(&mut self) -> Option<u32> {
-        let b = self.take(4)?;
-        Some(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+        Some(u32::from_be_bytes(self.take(4)?.try_into().ok()?))
     }
     fn u64(&mut self) -> Option<u64> {
-        let b = self.take(8)?;
-        let mut a = [0u8; 8];
-        a.copy_from_slice(b);
-        Some(u64::from_be_bytes(a))
+        Some(u64::from_be_bytes(self.take(8)?.try_into().ok()?))
     }
     fn string(&mut self) -> Option<&'a [u8]> {
-        let n = self.u32()? as usize;
+        let n = usize::try_from(self.u32()?).ok()?;
         self.take(n)
     }
 }

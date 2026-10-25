@@ -1,8 +1,9 @@
-/// `tabs.terminalFirst` in cmux.json (#23021): off by default, so a person's
-/// Cmd-T opens the New Tab page and a split from a browser tab, the page or an
-/// agent chat opens the page too (cx-hvc57, cx-jfo7). On, Cmd-T, Cmd-D and
-/// Cmd-Shift-D open a terminal, as in cmux classic. Scripts (CLI, MCP) are not
-/// affected: they already get a tab of the pane's kind.
+/// `tabs.terminalFirst` in cmux.json, shown in Settings as cmux Classic Mode (#23021): off by
+/// default, so a person's Cmd-T and Cmd-N open the New Tab page and a split from a browser tab, the
+/// page or an agent chat opens the page too (cx-hvc57, cx-jfo7). On, every new tab, split,
+/// workspace and window a person opens is a terminal, as in cmux classic; New Tab Page (palette, the
+/// tab bar's + menu) and New Agent Chat still open the GUI. Scripts (CLI, MCP) are not affected:
+/// they already get a tab of the pane's kind and a workspace with a terminal.
 public nonisolated enum TerminalFirstSetting {
 }
 

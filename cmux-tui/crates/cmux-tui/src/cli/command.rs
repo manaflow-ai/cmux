@@ -181,6 +181,9 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
+        "attention" => {
+            state::parse_attention(&strs(&tokens.words[1..]), &mut selectors, &mut tokens.flags)?
+        }
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
@@ -206,10 +209,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["status"] => super::lifecycle::ServerAction::Status,
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => server_ensure::parse(flags)?,
-        ["stop"] => super::lifecycle::ServerAction::Stop {
-            force: flags.boolean("force"),
-            end_terminals: flags.boolean("end-terminals"),
-        },
+        ["stop"] => stop_action(flags)?,
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
@@ -244,6 +244,30 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         }
     };
     Ok(CommandPlan::Server(super::lifecycle::ServerPlan { action, session: None }))
+}
+
+/// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
+/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// defaults to the bound `server ensure` gives a restore
+/// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
+fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
+    let restore_wait = match flags.take("restore-wait-seconds") {
+        None => crate::local_owner::RESTORE_DEADLINE,
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => std::time::Duration::from_secs(seconds),
+            _ => {
+                return Err(UsageError::new(
+                    crate::localization::catalog().local_server.stop_restore_wait_invalid,
+                ));
+            }
+        },
+    };
+    Ok(super::lifecycle::ServerAction::Stop {
+        force: flags.boolean("force"),
+        end_terminals: flags.boolean("end-terminals"),
+        restore_wait,
+    })
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -512,10 +536,7 @@ fn parse_session(
                 }
             };
             Ok(CommandPlan::Server(super::lifecycle::ServerPlan {
-                action: super::lifecycle::ServerAction::Stop {
-                    force: flags.boolean("force"),
-                    end_terminals: flags.boolean("end-terminals"),
-                },
+                action: stop_action(flags)?,
                 session,
             }))
         }

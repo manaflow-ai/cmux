@@ -252,6 +252,46 @@ fn update_of(e: &acpmux::store::EventRecord) -> &Value {
     e.msg.pointer("/params/update").unwrap_or(&Value::Null)
 }
 
+/// `value` without the canonical paths the hub records beside a tool call's
+/// (`_meta.acpmux.canonicalPath`, hub/tool_paths.rs), and without a `_meta`
+/// that held only that: the paths as the agent wrote them.
+fn as_written(value: &Value) -> Value {
+    match value {
+        Value::Array(items) => Value::Array(items.iter().map(as_written).collect()),
+        Value::Object(fields) => {
+            let mut out = serde_json::Map::new();
+            for (key, field) in fields {
+                let field = as_written(field);
+                if key == "_meta" {
+                    let mut meta = field.clone();
+                    if let Some(acpmux) = meta.get_mut("acpmux").and_then(Value::as_object_mut) {
+                        acpmux.remove("canonicalPath");
+                        if acpmux.is_empty() {
+                            meta.as_object_mut().unwrap().remove("acpmux");
+                        }
+                    }
+                    if meta.as_object().is_some_and(|m| m.is_empty()) {
+                        continue;
+                    }
+                    out.insert(key.clone(), meta);
+                } else {
+                    out.insert(key.clone(), field);
+                }
+            }
+            Value::Object(out)
+        }
+        other => other.clone(),
+    }
+}
+
+/// The canonical form of `path` the hub records for a file in a folder that
+/// exists: the folder's real path (/tmp is /private/tmp on macOS).
+fn canonical_in(path: &str) -> String {
+    let path = std::path::Path::new(path);
+    let folder = std::fs::canonicalize(path.parent().unwrap()).unwrap();
+    folder.join(path.file_name().unwrap()).to_string_lossy().into_owned()
+}
+
 /// An adopted Codex chat shows each turn's tool calls, not only its final message
 /// (hq#2569 item 3): a reopened turn that ran three commands and edited two files replays
 /// them as `tool_call` records, each settled by a `tool_call_update` with its output, before
@@ -327,9 +367,11 @@ async fn adopt_replays_a_codex_turns_commands_and_file_edits() {
     let cargo = project.join("Cargo.toml").to_string_lossy().into_owned();
     let changelog = project.join("CHANGELOG.md").to_string_lossy().into_owned();
     assert_eq!(
-        edit["locations"],
+        as_written(&edit["locations"]),
         json!([{"path": changelog, "line": 1}, {"path": cargo, "line": 1}])
     );
+    // Beside each, its canonical path (hub/tool_paths.rs).
+    assert_eq!(edit["locations"][1]["_meta"]["acpmux"]["canonicalPath"], canonical_in(&cargo));
     let edit_done = update_of(done[3]);
     assert_eq!(edit_done["status"], "completed");
     let diffs = edit_done["content"].as_array().unwrap();
@@ -420,9 +462,10 @@ async fn adopt_replays_a_failed_codex_patch_without_its_edits() {
     let applied = call("patch-2", "tool_call_update");
     assert_eq!(applied["status"], "completed");
     assert_eq!(
-        applied["content"],
+        as_written(&applied["content"]),
         json!([{"type": "diff", "path": cargo, "oldText": "version = \"1.2.0\"\n", "newText": "version = \"1.3.0\"\n", "_meta": {"acpmux": {"fragment": true}}}])
     );
+    assert_eq!(applied["content"][0]["_meta"]["acpmux"]["canonicalPath"], canonical_in(&cargo));
     assert_eq!(
         call("patch-2", "tool_call")["rawInput"]["changes"],
         json!([{"path": cargo, "type": "update", "additions": 1, "deletions": 1}])
@@ -446,8 +489,11 @@ fn write_pane_fixture(events: &[acpmux::store::EventRecord], chat: &str, root: &
             json!({"seq": e.seq - base, "at": e.at, "dir": e.dir, "kind": e.kind, "msg": msg})
         })
         .collect();
+    // The canonical paths name the project by its real path (/private/tmp on macOS).
+    let real = std::fs::canonicalize(root.join("project")).unwrap();
     let text = serde_json::to_string_pretty(&records)
         .unwrap()
+        .replace(&real.to_string_lossy().into_owned(), "/home/dev/demo")
         .replace(&root.join("project").to_string_lossy().into_owned(), "/home/dev/demo")
         .replace(chat, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a60")
         + "\n";
@@ -551,7 +597,7 @@ async fn adopt_replays_a_claude_turns_tool_calls() {
     assert_eq!(calls[0]["kind"], "execute");
     assert_eq!(calls[0]["rawInput"]["command"], "rg -n old_helper");
     assert_eq!(calls[1]["kind"], "edit");
-    assert_eq!(calls[1]["locations"], json!([{"path": file}]));
+    assert_eq!(as_written(&calls[1]["locations"]), json!([{"path": file}]));
     let done: Vec<&Value> =
         events.iter().filter(|e| e.kind == "tool_call_update").map(update_of).collect();
     assert_eq!(done[0]["status"], "completed");
@@ -560,9 +606,12 @@ async fn adopt_replays_a_claude_turns_tool_calls() {
         Some(&json!("src/lib.rs:3:fn old_helper() {}"))
     );
     assert_eq!(
-        done[1]["content"],
+        as_written(&done[1]["content"]),
         json!([{"type": "diff", "path": file, "oldText": "fn old_helper() {}", "newText": "fn new_helper() {}"}])
     );
+    // src/ is not there: the canonical path is the project's real path and the rest as written.
+    let real = std::fs::canonicalize(&project).unwrap().join("src/lib.rs");
+    assert_eq!(done[1]["content"][0]["_meta"]["acpmux"]["canonicalPath"], json!(real));
     assert_eq!(done[2]["status"], "failed");
     assert_eq!(
         update_of(&events[8]).pointer("/content/text"),

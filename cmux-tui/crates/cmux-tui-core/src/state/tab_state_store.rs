@@ -91,6 +91,49 @@ pub(crate) fn add_tab_marked_unread_column(transaction: &Transaction<'_>) -> any
     Ok(())
 }
 
+/// Additive: an agent's "needs you here" mark on a tab (`tab-attention-v1`).
+/// Older builds name their columns, so they keep reading and writing the
+/// table; an older build that empties a row of every field it knows drops
+/// the mark with it.
+pub(crate) fn add_tab_attention_column(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_column = transaction
+        .prepare("PRAGMA table_info(tab_state)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "attention_json");
+    if !has_column {
+        transaction.execute_batch("ALTER TABLE tab_state ADD COLUMN attention_json TEXT;")?;
+    }
+    Ok(())
+}
+
+/// UTF-8 bytes an attention reason holds at most (the catalog's max_length unit).
+pub(crate) const MAX_ATTENTION_REASON_BYTES: usize = 200;
+
+/// The stored attention mark: why the agent needs the person in this tab,
+/// and when it asked. Shown as the tab's `extra.attention`. A browser tab's
+/// mark also records the page it was set on (`page`, never shown): the mark
+/// clears once the tab is on another page, decided in the clearing
+/// transaction ([`clear_attention_off_page`]), so a mark set on the new page
+/// survives a navigation event that arrives after it.
+pub(crate) fn attention_value(reason: &str, at_ms: u64, page: Option<&str>) -> Value {
+    match page {
+        Some(page) => json!({"reason": reason, "at_ms": at_ms, "page": page}),
+        None => json!({"reason": reason, "at_ms": at_ms}),
+    }
+}
+
+/// The mark as `extra.attention` shows it: `{reason, at_ms}`, without the
+/// page it was set on.
+pub(crate) fn shown_attention(stored: &str) -> anyhow::Result<Value> {
+    let mut value: Value = serde_json::from_str(stored)?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("page");
+    }
+    Ok(value)
+}
+
 /// A partial tab state update: `None` keeps a field, `Some(None)` clears
 /// the zoom or the icon.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -112,6 +155,15 @@ pub(crate) struct TabStateUpdate {
     /// apart from notification markers: `Some(true)` sets the mark,
     /// `Some(false)` clears it. Clients clear it when the tab is viewed.
     pub(crate) marked_unread: Option<bool>,
+    /// An agent needs the person to act in this tab (`tab-attention-v1`):
+    /// `Some(Some(reason))` sets the mark, `Some(None)` clears it. Viewing
+    /// the tab keeps it; the agent's clear, a browser tab's navigation to
+    /// another page, or the tab's close clears it.
+    pub(crate) attention: Option<Option<String>>,
+    /// The page a browser tab shows when a new attention mark is set, stored
+    /// with it. Filled by `state_update_tab` from the tab's surface, never
+    /// from the request.
+    pub(crate) attention_page: Option<String>,
 }
 
 impl TabStateUpdate {
@@ -127,6 +179,22 @@ impl TabStateUpdate {
         }
         if let Some(Some(icon)) = &self.icon {
             crate::workspace_registry::presentation_store::validate_icon_value(icon)?;
+        }
+        if let Some(Some(reason)) = &self.attention {
+            anyhow::ensure!(
+                !reason.trim().is_empty(),
+                "bad request: attention needs a reason the person can read"
+            );
+            anyhow::ensure!(
+                reason.len() <= MAX_ATTENTION_REASON_BYTES,
+                "bad request: an attention reason holds at most {MAX_ATTENTION_REASON_BYTES} bytes"
+            );
+            // One line: no control characters and no Unicode line or
+            // paragraph separator (U+2028, U+2029, not `is_control`).
+            anyhow::ensure!(
+                !reason.chars().any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')),
+                "bad request: an attention reason is one line of text"
+            );
         }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
@@ -177,6 +245,16 @@ pub(crate) fn update_tab_state(
             params![tab_id, stored],
         )?;
     }
+    if let Some(attention) = &update.attention {
+        let stored = attention.as_deref().map(|reason| {
+            attention_value(reason.trim(), crate::mux::now_ms(), update.attention_page.as_deref())
+                .to_string()
+        });
+        transaction.execute(
+            "UPDATE tab_state SET attention_json = ?2 WHERE tab_id = ?1",
+            params![tab_id, stored],
+        )?;
+    }
     for (column, list) in [("back_json", &update.back), ("forward_json", &update.forward)] {
         if let Some(list) = list {
             let stored = (!list.is_empty()).then(|| serde_json::to_string(list)).transpose()?;
@@ -186,12 +264,7 @@ pub(crate) fn update_tab_state(
             )?;
         }
     }
-    transaction.execute(
-        "DELETE FROM tab_state
-         WHERE tab_id = ?1 AND zoom IS NULL AND back_json IS NULL AND forward_json IS NULL
-           AND icon IS NULL AND emulation_json IS NULL AND marked_unread IS NULL",
-        [tab_id],
-    )?;
+    drop_empty_tab_state_row(transaction, tab_id)?;
     if let Some(owner) = &update.owner {
         let updated = transaction.execute(
             "UPDATE frontend_browser_tabs SET owner = ?2
@@ -199,6 +272,90 @@ pub(crate) fn update_tab_state(
             params![tab_id, owner],
         )?;
         anyhow::ensure!(updated == 1, "bad request: owner applies only to frontend browser tabs");
+    }
+    Ok(())
+}
+
+/// Delete a tab's state row once it holds no field.
+fn drop_empty_tab_state_row(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<()> {
+    transaction.execute(
+        "DELETE FROM tab_state
+         WHERE tab_id = ?1 AND zoom IS NULL AND back_json IS NULL AND forward_json IS NULL
+           AND icon IS NULL AND emulation_json IS NULL AND marked_unread IS NULL
+           AND attention_json IS NULL",
+        [tab_id],
+    )?;
+    Ok(())
+}
+
+/// Whether a tab holds an attention mark (`tab-attention-v1`).
+#[cfg(test)]
+pub(crate) fn tab_has_attention(connection: &Connection, tab_id: &str) -> anyhow::Result<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT attention_json IS NOT NULL FROM tab_state WHERE tab_id = ?1",
+            [tab_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false))
+}
+
+/// Whether a tab holds an attention mark (`tab-attention-v1`) set on a page
+/// other than `page`: a cheap read before a navigation's clearing commit.
+/// The commit decides again ([`clear_attention_off_page`]).
+pub(crate) fn tab_has_attention_off_page(
+    connection: &Connection,
+    tab_id: &str,
+    page: &str,
+) -> anyhow::Result<bool> {
+    Ok(connection
+        .query_row(
+            &format!("SELECT 1 FROM tab_state WHERE tab_id = ?1 AND {ATTENTION_OFF_PAGE}"),
+            params![tab_id, page],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// A mark set on another page than `?2`, or one that recorded no page.
+const ATTENTION_OFF_PAGE: &str = "attention_json IS NOT NULL
+    AND coalesce(json_extract(attention_json, '$.page'), '') <> ?2";
+
+/// A navigation's clear: drop the tab's mark only when it was set on a page
+/// other than `page`, in the clearing transaction, so a mark an agent sets on
+/// the new page (before this commit) stays. Returns whether it cleared one.
+pub(crate) fn clear_attention_off_page(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+    page: &str,
+) -> anyhow::Result<bool> {
+    let cleared = transaction.execute(
+        &format!(
+            "UPDATE tab_state SET attention_json = NULL WHERE tab_id = ?1 AND {ATTENTION_OFF_PAGE}"
+        ),
+        params![tab_id, page],
+    )?;
+    if cleared != 0 {
+        drop_empty_tab_state_row(transaction, tab_id)?;
+    }
+    Ok(cleared != 0)
+}
+
+/// Drop a closing tab's attention mark, so a reopened tab (which keeps its
+/// id) does not ask for the person again.
+pub(crate) fn clear_closed_tab_attention(
+    transaction: &Transaction<'_>,
+    tab_id: &str,
+) -> anyhow::Result<()> {
+    let cleared = transaction.execute(
+        "UPDATE tab_state SET attention_json = NULL
+         WHERE tab_id = ?1 AND attention_json IS NOT NULL",
+        [tab_id],
+    )?;
+    if cleared != 0 {
+        drop_empty_tab_state_row(transaction, tab_id)?;
     }
     Ok(())
 }
@@ -379,7 +536,9 @@ mod marked_unread_tests {
     use super::*;
 
     /// A tab_state table without the marked_unread column gains it; a mark
-    /// alone keeps the row, and clearing it deletes the emptied row.
+    /// alone keeps the row, and clearing it deletes the emptied row. The later
+    /// attention column (tab-attention-v1) is added too, as the migration
+    /// does: an update writes every column.
     #[test]
     fn tab_marked_unread_column_is_added_and_an_empty_row_is_dropped() {
         let mut connection = Connection::open_in_memory().unwrap();
@@ -392,6 +551,7 @@ mod marked_unread_tests {
         for _ in 0..2 {
             let transaction = connection.transaction().unwrap();
             add_tab_marked_unread_column(&transaction).unwrap();
+            add_tab_attention_column(&transaction).unwrap();
             transaction.commit().unwrap();
         }
         let count = |connection: &Connection| -> i64 {
@@ -413,5 +573,132 @@ mod marked_unread_tests {
         let rows: i64 =
             connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap();
         assert_eq!(rows, 0);
+    }
+}
+
+#[cfg(test)]
+mod attention_tests {
+    use super::*;
+
+    /// A tab_state table without the attention column gains it; a mark alone
+    /// keeps the row with its reason, clearing it deletes the emptied row, and
+    /// a closing tab drops its mark.
+    #[test]
+    fn tab_attention_column_is_added_and_cleared_by_clear_or_close() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
+                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
+                   marked_unread INTEGER);",
+            )
+            .unwrap();
+        for _ in 0..2 {
+            let transaction = connection.transaction().unwrap();
+            add_tab_attention_column(&transaction).unwrap();
+            transaction.commit().unwrap();
+        }
+        let rows = |connection: &Connection| -> i64 {
+            connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap()
+        };
+        let mark = TabStateUpdate {
+            attention: Some(Some("Confirm GitHub access".into())),
+            ..Default::default()
+        };
+        let transaction = connection.transaction().unwrap();
+        update_tab_state(&transaction, "tab_a", &mark).unwrap();
+        update_tab_state(&transaction, "tab_b", &mark).unwrap();
+        transaction.commit().unwrap();
+        assert!(tab_has_attention(&connection, "tab_a").unwrap());
+        let stored: String = connection
+            .query_row("SELECT attention_json FROM tab_state WHERE tab_id = 'tab_a'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let stored: Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(stored["reason"], "Confirm GitHub access");
+        assert!(stored["at_ms"].as_u64().is_some());
+        let transaction = connection.transaction().unwrap();
+        let clear = TabStateUpdate { attention: Some(None), ..Default::default() };
+        update_tab_state(&transaction, "tab_a", &clear).unwrap();
+        clear_closed_tab_attention(&transaction, "tab_b").unwrap();
+        clear_closed_tab_attention(&transaction, "tab_never_marked").unwrap();
+        transaction.commit().unwrap();
+        assert!(!tab_has_attention(&connection, "tab_a").unwrap());
+        assert!(!tab_has_attention(&connection, "tab_b").unwrap());
+        assert_eq!(rows(&connection), 0);
+    }
+
+    #[test]
+    fn an_attention_reason_is_one_short_readable_line() {
+        let with = |reason: &str| TabStateUpdate {
+            attention: Some(Some(reason.to_string())),
+            ..Default::default()
+        };
+        assert!(with("Confirm GitHub access").validate().is_ok());
+        assert!(with("   ").validate().is_err());
+        assert!(with("two\nlines").validate().is_err());
+        assert!(with("two\u{2028}lines").validate().is_err(), "a line separator is two lines");
+        assert!(with("two\u{2029}lines").validate().is_err(), "a paragraph separator is two lines");
+        assert!(with(&"x".repeat(MAX_ATTENTION_REASON_BYTES + 1)).validate().is_err());
+        assert!(TabStateUpdate { attention: Some(None), ..Default::default() }.validate().is_ok());
+    }
+
+    /// A navigation clears a mark set on another page, and only that: a mark
+    /// an agent sets on the new page before the navigation's commit stays,
+    /// which a read outside the clearing transaction could not promise.
+    #[test]
+    fn a_navigation_clears_only_a_mark_set_on_another_page() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE tab_state (tab_id TEXT PRIMARY KEY NOT NULL, zoom REAL,
+                   back_json TEXT, forward_json TEXT, icon TEXT, emulation_json TEXT,
+                   marked_unread INTEGER, attention_json TEXT);",
+            )
+            .unwrap();
+        let mark = |reason: &str, page: Option<&str>| TabStateUpdate {
+            attention: Some(Some(reason.into())),
+            attention_page: page.map(str::to_string),
+            ..Default::default()
+        };
+        let (a, b) = ("https://github.com/login", "https://github.com/settings");
+        let transaction = connection.transaction().unwrap();
+        update_tab_state(&transaction, "tab_a", &mark("Log in to GitHub", Some(a))).unwrap();
+        update_tab_state(&transaction, "tab_t", &mark("Approve the prompt", None)).unwrap();
+        transaction.commit().unwrap();
+        let stored: String = connection
+            .query_row("SELECT attention_json FROM tab_state WHERE tab_id = 'tab_a'", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let shown = shown_attention(&stored).unwrap();
+        assert_eq!(shown["reason"], "Log in to GitHub");
+        assert!(shown.get("page").is_none(), "extra.attention shows no page: {shown}");
+
+        assert!(!tab_has_attention_off_page(&connection, "tab_a", a).unwrap());
+        assert!(tab_has_attention_off_page(&connection, "tab_a", b).unwrap());
+        let transaction = connection.transaction().unwrap();
+        assert!(!clear_attention_off_page(&transaction, "tab_a", a).unwrap(), "same page");
+        transaction.commit().unwrap();
+        assert!(tab_has_attention(&connection, "tab_a").unwrap());
+
+        // The agent marks the new page before the navigation's clear commits.
+        let transaction = connection.transaction().unwrap();
+        update_tab_state(&transaction, "tab_a", &mark("Approve the scopes", Some(b))).unwrap();
+        assert!(!clear_attention_off_page(&transaction, "tab_a", b).unwrap(), "a stale clear");
+        transaction.commit().unwrap();
+        assert!(tab_has_attention(&connection, "tab_a").unwrap(), "the new page's mark stays");
+
+        let transaction = connection.transaction().unwrap();
+        assert!(clear_attention_off_page(&transaction, "tab_a", a).unwrap(), "went back to a");
+        assert!(clear_attention_off_page(&transaction, "tab_t", a).unwrap(), "a mark with no page");
+        assert!(!clear_attention_off_page(&transaction, "tab_never_marked", a).unwrap());
+        transaction.commit().unwrap();
+        assert!(!tab_has_attention(&connection, "tab_a").unwrap());
+        assert!(!tab_has_attention(&connection, "tab_t").unwrap());
+        let rows: i64 =
+            connection.query_row("SELECT COUNT(*) FROM tab_state", [], |row| row.get(0)).unwrap();
+        assert_eq!(rows, 0, "a row left with no field is deleted");
     }
 }

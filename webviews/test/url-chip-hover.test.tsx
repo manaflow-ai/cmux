@@ -73,9 +73,11 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
   await act(async () => link.focus());
   const card = rootElement.querySelector<HTMLElement>(".cv-link-preview")!;
   expect(card.getAttribute("role")).toBe("dialog");
-  // A pull request's card names the host: its page title only repeats the pull request's own title.
-  expect(card.getAttribute("aria-label")).toBe("github.com");
-  expect(card.textContent).toContain("github.com");
+  // A pull request's card is named by its reference: its page title ("GitHub" here) only repeats
+  // the pull request's own title, and cmux has no title for it yet.
+  expect(card.getAttribute("aria-label")).toBe("manaflow-ai/cmux#21180");
+  expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("manaflow-ai/cmux#21180");
+  expect(card.textContent).not.toContain("GitHub");
   expect(card.querySelector("button")?.textContent).toContain("Open");
   await act(async () => card.querySelector<HTMLButtonElement>("button")!.focus());
   expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();

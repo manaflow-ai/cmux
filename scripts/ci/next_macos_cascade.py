@@ -22,8 +22,14 @@ Only CASCADE_JOBS take part, and only those the workflow says run on this route
 (CASCADE_RUNS: not fast-tier when vars.CI_FAST_LANE_RUNNER gives it its own
 runner, not a job path routing or labels skip), so no slot is spent on a job
 that never asks for it. The jobs that need a logged-in session (swift-test,
-daemon-test, generated-files) keep the gui route, and release-compile stays on
-the minis: only a mini fetches Chromium and compiles the CEF shim.
+daemon-test, generated-files) keep the gui route. release-compile cascades too
+(2026-10-21 ~20:10Z: 76 Release compiles queued on the minis); off a mini it
+skips the CEF shim compile, which is advisory and already skipped by a
+Blacksmith re-run. On attempt 1 of a feat-cmux-next push it compiles on the
+reserved promotion mini (PROMOTE_LABEL, vars.CI_NEXT_PROMOTE_POOL): while a
+runner there is idle it stays there and takes no slot, and with none idle it
+takes a Blacksmith slot ahead of the other jobs, since it gates the nightly-next
+request. It never counts against an idle side mini then: it does not run there.
 
 A slot counted free can still be taken by another run placing in the same
 snapshot window, and nothing rescues a job queued on Blacksmith. MAX_PER_RUN
@@ -107,7 +113,9 @@ IDLE_STALL_MINUTES = 5
 # at once, five whenever it had a queue (2026-10-19); 6 vCPU: ten online at 21:40Z.
 CAPACITY = {LARGE: 5, SMALL: 10}
 # Headless compile and test jobs. A job missing here never leaves the minis on attempt 1.
-CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile")
+CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile")
+# The jobs a feat-cmux-next push runs on the promotion mini (PROMOTE_LABEL) instead of the side label.
+PROMOTE_JOBS = ("release-compile",)
 MAX_PER_RUN = 2
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
@@ -252,8 +260,12 @@ def skipped(env: Mapping[str, str]) -> str:
 
 
 def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] | None,
-          waiting: Mapping[str, int] | None, seen: Seen | None = None) -> Placement:
-    """The Blacksmith and hosted jobs of attempt 1, after the idle minis took `owned`."""
+          waiting: Mapping[str, int] | None, seen: Seen | None = None, promote_busy: bool = False) -> Placement:
+    """The Blacksmith and hosted jobs of attempt 1, after the idle minis took `owned`.
+
+    With PROMOTE_LABEL set (a feat-cmux-next push), PROMOTE_JOBS run on that label: they cascade,
+    first, only when `promote_busy` (no idle runner carries it), and never take an idle side mini's turn.
+    """
     empty = {label: () for label in (*LABELS, HOSTED)}
     if skipped(env):
         return Placement(empty, "", skipped(env))
@@ -269,7 +281,9 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     # every side job takes the side label whatever owned_jobs says: so the idle
     # minis count against the jobs that run here, in order, before Blacksmith.
     running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
-    candidates = running[len(owned):]
+    promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
+    side = [job for job in running if job not in promoted]
+    candidates = (promoted if promote_busy else []) + side[len(owned):]
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
     placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
     # The overflow label counts the slots this run's own jobs just took.

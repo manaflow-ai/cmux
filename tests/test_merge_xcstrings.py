@@ -125,6 +125,51 @@ def test_disjoint_additions_merge():
     assert list(document["strings"]) == ["a", "b", "c"]
 
 
+def test_theirs_only_keys_keep_their_place_in_theirs():
+    """A key only theirs added lands where theirs has it, not at the end.
+
+    Merging the base into a pull request (ours is the PR, theirs the base) used
+    to append the base's new keys after all of ours. Squashing the PR then moved
+    those keys in the base: d0119cd7dec moved 111 keys of webviews' acpmux catalog
+    to its end, and every later merge reordered more of it.
+    """
+    base = catalog({"a": unit("A"), "b": unit("B"), "c": unit("C")})
+    ours = catalog({"a": unit("A"), "x": unit("X"), "b": unit("B"), "c": unit("C")})
+    theirs = catalog({"a": unit("A"), "b": unit("B"), "m": unit("M"), "n": unit("N"), "c": unit("C")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert list(json.loads(merged)["strings"]) == ["a", "x", "b", "m", "n", "c"]
+
+
+def test_theirs_only_keys_at_the_start_stay_first():
+    base = catalog({"a": unit("A"), "b": unit("B")})
+    ours = catalog({"a": unit("A"), "b": unit("B"), "y": unit("Y")})
+    theirs = catalog({"z": unit("Z"), "a": unit("A"), "b": unit("B")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert list(json.loads(merged)["strings"]) == ["z", "a", "b", "y"]
+
+
+def test_theirs_only_key_skips_a_neighbour_ours_deleted():
+    base = catalog({"a": unit("A"), "b": unit("B"), "c": unit("C")})
+    ours = catalog({"a": unit("A"), "c": unit("C")})
+    theirs = catalog({"a": unit("A"), "m": unit("M"), "b": unit("B"), "c": unit("C")})
+    code, merged, stderr = run(base, ours, theirs)
+    assert code == 0, stderr
+    assert list(json.loads(merged)["strings"]) == ["a", "m", "c"]
+
+
+def test_merging_the_base_in_leaves_the_base_order_alone():
+    """The squash of a PR that merged its base in differs from the base only by the PR's keys."""
+    base = catalog({key: unit(key) for key in "abcdef"})
+    pull_request = catalog({key: unit(key) for key in "abpcdef"})
+    newer_base = catalog({key: unit(key) for key in "abcqdreft"})
+    code, merged, stderr = run(base, pull_request, newer_base)
+    assert code == 0, stderr
+    merged_keys = list(json.loads(merged)["strings"])
+    assert [key for key in merged_keys if key != "p"] == list(newer_base["strings"])
+
+
 def test_theirs_only_top_level_keys_are_appended():
     base = catalog({"a": unit("A")})
     ours = catalog({"a": unit("A")})

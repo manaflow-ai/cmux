@@ -15,7 +15,8 @@ public nonisolated struct ImportScanner: Sendable {
     public var variables: [String: String]
     /// Browser profiles imported before (`<browser>/<profile folder>`, `ImportSourceRecord.sourceKey`): left out.
     public var importedProfiles: Set<String>
-    /// cmux Classic's saved workspaces on this Mac (nil: none, or Classic already moved over).
+    /// cmux Classic's saved workspaces on this Mac that are not here yet: nil when Classic has no
+    /// saved session, 0 when all of it already came over (Settings › Import still offers it again).
     public var classicWorkspaces: @Sendable () -> Int?
     /// Opens a file to learn whether it can be read (Safari's privacy-protected folder).
     public var probe: @Sendable (URL) -> FileAccess
@@ -178,7 +179,7 @@ public nonisolated struct ImportScanner: Sendable {
     // MARK: Terminals and cmux Classic
 
     func classic() -> ImportFinding? {
-        guard let workspaces = classicWorkspaces(), workspaces > 0 else { return nil }
+        guard let workspaces = classicWorkspaces() else { return nil }
         return ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: workspaces)
     }
 

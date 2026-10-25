@@ -237,6 +237,14 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
               shape: parts.map((part) => part.kind).join("+"),
             });
           }
+          // The quiet row's hover pill is the native selection pill's size (Leo 2026-10-22: "the
+          // highlight pill is too small"): its text sits 8 px in from the pill's leading edge.
+          if (rowName === "foot")
+            for (const inside of insides)
+              if (inside.lead < 7.5)
+                problems.push(
+                  `foot: ${inside.name}'s pill starts ${inside.lead.toFixed(1)} px before its text, not 8 px`,
+                );
           // Location and composer pickers share the same optical correction for their down-chevron.
           // The model button draws none, as Claude Code's (Leo 2026-10-20); the mode keeps its own.
           for (const control of controls.filter(({ name }) => name === "mode"))

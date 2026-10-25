@@ -123,4 +123,3 @@ webviews/test/transcript-switch-back.test.tsx	sleep-then-assert	feat-cmux-next d
 webviews/test/transport-errors-full-access-off.test.ts	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/url-chip-hover.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
 webviews/test/whats-new-by-area.test.tsx	sleep-then-assert	feat-cmux-next debt before the gate ran there
-Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarGroupToggleScalingTests.swift	sleep-then-assert	the 20 ms sleep is the off-CPU wait the CPU-time budget must ignore, not synchronization

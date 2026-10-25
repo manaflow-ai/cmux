@@ -525,10 +525,13 @@ async fn the_daemon_start_and_a_chat_start_make_no_keychain_call() {
     let log = dir.join("calls.log");
     let cli_calls = dir.join("cli-calls.log");
     // The person's login shell sets a secret: its value is never cached, so
-    // the second start asks whether Claude signs in without the shell.
+    // the second start asks whether Claude signs in without the shell. It is
+    // no Claude credential: a login-shell ANTHROPIC_API_KEY signs Claude in
+    // (bfb1c438ef37, #22375), and here Claude's only sign-in is the keychain,
+    // which acpmux never reads, so its sign-in stays unknown.
     let home = daemon_env::home(&dir);
     std::fs::create_dir_all(&home).unwrap();
-    std::fs::write(home.join(".zshrc"), "export ANTHROPIC_API_KEY=sk-ant-test-login-shell\n")
+    std::fs::write(home.join(".zshrc"), "export ANTHROPIC_TEST_SECRET=sk-ant-test-login-shell\n")
         .unwrap();
     script(
         &dir.join("loginsh"),
@@ -600,7 +603,7 @@ async fn the_daemon_start_and_a_chat_start_make_no_keychain_call() {
     assert!(
         std::fs::read_to_string(dir.join("login-env.json"))
             .unwrap_or_default()
-            .contains("ANTHROPIC_API_KEY"),
+            .contains("ANTHROPIC_TEST_SECRET"),
         "the login shell cache names no secret"
     );
 

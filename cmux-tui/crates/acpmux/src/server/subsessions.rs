@@ -6,17 +6,26 @@
 //!   (a)): a unix socket connection whose `initialize` carried a matching
 //!   `callerSession`. A request field never names the caller. `send` reaches
 //!   a descendant or the caller's own parent; `get` and `stop` a descendant.
+//! - `start {parent?, prompt, name?, harness?, model?, effort?, cwd?, worktree?}`: `parent`
+//!   (`acpmux new|run --parent`) names the session the child starts under, of any harness
+//!   family. A caller names itself or a descendant it may write to
+//!   (`Hub::subsession_write_target`, as `send` and `stop`); the person (the app's proof) names
+//!   any session here. Left out, it is the caller.
+//! - `start`'s `host`: `auto` or `auto-build` weighs this machine with the
+//!   placement engine first and refuses when it has no room; the reply's
+//!   `placed` says why it went ahead (`server/place.rs` `subsession_host`).
 //! - `_acpmux/subsession/answer {sessionId, permissionId, answers}`: the
 //!   caller answers a descendant's pending question, never a permission
 //!   prompt (`hub/subsession_answer.rs`).
-//! - `_acpmux/subsession/limits {sessionId, maxChildren?, maxDepth?}` (a
-//!   number sets, null clears, absent keeps): the person (the app) for any
+//! - `_acpmux/subsession/limits {sessionId, maxChildren?, maxDepth?, maxRunning?}`
+//!   (a number sets, null clears, absent keeps): the person (the app) for any
 //!   session, or a calling session for one of its descendants within its own
-//!   limits.
+//!   limits. `{workspaceId, maxRunning?}`: the person only, a workspace's
+//!   `maxRunning` (`hub/subsession_runs.rs`).
 
 use super::{Conn, str_param};
-use crate::hub::Hub;
 use crate::hub::subsessions::{LimitsActor, StartRequest};
+use crate::hub::{Hub, Session};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -51,6 +60,26 @@ fn caller_required(hub: &Hub, conn: &Conn) -> RpcError {
     .with_data(json!({"reason": "subsessions.caller_required"}))
 }
 
+/// The session a start acts for: the proven caller, itself or a descendant it names as
+/// `parent`, or the session the person names. Any other connection is refused, as for every
+/// sub-session tool: the child runs its parent's policy and mode, so naming a parent widens.
+fn start_parent(hub: &Hub, conn: &Conn, params: &Value) -> Result<Arc<Session>, RpcError> {
+    let named = str_param(params, "parent").filter(|p| !p.is_empty());
+    match (conn.caller(), named) {
+        (Some(caller), named) => {
+            let caller = hub.resolve(caller)?;
+            match named {
+                Some(key) if hub.resolve(key)?.id != caller.id => {
+                    hub.subsession_write_target(&caller, key, false)
+                }
+                _ => Ok(caller),
+            }
+        }
+        (None, Some(key)) if conn.is_person() => hub.resolve(key),
+        (None, _) => Err(caller_required(hub, conn)),
+    }
+}
+
 /// A limit field: absent keeps it, null clears it, a number sets it.
 fn limit(params: &Value, key: &str) -> Result<Option<Option<u32>>, RpcError> {
     match params.get(key) {
@@ -71,6 +100,15 @@ async fn handle(
     params: &Value,
 ) -> Result<Value, RpcError> {
     if m == method::MUX_SUBSESSION_LIMITS {
+        if params.get("workspaceId").is_some() && params.get("sessionId").is_some() {
+            return Err(RpcError::invalid_params("name a sessionId or a workspaceId, not both"));
+        }
+        if let Some(workspace) = str_param(params, "workspaceId") {
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("changing a workspace's limits"));
+            }
+            return hub.set_workspace_run_limit(workspace, limit(params, "maxRunning")?);
+        }
         let key = str_param(params, "sessionId")
             .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
         let target = hub.resolve(key)?;
@@ -86,24 +124,33 @@ async fn handle(
             &target,
             limit(params, "maxChildren")?,
             limit(params, "maxDepth")?,
+            limit(params, "maxRunning")?,
         );
+    }
+    if m == method::MUX_SUBSESSION_START {
+        let parent = start_parent(hub, conn, params)?;
+        // Weighed before anything starts: a refused placement makes no child.
+        let placed = super::place::subsession_host(hub, str_param(params, "host")).await?;
+        let text = |k: &str| str_param(params, k).map(str::to_owned);
+        let req = StartRequest {
+            prompt: text("prompt").unwrap_or_default(),
+            name: text("name"),
+            harness: text("harness"),
+            model: text("model"),
+            effort: text("effort"),
+            cwd: text("cwd").map(PathBuf::from),
+            worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+        };
+        let mut started = hub.start_subsession(&parent, req).await?;
+        if let Some(placed) = placed {
+            started["placed"] = json!(placed);
+        }
+        return Ok(started);
     }
     // The caller token is read only on the unix socket (`server/mod.rs`).
     let caller = conn.caller().ok_or_else(|| caller_required(hub, conn))?;
     let caller = hub.resolve(caller)?;
     match m {
-        method::MUX_SUBSESSION_START => {
-            let text = |k: &str| str_param(params, k).map(str::to_owned);
-            let req = StartRequest {
-                prompt: text("prompt").unwrap_or_default(),
-                name: text("name"),
-                harness: text("harness"),
-                model: text("model"),
-                cwd: text("cwd").map(PathBuf::from),
-                worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
-            };
-            hub.start_subsession(&caller, req).await
-        }
         method::MUX_SUBSESSION_LIST => {
             let all = str_param(params, "scope") == Some("descendants");
             Ok(hub.subsession_list(&caller, all))

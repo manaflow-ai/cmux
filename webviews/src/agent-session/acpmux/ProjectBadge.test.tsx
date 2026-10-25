@@ -1,7 +1,7 @@
 // A project's badge in the pickers (the New Tab strip, the composer's folder menu) shows the
-// project's own favicon when the host finds one (`project.icon`, read on this Mac only), else its
-// framework's mark, and a folder otherwise: no icon, a refusal, or a remote project, which the page
-// never asks about.
+// project's own icon when the host finds one (`project.icon`, read on this Mac only), else its
+// framework's mark, and a plain folder otherwise: no icon, a refusal, or a remote project, which the
+// page never asks about.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -72,15 +72,17 @@ test("a local project with a favicon shows it in its badge", async () => {
   expect(badge.textContent).toBe("");
 });
 
-test("a project with no favicon shows a folder", async () => {
+// Leo 2026-10-21 on the New Tab project picker: two-letter tiles (PR, CM, CG, LW) with a grey dot.
+test("a project with no icon and no language draws a folder, never its letters", async () => {
   setProjectIconHost(async () => ({}));
   const badge = await render({ cwd: "/Users/me/code/cmux-next", label: "cmux next" });
   expect(badge.querySelector("img")).toBeNull();
-  expect(badge.querySelector(".acpmux-project-folder")).not.toBeNull();
+  expect(badge.hasAttribute("data-project-folder")).toBe(true);
+  expect(badge.querySelector("svg path")).not.toBeNull();
   expect(badge.textContent).toBe("");
 });
 
-test("a project with no favicon shows its framework's mark in the brand color", async () => {
+test("a project with no image shows its framework's mark in the brand color", async () => {
   setProjectIconHost(async () => ({ glyph: "vite" }));
   const badge = await render({ cwd: "/Users/me/code/app", label: "app" });
   expect(badge.dataset.projectGlyph).toBe("vite");
@@ -88,18 +90,44 @@ test("a project with no favicon shows its framework's mark in the brand color", 
   expect(badge.style.getPropertyValue("--acpmux-project-badge")).toBe(GLYPHS.vite.color);
 });
 
-test("a glyph the page does not know shows the folder", async () => {
+test("a glyph the page does not know draws the folder", async () => {
   setProjectIconHost(async () => ({ glyph: "cobol" }));
   const badge = await render({ cwd: "/Users/me/code/mainframe", label: "mainframe" });
   expect(badge.dataset.projectGlyph).toBeUndefined();
-  expect(badge.querySelector(".acpmux-project-folder")).not.toBeNull();
+  expect(badge.hasAttribute("data-project-folder")).toBe(true);
 });
 
-test("an answer that is not an image data URL shows the folder", async () => {
+test("an empty first answer does not cache the generic folder over a later project icon", async () => {
+  let calls = 0;
+  setProjectIconHost(async () => {
+    calls += 1;
+    return calls === 1 ? {} : { src: ICON };
+  });
+  const first = await render({ cwd: "/Users/me/code/recover", label: "recover" });
+  expect(first.querySelector("img")).toBeNull();
+  act(() => root?.unmount());
+  root = createRoot(document.getElementById("root")!);
+  await act(async () => {
+    root!.render(<ProjectBadge project={{ cwd: "/Users/me/code/recover", label: "recover" }} />);
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(document.querySelector(".acpmux-project-badge img")?.getAttribute("src")).toBe(ICON);
+});
+
+test("an answer that is not an image data URL draws the folder", async () => {
   setProjectIconHost(async () => ({ src: "https://example.com/favicon.ico" }));
   const badge = await render({ cwd: "/Users/me/code/elsewhere", label: "elsewhere" });
   expect(badge.querySelector("img")).toBeNull();
-  expect(badge.querySelector(".acpmux-project-folder")).not.toBeNull();
+  expect(badge.hasAttribute("data-project-folder")).toBe(true);
+  expect(badge.textContent).toBe("");
+});
+
+test("no badge draws a corner dot, whatever its kind", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  expect(css).not.toMatch(/\.acpmux-project-badge[^{,]*::(?:after|before)\s*\{/);
 });
 
 test("a remote project never asks this Mac for an icon", async () => {
@@ -111,7 +139,7 @@ test("a remote project never asks this Mac for an icon", async () => {
   const badge = await render({ cwd: "/home/me/api", label: "api", peer: "devbox" });
   expect(asked).toEqual([]);
   expect(badge.querySelector("img")).toBeNull();
-  expect(badge.querySelector(".acpmux-project-folder")).not.toBeNull();
+  expect(badge.textContent).toBe("");
 });
 
 test("a badge that moves to another project drops the old icon before the host answers", async () => {
@@ -126,7 +154,7 @@ test("a badge that moves to another project drops the old icon before the host a
   });
   const moved = document.querySelector<HTMLElement>(".acpmux-project-badge")!;
   expect(moved.querySelector("img")).toBeNull();
-  expect(moved.querySelector(".acpmux-project-folder")).not.toBeNull();
+  expect(moved.hasAttribute("data-project-folder")).toBe(true);
   await act(async () => answer({}));
 });
 

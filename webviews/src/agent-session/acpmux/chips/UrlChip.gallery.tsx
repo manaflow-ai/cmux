@@ -74,10 +74,16 @@ export default componentEntry<UrlChipProps>({
   ],
   load: () => import("./LinkChips").then((module) => module.UrlChip),
   styles: () =>
-    Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),
+    Promise.all([
+      import("../../shared/styles.css"),
+      import("../styles.css"),
+      import("../conversation/conversation.css"),
+      import("./chips.css"),
+    ]),
   widths: { narrow: 360, normal: 640, wide: 860 },
   variants: {
     globe: { props: { href: "https://example.test/docs/getting-started", children: "example.test/docs" } },
+    // The favicon and title cmux has show in the hover card the play opens; the chip keeps its text.
     "cached-favicon": {
       chipHost: host,
       props: { href: "https://docs.example.test/guide", children: "Example docs" },
@@ -98,20 +104,122 @@ export default componentEntry<UrlChipProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
       },
     },
-    "pull-request": {
+    // Design variations for Leo's hover-card review. `pull-request-polished` is the chosen
+    // hierarchy: title, state/checks, author/time, compact diff, then secondary context.
+    "pull-request-polished": {
       chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: GALLERY_NOW / 1000 - 20 }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
     },
-    "pull-request-lines-by-kind": {
-      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: GALLERY_NOW / 1000 - 20 }),
+    "pull-request-polished-draft": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "cmux NEXT: the composer keeps its caret on a slow send",
+          state: "draft",
+          review: "",
+          mergeable: "mergeable",
+          labels: ["risk:low"],
+          checks: { state: "pending", passed: 12, total: 40 },
+          checkList: [],
+          files: [file("webviews/src/agent-session/acpmux/Composer.tsx", 41, 9)],
+          additions: 41,
+          deletions: 9,
+          changedFiles: 1,
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 15,
+      }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
-      play: async (ctx) => {
-        await openCard(ctx);
-        // A click pins the breakdown, so it stays open however the stage settles.
-        await ctx.click({ selector: ".acpmux-pr-card__lines" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
-      },
+      play: openCard,
+    },
+    "pull-request-polished-merged": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "nightly-next: new builds go to the Dev ring first and move to Nightly on a canary pass",
+          state: "merged",
+          mergeable: "",
+          review: "approved",
+          checks: { state: "failing", passed: 118, total: 122, failingOnBase: 4 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    "pull-request-polished-long-title": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "nightly-next: new builds go to the Dev ring first and move to Nightly on a canary pass",
+          review: "",
+          mergeable: "mergeable",
+          labels: ["risk:high"],
+          checks: { state: "passing", passed: 100, total: 100 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    // The theme-color pass keeps all three semantic inks visible together: additions, deletions
+    // and the passing/failing check count. The matrix renders this state in dark, light and
+    // colorful terminal themes for before/after review.
+    "pull-request-theme-colors": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          title: "cmux NEXT: terminal theme colors carry through status text",
+          review: "approved",
+          mergeable: "mergeable",
+          labels: ["risk:normal", "theme"],
+          checks: { state: "failing", passed: 97, total: 100 },
+          checkList: [{ name: "cmux-next / web lint", state: "failed" }],
+          files: [
+            file("webviews/src/agent-session/acpmux/chips/linkCard.css", 22, 18),
+            file("webviews/src/agent-session/acpmux/conversation/conversation.css", 30, 30),
+            file("webviews/test/agent-status-colors.test.ts", 96, 0),
+          ],
+          additions: 148,
+          deletions: 48,
+          changedFiles: 3,
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 12,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#theme-colors" },
+      play: openCard,
+    },
+    // A red the base branch already has: the compact ✓/✗ count says how many of the failures are not
+    // this pull request's, and the ✗ reads muted when none of them are.
+    "pull-request-base-reds": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          review: "",
+          mergeable: "mergeable",
+          checks: { state: "failing", passed: 98, total: 100, failingOnBase: 1 },
+          checkList: [
+            { name: "cmux-next / cmux-next generated files", state: "failed", onBase: true },
+            { name: "cmux-next web / web lint (fast)", state: "failed" },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    "pull-request-all-reds-on-base": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          review: "approved",
+          mergeable: "mergeable",
+          checks: { state: "failing", passed: 98, total: 100, failingOnBase: 2 },
+          checkList: [
+            { name: "cmux-next / cmux-next generated files", state: "failed", onBase: true },
+            { name: "cmux-next web / web lint (fast)", state: "failed", onBase: true },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
     },
     "pull-request-no-tests": {
       chipHost: prHost({
@@ -141,6 +249,43 @@ export default componentEntry<UrlChipProps>({
         fetchedAt: GALLERY_NOW / 1000 - 23 * 60,
       }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    // Merged: the pull request glyph in purple and no checks line (a merged pull request's reds
+    // no longer matter), however red its last run was.
+    "pull-request-merged": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "merged",
+          mergeable: "",
+          review: "approved",
+          checks: { state: "failing", passed: 118, total: 122, failingOnBase: 4 },
+          checkList: [
+            { name: "cmux-next / web lint (fast)", state: "failed", onBase: true },
+            { name: "cmux-next / package tests", state: "failed", onBase: true },
+            { name: "cmux-next / generated files", state: "failed", onBase: true },
+            { name: "cmux-next / gallery", state: "failed", onBase: true },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
+      play: openCard,
+    },
+    // Closed: the glyph in red, and no checks line either.
+    "pull-request-closed": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "closed",
+          mergeable: "",
+          review: "",
+          labels: [],
+          checks: { state: "passing", passed: 100, total: 100 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
       play: openCard,
     },
     "long-url": {
