@@ -23,6 +23,7 @@ the "not now" in [browser-isolation.md](browser-isolation.md). Paths: `S/` = `Pa
 | Pages: a child `NSWindow` per page (fork `CmuxParentViewTracker`), or with fork API 26 the page's `DisplayCALayerTree` in a tracker-owned `CAContext` that cmux shows with a `CALayerHost` | `fork:libcef/browser/chrome/views/chrome_child_window_mac.mm:961-1006`, `S/CEFLayerHosting.swift`, `S/CEFHostedPageView.swift` | the context is made on `CGSMainConnectionID()` and the app gets only its id: this part already works across processes |
 | Shim ABI: 132 C exports, one event callback, 4 synchronous callbacks (key with an `NSEvent*`, focus request, window request, DevTools key), `NSView*` arguments (`create_window`, `devtools_set_placement`, `popup_window_attach`) | `S/Shim/cmux_cef_shim.h` | pointers and synchronous answers cannot cross a process |
 | Chromium's own UI (bubbles, `<select>`, autofill, JS dialogs, HTTP auth, file pickers, print preview, extension popups, DevTools windows, WebAuthn sheets) | Views widgets of the browser process | they are `NSWindow`s of the browser process |
+| Chromium's child-process waits in the pump (the same probe, step 6ebef007): 32 `waitpid` calls, 19.3 ms of the 20.1 ms the probe gave the pump closure in `CEFRuntime.initialize` (`cmux_shim_do_work` -> `CefDoMessageLoopWork`), inside Chromium's own code (no symbols: the child is not named) | `CefDoMessageLoopWork` on cmux's main thread, today | one more measured reason for the host move: the pump's work, waits included, leaves cmux's main thread with the browser process |
 
 ## 3. Design
 
