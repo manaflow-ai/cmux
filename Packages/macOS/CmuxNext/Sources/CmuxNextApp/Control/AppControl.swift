@@ -80,8 +80,8 @@ final class AppControl {
         // under the batch's scope, and the batch's end commits its part in each (StoreStage).
         service.bridge.stager = { [weak services] scope, deadline in
             guard let services else { return nil }
-            let stages = services.machines.daemons.map { $0.store.openStage(for: scope, until: deadline) }
-            return { for stage in stages { stage.commit() } }
+            let batches = services.machines.daemons.map { $0.store.openStage(for: scope, until: deadline) }
+            return { for batch in batches { batch.commit() } }
         }
         registerSyncBarrier(service.router, daemon: services.daemon)
         service.router.register(HistoryControl.methods(services: services))
