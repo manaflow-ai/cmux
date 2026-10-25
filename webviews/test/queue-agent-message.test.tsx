@@ -53,9 +53,8 @@ afterAll(() => {
 
 const { createRoot } = await import("react-dom/client");
 const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
-const { QueuedMessageActionsContext, QueuedMessageCard } = await import(
-  "../src/agent-session/acpmux/conversation/QueuedMessageCard"
-);
+const { QueuedMessageActionsContext, QueuedMessageCard } =
+  await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
 const { queuedMessageRows } = await import("../src/agent-session/acpmux/conversation/queuedMessages");
 
 const t = translatorFor("en");
