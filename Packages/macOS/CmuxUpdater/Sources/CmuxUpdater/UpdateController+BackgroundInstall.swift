@@ -10,22 +10,22 @@ extension UpdateController {
         set { driver.installsInBackground = newValue }
     }
 
-    /// Whether a staged background update should enter the safe idle relaunch gate automatically.
-    /// The gate waits for active agent turns, running commands and recent user input.
+    /// Whether a staged background update should install automatically once ready. A host that
+    /// preserves daemon sessions across app relaunches bypasses the relaunch gate entirely.
     public var installsUpdatesWhenIdle: Bool {
         get { driver.installsWhenIdle }
         set { driver.installsWhenIdle = newValue }
     }
 
-    /// The longest an automatic idle install waits for agents, commands and input before it
-    /// relaunches anyway (default 15 minutes).
+    /// The legacy idle-install wait cap for hosts that opt into ``UpdateRelaunchGate``. cmux-next
+    /// leaves the setting available for diagnostics but disables the gate with `holdsUserInstalls`.
     public var idleInstallWaitCap: Duration {
         get { driver.relaunchGate.automaticWaitCap }
         set { driver.relaunchGate.automaticWaitCap = newValue }
     }
 
-    /// Whether an install the user asked for (a click, Install Now, Restart Now) waits for busy
-    /// agents and running commands. Automatic idle installs always wait.
+    /// Whether this host uses the relaunch gate for user and automatic installs. Set this to false
+    /// when the daemon keeps agents and running commands alive across an app relaunch.
     public var holdsUserInstalls: Bool {
         get { driver.holdsUserInstalls }
         set { driver.holdsUserInstalls = newValue }
