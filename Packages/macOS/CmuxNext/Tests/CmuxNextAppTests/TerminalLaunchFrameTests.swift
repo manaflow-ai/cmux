@@ -80,6 +80,15 @@ import Testing
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "a frame is shown once per launch")
     }
 
+    /// Slice (c) of the main-thread sweep: the frame (up to 16 MB) was read and decoded on the main thread.
+    @Test func aSavedFrameIsReadOffTheMainThread() async throws {
+        let directory = try await Self.saved(["tab-1": Self.frame(Self.size, scale: 2)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let probe = LaunchReadProbe()
+        #expect(TerminalLaunchFrames(directory: directory, reader: probe.reader).take("tab-1")?.size == Self.size)
+        #expect(probe.reads == [false], "the saved frame was read on the main thread")
+    }
+
     @Test func aFrameSavedOnAScreenOfAnotherScaleIsNotShown() async throws {
         let reveal = LaunchReveal(deadline: .seconds(60))
         let pane = Pane(reveal: reveal)
