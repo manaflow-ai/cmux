@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 public import Foundation
 
 /// What each agent chat's page held that acpmux does not (``AgentPaneWakeState``: the composer's
@@ -28,8 +29,15 @@ public final class AgentPaneRelaunchWake {
     /// Asks a live page what it holds, within the limit (``AgentPaneView/wakeState(limit:)``).
     public var read: @MainActor (AgentPaneView, Duration) async -> AgentPaneWakeState? = { await $0.wakeState(limit: $1) }
 
-    public init(file: URL?) {
+    /// Reads the saved states.
+    private let reader: LaunchFileReader
+
+    /// - Parameters:
+    ///   - file: The JSON file; nil keeps nothing.
+    ///   - reader: Reads it at launch; default from disk (tests record where it runs).
+    public init(file: URL?, reader: LaunchFileReader = LaunchFileReader()) {
         self.file = file
+        self.reader = reader
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
@@ -58,9 +66,7 @@ public final class AgentPaneRelaunchWake {
             try? FileManager.default.removeItem(at: file)
             if let folder { try? FileManager.default.removeItem(at: folder) }
         }
-        guard let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
-              // concurrency-allow: one capped read of a small local state file when the tab store is made
-              let data = try? Data(contentsOf: file) else { return [:] }
+        guard let data = reader.data(at: file, maximumBytes: Self.maximumBytes) else { return [:] }
         let decoder = JSONDecoder()
         let saved = (try? decoder.decode([String: Saved].self, from: data))
             // A file the last build wrote, contents inline.

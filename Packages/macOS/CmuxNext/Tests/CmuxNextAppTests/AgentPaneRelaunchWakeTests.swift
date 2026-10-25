@@ -223,6 +223,20 @@ struct AgentPaneRelaunchWakeTests {
         #expect(store.take() == inline, "a save the last build wrote did not come back")
     }
 
+    /// Slice (c) of the main-thread sweep: the launch read the states (up to 8 MB) and their attachments'
+    /// files (up to 128 MB) on the main thread as it made the tab store.
+    @Test func theSavedStatesAreReadOffTheMainThread() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let held = AgentPaneWakeState(shell: true, shellText: "ls")
+        await AgentPaneRelaunchWake(file: file).save(["tab_a": held])
+        let probe = LaunchReadProbe()
+        #expect(AgentPaneRelaunchWake(file: file, reader: probe.reader).take() == ["tab_a": held])
+        #expect(probe.reads == [false], "the saved states were read on the main thread")
+    }
+
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.
     @Test func anEmptyComposerLeavesNoFile() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
