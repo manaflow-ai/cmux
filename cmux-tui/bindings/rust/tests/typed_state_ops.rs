@@ -220,6 +220,7 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         assert_eq!(params["forward"], json!([]));
         assert_eq!(params["owner"], "install-a");
         assert_eq!(params["icon"], "hammer.fill");
+        assert_eq!(params["attention"], "Log in to GitHub");
         mutation_ok(
             stream,
             &update,
@@ -229,6 +230,7 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         let clear = request(reader, "tab.update");
         assert_eq!(clear["params"]["zoom"], Value::Null);
         assert_eq!(clear["params"]["icon"], Value::Null);
+        assert_eq!(clear["params"]["attention"], Value::Null);
         assert!(clear["params"].get("back").is_none());
         mutation_ok(stream, &clear, tab_snapshot(json!({})));
     });
@@ -244,12 +246,18 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
             forward: Some(vec![]),
             owner: Some("install-a".into()),
             icon: Update::Set("hammer.fill".into()),
+            attention: Update::Set("Log in to GitHub".into()),
         })
         .unwrap();
     assert_eq!(updated.value.extra["owner"], "install-a");
     assert_eq!(updated.value.extra["icon"], "hammer.fill");
-    tab.update(TabUpdateOptions { zoom: Update::Clear, icon: Update::Clear, ..Default::default() })
-        .unwrap();
+    tab.update(TabUpdateOptions {
+        zoom: Update::Clear,
+        icon: Update::Clear,
+        attention: Update::Clear,
+        ..Default::default()
+    })
+    .unwrap();
 
     // Catalog limits are refused before any request.
     for invalid in [
@@ -259,6 +267,17 @@ fn tab_pin_unpin_and_update_send_their_operations_and_decode_tab_snapshots() {
         TabUpdateOptions { back: Some(vec![String::new(); 21]), ..Default::default() },
         TabUpdateOptions { owner: Some(String::new()), ..Default::default() },
         TabUpdateOptions { icon: Update::Set(String::new()), ..Default::default() },
+        TabUpdateOptions { attention: Update::Set("  ".into()), ..Default::default() },
+        TabUpdateOptions { attention: Update::Set("x".repeat(201)), ..Default::default() },
+        TabUpdateOptions { attention: Update::Set("two\nlines".into()), ..Default::default() },
+        TabUpdateOptions {
+            attention: Update::Set("two\u{2028}lines".into()),
+            ..Default::default()
+        },
+        TabUpdateOptions {
+            attention: Update::Set("two\u{2029}lines".into()),
+            ..Default::default()
+        },
     ] {
         assert!(matches!(tab.update(invalid), Err(Error::InvalidArgument(_))));
     }

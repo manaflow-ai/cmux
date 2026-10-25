@@ -243,6 +243,7 @@ struct BrowserDownloadsPopupView: View {
                                 .frame(height: Self.rowHeight)
                         }
                     }
+                    .thinScrollers()
                     .id(model.shows)
                     .padding(.vertical, 4)
                 }
@@ -326,7 +327,7 @@ private struct BrowserDownloadPopupRow: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help(BrowserHitStrings.downloadShowInFinder)
+                    .themedHelp(BrowserHitStrings.downloadShowInFinder)
                     .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
                 }
             }
@@ -340,7 +341,8 @@ private struct BrowserDownloadPopupRow: View {
             overRow = inside
             if inside { model.pointerEntered() }
         }
-        .help(download.filename)
+        // The name truncates in the middle, so hovering the row shows it whole.
+        .themedHelp(download.filename)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.downloads.row")
     }
@@ -444,8 +446,11 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
         onOpen(file)
     }
 
+    /// The row's right-click menu: a standard macOS menu in this row's light or dark look.
+    func themedMenu() -> NSMenu? { menuProvider()?.themeRows(in: themeScope.fullStrength) }
+
     override func rightMouseDown(with event: NSEvent) {
-        guard let menu = menuProvider() else { return super.rightMouseDown(with: event) }
+        guard let menu = themedMenu() else { return super.rightMouseDown(with: event) }
         NSMenu.popUpContextMenu(menu, with: event, for: self)
     }
 
@@ -457,5 +462,8 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
 /// The popup's content: a click on a control (a footer button) acts on the
 /// first click, also while the popup opened without the keys.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    // A main-actor generic class's isolated deinit crashes the Release compile (swift-frontend 6.3, macOS 14 target).
+    nonisolated deinit {}
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

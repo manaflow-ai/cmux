@@ -69,6 +69,7 @@
 //! Bounds: pages of at most [`MAX_PAGE_BYTES`] (acpmux's own page size), 16
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
+use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -535,7 +536,7 @@ impl From<LinkError> for Failure {
             LinkError::Busy => Self::Refusal(Refusal::Limit),
             LinkError::MethodNotFound(message) => Self::Acpmux(message),
             LinkError::Rpc(message, data) => {
-                let moving = data["transferId"].as_str().filter(|id| is_plain_id(id));
+                let moving = data.field("transferId").as_str().filter(|id| is_plain_id(id));
                 match moving {
                     Some(id) if message.starts_with("transfer.moving") => {
                         Self::Moving(message, id.to_owned())
@@ -846,26 +847,27 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
         Prepared::Receive { manifest, guard, cwd, moved } => {
             let params = json!({"manifest": manifest, "guard": guard});
             let answer = call("_acpmux/transfer_receive", params, CALL_TIMEOUT)?;
-            let receive_id = answer["receiveId"].as_str().filter(|id| is_plain_id(id));
-            let (Some(receive_id), true) = (receive_id, answer["guarded"] == json!(true)) else {
+            let receive_id = answer.field("receiveId").as_str().filter(|id| is_plain_id(id));
+            let (Some(receive_id), true) = (receive_id, *answer.field("guarded") == json!(true))
+            else {
                 return Err(Refusal::Unguarded.into());
             };
             // Before the pump learns the receive: it can always ask about it.
             mux.remember_askable_receive(receive_id, &moved);
             let entry = Receive { cwd, moved, touched: Instant::now(), finishing: false };
             lock(&transfers.receives).insert(receive_id.to_owned(), entry);
-            Ok(json!({"receive_id": receive_id, "session_id": answer["sessionId"]}))
+            Ok(json!({"receive_id": receive_id, "session_id": answer.field("sessionId")}))
         }
         Prepared::Write { receive_id, path, offset, data } => {
             let params = json!({"receiveId": receive_id, "path": path, "offset": offset,
                                 "data": data});
             let answer = call("_acpmux/transfer_write", params, CALL_TIMEOUT)?;
-            Ok(json!({"next": answer["next"]}))
+            Ok(json!({"next": answer.field("next")}))
         }
         Prepared::Finish { receive_id, cwd, name } => {
             let mut params = json!({"receiveId": receive_id, "cwd": cwd});
             if let Some(name) = name {
-                params["name"] = json!(name);
+                params.insert("name", json!(name));
             }
             // Only once acpmux is reached: a finish that never ran leaves
             // the receive askable.
@@ -877,7 +879,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             drop(finishing);
             let session = finished?;
             // acpmux's own answer, never a client's id: this machine's chat now.
-            if let Some(landed) = session["sessionId"].as_str() {
+            if let Some(landed) = session.field("sessionId").as_str() {
                 mux.remember_landed_agent_session(landed);
             }
             Ok(json!({"session": session}))
@@ -889,7 +891,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let source_session = session.clone();
             let params = json!({"sessionId": session, "interrupt": interrupt});
             let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;
-            let transfer_id = manifest["transferId"]
+            let transfer_id = manifest
+                .field("transferId")
                 .as_str()
                 .filter(|id| is_plain_id(id))
                 .ok_or(Refusal::Refused)?
@@ -907,6 +910,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
             // The chat is leaving this machine: no new tab of it may name it.
             mux.forget_landed_agent_session(&source_session);
+            mux.control_clients.agent_sessions.known_children.forget(&source_session);
             Ok(json!({"transfer_id": transfer_id, "source_session": source_session,
                        "manifest": manifest}))
         }
@@ -914,14 +918,16 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let params =
                 json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": limit});
             let page = call("_acpmux/transfer_read", params, CALL_TIMEOUT)?;
-            Ok(json!({"data": page["data"], "next": page["next"], "eof": page["eof"]}))
+            Ok(
+                json!({"data": page.field("data"), "next": page.field("next"), "eof": page.field("eof")}),
+            )
         }
         Prepared::Answer(answer) => Ok(answer),
         Prepared::Forget { receive_id, moved: Moved { transfer_id, session_id }, live } => {
             let params = json!({"transferId": transfer_id, "sessionId": session_id});
             Ok(match call("_acpmux/transfer_forget", params, CALL_TIMEOUT) {
                 Ok(answer) => {
-                    json!({"dropped": true, "forgotten": true, "landed": answer["landed"]})
+                    json!({"dropped": true, "forgotten": true, "landed": answer.field("landed")})
                 }
                 Err(_) => {
                     // Not forgotten: the receive stays askable, the landing unknown.
@@ -935,6 +941,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
             lock(&transfers.moves).remove(&transfer_id);
             mux.forget_landed_agent_session(&session);
+            mux.control_clients.agent_sessions.known_children.forget(&session);
             Ok(json!({"committed": true}))
         }
         Prepared::Abort { session, transfer_id } => {

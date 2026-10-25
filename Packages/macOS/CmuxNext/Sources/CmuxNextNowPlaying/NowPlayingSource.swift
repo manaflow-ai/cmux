@@ -32,7 +32,7 @@ extension NowPlayingSource {
 extension SidebarModel {
     /// Shows `source` on the Now Playing card while `sidebar.nowPlaying.enabled` is on (off by
     /// default) and `dismissal` does not hide it, and on the New Tab page while
-    /// `tabs.newTabNowPlaying` is on (on by default), hidden card or not; the page's menu writes
+    /// `tabs.newTabNowPlaying` is on (off by default), hidden card or not; the page's menu writes
     /// that key and opens its row in Settings through `registry` (`NewTabNowPlaying.page`).
     public func followNowPlaying(_ source: any NowPlayingSource, dismissal: NowPlayingCardDismissal? = nil,
                                  settings: @escaping @MainActor () -> SettingsController?,

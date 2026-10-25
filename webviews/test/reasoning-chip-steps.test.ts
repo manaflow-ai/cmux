@@ -10,8 +10,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
   setDefaultTimeout(180_000);
@@ -28,7 +29,7 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string, width: number) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}&frame=component&width=${width}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant, frame: "component", width })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -37,20 +38,9 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 800, height: 600 } });
-    await warm.goto(url("agent-pane.composer", "new-chat-reasoning", 760));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "new-chat-reasoning" } });
+    await warmGalleryFrame(vite, ["agent-pane.new-tab", "agent-pane.narrow"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -65,7 +55,9 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
     });
     await page.locator(".acpmux-chips .acpmux-model .acpmux-model-detail").first().waitFor({ state: "attached" });
     await page.evaluate(() => document.fonts.ready);
-    await page.waitForTimeout(200);
+    // The row lays out again with the loaded fonts: two painted frames later it has.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     return page;
   };
 

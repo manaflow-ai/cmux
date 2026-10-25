@@ -1,36 +1,29 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
-// Background work is visible (Leo: "where is the background showing?"): the summary card lists the
-// chat's background commands live, the process registry's merged with the transcript's (the
-// registry wins, a task is never listed twice), running ones first with their time and Stop, the
-// finished folded into one row; the chats the agent started sit under Subagents with their state;
-// an empty card draws one quiet line instead of "None" under every title; the running turn's line
-// counts started chats; and between turns one compact row says what still runs.
-import { afterEach, expect, setSystemTime, test } from "bun:test";
+// Background work is visible (Leo: "where is the background showing?"). With the Inspector off
+// (Debug Settings `agent.inspector`), the summary card lists the chat's background commands live
+// (inspector/processes.ts `backgroundCommands`, whose merge chat-inspector-tasks.test.tsx covers),
+// running ones first with their time and Stop, and finished work as compact status cards; the chats
+// the agent started sit under Subagents with their state; an empty card draws one quiet line instead
+// of "None" under every title. The running turn's line counts started chats. What still runs
+// between turns shows in the tray above the composer (subagent-tray.test.tsx).
+import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
-import { BackgroundWorkLine } from "../src/agent-session/acpmux/conversation/BackgroundWorkRow";
 import {
   type WorkingCounts,
   WorkingCountsContext,
   WorkingFor,
 } from "../src/agent-session/acpmux/conversation/WorkingFor";
-import { isLastFooter, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { StartedSession } from "../src/agent-session/acpmux/started/startedSessions";
-import {
-  BACKGROUND_WORK,
-  backgroundCommands,
-  backgroundRowShown,
-  NO_BACKGROUND,
-  orderedSessions,
-  splitCommands,
-} from "../src/agent-session/acpmux/summary/backgroundWork";
-import type { RailProcess } from "../src/agent-session/acpmux/summary/sessionProcesses";
-import { processesOf } from "../src/agent-session/acpmux/summary/sessionProcesses";
+import { orderedSessions } from "../src/agent-session/acpmux/inspector/ChildSessionRows";
+import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/inspector/processes";
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
+import { WorkflowSummaryRow } from "../src/agent-session/acpmux/summary/WorkflowSummary";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -70,6 +63,7 @@ afterEach(async () => {
     else scope[key] = value;
   }
   saved.clear();
+  jest.useRealTimers();
   setSystemTime();
 });
 
@@ -107,58 +101,9 @@ const emptySummary = (fields: Partial<SessionSummary> = {}): SessionSummary => (
   ...fields,
 });
 
-test("the registry's records carry the call that started them", () => {
-  const [process] = processesOf({ processes: [wire("a", "bun run dev", "running", 1_000)] }, "s1");
-  expect(process!.toolCallId).toBe("call-a");
-});
-
-test("a transcript task the registry lists is listed once, as the registry says it stands", () => {
-  const processes: RailProcess[] = processesOf(
-    { processes: [wire("a", "bun run dev", "killed", 1_000, 5_000), wire("b", "tsc --watch", "running", 2_000)] },
-    "s1",
-  );
-  const transcript = [task("call-a", "bun run dev", "running", 1_000), task("call-c", "pytest -x", "completed")];
-  const commands = backgroundCommands(processes, transcript, true);
-  expect(commands.map((command) => [command.id, command.state, command.processId, command.toolCallId])).toEqual([
-    ["s1/a", "stopped", "s1/a", "call-a"],
-    ["s1/b", "running", "s1/b", "call-b"],
-    // Known only to the transcript: no Stop, but its terminal still opens.
-    ["call-c", "completed", undefined, "call-c"],
-  ]);
-});
-
-test("once the registry has listed the chat, a transcript task it does not know is not left running", () => {
-  const transcript = [task("call-x", "npm run dev", "running", 1_000)];
-  expect(backgroundCommands([], transcript, true)).toEqual([]);
-  // Without a listing (an older acpmux, a peer's chat), the transcript is all there is.
-  expect(backgroundCommands([], transcript, false).map((command) => command.state)).toEqual(["running"]);
-});
-
-test("running commands come first, newest first; the finished follow, newest first", () => {
-  const commands = backgroundCommands(
-    processesOf(
-      {
-        processes: [
-          wire("old", "tsc --watch", "running", 1_000),
-          wire("done", "cargo build", "exited", 2_000, 3_000),
-          wire("new", "bun run dev", "running", 5_000),
-          wire("lost", "tail -f log", "lost", 4_000, 6_000),
-        ],
-      },
-      "s1",
-    ),
-    [],
-    true,
-  );
-  const { running, finished } = splitCommands(commands);
-  expect(running.map((command) => command.command)).toEqual(["bun run dev", "tsc --watch"]);
-  expect(finished.map((command) => [command.command, command.state])).toEqual([
-    ["tail -f log", "stopped"],
-    ["cargo build", "completed"],
-  ]);
-});
-
-test("the card lists running commands with their time and Stop, and folds the finished into one row", async () => {
+test("the card keeps mixed running, completed and failed task cards visible", async () => {
+  // The running times tick on a clock the test moves.
+  jest.useFakeTimers();
   setSystemTime(new Date(100_000));
   const container = installDom();
   const commands = backgroundCommands(
@@ -189,26 +134,46 @@ test("the card lists running commands with their time and Stop, and folds the fi
   expect(rows()).toEqual([
     ["bun run dev", "1m 16s"],
     ["tsc --watch", "1h 2m 3s"],
-  ]);
-  const fold = section.querySelector<HTMLButtonElement>(".acpmux-summary-finished")!;
-  expect(fold.textContent).toBe("2 finished");
-  expect(fold.getAttribute("aria-expanded")).toBe("false");
-  await act(async () => fold.click());
-  expect(rows().slice(2)).toEqual([
     ["cargo test", "Finished"],
     ["npm run lint", "Failed"],
   ]);
+  expect([...section.querySelectorAll<HTMLElement>(".acpmux-summary-task")].map((row) => row.dataset.state)).toEqual([
+    "running",
+    "running",
+    "completed",
+    "failed",
+  ]);
   // Stop only on running rows the registry lists.
-  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-rail-task__stop")];
+  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-stop")];
   expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop bun run dev", "Stop tsc --watch"]);
   await act(async () => stops[0]!.click());
   expect(stopped).toEqual(["s1/a"]);
-  // The time ticks.
-  await act(async () => {
-    setSystemTime(new Date(102_000));
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
-  });
+  // The time ticks: two seconds on, the row reads two seconds more.
+  await act(async () => void jest.advanceTimersByTime(2_000));
   expect(rows()[0]).toEqual(["bun run dev", "1m 18s"]);
+});
+
+test("a running card keeps its key and detail when the process completes", async () => {
+  const container = installDom();
+  const running = {
+    id: "call-a",
+    command: "bun test",
+    description: "Run the focused tests",
+    state: "running" as const,
+    startedAt: 1_000,
+    toolCallId: "call-a",
+  };
+  await render(container, <SummaryBody summary={emptySummary()} commands={[running]} />);
+  const before = container.querySelector<HTMLElement>(".acpmux-summary-task")!;
+  expect(before.dataset.state).toBe("running");
+  expect(before.querySelector(".acpmux-summary-task__description")?.textContent).toBe("Run the focused tests");
+  expect(before.querySelector(".acpmux-summary-task__command")?.textContent).toBe("bun test");
+  const completed = { ...running, state: "completed" as const, endedAt: 3_000 };
+  await render(container, <SummaryBody summary={emptySummary()} commands={[completed]} />);
+  const after = container.querySelector<HTMLElement>(".acpmux-summary-task")!;
+  expect(after).toBe(before);
+  expect(after.dataset.state).toBe("completed");
+  expect(after.querySelector(".acpmux-summary-meta")?.textContent).toBe("Finished");
 });
 
 test("a card with nothing draws no empty sections, one quiet line and Attach files or folders", async () => {
@@ -307,6 +272,30 @@ const text = (html: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+test("unavailable workflow resume refuses visibly and leaves Run again available", async () => {
+  const container = installDom();
+  const requests: boolean[] = [];
+  await render(
+    container,
+    <WorkflowSummaryRow
+      workflow={{ id: "node", title: "Review", state: "paused", phases: [], agents: [] }}
+      actions={{
+        onDraftWorkflow: (resume) => {
+          requests.push(resume);
+          return !resume;
+        },
+      }}
+    />,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-workflow__row")!.click());
+  const button = (label: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent === label)!;
+  await act(async () => button("Resume").click());
+  expect(container.textContent).toContain("This workflow can’t be resumed");
+  await act(async () => button("Run again").click());
+  expect(requests).toEqual([true, false]);
+});
+
 test("the running turn's line counts the started chats that run", () => {
   const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: 0 };
   const html = renderToStaticMarkup(
@@ -314,47 +303,5 @@ test("the running turn's line counts the started chats that run", () => {
       <WorkingFor row={status} now={() => 26_000} />
     </WorkingCountsContext.Provider>,
   );
-  expect(text(html)).toBe("Working for 26s · 2 commands · 3 sessions");
-});
-
-test("between turns, one row says what still runs; nothing while a turn runs or nothing does", () => {
-  const work = { commands: 2, sessions: 3, agents: 0 };
-  expect(backgroundRowShown(false, work)).toBe(true);
-  // The running line counts the same work.
-  expect(backgroundRowShown(true, work)).toBe(false);
-  expect(backgroundRowShown(false, NO_BACKGROUND)).toBe(false);
-  expect(backgroundRowShown(false, { commands: 0, sessions: 0, agents: 1 })).toBe(true);
-  const html = renderToStaticMarkup(
-    <WorkingCountsContext.Provider value={counts({ background: work, openBackground: () => {} })}>
-      <BackgroundWorkLine />
-    </WorkingCountsContext.Provider>,
-  );
-  expect(text(html)).toBe("Running in background · 2 commands · 3 sessions");
-  // Status, not transcript: chat find skips it.
-  expect(html).toContain("data-find-skip");
-  // Without its counts it draws nothing.
-  expect(renderToStaticMarkup(<BackgroundWorkLine />)).toBe("");
-});
-
-test("the row opens the summary card", async () => {
-  const container = installDom();
-  let opened = 0;
-  await render(
-    container,
-    <WorkingCountsContext.Provider
-      value={counts({ background: { commands: 1, sessions: 0, agents: 0 }, openBackground: () => (opened += 1) })}
-    >
-      <BackgroundWorkLine />
-    </WorkingCountsContext.Provider>,
-  );
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-bgwork")!.click());
-  expect(opened).toBe(1);
-});
-
-test("the row under the last footer leaves it the last footer, so it moves nothing", () => {
-  const footer: AcpmuxRow = { id: "f", kind: "turnSummary", version: 1, at: 0 };
-  const row: AcpmuxRow = { id: BACKGROUND_WORK, kind: BACKGROUND_WORK, version: 1, at: 0 };
-  expect(isLastFooter(footer, undefined)).toBe(true);
-  expect(isLastFooter(footer, row)).toBe(true);
-  expect(isLastFooter(footer, { id: "u", kind: "user", version: 1, at: 1 })).toBe(false);
+  expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
 });

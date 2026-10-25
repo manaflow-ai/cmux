@@ -25,8 +25,8 @@ public import Foundation
 /// op by itself.
 ///
 /// ```swift
-/// let source = WireHomeSource(baseURL: URL(string: "http://mini.tail1234.ts.net:7320")!,
-///                             auth: .tailscale, transport: URLSessionHomeWireTransport())
+/// let url = try HomeChatServer.selfHostedURL("mini.tail1234.ts.net")
+/// let source = WireHomeSource(baseURL: url, auth: .tailscale, transport: URLSessionHomeWireTransport())
 /// let store = HomeStore(source: source)
 /// store.start()
 /// ```
@@ -313,8 +313,10 @@ public actor WireHomeSource: HomeSource {
     /// entry's pin, mute and unread over it.
     func joined(_ conversation: ConversationID) -> ConversationSummary? {
         guard let me else { return heads[conversation] }
-        var summary = heads[conversation] ?? entries[conversation].flatMap { mapping.summary(entry: $0, me: me) }
-        if let entry = entries[conversation], summary != nil { mapping.apply(entry: entry, to: &summary!) }
+        guard var summary = heads[conversation] ?? entries[conversation].flatMap({ mapping.summary(entry: $0, me: me) }) else {
+            return nil
+        }
+        if let entry = entries[conversation] { mapping.apply(entry: entry, to: &summary) }
         return summary
     }
 

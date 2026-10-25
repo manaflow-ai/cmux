@@ -51,7 +51,7 @@ final class ChiefInspectorPageService: InternalPageProvider {
         let provider = ChiefInspectorPageProvider { [weak self] in
             guard let machines = self?.services?.machines else { return nil }
             let server = opened.flatMap(machines.server)
-                ?? machines.servers.first { $0.daemon.supports(DaemonCapabilities.shared.chiefInspect) }
+                ?? machines.servers.first { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }
             return server?.daemon.connection
         }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]

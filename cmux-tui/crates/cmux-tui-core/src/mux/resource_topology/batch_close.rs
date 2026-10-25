@@ -32,6 +32,11 @@ pub(crate) struct BatchCloseRequest<'a> {
     pub target: BatchCloseTarget,
     pub end_terminals: bool,
     pub operation: &'a str,
+    /// The single close whose permanent and pinned column rule a tab set
+    /// keeps (`pinned-dock-v1`): `TabClose` for `close-tabs`, a tab group
+    /// or a tab stash, `PaneClose`/`ScreenClose` for those `layout.bulk`
+    /// levels, `WorkspaceClose` (no rule) for a whole-workspace close.
+    pub rule: ResourceOperation,
     pub fingerprint: &'a Value,
     pub mutation: &'a WorkspaceMutation,
     pub expected_generation: Option<&'a str>,
@@ -185,13 +190,27 @@ impl Mux {
         let mut plan = match &request.target {
             BatchCloseTarget::Tabs(surfaces) => {
                 let bare = request.room.as_ref().map_or(&[][..], |room| &room.bare[..]);
-                self.tabs_close_plan_locked(surfaces, bare, &state, &registry, &notifications)?
+                self.tabs_close_plan_locked(
+                    surfaces,
+                    bare,
+                    (request.rule, request.operation),
+                    &state,
+                    &registry,
+                    &notifications,
+                )?
             }
             BatchCloseTarget::TabGroup(group) => {
                 let mut groups = self.presentation_snapshot().tab_groups.clone();
                 let members = tab_groups::take_tab_group(&state, &mut groups, group)?;
                 tab_groups = Some(groups);
-                self.tabs_close_plan_locked(&members, &[], &state, &registry, &notifications)?
+                self.tabs_close_plan_locked(
+                    &members,
+                    &[],
+                    (request.rule, request.operation),
+                    &state,
+                    &registry,
+                    &notifications,
+                )?
             }
             BatchCloseTarget::Pane(pane) => self.resource_close_plan_locked(
                 ResourceOperation::PaneClose,
@@ -307,11 +326,15 @@ impl Mux {
     /// Remove `surfaces` from a clone of the live state. Every surface must
     /// be a placed tab; duplicates are ignored. A workspace left without a
     /// tab closes in the same plan (LAST-TAB-CLOSES-WORKSPACE), and so does
-    /// each of `bare`, workspaces that have no tab (a space delete's).
+    /// each of `bare`, workspaces that have no tab (a space delete's). The
+    /// plan keeps the permanent and pinned columns as the single close
+    /// `rule` does (`dock_columns::close_keeping_permanent`), refused under
+    /// the operation name `rule` carries.
     fn tabs_close_plan_locked(
         &self,
         surfaces: &[SurfaceId],
         bare: &[WorkspaceId],
+        rule: (ResourceOperation, &str),
         state: &State,
         registry: &WorkspaceRegistry,
         notifications: &TreeDecorations,
@@ -366,7 +389,7 @@ impl Mux {
             None => (None, None, changed_screens),
         };
         Ok(ResourceClosePlan {
-            state: projected,
+            state: dock_columns::close_keeping_permanent(rule.0, rule.1, state, projected)?,
             removed,
             terminal_runtime: None,
             closed_terminal_public_id: None,
@@ -466,6 +489,7 @@ impl Mux {
             target: BatchCloseTarget::Tabs(surfaces),
             end_terminals,
             operation: "tabs.close",
+            rule: ResourceOperation::TabClose,
             fingerprint: &fingerprint,
             mutation,
             expected_generation: None,
@@ -481,11 +505,14 @@ impl Mux {
     /// The batch close of a space delete (SPACE-DELETE-CLOSES-ITS-
     /// WORKSPACES): these tabs, ending their terminals, recorded as one
     /// closed group, with `room` (the space's delete, its result and its
-    /// workspaces with no tab) in the same transaction.
+    /// workspaces with no tab) in the same transaction. `rule` is the single
+    /// close it keeps: `WorkspaceClose` when whole workspaces close,
+    /// `TabClose` for a tab stash.
     pub(crate) fn close_tabs_for_room_delete(
         &self,
         surfaces: Vec<SurfaceId>,
         operation: &str,
+        rule: ResourceOperation,
         fingerprint: &Value,
         mutation: &WorkspaceMutation,
         room: RoomClose<'_>,
@@ -494,6 +521,7 @@ impl Mux {
             target: BatchCloseTarget::Tabs(surfaces),
             end_terminals: true,
             operation,
+            rule,
             fingerprint,
             mutation,
             expected_generation: None,
@@ -509,13 +537,15 @@ impl Mux {
     /// One `layout.bulk` close (cx-gzh.5): these tabs, from any panes,
     /// screens and workspaces, in one commit and ONE closed group; the
     /// containers they empty close in the same plan and join the group.
-    /// `result` is the request's result, stored for its replay.
+    /// `result` is the request's result, stored for its replay. `rule` is
+    /// the single close of the request's level.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_tabs_for_bulk(
         &self,
         surfaces: Vec<SurfaceId>,
         end_terminals: bool,
         operation: &str,
+        rule: ResourceOperation,
         fingerprint: &Value,
         mutation: &WorkspaceMutation,
         authorize_workspace: bool,
@@ -525,6 +555,7 @@ impl Mux {
             target: BatchCloseTarget::Tabs(surfaces),
             end_terminals,
             operation,
+            rule,
             fingerprint,
             mutation,
             expected_generation: None,
@@ -544,14 +575,20 @@ impl Mux {
         actor: &Actor,
         target: BatchCloseTarget,
     ) -> anyhow::Result<BatchCloseOutcome> {
-        let (operation, fingerprint) = match &target {
-            BatchCloseTarget::Pane(pane) => ("pane.close", json!({"op":"close-pane","pane":pane})),
-            BatchCloseTarget::Screen(screen) => {
-                ("screen.close", json!({"op":"close-screen","screen":screen}))
+        let (operation, rule, fingerprint) = match &target {
+            BatchCloseTarget::Pane(pane) => {
+                ("pane.close", ResourceOperation::PaneClose, json!({"op":"close-pane","pane":pane}))
             }
-            BatchCloseTarget::TabGroup(group) => {
-                ("tab.group.close", json!({"op":"close-tab-group","group":group}))
-            }
+            BatchCloseTarget::Screen(screen) => (
+                "screen.close",
+                ResourceOperation::ScreenClose,
+                json!({"op":"close-screen","screen":screen}),
+            ),
+            BatchCloseTarget::TabGroup(group) => (
+                "tab.group.close",
+                ResourceOperation::TabClose,
+                json!({"op":"close-tab-group","group":group}),
+            ),
             BatchCloseTarget::Tabs(_) | BatchCloseTarget::Workspace(_) => {
                 anyhow::bail!("not a container close target")
             }
@@ -562,6 +599,7 @@ impl Mux {
             target,
             end_terminals: true,
             operation,
+            rule,
             fingerprint: &fingerprint,
             mutation: &mutation,
             expected_generation: None,
@@ -648,6 +686,7 @@ impl Mux {
             target: BatchCloseTarget::Workspace(resolved),
             end_terminals: true,
             operation: "workspace.close",
+            rule: ResourceOperation::WorkspaceClose,
             fingerprint: &fingerprint,
             mutation,
             expected_generation,

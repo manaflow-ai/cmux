@@ -8,6 +8,11 @@
 // drive the same store.
 import { validateEntries, type GalleryEntry } from "./format";
 
+/** A registry glob key (relative to src/gallery/registry.ts: `../agent-session/x.gallery.ts`, or
+ * `./fixtures/x.gallery.tsx` for a file under src/gallery) as its path under webviews
+ * (`src/agent-session/x.gallery.ts`). */
+export const entryPath = (key: string): string => new URL(key, "file:///src/gallery/registry.ts").pathname.slice(1);
+
 /** One entry file: its path under webviews (`src/agent-session/x.gallery.ts`) and its loader. */
 export type EntrySource = {
   path: string;

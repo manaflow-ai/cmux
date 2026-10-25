@@ -25,8 +25,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Span = { left: number; right: number; bottom?: number };
 type Control = {
@@ -146,7 +146,7 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string, scheme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-row&variant=${variant}&theme=${encodeURIComponent(scheme === "light" ? "Apple System Colors Light" : "Apple System Colors")}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-row", { variant, theme: scheme === "light" ? "Apple System Colors Light" : "Apple System Colors" })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -155,20 +155,9 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 760, height: 300 } });
-    await warm.goto(stageURL("queued", "light"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-row", { browser, params: { variant: "queued" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -248,6 +237,14 @@ await requireBrowserLane("composer-row-rhythm.test.ts", async () => {
               shape: parts.map((part) => part.kind).join("+"),
             });
           }
+          // The quiet row's hover pill is the native selection pill's size (Leo 2026-10-22: "the
+          // highlight pill is too small"): its text sits 8 px in from the pill's leading edge.
+          if (rowName === "foot")
+            for (const inside of insides)
+              if (inside.lead < 7.5)
+                problems.push(
+                  `foot: ${inside.name}'s pill starts ${inside.lead.toFixed(1)} px before its text, not 8 px`,
+                );
           // Location and composer pickers share the same optical correction for their down-chevron.
           // The model button draws none, as Claude Code's (Leo 2026-10-20); the mode keeps its own.
           for (const control of controls.filter(({ name }) => name === "mode"))

@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextWakeups
 import Observation
+public import CmuxNextDesignTokens
 
 /// Launch load-in, region by region: a view held for a region stays clear
 /// on the window glass until that region's data is ready, then fades in
@@ -17,7 +18,9 @@ import Observation
 /// arms: a missed producer costs a short delay, never a blank window.
 ///
 /// Call `markReady` where real data lands, not on an empty placeholder
-/// model, and hold containers, not views that animate their own alpha.
+/// model (unless nothing is coming before the first frame: a fresh
+/// profile's sidebar has no saved rows to wait for), and hold containers,
+/// not views that animate their own alpha.
 /// The regions are app-wide and cover the first launch: once a region is
 /// ready, windows opened later show it at once.
 @MainActor

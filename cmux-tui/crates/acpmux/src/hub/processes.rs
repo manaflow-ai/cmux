@@ -401,6 +401,13 @@ impl Hub {
         table.processes.iter().any(|p| p.state == ProcessState::Running)
     }
 
+    /// How many of the session's background processes run, from a table this
+    /// daemon has read already: never a log scan (`host_load.rs` asks for every chat).
+    pub(super) fn running_processes_read(&self, session: &Session) -> usize {
+        let table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        table.processes.iter().filter(|p| p.state == ProcessState::Running).count()
+    }
+
     /// `_acpmux/process/list`: the session's processes; without one, those of
     /// every chat whose processes this daemon has read (any chat that ran one
     /// since it started, or that it adopted).
@@ -545,14 +552,7 @@ impl Hub {
     /// foreground: `backgrounded: false`, and Claude Code is not asked.
     pub async fn background_work(&self, key: &str, tool: Option<&str>) -> Result<Value, RpcError> {
         let session = self.resolve(key)?;
-        let harness = session.meta().harness;
-        let claude = self
-            .config
-            .read()
-            .await
-            .profile(&harness)
-            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio);
-        if !claude {
+        if !session.backgrounds_work.load(Ordering::SeqCst) {
             return Err(RpcError::invalid_params(
                 "only Claude Code can move running work to the background",
             ));
@@ -586,6 +586,16 @@ impl Hub {
             }
         }
     }
+}
+
+/// Whether `_acpmux/process/background` moves the foreground work of a
+/// chat whose harness started as `kind`: Claude Code (claude-stdio), whatever
+/// its profile's name (the `cmux` model router's too). Decided at each start
+/// (`Session::backgrounds_work`), so a config write or reload never flips it;
+/// every session summary says it (`backgroundsWork`), so a client offers
+/// Ctrl-B exactly where this takes it.
+pub(super) fn backgrounds_work(kind: crate::config::HarnessKind) -> bool {
+    kind == crate::config::HarnessKind::ClaudeStdio
 }
 
 /// No process has the id.

@@ -6,7 +6,7 @@
 // composer Ctrl-B is the text system's caret back, so the page takes it only while a call runs in
 // the foreground, and a running command's row says so.
 import { createContext, useEffect, useRef } from "react";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { continuesTurn } from "../turnStart";
 
 /// Moves the chat's foreground work to the background: only the call `toolCallId` started, or all
@@ -15,15 +15,12 @@ export type RunInBackground = (toolCallId?: string) => void;
 
 export const RunInBackgroundContext = createContext<RunInBackground | undefined>(undefined);
 
-/// Whether acpmux moves this chat's work: a local Claude Code chat only (`claude` and its profiles,
-/// `claude-sr` and the like). acpmux refuses the other harnesses (Codex moves a long command to the
-/// background itself), and a peer's or a Cloud chat's processes are not this acpmux's to move.
-export function backgroundsWork(
-  summary: { harness?: string; peer?: string; hostKind?: "local" | "cloud" } | undefined,
-): boolean {
-  const harness = summary?.harness;
-  const claude = harness === "claude" || Boolean(harness?.startsWith("claude-"));
-  return claude && !summary?.peer && summary?.hostKind !== "cloud";
+/// Whether acpmux moves this chat's work: its summary says so (`backgroundsWork`, a Claude Code
+/// chat whatever its harness is named, the model router's `cmux` too), and the chat is local. acpmux
+/// refuses the other harnesses (Codex moves a long command to the background itself), and a peer's
+/// or a Cloud chat's processes are not this acpmux's to move. An acpmux that does not say gets none.
+export function backgroundsWork(summary: Partial<NonNullable<AcpmuxSnapshot["summary"]>> | undefined): boolean {
+  return summary?.backgroundsWork === true && !summary.peer && summary.hostKind !== "cloud";
 }
 
 /// The calls of the running turn that hold it up: a running command or subagent (what Claude

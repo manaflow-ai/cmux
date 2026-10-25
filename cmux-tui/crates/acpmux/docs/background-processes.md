@@ -162,8 +162,8 @@ process's command line and its kill never leave the machine.
 | `_acpmux/process/list` (request, built) | `{sessionId?}` (none: every chat whose processes this daemon has read since it started) | `{processes: [Process]}` |
 | `_acpmux/process/tail` (request, built) | `{processId, fromByte?, maxBytes?}` (default: the last 64 KiB; at most 1 MiB) | `{data (base64), fromByte, nextByte, eof}`; `eof`: the process ended and `nextByte` is the file's end; a missing file is empty data |
 | `_acpmux/process/watch` (request) | `{processId}` | `{}`; then `_acpmux/process/output` notifications `{processId, data (base64), atByte}`, the same shape as v2's `terminal_output_chunk`, until `unwatch` or the process ends |
-| `_acpmux/process/kill` (request, built) | `{processId, signal?: "term" \| "kill"}` | `{}`; the outcome arrives as a `process_update` |
-| `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
+| `_acpmux/process/kill` (request, built) | `{processId, sessionId?, signal?: "term" \| "kill"}`; a named `sessionId` must be the process's chat (the agent pane names it, and its host allows only a chat in the pane's scope) | `{}`; the outcome arrives as a `process_update` |
+| `_acpmux/process/background` (request, built) | `{sessionId, toolCallId?}` (none: every foreground task) | `{backgrounded: bool}`; false when no turn runs or nothing ran in the foreground. Claude Code (a claude-stdio harness, whatever its name) only: any other chat is refused with invalid params (Codex moves long commands to the background itself). Every session summary says which chats it takes (`backgroundsWork`). Claude Code's error is the request's error. What moved arrives as `process_update`s, origin `user_backgrounded` |
 | `_acpmux/process_update` (notification, built) | `{process: Process}` | |
 
 **Migration:**
@@ -203,8 +203,10 @@ process's command line and its kill never leave the machine.
   running tool row's own button may name its `toolCallId`. On
   `backgrounded: true` the turn goes on and the moved work shows up as
   running rows (origin `user_backgrounded`); `false` means nothing ran in
-  the foreground. Offer it only for Claude Code chats (other harnesses are
-  refused). The CLI is `acpmux process background SESSION [--tool-call ID]`.
+  the foreground. Offer it only where the chat's session summary says
+  `backgroundsWork` (a Claude Code chat whatever its harness is named, the
+  `cmux` model router's profile too), never by the harness's name; other
+  harnesses are refused. The CLI is `acpmux process background SESSION [--tool-call ID]`.
 - **SHOW LEO:** a new visual, so it is shown to Leo before merging.
 
 ## Tests (behavior, at the hub boundary)
@@ -223,6 +225,9 @@ process's command line and its kill never leave the machine.
   never answers or the turn ends first, keeps the first of two requests'
   shell the person's when the second answers false, and refuses a chat of another
   agent (Codex too, in `codex_processes.rs`) and Web and Peer connections.
+  A chat's summary says `backgroundsWork` by its harness's kind: the
+  `cmux` router profile (claude-stdio) yes, and Ctrl-B moves its work; an
+  ACP agent named `claude-acp` no, and it is refused.
 - To build: after a daemon restart an adopted host's processes are listed
   again.
 - Built (`tests/hub_integration/codex_processes.rs`, the fake Codex

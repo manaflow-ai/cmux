@@ -112,6 +112,6 @@ import Testing
         let h = try await make(channel: channel)
         defer { try? FileManager.default.removeItem(at: h.directory) }
         let row = try #require(h.harnesses.state["harnesses"]?.arrayValue?.first)
-        #expect(row["ownerUpdate"] == .bool(channel == "npm" || channel == "native"))
+        #expect(row["ownerUpdate"] == .bool(["npm", "bun", "native"].contains(channel)))
     }
 }

@@ -135,6 +135,14 @@ public nonisolated struct AgentTurnStates: Hashable, Sendable {
            !generated(from: summary["harness"] as? String), !generated(from: summary["family"] as? String) {
             return name
         }
+        if !includingPrompt {
+            // acpmux publishes the first prompt as `title` before its title
+            // request completes. Only a source that names a real chat title
+            // may feed durable workspace auto-naming; an absent source is an
+            // older daemon and is intentionally treated as unknown.
+            let source = summary["titleSource"] as? String
+            guard let source, ["harness", "generated", "adopted"].contains(source) else { return nil }
+        }
         if let title = summary["title"] as? String, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return promptGist(title)
         }
@@ -230,6 +238,9 @@ public final class AgentTurnStateStore {
         var generatedTitle: String?
         /// The model and running turn (`AgentChatDetail`), for the hover card.
         var detail: AgentChatDetail?
+        /// The session whose agent started this one (acpmux `startedBy`); nil for a root. Not
+        /// observed: only a chat page's open request reads it.
+        @ObservationIgnored var startedBy: String?
         /// The chat's recent prompts, waits and finished turns (u3320), read when a hover card
         /// opens; not observed (a new moment redraws nothing).
         @ObservationIgnored var timeline = AgentTimeline()

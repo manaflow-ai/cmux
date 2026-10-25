@@ -4,10 +4,11 @@ import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextRemote
 import CmuxNextSidebar
 import Foundation
 
-/// "Move Chief to…" (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): lists This Mac, the
+/// "Move Chief To…" (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): lists This Mac, the
 /// SSH and server remote groups and cmux Cloud (`ChiefMoveTargets`), then runs the bundled
 /// `cmux chief move` (one implementation with the CLI and MCP): a dry run whose report the person reads,
 /// the move, then `move reach` on the target. The Cloud session token goes through a 0600 file that is
@@ -29,13 +30,13 @@ enum ChiefMoveHandlers {
                 return try start(target, cli: cli, interactive: interactive, registry: registry, context: context)
             }
             guard interactive else { throw ActionFailure.invalidTarget(ChiefMoveStrings.targetRequired) }
-            let choices = targets.map { CmuxDialogOption(label: label($0), value: $0.machineID, isEnabled: $0.disabledReason == nil) }
-            CloudPresenter.choose(ChiefMoveStrings.title, options: choices, selected: nil, in: CloudHandlers.window(context)) { picked in
-                guard let picked, let target = targets.first(where: { $0.machineID == picked }) else { return }
-                do { try start(target, cli: cli, interactive: true, registry: registry, context: context) } catch {
-                    CloudPresenter.failure(error, in: CloudHandlers.window(context))
-                }
-            }
+            // The machines as a Cmd-Shift-P step; Return runs this again with the picked one.
+            registry.ask(actionID, invocation, ActionArgumentAsk(argument: "target"))
+        }
+        let otherSuggestions = registry.argumentSuggestions
+        registry.argumentSuggestions = { source in
+            guard source == ActionSuggestions.chiefMoveTargets else { return otherSuggestions?(source) ?? [] }
+            return targets(context).map { ActionEnumCase(value: $0.machineID, title: label($0)) }
         }
     }
 
@@ -51,9 +52,18 @@ enum ChiefMoveHandlers {
             .init(machineID: session.machineID, name: session.host.label, kind: .ssh(destination: session.host.destination.sshArgument),
                   isOnline: session.linkStatus == .connected, isRemoteGroup: isRemoteGroup(session.daemon))
         }
-        hosts += machines.servers.map { server in
-            .init(machineID: server.machineID, name: server.name, kind: .server, isOnline: server.daemon.connection != nil,
-                  isRemoteGroup: isRemoteGroup(server.daemon))
+        // A server on this Mac (route `unix`) is This Mac, already the first entry.
+        hosts += machines.servers.compactMap { server in
+            let destination: String?
+            switch server.reach.route {
+            case .ssh(let host): destination = host.destination.sshArgument
+            case .overlay:
+                if case .ssh(let host)? = ServerReach.brainRoute(serverName: server.name) { destination = host.destination.sshArgument }
+                else { destination = nil }
+            case .unix: return nil
+            }
+            return .init(machineID: server.machineID, name: server.name, kind: .server(destination: destination),
+                         isOnline: server.daemon.connection != nil, isRemoteGroup: isRemoteGroup(server.daemon))
         }
         let cloud = context.services.cloud
         let home = ChiefHome.resolve(tag: context.services.environment.tag).root.path
@@ -73,7 +83,7 @@ enum ChiefMoveHandlers {
         switch target.disabledReason {
         case nil: name(target)
         case .offline: ChiefMoveStrings.offline(name(target))
-        case .notSupportedYet: ChiefMoveStrings.notSupported(name(target))
+        case .noSSHRoute: ChiefMoveStrings.noSSHRoute(name(target))
         case .signInNeeded: ChiefMoveStrings.signIn(name(target))
         }
     }

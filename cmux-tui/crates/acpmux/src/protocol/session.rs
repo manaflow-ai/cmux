@@ -53,6 +53,12 @@ pub struct SessionSummary {
     /// Its sub-sessions that are not closed.
     pub children: u32,
     pub title: Option<String>,
+    /// Who supplied `title`: `prompt` is the first-prompt fallback, while
+    /// `harness`, `generated` and `adopted` are real chat titles. Older peers
+    /// may omit this field.
+    #[serde(default)]
+    #[schemars(default)]
+    pub title_source: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
@@ -60,13 +66,30 @@ pub struct SessionSummary {
     pub queued: u64,
     /// A turn failed: the prompts behind it wait for a client to resume them.
     pub queue_paused: bool,
+    /// A sub-session whose queued prompt waits for a free run slot of its parent: the parent
+    /// runs as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent
+    /// otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub waits_for_slot: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
+    /// The family of a conversation another app runs that this chat only shows; null otherwise.
+    pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.
     pub steering: bool,
+    /// `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+    /// harness is Claude Code (claude-stdio), whatever the harness's name.
+    /// Clients offer Ctrl-B from this, not from `harness`.
+    pub backgrounds_work: bool,
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
+    /// What it waits on the person for: `question` (an agent question) or
+    /// `permission`; null while nothing is pending. Only the person allows a permission.
+    pub waiting_on: Option<String>,
+    /// The first prompt of the question it waits on, cut to 120 characters.
+    pub waiting_prompt: Option<String>,
     /// Since when it waits on the person (`lane`); null while it does not.
     pub input_since: Option<u64>,
     #[schemars(with = "Option<String>")]
@@ -217,6 +240,12 @@ pub struct Lane {
     /// The session's title, else its latest prompt, one line, secrets masked
     /// (`secret_scan`).
     pub title: Option<String>,
+    /// A `working` lane that has stalled: since when its turn has had no tool
+    /// call in flight and no sign of its model (`turn.stalledSince`); null
+    /// otherwise. The state stays `working`, so a client that reads only it
+    /// is unchanged.
+    #[serde(default, rename = "stalledSince")]
+    pub stalled_since: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -253,6 +282,15 @@ pub struct TurnSummary {
     pub turn_id: String,
     pub prompt_id: String,
     pub turn_seq: u64,
+    /// What the turn does right now: its latest tool call's title; null
+    /// until it calls one (`hub/activity.rs`).
+    pub activity: Option<String>,
+    /// Its plan's entry in progress; null without one.
+    pub plan_step: Option<String>,
+    /// Since when it has stalled: no tool call in flight and no sign of its
+    /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
+    /// null while it has not.
+    pub stalled_since: Option<u64>,
 }
 
 /// A prompt waiting for the running turn to end.
@@ -327,6 +365,14 @@ pub struct SessionsParams {
     /// A previous reply's `nextCursor`: the page starts after that session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
+    /// (its name, e.g. `huge-blue`). Empty is no filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
+    /// (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

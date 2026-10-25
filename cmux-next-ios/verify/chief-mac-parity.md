@@ -57,8 +57,8 @@ The macOS sources are under `Packages/macOS/CmuxNext/Sources`.
 | Search | `conversation-search` | Allowed by policy, no UI | Home's search field filters agent rows only. A Chief transcript search needs a package hook. |
 | Harness / model / effort | Chief Settings sidebar pickers → `chief.engine.set` (`ChiefControlClient`) | Yes | `ChiefSettingsView` pickers → `ChiefControl.setEngine`. The lists come from `chief.engine.get` `offered`, and "Default (…)" clears a field, as on the Mac. |
 | Recent turns | `chief.engine.get` `recent` | Yes | Settings: model, status, time, tools, cost |
-| Stop | `chief.stop` (button, Esc, ⌘.) while Chief is typing | Yes | Settings: "Stop Chief" while Chief is typing |
-| Rename | `title.set` | Yes | Settings: Name field |
+| Stop | `chief.stop` (button, Esc, ⌘.) while Chief is typing | Yes | Chief's info: the Stop quick action (dimmed unless Chief is typing) |
+| Rename | `title.set` | Yes | Chief's info: Edit > Name |
 | Avatar | Written to `optchat/profile.json` on the Mac | No | A local file on the Mac, with no daemon command. The phone shows Chief's avatar. |
 | Memory inspector, traces | Local browser tab, Finder | No | Owner-only on the Mac. `chief-inspect` stays refused. Settings says so. |
 | New Message to Chief / agents | `conversation-create` (`agent_mux`) | Partly | New Message routes to the Chief conversation or to an agent chat. The phone does not create new owner conversations: `conversation-create` is refused. |
@@ -77,7 +77,8 @@ put it back, because Chief's backend rejected list-state changes.
 
 CmuxConversation has no hook to replace or trim the details
 (`verify/imsg-upstream-requests.md`). Instead, Chief points the header's
-avatar, name and trailing button at `ChiefSettingsView`, a native sheet:
+avatar, name and trailing button at `ChiefSettingsView`, pushed like Messages'
+contact details (`verify/chief-info.md`):
 
 - **Hide Alerts:** stored per conversation on this phone (`ChiefPreferences`)
   and reported back through the store's list state.

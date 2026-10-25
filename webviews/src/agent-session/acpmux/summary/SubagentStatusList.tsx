@@ -1,17 +1,27 @@
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
 // done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one. Its
-// title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx). After them, the chats the
-// agent started (`sessions`, ChildSessionRows.tsx), each opening its chat.
+// title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx). The sub-sessions the chat's
+// agent started with its `start_session` tool (subagents/subsessions.ts) follow, theirs indented under
+// each, with their live state, an unread dot, how many messages wait for them and what a working
+// one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
+// chats the agent started (`sessions`, inspector/ChildSessionRows.tsx), each opening its chat.
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
+import { AgentLine } from "../subagents/AgentLine";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
+import {
+  SUBSESSION_STATE_LABEL,
+  type SubsessionRow,
+  type SubsessionState,
+  waitingLine,
+} from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows } from "./ChildSessionRows";
+import { ChildSessionRows } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 
@@ -58,7 +68,16 @@ export function pendingToolCalls(
   if (snapshot.permission?.pending) add(snapshot.permission.toolCallId);
   for (const group of snapshot.permissionGroups?.groups ?? [])
     for (const item of group.items)
-      if (item.state === "pending") add((item.request.toolCall as { toolCallId?: unknown } | undefined)?.toolCallId);
+      if (item.state === "pending") {
+        const request = item.request as {
+          toolCall?: { toolCallId?: unknown };
+          subject?: { type?: unknown; toolCall?: { toolCallId?: unknown } };
+        };
+        add(
+          request.toolCall?.toolCallId ??
+            (request.subject?.type === "tool_call" ? request.subject.toolCall?.toolCallId : undefined),
+        );
+      }
   for (const row of snapshot.rows)
     if (row.kind === "permission" && row.permission?.pending) add(row.permission.toolCallId);
   return calls;
@@ -96,6 +115,14 @@ function ordered(agents: readonly Subagent[], waiting: ReadonlySet<string>): { a
   return out;
 }
 
+/// A sub-session's state as a subagent row's status, for the row's dot and the card's counts.
+export const SUBSESSION_STATUS: Record<SubsessionState, SubagentStatus> = {
+  working: "running",
+  input: "waiting",
+  failed: "failed",
+  done: "done",
+};
+
 export function SubagentStatusList({
   agents,
   waiting,
@@ -103,12 +130,17 @@ export function SubagentStatusList({
   onOpen,
   autoOpen,
   onShowAll,
-  sessions = NO_SESSIONS,
+  subsessions = [],
   onOpenSession,
+  sessions = NO_SESSIONS,
   stack = NO_STACK,
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
+  /// The chat's sub-sessions, after its subagents (subagents/subsessions.ts `subsessionRows`).
+  subsessions?: readonly SubsessionRow[];
+  /// Opens a sub-session's or a started chat's chat beside this one.
+  onOpenSession?: (sessionId: string) => void;
   /// The subagent this pane shows, if any.
   current?: string;
   onOpen?: (id: string) => void;
@@ -116,9 +148,8 @@ export function SubagentStatusList({
   autoOpen?: { on: boolean; set: (on: boolean) => void };
   /// Opens the card's Subagents tab; the title is a button only with it.
   onShowAll?: () => void;
-  /// The chats the agent started, after the subagents, and how one opens.
+  /// The other chats the agent started, after the sub-sessions.
   sessions?: readonly StartedSession[];
-  onOpenSession?: (sessionId: string) => void;
   /// Subagents an older record names only by their Task calls (sessionSummary.ts), as one line,
   /// when acpmux reports none.
   stack?: readonly SummarySubagent[];
@@ -128,6 +159,7 @@ export function SubagentStatusList({
   const title = t("summary.subagents");
   const live =
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
+    subsessions.filter((session) => session.state === "working").length +
     sessions.filter((child) => child.state === "running").length;
   const heading = live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title;
   return (
@@ -148,34 +180,28 @@ export function SubagentStatusList({
           const status = subagentStatus(agent, waiting);
           return (
             <li key={agent.id}>
-              <button
-                type="button"
-                className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent"
-                style={depth > 0 ? { paddingLeft: 8 + depth * 14 } : undefined}
-                data-status={status}
-                aria-current={agent.id === current ? "true" : undefined}
-                /* tooltip-allow: the row shows the name; the task appears nowhere else */
+              {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
+              <AgentLine
+                name={agent.name}
+                detail={agent.kind}
+                mark={agent.harness}
+                status={status}
+                state={t(subagentStatusLabel(agent, waiting))}
+                time={formatDuration(elapsed(agent, now))}
+                iconSize={ROW_ICON}
+                depth={depth}
+                current={agent.id === current}
                 title={agent.task}
-                disabled={!onOpen}
-                onClick={() => onOpen?.(agent.id)}
-              >
-                <span className="acpmux-lineage__icon" data-state={status}>
-                  <Icon name="agent.session" size={ROW_ICON} row />
-                </span>
-                <span className="acpmux-summary-text">
-                  <span className="acpmux-summary-agent__name">{agent.name}</span>
-                  {agent.kind && agent.kind !== agent.name && (
-                    <span className="acpmux-summary-agent__kind">{agent.kind}</span>
-                  )}
-                </span>
-                <span className="acpmux-summary-meta">{formatDuration(elapsed(agent, now))}</span>
-                <span className="acpmux-summary-meta acpmux-summary-agent__state">
-                  {t(subagentStatusLabel(agent, waiting))}
-                </span>
-              </button>
+                onOpen={onOpen ? () => onOpen(agent.id) : undefined}
+              />
             </li>
           );
         })}
+        {subsessions.map((session) => (
+          <li key={`session:${session.sessionId}`}>
+            <SubsessionStatusRow session={session} onOpen={onOpenSession} />
+          </li>
+        ))}
         <ChildSessionRows sessions={sessions} onOpen={onOpenSession} />
       </ul>
       {autoOpen && (
@@ -190,5 +216,45 @@ export function SubagentStatusList({
         </label>
       )}
     </section>
+  );
+}
+
+/// A sub-session's row: its name (and what it does now while it works, or what it waits on the
+/// person for), its unread dot, how many messages wait for it, and its state.
+function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOpen?: (sessionId: string) => void }) {
+  const t = useT();
+  const status = SUBSESSION_STATUS[session.state];
+  // What a working one does now, or what one waiting on the person waits for.
+  const line = session.waiting ? waitingLine(t, session.waiting) : session.doing;
+  return (
+    <button
+      type="button"
+      className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent acpmux-summary-subsession"
+      style={session.depth > 0 ? { paddingLeft: 8 + session.depth * 14 } : undefined}
+      data-status={status}
+      /* tooltip-allow: the row shows the name; what a working one does may be cut */
+      title={line}
+      disabled={!onOpen}
+      onClick={() => onOpen?.(session.sessionId)}
+    >
+      <span className="acpmux-lineage__icon" data-state={status}>
+        <Icon name="agent.session" size={ROW_ICON} row />
+      </span>
+      <span className="acpmux-summary-text">
+        <span className="acpmux-summary-agent__name">{session.name}</span>
+        {line && <span className="acpmux-summary-agent__kind">{line}</span>}
+      </span>
+      {session.unread && (
+        <span className="acpmux-summary-subsession__unread">
+          <span className="sr-only">{t("sidebar.markUnread")}</span>
+        </span>
+      )}
+      {session.queued ? (
+        <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
+      ) : null}
+      <span className="acpmux-summary-meta acpmux-summary-agent__state">
+        {t(SUBSESSION_STATE_LABEL[session.state])}
+      </span>
+    </button>
   );
 }

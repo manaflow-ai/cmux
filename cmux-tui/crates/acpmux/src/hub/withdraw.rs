@@ -72,7 +72,22 @@ impl Found {
             self.turn_id = field("turnId").to_owned();
             self.ended = false;
         }
+        // Back in the queue after the turn of agent messages it joined failed (`digest.rs`).
+        if e.kind == "queued"
+            && e.msg.get("requeued") == Some(&Value::Bool(true))
+            && field("promptId") == self.prompt_id
+        {
+            self.turn_id = field("turnId").to_owned();
+            (self.started, self.ended) = (false, false);
+            return;
+        }
         let same_turn = !self.turn_id.is_empty() && field("turnId") == self.turn_id;
+        // It went in with an earlier agent message's turn (`digest.rs`): that turn is its own.
+        if e.kind == "dequeued" && same_turn && !field("joinedTurnId").is_empty() {
+            self.turn_id = field("joinedTurnId").to_owned();
+            (self.started, self.ended) = (true, false);
+            return;
+        }
         match e.kind.as_str() {
             "user_message" | "dequeued" | "turn_started" if same_turn => self.started = true,
             "queue_removed" if same_turn => self.removed = true,
@@ -122,35 +137,22 @@ fn unshown_mark(c: char) -> bool {
 }
 
 impl Hub {
-    /// The provenance of a `session/prompt` to chat `to` from a connection of `origin`
-    /// (`prompt_provenance::of`); the app pane's reply in place must answer a message a chat
-    /// this connection `shows` got from `to`, and is recorded as `app_reply_fits` signs it.
+    /// The provenance of a `session/prompt` from a connection of `origin`
+    /// (`prompt_provenance::of`): the unix socket's only. The app pane's reply in place is no
+    /// prompt (`server/app_reply.rs`).
     pub(crate) fn prompt_provenance(
-        &self,
         params: &Value,
         origin: crate::server::Origin,
-        to: &str,
-        shows: &dyn Fn(&str) -> bool,
     ) -> Result<Option<Value>, RpcError> {
         use crate::prompt_provenance::Sender;
-        let sender = match origin {
-            crate::server::Origin::Local => Sender::Local,
-            crate::server::Origin::LocalApp => Sender::App,
-            _ => Sender::Other,
-        };
-        let provenance = crate::prompt_provenance::of(params, sender)?;
-        match provenance {
-            Some(p) if sender == Sender::App => match self.app_reply_fits(&p, to, shows) {
-                Some(signed) => Ok(Some(signed)),
-                None => Err(crate::prompt_provenance::origin_refused()),
-            },
-            other => Ok(other),
-        }
+        let sender =
+            if origin == crate::server::Origin::Local { Sender::Local } else { Sender::Other };
+        crate::prompt_provenance::of(params, sender)
     }
 
-    /// The app pane's reply in place (`prompt_provenance.rs`, `Sender::App`) as recorded, when it
-    /// answers a real message as what the pane may speak for; `None` refuses it. Default deny;
-    /// each must hold:
+    /// The app pane's reply in place (`server/app_reply.rs`, as a provenance) as acpmux signs it,
+    /// when it answers a real message as what the pane may speak for; `None` refuses it. Default
+    /// deny; each must hold:
     /// - `from` is `acp:<id>` and `to` is `acp:<to>`, the addresses `cmux agent message` uses
     ///   (`agent_message_prompt.rs` `provenance`), so the sender's chat links the reply back;
     /// - `<id>` is a chat here other than `to` that this connection `shows` (attached and not
@@ -183,15 +185,29 @@ impl Hub {
             return None;
         }
         let mut answered = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
-            let p =
-                |k: &str| e.msg.pointer(&format!("/_meta/provenance/{k}")).and_then(Value::as_str);
-            answered = e.kind == "user_message"
-                && p("kind") == Some("agent_message")
+        let fits = |m: &Value| {
+            let p = |k: &str| m.get(k).and_then(Value::as_str);
+            p("kind") == Some("agent_message")
                 && p("msgId") == Some(reply_to)
                 && p("threadId").or(p("msgId")) == Some(thread)
                 // `cmux agent message` names a chat `acp:<id>` (PaletteNavigationEntry.swift).
-                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to);
+                && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to)
+        };
+        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            let Some(p) = e.msg.pointer("/_meta/provenance").filter(|_| e.kind == "user_message")
+            else {
+                return true;
+            };
+            answered = match p.get("messages").and_then(Value::as_array) {
+                // It went in with other agents' messages (`digest.rs`): each keeps its provenance.
+                Some(joined)
+                    if p.get("kind").and_then(Value::as_str)
+                        == Some(super::digest::DIGEST_KIND) =>
+                {
+                    joined.iter().filter_map(|m| m.get("provenance")).any(fits)
+                }
+                _ => fits(p),
+            };
             !answered
         });
         if !answered {

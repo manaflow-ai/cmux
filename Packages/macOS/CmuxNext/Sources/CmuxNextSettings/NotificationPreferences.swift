@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 
@@ -17,6 +18,8 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     public var dockBadge = true
     /// `notifications.dockBounce`: the Dock icon bounces when an alert arrives while cmux is inactive.
     public var dockBounce: DockBounceMode = .once
+    /// `notifications.showPreviews`: when a banner shows the agent's last message.
+    public var showPreviews: NotificationPreviews = .whenUnlocked
     /// Workspace ids whose notifications post no banner, sound or ring.
     public var mutedWorkspaces: Set<String> = []
     public var sources: [NotificationSource: NotificationSourceOverrides] = [:]

@@ -48,9 +48,18 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     await vite?.close();
   });
 
-  /// A chat on the stand-in page host, its composer shown and nothing in the page focused.
+  /// Past an activation's claim: it waits ACTIVATION_SETTLE_MS (120 ms) and drops itself within
+  /// PRESS_WINDOW_MS (400 ms) of a press (composerFocus.ts).
+  const PAST_CLAIM_MS = 500;
+  /// Runs the page's clock past any claim waiting to settle: a claim still to come has run after it.
+  const pastClaim = (page: Page) => page.clock.runFor(PAST_CLAIM_MS);
+
+  /// A chat on the stand-in page host, its composer shown and nothing in the page focused. The
+  /// page's timers run on Playwright's clock, so a test moves past a claim's settle rather than
+  /// waiting it out.
   async function chat(): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    await page.clock.install();
     await page.addInitScript(() => {
       const w = window as unknown as Record<string, unknown>;
       // The shared page bridge (pageClient.ts BridgePageClient): `{t: "call"|"sub"}` envelopes
@@ -94,9 +103,15 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".acpmux-composer-prompt [contenteditable]").waitFor();
-    // The composer's own idle claim (first paint, the ready event) runs first, then the pane loses
-    // the keyboard: nothing in the page has focus, as when WebKit restores no element.
-    await page.waitForTimeout(300);
+    // The composer's own idle claim (first paint, the ready event) runs first, and any activation's
+    // claim with it, then the pane loses the keyboard: nothing in the page has focus, as when WebKit
+    // restores no element.
+    await page.waitForFunction(
+      () => document.querySelector(".acpmux-composer-prompt [contenteditable]")?.contains(document.activeElement),
+      null,
+      { timeout: 5_000 },
+    );
+    await pastClaim(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     expect(await promptFocused(page)).toBe(false);
     return page;
@@ -151,7 +166,7 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
       await pressBackground(page);
       if (signal === "focusContent") expect(await focusContent(page)).toBe(true);
       else await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
-      await page.waitForTimeout(500);
+      await pastClaim(page);
       expect(await promptFocused(page)).toBe(false);
       // A printed key still goes into the composer: the pane keeps the keyboard.
       await page.keyboard.type("x");
@@ -163,7 +178,7 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     const page = await chat();
     await focusPrompt(page);
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(500);
+    await pastClaim(page);
     expect(await promptFocused(page)).toBe(false);
     await page.close();
   });
@@ -177,7 +192,7 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
       field.focus();
     });
     expect(await focusContent(page)).toBe(true);
-    await page.waitForTimeout(200);
+    await pastClaim(page);
     expect(await page.evaluate(() => document.activeElement?.id)).toBe("other-field");
     await page.close();
   });
@@ -198,7 +213,7 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
       selection.addRange(range);
     });
     expect(await focusContent(page)).toBe(true);
-    await page.waitForTimeout(200);
+    await pastClaim(page);
     expect(await promptFocused(page)).toBe(false);
     expect(await page.evaluate(() => document.getSelection()?.toString())).toBe("copy this line");
     await page.close();

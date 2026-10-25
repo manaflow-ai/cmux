@@ -18,7 +18,8 @@ struct AgentReplySites {
             guard let services else { return [:] }
             return AgentReplySites(services: services).sites(for: urls)
         }
-        links.pullRequest = { url in await AgentReplyPullRequests.shared.read(url) }
+        links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
+        links.registerPullRequests = { urls in AgentReplyPullRequests.shared.register(urls) }
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

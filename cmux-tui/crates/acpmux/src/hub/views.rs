@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod host_load;
+
 /// The tag naming the session whose agent started this one (`Hub::spawned_by`).
 pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 
@@ -81,7 +83,9 @@ impl Hub {
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
 /// way to a peer daemon (`server/peer_text.rs`).
 ///
-/// `{state, since, error, step, title}`; null for a closed session.
+/// `stalledSince`: a working lane whose turn has stalled (`hub/activity.rs`), since when.
+///
+/// `{state, since, error, step, title, stalledSince}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -109,7 +113,10 @@ pub fn lane(summary: &Value) -> Value {
         _ => Value::Null,
     };
     let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
-    json!({"state": state, "since": since, "error": error, "step": lane_step(summary), "title": lane_title(summary)})
+    let stalled =
+        if state == "working" { summary["turn"]["stalledSince"].clone() } else { Value::Null };
+    json!({"state": state, "since": since, "error": error, "step": lane_step(summary),
+           "title": lane_title(summary), "stalledSince": stalled})
 }
 
 /// The lane's step, one line: the running turn's prompt, else the agent's
@@ -262,7 +269,10 @@ impl Hub {
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
         let m = session.meta();
+        let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
+        let heard_at = session.last_model_at.load(Ordering::Relaxed);
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -286,24 +296,40 @@ impl Hub {
             depth: m.subsession.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
+            title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
             queued: session.queued(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
+            // Its queued prompt waits for a run slot of its parent (`subsession_runs.rs`).
+            waits_for_slot: self.waits_for_slot(&m),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some(),
+            // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
+            watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
+            // Ctrl-B moves its work: by the kind its harness started as (`processes.rs`).
+            backgrounds_work: session.backgrounds_work.load(Ordering::SeqCst),
             turn: turn.map(|t| TurnSummary {
+                stalled_since: super::activity::stalled_since(
+                    t.started_at,
+                    heard_at,
+                    t.doing.tool_in_flight(),
+                    crate::store::now_ms(),
+                    stall_after,
+                ),
                 started_at: t.started_at,
                 client: t.client,
                 prompt: t.prompt_preview,
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
+                activity: t.doing.activity,
+                plan_step: t.doing.plan_step,
             }),
             queue: session
                 .queue()
@@ -327,6 +353,8 @@ impl Hub {
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
+            waiting_on: waiting.as_ref().map(|w| w.0.to_owned()),
+            waiting_prompt: waiting.and_then(|w| w.1),
             // Since when it waits on the person (`lane`); null while it does not.
             input_since: match session.input_since.load(Ordering::SeqCst) {
                 0 => None,
@@ -369,6 +397,9 @@ impl Hub {
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
         summary["sessionReceipt"] = receipt.to_value();
+        // The branch its folder has checked out now (`git_watch.rs`); null on
+        // a detached HEAD or outside a repository.
+        summary["gitBranch"] = json!(self.git_branch_now(&m));
         decide(&mut summary);
         summary
     }
@@ -382,10 +413,15 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
+        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        // The newest command list: a client that has it needs no read of the log for it.
+        if let Some(commands) = &m.available_commands {
+            v["availableCommands"] = commands.clone();
+        }
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        // The folder's branch and HEAD when the session started (`git_state.rs`).
-        v["gitBranch"] = json!(m.git_branch);
+        // The folder's HEAD when the session started (`git_state.rs`); its
+        // `gitBranch` is the summary's, the branch checked out now.
         v["gitHead"] = json!(m.git_head);
         // What the session's turns cost together (`turn_usage.rs`).
         v["totals"] = json!(m.totals);
@@ -400,6 +436,8 @@ impl Hub {
     }
 
     pub async fn status(&self) -> Value {
+        // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
+        let host_pressure = self.host_pressure_status().await;
         let cfg = self.config.read().await;
         let sessions = self.sessions();
         let mut live = 0;
@@ -411,7 +449,14 @@ impl Hub {
         json!({
             "version": VERSION,
             "build": BUILD,
+            // The protocol surfaces this build serves (`capabilities.rs`).
+            "capabilities": crate::capabilities::ids(),
             "pid": std::process::id(),
+            // Its own executable, and whether it runs as `cmux-tui acp …`, so a
+            // client (host enroll) tells which program runs it without scanning
+            // processes. Never its command line: `--token` is on it.
+            "exe": std::env::current_exe().ok().map(|e| e.to_string_lossy().into_owned()),
+            "runsAsCmuxTuiAcp": runs_as_cmux_tui_acp(std::env::args_os()),
             "startedAt": self.started_at,
             // Whether this run holds a person key, and its id (`hub/person.rs`):
             // the app checks that a daemon it started with a key still runs.
@@ -443,8 +488,21 @@ impl Hub {
             // from this daemon's own environment; the app hands off a Chief-home
             // daemon that lacks it.
             "chiefMuxHome": crate::config::chief_builtins::Context::current().chief_home,
+            // The host's CPU and RAM budget and this daemon's share of the load (`host_load.rs`).
+            "host_pressure": host_pressure,
         })
     }
+}
+
+/// Whether a command line runs `cmux-tui acp …` (a cmux session daemon, or
+/// enroll's `~/.local/bin/acpmux` link to a cmux-tui), not `acpmux …`.
+pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
+    args: impl IntoIterator<Item = A>,
+) -> bool {
+    let mut args = args.into_iter();
+    let first = args.next();
+    first.is_some_and(|a| std::path::Path::new(a.as_ref()).file_name() == Some("cmux-tui".as_ref()))
+        && args.next().is_some_and(|a| a.as_ref() == "acp")
 }
 
 #[cfg(test)]

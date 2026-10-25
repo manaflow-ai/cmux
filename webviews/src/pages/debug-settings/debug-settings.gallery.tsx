@@ -17,14 +17,22 @@ type Props = {
   selection?: string;
   query?: string;
   offline?: boolean;
+  noHangs?: boolean;
 };
 
-function DebugSettingsGallery({ overrides = {}, selection = "all", query = "", offline = false }: Props) {
+function DebugSettingsGallery({
+  overrides = {},
+  selection = "all",
+  query = "",
+  offline = false,
+  noHangs = false,
+}: Props) {
   const [store] = useState(() => {
     const provider = new MockDebugTunablesProvider(undefined, undefined, overrides);
     provider.selection = selection;
     provider.query = query;
     provider.offline = offline;
+    if (noHangs) provider.hangs = { ...provider.hangs, items: [] };
     return new DebugSettingsStore(provider, { writeClipboard: async () => {} });
   });
   const [strings] = useState(() => createStrings(table));
@@ -50,6 +58,7 @@ export default componentEntry<Props>({
     "page:cmux.debug-settings",
     "pages/debug-settings/DebugSettingsPage.tsx#DebugSettingsPage",
     "pages/debug-settings/TunableControl.tsx#TunableControlView",
+    "pages/debug-settings/DebugSettingsPage.tsx#HangsCard",
   ],
   load: async () => DebugSettingsGallery,
   styles: async () => {
@@ -74,6 +83,14 @@ export default componentEntry<Props>({
       props: { selection: "browser" },
     },
     search: { note: "A search across every section.", props: { query: "omnibar" } },
+    hangs: {
+      note: "Debug Settings > Hangs: the hang-file toggle and the recent hangs, one the app came back from and one it was killed in.",
+      props: { selection: "hangs" },
+    },
+    "hangs-empty": {
+      note: "Hangs with no hang file recorded yet.",
+      props: { selection: "hangs", noHangs: true },
+    },
     "nothing-changed": {
       note: "The Changed list when every tunable has its default.",
       props: { selection: "changed" },

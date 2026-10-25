@@ -4,6 +4,7 @@
 
 use super::workspace_group_json;
 use super::workspace_groups_json;
+use crate::panic_free::JsonFields;
 
 use super::MutationRequest;
 use super::list_workspaces_reply;
@@ -305,7 +306,7 @@ pub(super) fn close_workspace(
     // With `end_terminals` and `report_closed_ids`: the closed groups this
     // close stored, oldest first.
     if let Some(ids) = closed_ids {
-        reply["closed_ids"] = ids;
+        reply.insert("closed_ids", ids);
     }
     Ok(reply)
 }

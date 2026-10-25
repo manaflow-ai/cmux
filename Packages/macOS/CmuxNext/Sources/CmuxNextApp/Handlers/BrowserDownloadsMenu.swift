@@ -1,13 +1,15 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import UniformTypeIdentifiers
 import CmuxNextCompat
 
 /// A download row's menu in the toolbar's Downloads popup
 /// (`BrowserDownloadsPopup`, Edge's downloads flyout, cx-6qwm.1): open the
 /// file, show it in Finder, pause, resume or cancel it, retry it, or copy
-/// its link. cmux opens a file only on a click there, never by itself.
+/// its link. cmux opens a file only on a click there, never by itself. Every
+/// row has an icon; the row view themes the menu (`themedMenu()`).
 enum BrowserDownloadsMenu {
     /// The right-click menu of `download`'s row; nil when it offers nothing
     /// (a failed blob: download).
@@ -16,23 +18,23 @@ enum BrowserDownloadsMenu {
         submenu.autoenablesItems = false
         let file = download.status == .finished ? download.destination : nil
         if let file {
-            submenu.addItem(closure(BrowserHitStrings.downloadOpen) { NSWorkspace.shared.openInBackground(file) })
-            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder) { NSWorkspace.shared.revealInBackground([file]) })
+            submenu.addItem(closure(BrowserHitStrings.downloadOpen, "arrow.up.forward.app") { NSWorkspace.shared.openInBackground(file) })
+            submenu.addItem(closure(BrowserHitStrings.downloadShowInFinder, "folder") { NSWorkspace.shared.revealInBackground([file]) })
         }
         if download.canPause {
-            let title = download.isPaused ? BrowserHitStrings.downloadResume : BrowserHitStrings.downloadPause
-            submenu.addItem(closure(title) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
+            let (title, symbol) = download.isPaused ? (BrowserHitStrings.downloadResume, "play.circle") : (BrowserHitStrings.downloadPause, "pause.circle")
+            submenu.addItem(closure(title, symbol) { [weak download] in download.map { $0.setPaused(!$0.isPaused) } })
         }
         if download.canRetry {
-            submenu.addItem(closure(BrowserHitStrings.downloadRetry) { [weak list, weak download] in
+            submenu.addItem(closure(BrowserHitStrings.downloadRetry, "arrow.clockwise") { [weak list, weak download] in
                 if let list, let download { list.retry(download) }
             })
         }
         if download.status == .inProgress {
-            submenu.addItem(closure(BrowserHitStrings.downloadCancel) { [weak download] in download?.cancel() })
+            submenu.addItem(closure(BrowserHitStrings.downloadCancel, "xmark.circle") { [weak download] in download?.cancel() })
         }
         if let source = download.sourceURL, source.scheme == "http" || source.scheme == "https" {
-            submenu.addItem(closure(BrowserHitStrings.downloadCopyLink) {
+            submenu.addItem(closure(BrowserHitStrings.downloadCopyLink, "link") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(source.absoluteString, forType: .string)
             })
@@ -73,11 +75,10 @@ enum BrowserDownloadsMenu {
         }
     }
 
-    private static func closure(_ title: String, _ body: @escaping @MainActor () -> Void) -> NSMenuItem {
+    private static func closure(_ title: String, _ symbol: String, _ body: @escaping @MainActor () -> Void) -> NSMenuItem {
         let target = ActionMenuClosure(body)
         let item = NSMenuItem(title: title, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
-        item.target = target
-        item.representedObject = target
+        (item.target, item.representedObject, item.image) = (target, target, NSImage.menuSymbol(symbol))
         return item
     }
 }

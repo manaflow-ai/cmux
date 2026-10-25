@@ -1,12 +1,16 @@
 // Gallery-only host answers for the real reply chips, images and preview-card menu.
 import type { ChipHostFixture } from "../format";
 import { resetLinkStore, seedLinkStore } from "../../agent-session/acpmux/chips/linkStore";
+import { resetPullRequestStore } from "../../agent-session/acpmux/chips/pullRequestStore";
+import { resetReferenceExistence } from "../../agent-session/acpmux/chips/referenceExistence";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
 import { setProjectIconHost } from "../../agent-session/acpmux/projectIcon";
 
 /** Install one public-safe fixture for the agent pane's host-backed reply affordances. */
 export function installChipHost(fixture: ChipHostFixture | undefined): void {
   resetLinkStore();
+  resetPullRequestStore();
+  resetReferenceExistence();
   if (!fixture) {
     setChipHost(undefined);
     setProjectIconHost(undefined);
@@ -39,6 +43,11 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
       const src = params.src;
       const url = typeof src === "string" ? fixture.media?.[src] : undefined;
       return typeof url === "string" ? { src: url } : null;
+    }
+    if (method === "pr.inspect") {
+      const url = typeof params.url === "string" ? params.url : "";
+      const answer = fixture.pullRequests?.[url];
+      return answer ? { reading: false, ...answer } : { pullRequest: null, reading: false };
     }
     if (method === "browser.list") return { browsers: fixture.browsers ?? [] };
     return null;

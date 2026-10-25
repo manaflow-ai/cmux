@@ -83,6 +83,17 @@ import Testing
         #expect(!reply.hidesOnDeactivate)
     }
 
+    /// A notice is the toasts' neutral glass (a veil and rim over the glass), not bare glass, whose
+    /// text a web page's headline showed through, and never the mostly opaque card fill: glass stays
+    /// glass (Leo 2026-10-20: "I hate opaque").
+    @Test func noticeCapsuleIsTheToastsGlassNeverOpaque() {
+        let capsule = ChiefPetCapsule(frame: NSRect(x: 0, y: 0, width: ChiefPetBubblePanel.width, height: ChiefPetBubblePanel.pillHeight))
+        #expect(capsule.surface.tone.style == .toast, "the toasts' veil keeps its text legible")
+        #expect(!capsule.surface.isCard, "no opaque card fill on the glass")
+        #expect(capsule.surface.samplesBehindWindow, "the blur before macOS 26 samples what is behind its clear window")
+        #expect(capsule.surface.cornerRadius == ChiefPetBubblePanel.pillHeight / 2)
+    }
+
     /// One press through the view: down at `from`, dragged through `path`, up.
     /// `onCharacter` false presses the rail's background instead.
     private func press(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint], onCharacter: Bool = true) {

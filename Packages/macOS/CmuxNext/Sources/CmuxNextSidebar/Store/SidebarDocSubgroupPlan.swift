@@ -3,8 +3,8 @@ import Foundation
 
 /// The `sidebar.apply` ops of "New Subgroup" (remote-groups-DESIGN.md slice 3): one `group.create`
 /// inside `parent`, in `parent`'s section. The document allows ``SidebarDocSubgroupPlan/maxDepth``
-/// levels of groups (host > project > branch), so a third-level group plans nothing and says why,
-/// rather than sending an op the daemon refuses with `nesting`.
+/// levels of groups (16, deep enough to read as unlimited), so a group at that level plans nothing and
+/// says why, rather than sending an op the daemon refuses with `nesting`.
 ///
 /// ```swift
 /// let plan = SidebarDocSubgroupPlan(parent: group, id: .make(), name: "", color: .green, records: store.records)
@@ -19,8 +19,8 @@ public nonisolated struct SidebarDocSubgroupPlan {
         case tooDeep
     }
 
-    /// The most levels of groups one tree may have (the reducer's `MAX_GROUP_DEPTH`).
-    public static let maxDepth = 3
+    /// The most levels of groups one tree may have (the reducer's `MAX_GROUP_DEPTH`, 16 since 2026-10-23).
+    public static let maxDepth = 16
 
     /// The ops to send, or nil when ``refusal`` is set.
     public let ops: [[String: Any]]?
@@ -35,7 +35,8 @@ public nonisolated struct SidebarDocSubgroupPlan {
     ///   - color: its palette color.
     ///   - records: the document as the mirror holds it.
     public init(parent: GroupID, id: GroupID, name: String, color: GroupColor, records: SidebarDocRecords) {
-        guard let group = records.items[parent.rawValue], case .group = group.body else {
+        // A personal group's id names its document item (`itm_g_<id>`, #22996).
+        guard let parentItem = records.groupItem(personal: parent.rawValue), let group = records.items[parentItem] else {
             (ops, refusal) = (nil, .unknownGroup)
             return
         }

@@ -179,13 +179,14 @@ test("the Ledger design keeps a change's actions on its row, not on a blank line
   act(() =>
     root.render(
       <div className="cll">
-        <Groups view={releaseView(notes, "en")} ctx={{ strings, onTry: () => undefined }} />
+        <Groups view={releaseView(notes, "en")} ctx={{ strings, onTry: () => undefined, rowMedia: true }} />
       </div>,
     ),
   );
-  // Ledger rows are inline text in a bullet list; a block-level actions box would add an empty line under each.
+  // The Ledger's actions end the row's last line; a block-level actions box would add an empty line under each.
   const actions = host.querySelector<HTMLElement>(".cl-group li .cl-row-actions")!;
   expect(host.ownerDocument.defaultView!.getComputedStyle(actions).display).toBe("inline-flex");
+  expect(actions.parentElement?.classList.contains("cl-row-summary")).toBe(true);
   style.remove();
   act(() => root.unmount());
 });

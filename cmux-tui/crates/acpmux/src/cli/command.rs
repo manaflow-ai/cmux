@@ -3,6 +3,8 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+pub use crate::cli::task::BriefsCmd;
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -18,8 +20,29 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Send a local brief to another harness on a peer (or the least-loaded
+    /// allowed host with `--host auto`) and record its identity.
+    Dispatch(DispatchArgs),
+    #[command(subcommand)]
+    Briefs(BriefsCmd),
+    /// Give a session here a task, end one with its result in one call, list a chat's tasks.
+    #[command(subcommand)]
+    Task(crate::cli::task::TaskCmd),
+    /// Find the session an agent link (a PR footer's cmux.com/deeplink/agent?... or
+    /// cmux://agent/...), session id, harness session id or name names, here or on a peer, and
+    /// print its host, ids, harness, model, folder, lane, pull requests, last turn and link.
+    #[command(alias = "find")]
+    Resolve {
+        /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
+        query: String,
+    },
+    /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
+    #[command(subcommand)]
+    Bead(crate::cli::beads::BeadCmd),
     /// Create a session and optionally send a first prompt. `run` is the
-    /// same with --quiet: it prints only the final reply.
+    /// same with --quiet: it prints only the final reply. With --worktree,
+    /// --prompt-file, --report-to and --group it starts an agent on a task
+    /// in one step; running it again reuses everything and sends nothing.
     #[command(alias = "new-session", alias = "run", alias = "exec")]
     New(NewArgs),
     /// Block until a session resolves: its turn ends or it needs a permission
@@ -98,6 +121,9 @@ pub enum Command {
     /// Print the agent guide: how a script or another agent drives acpmux. Also `guide`, `--guide`, `--skill`.
     #[command(alias = "guide")]
     Skill,
+    /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
+    /// Needs no daemon: the app bundle records them for the web agent pane.
+    Capabilities,
     /// Show or set session defaults per model family or alias: `defaults`, `defaults claude`,
     /// `defaults claude model=claude-opus-5 effort=high policy=approve-edits prefer=claude-cr,claude`,
     /// `defaults deepseek prefer=opencode,pi models.opencode=opencode-go/deepseek-v4-pro models.pi=openrouter/deepseek/deepseek-v4`.
@@ -132,7 +158,8 @@ pub enum Command {
     /// Send a prompt and stream the reply until the turn ends.
     #[command(alias = "prompt", alias = "send-keys")]
     Send {
-        session: String,
+        #[arg(required_unless_present = "status")]
+        session: Option<String>,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
         /// Send this message into the running turn when the agent supports steering. On by
@@ -142,9 +169,15 @@ pub enum Command {
         /// Queue behind the running turn even with --no-wait.
         #[arg(long)]
         no_steer: bool,
-        /// Return as soon as the prompt is steered in or queued.
+        /// Hand the message to this daemon and return at once, for a session here or on a
+        /// peer: it prints the delivery id, and the daemon delivers it in the background,
+        /// trying again while the peer is down (`acpmux send --status ID`).
         #[arg(long)]
         no_wait: bool,
+        /// Print the state of a delivery `--no-wait` printed: queued, delivering, delivered or
+        /// failed.
+        #[arg(long, value_name = "ID", conflicts_with_all = ["session", "no_wait"])]
+        status: Option<String>,
         /// Do not stream; print only the final assistant text.
         #[arg(long, short)]
         quiet: bool,
@@ -161,6 +194,30 @@ pub enum Command {
         /// answers a repeat with the first run's outcome.
         #[arg(long)]
         prompt_id: Option<String>,
+        /// Send it as this agent's message: messages from agents that wait for a busy session go
+        /// in together as one turn, after the person's own. An agent running in acpmux is
+        /// named without it; elsewhere `ACPMUX_FROM` names it.
+        #[arg(long, value_name = "NAME")]
+        from: Option<String>,
+        /// Replace your prompt still queued under KEY: a correction is never read after the
+        /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
+        #[arg(long, value_name = "KEY")]
+        supersede: Option<String>,
+    },
+    /// Append a report to a human basket without waking any agent session.
+    /// The target must be `reports:<person>`; the sender is the attached local
+    /// ACP session (or `--from` when the daemon can bind that session).
+    Deliver {
+        #[arg(long, value_name = "TARGET")]
+        target: String,
+        /// Report text. Reads stdin when omitted or "-".
+        prompt: Vec<String>,
+        /// Stable id for retries; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+        /// Audience metadata (`leo`, `coordinator`, or `silent`).
+        #[arg(long, default_value = "leo")]
+        audience: String,
     },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
@@ -257,10 +314,9 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
-    /// How harnesses reach their model provider: list, add, edit, test and
-    /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
+    /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
-    Route(crate::cli::route::RouteCmd),
+    Forum(crate::cli::forum::ForumCmd),
     /// Every chat on this device, from every harness: list, open, roots. Also `cmux chats …`.
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
@@ -302,6 +358,10 @@ pub enum Command {
     /// stdio server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     SubsessionMcp,
+    /// The agent's forum tools (announce, rules, ack): an MCP stdio server
+    /// for one agent session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    ForumMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {
@@ -317,6 +377,8 @@ pub enum Command {
     TagCmd { session: String, assignments: Vec<String>, remove: Vec<String>, ttl: Option<u64> },
     #[command(hide = true)]
     RulesCmd { session: String, rules: Option<String>, clear: bool },
+    #[command(hide = true)]
+    LimitsCmd { session: String, max: Option<u32>, clear: bool },
     #[command(hide = true)]
     Schema,
     #[command(hide = true)]
@@ -336,6 +398,8 @@ pub enum Command {
     },
     #[command(hide = true)]
     RestartAgent { session: String },
+    #[command(hide = true)]
+    ResumeQueue { session: String },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -437,6 +501,30 @@ pub enum Command {
         #[arg(long)]
         dev: bool,
     },
+}
+
+#[derive(Args)]
+pub struct DispatchArgs {
+    /// Local Markdown/text brief file (use `-` for stdin).
+    pub brief: PathBuf,
+    /// Host name, `auto` for least-loaded placement, or `local`.
+    #[arg(long, alias = "target", default_value = "auto")]
+    pub host: String,
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long)]
+    pub to: Option<String>,
+    #[arg(long)]
+    pub stop_condition: Option<String>,
+    /// HARNESS[/MODEL] or profile; any ACP harness is accepted.
+    #[arg(long, short)]
+    pub model: Option<String>,
+    #[arg(long)]
+    pub preset: Option<String>,
+    #[arg(long)]
+    pub policy: Option<String>,
+    #[arg(long)]
+    pub cwd: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -598,6 +686,9 @@ pub enum SessionCmd {
     Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
+    /// Run the queued prompts a failed turn held. An agent or a script may resume a
+    /// queue; only answering a permission or a question needs the cmux app.
+    Resume { session: String },
     /// Fork a session into a new one that shares the history so far.
     Fork {
         session: String,
@@ -675,6 +766,18 @@ pub enum SessionCmd {
     Rules {
         session: String,
         rules: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    /// How many of its sub-sessions run at once (more wait their turn), how many run and wait
+    /// now, and its other sub-session limits. `--max N` sets it, `--clear` falls back to the
+    /// workspace's, the settings' or the default (16); setting takes the app or a parent session.
+    Limits {
+        session: String,
+        /// Most sub-sessions running at once (1 to 1000).
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..=1000), conflicts_with = "clear")]
+        max: Option<u32>,
+        /// Drop the session's own value.
         #[arg(long)]
         clear: bool,
     },
@@ -769,14 +872,50 @@ pub enum PeerCmd {
     /// as NAME/session.
     Add {
         name: String,
-        url: String,
+        /// Default: ssh://NAME, the machine's one daemon as your ssh config reaches it.
+        url: Option<String>,
         #[arg(long)]
         token: Option<String>,
     },
     /// List peers and their connection state.
     Ls,
+    /// Each peer's health, asked live: reachable, round trip, disk free,
+    /// load, live sessions and build, this machine first. Run it before
+    /// remote work and after a peer request fails, instead of retrying blind.
+    Status {
+        /// Only this peer.
+        name: Option<String>,
+    },
+    /// Where new work should go: this machine and each peer weighed by its
+    /// room (RAM, cores less load, disk, lane cap) and its role in
+    /// fleet-registry.json, from the readings the links already keep. The
+    /// pick `new --host auto` and `dispatch --host auto` make, with why.
+    Place {
+        /// For a build or test suite: only build hosts.
+        #[arg(long)]
+        build: bool,
+    },
     /// Remove a peer.
     Rm { name: String },
+    /// Pairing tickets for adding a machine with one pasted line: `new`
+    /// mints one, `ls` lists tickets and paired machines, `revoke` ends one.
+    #[command(subcommand)]
+    Ticket(TicketCmd),
+    /// Redeem a pairing ticket from another machine and pair in its role
+    /// (the install script runs this with the pasted ticket).
+    Join {
+        ticket: String,
+        /// This machine's name on the other one (default: the host name's first label).
+        #[arg(long)]
+        name: Option<String>,
+        /// The other machine's peer name here (default: its name in the ticket).
+        #[arg(long)]
+        peer_name: Option<String>,
+        /// A daemon-role ticket: the wss:// URL (or ws:// to a loopback host)
+        /// the other machine reaches this daemon at.
+        #[arg(long)]
+        advertise: Option<String>,
+    },
     /// Install this binary and a daemon on a machine over ssh, then add it as a peer.
     Setup {
         /// ssh target, e.g. cmux-lawrence or user@host
@@ -788,11 +927,104 @@ pub enum PeerCmd {
         #[arg(long, default_value_t = 47811)]
         port: u16,
     },
-    /// Copy this binary to an ssh peer (or every one with --all) and restart its daemon.
+    /// Copy this binary to an ssh peer (or every one with --all) and restart
+    /// its daemon. The previous binary is kept and put back when the
+    /// restarted daemon does not answer with the new build; a daemon under a
+    /// hand-written acpmux unit is moved to acpmux.service, agents kept.
     Update {
         name: Option<String>,
         #[arg(long)]
         all: bool,
+        /// Push DIR/acpmux-<target> instead, the target from the peer's
+        /// `uname -sm` (x86_64-unknown-linux-musl, aarch64-unknown-linux-musl,
+        /// aarch64-apple-darwin, x86_64-apple-darwin).
+        #[arg(long, value_name = "DIR")]
+        binary_dir: Option<PathBuf>,
+        /// Leave a peer alone while one of its sessions runs a turn or waits
+        /// on a permission (but the session this command runs in).
+        #[arg(long)]
+        if_idle: bool,
+    },
+    /// Add a machine in one go: check ssh, install this build, start the
+    /// daemon, copy harness profiles and peer to it (and, with --reverse,
+    /// back). One line per step.
+    Enroll {
+        /// ssh target, e.g. huge-blue or user@host
+        host: String,
+        /// Peer name (default: the host's first label).
+        #[arg(long)]
+        name: Option<String>,
+        /// A harness profile to copy (repeatable).
+        #[arg(long = "harness", value_name = "ID")]
+        harnesses: Vec<String>,
+        /// The remote binary to install; another than ~/.local/bin/acpmux
+        /// (the app's ~/.local/bin/cmux-tui) gets that path linked to it.
+        #[arg(long, default_value = "~/.local/bin/acpmux")]
+        remote_binary: String,
+        /// Also register this machine as a peer on the host (peer-back). Off
+        /// by default: two daemons that list each other relay one another's
+        /// sessions both ways.
+        #[arg(long)]
+        reverse: bool,
+    },
+    /// Check a machine (a peer name or an ssh host) step by step; --fix
+    /// repairs what fails. Without --fix nothing changes.
+    Doctor {
+        target: String,
+        #[arg(long)]
+        fix: bool,
+        /// A harness profile to check (repeatable).
+        #[arg(long = "harness", value_name = "ID")]
+        harnesses: Vec<String>,
+        #[arg(long, default_value = "~/.local/bin/acpmux")]
+        remote_binary: String,
+        /// Also check (and with --fix, add) this machine as a peer on the host.
+        #[arg(long)]
+        reverse: bool,
+    },
+    /// The tailnet's machines that could be added, marking those already peers.
+    Candidates {
+        /// Also try key-only ssh to each online machine.
+        #[arg(long)]
+        probe: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TicketCmd {
+    /// Mint a single-use ticket; prints the line to run on the new machine.
+    New {
+        /// daemon (this machine drives the new one), client (the new one
+        /// drives this one) or read-only (the new one only watches).
+        #[arg(long, default_value = "client")]
+        role: String,
+        /// How long the ticket lives: 900, 15m or 2h (at most 24h).
+        #[arg(long, default_value = "15m")]
+        ttl: String,
+        /// The wss:// URL the new machine dials (default: this daemon's
+        /// listener, when it listens on loopback).
+        #[arg(long)]
+        url: Option<String>,
+        /// A note shown in `ticket ls`.
+        #[arg(long)]
+        label: Option<String>,
+    },
+    /// Tickets and paired machines (no secrets).
+    #[command(alias = "list")]
+    Ls,
+    /// Revoke a ticket, or a paired machine by id or name; its open
+    /// connections close at once.
+    Revoke { id: String },
+    /// Let a paired client machine run chats in Full access (on), or not
+    /// (off, the default): the agent edits files and runs commands on this
+    /// machine without asking. On needs the person (the cmux app's Settings);
+    /// off takes effect at once.
+    FullAccess {
+        /// The machine's id or name (`cmux host ticket ls`).
+        id: String,
+        /// on or off.
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
     },
 }
 
@@ -801,10 +1033,15 @@ pub struct NewArgs {
     /// A preset from `acpmux preset`: harness plus model, effort, policy, env. `-m` and `-e` still win.
     #[arg(long, short)]
     pub preset: Option<String>,
-    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
+    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path
+    /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
+    /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
+    /// machine as a remote client, are refused with the command that works instead.
+    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
     #[arg(long)]
     pub host: Option<String>,
-    /// Session name. Generated when omitted.
+    /// Session name. Generated when omitted. With a launcher flag it is lowercased
+    /// and `/` or spaces become `-` (`gui/x` is `gui-x`).
     #[arg(long, short)]
     pub name: Option<String>,
     #[arg(long)]
@@ -850,6 +1087,33 @@ pub struct NewArgs {
     /// Send the first prompt with this id again (from a `daemon_closed` error); it runs once.
     #[arg(long)]
     pub prompt_id: Option<String>,
+    /// Start in the git worktree named by --name of REPO's repository,
+    /// `~/.cmux/worktrees/<project>/<name>` on branch `cmux/<name>` from BASE
+    /// (a ref or commit; default REPO's current branch). Made when missing,
+    /// reused when there; implies --reuse. Replaces --cwd.
+    #[arg(long, value_name = "REPO[@BASE]")]
+    pub worktree: Option<String>,
+    /// Read the first prompt from this file (after any prompt words), now; a
+    /// missing or empty file fails before anything starts.
+    #[arg(long, value_name = "FILE")]
+    pub prompt_file: Option<PathBuf>,
+    /// Tell the new session that this session started it and how to report back.
+    #[arg(long, value_name = "SESSION")]
+    pub report_to: Option<String>,
+    /// Start it as SESSION's sub-session, of any harness (`-m codex`): it lists under SESSION's
+    /// chat and SESSION's agent reads, messages and stops it with its sub-session tools. SESSION
+    /// is the session this command runs in (`$ACPMUX_SESSION_ID`) or one of its sub-sessions.
+    /// Needs a prompt; prints the child's reply when its turn ends (with -d, only starts it).
+    #[arg(long, value_name = "SESSION")]
+    pub parent: Option<String>,
+    /// Show the session in the cmux app's sidebar, in this workspace group
+    /// (made when missing). Runs `cmux agent open` on this machine.
+    #[arg(long, value_name = "GROUP")]
+    pub group: Option<String>,
+    /// When a session named --name already exists, use it instead of failing;
+    /// the first prompt is not sent to it again.
+    #[arg(long)]
+    pub reuse: bool,
 }
 
 /// Map the grouped spellings onto the flat handlers.
@@ -861,6 +1125,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
+            SessionCmd::Resume { session } => Command::ResumeQueue { session },
             SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },
             SessionCmd::Allow { session, option } => Command::Allow { session, option },
@@ -876,6 +1141,9 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Tag { session, assignments, remove, ttl } => {
                 Command::TagCmd { session, assignments, remove, ttl }
+            }
+            SessionCmd::Limits { session, max, clear } => {
+                Command::LimitsCmd { session, max, clear }
             }
             SessionCmd::Rules { session, rules, clear } => {
                 Command::RulesCmd { session, rules, clear }

@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { runAgentProbes } from "./dogfood-probes.mjs";
+import { buildLifecycleReceipt } from "./lifecycle-receipt.mjs";
 import {
   loadTargetEnv,
   optionValue,
@@ -50,12 +51,14 @@ const scratch = mkdtempSync(path.join(tmpdir(), "cmux-dogfood-"));
 const runStartedAt = performance.now();
 const timings = {};
 const notes = [];
+const operations = [];
 const children = new Set();
 let stage = "setup";
 let user;
 let vmId;
 let authHeaders;
 let deviceId;
+let cleanupState = "unverified";
 
 function note(text) {
   notes.push(text);
@@ -65,8 +68,16 @@ function note(text) {
 async function timed(name, work) {
   stage = name;
   const startedAt = performance.now();
+  const operation = { name, states: [{ state: "accepted", atMs: Math.round(startedAt - runStartedAt) }] };
+  operations.push(operation);
+  operation.states.push({ state: "running", atMs: Math.round(startedAt - runStartedAt) });
   try {
-    return await work();
+    const value = await work();
+    operation.states.push({ state: "completed", atMs: Math.round(performance.now() - runStartedAt) });
+    return value;
+  } catch (error) {
+    operation.states.push({ state: error?.code === "ABORT_ERR" ? "cancelled" : "failed", atMs: Math.round(performance.now() - runStartedAt) });
+    throw error;
   } finally {
     timings[`${name}Ms`] = Math.round(performance.now() - startedAt);
     console.error(`step ${name} ${timings[`${name}Ms`]}ms`);
@@ -376,15 +387,32 @@ async function cleanup() {
   for (const child of children) child.kill("SIGKILL");
   // Covers a create that failed or timed out after the provider started a VM.
   const clean = authHeaders ? await emptyAccount(authHeaders) : true;
-  if (user && clean) await user.delete().catch((error) => console.error(`cleanup_delete_user_failed ${error.message}`));
-  else if (user) console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+  if (!clean) {
+    cleanupState = "failed";
+    if (user) console.error(`cleanup_kept_user_for_sweep=${user.id}`);
+  } else if (user) {
+    try {
+      await user.delete();
+      cleanupState = "completed";
+    } catch (error) {
+      cleanupState = "failed";
+      console.error(`cleanup_delete_user_failed ${error.message}`);
+    }
+  } else {
+    cleanupState = "completed";
+  }
   rmSync(scratch, { recursive: true, force: true });
 }
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     console.error(`received ${signal}; cleaning up`);
-    cleanup().finally(() => process.exit(130));
+    cleanup().finally(() => {
+      const output = summary({ ok: false, cancelled: true, stage, error: `cancelled by ${signal}`, ...result });
+      console.log(JSON.stringify(output, null, 2));
+      if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
+      process.exit(130);
+    });
   });
 }
 
@@ -393,13 +421,16 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 const DEADLINE_MS = 25 * 60 * 1000;
 const deadline = setTimeout(() => {
   console.error(`journey exceeded ${DEADLINE_MS}ms at stage ${stage}; cleaning up`);
-  const output = summary({ ok: false, stage, error: `deadline exceeded during ${stage}` });
-  console.log(JSON.stringify(output, null, 2));
-  if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
-  cleanup().finally(() => process.exit(1));
+  cleanup().finally(() => {
+    const output = summary({ ok: false, stage, error: `deadline exceeded during ${stage}` });
+    console.log(JSON.stringify(output, null, 2));
+    if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
+    process.exit(1);
+  });
 }, DEADLINE_MS);
 
 function summary(outcome) {
+  const operationState = (name) => operations.find((operation) => operation.name === name)?.states.at(-1)?.state;
   return {
     ...outcome,
     ...(outcome.error ? { error: outcome.error.replace(/\s+/g, " ").slice(0, 600) } : {}),
@@ -408,6 +439,24 @@ function summary(outcome) {
     durationMs: Math.round(performance.now() - runStartedAt),
     timings,
     notes,
+    receipt: buildLifecycleReceipt({
+      ok: outcome.ok,
+      cancelled: outcome.cancelled === true,
+      sourceSha: process.env.GITHUB_SHA ?? process.env.CI_COMMIT_SHA ?? process.env.CMUX_SOURCE_SHA,
+      provider: outcome.vm?.provider,
+      imageVersion: outcome.vm?.imageVersion,
+      machineId: outcome.vm?.id,
+      attachState: operationState("attach"),
+      networkState: outcome.privateReachability === true ? "completed" : "unverified",
+      transportPath: outcome.transportPath,
+      terminalState: operationState("restoredTerminal"),
+      operations,
+      // The current journey does not claim lease, fork/snapshot, or quota evidence.
+      cleanupState,
+      leaseState: "unverified",
+      forkSnapshotState: "unverified",
+      quotaState: "unverified",
+    }),
   };
 }
 
@@ -452,6 +501,7 @@ try {
   }, 5 * 60 * 1000), [200], "POST /api/vm"));
   vmId = created.id;
   result.vm = {
+    id: vmId,
     provider: created.provider,
     imageVersion: created.imageVersion,
     cmuxTuiContract: created.cmuxTuiContract ?? null,
@@ -540,6 +590,7 @@ try {
     return startLink();
   });
   let localSocket = connected.local_socket;
+  result.privateReachability = true;
   result.transportPath = connected.connection?.transport?.selected_path?.kind ?? null;
 
   // The shell computes the suffix, so the echoed command line never matches.
@@ -688,6 +739,8 @@ try {
   const failedProbes = ["agentHooks", "agentStatusWorking", "agentStatusIdle", "notifyReachesHost"]
     .filter((name) => !result[name].ok);
   if (result.linkDownPauseOk === false) failedProbes.push("linkDownPause");
+  await cleanup();
+  if (cleanupState !== "completed") failedProbes.push("cleanup");
   const output = summary({
     ok: failedProbes.length === 0,
     ...(failedProbes.length > 0 ? { stage: failedProbes[0], error: `failed probes: ${failedProbes.join(", ")}` } : {}),
@@ -698,15 +751,7 @@ try {
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
-  if (vmId && authHeaders) {
-    try {
-      const deleted = await api("DELETE", `/api/vm/${encodeURIComponent(vmId)}`);
-      if ([200, 404].includes(deleted.status)) vmId = undefined;
-      else note(`failure cleanup delete returned ${deleted.status}`);
-    } catch (cleanupError) {
-      note(`failure cleanup delete failed: ${cleanupError.message.slice(0, 300)}`);
-    }
-  }
+  await cleanup();
   const output = summary({ ok: false, stage, error: message, ...result });
   console.log(JSON.stringify(output, null, 2));
   if (resultFile) writeFileSync(resultFile, `${JSON.stringify(output)}\n`);

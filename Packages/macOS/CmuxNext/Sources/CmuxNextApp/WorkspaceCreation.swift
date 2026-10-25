@@ -116,8 +116,10 @@ enum WorkspaceCreation {
                 guard let localHost = tabs.localHost else { throw DaemonError.notConnected }
                 // A chat of this Mac's acpmux: its tab shows it as soon as the tree lists it.
                 let record = AgentSessionRef(host: localHost, hostName: tabs.localHostName, session: session)
-                _ = try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,
-                                                                           origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString))
+                let request = NewConversationTabRequest(agentSession: record, workspace: created.workspace,
+                                                        origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString)
+                // One mutation id for every send: a tab the daemon made after the deadline replays.
+                _ = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
             } else {
                 if let token = spawn.inputToken, spawn.firstChat == nil { tabs.firstPageTokens[created.workspace] = token }
                 _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
