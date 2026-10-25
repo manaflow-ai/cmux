@@ -42,9 +42,10 @@ use crate::json::JsonField;
 
 const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS...";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
-/// The agent's minter answers asks one at a time (each at most a bearer
-/// refresh and one API call, 20 s apiece), with at most 8 waiting.
-const ASK_TIMEOUT: Duration = Duration::from_secs(180);
+/// The agent answers within this: an ask that waited 60 s in its queue is
+/// answered `busy` (`github_minter::MAX_QUEUE_WAIT`), and one mint is at
+/// most three 20 s API calls, twice with a bearer retry (120 s).
+const ASK_TIMEOUT: Duration = Duration::from_secs(240);
 
 /// A minted token, held in memory only (Debug redacts it).
 pub struct Minted {
@@ -718,6 +719,13 @@ mod tests {
         assert_eq!(op(&["git-lfs", "filter-process"]), Some(GitOp::Read));
         assert_eq!(op(&["git-lfs", "pre-push", "origin"]), Some(GitOp::Push));
         assert_eq!(op(&["git", "lfs", "migrate"]), Some(GitOp::Unknown));
+    }
+
+    #[test]
+    fn the_ask_timeout_outlasts_the_agents_queue_and_one_mint() {
+        let one_mint = Duration::from_secs(6 * 20);
+        let need = crate::cloud::github_minter::MAX_QUEUE_WAIT.checked_add(one_mint);
+        assert!(need.is_some_and(|need| ASK_TIMEOUT >= need));
     }
 
     #[test]
