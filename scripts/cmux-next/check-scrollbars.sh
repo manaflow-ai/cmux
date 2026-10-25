@@ -122,7 +122,7 @@ def scan(rel, path, rules, strip):
 # can name SwiftUI's (no CmuxNext module re-exports it), so `List(expectedMachineID:)` in a Foundation-only
 # file (AgentCLIIntentLedger's own List request) is not one.
 SWIFTUI_SCROLL = re.compile(r"(?<![A-Za-z])(?:ScrollView|List)\s*[({]")
-SWIFTUI_IMPORT = re.compile(r"^\s*(?:@\w+\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:struct|class|enum|protocol|typealias|func|var|let)\s+)?SwiftUI\b",
+SWIFTUI_IMPORT = re.compile(r"^\s*(?:@\w+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?import\s+(?:(?:struct|class|enum|protocol|typealias|func|var|let)\s+)?SwiftUI\b",
                             re.M)
 STRING = re.compile(r'"(?:[^"\\\n]|\\.)*"')
 
