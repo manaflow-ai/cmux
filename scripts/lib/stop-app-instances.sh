@@ -71,8 +71,8 @@ cmux_stop_app_instances() {
   return 1
 }
 
-# Prints the seconds in environment variable NAME, or DEFAULT (with a warning)
-# when it is unset, empty or not a number.
+# Prints the seconds in environment variable NAME, or DEFAULT when it is unset
+# or empty, or DEFAULT with a warning when it is not a number.
 cmux_stop_app_seconds() {
   local name="$1" default="$2" value
   value="${!name:-}"
