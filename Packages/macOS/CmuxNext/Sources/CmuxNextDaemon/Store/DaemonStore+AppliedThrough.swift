@@ -16,6 +16,10 @@ extension DaemonStore {
         guard let sequence else { return false }
         if appliedSequence >= sequence { return true }
         guard connectionEpoch == epoch else { return false }
+        // A read-your-writes wait never waits on a script batch's stage: what it needs shows now.
+        beginAppliedWait(sequence)
+        defer { endAppliedWait(sequence) }
+        if appliedSequence >= sequence { return true }
         // connectionEpoch is not observed; every epoch change also sets connectionState, which is.
         for await done in ObservationStream({ (self.appliedSequence >= sequence, self.connectionState) }) {
             if done.0 { return true }

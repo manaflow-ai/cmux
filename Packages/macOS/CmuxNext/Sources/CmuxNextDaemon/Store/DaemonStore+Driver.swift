@@ -183,6 +183,8 @@ extension DaemonStore {
         let failure = await pump.value
         // Everything left: a frame asked for after this would find no driver.
         drain()
+        // What a script batch's stage still holds is this connection's: it shows now, before the next one.
+        stage?.commitAll()
         // The connection is gone: no echo or barrier will come for its commands.
         drainAppliedWaiters = true
         flushAppliedWaiters()
