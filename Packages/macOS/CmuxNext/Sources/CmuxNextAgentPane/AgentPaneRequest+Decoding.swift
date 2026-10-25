@@ -3,22 +3,21 @@ import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
-    private static let maximumUploadStageChunk = 512 * 1024
-    private static let maximumUploadStageFile = 1 * 1024 * 1024 * 1024
-
+    /// A staged upload's step. No size bounds a file: its destination checks its disk. A chunk's
+    /// base64 text is only measured here (O(1) for the page's string), never decoded on this turn.
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":
             guard let name = params["name"] as? String, AgentPaneUpload.isFileName(name),
-                  let size = (params["size"] as? NSNumber)?.intValue, size >= 0, size <= maximumUploadStageFile else { return .unsupported(method) }
+                  let size = (params["size"] as? NSNumber)?.intValue, size >= 0 else { return .unsupported(method) }
             let batchToken = params["batchToken"] as? String
             var batch: [AgentPaneUploadBatchEntry]?
             if let list = params["batch"] as? [[String: Any]] {
-                guard !list.isEmpty, list.count <= 64 else { return .unsupported(method) }
+                guard !list.isEmpty, list.count <= AgentPaneUploadStageRequest.maximumBatchFiles else { return .unsupported(method) }
                 let parsed = list.compactMap { item -> (String, Int)? in
                     guard let n = item["name"] as? String, AgentPaneUpload.isFileName(n), let s = (item["size"] as? NSNumber)?.intValue,
-                          s >= 0, s <= maximumUploadStageFile else { return nil }
+                          s >= 0 else { return nil }
                     return (n, s)
                 }
                 guard parsed.count == list.count else { return .unsupported(method) }
@@ -28,10 +27,9 @@ extension AgentPaneRequest {
         case "chat.upload.chunk":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count),
                   let offset = (params["offset"] as? NSNumber)?.intValue, offset >= 0,
-                  let text = params["data"] as? String,
-                  text.utf8.count <= (maximumUploadStageChunk / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumUploadStageChunk else { return .unsupported(method) }
-            return .uploadStage(.chunk(token: token, offset: offset, data: data))
+                  let text = params["data"] as? String, let length = AgentPaneUploadStageRequest.decodedLength(text),
+                  (1...AgentPaneUploadStageRequest.maximumChunkBytes).contains(length) else { return .unsupported(method) }
+            return .uploadStage(.chunk(token: token, offset: offset, base64: text))
         case "chat.upload.finish":
             guard let token = params["token"] as? String, (1...128).contains(token.utf8.count) else { return .unsupported(method) }
             return .uploadStage(.finish(token: token))

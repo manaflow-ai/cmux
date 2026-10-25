@@ -9,12 +9,17 @@
 //!
 //! The old one-shot request is bounded to [`LEGACY_MAX_BYTES`] because it crosses the peer link as
 //! one WebSocket frame. New clients use the resumable methods below, whose chunks are bounded by
-//! [`CHUNK_BYTES`], and may send a larger file up to [`MAX_BYTES`].
+//! [`CHUNK_BYTES`], and a file of any size streams to disk chunk by chunk. A file has no size cap
+//! (Leo, 2026-10-24: "I thought we removed the file size limit attachment situation... we
+//! shouldn't have this limit"): `file_put_begin` refuses one only when this machine's disk lacks
+//! room for it ([`room_for`], `filePut.noSpace`), and a chunk the disk cannot take is refused the
+//! same way, its partial file deleted. `file_put_cancel` deletes a partial file and its folder.
 //!
 //! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
 //! when Bring Back replaces its closed copy under the same id, `transfer_in.rs`), and
 //! any file goes once it is older than `uploadsMaxAgeDays` (default 30; 0 keeps them), read from
-//! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after). A folder
+//! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after). An upload
+//! never finished (its client went away without a cancel) goes once it is a day old. A folder
 //! the daemon did not name that way is never deleted.
 
 use crate::rpc::RpcError;
@@ -28,12 +33,15 @@ use std::time::Duration;
 pub const FEATURE: &str = "filePut";
 /// The resumable upload feature advertised by current daemons.
 pub const CHUNKS_FEATURE: &str = "filePutChunks";
-/// The largest file a local or peer upload may hold.
-pub const MAX_BYTES: usize = 1 << 30;
 /// The largest one-shot request accepted for compatibility with older peers.
 pub const LEGACY_MAX_BYTES: usize = 10 << 20;
 /// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
 pub const CHUNK_BYTES: usize = 512 << 10;
+/// What an upload leaves free on the disk, so the daemon's own store and logs still write.
+const DISK_RESERVE_BYTES: u64 = 256 << 20;
+/// How old an unfinished upload (a `.part` its client never finished or cancelled) gets before
+/// the sweep deletes it.
+const PARTIAL_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 fn root() -> PathBuf {
     crate::config::home().join("uploads")
@@ -65,11 +73,15 @@ fn made_at(name: &str) -> Option<u64> {
     Some(secs * 1000 + u64::from(nanos) / 1_000_000)
 }
 
-/// Deletes each upload under `root` older than `max_age` at `now_ms`, and a session folder it
-/// leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are read as
-/// uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
-pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
-    let cutoff = now_ms.saturating_sub(u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX));
+/// Deletes each upload under `root` older than `max_age` at `now_ms` (none with no `max_age`),
+/// each unfinished one (it still holds `.part`) older than [`PARTIAL_MAX_AGE`], and a session
+/// folder it leaves empty; answers how many uploads went. Only real folders with a UUIDv7 name are
+/// read as uploads: a symlink, a file or another name is kept. Blocking: run it off the runtime.
+pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Option<Duration>) -> usize {
+    let before =
+        |age: Duration| now_ms.saturating_sub(u64::try_from(age.as_millis()).unwrap_or(u64::MAX));
+    let cutoff = max_age.map_or(0, before);
+    let partial_cutoff = before(PARTIAL_MAX_AGE);
     let real_dirs =
         |dir: &Path| {
             std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
@@ -79,7 +91,9 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let mut removed = 0;
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
-            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff);
+            let made = upload.file_name().to_str().and_then(made_at);
+            let unfinished = || upload.path().join(".part").symlink_metadata().is_ok();
+            let old = made.is_some_and(|at| at < cutoff || (at < partial_cutoff && unfinished()));
             if old && std::fs::remove_dir_all(upload.path()).is_ok() {
                 removed += 1;
             }
@@ -100,7 +114,8 @@ impl super::Hub {
             every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 every.tick().await;
-                let Some(max_age) = hub.config.read().await.uploads_max_age() else { continue };
+                // With no age cap, unfinished uploads still go.
+                let max_age = hub.config.read().await.uploads_max_age();
                 let now = crate::store::now_ms();
                 match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
                     Ok(0) => {}
@@ -166,9 +181,63 @@ fn windows_device_name(name: &str) -> bool {
         )
 }
 
+/// The one-shot request past [`LEGACY_MAX_BYTES`]: such a file goes with `file_put_begin`.
 fn too_large() -> RpcError {
-    RpcError::invalid_params(format!("a file is at most {} MiB", MAX_BYTES >> 20))
-        .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": MAX_BYTES}))
+    RpcError::invalid_params(format!(
+        "a one-shot file is at most {} MiB; send a larger one with {}",
+        LEGACY_MAX_BYTES >> 20,
+        crate::rpc::method::MUX_FILE_PUT_BEGIN
+    ))
+    .with_data(json!({"reason": "filePut.tooLarge", "maxBytes": LEGACY_MAX_BYTES}))
+}
+
+/// The refusal of file `name` when this machine's disk has `free` bytes (`filePut.noSpace`, with
+/// the machine's name and the free bytes for the app's own words).
+fn no_space(name: &str, free: u64) -> RpcError {
+    let machine = crate::host_pressure::host_name();
+    RpcError::invalid_params(format!(
+        "Not enough space on {machine} for {name} ({} free)",
+        human_bytes(free)
+    ))
+    .with_data(json!({"reason": "filePut.noSpace", "machine": machine, "freeBytes": free}))
+}
+
+/// `bytes` in decimal units, as Finder counts them: `512 MB`, `1.2 GB`.
+fn human_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["bytes", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1000.0 && unit + 1 < UNITS.len() {
+        value /= 1000.0;
+        unit += 1;
+    }
+    if unit == 0 || value >= 100.0 {
+        format!("{value:.0} {}", UNITS[unit])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
+/// The free bytes of the disk that holds `path`, read at its nearest existing folder; None where
+/// the platform does not say (Windows), which takes any size.
+fn free_bytes(path: &Path) -> Option<u64> {
+    let existing = path.ancestors().find(|dir| dir.exists())?;
+    crate::server::peer_status::disk(existing).map(|(free, _)| free)
+}
+
+/// Whether a disk with `free` bytes (None: unknown) takes file `name` of `size` bytes and still
+/// keeps [`DISK_RESERVE_BYTES`] free: the one bound an upload has.
+fn room_for(name: &str, size: u64, free: Option<u64>) -> Result<(), RpcError> {
+    match free {
+        Some(free) if size.saturating_add(DISK_RESERVE_BYTES) > free => Err(no_space(name, free)),
+        _ => Ok(()),
+    }
+}
+
+/// Whether `error` says the disk is full.
+fn disk_full(error: &std::io::Error) -> bool {
+    error.kind() == std::io::ErrorKind::StorageFull
+        || error.kind() == std::io::ErrorKind::QuotaExceeded
 }
 
 fn upload_id(id: &str) -> Option<String> {
@@ -196,11 +265,9 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("size is required"))?;
-    if size > MAX_BYTES as u64 {
-        return Err(too_large());
-    }
     let id = uuid::Uuid::now_v7().to_string();
     let path = part_path(session, &id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
+    room_for(name, size, free_bytes(&path))?;
     let parent = path.parent().ok_or_else(|| RpcError::internal("upload path has no parent"))?;
     crate::config::private_state_dir(parent).map_err(|e| RpcError::internal(e.to_string()))?;
     crate::agent_tools::write_private(&path, &[])
@@ -260,13 +327,36 @@ fn chunk(params: &Value) -> Result<Value, RpcError> {
         return Err(RpcError::invalid_params(format!("upload offset is {current}, got {offset}")));
     }
     let next = current.saturating_add(bytes.len() as u64);
-    if next > declared_size || next > MAX_BYTES as u64 {
-        return Err(too_large());
+    if next > declared_size {
+        return Err(RpcError::invalid_params(format!(
+            "the chunk ends at {next}, past the upload's {declared_size} bytes"
+        )));
     }
     file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
-    file.write_all(&bytes).map_err(|e| RpcError::internal(format!("cannot append upload: {e}")))?;
-    file.sync_data().map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
+    // Synced once, at the finish: a sync per chunk made a large file's upload wait on the disk
+    // thousands of times.
+    if let Err(e) = file.write_all(&bytes) {
+        if !disk_full(&e) {
+            return Err(RpcError::internal(format!("cannot append upload: {e}")));
+        }
+        // The disk filled meanwhile (another upload, another program): the partial file goes,
+        // so the space comes back.
+        drop(file);
+        remove_unfinished(&path, &meta);
+        let name = declared.get("fileName").and_then(Value::as_str).unwrap_or("the file");
+        return Err(no_space(name, free_bytes(&path).unwrap_or(0)));
+    }
     Ok(json!({"offset": next}))
+}
+
+/// Deletes an unfinished upload's `.part` and `.meta`, then its folder when that is empty.
+fn remove_unfinished(part: &Path, meta: &Path) {
+    let _ = std::fs::remove_file(part);
+    let _ = std::fs::remove_file(meta);
+    if let Some(dir) = part.parent() {
+        // `remove_dir` refuses a folder that is not empty: a finished file in it stays.
+        let _ = std::fs::remove_dir(dir);
+    }
 }
 
 fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
@@ -283,9 +373,6 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("size")
         .and_then(Value::as_u64)
         .ok_or_else(|| RpcError::invalid_params("size is required"))?;
-    if size > MAX_BYTES as u64 {
-        return Err(too_large());
-    }
     let part =
         part_path(session, upload).ok_or_else(|| RpcError::invalid_params("invalid uploadId"))?;
     let meta =
@@ -307,6 +394,11 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
             "upload has {current} bytes, expected {size}"
         )));
     }
+    // On the disk before it is named: the chunks were not synced one by one. (Opened for writing:
+    // Windows flushes only a handle that may write.)
+    crate::config::private_state_rw(&part)
+        .and_then(|file| Ok(file.sync_all()?))
+        .map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
     let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
     let path = dir.join(name);
     std::fs::rename(&part, &path)
@@ -354,7 +446,7 @@ pub fn check_chunk(params: &Value) -> Result<(), RpcError> {
 }
 
 /// The bytes padded base64 `data` decodes to, read from its length and padding with no decode,
-/// so a file one byte past [`MAX_BYTES`] is refused here and never sent on.
+/// so a request one byte past its bound is refused here and never sent on.
 fn decoded_len(data: &str) -> usize {
     let pad = data.bytes().rev().take(2).take_while(|&b| b == b'=').count();
     (data.len() / 4 * 3).saturating_sub(pad)
@@ -425,19 +517,17 @@ async fn reject_purged(session: &std::sync::Arc<super::Session>) -> Result<(), R
     Err(RpcError::invalid_params("no such chat"))
 }
 
-/// Removes an unfinished resumable upload. The operation is idempotent so a failed client can
-/// retry cleanup without learning whether the daemon already removed its partial files.
+/// Removes an unfinished resumable upload: its partial file and its folder. The operation is
+/// idempotent so a failed client can retry cleanup without learning whether the daemon already
+/// removed its partial files.
 pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
     let upload = params
         .get("uploadId")
         .and_then(Value::as_str)
         .and_then(upload_id)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
-    if let Some(part) = part_path(id, &upload) {
-        let _ = std::fs::remove_file(part);
-    }
-    if let Some(meta) = meta_path(id, &upload) {
-        let _ = std::fs::remove_file(meta);
+    if let (Some(part), Some(meta)) = (part_path(id, &upload), meta_path(id, &upload)) {
+        remove_unfinished(&part, &meta);
     }
     Ok(json!({}))
 }
@@ -450,10 +540,8 @@ pub fn put(id: &str, params: &Value) -> Result<Value, RpcError> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data)
         .map_err(|e| RpcError::invalid_params(format!("data is not base64: {e}")))?;
-    if bytes.len() > MAX_BYTES {
-        return Err(too_large());
-    }
     let dir = session_dir(id).ok_or_else(|| RpcError::invalid_params("no such chat"))?;
+    room_for(name, bytes.len() as u64, free_bytes(&dir))?;
     let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save the file: {e}"));
     crate::config::private_state_dir(&dir).map_err(failed)?;
     let path = dir.join(uuid::Uuid::now_v7().to_string()).join(name);
@@ -579,15 +667,71 @@ mod tests {
                 .unwrap();
             std::os::unix::fs::symlink(&outside, root.join("chat-e")).unwrap();
         }
-        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 2);
+        assert_eq!(sweep(&root, now, Some(Duration::from_millis(30 * day))), 2);
         assert!(!old.exists() && new.exists());
         assert!(!root.join("chat-b").exists(), "an emptied session folder stays");
         assert!(other.exists() && v4.exists());
         assert!(outside.join("keep.txt").exists() && outside_old.exists());
         // Nothing past the cap is left: a second sweep deletes nothing.
-        assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 0);
+        assert_eq!(sweep(&root, now, Some(Duration::from_millis(30 * day))), 0);
         std::fs::remove_dir_all(&root).unwrap();
         std::fs::remove_dir_all(&outside).unwrap();
+    }
+
+    #[test]
+    fn a_file_of_any_size_goes_while_the_disk_has_room_for_it() {
+        let gib = 1u64 << 30;
+        // Past the old 1 GiB cap: refused only for the disk's room.
+        assert!(room_for("movie.mov", 3 * gib, Some(4 * gib)).is_ok());
+        assert!(room_for("movie.mov", 3 * gib, None).is_ok(), "a platform that does not say");
+        let err = room_for("movie.mov", 3 * gib, Some(3 * gib)).expect_err("no room");
+        let data = err.data.as_ref().unwrap();
+        assert_eq!(data["reason"], "filePut.noSpace");
+        assert_eq!(data["freeBytes"], 3 * gib);
+        let machine = data["machine"].as_str().unwrap();
+        assert_eq!(
+            err.message,
+            format!("Not enough space on {machine} for movie.mov (3.2 GB free)")
+        );
+        // What the disk keeps for the daemon's own writes.
+        assert!(room_for("a.bin", gib, Some(gib + DISK_RESERVE_BYTES)).is_ok());
+        assert!(room_for("a.bin", gib + 1, Some(gib + DISK_RESERVE_BYTES)).is_err());
+    }
+
+    #[test]
+    fn free_space_reads_in_finder_units() {
+        for (bytes, text) in [
+            (0, "0 bytes"),
+            (999, "999 bytes"),
+            (1_000, "1.0 KB"),
+            (512 << 20, "537 MB"),
+            (1_234_000_000, "1.2 GB"),
+            (2_000_000_000_000, "2.0 TB"),
+        ] {
+            assert_eq!(human_bytes(bytes), text, "{bytes}");
+        }
+    }
+
+    #[test]
+    fn the_sweep_deletes_an_unfinished_upload_once_it_is_a_day_old() {
+        let root = std::env::temp_dir().join(format!("acpmux-partials-{}", uuid::Uuid::now_v7()));
+        let hour = 60 * 60 * 1000;
+        let now = crate::store::now_ms();
+        let named = |ms: u64| {
+            let at = uuid::Timestamp::from_unix(uuid::NoContext, ms / 1000, 0);
+            uuid::Uuid::new_v7(at).to_string()
+        };
+        let stale = root.join("chat").join(named(now - 25 * hour));
+        let streaming = root.join("chat").join(named(now - hour));
+        let finished = root.join("chat").join(named(now - 25 * hour));
+        for (dir, file) in [(&stale, ".part"), (&streaming, ".part"), (&finished, "movie.mov")] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join(file), b"x").unwrap();
+        }
+        // With no age cap too (`uploadsMaxAgeDays` 0): a finished file stays.
+        assert_eq!(sweep(&root, now, None), 1);
+        assert!(!stale.exists() && streaming.exists() && finished.exists());
+        std::fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]

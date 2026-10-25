@@ -14,13 +14,33 @@ public nonisolated struct AgentPaneUploadBatchEntry: Sendable, Equatable {
     }
 }
 
+/// One step of a file the page streams in chunks (`chat.upload.begin`, `.chunk`, `.finish`,
+/// `.cancel`). A file has any size (Leo, 2026-10-24: "we shouldn't have this limit"): its
+/// destination refuses it only when its disk lacks room. A chunk keeps the page's base64 text, so
+/// the main thread never decodes it: the stager decodes and writes it off the main thread, or
+/// sends the text on as it is.
 public nonisolated enum AgentPaneUploadStageRequest: Sendable, Equatable {
     case begin(name: String, size: Int, batchToken: String?, batch: [AgentPaneUploadBatchEntry]?)
-    case chunk(token: String, offset: Int, data: Data)
+    case chunk(token: String, offset: Int, base64: String)
     case finish(token: String)
     case cancel(token: String)
+
+    /// The most bytes one chunk decodes to (the page's 512 KiB slices).
+    public static let maximumChunkBytes = 512 * 1024
+
+    /// The bytes padded base64 `text` decodes to, read from its length and padding with no decode
+    /// (O(1) for the page's string); nil for a length no padded base64 has.
+    public static func decodedLength(_ text: String) -> Int? {
+        let units = text.utf16
+        guard units.count % 4 == 0 else { return nil }
+        let pad = units.reversed().prefix(2).prefix(while: { $0 == 0x3D }).count
+        return units.count / 4 * 3 - pad
+    }
+    /// The most files one batch names.
+    public static let maximumBatchFiles = 64
 }
 
+/// The staged upload of a chat: `sessionId` is nil for a new chat that has no session yet.
 public typealias AgentPaneUploadStager = @MainActor (_ request: AgentPaneUploadStageRequest, _ sessionId: String?) async -> [String: Any]
 
 /// A file the person dropped or pasted into a chat that the composer can't attach, for the App to
@@ -42,15 +62,14 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self, children: [:]) }
 
-    /// Local and peer transports stream the bytes in bounded chunks. One GiB is also the native
-    /// daemon's abuse guard; Cloud uploads keep their smaller policy in ``CloudUploads``.
-    public static let maximumFileBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumTotalBytes = 1 * 1024 * 1024 * 1024
-    public static let maximumPeerFileBytes = maximumFileBytes
+    /// The most bytes one `chat.upload` message carries: it holds every file whole in memory, so
+    /// it is the old call only. A file of any size streams in chunks
+    /// (``AgentPaneUploadStageRequest``), which the page uses whenever the host takes them.
+    public static let maximumMessageBytes = 1 * 1024 * 1024 * 1024
 
     /// The files of `chat.upload`'s params, nil when they break the contract: one or more files,
     /// each with a name a folder holds as one file and base64 bytes, at most
-    /// ``maximumFileBytes`` each and ``maximumTotalBytes`` in all.
+    /// ``maximumMessageBytes`` in all.
     static func files(_ params: [String: Any]?) -> [AgentPaneUpload]? {
         guard let params, Set(params.keys) == ["files"], let list = params["files"] as? [[String: Any]],
               !list.isEmpty else { return nil }
@@ -58,11 +77,11 @@ public nonisolated struct AgentPaneUpload: Sendable, Equatable, CustomStringConv
         var total = 0
         for item in list {
             guard Set(item.keys) == ["name", "data"], let name = item["name"] as? String, isFileName(name),
-                  let text = item["data"] as? String, text.utf8.count <= (maximumFileBytes / 3 + 1) * 4,
-                  let data = Data(base64Encoded: text), data.count <= maximumFileBytes else { return nil }
+                  let text = item["data"] as? String, text.utf8.count <= (maximumMessageBytes / 3 + 1) * 4,
+                  let data = Data(base64Encoded: text) else { return nil }
             let (sum, overflow) = total.addingReportingOverflow(data.count)
             total = overflow ? Int.max : sum
-            guard total <= maximumTotalBytes else { return nil }
+            guard total <= maximumMessageBytes else { return nil }
             files.append(AgentPaneUpload(name: name, data: data))
         }
         return files

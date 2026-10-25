@@ -13509,6 +13509,270 @@
         }
       }
     },
+    "chat.upload.localNoSpace": {
+      "comment": "Agent chat composer notice when this Mac's disk lacks room for a dropped or pasted file in a local chat; %1$@ is the file's name, %2$@ the free space (\"1.2 GB\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough space on this Mac for %1$@ (%2$@ free)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة كافية على هذا الـMac لـ %1$@ (المساحة المتاحة %2$@)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema dovoljno prostora na ovom Macu za %1$@ (slobodno %2$@)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ikke nok plads på denne Mac til %1$@ (%2$@ ledig)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht genug Speicherplatz auf diesem Mac für %1$@ (%2$@ frei)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio suficiente en este Mac para %1$@ (%2$@ libres)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace insuffisant sur ce Mac pour %1$@ (%2$@ disponibles)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazio insufficiente su questo Mac per %1$@ (%2$@ liberi)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac には %1$@ を保存する空き容量がありません（空き %2$@）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានទំហំគ្រប់គ្រាន់នៅលើ Mac នេះសម្រាប់ %1$@ ទេ (នៅសល់ %2$@)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에 %1$@을(를) 저장할 공간이 부족합니다(%2$@ 남음)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det er ikke nok plass på denne Macen til %1$@ (%2$@ ledig)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Za mało miejsca na tym Macu na %1$@ (wolne: %2$@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há espaço suficiente neste Mac para %1$@ (%2$@ livres)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недостаточно места на этом Mac для %1$@ (свободно %2$@)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่บน Mac เครื่องนี้ไม่พอสำหรับ %1$@ (ว่าง %2$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'te %1$@ için yeterli alan yok (%2$@ boş)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недостатньо місця на цьому Mac для %1$@ (вільно %2$@)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không đủ dung lượng trên máy Mac này cho %1$@ (còn trống %2$@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上的空间不足以存放 %1$@（可用 %2$@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 Mac 上的空間不足以存放 %1$@（可用 %2$@）。"
+          }
+        }
+      }
+    },
+    "chat.upload.peerNoSpace": {
+      "comment": "Agent chat composer notice when the disk of the ssh peer machine that runs the chat lacks room for a dropped or pasted file; %1$@ is the machine's name, %2$@ the file's name, %3$@ the free space (\"1.2 GB\").",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not enough space on %1$@ for %2$@ (%3$@ free)."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مساحة كافية على %1$@ لـ %2$@ (المساحة المتاحة %3$@)."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema dovoljno prostora na %1$@ za %2$@ (slobodno %3$@)."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er ikke nok plads på %1$@ til %2$@ (%3$@ ledig)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht genug Speicherplatz auf %1$@ für %2$@ (%3$@ frei)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay espacio suficiente en %1$@ para %2$@ (%3$@ libres)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espace insuffisant sur %1$@ pour %2$@ (%3$@ disponibles)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spazio insufficiente su %1$@ per %2$@ (%3$@ liberi)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には %2$@ を保存する空き容量がありません（空き %3$@）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមានទំហំគ្រប់គ្រាន់នៅលើ %1$@ សម្រាប់ %2$@ ទេ (នៅសល់ %3$@)។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 %2$@을(를) 저장할 공간이 부족합니다(%3$@ 남음)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det er ikke nok plass på %1$@ til %2$@ (%3$@ ledig)."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Za mało miejsca na %1$@ na %2$@ (wolne: %3$@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há espaço suficiente em %1$@ para %2$@ (%3$@ livres)."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недостаточно места на %1$@ для %2$@ (свободно %3$@)."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่บน %1$@ ไม่พอสำหรับ %2$@ (ว่าง %3$@)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ üzerinde %2$@ için yeterli alan yok (%3$@ boş)."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недостатньо місця на %1$@ для %2$@ (вільно %3$@)."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không đủ dung lượng trên %1$@ cho %2$@ (còn trống %3$@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的空间不足以存放 %2$@（可用 %3$@）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 上的空間不足以存放 %2$@（可用 %3$@）。"
+          }
+        }
+      }
+    },
     "cloud.move.unfinishedMove": {
       "extractionState": "manual",
       "localizations": {

@@ -4,23 +4,33 @@ import Foundation
 
 /// Files the person drops or pastes into a chat whose agent runs on an ssh peer (acpmux peering:
 /// this Mac's acpmux mirrors the chat, named `huge-blue/<name>`) that the composer can't attach as
-/// a prompt block. The page sends their bytes (``AgentPaneUpload``, the same `chat.upload` a local
-/// or Cloud chat's upload uses), and only for such a chat, with a real gesture in its pane, the
-/// app sends each one through this Mac's acpmux to the daemon that owns the chat
-/// (`_acpmux/file_put`), which saves it owner-only on that machine and answers where. The composer
-/// puts those paths in the prompt and the agent opens them there. An acpmux from before that
-/// method, here or on the peer, answers `unsupported`, so the composer keeps its own note.
+/// a prompt block. The page streams each one in chunks (``AgentPaneUploadStageRequest``), and only
+/// for such a chat, with a real gesture in its pane, the app sends each chunk on as it comes,
+/// through this Mac's acpmux to the daemon that owns the chat (`_acpmux/file_put_begin`, `_chunk`,
+/// `_finish`), which writes it owner-only on that machine and answers where. Nothing of the file is
+/// kept on this Mac, a file has any size that machine's disk has room for, and a cancel deletes
+/// what was written there. The composer puts those paths in the prompt and the agent opens them
+/// there. An acpmux from before those methods, here or on the peer, answers `unsupported`, so the
+/// composer keeps its own note.
 @MainActor
 struct AgentPeerUploads {
-    private struct Stage { var target: Target; var file: URL; var name: String; var size: Int; var received: Int; var expires: Date }
-    private struct Batch { var session: String; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
-    private static var stages: [String: Stage] = [:]
-    private static var batches: [String: Batch] = [:]
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
-    struct Target {
+    struct Target: Sendable {
         var session: String
         var machine: String
         var host: any AgentPaneHostProviding
+    }
+
+    /// A file streaming to a peer: the chat it is for and the upload the peer named.
+    struct Upload: Sendable {
+        var target: Target
+        var id: String
+    }
+
+    /// The files streaming to peers.
+    private static let stages = AgentUploadStages<Upload>(owner: "AgentPeerUploads.stageExpiry") { upload in
+        // task-owner: one cancel of an expired upload on its peer, which deletes its partial file there; nothing waits for it
+        Task { await cancel(upload) }
     }
 
     /// The upload for chat tab `tab`, nil unless it is a peer's chat (``target(tab:services:)``).
@@ -33,72 +43,68 @@ struct AgentPeerUploads {
         }
     }
 
+    /// The streamed upload for chat tab `tab` (``stage(_:target:stages:)``), nil unless it is a
+    /// peer's chat.
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard let target = target(tab: tab, services: services) else { return nil }
         return { request, session in
-            batches = batches.filter { $0.value.expires >= Date() }
+            // A page with no session yet answers as before streams were taken: the page's own note.
+            guard let session else { return AgentPaneReply.failure(code: "unsupported", message: AgentPeerUploadStrings.failed(target.machine)) }
             guard session == target.session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-            switch request {
-            case .begin(let name, let size, let batchToken, let manifest):
-                if let batchToken {
-                    guard let batch = batches[batchToken], batch.session == target.session, batch.remaining.first?.name == name, batch.remaining.first?.size == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                    let remaining = Array(batch.remaining.dropFirst())
-                    if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
-                    else { batches[batchToken] = Batch(session: target.session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
-                }
-                guard size <= AgentPaneUpload.maximumPeerFileBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
-                if let manifest {
-                    guard manifest.first?.name == name, manifest.first?.size == size,
-                          manifest.allSatisfy({ $0.size >= 0 && $0.size <= AgentPaneUpload.maximumPeerFileBytes }),
-                          manifest.reduce(0) { $0 + $1.size } <= AgentPaneUpload.maximumTotalBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
-                }
-                let token = UUID().uuidString.lowercased(), file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
-                guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60))
-                Task { @MainActor in
-                    // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
-                    try? await Task.sleep(for: .seconds(10 * 60))
-                    if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
-                    }
-                }
-                var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
-                if let manifest, batchToken == nil, manifest.count > 1 {
-                    let id = UUID().uuidString.lowercased()
-                    batches[id] = Batch(session: target.session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
-                    Task { @MainActor in
-                        // wakeup-allow: one-shot peer batch expiry; the next batch request refreshes it.
-                        try? await Task.sleep(for: .seconds(10 * 60))
-                        if let batch = batches[id], batch.expires <= Date() { batches.removeValue(forKey: id) }
-                    }
-                    reply["batchToken"] = id
-                }
-                return AgentPaneReply.success(reply)
-            case .chunk(let token, let offset, let data):
-                guard var stage = stages[token], stage.target.session == target.session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
-                Task { @MainActor in
-                    // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
-                    try? await Task.sleep(for: .seconds(10 * 60))
-                    if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
-                    }
-                }
-                return AgentPaneReply.success(["offset": stage.received])
-            case .finish(let token):
-                guard let stage = stages[token], stage.target.session == target.session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stages.removeValue(forKey: token)
-                defer { try? FileManager.default.removeItem(at: stage.file) }
-                do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, file: stage.file); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
-            case .cancel(let token):
-                if let stage = stages[token], stage.target.session == target.session {
-                    stages.removeValue(forKey: token)
-                    try? FileManager.default.removeItem(at: stage.file)
-                }
-                return AgentPaneReply.success()
-            }
+            return await stage(request, target: target, stages: stages)
         }
+    }
+
+    /// One step of a file streamed to `target`'s machine, sent on as it comes (the chunk's base64
+    /// text as the page sent it). A step that fails part way cancels the upload there.
+    static func stage(_ request: AgentPaneUploadStageRequest, target: Target, stages: AgentUploadStages<Upload>) async -> [String: Any] {
+        let session = target.session, failed = AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine))
+        switch request {
+        case .begin(let name, let size, let batchToken, let manifest):
+            guard case .admitted(let batch) = stages.admit(name: name, size: size, batchToken: batchToken, manifest: manifest, session: session) else { return failed }
+            let progress: AgentPaneFilePutProgress
+            do {
+                progress = try await target.host.putFile(sessionId: session, step: .begin(name: name, size: size))
+            } catch {
+                return reply(AgentPaneFilePutFailure(error), name: name, machine: target.machine)
+            }
+            guard case .begun(let id) = progress else { return failed }
+            var reply: [String: Any] = ["token": stages.add(Upload(target: target, id: id), name: name, size: size, session: session), "size": size,
+                                        "chunkSize": AgentPaneUploadStageRequest.maximumChunkBytes]
+            if let batch { reply["batchToken"] = batch }
+            return AgentPaneReply.success(reply)
+        case .chunk(let token, let offset, let base64):
+            guard let stage = stages.stage(token, session: session) else { return failed }
+            do {
+                let progress = try await target.host.putFile(sessionId: session, step: .chunk(upload: stage.upload.id, offset: offset, base64: base64))
+                guard case .wrote(let next) = progress else { return failed }
+                return AgentPaneReply.success(["offset": next])
+            } catch {
+                let failure = AgentPaneFilePutFailure(error)
+                // A full disk ends the upload at once (the peer already deleted its partial file).
+                if case .noSpace = failure { stages.remove(token, session: session) }
+                return reply(failure, name: stage.name, machine: target.machine)
+            }
+        case .finish(let token):
+            guard let stage = stages.remove(token, session: session) else { return failed }
+            do {
+                let progress = try await target.host.putFile(sessionId: session, step: .finish(upload: stage.upload.id, name: stage.name, size: stage.size))
+                guard case .saved(let path) = progress else { await cancel(stage.upload); return failed }
+                return AgentPaneReply.success(["path": path])
+            } catch {
+                await cancel(stage.upload)
+                return reply(AgentPaneFilePutFailure(error), name: stage.name, machine: target.machine)
+            }
+        case .cancel(let token):
+            if let stage = stages.remove(token, session: session) { await cancel(stage.upload) }
+            return AgentPaneReply.success()
+        }
+    }
+
+    /// Deletes `upload`'s partial file on its peer (`_acpmux/file_put_cancel`, which the peer takes
+    /// again and again); a peer that does not answer deletes it with its own sweep.
+    private static func cancel(_ upload: Upload) async {
+        _ = try? await upload.target.host.putFile(sessionId: upload.target.session, step: .cancel(upload: upload.id))
     }
 
     /// Tab `tab`'s chat when its pane attaches to this Mac's acpmux and that acpmux lists its
@@ -118,30 +124,29 @@ struct AgentPeerUploads {
         lanes.links(session)?.peer.flatMap { $0.isEmpty ? nil : $0 }
     }
 
-    /// The reply to the page's upload: each file put in turn with `put`, which answers its path on
-    /// `machine`. A file past ``AgentPaneUpload/maximumPeerFileBytes`` is refused before any is sent.
+    /// The reply to the page's whole-file upload (an older page): each file put in turn with `put`,
+    /// which answers its path on `machine`.
     static func upload(_ files: [AgentPaneUpload], machine: String,
                        put: (_ name: String, _ data: Data) async throws -> String) async -> [String: Any] {
-        guard files.allSatisfy({ $0.data.count <= AgentPaneUpload.maximumPeerFileBytes }) else {
-            return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(machine))
-        }
         var uploads: [[String: Any]] = []
         for file in files {
             do {
                 let path = try await put(file.name, file.data)
                 uploads.append(["name": file.name, "path": path])
             } catch {
-                return reply(AgentPaneFilePutFailure(error), machine: machine)
+                return reply(AgentPaneFilePutFailure(error), name: file.name, machine: machine)
             }
         }
         return AgentPaneReply.success(["uploads": uploads])
     }
 
-    static func reply(_ failure: AgentPaneFilePutFailure, machine: String) -> [String: Any] {
+    static func reply(_ failure: AgentPaneFilePutFailure, name: String = "", machine: String) -> [String: Any] {
         switch failure {
         // The page's own note: this chat takes no uploads (cloudUploads.ts `NOT_TAKEN`).
         case .unsupported: AgentPaneReply.failure(code: "unsupported", message: AgentPeerUploadStrings.failed(machine))
         case .tooLarge: AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(machine))
+        case .noSpace(let free):
+            AgentPaneReply.failure(code: "no_space", message: AgentPeerUploadStrings.noSpace(name, machine: machine, freeBytes: free))
         case .failed: AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(machine))
         }
     }
@@ -155,5 +160,9 @@ enum AgentPeerUploadStrings {
     }
     static func tooLarge(_ machine: String) -> String {
         String(localized: "chat.upload.peerTooLarge", defaultValue: "This file is too large to send to \(machine).", table: "Cloud", bundle: .module)
+    }
+    static func noSpace(_ name: String, machine: String, freeBytes: Int64) -> String {
+        let free = ByteCountFormatter.string(fromByteCount: freeBytes, countStyle: .file)
+        return String(localized: "chat.upload.peerNoSpace", defaultValue: "Not enough space on \(machine) for \(name) (\(free) free).", table: "Cloud", bundle: .module)
     }
 }

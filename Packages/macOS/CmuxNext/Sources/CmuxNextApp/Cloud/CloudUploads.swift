@@ -33,11 +33,10 @@ final class CloudUploads {
 
     private struct Stage {
         var target: Target
-        var folder: URL
-        var file: URL
+        /// The staged file, written off the main thread.
+        var upload: AgentUploadFile
         var name: String
         var size: Int
-        var received: Int
         var expires: Date
     }
 
@@ -64,8 +63,9 @@ final class CloudUploads {
         guard Self.target(tab: tab, services: services) != nil else { return nil }
         return { [weak self, weak services] request, session in
             guard let self, let services else { return AgentPaneReply.failure(code: "unsupported", message: CloudUploadStrings.failed) }
-            // A staged upload names its chat session, as the peer stager requires.
-            guard let session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+            // A staged upload names its chat session, as the peer stager requires; a page with none
+            // keeps its whole-file upload.
+            guard let session else { return AgentPaneReply.failure(code: "unsupported", message: CloudUploadStrings.failed) }
             return await self.stage(request, tab: tab, session: session, services: services)
         }
     }
@@ -153,50 +153,61 @@ final class CloudUploads {
                 batchID = newBatchID
                 batches[newBatchID] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
             } else { batchID = batchToken }
-            let used = stages.values.filter { $0.target.chat.session == session }.reduce(0) { $0 + $1.size }
-            guard used + size <= Self.maximumTotalBytes, let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
+            guard used(by: session) + size <= Self.maximumTotalBytes, let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
             let token = UUID().uuidString.lowercased(), folder = pastes.appendingPathComponent("staged-" + token, isDirectory: true)
-            let file = folder.appendingPathComponent(name, isDirectory: false)
-            do {
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) }
-            } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            stages[token] = Stage(target: target, folder: folder, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(Self.stageLifetime))
+            guard let upload = try? await AgentUploadFile.make(folder: folder, name: name, size: size) else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+            // Asked again: another begin may have staged meanwhile.
+            guard used(by: session) + size <= Self.maximumTotalBytes else {
+                await upload.discard()
+                return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused)
+            }
+            stages[token] = Stage(target: target, upload: upload, name: name, size: size, expires: Date().addingTimeInterval(Self.stageLifetime))
             armExpiry()
             var response: [String: Any] = ["token": token, "size": size, "chunkSize": Self.stageChunkBytes]
             if let batchID { response["batchToken"] = batchID }
             return AgentPaneReply.success(response)
-        case .chunk(let token, let offset, let data):
-            guard var stage = stages[token], stage.target.chat.session == session, stage.received == offset,
-                  let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session,
-                  data.count <= Self.stageChunkBytes, offset + data.count <= stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            do {
-                let handle = try FileHandle(forWritingTo: stage.file)
-                try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close()
-            } catch { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
-            stage.received += data.count; stage.expires = Date().addingTimeInterval(Self.stageLifetime); stages[token] = stage
-            armExpiry()
-            return AgentPaneReply.success(["offset": stage.received])
+        case .chunk(let token, let offset, let base64):
+            // Decoded and written off the main thread; only the expiry date moves here (the pending
+            // deadline fires early at worst and waits again).
+            guard var stage = stages[token], stage.target.chat.session == session,
+                  let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+            stage.expires = Date().addingTimeInterval(Self.stageLifetime); stages[token] = stage
+            guard let end = try? await stage.upload.append(offset: offset, base64: base64) else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+            return AgentPaneReply.success(["offset": end])
         case .finish(let token):
             guard let stage = stages[token], stage.target.chat.session == session,
-                  let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session,
-                  stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+                  let current = Self.target(tab: tab, services: services), current.chat.session == stage.target.chat.session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
             stages.removeValue(forKey: token)
-            defer { try? FileManager.default.removeItem(at: stage.folder) }
-            guard let socket = await stage.target.machine.daemon.connection?.endpoint?.socketPath else { return AgentPaneReply.failure(code: "link_error", message: CloudUploadStrings.failed) }
-            let answer = (try? await CloudAccessCLI(binary: stage.target.binary).upload(socket: socket, remoteRoot: stage.target.remoteRoot, files: [stage.file.path])) ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed")
+            guard let file = try? await stage.upload.finish() else {
+                await stage.upload.discard()
+                return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed)
+            }
+            guard let socket = await stage.target.machine.daemon.connection?.endpoint?.socketPath else {
+                await stage.upload.discard()
+                return AgentPaneReply.failure(code: "link_error", message: CloudUploadStrings.failed)
+            }
+            let answer = (try? await CloudAccessCLI(binary: stage.target.binary).upload(socket: socket, remoteRoot: stage.target.remoteRoot, files: [file.path])) ?? CloudAccessCLI.Answer(ok: false, errorCode: "upload_failed")
+            await stage.upload.discard()
             return Self.reply(answer, names: [stage.name], services: services)
         case .cancel(let token):
             guard let stage = stages[token], stage.target.chat.session == session else { return AgentPaneReply.success() }
             stages.removeValue(forKey: token)
-            try? FileManager.default.removeItem(at: stage.folder); return AgentPaneReply.success()
+            await stage.upload.discard()
+            return AgentPaneReply.success()
         }
+    }
+
+    /// The bytes chat `session`'s staged uploads hold.
+    private func used(by session: String) -> Int {
+        stages.values.filter { $0.target.chat.session == session }.reduce(0) { $0 + $1.size }
     }
 
     private func purgeStages() {
         let expired = stages.filter { $0.value.expires < Date() }.map(\.key)
         for token in expired {
-            if let stage = stages.removeValue(forKey: token) { try? FileManager.default.removeItem(at: stage.folder) }
+            guard let stage = stages.removeValue(forKey: token) else { continue }
+            // task-owner: one delete of an expired upload's staged file; nothing waits for it
+            Task { await stage.upload.discard() }
         }
         batches = batches.filter { $0.value.expires >= Date() }
     }

@@ -62,11 +62,89 @@ import Testing
         #expect(Self.code(failed) == "upload_failed")
     }
 
-    @Test func peerTransportAllowsFilesLargerThanTheFormerFrameCap() {
-        #expect(AgentPaneUpload.maximumPeerFileBytes > 64 * 1024 * 1024)
+    /// A file of any size streams to the peer chunk by chunk as the page sends it (Leo, 2026-10-24:
+    /// "we shouldn't have this limit"): nothing of it is kept on this Mac, and each chunk's base64
+    /// text goes on as it came.
+    @Test func aFilePastTheOldCapStreamsToThePeerChunkByChunk() async throws {
+        let peer = FakePeer()
+        let target = AgentPeerUploads.Target(session: "s", machine: "huge-blue", host: peer)
+        let stages = AgentUploadStages<AgentPeerUploads.Upload>(owner: "test") { _ in }
+        let size = 3 * 1024 * 1024 * 1024
+        let begun = await AgentPeerUploads.stage(.begin(name: "movie.mov", size: size, batchToken: nil, batch: nil), target: target, stages: stages)
+        let value = try #require(begun["value"] as? [String: Any], "\(begun)")
+        let token = try #require(value["token"] as? String)
+        #expect(value["size"] as? Int == size && value["chunkSize"] as? Int == 512 * 1024)
+        let chunk = Data(repeating: 9, count: 512 * 1024).base64EncodedString()
+        for offset in stride(from: 0, to: 3 * 512 * 1024, by: 512 * 1024) {
+            let wrote = await AgentPeerUploads.stage(.chunk(token: token, offset: offset, base64: chunk), target: target, stages: stages)
+            #expect((wrote["value"] as? [String: Any])?["offset"] as? Int == offset + 512 * 1024, "\(wrote)")
+        }
+        let cancelled = await AgentPeerUploads.stage(.cancel(token: token), target: target, stages: stages)
+        #expect(cancelled["ok"] as? Bool == true)
+        #expect(stages.count == 0)
+        let steps = await peer.steps
+        #expect(steps.first == .begin(name: "movie.mov", size: size))
+        #expect(steps.dropFirst().prefix(3).allSatisfy { if case .chunk(_, _, let text) = $0 { text == chunk } else { false } })
+        #expect(steps.last == .cancel(upload: FakePeer.upload), "the cancel deletes the partial file on the peer")
+        // A chunk after the cancel goes nowhere.
+        let late = await AgentPeerUploads.stage(.chunk(token: token, offset: 3 * 512 * 1024, base64: chunk), target: target, stages: stages)
+        #expect(Self.code(late) == "upload_failed")
+        #expect(await peer.steps.count == steps.count)
+    }
+
+    /// A peer whose disk lacks room says so, naming the machine and what is free; a finish that
+    /// fails cancels the upload there.
+    @Test func aFullPeerDiskIsNamedAndAFailedFinishCancels() async throws {
+        let peer = FakePeer(refuseBegin: AcpmuxRPCError(code: -32602, name: "filePut.noSpace", message: "full", freeBytes: 1_234_000_000))
+        let target = AgentPeerUploads.Target(session: "s", machine: "huge-blue", host: peer)
+        let stages = AgentUploadStages<AgentPeerUploads.Upload>(owner: "test") { _ in }
+        let refused = await AgentPeerUploads.stage(.begin(name: "movie.mov", size: 5 << 30, batchToken: nil, batch: nil), target: target, stages: stages)
+        #expect(Self.code(refused) == "no_space")
+        let message = try #require((refused["error"] as? [String: Any])?["userMessage"] as? String, "\(refused)")
+        let free = ByteCountFormatter.string(fromByteCount: 1_234_000_000, countStyle: .file)
+        #expect(message.contains("huge-blue") && message.contains("movie.mov") && message.contains(free), "\(message)")
+        #expect(stages.count == 0)
+
+        let failing = FakePeer(refuseFinish: true)
+        let other = AgentPeerUploads.Target(session: "s", machine: "huge-blue", host: failing)
+        let begun = await AgentPeerUploads.stage(.begin(name: "a.bin", size: 0, batchToken: nil, batch: nil), target: other, stages: stages)
+        let token = try #require((begun["value"] as? [String: Any])?["token"] as? String)
+        let finished = await AgentPeerUploads.stage(.finish(token: token), target: other, stages: stages)
+        #expect(Self.code(finished) == "upload_failed")
+        #expect(await failing.steps.last == .cancel(upload: FakePeer.upload))
     }
 
     private static func code(_ reply: [String: Any]) -> String? {
         (reply["error"] as? [String: Any])?["code"] as? String
+    }
+
+    /// A peer that records each streamed step and answers as acpmux does.
+    private actor FakePeer: AgentPaneHostProviding {
+        static let upload = "0190a000-0000-7000-8000-000000000000"
+        private struct NoPage: Error {}
+        private(set) var steps: [AgentPaneFilePutStep] = []
+        private let refuseBegin: AcpmuxRPCError?
+        private let refuseFinish: Bool
+
+        init(refuseBegin: AcpmuxRPCError? = nil, refuseFinish: Bool = false) {
+            self.refuseBegin = refuseBegin
+            self.refuseFinish = refuseFinish
+        }
+
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw NoPage() }
+
+        func putFile(sessionId: String, step: AgentPaneFilePutStep) async throws -> AgentPaneFilePutProgress {
+            steps.append(step)
+            switch step {
+            case .begin:
+                if let refuseBegin { throw AgentPaneFilePutFailure(refuseBegin) }
+                return .begun(upload: Self.upload)
+            case .chunk(_, let offset, let base64): return .wrote(offset: offset + (Data(base64Encoded: base64)?.count ?? 0))
+            case .finish:
+                if refuseFinish { throw AgentPaneFilePutFailure.failed }
+                return .saved(path: "/home/me/.acpmux/uploads/s/x/a.bin")
+            case .cancel: return .cancelled
+            }
+        }
     }
 }
