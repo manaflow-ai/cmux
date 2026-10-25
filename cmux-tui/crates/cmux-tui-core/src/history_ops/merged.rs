@@ -179,6 +179,15 @@ impl HistoryHost {
         }
     }
 
+    /// Marks the agent fold unsaved; returns its cursor.
+    #[cfg(test)]
+    pub(super) fn mark_unsaved_for_test(&self) -> u64 {
+        let mut state = self.lock();
+        state.saved_cursor = 0;
+        state.unsaved_agents = true;
+        state.cursor
+    }
+
     /// Folds the journal records scanned after `from` through `scanned`. A
     /// concurrent fold that already moved the cursor wins. Returns the kinds
     /// that changed.
