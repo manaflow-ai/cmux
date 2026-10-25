@@ -145,7 +145,21 @@ export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?
 /// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
 /// switching tabs or typing never changes the menu's height while it is open. `widths` is every
 /// tab's rows at no height: the cell is as wide as the widest tab, so its width holds too.
-function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: ProbeRow[] }) {
+function QuickMenuSpacer({
+  rows,
+  separators,
+  widths,
+  heading = true,
+  more = 0,
+  addRow = false,
+}: TabExtent & {
+  widths: ProbeRow[];
+  /// The group heading's row (New Tab draws none).
+  heading?: boolean;
+  /// New Tab's shown More models rows, in their capped scroll area, and the Add harness row after them.
+  more?: number;
+  addRow?: boolean;
+}) {
   return (
     <div className="acpmux-quick-spacer" aria-hidden="true" inert>
       <div className="acpmux-quick-probe">
@@ -159,7 +173,15 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
           </div>
         ))}
       </div>
-      <div className="ui-menu-group-label">{"\u00a0"}</div>
+      {heading && <div className="ui-menu-group-label">{"\u00a0"}</div>}
+      {more > 0 && (
+        <div className="acpmux-quick-more-list">
+          {Array.from({ length: Math.min(more, 7) }, (_, index) => (
+            <div key={index} className="ui-menu-item acpmux-quick-item" />
+          ))}
+        </div>
+      )}
+      {addRow && <div className="ui-menu-item acpmux-quick-item" />}
       {/* A separator after each of the first rows: back to back, their margins would collapse. */}
       {Array.from({ length: rows }, (_, index) => (
         <Fragment key={index}>
@@ -249,12 +271,15 @@ export function QuickModelMenu({
       const first = node.querySelector<HTMLElement>('.acpmux-quick-body [role^="menuitem"]:not([data-disabled])');
       (first ?? node).focus({ preventScroll: true });
     }
-  }, [query, open, families]);
+  }, [query, open, families, tab, moreFor]);
   const shown = families?.list.find((family) => family.id === tab);
   const onChatTab = !families || tab === families.current;
   const forkTab = !query && shown?.fork ? shown : undefined;
   const inlineMore = newTab && families !== undefined;
   const moreShown = inlineMore && !query && moreFor !== undefined && moreFor === tab;
+  // The tab whose More models show: the list keeps their height for the rest of the opening.
+  const moreFamily =
+    inlineMore && moreFor !== undefined ? families.list.find((family) => family.id === moreFor) : undefined;
   const profiles = families?.onAccount && (shown?.accounts?.length ?? 0) > 1 ? shown?.accounts : undefined;
   const profile = shown?.account ?? shown?.id;
   // What the list draws: the typed filter's matches, else the tab's top models.
@@ -353,7 +378,8 @@ export function QuickModelMenu({
                 ? { label: model.name, check: true }
                 : { label: model.name, shortcut: true },
             ),
-          ...(inlineMore ? family.more.map((model) => ({ label: model.name, check: true })) : []),
+          // The shown More models rows: their width holds once they show (only the open tab's).
+          ...(family.id === moreFor ? family.more.map((model) => ({ label: model.name, check: true })) : []),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
           ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
@@ -651,7 +677,13 @@ export function QuickModelMenu({
             </fieldset>
             <div className="acpmux-quick-body" ref={body}>
               <div className="acpmux-quick-list">{list}</div>
-              <QuickMenuSpacer {...tallest} widths={widths} />
+              <QuickMenuSpacer
+                {...tallest}
+                widths={widths}
+                heading={!newTab}
+                more={moreFamily?.more.length ?? 0}
+                addRow={Boolean(moreFamily?.more.length && families.onAddHarness)}
+              />
             </div>
           </div>
         ) : (

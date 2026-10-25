@@ -44,7 +44,8 @@ interface MenuContextValue {
   /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
   takePress(): boolean;
   movePointer(event: PointerEvent<HTMLElement>): void;
-  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
+  /** `keepOpen`: the row shows or hides rows of its own menu (`MenuItem` `closeOnClick={false}`). */
+  activatePointer(event: PointerEvent<HTMLElement>, activate: () => void, keepOpen?: boolean): boolean;
   endPointer(): void;
 }
 const MenuContext = createContext<MenuContextValue | null>(null);
@@ -102,7 +103,10 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
         hover: (row) => row.focus({ preventScroll: true }),
         // Base UI items act on the click.
         pick: (row) => row.click(),
-        picked: () => setMenuOpen(false),
+        // A row that keeps its menu open (`MenuItem` `closeOnClick={false}`) keeps it open here too.
+        picked: (row) => {
+          if (!row.hasAttribute("data-keeps-open")) setMenuOpen(false);
+        },
         close: () => setMenuOpen(false),
         end: () => {
           pointerCleanup.current = null;
@@ -121,13 +125,13 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
       if (!current.moved)
         current.moved = Math.hypot(event.clientX - current.x, event.clientY - current.y) >= POINTER_SLOP;
     },
-    activatePointer(event, activate) {
+    activatePointer(event, activate, keepOpen) {
       const current = session.current;
       if (!current || current.pointerId !== event.pointerId || !current.moved) return false;
       if (current.handled) return true;
       current.handled = true;
       activate();
-      setMenuOpen(false);
+      if (!keepOpen) setMenuOpen(false);
       return true;
     },
     endPointer() {
@@ -427,10 +431,11 @@ export function MenuItem({
       disabled={disabled}
       {...(closeOnClick === undefined ? {} : { closeOnClick })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
+      {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
         if (disabled) return;
-        if (context?.activatePointer(event, () => onSelect?.())) {
+        if (context?.activatePointer(event, () => onSelect?.(), closeOnClick === false)) {
           handledClick.current = true;
           event.preventDefault();
         }
