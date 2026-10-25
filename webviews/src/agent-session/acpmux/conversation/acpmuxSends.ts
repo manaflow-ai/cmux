@@ -44,14 +44,15 @@ export function acpmuxSendCall(tool: Tool): AcpmuxSendCall | undefined {
   if (!send) return undefined;
   // A send moved to the background runs, and ends, there (model.ts `background`).
   const background = tool.background?.state;
-  const running = tool.status === "pending" || tool.status === "in_progress" || background === "running";
-  // Failed by its status, a nonzero exit (toolGroups.ts `isFailed`), or its background run.
+  // Failed by its status, a nonzero exit (toolGroups.ts `isFailed`), or its background run, even
+  // while the call that started it still reads as running.
   const failed =
     tool.status === "failed" ||
     (tool.exitCode !== undefined && tool.exitCode !== 0) ||
     background === "failed" ||
     background === "stopped";
-  return { ...send, state: running ? "sending" : failed ? "failed" : "sent" };
+  const running = tool.status === "pending" || tool.status === "in_progress" || background === "running";
+  return { ...send, state: failed ? "failed" : running ? "sending" : "sent" };
 }
 
 /// One shell word: its text after quote removal, and whether it is that text whatever the shell's
@@ -191,6 +192,10 @@ export function shellCommands(line: string): ShellCommand[] {
   return commands;
 }
 
+/// What an unclosed quote leaves among a command's scripts: the shell refuses the line, so the
+/// command runs nothing a send row could name (`onlyReads` reads it as no reader).
+const UNCLOSED = "\u0000";
+
 /// Redirects that write the file they name.
 const WRITES = new Set([">", ">>", ">|", "<>", "&>", "&>>"]);
 
@@ -206,6 +211,7 @@ function readWord(line: string, from: number, runs: string[] = []): [ShellWord, 
     if (char === "'") {
       const close = line.indexOf("'", index + 1);
       const stop = close < 0 ? line.length : close;
+      if (close < 0) runs.push(UNCLOSED);
       text += line.slice(index + 1, stop);
       index = stop + 1;
     } else if (char === "$" && line[index + 1] === "'") {
@@ -217,6 +223,7 @@ function readWord(line: string, from: number, runs: string[] = []): [ShellWord, 
           index += 2;
         } else text += line[index++];
       }
+      if (index >= line.length) runs.push(UNCLOSED);
       index += 1;
     } else if (char === '"') {
       index += 1;
@@ -232,6 +239,7 @@ function readWord(line: string, from: number, runs: string[] = []): [ShellWord, 
           index = stop;
         } else text += line[index++];
       }
+      if (index >= line.length) runs.push(UNCLOSED);
       index += 1;
     } else if (char === "\\") {
       if (line[index + 1] !== "\n") text += line[index + 1] ?? "";
@@ -244,6 +252,8 @@ function readWord(line: string, from: number, runs: string[] = []): [ShellWord, 
     } else {
       // An unquoted glob (`*`, `?`, `[`) or brace expansion (`{a,b}`) is not the word as typed.
       if (char === "*" || char === "?" || char === "[" || (char === "}" && brace)) literal = false;
+      // `~` at a word's start is a home directory.
+      if (char === "~" && index === from) literal = false;
       if (char === "{") brace = true;
       text += line[index++];
     }
@@ -456,7 +466,9 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     const words = unwrapped(command.words);
     const name = program(words[0]);
     if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
-    if (pipedFromSend && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!)) continue;
+    // A filter reads the send's output only when nothing else is its stdin (`| tail -1 < log`).
+    if (pipedFromSend && !command.stdin && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!))
+      continue;
     // `cat <<EOF | acpmux send x -`: cat only hands the send its text.
     if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
     return undefined;
@@ -501,7 +513,9 @@ function stdinOf(commands: readonly ShellCommand[], index: number): ShellWord | 
   if (name === "echo") {
     const args = words.slice(1);
     while (args[0] && /^-[neE]+$/.test(args[0].text)) args.shift();
-    return { text: args.map((word) => word.text).join(" "), literal: args.every((word) => word.literal) };
+    const text = args.map((word) => word.text).join(" ");
+    // zsh's echo, and bash's with -e, turn backslash escapes into characters.
+    return { text, literal: !text.includes("\\") && args.every((word) => word.literal) };
   }
   // `printf 'text\n'`: its format is the text when it formats nothing.
   if (name === "printf" && words.length === 2) {

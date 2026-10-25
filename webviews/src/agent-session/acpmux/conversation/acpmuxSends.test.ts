@@ -62,6 +62,10 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("acpmux send lane {ready,done}")).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend("acpmux send lane are you done?")).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend("acpmux send lane 'done?' '{a,b}'")?.text).toBe("done? {a,b}");
+    expect(acpmuxSend("acpmux send lane ~/report")).toEqual({ target: "lane", noWait: false });
+    // An unclosed quote is a line the shell refuses.
+    expect(acpmuxSend("acpmux send lane 'message")).toBeUndefined();
+    expect(acpmuxSend('acpmux send lane "message')).toBeUndefined();
   });
 
   test("stdin: a here-document, a here-string, a piped echo; a file or nothing is unknown", () => {
@@ -85,6 +89,8 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("printf 'piped\\nin' | acpmux send lane -")?.text).toBe("piped\nin");
     // A format that formats something: the text is its arguments, not read here.
     expect(acpmuxSend("printf '%s' world | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
+    // An escape echo may turn into a character (zsh, bash -e) is not read as typed.
+    expect(acpmuxSend("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
     expect(acpmuxSend("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend("acpmux send lane")).toEqual({ target: "lane", noWait: false });
@@ -185,6 +191,7 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("acpmux send --on-permission maybe lane hi")).toBeUndefined();
     expect(acpmuxSend("acpmux send a b | grep foo 5")).toBeUndefined();
     expect(acpmuxSend("acpmux send a b | grep -m 1 foo")?.text).toBe("b");
+    expect(acpmuxSend("acpmux send x y | tail -1 < /tmp/log")).toBeUndefined();
     // A perl script that is not exactly `alarm N; exec @ARGV` is not looked through.
     expect(acpmuxSend(`perl -e 'print "exec @ARGV"' acpmux send a b`)).toBeUndefined();
     expect(acpmuxSend(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
@@ -259,6 +266,9 @@ describe("acpmuxSendCall", () => {
     expect(acpmuxSendCall(bash(line, { background: { state: "running" } }))?.state).toBe("sending");
     expect(acpmuxSendCall(bash(line, { background: { state: "failed" } }))?.state).toBe("failed");
     expect(acpmuxSendCall(bash(line, { background: { state: "completed" } }))?.state).toBe("sent");
+    expect(acpmuxSendCall(bash(line, { status: "in_progress", background: { state: "stopped" } }))?.state).toBe(
+      "failed",
+    );
   });
 });
 
