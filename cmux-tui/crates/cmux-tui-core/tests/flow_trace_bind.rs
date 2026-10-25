@@ -11,9 +11,10 @@ fn the_daemon_bind_path_starts_flow_marks() {
     std::fs::create_dir_all(&dir).unwrap();
     // SAFETY: set before any thread of this test binary reads the environment (`init` reads it once).
     unsafe { std::env::set_var("CMUX_TRACE_FLOWS", &dir) };
-    let socket =
-        std::path::PathBuf::from(format!("/tmp/cmux-flow-bind-{}.sock", std::process::id()));
-    let _ = std::fs::remove_file(&socket);
+    // A short canonical directory (/private/tmp on macOS): the explicit-path check refuses a symlinked parent
+    // such as /tmp, and a long $TMPDIR path overruns sun_path.
+    let socket_dir = cmux_unix_socket::short_test_dir("flowbind");
+    let socket = socket_dir.path().join("s.sock");
     let server = cmux_tui_core::server::bind_session_socket("flow-bind-test", Some(socket.clone()))
         .unwrap()
         .serve_restoring()
@@ -25,6 +26,6 @@ fn the_daemon_bind_path_starts_flow_marks() {
         std::fs::read_to_string(dir.join(format!("flows-{}.jsonl", std::process::id()))).unwrap();
     assert!(text.contains("\"hop\":\"daemon.send.write\",\"flow\":7"), "{text}");
     drop(server);
-    let _ = std::fs::remove_file(&socket);
+    drop(socket_dir);
     let _ = std::fs::remove_dir_all(&dir);
 }
