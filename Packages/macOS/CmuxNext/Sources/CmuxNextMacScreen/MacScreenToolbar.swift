@@ -112,7 +112,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         statsSlot = session != nil && live && session?.preferences.showStats == true
         if statsSlot, let session { stats.stringValue = Self.statsLine(session) }
         let viewOnly = model.viewOnly
-        setToolTip(viewOnly
+        setThemedHelp(viewOnly
             ? String(format: L.t("macScreen.toolbar.viewOnlyHelpNamed", "You can see %@ but not control it. Your clicks, keys and scrolling aren’t sent."), model.name)
             : nil, on: badge)
         badge.isHidden = !viewOnly
@@ -126,7 +126,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
         sendKeys.isHidden = !controlsShown
         sendKeys.isEnabled = canSend
         sendKeys.ink = canSend ? \.secondary : \.tertiary
-        setToolTip(viewOnly
+        setThemedHelp(viewOnly
             ? L.t("macScreen.toolbar.sendKeysViewOnly", "Send Keys is off in a View Only session")
             : L.t("macScreen.toolbar.sendKeys", "Send Keys"), on: sendKeys)
         refresh.isHidden = !controlsShown
@@ -159,7 +159,7 @@ final class MacScreenToolbarView: MacScreenThemedView {
     }
 
     /// Sets a tooltip only when it changes (the stats redraw this every second).
-    private func setToolTip(_ text: String?, on view: NSView) {
+    private func setThemedHelp(_ text: String?, on view: NSView) {
         if view.themedToolTip != text { view.themedToolTip = text }
     }
 

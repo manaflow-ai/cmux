@@ -64,11 +64,13 @@ public final class WorkspaceModel: Identifiable {
         return name
     }
 
-    /// Nobody named the workspace: no title, and the daemon's default name.
+    /// Nobody named the workspace: no title, and the daemon's default name. An empty or `~` name
+    /// counts only when the automatic namer set it: a person's `~` (a rename, revision 1 or more)
+    /// or a requested one (revision 0) is a name (#24627).
     public var isUnnamed: Bool {
         guard (title ?? "").isEmpty, Self.isDefaultName(name) else { return false }
         let legacyMarker = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name == "~"
-        return !legacyMarker || nameSource == .auto || nameRevision > 0
+        return !legacyMarker || nameSource == .auto
     }
 
     /// True for a name the daemon gave (`workspace-N`, its default), including

@@ -45,6 +45,7 @@ final class MacScreenShareIndicator: NSObject {
 
     private func rebuild() {
         guard let item else { return }
+        // tooltip-native-allow: a menu bar status item, drawn by the system outside any cmux window
         item.button?.toolTip = title
         item.button?.image?.accessibilityDescription = title
         let menu = NSMenu()

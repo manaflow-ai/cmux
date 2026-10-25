@@ -16,16 +16,18 @@ struct AcpmuxRefusedDaemonTests {
         #expect(AcpmuxServerPeer.holderName(executablePath: "/usr/local/bin/acpmux") == "/usr/local/bin/acpmux")
     }
 
-    @Test func theMessageNamesTheBuildAndTheSocket() {
+    /// The message names the build that holds the socket (#24795 dropped the socket path from the
+    /// copy: the person quits an app, not a path).
+    @Test func theMessageNamesTheBuild() {
         let message = AgentPaneHostError.userMessage(
             for: AgentPaneHostError.daemonRefused(holder: "cmux DEV nxdog98-v1", socketPath: "/h/acpmux.sock", reason: "r"))
         #expect(message.contains("cmux DEV nxdog98-v1"))
-        #expect(message.contains("/h/acpmux.sock"))
         #expect(!message.contains("did not start"))
     }
 
     /// A live peer from another cmux build remains a real refusal. The person may quit that
-    /// build and press Retry, but the app never asks them to paste a shell command.
+    /// build and press Retry, but the app never asks them to paste a shell command. With no
+    /// holder named, another acpmux service has the socket and the chat reconnects on its own.
     @Test(arguments: [nil, "cmux DEV nxdog98-v1"] as [String?])
     func everyRefusalNamesTheBuildWithoutACommand(holder: String?) {
         let error = AgentPaneHostError.daemonRefused(
@@ -35,8 +37,12 @@ struct AcpmuxRefusedDaemonTests {
         let message = AgentPaneHostError.userMessage(for: error)
         #expect(!message.contains("Run this in a terminal"))
         #expect(!message.contains("ACPMUX_SOCKET="))
-        #expect(message.contains("try again"))
-        if let holder { #expect(message.contains("Quit \(holder)")) }
+        if let holder {
+            #expect(message.contains(holder))
+            #expect(message.contains("Quit that app, then try again"))
+        } else {
+            #expect(message.contains("reconnect"))
+        }
     }
 
     @Test func aMissingSocketIsTransientDuringAHandOff() {

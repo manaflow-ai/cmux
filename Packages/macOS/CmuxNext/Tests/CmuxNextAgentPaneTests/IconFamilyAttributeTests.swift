@@ -7,11 +7,11 @@ import Testing
 struct IconFamilyAttributeTests {
     @Test func thePackSetsNoAttribute() {
         #expect(IconFamily.tunable.defaultValue == .pack)
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default, iconFamily: .pack).isEmpty)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: AgentPaneTunables.foldLongThoughts.defaultValue, topStripStyle: .default, iconFamily: .pack).isEmpty)
     }
 
     @Test func theCustomFamilySetsItsAttribute() {
-        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default, iconFamily: .custom)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: AgentPaneTunables.foldLongThoughts.defaultValue, topStripStyle: .default, iconFamily: .custom)
             == ["icon-family": "custom"])
     }
 }
