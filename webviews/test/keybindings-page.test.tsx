@@ -556,11 +556,17 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(field()?.value).toBe("cmd+shift+y");
   expect(row("Go to File")).toBeTruthy();
   expect(row("Open Command Palette")).toBeFalsy();
-  // The X left of the badge clears the recorded keys; the search records on.
-  await click(doc.querySelector(".keys-search-clear"));
+  // The field takes no text while it records, but its clear button clears the recorded keys
+  // (an input event with no text); the search records on.
+  expect(field()?.readOnly).toBe(false);
+  await act(async () => {
+    const input = field()!;
+    Object.getOwnPropertyDescriptor(doc.defaultView!.HTMLInputElement.prototype, "value")!.set!.call(input, "");
+    input.dispatchEvent(new doc.defaultView!.Event("input", { bubbles: true }));
+    await Promise.resolve();
+  });
   expect(field()?.value).toBe("");
   expect(provider.recording).toBe(true);
-  expect(doc.querySelector(".keys-search-clear")).toBeNull();
   expect(row("Open Command Palette")).toBeTruthy();
   await keys("cmd+shift+y");
   expect(field()?.value).toBe("cmd+shift+y");

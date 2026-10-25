@@ -133,26 +133,14 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
               aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
               value={snap.text}
               disabled={disconnected}
-              readOnly={searchRecording}
+              // While it records the app takes every key, and the field takes no text of its own; it
+              // stays editable so its clear button (the native one) clears the recorded keys.
+              onBeforeInput={searchRecording ? (event) => event.preventDefault() : undefined}
               ref={focusOnMount}
               onChange={(event) => store.setText(event.target.value)}
               onKeyDown={searchKeys}
               aria-controls="keys-table"
             />
-            {searchRecording && snap.text && (
-              // The recorded keys go; the search records on.
-              <button
-                type="button"
-                className="keys-icon-button keys-search-clear"
-                aria-label={t("keybindings.page.clearKeys")}
-                title={t("keybindings.page.clearKeys")}
-                // The field keeps the focus (the app records the keys, never the field).
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => store.setText("")}
-              >
-                <Icon name="close" />
-              </button>
-            )}
             {searchRecording && (
               // The mode, inside the field; how to leave it on hover.
               <span className="keys-search-badge" title={t("keybindings.page.recordingExit")} aria-hidden="true">

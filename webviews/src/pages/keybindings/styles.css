@@ -74,19 +74,6 @@
   cursor: pointer;
 }
 
-/* Search by keys: the field's own clear button gives way to this one, left of the badge. */
-.keys-search-field.recording .keys-search::-webkit-search-cancel-button {
-  display: none;
-}
-
-.keys-search-row .keys-search-clear {
-  flex: none;
-  width: 20px;
-  height: 20px;
-  border-radius: 10px;
-  cursor: pointer;
-}
-
 /* Search by keys: "Recording Keys" at the field's end; how to leave it on hover. */
 .keys-search-badge {
   flex: none;
