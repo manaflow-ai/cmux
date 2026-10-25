@@ -742,6 +742,17 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
+/// A sub-session card (subagents/AgentCard.css): its 10px margins, 12px padding and 24px head, and
+/// while it works or waits on the person, its 16px doing line.
+const cardHeight = (state: string) => 46 + (state === "working" || state === "input" ? 16 : 0);
+
+/// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
+/// about 60 characters, and the toggle once it is cut.
+function replyHeight(reply: string): number {
+  const lines = reply.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 60)), 0);
+  return Math.min(lines, 3) * 16 + (lines > 3 ? 20 : 0);
+}
+
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 2;
 const TOOL_ROW_HEIGHT = 22;
@@ -756,7 +767,21 @@ function activityStepHeight(item: AcpmuxActivity): number {
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
     if (!subsession) return 26;
-    if (subsession.tool === "wait" && !subsession.running) return Math.max(40, subsession.sessions.length * 80);
+    // Each card (cardHeight), a finished one's reply under it (replyHeight), and the Raw toggle's row.
+    if ((subsession.tool === "wait" || subsession.tool === "list") && !subsession.running)
+      return Math.max(
+        40,
+        subsession.sessions.reduce(
+          (sum, session) =>
+            sum +
+            cardHeight(session.state) +
+            (session.reply && session.state !== "working" ? replyHeight(session.reply) : 0),
+          0,
+        ) + TOOL_ROW_HEIGHT,
+      );
+    // A start's card, its doing line while it starts, and its prompt (cut like a reply).
+    if (subsession.tool === "start" && subsession.prompt)
+      return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
     return 40;
   }
   switch (tool.kind) {
