@@ -118,7 +118,7 @@ final class ControlSnapshotPublisher {
         // Outside the tracking: a sequence alone never rebuilds (observeSequences).
         var topology = built
         Self.applySequences(to: &topology, services)
-        router.snapshots.publish { snapshot in
+        router.snapshots.publish(rebuilt: true) { snapshot in
             snapshot.topology = topology
             snapshot.settings = settings
             snapshot.tabSearch = tabSearch
@@ -146,8 +146,8 @@ final class ControlSnapshotPublisher {
     private func sequencesChanged() {
         guard !isStopped else { return }
         observeSequences()
-        // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish,
-        // which would also clear the store's stale mark.
+        // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish:
+        // it would show the new sequences beside the old topology.
         if topologyDirty.load(ordering: .acquiring) || router.snapshots.isStale {
             // A topology change is pending: its publish reads the sequences as they are then. A read
             // waiting on its write barrier gets it on this turn.
