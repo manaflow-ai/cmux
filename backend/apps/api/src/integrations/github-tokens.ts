@@ -18,28 +18,17 @@ import { github, mintedToken, requestInstallationToken, revokeInstallationToken,
  * A token never reaches a log, event, audit record or error; token_id (16 hex of SHA-256) names it.
  */
 
-export const REUSE_MARGIN_MS = 15 * 60_000
-/** New mints per principal (cache hits are free): a burst of 60, then one per second. Memory only. */
-const MINT_RATE = { burst: 60, per_second: 1 }
-const REVOKE_RETRY_MAX_MS = 10 * 60_000
+/** New mints per principal (cache hits are free): a burst of 60, then one per second, in memory. */
+const [REUSE_MARGIN_MS, MINT_RATE, REVOKE_RETRY_MAX_MS] = [15 * 60_000, { burst: 60, per_second: 1 }, 10 * 60_000]
 
-export type Access = "read" | "write"
-export interface TokenAsk {
-  readonly repo: string
-  readonly permissions: Readonly<Record<string, Access>>
-  readonly label?: string
-  /** A vm install's machine (route-checked through vmGate). */
-  readonly machine?: string
-}
+/** `machine`: a vm install's own machine (the route checked it through vmGate). */
+export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly label?: string; readonly machine?: string }
 export type TokenFail = { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retry_after?: number }
 export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; permissions: Record<string, string>; token_id: string } } | TokenFail
 
 /** What the ledger needs from its ConnectionDO. */
 export interface LedgerHost {
-  readonly sql: SqlStorage
-  readonly env: Env
-  readonly http: Http
-  readonly team: string
+  readonly sql: SqlStorage; readonly env: Env; readonly http: Http; readonly team: string
   /** The ConnectionDO's state now. */
   readonly state: () => ConnectionsState
   /** Asks the install's UserDO to call closeInstall here when the install is revoked; false: it is not active. */
@@ -48,6 +37,8 @@ export interface LedgerHost {
   readonly needsReauth: (c: Connection, detail: string) => void
   readonly buckets: Map<string, { tokens: number; at: number }>
   readonly inflight: Map<string, Promise<TokenReply>>
+  /** Revokes per principal key since this object started: a mint that began before one never answers (memory: a restart drops in-flight mints too). */
+  readonly revokes: Map<string, number>
 }
 
 const fail = (status: number, code: string, message: string, retry_after?: number): TokenFail => ({ ok: false, status, code, message, ...(retry_after === undefined ? {} : { retry_after }) })
@@ -79,17 +70,17 @@ const take = (buckets: LedgerHost["buckets"], key: string, now: number): number 
 
 /** Seconds GitHub asks us to wait (Retry-After, else the primary limit's reset), at least 1. */
 const retryAfter = (res: Response, now: number) => {
-  const after = Number(res.headers.get("retry-after"))
-  if (Number.isFinite(after) && after > 0) return Math.ceil(after)
-  const reset = Number(res.headers.get("x-ratelimit-reset"))
-  return Number.isFinite(reset) && reset * 1000 > now ? Math.ceil(reset - now / 1000) : 60
+  const [after, reset] = [Number(res.headers.get("retry-after")), Number(res.headers.get("x-ratelimit-reset"))]
+  return Number.isFinite(after) && after > 0 ? Math.ceil(after) : Number.isFinite(reset) && reset * 1000 > now ? Math.ceil(reset - now / 1000) : 60
 }
 
 /**
- * Picks the connection for `repo`: a GitHub connection this principal may use, active, of the
- * repository's owner, whose repository scope and the team's allowlist include it.
+ * The connection and policy checks of one ask against the state now (run again after every await
+ * that could change it): a GitHub connection this principal may use, active, of the repository's
+ * owner, whose repository scope and the team's allowlist include it; workflows: write needs the flag.
  */
-const connectionFor = (state: ConnectionsState, p: Principal, repo: string): { c: Connection; installation: number } | TokenFail => {
+const authorize = (state: ConnectionsState, p: Principal, ask: TokenAsk): { c: Connection; installation: number } | TokenFail => {
+  const repo = ask.repo
   const all = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && (c.status === "active" || c.status === "needs_reauth" || c.status === "error"))
   if (all.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
   const policy = policyOf(state)
@@ -101,14 +92,8 @@ const connectionFor = (state: ConnectionsState, p: Principal, repo: string): { c
   const c = active.find((x) => x.account?.name.toLowerCase() === owner && githubRepoAllowed(x, policy, repo))
   const installation = Number(/^github:installation:(\d+)$/.exec(c?.account?.key ?? "")?.[1])
   if (!c || !Number.isSafeInteger(installation)) return fail(403, "policy.denied", `the team's GitHub connection may not act on ${repo} (team policy or the linking user's access)`)
+  if (ask.permissions.workflows === "write" && policy.github.allow_workflows !== true) return fail(403, "policy.denied", "workflows: write needs the team policy github.allowWorkflows")
   return { c, installation }
-}
-
-/** The connection and policy checks of one ask, against the state now (run again after every await that could change it). */
-const authorize = (state: ConnectionsState, p: Principal, ask: TokenAsk) => {
-  const picked = connectionFor(state, p, ask.repo)
-  if (!("ok" in picked) && ask.permissions.workflows === "write" && policyOf(state).github.allow_workflows !== true) return fail(403, "policy.denied", "workflows: write needs the team policy github.allowWorkflows")
-  return picked
 }
 
 /** POST /v1/integrations/github/token for an authenticated, team-checked principal. */
@@ -131,12 +116,13 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
 const stillLive = (sql: SqlStorage, tokenId: string) => sql.exec(`SELECT 1 FROM github_tokens WHERE token_id = ? AND revoking = 0`, tokenId).toArray().length > 0
 
 const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation: number }, p: Principal, pk: string, cacheKey: string, ask: TokenAsk, now: number): Promise<TokenReply> => {
+  const generation = h.revokes.get(pk) ?? 0
   pruneExpired(h.sql, now)
   const live = h.sql.exec<Row>(`SELECT * FROM github_tokens WHERE cache_key = ? AND principal = ? AND revoking = 0 AND expires_at > ? ORDER BY expires_at DESC LIMIT 1`, cacheKey, pk, now + REUSE_MARGIN_MS).toArray()[0]
   if (live) {
     const token = await openRow(h.env, live).catch(() => null)
     const again = authorize(h.state(), p, ask)
-    if (token && stillLive(h.sql, live.token_id) && !("ok" in again) && again.c.id === picked.c.id) {
+    if (token && stillLive(h.sql, live.token_id) && (h.revokes.get(pk) ?? 0) === generation && !("ok" in again) && again.c.id === picked.c.id) {
       return { ok: true, value: { token, expires_at: new Date(Number(live.expires_at)).toISOString(), repo: ask.repo, permissions: JSON.parse(live.permissions) as Record<string, string>, token_id: live.token_id } }
     }
     if ("ok" in again) return again
@@ -177,17 +163,18 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   // Refuse rather than hand out less than was asked (GitHub never widens; it must not narrow either), or what the state no longer allows.
   const short = Object.entries(ask.permissions).find(([k, v]) => !(minted.permissions[k] === "write" || minted.permissions[k] === v))
   if (short) return refuse(fail(403, "policy.denied", `GitHub granted less than ${short[0]}: ${short[1]}`))
-  const again = authorize(h.state(), p, ask)
-  if ("ok" in again || again.c.id !== picked.c.id) return refuse("ok" in again ? again : fail(403, "policy.denied", "the team's GitHub connection changed; retry"))
+  const changed = () => ((a) => ("ok" in a ? a : a.c.id !== picked.c.id ? fail(403, "policy.denied", "the team's GitHub connection changed; retry") : null))(authorize(h.state(), p, ask))
+  const before = changed()
+  if (before) return refuse(before)
   // UserDO calls closeInstall here once the install is revoked; false: it already is.
   if (p.kind === "install") {
     const registered = await h.register(p, minted.expires_at).catch(() => null)
     if (registered !== true) return refuse(registered === null ? fail(503, "integration.unavailable", "the install could not be checked; retry") : fail(401, "auth.required", "this install was revoked"))
-    const last = authorize(h.state(), p, ask)
-    if ("ok" in last || last.c.id !== picked.c.id) return refuse("ok" in last ? last : fail(403, "policy.denied", "the team's GitHub connection changed; retry"))
+    const after = changed()
+    if (after) return refuse(after)
   }
-  // A revoke that ran during the awaits above marked the row: never hand it out.
-  if (!stillLive(h.sql, tokenId)) return refuse(fail(401, "auth.required", "this install's tokens were revoked"))
+  // A revoke that ran during the awaits above marked the row, or ran before it existed: never hand it out.
+  if (!stillLive(h.sql, tokenId) || (h.revokes.get(pk) ?? 0) !== generation) return refuse(fail(401, "auth.required", "this caller's GitHub tokens were revoked"))
   const kind = p.kind === "install" ? (p.install_kind ?? "cli") : "session"
   h.audit({
     at: now, team: h.team, principal_kind: kind, user: p.user!,
@@ -204,7 +191,9 @@ const pruneExpired = (sql: SqlStorage, now: number) => sql.exec(`DELETE FROM git
  * Revokes every live token of one principal (`install:<id>` or `session:<user>`), or of one install
  * by id: marks the rows, then tries GitHub's DELETE for each at once. Returns how many were live.
  */
-export const revokeTokens = async (h: Pick<LedgerHost, "sql" | "env" | "http">, who: { principal: string } | { install: string }, now: number): Promise<number> => {
+export const revokeTokens = async (h: Pick<LedgerHost, "sql" | "env" | "http" | "revokes">, who: { principal: string } | { install: string }, now: number): Promise<number> => {
+  const key = "install" in who ? `install:${who.install}` : who.principal
+  h.revokes.set(key, (h.revokes.get(key) ?? 0) + 1)
   pruneExpired(h.sql, now)
   const [col, val] = "install" in who ? ["install", who.install] : ["principal", who.principal]
   const n = h.sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE ${col} = ? AND revoking = 0`, now, val).rowsWritten

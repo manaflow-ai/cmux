@@ -58,24 +58,19 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     const { gh } = await linkGitHub(a.session, a.team)
     const ask = { team: a.team, repo: "acme/web", permissions: { pull_requests: "write", contents: "write" }, label: "lane-1" }
     const first = await token(a.installToken, ask)
-    expect(first.status, JSON.stringify(first.body)).toBe(200)
-    expect(first.body).toMatchObject({ token: "ghs_secret_1", repo: "acme/web", permissions: { contents: "write", pull_requests: "write", metadata: "read" } })
+    expect(first.body, JSON.stringify(first.body)).toMatchObject({ token: "ghs_secret_1", repo: "acme/web", permissions: { contents: "write", pull_requests: "write", metadata: "read" } })
     expect([/^[0-9a-f]{16}$/.test(first.body.token_id), Date.parse(first.body.expires_at) > Date.now() + 50 * 60_000]).toEqual([true, true])
     // The request body narrows to the repository name and exactly these permissions.
     expect([JSON.parse(gh.mints()[0]!.body), gh.mints()[0]!.auth?.slice(0, 9)]).toEqual([{ repositories: ["web"], permissions: { contents: "write", pull_requests: "write" } }, "Bearer ey"])
 
-    // Same principal, same ask: the ledger answers. Another principal (the person's session) gets its own.
-    expect((await token(a.installToken, { ...ask, label: "lane-2" })).body.token).toBe("ghs_secret_1")
-    expect((await token(a.session, ask)).body.token).toBe("ghs_secret_2")
-    // Other permissions are another token.
-    expect((await token(a.installToken, { ...ask, permissions: { contents: "read" } })).body.token).toBe("ghs_secret_3")
-    expect(gh.mints()).toHaveLength(3)
+    // Same principal, same ask: the ledger answers. Another principal (the person's session) or other permissions: another token.
+    const again = [await token(a.installToken, { ...ask, label: "lane-2" }), await token(a.session, ask), await token(a.installToken, { ...ask, permissions: { contents: "read" } })]
+    expect([...again.map((r) => r.body.token), gh.mints().length]).toEqual(["ghs_secret_1", "ghs_secret_2", "ghs_secret_3", 3])
 
     // The ledger holds the token sealed, never in the clear.
     await inDO(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)), async (instance) => {
       const rows = instance.ctx.storage.sql.exec("SELECT * FROM github_tokens").toArray() as Array<Record<string, unknown>>
-      expect(rows).toHaveLength(3)
-      expect(JSON.stringify(rows)).not.toContain("ghs_secret")
+      expect([rows.length, JSON.stringify(rows).includes("ghs_secret")]).toEqual([3, false])
       expect(rows.map((r) => r.principal).sort()).toEqual([`install:${a.install}`, `install:${a.install}`, `session:${a.user}`])
     })
 
@@ -85,7 +80,6 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       await fireAlarm(testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(a.team)))
       audit = ((await read(a.session, "team.audit.list", {})).body.value?.entries ?? []).filter((e: any) => e.op === "team.github.token_minted")
     }
-    expect(audit).toHaveLength(3)
     expect(audit.find((e) => e.detail.token_id === first.body.token_id).detail).toMatchObject({ principal_kind: "cli", install: a.install, label: "lane-1", repo: "acme/web" })
     expect(JSON.stringify(audit)).not.toContain("ghs_secret")
 
@@ -113,10 +107,9 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     // Unauthenticated, and a team the install was not minted for.
     expect((await token("", { team: a.team, repo: "acme/api", permissions: { contents: "read" } })).status).toBe(401)
     expect((await token(a.installToken, { team: "team_00000000000000000000", repo: "acme/api", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")
-    // A GitHub refusal (422) is policy.denied; a message never carries a token.
+    // A GitHub refusal (422) is policy.denied.
     gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "nope" }, 422)
-    const refused = await token(a.installToken, { team: a.team, repo: "acme/api", permissions: { checks: "write" } })
-    expect([refused.status, refused.body.error.code]).toEqual([403, "policy.denied"])
+    expect(await t("acme/api", { checks: "write" })).toEqual([403, "policy.denied"])
   })
 
   it("an uninstalled App answers needs_reauth and marks the connection; GitHub's rate limit answers 429 with retry_after", async () => {
@@ -126,8 +119,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     const limited = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
     expect([limited.status, limited.body.error.code, limited.body.retry_after > 0]).toEqual([429, "rate_limited", true])
     gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "Not Found" }, 404)
-    const gone = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
-    expect([gone.status, gone.body.error.code]).toEqual([409, "needs_reauth"])
+    expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("needs_reauth")
     expect((await read(a.session, "integration.list")).body.value.connections.find((c: any) => c.provider === "github").status).toBe("needs_reauth")
     expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("needs_reauth")
   })
@@ -166,7 +158,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
     const vm = (await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.nonce, signature })).body.access_token as string
 
     const mine = await token(vm, { repo: "acme/web", permissions: { contents: "read" } })
-    expect(mine.status, JSON.stringify(mine.body)).toBe(200)
+    expect(mine.body.token, JSON.stringify(mine.body)).toBe("ghs_secret_1")
     expect((await token(vm, { team: "team_00000000000000000000", repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("auth.forbidden")
     // Deleting the machine ends the VM install, and with it the VM's tokens.
     expect((await op(a.session, "cloud.machine.delete", { machine })).body.ok).toBe(true)

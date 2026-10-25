@@ -215,9 +215,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return this.boundTo(entity) ? ghTokens.revokeTokens(this.ledger(), who, Date.now()).finally(() => this.scheduleAlarm()) : 0
   }
 
-  async githubStatus(entity: string, principal: Principal) {
-    return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
-  }
+  async githubStatus(entity: string, principal: Principal) { return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal) }
 
   /** UserDO revoked an install (install.revoke, a machine delete's VM install): its sockets close and its GitHub tokens are revoked. */
   override async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
@@ -228,11 +226,12 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   private readonly ghBuckets = new Map<string, { tokens: number; at: number }>()
   private readonly ghInflight = new Map<string, Promise<ghTokens.TokenReply>>()
-  private ledger = () => ({ sql: this.ctx.storage.sql, env: this.env, http: this.http })
+  private readonly ghRevokes = new Map<string, number>()
+  private ledger = () => ({ sql: this.ctx.storage.sql, env: this.env, http: this.http, revokes: this.ghRevokes })
   private ledgerHost(team: string): Omit<ghTokens.LedgerHost, "state"> {
     type Users = { registerSocket(e: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number): Promise<boolean> }
     return {
-      sql: this.ctx.storage.sql, env: this.env, http: this.http, team, buckets: this.ghBuckets, inflight: this.ghInflight,
+      sql: this.ctx.storage.sql, env: this.env, http: this.http, team, buckets: this.ghBuckets, inflight: this.ghInflight, revokes: this.ghRevokes,
       // UserDO's socket registry calls closeInstall here on a revoke (socket-registry.ts); false when the install is no longer active.
       register: (p, at) => (this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user!)) as unknown as Users).registerSocket(p.user!, p.install!, p.grant, "ConnectionDO", team, at),
       audit: (record) => void this.runSystem("integration.github.token_minted", record, `ghtok:${String(record.token_id)}`),

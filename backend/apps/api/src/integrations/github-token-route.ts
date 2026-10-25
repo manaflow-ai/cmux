@@ -35,8 +35,7 @@ const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNEC
 
 /** The caller, in `team` (a vm install: its machine's team), with grant classes, or why not. */
 const caller = async (request: Request, env: Env, team: string | undefined): Promise<{ p: Principal; team: string; machine?: string } | Fail> => {
-  const auth = request.headers.get("authorization") ?? ""
-  const token = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
+  const token = await authenticate(env, /^Bearer (.+)$/.exec(request.headers.get("authorization") ?? "")?.[1])
   if (!token?.user || !token.team) return no(401, "auth.required", "a cmux bearer token is required")
   if (token.agent !== undefined) return no(403, "auth.forbidden", "a chief token cannot get GitHub tokens")
   const vm = token.kind === "install" && token.install_kind === "vm"
@@ -53,15 +52,13 @@ const caller = async (request: Request, env: Env, team: string | undefined): Pro
   if (granted === null) return unreachable("the install's grant")
   if (granted === undefined) return no(401, "auth.required", "install revoked or grant invalid")
   if ("refused" in granted) return no(403, "auth.forbidden", granted.refused)
-  const p = granted
+  const p: Principal = granted
   if (p.kind !== "session" && !(p.kind === "install" && TOKEN_INSTALL_KINDS.has(p.install_kind ?? ""))) return no(403, "auth.forbidden", `a ${p.install_kind ?? p.kind} install cannot get GitHub tokens`)
   if (p.install_kind !== "vm") return { p, team: p.team! }
   // vmGate (cloud-vm.ts): its own bound machine, still naming this install, not deleting or failed.
   const cloud = env.CLOUD_DO.get(env.CLOUD_DO.idFromName(p.team!)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
   const self = await cloud.readOp(p.team!, p, "cloud.vm.self.get", { machine: p.bound_machine ?? "" }).catch(() => null)
-  if (self === null) return unreachable("the VM's machine")
-  if (!self.ok) return no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
-  return { p, team: p.team!, machine: p.bound_machine! }
+  return self === null ? unreachable("the VM's machine") : self.ok ? { p, team: p.team!, machine: p.bound_machine! } : no(403, "auth.forbidden", "a VM install speaks only for its own live machine")
 }
 
 const decode = <A>(schema: Schema.Codec<A, unknown>, body: unknown): A | Fail => {
@@ -84,8 +81,7 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     const team = raw === undefined ? undefined : decode(TeamId as unknown as Schema.Codec<string, unknown>, raw)
     if (isFail(team)) return failed(team)
     const who = await caller(request, env, team)
-    if (isFail(who)) return failed(who)
-    return Response.json(await connections(env, who.team).githubStatus(who.team, who.p), { headers: NO_STORE })
+    return isFail(who) ? failed(who) : Response.json(await connections(env, who.team).githubStatus(who.team, who.p), { headers: NO_STORE })
   }
   if (request.method !== "POST") return failed(no(405, "request.invalid", "POST"))
   const json = (await request.json().catch(() => undefined)) as unknown
@@ -99,8 +95,7 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
     const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(who.machine ? { machine: who.machine } : {}) }
     const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
-    if (r === null) return failed(unreachable("the team's GitHub connection"))
-    return r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)
+    return r === null ? failed(unreachable("the team's GitHub connection")) : r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)
   }
   const body = decode(GitHubTokenRevokeRequest as unknown as Schema.Codec<typeof GitHubTokenRevokeRequest.Type, unknown>, json)
   if (isFail(body)) return failed(body)
@@ -114,6 +109,5 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
   }
   const target = body.install ?? own
   const revoked = await connections(env, who.team).githubRevoke(who.team, target ? { install: target } : { principal: `session:${who.p.user}` }).catch(() => null)
-  if (revoked === null) return failed(unreachable("the team's GitHub tokens"))
-  return Response.json({ revoked }, { headers: NO_STORE })
+  return revoked === null ? failed(unreachable("the team's GitHub tokens")) : Response.json({ revoked }, { headers: NO_STORE })
 }
