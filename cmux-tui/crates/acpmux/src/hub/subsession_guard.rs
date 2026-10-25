@@ -573,6 +573,18 @@ impl Hub {
         if self.policy_laxer(&child.meta(), pm).await {
             self.set_policy(child, caller_policy).await;
         }
+        self.hold_mode(pm, child).await
+    }
+
+    /// The harness half of [`Hub::hold_subsession`]: new session `child` never runs its harness
+    /// asking less than `pm`, the session that started it; moved to an asking mode, else refused
+    /// (the caller closes it). Also a chat a caller session started with no mode
+    /// (`start_mode.rs`, "Inherit"), against that session as it is now.
+    pub(super) async fn hold_mode(
+        self: &Arc<Self>,
+        pm: &SessionMeta,
+        child: &Arc<Session>,
+    ) -> Result<(), RpcError> {
         let mine = self.caller_access(pm);
         if self.receiver_access(&child.meta(), pm).await <= mine {
             return Ok(());

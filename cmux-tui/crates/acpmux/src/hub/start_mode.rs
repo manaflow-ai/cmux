@@ -46,14 +46,17 @@
 //! starter's level, not at the person's start level. The starter is the
 //! session the connection proved with its caller token (`Conn::caller`,
 //! `start_gate.rs`), never the person, a peer, a Web connection or a request
-//! value; a start with none is unchanged. When the start names no mode (and
-//! no policy), the new chat gets:
+//! value, and never a session a remote connection started (`remote_origin`:
+//! its chats keep the rule below, a caller that asks keeps the harness's own
+//! mode); a start with none is unchanged. Each field the start leaves out is
+//! inherited on its own:
 //!
-//! - the starter's own policy, or the defaults' (family or preset) when that
-//!   is narrower. A starter with no policy of its own leaves the defaults:
-//!   the daemon default as the child's own would move its mode to an asking
-//!   one (`policy_mode.rs`);
-//! - a policy narrower than approve-all chooses the mode (`policy_mode.rs`);
+//! - no policy: the defaults' (family or preset) when no wider than the
+//!   starter's effective policy, else the starter's own. A starter with no
+//!   policy of its own gives none (the daemon default it runs too): the
+//!   daemon default as the child's own would move its mode to an asking one
+//!   (`policy_mode.rs`);
+//! - no mode: a policy narrower than approve-all chooses it (`policy_mode.rs`);
 //!   else, on the starter's own family, the starter's exact mode (not a
 //!   toggle such as `plan`, and not full access while
 //!   `sessions.allowFullAccess` is off); on another family, the starter's
@@ -62,11 +65,14 @@
 //!   any other to the harness's own mode (the asking one when the person's
 //!   level is `ask`).
 //!
-//! It never runs wider than its starter: a mode the start names is still
-//! held by `start_gate.rs` (a mode that does not ask needs the starter's
-//! exact mode or the person), and a sub-session is held to its parent by
-//! `subsession_guard.rs`. A policy the start names is not held to the
-//! starter (`hub/person.rs`: open to the unix socket since before this).
+//! Its harness never asks less than its starter: once its mode is set it is
+//! held to the starter as the starter is then (`Hub::hold_mode`): moved to an
+//! asking mode, else refused and closed (a family with no mode that asks
+//! under a starter that asks). A mode the start names is held by
+//! `start_gate.rs` (a mode that does not ask needs the starter's exact mode
+//! or the person), and a sub-session by `subsession_guard.rs`. A policy the
+//! start names is not held to the starter (`hub/person.rs`: open to the unix
+//! socket since before this).
 
 use super::*;
 use crate::config::PermissionModeChange;
@@ -450,15 +456,18 @@ pub(super) fn asks_in(mode: &str, family: &str, asking: &[String]) -> bool {
     level_of(mode, family, asking) == DefaultMode::Ask
 }
 
-/// The policy a chat inherits from a starter running `theirs` (module docs, "Inherit"): `theirs`,
-/// or `defaults` (its family's or preset's) when that is narrower.
-pub(super) fn narrowest(
+/// The policy a chat that names none inherits from its starter (module docs, "Inherit"):
+/// `defaults` (its family's or preset's) when no wider than the starter's effective policy (its
+/// own, else `daemon`), else the starter's own (none: the daemon default, as the starter runs).
+pub(super) fn inherited_policy(
     defaults: Option<PermissionPolicy>,
-    theirs: PermissionPolicy,
-) -> PermissionPolicy {
+    own: Option<PermissionPolicy>,
+    daemon: PermissionPolicy,
+) -> Option<PermissionPolicy> {
+    let theirs = own.unwrap_or(daemon);
     match defaults {
-        Some(d) if super::person::breadth(d) < super::person::breadth(theirs) => d,
-        _ => theirs,
+        Some(d) if super::person::breadth(d) <= super::person::breadth(theirs) => Some(d),
+        _ => own,
     }
 }
 

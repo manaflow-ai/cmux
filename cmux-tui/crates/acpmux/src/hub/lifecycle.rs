@@ -32,10 +32,12 @@ impl Hub {
             subsession,
             disallowed_tools,
         } = req;
-        // The proven agent session that asked for this one, as it is now; never for a remote one.
+        // The proven agent session that asked for this one, as it is now; never for a remote
+        // chat, and never one a remote connection started (`remote_origin`).
         let starter = starter
             .filter(|_| !remote)
             .and_then(|id| self.resolve(&id).ok().filter(|s| s.id == id))
+            .filter(|s| !s.meta().remote_origin)
             .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -50,11 +52,14 @@ impl Hub {
             return Err(terminal_harness_refusal(agent));
         }
         let family = crate::config::derive_family(agent, &profile);
-        // No policy asked: a starter's own policy, or the defaults' when that is narrower
-        // (`start_mode.rs`, "Inherit"). A starter with none of its own leaves the defaults.
-        let policy = match (policy, starter.as_deref().and_then(|id| self.own_policy(id))) {
+        // No policy asked: the defaults' when it is no wider than a starter's, else the starter's
+        // own (`start_mode.rs`, "Inherit").
+        let policy = match (policy, starter.as_deref()) {
             (Some(asked), _) => Some(asked),
-            (None, Some(theirs)) => Some(super::start_mode::narrowest(defaults.policy, theirs)),
+            (None, Some(id)) => {
+                let daemon = self.config.read().await.permission_policy;
+                super::start_mode::inherited_policy(defaults.policy, self.own_policy(id), daemon)
+            }
             (None, None) => defaults.policy,
         };
         // `${model}` in argv or env: the model is a spawn parameter, not a
@@ -322,6 +327,14 @@ impl Hub {
                         self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
                     }
                 }
+            }
+            // Never asking less than the starter as it is now (it may have left full access
+            // meanwhile, or the child's family has no mode that asks): moved, else refused.
+            if mode_eligible
+                && let Some(theirs) =
+                    starter.as_deref().and_then(|id| self.resolve(id).ok().filter(|s| s.id == id))
+            {
+                self.hold_mode(&theirs.meta(), &session).await?;
             }
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;

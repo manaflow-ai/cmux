@@ -35,11 +35,16 @@ fn hub() -> Arc<Hub> {
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "env": {"FAKE_FULL_ACCESS": "1"}},
             "kin": {"argv": ["python3", FAKE], "family": "kin", "env": {"FAKE_FULL_ACCESS": "1"}},
+            // A family whose adapter reports no modes, so none that asks.
+            "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1"}},
+            // A family whose default policy is wider than an asking starter's.
+            "lax": {"argv": ["python3", FAKE], "family": "lax", "env": {"FAKE_FULL_ACCESS": "1"}},
         },
+        "defaults": {"lax": {"policy": "approve-all"}},
         "defaultHarness": "fake",
         "permissionPolicy": "ask",
         "defaultPermissionMode": "standard",
-        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"]},
+        "webAskingModes": {"fake": ["normal", "strict"], "kin": ["normal", "strict"], "lax": ["normal", "strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -279,4 +284,55 @@ async fn a_sub_session_of_another_family_under_an_asking_parent_starts_in_its_as
     let (mode, policy) = app.level(&id(&r)).await;
     assert!(mode == "normal" || mode == "strict", "an asking mode: {mode}");
     assert_eq!(policy, Value::Null);
+}
+
+#[tokio::test]
+async fn an_asking_starter_never_starts_a_child_of_a_family_with_no_mode_that_asks() {
+    let hub = hub();
+    let mut app = Client::new(&hub);
+    let parent = starter(&mut app, None, Some("strict")).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let before = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    let r = agent.call("session/new", new_params(json!({"harness": "bare"}))).await;
+    assert_eq!(r["error"]["data"]["reason"], "subsessions.asks_less", "{r}");
+    let after = app.ok("_acpmux/sessions", json!({})).await["sessions"].as_array().unwrap().len();
+    assert_eq!(after, before, "the refused child is closed");
+    // A starter in full access may.
+    let wide = starter(&mut app, Some("approve-all"), Some("full-access")).await;
+    let mut agent = Client::as_session(&hub, &wide).await;
+    agent.ok("session/new", new_params(json!({"harness": "bare"}))).await;
+}
+
+#[tokio::test]
+async fn a_family_default_policy_wider_than_its_starter_is_not_inherited() {
+    let hub = hub();
+    let mut app = Client::new(&hub);
+    // No own policy: the daemon default (ask) is the starter's, and the child's.
+    let parent = starter(&mut app, None, Some("strict")).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let child = id(&agent.ok("session/new", new_params(json!({"harness": "lax"}))).await);
+    assert_eq!(app.level(&child).await.1, Value::Null, "not the family's approve-all");
+    // A starter that runs approve-all gets the family's approve-all.
+    let wide = starter(&mut app, Some("approve-all"), Some("full-access")).await;
+    let mut agent = Client::as_session(&hub, &wide).await;
+    let child = id(&agent.ok("session/new", new_params(json!({"harness": "lax"}))).await);
+    assert_eq!(app.level(&child).await, ("full-access".to_owned(), json!("approve-all")));
+}
+
+/// Each field a start leaves out is inherited on its own: a named policy keeps the starter's
+/// mode, and a named mode keeps the starter's policy.
+#[tokio::test]
+async fn a_start_that_names_one_field_inherits_the_other() {
+    let hub = hub();
+    let mut app = Client::new(&hub);
+    let parent = starter(&mut app, Some("approve-edits"), Some("strict")).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let named_policy = id(&agent
+        .ok("session/new", new_params(json!({"harness": "fake", "policy": "approve-reads"})))
+        .await);
+    assert_eq!(app.level(&named_policy).await, ("strict".to_owned(), json!("approve-reads")));
+    let named_mode = id(&agent
+        .ok("session/new", new_params(json!({"harness": "fake", "mode": "normal"})))
+        .await);
+    assert_eq!(app.level(&named_mode).await, ("normal".to_owned(), json!("approve-edits")));
 }
