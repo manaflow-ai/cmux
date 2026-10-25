@@ -25,6 +25,7 @@ spec.loader.exec_module(watch)
 
 NOW = dt.datetime(2026, 10, 12, 12, 0, tzinfo=dt.timezone.utc)
 NEWEST = NOW - dt.timedelta(hours=30)
+NEWEST_FEED = f"<rss><channel><item><pubDate>{NEWEST.strftime('%a, %d %b %Y %H:%M:%S +0000')}</pubDate></item></channel></rss>"
 
 
 def at(hours_ago: float) -> str:
@@ -147,13 +148,13 @@ class MainTests(unittest.TestCase):
     def test_a_github_error_warns_instead_of_failing_the_schedule(self):
         def boom(*_args, **_kwargs):
             raise urllib.error.HTTPError("u", 502, "Bad Gateway", {}, None)
-        original = watch.GitHub.call, watch.read_feed
-        watch.GitHub.call, watch.read_feed = boom, lambda url: NEWEST
+        original = watch.GitHub.call, watch.fetch_feed
+        watch.GitHub.call, watch.fetch_feed = boom, lambda url: NEWEST_FEED
         try:
             with unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
                 self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
         finally:
-            watch.GitHub.call, watch.read_feed = original
+            watch.GitHub.call, watch.fetch_feed = original
 
 
 class TickRefusalTests(unittest.TestCase):
@@ -184,9 +185,10 @@ class TickRefusalTests(unittest.TestCase):
 class StaleExitTests(unittest.TestCase):
     """A stale feed fails the scheduled run: a green run hid a 4-hour stall on 2026-10-21."""
 
-    def main_with(self, stale):
+    def main_with(self, stale, legacy_stale=False):
         stage = watch.Stage(stale, 5.0 if stale else 0.5, NOW - dt.timedelta(hours=5), "Nothing was promoted.")
-        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+        with unittest.mock.patch.object(watch, "fetch_feed", lambda url: NEWEST_FEED), \
+                unittest.mock.patch.object(watch, "legacy_identity_heal", lambda *a: (legacy_stale, "legacy")), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
@@ -198,6 +200,7 @@ class StaleExitTests(unittest.TestCase):
     def test_stale_fails_and_current_passes(self):
         self.assertEqual(self.main_with(True), 1)
         self.assertEqual(self.main_with(False), 0)
+        self.assertEqual(self.main_with(False, legacy_stale=True), 1, "cmux NIGHTLY's feed behind fails the run too")
 
     def test_the_limit_is_three_hours(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
@@ -208,8 +211,78 @@ class StaleExitTests(unittest.TestCase):
 class FeedTests(unittest.TestCase):
     def test_watches_the_cmux_next_feed(self):
         # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
-        # cmux NIGHTLY-identity feed is no longer written.
+        # feed is cmux NIGHTLY's (com.cmuxterm.app.nightly reads it), written
+        # only by publish-nightly-identity-legacy, and watched too.
         self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+        self.assertEqual(watch.LEGACY_FEED_URL, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+
+
+def feed(*items):
+    """items: (build, minutes ago, channel or None)."""
+    body = "".join(
+        f"<item><sparkle:version>{build}</sparkle:version>"
+        + (f"<sparkle:channel>{channel}</sparkle:channel>" if channel else "")
+        + f"<pubDate>{(NOW - dt.timedelta(minutes=minutes)).strftime('%a, %d %b %Y %H:%M:%S +0000')}</pubDate></item>"
+        for build, minutes, channel in items)
+    return f"<rss><channel>{body}</channel></rss>"
+
+
+class LegacyGitHub:
+    def __init__(self, run, jobs):
+        self.run, self.job_list, self.posts = run, jobs, []
+
+    def call(self, method, path, body=None):
+        if method == "GET":
+            return self.run
+        self.posts.append(path)
+        return {}
+
+    def jobs(self, run):
+        return self.job_list
+
+
+class LegacyFeedTests(unittest.TestCase):
+    """cmux NIGHTLY's feed fell 7 hours behind cmux NEXT's on 2026-10-25: every legacy job
+    403'd on the Actions token's rate limit, and only cmux NEXT's feed was watched."""
+
+    NEXT = feed((4023540480101, 40, "cmux-next"), (4020374816001, 450, "cmux-next"))
+    OLD = feed((4020374816001, 450, "cmux-next"))
+    RUN = {"id": 40235404801, "path": ".github/workflows/nightly.yml", "head_branch": "nightly-next",
+           "status": "completed", "run_attempt": 1, "html_url": "run-url"}
+    FAILED = [{"name": "publish-nightly-identity-legacy", "conclusion": "failure"},
+              {"name": "publish-nightly", "conclusion": "success"}]
+
+    def heal(self, next_xml=NEXT, old_xml=OLD, run=None, jobs=None):
+        gh = LegacyGitHub(dict(self.RUN, **(run or {})), self.FAILED if jobs is None else jobs)
+        return watch.legacy_identity_heal(gh, NOW, next_xml, old_xml), gh.posts
+
+    def test_reruns_the_failed_legacy_job_of_the_run_that_built_it(self):
+        (stale, message), posts = self.heal()
+        self.assertTrue(stale)
+        self.assertEqual(posts, ["/actions/runs/40235404801/rerun-failed-jobs"])
+        self.assertIn("4020374816001", message)
+        self.assertIn("publish-nightly-identity-legacy", message)
+
+    def test_current_or_fresh_is_left_alone(self):
+        (stale, _), posts = self.heal(old_xml=feed((4023540480101, 30, "cmux-next")))
+        self.assertEqual((stale, posts), (False, []))
+        (stale, _), posts = self.heal(next_xml=feed((4023540480101, 5, "cmux-next")))
+        self.assertEqual((stale, posts), (False, []))
+
+    def test_only_nightly_ring_builds_count(self):
+        (stale, _), posts = self.heal(next_xml=feed((4023540480101, 40, "cmux-next-dev"), (4020374816001, 450, "cmux-next")))
+        self.assertEqual((stale, posts), (False, []))
+
+    def test_stale_without_a_rerun_when_running_exhausted_or_not_failed(self):
+        for run, jobs in (({"status": "in_progress"}, None), ({"run_attempt": 3}, None),
+                          (None, [{"name": "publish-nightly-identity-legacy", "conclusion": "skipped"}]),
+                          ({"head_branch": "main"}, None)):
+            (stale, _), posts = self.heal(run=run, jobs=jobs)
+            self.assertEqual((stale, posts), (True, []), (run, jobs))
+
+    def test_the_watch_may_rerun_jobs(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
+        self.assertIn("actions: write", workflow)
 
 
 class FakeGitHub:
