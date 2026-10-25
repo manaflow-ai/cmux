@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 489,
+  "count": 490,
   "sections": [
     {
       "id": "general",
@@ -4845,6 +4845,19 @@
           "values": [
             "imessage",
             "theme"
+          ]
+        },
+        {
+          "key": "home.chiefEngine",
+          "title": "Engine",
+          "help": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Engine",
+          "values": [
+            "auto",
+            "local",
+            "hosted"
           ]
         },
         {
