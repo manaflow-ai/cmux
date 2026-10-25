@@ -37,13 +37,16 @@ public nonisolated struct HomeChiefRoster: Hashable, Sendable, Codable {
     ///   - server: That server's name.
     ///   - showsPlaced: The user picked the server's Chief.
     ///   - cloud: The cloud owner's conversations.
+    ///   - prefersLocal: The default Chief is this Mac's (``HomeChiefDefault``): it is main when listed.
     /// - Returns: The roster.
     @MainActor public static func make(rows: [InboxRow], local: ConversationID?, hosted: ConversationID?, placed: ConversationID?,
-                            server: String?, showsPlaced: Bool, cloud: Set<ConversationID> = []) -> HomeChiefRoster {
+                                       server: String?, showsPlaced: Bool, cloud: Set<ConversationID> = [],
+                                       prefersLocal: Bool = false) -> HomeChiefRoster {
         let chiefRows = rows.filter { $0.kind == .chief }.map(\.id)
         let listed = Set(chiefRows)
         let local = local.flatMap { listed.contains($0) ? $0 : nil }
-        let main = (showsPlaced ? placed ?? hosted : hosted ?? placed) ?? local
+        let remote = showsPlaced ? placed ?? hosted : hosted ?? placed
+        let main = prefersLocal ? local ?? remote : remote ?? local
         var places: [ConversationID: HomeChiefPlace] = [:]
         for id in chiefRows { places[id] = cloud.contains(id) ? .cloud : .thisMac }
         if let local { places[local] = .thisMac }

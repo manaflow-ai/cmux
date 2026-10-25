@@ -273,10 +273,7 @@ final class TopHomePageView: NSView {
         return rows.homeLines.lazy.compactMap(\.conversation).first
     }
 
-    static func chief(_ home: HomeService) -> String? {
-        let local = HomeChiefName.select(from: home.conversations)
-        return home.tabChiefs.chiefTab(local: local?.id, localHasHistory: (local?.lastSeq ?? 0) > 0, choice: home.hostedChief.choice)
-    }
+    static func chief(_ home: HomeService) -> String? { home.defaultChiefConversation }
 
     /// The shown conversation is one the owner's own inbox does not have:
     /// the cache's conversation of a Chief home made again at the same path
