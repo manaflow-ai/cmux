@@ -419,7 +419,8 @@ fn old_unit_check() -> String {
 /// runs, and the next update tries again) and the update goes on under the
 /// old unit. A unit file systemd has not read since it changed (an update
 /// cut off between the rename and the reload, a hand edit) is read before
-/// the restart. Drop-ins (`acpmux.service.d/*.conf`) and a unit with any
+/// the restart; when that reload fails the update stops before the restart
+/// (exit 1), as a restart would not apply the file. Drop-ins (`acpmux.service.d/*.conf`) and a unit with any
 /// other text are left alone.
 fn unit_refresh() -> String {
     let check = old_unit_check();
@@ -433,7 +434,7 @@ then
 if ! systemctl --user daemon-reload >/dev/null 2>&1; then mv -f "$acpmux_unit.acpmux-old" "$acpmux_unit"; systemctl --user daemon-reload >/dev/null 2>&1; echo "systemd did not reload the new acpmux.service; it keeps the old one" >&2; fi
 else echo "could not write the new acpmux.service; it keeps the old one" >&2; fi
 rm -f "$acpmux_unit.acpmux-new" "$acpmux_unit.acpmux-old"
-elif [ "$(systemctl --user show acpmux.service -p NeedDaemonReload --value 2>/dev/null)" = yes ]; then systemctl --user daemon-reload >/dev/null 2>&1
+elif [ "$(systemctl --user show acpmux.service -p NeedDaemonReload --value 2>/dev/null)" = yes ]; then systemctl --user daemon-reload >/dev/null 2>&1 || {{ echo "systemd did not reload acpmux.service, so its daemon is not restarted under settings it has not read" >&2; exit 1; }}
 fi; fi
 "#
     )
@@ -852,6 +853,8 @@ mod tests {
         reloads: bool,
         /// `mktemp` works (no: a full `/tmp`).
         mktemp: bool,
+        /// systemd has not read `acpmux.service` since it changed.
+        need_reload: bool,
         /// A daemon of `~/.acpmux` runs, in this user unit's cgroup, or at this
         /// cgroup path when it starts with `/` (`None`: none runs).
         daemon_unit: Option<&'static str>,
@@ -870,6 +873,7 @@ mod tests {
         installed_text: None,
         reloads: true,
         mktemp: true,
+        need_reload: false,
         daemon_unit: None,
         survives_shutdown: false,
     };
@@ -912,12 +916,13 @@ mod tests {
         fake(
             "systemctl",
             &format!(
-                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; daemon-reload) {};; *) exit 0;; esac",
+                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; daemon-reload) {};; show) echo {};; *) exit 0;; esac",
                 code(host.manager),
                 if host.active { "exit 0" } else { "exit 3" },
                 code(host.enables),
                 code(host.restarts),
                 code(host.reloads),
+                if host.need_reload { "yes" } else { "no" },
             ),
         );
         if !host.mktemp {
@@ -1081,6 +1086,22 @@ mod tests {
         assert!(run.err.contains("did not reload"), "{}", run.err);
         assert!(run.started_by_systemd(), "{:?}", run.calls);
         assert_eq!(run.units, ["acpmux.service"], "no temporary unit file is left");
+        // Current text that systemd has not read: read before the restart;
+        // when that read fails, no restart.
+        let run = linux_restart_run("need-reload", false, LinuxHost { need_reload: true, ..host });
+        let at = |c: &str| run.calls.iter().position(|x| x == c);
+        let reload = at("systemctl --user daemon-reload");
+        let restart = at("systemctl --user restart acpmux.service");
+        assert!(reload.is_some() && reload < restart, "{:?}", run.calls);
+        let run = linux_restart_run(
+            "need-reload-fails",
+            false,
+            LinuxHost { need_reload: true, reloads: false, ..host },
+        );
+        assert_eq!(run.code, Some(1), "{}", run.err);
+        assert!(run.err.contains("did not reload"), "{}", run.err);
+        assert!(!run.calls.iter().any(|c| c.contains("restart")), "{:?}", run.calls);
+        assert!(!run.started_by_systemd());
         // No reference to compare with (a full /tmp): the unit is not taken as ours.
         let run = linux_restart_run(
             "refresh-no-tmp",

@@ -68,7 +68,8 @@ ACPMUX_DROP_INS
 "#;
 
 /// Writes the plan (files that exist already are kept: they matched, or the
-/// unit an earlier acpmux wrote is replaced), then
+/// unit an earlier acpmux wrote is replaced, written beside it and renamed
+/// over it so a full disk never leaves a cut unit), then
 /// stops the old unit with the runtime drop-in `zzz-acpmux-migrate.conf` in
 /// place: `KillMode=process` sends SIGTERM to the daemon alone, which leaves
 /// its agents running for the next one to adopt (the unit's default
@@ -77,7 +78,7 @@ ACPMUX_DROP_INS
 const MIGRATE_STOP: &str = r#"echo "ACPMUX_MIGRATING=$u"
 r="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/user/$u.d"
 mkdir -p "$n" "$r" && printf '[Service]\nKillMode=process\nRestart=no\n' > "$r/zzz-acpmux-migrate.conf" || exit 1
-cmp -s "$t/acpmux.service" "$d/acpmux.service" || cp "$t/acpmux.service" "$d/acpmux.service" || exit 1
+cmp -s "$t/acpmux.service" "$d/acpmux.service" || { cp "$t/acpmux.service" "$d/acpmux.service.acpmux-new" && mv -f "$d/acpmux.service.acpmux-new" "$d/acpmux.service"; } || { rm -f "$d/acpmux.service.acpmux-new"; exit 1; }
 find "$t/d" -type f -name '*.conf' -exec cp -n {} "$n/" \;
 rm -rf "$t"
 systemctl --user daemon-reload && systemctl --user disable --now "$u" || exit 1
