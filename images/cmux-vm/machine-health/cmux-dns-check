@@ -36,7 +36,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --restart) restart=1 ;;
     --name) shift; [ -n "${1:-}" ] || usage; names+=("$1") ;;
-    --timeout) shift; case "${1:-}" in ''|*[!0-9]*) usage ;; esac; timeout="$1" ;;
+    --timeout) shift; case "${1:-}" in ''|*[!0-9]*) usage ;; esac; timeout=$((10#$1)) ;;
     -h|--help) usage ;;
     *) echo "unknown argument: $1" >&2; usage ;;
   esac
@@ -85,17 +85,23 @@ if systemctl is-active --quiet systemd-resolved.service; then pass "systemd-reso
 
 # Tailscale's DNS mode for this tailscaled run: its startup log line
 # `dns: [rc=... ret=MODE]` in the journal of the unit's current invocation.
-if has_tailscaled; then
+if has_tailscaled && ! systemctl is-active --quiet tailscaled.service; then
+  skip "tailscale DNS mode: tailscaled is installed but not running"
+elif has_tailscaled; then
   invocation="$(systemctl show -p InvocationID --value tailscaled.service 2>/dev/null)"
-  end=$((SECONDS + timeout)); mode=""
+  end=$((SECONDS + timeout)); mode="!tailscaled has no invocation ID"
   while [ -n "$invocation" ]; do
-    mode="$(journalctl -q -o cat "_SYSTEMD_INVOCATION_ID=$invocation" 2>/dev/null | grep -o 'dns: \[[^]]*ret=[a-z-]*' | tail -n 1 | sed 's/.*ret=//')"
+    if ! journal="$(timeout 10 journalctl -q -o cat "_SYSTEMD_INVOCATION_ID=$invocation" 2>/dev/null)"; then
+      mode="!could not read the tailscaled journal"; break
+    fi
+    mode="$(printf '%s\n' "$journal" | grep -o 'dns: \[[^]]*ret=[a-z-]*' | tail -n 1 | sed 's/.*ret=//')"
     if [ -n "$mode" ] || [ "$SECONDS" -ge "$end" ]; then break; fi
     sleep 1
   done
   case "$mode" in
     systemd-resolved) pass "tailscale DNS mode: systemd-resolved" ;;
     "") skip "tailscale DNS mode: this tailscaled run logged no DNS mode" ;;
+    "!"*) fail "tailscale DNS mode: ${mode#!}" ;;
     *) fail "tailscale DNS mode: $mode (tailscaled writes resolv.conf itself instead of using systemd-resolved)" ;;
   esac
 fi
@@ -108,12 +114,17 @@ done
 if ! command -v tailscale >/dev/null 2>&1; then
   skip "resolve tailnet name: tailscale is not installed"
 else
-  self_name="$(timeout 10 tailscale status --json 2>/dev/null | python3 -c '
+  # Valid logged-out or MagicDNS-off states skip ("!"); a status that cannot be read or parsed fails ("?").
+  if ! status="$(timeout 10 tailscale status --json 2>/dev/null)"; then
+    self_name="?tailscale status --json failed"
+  elif ! self_name="$(printf '%s' "$status" | python3 -c '
 import json, sys
 try:
     s = json.load(sys.stdin)
 except ValueError:
-    print("!tailscale status --json gave no JSON"); sys.exit()
+    print("?tailscale status --json gave no JSON"); sys.exit()
+if not isinstance(s, dict):
+    print("?tailscale status --json gave no status object"); sys.exit()
 if s.get("BackendState") != "Running":
     print("!not logged in to a tailnet (BackendState %s)" % s.get("BackendState")); sys.exit()
 tailnet = s.get("CurrentTailnet") or {}
@@ -121,9 +132,11 @@ if not s.get("MagicDNSSuffix") or tailnet.get("MagicDNSEnabled") is False:
     print("!MagicDNS is off on this tailnet"); sys.exit()
 name = ((s.get("Self") or {}).get("DNSName") or "").rstrip(".")
 print(name or "!this machine has no MagicDNS name")
-')"
+')"; then
+    self_name="?could not parse tailscale status (python3)"
+  fi
   case "$self_name" in
-    "") skip "resolve tailnet name: tailscale status --json gave no answer" ;;
+    ""|"?"*) fail "resolve tailnet name: ${self_name#?}" ;;
     "!"*) skip "resolve tailnet name: ${self_name#!}" ;;
     *) if addr="$(resolve "$self_name")"; then pass "resolve tailnet name $self_name: $addr"; else fail "resolve tailnet name $self_name: no address within ${timeout}s"; fi ;;
   esac

@@ -29,7 +29,7 @@ export function dnsCheckScript(): string {
  */
 export function resolverBakeCommand(): string {
   return [
-    "systemctl enable systemd-resolved.service >/dev/null 2>&1",
+    "systemctl enable --now systemd-resolved.service >/dev/null 2>&1",
     "systemctl is-active --quiet systemd-resolved.service",
     `if [ "$(readlink -f ${RESOLV_CONF})" = ${RESOLVED_STUB} ] && [ -L ${RESOLV_CONF} ]; then echo 'resolv.conf was a link already'; else grep -q '^nameserver ' ${RESOLVED_STUB} && ln -sfn ../run/systemd/resolve/stub-resolv.conf ${RESOLV_CONF} && echo 'resolv.conf linked'; fi`,
     // The provider's drop-ins, recorded (never edited).

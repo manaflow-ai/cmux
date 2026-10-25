@@ -17,7 +17,8 @@ type Machine = {
   link?: boolean;
   resolvedActive?: boolean;
   resolves?: string[];
-  tailscale?: { status: unknown; dnsLog?: string };
+  /** status "fail": `tailscale status --json` exits 1. */
+  tailscale?: { status: unknown; dnsLog?: string; journalFails?: boolean };
 };
 
 function stub(dir: string, name: string, body: string): void {
@@ -47,11 +48,11 @@ async function check(machine: Machine, args: string[] = []) {
     "esac",
     "exit 1",
   ].join("\n"));
-  stub(dir, "journalctl", `[ "$4" = _SYSTEMD_INVOCATION_ID=inv-1 ] && printf '%s\\n' ${JSON.stringify(ts?.dnsLog ?? "")}`);
+  stub(dir, "journalctl", ts?.journalFails ? "exit 1" : `[ "$4" = _SYSTEMD_INVOCATION_ID=inv-1 ] && printf '%s\\n' ${JSON.stringify(ts?.dnsLog ?? "")}`);
   stub(dir, "getent", `for n in ${(machine.resolves ?? ["github.com"]).join(" ")}; do [ "$2" = "$n" ] && { echo "140.82.112.3 STREAM $n"; exit 0; }; done; exit 2`);
   if (ts) {
     writeFileSync(path.join(dir, "status.json"), JSON.stringify(ts.status));
-    stub(dir, "tailscale", `[ "$1 $2" = "status --json" ] && cat ${path.join(dir, "status.json")}`);
+    stub(dir, "tailscale", ts.status === "fail" ? "exit 1" : `[ "$1 $2" = "status --json" ] && cat ${path.join(dir, "status.json")}`);
   }
   const result = await runChild("bash", [SCRIPT, "--timeout", "0", ...args], {
     env: { PATH: `${path.join(dir, "bin")}:/usr/bin:/bin`, CMUX_DNS_RESOLV_CONF: resolv, CMUX_DNS_STUB: stubFile },
@@ -79,6 +80,8 @@ describe("cmux-dns-check", () => {
     expect((await runChild("bash", ["-n", SCRIPT])).status).toBe(0);
     expect((await runChild("bash", ["-n"], { input: resolverBakeCommand() })).status).toBe(0);
     expect(DNS_SMOKE_COMMAND).toBe("/usr/local/sbin/cmux-dns-check --restart");
+    // An inactive resolved on the base is started, not a failed bake.
+    expect(resolverBakeCommand()).toStartWith("systemctl enable --now systemd-resolved.service");
   });
 
   test("a resolved machine without tailscale passes and skips the tailnet name with the reason", async () => {
@@ -128,6 +131,21 @@ describe("cmux-dns-check", () => {
     expect(off.lines).toContain("SKIP resolve tailnet name: MagicDNS is off on this tailnet");
     const quiet = await check({ tailscale: { status: { BackendState: "Stopped" } } });
     expect(quiet.lines).toContain("SKIP tailscale DNS mode: this tailscaled run logged no DNS mode");
+  });
+
+  test("a tailscale status or journal it cannot read fails instead of skipping", async () => {
+    const status = await check({ tailscale: { status: "fail", dnsLog: RESOLVED_MODE } });
+    expect(status.code).toBe(1);
+    expect(status.lines).toContain("FAIL resolve tailnet name: tailscale status --json failed");
+    const garbage = await check({ tailscale: { status: [1, 2], dnsLog: RESOLVED_MODE } });
+    expect(garbage.lines).toContain("FAIL resolve tailnet name: tailscale status --json gave no status object");
+    const journal = await check({ tailscale: { status: LOGGED_IN, journalFails: true }, resolves: ["github.com", "huge-blue.tail1234.ts.net"] });
+    expect(journal.lines).toContain("FAIL tailscale DNS mode: could not read the tailscaled journal");
+  });
+
+  test("a timeout with a leading zero is decimal", async () => {
+    const r = await check({}, ["--timeout", "08"]);
+    expect(r.code).toBe(0);
   });
 
   test("bad usage exits 2", async () => {
