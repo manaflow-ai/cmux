@@ -2400,7 +2400,9 @@ export function VirtualTranscript({
       const before = previous.length - 1 - keptTail;
       const line =
         keptTail +
-        (before >= 0 && previous[before]!.below === true && rows[rows.length - 1 - keptTail]?.id === previous[before]!.id
+        (before >= 0 &&
+        previous[before]!.below === true &&
+        rows[rows.length - 1 - keptTail]?.id === previous[before]!.id
           ? 1
           : 0);
       // `rowsChange` already found the first changed object while this render was prepared. Reuse
