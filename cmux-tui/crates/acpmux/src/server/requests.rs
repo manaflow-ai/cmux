@@ -700,7 +700,7 @@ async fn dispatch_request(
                     m.remove("ephemeral");
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
-                let mut result = peer.request(method::SESSION_NEW, p).await?;
+                let mut result = super::remote_guard::hint::new_on(&peer, &params, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     attach(hub, conn, id);
                     peer.mark_attached(id);

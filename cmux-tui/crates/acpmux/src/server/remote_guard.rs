@@ -75,6 +75,12 @@ use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+pub(super) mod hint;
+mod peer_folder;
+pub(super) use hint::check;
+use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
+use peer_folder::{configured_web_roots, cwd_refused, make_inside_root, outside_told};
+
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
 /// the stop of a running background subagent (no params that spawn or read).
@@ -137,8 +143,8 @@ fn refused(what: &str) -> RpcError {
 }
 
 /// Check (and canonicalize the folder fields of) a request from a
-/// connection that is not the unix socket.
-pub(super) async fn check(
+/// connection that is not the unix socket (`hint::check` adds `servedAs`).
+async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
     auth: super::ConnAuth,
@@ -241,8 +247,15 @@ pub(super) async fn check(
             return Err(refused("an import from outside acpmux's bundle directory"));
         }
     }
+    // A new session's folder is judged first, so one refusal names every field the caller
+    // must change; nothing is made for a start the policy or mode check refuses anyway.
+    let mut deferred = None;
     if web {
-        web_only(m, params, control_of(origin, auth, params) == crate::hub::Control::Peer)?;
+        let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
+        match web_only(m, params, peer) {
+            Err(e) if m == method::SESSION_NEW => deferred = Some(e),
+            other => other?,
+        }
         // A remote-origin session (a Web device, or a peer) never resumes a
         // local harness session (REMOTE-FLOOR v3, D13).
         if m == method::SESSION_NEW
@@ -280,13 +293,31 @@ pub(super) async fn check(
         let inside = |c: &str| {
             roots.as_ref().is_none_or(|r| r.iter().any(|root| Path::new(c).starts_with(root)))
         };
+        // The owner's own daemon starting a session: told the configured roots when its
+        // folder is outside them, and a missing folder inside one is made for it.
+        let peer_new = m == method::SESSION_NEW
+            && control_of(origin, auth, params) == crate::hub::Control::Peer;
+        let told = if peer_new { Some(configured_web_roots(hub).await) } else { None };
         if let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) {
             let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
-            let canonical = canonical_dir(cwd).await.ok_or_else(|| folder_refused("cwd"))?;
-            if !inside(&canonical) {
-                return Err(outside_roots("cwd"));
+            let canonical = match canonical_dir(cwd).await {
+                Some(canonical) => Some(canonical),
+                None if peer_new => {
+                    let roots = roots.as_deref().unwrap_or_default();
+                    match make_inside_root(cwd, roots, deferred.is_none()).await {
+                        Ok(made) => made,
+                        Err(Some(e)) => return Err(e),
+                        Err(None) => return Err(outside_told(cwd, &told).await),
+                    }
+                }
+                None => return Err(cwd_refused(cwd).await),
+            };
+            if let Some(canonical) = canonical {
+                if !inside(&canonical) {
+                    return Err(outside_told(cwd, &told).await);
+                }
+                params.set("cwd", Value::String(canonical));
             }
-            params.set("cwd", Value::String(canonical));
         } else if web && m == method::SESSION_NEW {
             // An absent cwd means the home directory, which is never a root. A proven
             // peer (the owner's own daemon) gets a scratch folder named after the
@@ -294,8 +325,10 @@ pub(super) async fn check(
             if control_of(origin, auth, params) != crate::hub::Control::Peer {
                 return Err(outside_roots("cwd"));
             }
-            let scratch = peer_scratch(params).await?;
-            params.set("cwd", Value::String(scratch));
+            if deferred.is_none() {
+                let scratch = peer_scratch(params).await?;
+                params.set("cwd", Value::String(scratch));
+            }
         }
         if let Some(dirs) = params.get("additionalDirectories").filter(|v| !v.is_null()) {
             let list = dirs.as_array().ok_or_else(|| folder_refused("additionalDirectories"))?;
@@ -312,6 +345,9 @@ pub(super) async fn check(
             }
             params.set("additionalDirectories", Value::Array(out));
         }
+    }
+    if let Some(e) = deferred {
+        return Err(e);
     }
     // The folder-trust question is the user's: a remote browser cannot answer
     // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
@@ -537,16 +573,19 @@ fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
         ))
     };
+    let because =
+        |what: &str, reason: &str| refused(what).with_data(serde_json::json!({"reason": reason}));
     // Absent: nothing is set. Present: one of the asking policies, exactly
     // (`ask`, `deny-all`; the person rule's list, `hub/person.rs`).
     let policy_ok = crate::hub::person::asking_policy_value;
-    let policy_refused = || refused("a permission policy other than ask or deny-all");
+    let policy_refused =
+        || because("a permission policy other than ask or deny-all", POLICY_REFUSED);
     if m == method::SESSION_NEW
         && crate::web_modes::MODE_FIELDS.iter().any(|f| {
             params.get(*f).is_some() || params.pointer(&format!("/_meta/acpmux/{f}")).is_some()
         })
     {
-        return Err(refused("a mode at session start"));
+        return Err(because("a mode at session start", MODE_REFUSED));
     }
     // Defaults and preset writes: only the fields known not to shape what
     // runs without asking (no `mode`, `env`, `args`, unknown fields).
@@ -806,6 +845,7 @@ fn folder_refused(field: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{field} is refused: from a WebSocket connection it must be an absolute path to an existing directory"
     ))
+    .with_data(serde_json::json!({"reason": CWD_MISSING, "field": field}))
 }
 
 /// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
@@ -884,22 +924,12 @@ fn outside_roots(field: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{field} is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
     ))
+    .with_data(serde_json::json!({"reason": CWD_OUTSIDE_ROOTS, "field": field}))
 }
 
-/// The folders a Web connection may work in: `webRoots` from config.json,
-/// the known projects (every local session's cwd) and the workspace folders
-/// the person's app set (`_acpmux/workspace_roots_set`), each in the
-/// filesystem's own spelling. A root that is `/`, the home directory or any
-/// ancestor of it is dropped: one session started in `~` must not open
-/// `~/.ssh` or `~/Library` to the Web. Compared by path components.
-async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
-    let mut raw: Vec<String> = hub.config.read().await.web_roots.clone();
-    raw.extend(hub.sessions().iter().map(|s| s.meta().cwd.to_string_lossy().into_owned()));
-    // The folders of the workspaces the person's app lists now (its own
-    // daemon's tabs, `_acpmux/workspace_roots_set`), under the same guards.
-    raw.extend(hub.person.workspace_roots());
-    raw.sort();
-    raw.dedup();
+/// Each folder of `raw` in the filesystem's own spelling, once, without `/`, the home
+/// directory or any ancestor of it.
+async fn guarded_roots(raw: Vec<String>) -> Vec<PathBuf> {
     let home = match dirs::home_dir() {
         Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
         None => std::path::PathBuf::from("/"),
