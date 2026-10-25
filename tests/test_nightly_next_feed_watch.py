@@ -312,7 +312,7 @@ class LegacyFeedTests(unittest.TestCase):
             _, posts = self.rerun(run=run, jobs=jobs)
             self.assertEqual(posts, [], (run, jobs))
 
-    def run_main(self, fail):
+    def run_main(self, fail, *extra):
         def call(gh, method, path, body=None):
             raise urllib.error.HTTPError("u", 403, "API rate limit exceeded for installation", {}, None)
         feeds = {watch.FEED_URL: self.NEXT, watch.LEGACY_FEED_URL: self.OLD}
@@ -321,10 +321,21 @@ class LegacyFeedTests(unittest.TestCase):
                 unittest.mock.patch.object(watch.GitHub, "call", call), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             clock.now.return_value = NOW
-            return watch.main(["--repo", "o/r", "--dry-run"])
+            return watch.main(["--repo", "o/r", "--dry-run", *extra])
 
     def test_an_api_error_never_turns_a_stale_feed_green(self):
         self.assertEqual(self.run_main(fail=True), 1)
+
+    def test_the_off_switch_stops_the_watch(self):
+        # NIGHTLY_NEXT_LEGACY_IDENTITY=off stops every legacy job; nothing can catch the feed up.
+        self.assertEqual(self.run_main(True, "--legacy-identity", "off"), 0)
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
+        self.assertIn("LEGACY_IDENTITY: ${{ vars.NIGHTLY_NEXT_LEGACY_IDENTITY == 'off' && 'off' || 'on' }}", workflow)
+        self.assertIn('--legacy-identity "$LEGACY_IDENTITY"', workflow)
+
+    def test_behind_means_more_than_the_limit(self):
+        self.assertIsNone(self.lag(next_xml=feed((4023540480101, 15, "cmux-next"), (4020374816001, 450, "cmux-next")))[0])
+        self.assertIsNotNone(self.lag(next_xml=feed((4023540480101, 16, "cmux-next"), (4020374816001, 450, "cmux-next")))[0])
 
     def test_the_watch_may_rerun_jobs(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()

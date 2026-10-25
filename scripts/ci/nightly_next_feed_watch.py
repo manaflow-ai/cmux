@@ -310,7 +310,7 @@ def legacy_lag(now: dt.datetime, next_xml: str, legacy_xml: str,
         since = min(since, old_published)
     waited = (now - since).total_seconds() / 60
     build = missing[-1][0]
-    if waited < max_lag_minutes:
+    if waited <= max_lag_minutes:
         return None, f"build {build} is {waited:.0f} min behind; the legacy jobs have {max_lag_minutes:g}"
     return build, f"cmux NIGHTLY's feed {LEGACY_FEED_URL} is at build {old}, {waited:.0f} min behind cmux NEXT (newest {build})"
 
@@ -364,6 +364,8 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--feed-url", default=FEED_URL)
     parser.add_argument("--classic-feed-url", default=CLASSIC_FEED_URL)
     parser.add_argument("--legacy-feed-url", default=LEGACY_FEED_URL)
+    parser.add_argument("--legacy-identity", default="on",
+                        help="repository variable NIGHTLY_NEXT_LEGACY_IDENTITY; off stops the legacy jobs, so their feed is not watched")
     parser.add_argument("--run-url", default="this check")
     parser.add_argument("--dry-run", action="store_true", help="read and decide, never write issues")
     args = parser.parse_args(argv)
@@ -385,7 +387,10 @@ def main(argv: list[str]) -> int:
     # cmux NIGHTLY's feed first and on its own: its staleness comes from the two feeds, so neither
     # a failed re-run nor an API error below can turn a stale feed green.
     try:
-        legacy_build, legacy = legacy_lag(now, next_xml, fetch_feed(args.legacy_feed_url))
+        if args.legacy_identity == "off":
+            legacy_build, legacy = None, "not watched: NIGHTLY_NEXT_LEGACY_IDENTITY is off"
+        else:
+            legacy_build, legacy = legacy_lag(now, next_xml, fetch_feed(args.legacy_feed_url))
     except OSError as error:
         legacy_build, legacy = None, ""
         print(f"::warning::could not read cmux NIGHTLY's feed {args.legacy_feed_url}: {error}")
