@@ -181,22 +181,26 @@ import Testing
 
     /// The sections are the Priority classifier's (`AgentPriorityRanking.state` through `SidebarLaneStatus`), not one
     /// of the sidebar's own: acpmux lanes in, the rows the row feed maps, laid out under their states. The row feed
-    /// carries a row's state only with `sidebar.rowStatus` on (off by default since 8f4e8f04d45); the fixture's
-    /// workspaces have no key, so a row is drawn by its title here.
+    /// carries a row's lane state and its chip only with `sidebar.laneStatus` and `sidebar.rowStatus` on (off by
+    /// default since 8f4e8f04d45), and a finished chat names no state (#23767: never Done), so it rests under Idle.
+    /// The fixture's workspaces have no key: a row is read by its title here.
     @Test func theSectionsComeFromThePriorityClassifier() throws {
         defer { Self.toggle(nil) }
         let fixture = try SidebarRowStatusTests.Fixture()
         Self.toggle(true)
-        var rows: [SidebarWorkspace] = []
-        SidebarRowStatusTests.withRowStatus(true) { rows = fixture.rows() }
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        let keys = [SidebarTunables.laneStatus.key, SidebarTunables.rowStatus.key]
+        for key in keys { TunableStore.shared.set(key, .bool(true)) }
+        let rows = fixture.rows()
+        for key in keys { TunableStore.shared.set(key, nil) }
         let titles = Dictionary(uniqueKeysWithValues: rows.map { ($0.id.rawValue, $0.title) })
         let sidebar = Sidebar(rows)
         #expect(sidebar.drawn.map { titles[$0] ?? $0 } == [
             "Needs you, 1 workspaces", "waiting",
-            "Done, 1 workspaces", "finished",
             "Failed, 1 workspaces", "failed",
             "Working, 1 workspaces", "working",
-            "Idle, 1 workspaces", "idle",
+            "Idle, 2 workspaces", "idle", "finished",
         ], "\(sidebar.drawn)")
     }
 }

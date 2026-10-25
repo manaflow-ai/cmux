@@ -99,11 +99,11 @@ struct HomeSidebarHeaderTests {
             home.list.headerView.needsLayout = true
             home.list.headerView.layoutSubtreeIfNeeded()
         }
-        // The list's own compose is hidden and zero-sized (compose is the chat's at every width,
+        // The list's own compose is hidden at layout (compose is the chat's at every width,
         // 1cc2f1b57d1): the band's glyph is the Unread toggle's.
-        #expect(home.compose.isHidden)
         let buttons = [home.unreadToggle]
         try paint(background: 0x1C1C1F, foreground: 0xE6E6E6)
+        #expect(home.compose.isHidden)
         #expect(scope.tokens.isDark)
         let dark = try buttons.map { button in (image: try #require(button.image), tint: try #require(button.glyphTint)) }
 
