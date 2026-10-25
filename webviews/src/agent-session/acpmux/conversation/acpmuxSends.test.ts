@@ -115,8 +115,31 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("acpmux send a b; nohup glaeda-gh wait pr x#1 &")).toBeUndefined();
     // `tail` that is not reading the send's output is other work.
     expect(acpmuxSend("tail -1 log.txt; acpmux send a b")).toBeUndefined();
-    // Two sends are two messages: the command row keeps both.
+    // Two sends are two messages: the command row keeps both, one in a substitution too.
     expect(acpmuxSend("acpmux send a x; acpmux send b y")).toBeUndefined();
+    expect(acpmuxSend('acpmux send x "$(acpmux send y z)"')).toBeUndefined();
+    // A substitution that does more than read is work, wherever it is.
+    expect(acpmuxSend('echo "$(touch /tmp/x)" | acpmux send a -')).toBeUndefined();
+    expect(acpmuxSend("cd `mktemp -d` && acpmux send a b")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a <<EOF\n$(rm -f x)\nEOF")).toBeUndefined();
+    expect(acpmuxSend('acpmux send target "${V:-$(rm -f /tmp/x)}"')).toBeUndefined();
+    expect(acpmuxSend('acpmux send target "${V:-x}"')).toEqual({ target: "target", noWait: false });
+    expect(acpmuxSend('acpmux send a "$(cat note.md | head -5)"')).toEqual({ target: "a", noWait: false });
+    // A redirect that writes a file is work, on its own or on the send.
+    expect(acpmuxSend("> /tmp/out && acpmux send a b")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b; > /tmp/out")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b > /tmp/out")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b 2>&1 >/dev/null")?.text).toBe("b");
+    // A filter that writes or reads a file of its own is work.
+    expect(acpmuxSend("acpmux send a b | tee /tmp/out")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b | tail -1 log.txt")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b | sed -n 1p")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | grep -f secret")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | grep -r x")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | tr -d x file")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | jq --rawfile f secret .")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | grep -c queued")?.text).toBe("y");
+    expect(acpmuxSend("acpmux send --json a b | jq -r .text | head -n 3")?.text).toBe("b");
   });
 
   test("only a command in command position: not an echoed or quoted mention, not another subcommand", () => {
@@ -127,6 +150,30 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("acpmux dispatch --brief b.md --target auto")).toBeUndefined();
     expect(acpmuxSend("cat <<'EOF' > note.md\nacpmux send x y\nEOF")).toBeUndefined();
     expect(acpmuxSend("cmux send --surface s 'hi'")).toBeUndefined();
+    // An option acpmux does not know, a value on a flag, or both --steer and --no-steer fail the call.
+    expect(acpmuxSend("acpmux send --bogus value target text")).toBeUndefined();
+    expect(acpmuxSend("acpmux send --no-wait=true a b")).toBeUndefined();
+    expect(acpmuxSend("acpmux send --steer --no-steer a b")).toBeUndefined();
+    expect(acpmuxSend("acpmux send --steer --steer a b")?.text).toBe("b");
+    // reach's own commands (help, list, …) run no command.
+    expect(acpmuxSend("reach --help host acpmux send x y")).toBeUndefined();
+    expect(acpmuxSend("reach --list host acpmux send x y")).toBeUndefined();
+    // A perl script that is not exactly `alarm N; exec @ARGV` is not looked through.
+    expect(acpmuxSend(`perl -e 'print "exec @ARGV"' acpmux send a b`)).toBeUndefined();
+    expect(acpmuxSend(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
+  });
+
+  test("acpmux's own flags may come before send", () => {
+    expect(acpmuxSend("acpmux --json send lane hi")).toEqual({ target: "lane", text: "hi", noWait: false });
+    expect(acpmuxSend("acpmux --suppress-reads --json send --no-wait lane hi")?.noWait).toBe(true);
+  });
+
+  test("a long pipeline after the send, and many here-documents, are one pass", () => {
+    const started = performance.now();
+    expect(acpmuxSend(`acpmux send a b${" | cat".repeat(5000)}`)?.text).toBe("b");
+    const docs = `${"cat <<E; ".repeat(5000)}\n${"E\n".repeat(5000)}acpmux send a b`;
+    expect(shellCommands(docs)).toHaveLength(5001);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });
 
@@ -144,6 +191,13 @@ describe("shellCommands", () => {
       ["h", ""],
     ]);
     expect(commands[6]!.stdin).toEqual({ text: "body\n", literal: true });
+  });
+
+  test("a redirect that writes a file, and the scripts substitutions run", () => {
+    const [send, copy] = shellCommands('x "$(cat a)" `pwd` 2>&1 >/dev/null; > out');
+    expect(send!.writes).toBeUndefined();
+    expect(send!.runs).toEqual(["cat a", "pwd"]);
+    expect(copy).toEqual({ words: [], op: "", writes: true });
   });
 
   test("a substitution keeps its operators inside its word", () => {
