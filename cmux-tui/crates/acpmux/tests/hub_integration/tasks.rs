@@ -431,7 +431,8 @@ async fn a_daemon_that_could_not_list_its_sessions_orphans_none_of_their_tasks()
 /// Pages the bundle `begin` describes from `src` into `dst` and finishes it there (the app's
 /// move, `transfer.rs`): the chat's id, now on `dst`.
 async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
-    let begin = src.call("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true})).await;
+    let begin =
+        src.call("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true})).await;
     let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
     let receive_id = received["receiveId"].as_str().unwrap().to_owned();
     for file in begin["files"].as_array().unwrap() {
@@ -454,7 +455,8 @@ async fn move_chat(src: &mut Client, dst: &mut Client, id: &str) {
     }
     let moved = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
     assert_eq!(moved["sessionId"], id, "{moved}");
-    let commit = json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}});
+    let commit =
+        json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}});
     src.call("_acpmux/transfer_commit", commit).await;
 }
 

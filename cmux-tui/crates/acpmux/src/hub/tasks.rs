@@ -254,7 +254,9 @@ impl Hub {
                     Ok(ev) => {
                         let rec = &ev.record;
                         let closed = rec.kind == "status" && rec.msg["status"] == "closed";
-                        if rec.dir != "mux" || ev.remote.is_some() || !(closed || rec.kind == "purged")
+                        if rec.dir != "mux"
+                            || ev.remote.is_some()
+                            || !(closed || rec.kind == "purged")
                         {
                             continue;
                         }
