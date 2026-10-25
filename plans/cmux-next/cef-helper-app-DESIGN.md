@@ -45,8 +45,7 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
   SIGABRT) on cmuxs-Mac-mini, cmuxs-Mac-mini-3 and cmux9s (macOS 27, CEF cmux.33); with `--no-sandbox` the same host
   showed its page (step bbb82eeee4d6bf5d0b84dfe3). So the host shares the app's bundle id and Info.plist (it makes
   itself an accessory app in code; `ChromiumHostApplication` is created before `NSApp`), and with them its code
-  identity for TCC and the keychain. A separate host identity needs a fork patch (bundle-path from the outer bundle);
-  decision 3. It loads the app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one
+  identity for TCC and the keychain (decision 3, Lawrence 2026-10-25: this layout, no fork patch). It loads the app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one
   thread, so no zone race. It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main
   bundle path is the outer app (`--main-bundle`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
   bundled by `scripts/cmux-next/embed-cef.sh` (Debug only).
@@ -282,10 +281,12 @@ build is about 1.6 h, packaging and the pin about a day); the fleet measure queu
 
 1. One host for every profile (a crash reloads every Chromium page; least memory), or one host per profile (a crash
    stays in one profile; about 60-90 MB more per extra profile).
-2. Release keychain: share an access group between cmux and the host (needs a provisioning change), or migrate
-   "Chromium Safe Storage" to the host once at first start. (Moot while decision 3 keeps the host in the app's
-   identity: the host then is cmux for the keychain.)
-3. Host identity: keep the host a second executable of cmux.app (same bundle id and code identity: TCC prompts and the
-   keychain are cmux's, no fork patch; risks: two processes with one bundle id for LaunchServices and
-   `NSRunningApplication`, one shared defaults domain), or a fork patch so the sandbox's bundle-path is the outer
-   bundle and the host stays its own app (own identity, needs decision 2 and a TCC check).
+2. Release keychain: moot since decision 3 (2026-10-25): the host is cmux for the keychain, so it reads the same
+   "Chromium Safe Storage" item through fork API 25 with no access group and no migration.
+3. Host identity. DECIDED 2026-10-25 (Lawrence): second executable. The host is `Contents/MacOS/<Product> Chromium
+   Host` with cmux's bundle id and code identity: TCC prompts and the keychain are cmux's (decision 2 is moot), no fork
+   patch. Signing: nested code of cmux.app; `sign-cef.sh` signs it inside the app before the app's own signature, and
+   notarization covers it with the app. Risks it keeps, each checked by `chromium-host-bench.py` (identity and input
+   rows): two processes with one bundle id for LaunchServices and `NSRunningApplication` (the host stays UIElement,
+   never frontmost, never the target of `open -b` or a Quit AppleEvent), one shared defaults domain (the defaults row).
+   The rejected option was a fork patch so the sandbox's bundle-path is the outer bundle and the host stays its own app.
