@@ -173,12 +173,15 @@ import Testing
 /// The app's scheduler on a fake link, a clock the test moves and an input source it sets.
 @MainActor
 private struct Fixture {
-    let clock = ServiceClock()
-    let input = ServiceInputPending()
+    let clock: ServiceClock
+    let input: ServiceInputPending
     let work: MainWorkScheduler
-    private let frames = FrameCounter()
+    private let frames: FrameCounter
 
     init() {
+        clock = ServiceClock()
+        input = ServiceInputPending()
+        frames = FrameCounter()
         let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
         work = MainWorkScheduler.testing(budget: budget) { _ in ServiceFakeLink() }
     }
