@@ -273,6 +273,30 @@ test("a chip the host refused for the last chat still waits, and goes again, onc
   expect(hold()).toBeNull();
 });
 
+test("going back to a chat whose chip the host refused shows it again and keeps waiting", async () => {
+  const store = new Host();
+  connectDaemon();
+  let refuse = true;
+  const flaky: KeptAttachments = {
+    read: (id) => store.read(id),
+    write: (id, chips) => (refuse ? Promise.reject(new Error("full")) : store.write(id, chips)),
+  };
+  const page = await openPage("chat-a", flaky);
+  act(() => page.current!.attach(screenshot(1)));
+  await settle();
+  await openPage("chat-b", flaky);
+  await openPage("chat-a", flaky);
+  // The host has nothing for chat A, but the page still shows the chip and waits for it.
+  expect(chips(page).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(hold()).toBe("composer.attachments-unsaved");
+  refuse = false;
+  await act(async () => {});
+  await act(async () => void hold());
+  await act(async () => {});
+  expect(store.chats.get("chat-a")?.map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(hold()).toBeNull();
+});
+
 test("removing the last chip waits until the host forgot it", async () => {
   const store = new Host();
   connectDaemon();

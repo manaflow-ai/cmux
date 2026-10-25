@@ -110,8 +110,13 @@ export function useKeptAttachments(
       .catch(() => [])
       .then((kept) => {
         if (!current) return;
-        const back = Array.isArray(kept) ? kept : [];
-        written.current = { sessionId, ids: signature(back), stored: new Set(back.map((chip) => chip.id)) };
+        const read = Array.isArray(kept) ? kept : [];
+        written.current = { sessionId, ids: signature(read), stored: new Set(read.map((chip) => chip.id)) };
+        // This chat's last write was refused: what the page showed then comes back with it, and goes
+        // again (the swap's hold resends a refused write) until the host keeps it.
+        const unkept = refused.current.get(sessionId);
+        const back = unkept ? [...read, ...unkept.filter((chip) => !read.some((k) => k.id === chip.id))] : read;
+        if (unkept) written.current.ids = "\u0000refused";
         const keep = keepHeld || !readOne.current;
         readOne.current = true;
         setAttachments((held) => {

@@ -389,8 +389,8 @@ export function NewTabScreen(props: Props) {
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
   const environment = saved.picked;
   // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
-  // no folder, a saved environment (pages/shared/webSwap.ts).
-  useWebSwapHold(shell || picked || none || environment ? "newtab.choice" : null);
+  // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
+  useWebSwapHold(shell || picked || none || environment || saved.editing !== undefined ? "newtab.choice" : null);
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = environment
     ? environment.kind === "local"
