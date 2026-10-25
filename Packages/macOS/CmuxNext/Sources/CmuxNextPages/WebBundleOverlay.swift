@@ -129,11 +129,14 @@ public final class WebBundleServedViews {
         webViews.add(webView)
     }
 
+    /// The served views that show a document.
+    public var shown: [WKWebView] { webViews.allObjects.filter { $0.url != nil } }
+
     /// Reloads every served view that shows a document; the scheme handler answers the same URLs
     /// from the folder now active. Returns how many it reloaded.
     @discardableResult
     public func reloadServed() -> Int {
-        let shown = webViews.allObjects.filter { $0.url != nil }
+        let shown = shown
         for webView in shown { webView.reload() }
         return shown.count
     }

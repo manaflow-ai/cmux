@@ -35,6 +35,15 @@ socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
 on SIGTERM or SIGINT.
 
+`cmux-tui __daemon-capabilities [--json]` (private, not in help) prints, with
+no daemon running, the capabilities every daemon
+of this build always advertises in `identify` (one per line, or
+`{"capabilities": [...]}` with `--json`). Capabilities a daemon adds for what it
+installs at startup (a cloud transport, a WebSocket listener, the search index)
+are not listed. The cmux NEXT app bundle records the list, with acpmux's, in
+`Contents/Resources/bin/daemon-capabilities.json`. `cmux capabilities` is the
+classic verb that asks the running app (`system.capabilities`).
+
 `link dial` bridges standard I/O to a service of a paired install or a Cloud
 host (`host_…`) through this machine's running `cmux link` (the caller never
 holds peer keys or link tokens). `--service` is `daemon` (the default; the
@@ -558,6 +567,8 @@ notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
 notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
+attention request --tab <tab_…> --reason <text>
+attention clear --tab <tab_…>
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]

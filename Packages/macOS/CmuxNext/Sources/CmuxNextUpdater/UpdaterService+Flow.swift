@@ -14,6 +14,7 @@ extension UpdaterService {
     /// hidden; a check they ask for clears that first (``checkForUpdates()``).
     public var card: UpdateCard? {
         guard let card = flow.card(downloadsAutomatically: downloadSetting.enabled) else { return pulledWatch.card }
+        if card == .installing, installCardDismissed { return pulledWatch.card }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return pulledWatch.card }
         return card
     }
@@ -28,7 +29,7 @@ extension UpdaterService {
     /// agents and running commands (the quiet-input and daemon-mirror holds are
     /// for idle installs); `willRelaunch` records keep sessions.
     public func installClicked() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif
         syncFlowPhase()
@@ -63,21 +64,10 @@ extension UpdaterService {
     private func perform(_ effect: UpdateFlowEffect) {
         switch effect {
         case .install:
-            log.append("gate: installing the staged update")
-            #if DEBUG
-            UpdateHarness.mark("install_started")
-            #endif
+            stagedRefresh.installStarted()
             automaticInstallInFlight = false
-            if let failure = installPreflightFailure() {
-                failInstall(failure)
-                return
-            }
-            recordBeforeInstall()
-            willInstallStaged?()
-            installStaged()
-            #if DEBUG
-            UpdateHarness.mark("install_handed_to_sparkle")
-            #endif
+            // The newest build of the ring, not a stale staged one (one click, one relaunch).
+            stagedRefresh.beforeInstall(updater: self) { [weak self] in self?.installStagedNow() }
         case .download:
             log.append("gate: downloading the available update")
             acceptAvailable()
@@ -86,13 +76,50 @@ extension UpdaterService {
         }
     }
 
+    /// Hands the staged update to Sparkle: preflight, the What's New record, the windows, the install.
+    private func installStagedNow() {
+        log.append("gate: installing the staged update")
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("install_started")
+        #endif
+        let failure = if let preflightOverride { preflightOverride() } else { installPreflightFailure() }
+        if let failure {
+            failInstall(failure)
+            return
+        }
+        recordBeforeInstall()
+        willInstallStaged?()
+        installStaged()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("install_handed_to_sparkle")
+        #endif
+    }
+
+    /// The click that replaced a stale staged build carries over: once Sparkle checks for the
+    /// newer build, the click holds it (its download shows, it installs once staged); a failed
+    /// check opens the update sheet, so the click never ends in silence.
+    func carryInstallClick(_ phase: UpdateIndicatorPhase) {
+        guard installAfterSwap else { return }
+        switch phase {
+        case .checking, .downloading, .available, .ready:
+            installAfterSwap = false
+            send(.installRequested)
+        case .note:
+            installAfterSwap = false
+            log.append("install click: the newer build's check failed")
+            presentUpdateUI?()
+        case .hidden, .installing:
+            break
+        }
+    }
+
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
-        dropStaleStagedUpdate()
+        stagedRefresh.dropStale(updater: self)
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if phase.harnessName != flow.phase.harnessName { UpdateHarness.mark("phase.\(phase.harnessName)") }
         if case .note = phase, let controller,
            let content = UpdateSheetContent.sparkle(controller.model.effectiveState, current: identity) {
@@ -103,7 +130,11 @@ extension UpdaterService {
         let wasReady = if case .ready = flow.phase { true } else { false }
         let clickedInstall = flow.installRequested
         send(.sparkle(phase))
+        carryInstallClick(phase)
+        followInstall(phase)
         followStagedUpdate(phase)
+        stagedRefresh.follow(phase, updater: self)
+        tipCheck.refresh(self)
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -120,7 +151,7 @@ extension UpdaterService {
             log.append("install ended without a relaunch")
             installAbandoned?()
             presentUpdateUI?()
-            #if DEBUG
+            #if DEBUG || CMUX_BENCH_HOOKS
             UpdateHarness.mark("failure_sheet_presented")
             #endif
         case .note(let note) where !flow.userAsked:
@@ -157,6 +188,8 @@ extension UpdaterService {
             controller?.idleInstallWaitCap = .seconds(idleInstall.maxWait)
         }
         downloadSetting = (downloadAutomatically, metered)
+        stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
+        tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
@@ -176,6 +209,7 @@ extension UpdaterService {
         guard self.ring != ring else { return }
         self.ring = ring
         controller?.ring = ring
+        stagedRefresh.ringMoved()
         log.append("update ring \(ring.rawValue)")
         guard picked else { return }
         log.append("update ring picked: checking \(ring.rawValue) now")
@@ -192,6 +226,12 @@ extension UpdaterService {
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
+        // The tip app reads its feed every few minutes only where found updates download by
+        // themselves and the policy allows updates.
+        defer {
+            tipCheck.refresh(self)
+            stagedRefresh.policyChanged(updater: self)
+        }
         guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
         controller.downloadsUpdatesInBackground = downloads
         log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
@@ -214,7 +254,7 @@ extension UpdaterService {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension UpdateIndicatorPhase {
     /// The phase's case name for the update harness's timeline.
     var harnessName: String {
