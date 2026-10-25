@@ -64,7 +64,7 @@ const ask: AcpmuxPermission = {
   ],
 };
 
-async function mount(shortcuts?: boolean) {
+async function mount(shortcuts?: boolean, permission: AcpmuxPermission = ask) {
   const host = dom.window.document.createElement("div");
   dom.window.document.body.append(host);
   const root = createRoot(host);
@@ -73,7 +73,7 @@ async function mount(shortcuts?: boolean) {
     root.render(
       <ShortcutsContext value={labels}>
         <PermissionCard
-          permission={ask}
+          permission={permission}
           harness="codex"
           onAnswer={(id) => answers.push(id)}
           {...(shortcuts === undefined ? {} : { shortcuts })}
@@ -95,6 +95,24 @@ test("deny answers with the first deny option, and only its button shows the key
   expect(card.keycaps()).toEqual(["Allow once: ⌥⌘1", "Deny: ⌥⌘3"]);
   await card.press("permissionDeny");
   expect(card.answers).toEqual(["abort"]);
+  await card.unmount();
+});
+
+// Leo 2026-10-25: the buttons went short ("Always allow", not its whole rule); the keys stay.
+test("short buttons keep ⌥⌘1, ⌥⌘2 and ⌥⌘3, and an extra option draws no key", async () => {
+  const card = await mount(undefined, {
+    ...ask,
+    permissionId: "p-rule",
+    rule: "Allow Bash(git push:*), Bash(git fetch:*) for this session",
+    options: [
+      { id: "approved", name: "Yes", kind: "allow_once", allow: true },
+      { id: "session", name: "Yes, and don't ask again for `git push`", kind: "allow_always", allow: true },
+      ...ask.options.slice(1),
+    ],
+  });
+  expect(card.keycaps()).toEqual(["Allow once: ⌥⌘1", "Always allow: ⌥⌘2", "Deny: ⌥⌘3"]);
+  await card.press("permissionAllowChat");
+  expect(card.answers).toEqual(["session"]);
   await card.unmount();
 });
 

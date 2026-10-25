@@ -684,8 +684,9 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
-        self.assertIn("The rescue's first re-run (the bot's attempt\n# 2) is the Blacksmith overflow", text)
-        self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and take that Blacksmith overflow", text)
+        # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
+        self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
+        self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
 
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -1007,7 +1008,7 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                                   "the step after checkout must drop stale submodule checkouts")
         # request-nightly-next runs on GitHub-hosted ubuntu-latest (70d5128f784b), never a mini.
         self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
-                                           "release-compile", "release-compile-fast", "swift-canary", "swift-test",
+                                           "release-compile", "swift-canary", "swift-test",
                                            "web-bundles"])
 
 
@@ -1881,13 +1882,16 @@ class FastTierRunner(unittest.TestCase):
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
 
 
+# A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it
+# before any other route after the fork's hosted label).
+FREE_ROLE_CLAUSE = "needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.free_gui_runner || "
 SESSION_LANE_CLAUSE = (
     "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
     "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SESSION_LANE_RUNNER || "
 )
 # Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
 GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
-    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE + FREE_ROLE_CLAUSE
     + "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') "
     "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
@@ -1902,13 +1906,15 @@ GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
 class GeneratedFilesRunner(unittest.TestCase):
     def test_the_session_lane_label_comes_after_the_fork_clause(self):
         """vars.CI_SESSION_LANE_RUNNER gives generated files the light minis' session runners. A fork
-        pull request must take its hosted label before that variable is read, and with the variable
-        unset the route is the one the job had before it. CMUX_NEXT_RUNNER restates runs-on."""
+        pull request must take its hosted label before that variable is read, then a free owned Mac the
+        placement found (the queue rescue), and with the variable unset the route is the one the job had
+        before it. CMUX_NEXT_RUNNER restates runs-on."""
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["generated-files"]
         runs_on = job["runs-on"]
         self.assertIn(SESSION_LANE_CLAUSE, runs_on)
-        self.assertEqual(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE),
-                         runs_on.index(SESSION_LANE_CLAUSE))
+        after_fork = runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE)
+        self.assertEqual(after_fork, runs_on.index(FREE_ROLE_CLAUSE))
+        self.assertEqual(after_fork + len(FREE_ROLE_CLAUSE), runs_on.index(SESSION_LANE_CLAUSE))
         self.assertEqual(runs_on.replace(SESSION_LANE_CLAUSE, "", 1), GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE)
         self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], runs_on)
 
@@ -2024,6 +2030,25 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
     def test_fast_gate_is_the_first_compile_path_and_has_no_single_host_reservation(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         fast = jobs["release-compile-fast"]
+        admitted = jobs["release-compile-fast-admission"]
+        self.assertNotEqual(fast["name"], "cmux-next Release compile (Xcode 26)")
+        self.assertEqual(admitted["name"], "cmux-next Release compile (Xcode 26)")
+        # The admission job runs whenever the fast check ran without handing off to the Mac
+        # fallback and is green only on pass, so a fleet error stays red under the gate name;
+        # unavailable, or a fast check refused before a verdict, leaves it to the Mac fallback.
+        for verdict, result, runs in (("pass", "success", True), ("unavailable", "success", False),
+                                      ("fail", "success", True), ("", "failure", False), ("", "success", False),
+                                      ("", "skipped", False), ("", "cancelled", False)):
+            with self.subTest(verdict=verdict, result=result):
+                context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
+                           "needs.release-compile-fast.result": result,
+                           "needs.release-compile-fast.outputs.verdict": verdict}
+                self.assertEqual(bool(evaluate(admitted["if"], context)), runs)
+        self.assertIn('"$VERDICT" == pass && "$RESULT" == success', admitted["steps"][0]["run"])
+        # A compile failure must not fail the fast job: a failed job is the refused case, and
+        # its verdict output is what the admission job turns red.
+        compile_step = next(step for step in fast["steps"] if step.get("id") == "compile")
+        self.assertIs(compile_step.get("continue-on-error"), True)
         self.assertIn("CI_COMPILE_CHECK_GATEWAY", fast["runs-on"])
         run = next(step["run"] for step in fast["steps"] if step.get("id") == "compile")
         self.assertIn("compile-check --ref", run)
@@ -2032,15 +2057,43 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("CI_NEXT_PROMOTE_POOL", str(jobs[name]["runs-on"]))
 
-    def test_fast_gate_checks_out_the_pushed_commit_before_requesting_promotion(self):
-        # request-nightly-next.sh refuses unless HEAD is the pushed commit; on a reused
-        # gateway workspace a request without a checkout turned a passing gate red.
-        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-fast"]["steps"]
+    def test_exactly_one_job_carries_the_gate_name_for_each_fast_check_outcome(self):
+        # push attribution and the nightly feed watch read the first job with the gate name, so a
+        # red admission beside a green fallback would report a failure the fallback cleared.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        gate = [job for job in jobs.values() if job.get("name") == "cmux-next Release compile (Xcode 26)"]
+        self.assertEqual(len(gate), 2)
+        for verdict, result in (("pass", "success"), ("unavailable", "success"), ("fail", "success"),
+                                ("", "failure"), ("", "success"), ("", "skipped")):
+            with self.subTest(verdict=verdict, result=result):
+                context = {"github.event_name": "push", "github.ref": "refs/heads/feat-cmux-next",
+                           "github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
+                           "github.base_ref": "", "github.run_attempt": 1,
+                           "needs.path_route.outputs.native": "true",
+                           "needs.push-head-preflight.outputs.current": "true",
+                           "needs.app-compile-fleet.outputs.verdict": "",
+                           "needs.release-compile-fast.result": result,
+                           "needs.release-compile-fast.outputs.verdict": verdict}
+                self.assertEqual(sum(bool(evaluate(job["if"], context)) for job in gate), 1)
+
+    def test_the_fast_admission_gate_requests_promotion_itself(self):
+        # The fast check's own request reached main's promote job before the admission job
+        # existed; the admission job requests once green, after a checkout of the pushed
+        # commit (request-nightly-next.sh refuses any other HEAD), and the downstream helper
+        # waits for it.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        self.assertFalse(any("request-nightly-next.sh" in step.get("run", "")
+                             for step in jobs["release-compile-fast"]["steps"]))
+        admitted = jobs["release-compile-fast-admission"]
+        self.assertEqual(admitted["permissions"]["actions"], "write")
+        steps = admitted["steps"]
         request = next(i for i, step in enumerate(steps) if "request-nightly-next.sh" in step.get("run", ""))
-        checkout = next(i for i, step in enumerate(steps) if step.get("id") == "checkout")
+        checkout = next(i for i, step in enumerate(steps) if str(step.get("uses", "")).startswith("actions/checkout@"))
+        self.assertLess(0, checkout)
         self.assertLess(checkout, request)
-        self.assertTrue(steps[checkout]["uses"].startswith("actions/checkout@"))
-        self.assertEqual(steps[checkout]["if"], steps[request]["if"])
+        helper = jobs["request-nightly-next-fast"]
+        self.assertIn("release-compile-fast-admission", helper["needs"])
+        self.assertIn("needs.release-compile-fast-admission.result == 'success'", helper["if"])
 
     def test_a_green_gate_rerun_requests_promotion_inside_the_gate_job(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2101,6 +2154,29 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         context = self.context([], event="push")
         self.assertTrue(self.runs(context))
         self.assertEqual(evaluate(self.job()["runs-on"], context), "blacksmith-12vcpu-macos-26")
+
+    def test_a_fast_gate_that_died_before_a_verdict_falls_back_to_the_mac_compile(self):
+        # A runner hook refusing the fast gate (disk floor, 2026-10-24) fails it with no
+        # verdict; the fallback must still compile, or no commit can be promoted.
+        context = self.context([], event="push")
+        for result, verdict, runs in (("failure", "", True), ("success", "", True), ("success", "unavailable", True),
+                                      ("success", "fail", False), ("success", "pass", False),
+                                      ("cancelled", "", False)):
+            with self.subTest(result=result, verdict=verdict):
+                context["needs.release-compile-fast.result"] = result
+                context["needs.release-compile-fast.outputs.verdict"] = verdict
+                self.assertEqual(self.runs(context), runs)
+        # The refused side pool is not asked again: the fallback takes the last-resort
+        # Blacksmith route even with a placement mini, and an "unavailable" verdict keeps the mini.
+        context["needs.macos-placement.outputs.runner"] = "glaeda-side-std-xcode-26.6"
+        for result, verdict, label in (("failure", "", "blacksmith-12vcpu-macos-26"),
+                                       ("success", "", "glaeda-side-std-xcode-26.6"),
+                                       ("success", "unavailable", "glaeda-side-std-xcode-26.6")):
+            with self.subTest(result=result, verdict=verdict, route=label):
+                context["needs.release-compile-fast.result"] = result
+                context["needs.release-compile-fast.outputs.verdict"] = verdict
+                self.assertEqual(evaluate(self.job()["runs-on"], context), label)
+                self.assertEqual(evaluate(self.job()["env"]["CMUX_NEXT_RUNNER"], context), label)
 
 
 class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):

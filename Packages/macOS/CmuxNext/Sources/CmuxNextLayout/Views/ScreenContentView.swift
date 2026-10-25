@@ -78,6 +78,15 @@ final class ScreenContentView: NSView {
     var scrollbarFlash = false
     /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
     var canvasState = ScreenCanvasState()
+    /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
+    var userMotionActive = false
+    /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
+    /// clears it (``displayFrameBegan()``).
+    var panPresentedInFrame = false
+    /// Strip pan events reduced but not shown yet: the next frame tick shows them in one presentation.
+    var panPresentationPending = false
+    /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
+    var panTicksLeft = 0
     /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
     /// moved or whose covers changed, not every pane).
     var stripClipsComputed = 0
@@ -108,7 +117,7 @@ final class ScreenContentView: NSView {
         guard changed else { return }
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
-        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll() }
+        if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
     }
 
     /// Resized while hidden: reconcile when it shows.
@@ -127,8 +136,19 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
+    /// The backing scale the frames were last computed at (`reconcile`), nil before the first pass.
+    private(set) var reconciledScale: CGFloat?
+    /// `applyCamera` is setting the bounds (the canvas camera).
+    var isApplyingCamera = false
+    /// Reconcile passes, cumulative (ScreenBackingChangeTests: a bounds change is not a backing change).
+    private(set) var reconcilePasses = 0
+
+    /// Only a real scale change (the window moved to a display of another scale) lays out again.
+    /// AppKit also calls this inside `setBoundsSize`, which the canvas camera sets (`applyCamera`):
+    /// reconciling there set the bounds again and recursed until the stack overflowed (Crash D, #24998).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard !isApplyingCamera, window != nil, reconciledScale != scale else { return }
         reconcileAndScroll()
     }
 
@@ -140,11 +160,11 @@ final class ScreenContentView: NSView {
         reconcileAndScroll()
     }
 
-    /// A window resize: frames snap, and the scroll keeps the focused column
-    /// in place on screen, then fits it (L7).
-    fileprivate func reconcileAndScroll() {
-        reconcile(animated: false)
-        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: false)
+    /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
+    /// focused column in place on screen, then fits it (L7).
+    fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
+        reconcile(animated: keepsMotion)
+        syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
     }
 
     // MARK: Model updates
@@ -181,7 +201,9 @@ final class ScreenContentView: NSView {
         let before = geometry
         // One style read per pass: it is resolved from the settings.
         let style = context.style
+        reconcilePasses += 1
         applyCamera()
+        reconciledScale = scale
         baseGeometry = canvasGeometry ?? ScreenGeometry.compute(shown, viewport: bounds.size, style: style, scale: scale)
         geometry = baseGeometry.shiftingAreas(areaOffsets).shiftingRows(rowOffsets)
         let animate = animated && !context.reduceMotion && bounds.width > 0
@@ -210,10 +232,12 @@ final class ScreenContentView: NSView {
         // A split still springing when the next structural update lands (the daemon's echo of the
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
+        let wasMoving = hasMotion, targetsBefore = (panes: paneFrames.mapValues(\.targetRect), dividers: dividerFrames.mapValues(\.targetRect)) // M1, M4
         let inFlight = splits && structural && arrivals.isEmpty && !departing
             && paneFrames.values.contains { $0.rect != $0.targetRect }
         motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
-        let carried = !arrivals.isEmpty || departing || returning
+        // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
+        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural)
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
         let offset = scroll.value
@@ -238,8 +262,7 @@ final class ScreenContentView: NSView {
                     existing = AnimatedFrame(handoff.slide.offsetBy(dx: -shift(baseGeometry, pane), dy: 0))
                     carriedShown[pane] = handoff.slide.minX
                 }
-                existing.setTarget(target, alpha: 1)
-                if !animateFrames { existing.snap() }
+                place(&existing, at: target, animated: animateFrames)
                 paneFrames[pane] = existing
             } else {
                 let host = context.host(for: pane)
@@ -274,8 +297,7 @@ final class ScreenContentView: NSView {
         if context.model.acceptsRowOps {
             for edge in baseGeometry.rowEdges { targets[.rowEdge(edge.column, edge.upper)] = (edge.hitFrame, .vertical) }
         }
-        // A column edge whose column changed id at the same place (an optimistic New Column's
-        // column handed over to the daemon's) keeps its spring: it does not jump to its rest.
+        // A column edge whose column changed id in place (a New Column stand-in's handoff) keeps its spring.
         var renamedEdges: [AnimatedFrame] = dividerFrames.compactMap { kind, frame in
             if case .columnEdge = kind, targets[kind] == nil { return frame }
             return nil
@@ -300,14 +322,12 @@ final class ScreenContentView: NSView {
                     if carried { carriedDividers[kind] = frame.x.value + before.viewShift(offset: offset) }
                     frame.x.value += drift
                 }
-                frame.setTarget(target.rect, alpha: 1)
-                if !animateFrames { frame.snap() }
+                place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else if case .columnEdge = kind,
                       let index = renamedEdges.firstIndex(where: { abs($0.targetRect.minX - target.rect.minX) < 0.5 && abs($0.targetRect.width - target.rect.width) < 0.5 }) {
                 var frame = renamedEdges.remove(at: index)
-                frame.setTarget(target.rect, alpha: 1)
-                if !animateFrames { frame.snap() }
+                place(&frame, at: target.rect, animated: animateFrames)
                 dividerFrames[kind] = frame
             } else {
                 // A split's new divider starts on the edge of the pane beside it, where that edge shows now
@@ -338,21 +358,25 @@ final class ScreenContentView: NSView {
             releasedDivider = nil
             if animateFrames, splits, let divider = dividerFrames[released.kind] {
                 SplitMotion.seed(velocity: released.velocity, along: dividerViews[released.kind]?.axis ?? .horizontal, divider: divider,
-                                 panes: &paneFrames, dividers: &dividerFrames)
+                                 panes: &paneFrames, dividers: &dividerFrames, moved: Set(paneFrames.keys.filter { targetsBefore.panes[$0] != paneFrames[$0]?.targetRect }),
+                                 movedDividers: Set(dividerFrames.keys.filter { targetsBefore.dividers[$0] != dividerFrames[$0]?.targetRect }))
             }
         }
 
         if structural { scrollRidesFrames = departing && animateFrames && !covering }
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
-        leadsFrame = departing && animateFrames && !covering
-        // A split's chain and a close's neighbours keep their terminals' grids until they land.
-        if (departing || !arrivals.isEmpty) && animateFrames && !covering { holdsGrids = true }
+        leadsFrame = departing && animateFrames && !covering && !wasMoving
+        // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
+        // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that
+        // starts or retargets its spring (`PaneHostView.announceRest`, `PaneMotionTargeting`).
         reconcileDock()
         reconcileCanvasStacking()
-        // The scroll follows in `syncScroll`, which the root calls with the
-        // focus after every update (ColumnScrollState.reduce).
-        applyPresentation(force: true)
+        // The scroll follows in `syncScroll`, which the root calls with the focus after every update.
+        // Only a structural change re-places everything: a ratio, width or row-height change (every divider
+        // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
+        // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
+        applyPresentation(force: structural)
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
         if !(moving && holdsGrids) { holdsGrids = false }

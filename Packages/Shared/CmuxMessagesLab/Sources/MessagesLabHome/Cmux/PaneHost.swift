@@ -67,6 +67,10 @@ final class HostView: NSView {
     var headerGlass: HeaderGlassView?
     /// cmux: no header at all (HeaderGlass.swift `useBareTop`): the rows start near the pane's top and fade out there.
     var bareTop = false
+    /// cmux: the chat top's look under the header (HostView+TopFade.swift); nil until Home sets one.
+    var topFadeStyle: HomeTopFadeStyle?
+    /// cmux: the band of the top fade style, when it draws one of its own (HomeTopFadeView).
+    var topFadeView: HomeTopFadeView?
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
@@ -189,6 +193,8 @@ final class HostView: NSView {
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
         placeHeaderGlass()
+        placeTopFadeView()
+        updateTopFadeScrollEdge()
         controller?.placeSendButton(animated: false)
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
@@ -291,7 +297,16 @@ extension FieldChrome {
     /// cmux: the field's Liquid Glass, "+" and emoji follow the theme: light
     /// glass on a light theme (the glass renders for its view's appearance),
     /// MessagesLab's dark glass and white symbols otherwise.
-    func applyTheme(light: Bool, symbol: NSColor) {
+    ///
+    /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
+    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+        field.wantsLayer = true
+        if let layer = field.layer {
+            let width: CGFloat = light && edge != nil ? 1 : 0
+            if layer.borderWidth != width { layer.borderWidth = width }
+            if let edge, light { layer.borderColor = edge.cgColor }
+        }
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         if self.appearance?.name != appearance?.name { self.appearance = appearance }
         let tint: NSColor = light ? symbol : .white
@@ -534,6 +549,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
+            self?.host.updateTopFadeScrollEdge()
             self?.intents?.scrolled()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }

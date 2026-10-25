@@ -314,6 +314,6 @@ fn github_reads_as_before_through_its_pack() {
     let c = toolpacks::card(&gh, "ABCD-1234", "https://github.com/login/device");
     assert_eq!(
         c,
-        "Sign in to GitHub for this Chief: copy the code `ABCD-1234`, open the page below and approve.\nhttps://github.com/login/device"
+        "Sign in to GitHub for this Chief: copy the code `ABCD-1234`, open the page below and approve.\n[github.com/login/device](https://github.com/login/device)"
     );
 }

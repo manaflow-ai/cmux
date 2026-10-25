@@ -37,6 +37,11 @@
 .nt-row-action{flex:none;margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:12px;opacity:0}
 .nt-row.is-selected .nt-row-action,.nt-row:hover .nt-row-action{opacity:1}
 .nt-row-action kbd{padding:2px 6px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,var(--acpmux-base));color:var(--agent-soft);font:11.5px/1 system-ui}
+/* The create actions the rows don't list (screenModel.ts createStrip): one quiet line under them, never three rows (Leo 2026-10-24: "the new terminal, new browser tab, new tab ... less annoying"). Shows with the rows, no fade. */
+.nt-create-strip{display:flex;gap:4px;margin-top:4px;padding-top:4px;border-top:1px solid color-mix(in srgb,var(--agent-text) 8%,transparent)}
+.nt-create-strip-item{display:flex;align-items:center;gap:8px;height:24px;padding:0 8px;border-radius:var(--ui-row-radius);color:var(--acpmux-composer-dim);font-size:var(--text-detail);cursor:default;white-space:nowrap}
+.nt-create-strip-item .nt-row-title{max-width:none;overflow:visible}
+.nt-create-strip-item.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
 .nt-chats{margin-top:20px}
 .nt-chats-head{display:flex;align-items:center;gap:14px;height:28px;font-size:13px}
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
@@ -336,6 +341,12 @@
   margin: 0 -8px 9px 0;
   flex-wrap: nowrap;
   padding: 0;
+}
+/* In Claude's split layout the New Tab plus belongs before the prompt, matching chat Composer's
+   leading control; the model/mic/send row remains under the field. */
+.nt-input .nt-split-plus {
+  flex: none;
+  margin-top: 12px;
 }
 /* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {

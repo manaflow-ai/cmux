@@ -79,7 +79,8 @@ def find_ref(tree, target):
     hits = []
     for line in tree.splitlines():
         m = ARIA_LINE.match(line)
-        if not m or m.group("role") != target["role"]:
+        roles = target["role"] if isinstance(target["role"], list) else [target["role"]]
+        if not m or m.group("role") not in roles:
             continue
         name = m.group("name") or ""
         want = target.get("name")
@@ -577,7 +578,7 @@ def cold(opts, workdir):
 
 
 YOUTUBE_QUERY = "rust programming"
-YOUTUBE_BOX = {"role": "combobox", "name": "Search", "text": YOUTUBE_QUERY, "submit": True,
+YOUTUBE_BOX = {"role": ["combobox", "searchbox", "textbox"], "name": "Search", "text": YOUTUBE_QUERY, "submit": True,
                "bu": {"tag": "input", "attr": {"name": "search_query"}}}
 
 

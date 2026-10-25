@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
@@ -48,13 +49,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
     private let creatingInput: CreatingTerminalInput?
-    /// The PTY surface this view attaches to (``BurstSignposts``).
-    private let surface: UInt64
-    private let burst: BurstSignposts
-    /// A grid went to the PTY and its first output has not arrived yet (``BurstSignposts``).
-    // A lock, not an actor: set on the main actor per settled resize and claimed by the events
-    // stream on every output, a synchronous compare-and-set where an actor would add a hop per output.
-    private let awaitsFirstOutput: OSAllocatedUnfairLock<Bool>
+    /// The target's surface id for the typing probe (0: not resolved at init, a terminal still being made).
+    private let probeSurface: UInt64
+    /// The burst bench's grid echo and first-output marks (nil: none; a Release build compiles them out).
+    private let burstTrace: BurstTrace?
+    /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
+    private let resizes: ResizeCoordinator
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -62,9 +62,15 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     ///   feature that reaches this terminal's machine: every disconnect shows
     ///   "Turned off by your organization" and the endpoint refuses re-attaches.
     /// `gate`: the view of a terminal not created yet attaches only once the gate names it.
-    init(target: Target, visible: Bool = true, gate: TerminalTargetGate? = nil, creatingInput: CreatingTerminalInput? = nil,
-         policyBlocked: @escaping @Sendable () -> Bool = { false },
+    /// `burstTrace`: where the grids this view sends, their echoes and its first output after each echo
+    /// go while the burst bench records (`debug.burst`).
+    /// `resizes`: the app's grid sender (``ResizeCoordinator``), from its composition root.
+    init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
+         creatingInput: CreatingTerminalInput? = nil,
+         burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+        self.resizes = resizes
+        probeSurface = target.attachment.surface.rawValue
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
         let driver = TerminalAttachDriver<TerminalAttachment>(
@@ -96,19 +102,29 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             },
             observer: InputJournal.shared.isEnabled ? InputJournal.attachObserver(surface: String(surface)) : nil,
             cursorDefault: target.cursorDefault,
-            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } }
+            backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed); if policyBlocked() { throw CancellationError() } },
+            // Marked where the grid really goes to the PTY: the machine sends nothing for a resize
+            // without a live link, while hidden, or of the size it already holds.
+            onGridSent: burstTrace.map { trace -> TerminalAttachDriver<TerminalAttachment>.GridSent in
+                { size, expectsEcho in
+                    guard trace.isArmed else { return }
+                    trace.gridSent(surface: surface, cols: size.cols, rows: size.rows, expectsEcho: expectsEcho)
+                }
+            }
         )
         self.driver = driver
         self.creatingInput = creatingInput
-        self.surface = surface
-        let burst = BurstSignposts(), awaitsFirstOutput = OSAllocatedUnfairLock(initialState: false)
-        self.burst = burst
-        self.awaitsFirstOutput = awaitsFirstOutput
+        self.burstTrace = burstTrace
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
-                if case .output = event, awaitsFirstOutput.withLock({ awaits in defer { awaits = false }; return awaits }) {
-                    burst.firstOutput(surface: surface)
+                if let burstTrace, burstTrace.isArmed {
+                    switch event {
+                    case .output: burstTrace.output(surface: surface)
+                    // The daemon applied a grid: its first output after this is at that size.
+                    case .resize(let cols, let rows): burstTrace.gridAnnounced(surface: surface, cols: cols, rows: rows)
+                    default: break
+                    }
                 }
                 switch event {
                 case .status(.disconnected), .status(.restoring):
@@ -121,7 +137,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         },
                              onCancel: { driver.cancelSteps() })
         driver.start()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         // The view of a traced new terminal's tab: its session is matched by this IO.
         if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.watch(io: ObjectIdentifier(self), surface: surface) }
         #endif
@@ -132,6 +148,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     // MARK: TerminalIO
+
+    /// The daemon terminal by its surface id, as its attachment names it to the typing probe.
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { probeSurface == 0 ? nil : .terminal(probeSurface) }
 
     /// The daemon's VT core answers DA/DSR, so the surface mirrors only.
     var answersTerminalQueries: Bool { true }
@@ -166,15 +185,26 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         guard cols > 0, rows > 0 else { return }
         let size = CellSize(cols: cols, rows: rows)
-        await MainActor.run { ResizeCoordinator.shared.submit(self, size: size) }
+        await MainActor.run { resizes.submit(self, size: size) }
     }
 
     // MARK: App control
 
+    /// Takes the view's grid in the caller's turn (`TerminalIO.resizeOnMain`): a final grid goes now
+    /// (`ResizeCoordinator.submitFinal`), any other the next frame.
+    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+        guard cols > 0, rows > 0 else { return true }
+        let size = CellSize(cols: cols, rows: rows)
+        if final {
+            resizes.submitFinal(self, size: size, window: window)
+        } else {
+            resizes.submit(self, size: size, window: window)
+        }
+        return true
+    }
+
     /// Called by `ResizeCoordinator` once the size settled.
     @MainActor func applySettled(_ size: CellSize) {
-        burst.ptyGrid(surface: surface, cols: size.cols, rows: size.rows)
-        awaitsFirstOutput.withLock { $0 = true }
         driver.resize(size)
     }
 
@@ -225,7 +255,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// keeps running in the daemon.
     @MainActor func close() {
         driver.close()
-        ResizeCoordinator.shared.cancel(self)
+        resizes.cancel(self)
     }
 
     /// Attachment state for diagnostics and tests.

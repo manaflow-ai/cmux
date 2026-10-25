@@ -50,9 +50,20 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         }
 
         var size = winsize(ws_row: UInt16(clamping: rows), ws_col: UInt16(clamping: columns), ws_xpixel: 0, ws_ypixel: 0)
+        // The highest descriptor the child closes: the table size, read before fork, capped so an unlimited
+        // limit does not make the child loop for long.
+        let highestDescriptor = min(getdtablesize(), 1 << 16)
         var master: Int32 = -1
         let pid = forkpty(&master, nil, nil, &size)
         if pid == 0 {
+            // The shell gets only its PTY (0-2): every app descriptor without close-on-exec (a socket, a
+            // pipe, one received between recvmsg and FD_CLOEXEC) would pass through execve. close is
+            // async-signal-safe.
+            var descriptor: Int32 = 3
+            while descriptor < highestDescriptor {
+                _ = close(descriptor)
+                descriptor += 1
+            }
             _ = chdir(directory)
             // The app catches SIGPIPE (exec resets that), but a host process
             // that ignores it would pass SIG_IGN on: give the shell the default.
@@ -187,22 +198,23 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     }
 
     /// Ghostty's terminal identity, as the daemon's terminals get it
-    /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-ghostty`
-    /// with the bundled `TERMINFO` when that entry exists, else
-    /// `xterm-256color`; `COLORTERM`, and `TERM_PROGRAM=ghostty`. The version
-    /// stays unset because cmux forwards TUI mouse reports instead of
-    /// providing Ghostty's native selection path; advertising a Ghostty
-    /// version makes Codex disable its copy-on-select fallback.
+    /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-256color`
+    /// unless `xterm-ghostty` is installed in a system terminfo directory;
+    /// `COLORTERM` and `TERM_PROGRAM=ghostty`. `TERMINFO` is not set. The version
+    /// stays unset because cmux forwards TUI mouse reports instead of providing
+    /// Ghostty's native selection path; advertising a Ghostty version makes Codex
+    /// disable its copy-on-select fallback.
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
-        version _: String? = GhosttyRuntime.version
+        version _: String? = GhosttyRuntime.version,
+        home: String = NSHomeDirectory(),
+        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
     ) -> [String: String] {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
-        guard let resourcesDirectory, !resourcesDirectory.isEmpty else { return result }
-        result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory
-        let terminfo = ((resourcesDirectory as NSString).deletingLastPathComponent as NSString).appendingPathComponent("terminfo")
-        if FileManager.default.fileExists(atPath: (terminfo as NSString).appendingPathComponent("78/xterm-ghostty")) {
-            result["TERMINFO"] = terminfo
+        if let resourcesDirectory, !resourcesDirectory.isEmpty { result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
+        let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
+                     "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
+        if roots.contains(where: { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }) {
             result["TERM"] = "xterm-ghostty"
         }
         return result
