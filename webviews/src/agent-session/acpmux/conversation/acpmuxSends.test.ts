@@ -58,6 +58,10 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend('acpmux send "$LANE" hi')).toBeUndefined();
     // A `$` that expands nothing is a dollar sign.
     expect(acpmuxSend("acpmux send lane 'costs $5' and $")?.text).toBe("costs $5 and $");
+    // A glob or a brace expansion is not the word as typed.
+    expect(acpmuxSend("acpmux send lane {ready,done}")).toEqual({ target: "lane", noWait: false });
+    expect(acpmuxSend("acpmux send lane are you done?")).toEqual({ target: "lane", noWait: false });
+    expect(acpmuxSend("acpmux send lane 'done?' '{a,b}'")?.text).toBe("done? {a,b}");
   });
 
   test("stdin: a here-document, a here-string, a piped echo; a file or nothing is unknown", () => {
@@ -169,6 +173,18 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("timeout --signal=KILL --foreground 10 env -i acpmux send x y")?.text).toBe("y");
     // Nothing after `exit` runs.
     expect(acpmuxSend("exit 0; acpmux send x y")).toBeUndefined();
+    // Words a property of Object shares are no runner and no filter.
+    expect(acpmuxSend("toString acpmux send x y")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | constructor")).toBeUndefined();
+    // `-c` after an operand is the script's argument; a timeout that is no duration runs nothing.
+    expect(acpmuxSend("bash script -c 'acpmux send x y'")).toBeUndefined();
+    expect(acpmuxSend("timeout abc acpmux send x y")).toBeUndefined();
+    // Values clap rejects fail the call; a number after a filter's operand is a file.
+    expect(acpmuxSend("acpmux send --timeout=abc lane hi")).toBeUndefined();
+    expect(acpmuxSend("acpmux send --stall soon lane hi")).toBeUndefined();
+    expect(acpmuxSend("acpmux send --on-permission maybe lane hi")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b | grep foo 5")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b | grep -m 1 foo")?.text).toBe("b");
     // A perl script that is not exactly `alarm N; exec @ARGV` is not looked through.
     expect(acpmuxSend(`perl -e 'print "exec @ARGV"' acpmux send a b`)).toBeUndefined();
     expect(acpmuxSend(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
@@ -239,6 +255,10 @@ describe("acpmuxSendCall", () => {
     expect(acpmuxSendCall(bash(line, { exitCode: 4 }))?.state).toBe("failed");
     // Not a shell call.
     expect(acpmuxSendCall({ ...bash(line), kind: "other" })).toBeUndefined();
+    // Moved to the background: running there, then how it ended there.
+    expect(acpmuxSendCall(bash(line, { background: { state: "running" } }))?.state).toBe("sending");
+    expect(acpmuxSendCall(bash(line, { background: { state: "failed" } }))?.state).toBe("failed");
+    expect(acpmuxSendCall(bash(line, { background: { state: "completed" } }))?.state).toBe("sent");
   });
 });
 
@@ -249,4 +269,6 @@ test("Background tasks and the tray name a background send as its row does", () 
   expect(sendLabel(t, { command, state: "completed" })).toBe("send.sent:huge-blue/lane");
   expect(sendLabel(t, { command, state: "failed" })).toBe("send.failed:huge-blue/lane");
   expect(sendLabel(t, { command: "bun test", state: "running" })).toBeUndefined();
+  // Stopped: whether it went is not known.
+  expect(sendLabel(t, { command, state: "stopped" })).toBeUndefined();
 });

@@ -42,9 +42,15 @@ export function acpmuxSendCall(tool: Tool): AcpmuxSendCall | undefined {
   if (tool.kind !== "execute" || !tool.command) return undefined;
   const send = acpmuxSend(tool.command);
   if (!send) return undefined;
-  const running = tool.status === "pending" || tool.status === "in_progress";
-  // Failed by its status or a nonzero exit (toolGroups.ts `isFailed`).
-  const failed = tool.status === "failed" || (tool.exitCode !== undefined && tool.exitCode !== 0);
+  // A send moved to the background runs, and ends, there (model.ts `background`).
+  const background = tool.background?.state;
+  const running = tool.status === "pending" || tool.status === "in_progress" || background === "running";
+  // Failed by its status, a nonzero exit (toolGroups.ts `isFailed`), or its background run.
+  const failed =
+    tool.status === "failed" ||
+    (tool.exitCode !== undefined && tool.exitCode !== 0) ||
+    background === "failed" ||
+    background === "stopped";
   return { ...send, state: running ? "sending" : failed ? "failed" : "sent" };
 }
 
@@ -192,6 +198,7 @@ const WRITES = new Set([">", ">>", ">|", "<>", "&>", "&>>"]);
 function readWord(line: string, from: number, runs: string[] = []): [ShellWord, number] {
   let text = "";
   let literal = true;
+  let brace = false;
   let index = from;
   while (index < line.length) {
     const char = line[index]!;
@@ -234,7 +241,12 @@ function readWord(line: string, from: number, runs: string[] = []): [ShellWord, 
       if (stop > index + 1) literal = false;
       text += line.slice(index, stop);
       index = stop;
-    } else text += line[index++];
+    } else {
+      // An unquoted glob (`*`, `?`, `[`) or brace expansion (`{a,b}`) is not the word as typed.
+      if (char === "*" || char === "?" || char === "[" || (char === "}" && brace)) literal = false;
+      if (char === "{") brace = true;
+      text += line[index++];
+    }
   }
   return [{ text, literal }, index];
 }
@@ -318,12 +330,12 @@ const SETUP = new Set(["cd", "pushd", "popd", "export", "set", "unset", "true", 
 /// Steps a send's output may pipe through (`| tail -1`): how many operands each may have (a
 /// pattern, a jq filter) and the options it may take, none of which reads or writes a file. A word
 /// that is a number is an option's value (`-n 5`). They only cut what the send printed.
-const FILTERS: Record<string, { operands: number; options: RegExp }> = {
-  tail: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/ },
-  head: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/ },
+const FILTERS: Record<string, { operands: number; options: RegExp; values?: ReadonlySet<string> }> = {
+  tail: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/, values: new Set(["-n", "-c"]) },
+  head: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/, values: new Set(["-n", "-c"]) },
   cat: { operands: 0, options: /^-[AbeEnstuv]+$/ },
   wc: { operands: 0, options: /^-[lwcmL]+$/ },
-  grep: { operands: 1, options: /^-[ivcnqxwoEFGPhsHm]+\d*$/ },
+  grep: { operands: 1, options: /^-[ivcnqxwoEFGPhsHmABC]+\d*$/, values: new Set(["-m", "-A", "-B", "-C"]) },
   jq: { operands: 1, options: /^-(?:[rcjaMSCe]+|-raw-output|-compact-output|-exit-status|-join-output)$/ },
 };
 /// What a command substitution may run and still only read (`"$(cat note.md)"`).
@@ -334,11 +346,18 @@ const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
 const REACH_VALUES = new Set(["--origin", "--registry", "--timeout"]);
 /// `acpmux send`'s options that take a value, and its flags (`acpmux send --help`).
 const SEND_VALUES = new Set(["--timeout", "--on-permission", "--stall", "--prompt-id", "--from", "--supersede"]);
+/// The values clap checks (`--timeout 30`, `--on-permission deny`).
+const SEND_VALUE_FORMS: Record<string, RegExp> = {
+  "--timeout": /^\d+$/,
+  "--stall": /^\d+$/,
+  "--on-permission": /^(?:wait|deny|fail)$/,
+};
 const SEND_FLAGS = new Set(["--json", "--steer", "--no-steer", "--suppress-reads", "--no-wait", "-q", "--quiet"]);
 /// `acpmux`'s own flags, which may come before `send` (`acpmux --help`).
 const ACPMUX_FLAGS = new Set(["--json", "--suppress-reads"]);
 
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+const own = (record: object, key: string) => Object.prototype.hasOwnProperty.call(record, key);
 const program = (word: ShellWord | undefined) => (word?.literal ? (word.text.split("/").pop() ?? "") : "");
 
 /// The words of the command a wrapper runs: assignments, `env`, `timeout`, `nohup` and the like
@@ -349,11 +368,12 @@ function unwrapped(words: readonly ShellWord[]): ShellWord[] {
     const head = rest[0]!;
     const name = program(head);
     if (head.literal && (ASSIGNMENT.test(head.text) || RESERVED.has(head.text))) rest = rest.slice(1);
-    else if (name in RUNNERS || name === "gtimeout") {
+    else if (own(RUNNERS, name) || name === "gtimeout") {
       const runner = RUNNERS[name === "gtimeout" ? "timeout" : name]!;
       const after = afterOptions(rest.slice(1), runner, name === "env");
       if (!after) return rest;
-      // `timeout [OPTIONS] DURATION COMMAND…`.
+      // `timeout [OPTIONS] DURATION COMMAND…`, the duration a number with an optional unit.
+      if (runner === RUNNERS.timeout && !/^\d+(?:\.\d+)?[smhd]?$/.test(after[0]?.text ?? "")) return rest;
       rest = runner === RUNNERS.timeout ? after.slice(1) : after;
     } else if (name === "perl") {
       // `perl -e 'alarm N; exec @ARGV' COMMAND…`: a script that does nothing but run its arguments.
@@ -404,7 +424,13 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
       if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
         send = acpmuxSend(inner.map((word) => word.text).join(" "), rest[0].text, depth + 1);
     } else if (SHELLS.has(name)) {
-      const flag = words.findIndex((word, place) => place > 0 && /^-[a-z]*c[a-z]*$/.test(word.text));
+      // `-c` among the options before the first operand (`bash script -c …` runs script).
+      let flag = -1;
+      for (let place = 1; place < words.length && words[place]!.text.startsWith("-"); place++)
+        if (/^-[a-z]*c[a-z]*$/.test(words[place]!.text)) {
+          flag = place;
+          break;
+        }
       const script = flag > 0 ? words[flag + 1] : undefined;
       if (script?.literal) send = acpmuxSend(script.text, host, depth + 1);
     } else if (name === "acpmux" || name === "acpmux-debug-cli") {
@@ -430,7 +456,7 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     const words = unwrapped(command.words);
     const name = program(words[0]);
     if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
-    if (pipedFromSend && name in FILTERS && onlyFilters(words.slice(1), FILTERS[name]!)) continue;
+    if (pipedFromSend && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!)) continue;
     // `cat <<EOF | acpmux send x -`: cat only hands the send its text.
     if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
     return undefined;
@@ -438,14 +464,15 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
   return found;
 }
 
-/// Whether a filter's words are options it may take, numbers, and at most its operands.
+/// Whether a filter's words are options it may take, their numbers (`-n 5`), and at most its operands.
 function onlyFilters(words: readonly ShellWord[], filter: (typeof FILTERS)[string]): boolean {
   let operands = 0;
-  for (const word of words) {
+  for (const [index, word] of words.entries()) {
     if (!word.literal) return false;
     if (word.text.length > 1 && word.text.startsWith("-")) {
       if (!filter.options.test(word.text)) return false;
-    } else if (!/^\+?\d+$/.test(word.text) && ++operands > filter.operands) return false;
+    } else if (filter.values?.has(words[index - 1]?.text ?? "") && /^\+?\d+$/.test(word.text)) continue;
+    else if (++operands > filter.operands) return false;
   }
   return true;
 }
@@ -511,7 +538,11 @@ function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefi
         steer = name;
       }
       if (name === "--no-wait") noWait = true;
-      if (SEND_VALUES.has(name) && !text.includes("=")) index += 1;
+      if (SEND_VALUES.has(name)) {
+        const value = text.includes("=") ? text.slice(name.length + 1) : args[++index]?.text;
+        // clap parses these: a value it rejects fails the call.
+        if (value === undefined || !(SEND_VALUE_FORMS[name]?.test(value) ?? true)) return undefined;
+      }
     } else positional.push(word);
   }
   const session = positional[0];
