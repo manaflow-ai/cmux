@@ -15,6 +15,7 @@ struct AppMemoryConsumers {
     /// AppServices' init calls this once, after the services the consumers belong to are built. Each
     /// consumer's owner keeps its registration token; nothing here stores one.
     func registerMemoryConsumers() {
+        _ = services.memoryCoordinator  // follows pressure from launch, before any consumer registers
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
     }

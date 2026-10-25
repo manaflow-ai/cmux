@@ -17,6 +17,7 @@ import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -282,6 +283,11 @@ final class AppServices {
     let homeSwitchKeys = HomeSwitchKeysSource()
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
+    /// The app's one memory coordinator (CmuxNextMemory): limits for every registered consumer from
+    /// `memoryPressure`, the Memory Saver mode and the debug override, on budgets sized from this Mac's RAM.
+    /// Warm terminal surfaces keep today's size until hidden surfaces can drop their GPU residency (p07 037).
+    private(set) lazy var memoryCoordinator = MemoryCoordinator(
+        pressure: memoryPressure, budget: .forMemory(physicalBytes: ProcessInfo.processInfo.physicalMemory, gpuResidentAvailable: false))
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The spare React page hosts for Settings, History and Cloud.
