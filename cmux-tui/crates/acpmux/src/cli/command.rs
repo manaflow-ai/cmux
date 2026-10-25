@@ -1114,9 +1114,6 @@ pub struct NewArgs {
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
-    /// Link the session to this tracker bead (`acpmux bead`); repeat for more.
-    #[arg(long = "bead", value_name = "ID")]
-    pub beads: Vec<String>,
 }
 
 /// Map the grouped spellings onto the flat handlers.

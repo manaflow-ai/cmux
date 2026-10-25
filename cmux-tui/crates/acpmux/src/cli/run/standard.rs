@@ -411,8 +411,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .and_then(Value::as_str)
                 .unwrap_or(&id)
                 .to_owned();
-            // Its beads, before its first prompt; a reused session gets them too.
-            crate::cli::beads::link(&client, &id, &args.beads).await?;
             // A failed sidebar step only warns: the prompt is still sent.
             let show = || {
                 if let Some(group) = &args.group {

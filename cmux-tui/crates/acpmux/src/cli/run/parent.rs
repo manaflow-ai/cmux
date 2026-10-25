@@ -22,7 +22,6 @@ fn refused_flags(args: &NewArgs) -> Option<String> {
         (args.reuse, "--reuse", "each start makes a new child"),
         (args.group.is_some(), "--group", "the child lists under its parent's chat"),
         (args.prompt_id.is_some(), "--prompt-id", "the daemon sends the first prompt"),
-        (!args.beads.is_empty(), "--bead", "link the child after with `acpmux bead link`"),
         // `wait` is what a child does: its permissions wait for the person.
         (args.on_permission != "wait", "--on-permission", "the person answers the child's"),
     ];

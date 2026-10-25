@@ -206,6 +206,7 @@ acpmux ensure NAME -m codex --host HOST
 acpmux wait                                      # covers remote sessions too
 acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
                                                  # the session a PR footer's link (or an id, host/name, name) names, here or on a peer: host, ids, model, cwd, lane, PRs, last turn
+acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `acpmux resolve cx-cus7j.230` finds NAME, `bead ls NAME` lists its beads
 ```
 
 A remote start runs under the peer's rules. `--cwd` must sit inside the peer's

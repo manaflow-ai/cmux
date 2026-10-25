@@ -1,8 +1,7 @@
 //! Beads on a session: the team's `bd` tracker ids (`cx-cus7j.230`) a session works on, kept as
 //! the session's tags `bead:<id>` (the value is when it was linked, unix ms). A tag rides the
 //! session everywhere a tag does: its summary, a peer's mirrored list, a restart. `acpmux bead
-//! link|unlink` sets them, `acpmux new --bead` and `acpmux task new --bead` set them when they
-//! start the work, and `acpmux resolve <bead id>` (`hub/locate.rs`) finds the sessions that carry
+//! link|unlink` sets them, `acpmux task new --bead` sets them when it gives the work, and `acpmux resolve <bead id>` (`hub/locate.rs`) finds the sessions that carry
 //! one, here or on a peer. The tracker itself (who a bead is assigned to) stays the tracker's.
 
 use serde_json::Value;

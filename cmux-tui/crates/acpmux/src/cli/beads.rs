@@ -1,6 +1,6 @@
 //! `acpmux bead link|unlink|ls` (`beads.rs`): the tracker beads a session works on, as its
 //! `bead:<id>` tags, set through `_acpmux/tag` (which reaches a peer's session too) and read
-//! back through `_acpmux/resolve`. Also the `--bead` of `acpmux new` and `acpmux task new`.
+//! back through `_acpmux/resolve`. Also the `--bead` of `acpmux task new`.
 
 use anyhow::Result;
 use clap::Subcommand;
@@ -30,7 +30,7 @@ pub(crate) async fn link(client: &Client, key: &str, ids: &[String]) -> Result<V
     let now = crate::store::now_ms().to_string();
     let set: Map<String, Value> =
         ids.iter().map(|id| (crate::beads::tag_key(id), json!(now))).collect();
-    Ok(client.request(method::MUX_TAG, json!({"sessionId": key, "set": set})).await?)
+    client.request(method::MUX_TAG, json!({"sessionId": key, "set": set})).await
 }
 
 pub async fn run(cmd: BeadCmd, json_out: bool) -> Result<()> {

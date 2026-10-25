@@ -2201,7 +2201,8 @@ async fn a_bead_linked_to_a_peers_session_resolves_to_it() {
     let (port, peer_token) = listen_with_peer_token(b.clone(), "beads").await;
     let mut cb = client(b.clone()).await;
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "bead-lane"}}});
-    let far = cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let far =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
 
     let a = hub(config(PermissionPolicy::Ask)).await;
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)

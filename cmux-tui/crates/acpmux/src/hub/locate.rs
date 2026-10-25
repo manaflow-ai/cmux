@@ -137,7 +137,8 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     }
     if crate::beads::is_bead_id(key) {
         let tag = crate::beads::tag_key(key);
-        let carry: Vec<&Value> = summaries.iter().filter(|s| s["tags"].get(&tag).is_some()).collect();
+        let carry: Vec<&Value> =
+            summaries.iter().filter(|s| s["tags"].get(&tag).is_some()).collect();
         if !carry.is_empty() {
             return carry;
         }
