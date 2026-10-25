@@ -5,7 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+  placeInline,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -78,6 +84,8 @@ import {
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
+import { useInlineAttachments } from "./composer/inlineAttachments";
+import { setInlinePlacement, useInlinePlacement } from "./composer/inlinePlacement";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -132,6 +140,8 @@ export const COMPOSER_LABELS = {
   selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
+  inlineAttachmentsOff: "composer.menu.inlineAttachmentsOff",
+  inlineAttachmentsOn: "composer.menu.inlineAttachmentsOn",
 } as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
@@ -509,9 +519,23 @@ export function Composer({
         .catch(() => {});
     },
     carries: () => carryPrompt.current || Boolean(switching),
+    place: (chips, kind) => inline.place(chips, kind),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // Images pasted or dropped go into the prompt's text too, by default (composer/inlineAttachments.tsx).
+  const inlinePlacement = useInlinePlacement();
+  const inline = useInlineAttachments({
+    field,
+    text,
+    attachments,
+    attachmentsRef,
+    setAttachments,
+    pending,
+    cancel,
+    retry,
+    placing: () => inlinePlacement && !shell,
+  });
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading, sessionId);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -869,12 +893,15 @@ export function Composer({
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     const sent = attachments;
-    const taken = onSend(prompt, sent, steer);
+    // The attachments placed in the text go in its order, as bare marks (attachments.ts placeInline).
+    const placed = placeInline(prompt, sent);
+    const taken = onSend(placed.text, placed.attachments, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
       const went = new Set(sent.map((attachment) => attachment.id));
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
+      inline.sent(went);
       setAttachError(undefined);
       plusDraft.current = undefined;
       if (field.current && rest) field.current.type(rest);
@@ -1215,7 +1242,10 @@ export function Composer({
     enterShell(data.slice(1));
     return true;
   };
-  promptChange.current = edit;
+  promptChange.current = (markdown, at) => {
+    inline.edited(markdown);
+    edit(markdown, at);
+  };
   promptCaret.current = setCaret;
   promptKeyDown.current = keyDown;
   promptReturnInput.current = returnInput;
@@ -1405,6 +1435,11 @@ export function Composer({
       disabled: shell,
       onSelect: () => mention(),
     },
+    {
+      id: "inlineAttachments",
+      label: t(inlinePlacement ? COMPOSER_LABELS.inlineAttachmentsOff : COMPOSER_LABELS.inlineAttachmentsOn),
+      onSelect: () => setInlinePlacement(!inlinePlacement),
+    },
   ];
 
   // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
@@ -1544,6 +1579,8 @@ export function Composer({
       {dropHost && (
         <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={landingTarget} />
       )}
+      {/* Each attachment placed in the prompt's text, drawn into its node (composer/inlineAttachments.tsx). */}
+      {inline.chips}
       <ComposerBox
         handle={box}
         boxRef={setComposerBox}
@@ -1577,6 +1614,7 @@ export function Composer({
           onKeyDown: stablePromptCallbacks.onKeyDown,
           onReturnInput: stablePromptCallbacks.onReturnInput,
           onCompositionChange: stablePromptCallbacks.onCompositionChange,
+          onInlineViews: inline.onInlineViews,
         }}
         attachments={attachments}
         pending={pending}
@@ -1585,13 +1623,14 @@ export function Composer({
         attachError={attachError}
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
         onRemoveAttachment={(id) => {
-          setAttachments((current) => current.filter((item) => item.id !== id));
+          inline.remove(id);
           field.current?.focus();
         }}
         onCancelAttachment={(id) => {
-          cancel(id);
+          inline.cancel(id);
           field.current?.focus();
         }}
+        onReorderAttachment={inline.reorder}
         onRetryAttachment={retry}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}

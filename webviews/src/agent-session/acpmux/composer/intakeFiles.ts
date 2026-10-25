@@ -22,6 +22,9 @@ export type IntakeOptions = {
   upload?(files: File[]): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
   cancelled?(index: number): boolean;
+  /// The id each file's image chip takes: its placeholder's, so a place made for it in the prompt's
+  /// text (composer/inlineNode.ts) is the chip's.
+  ids?: readonly string[];
 };
 
 export type IntakeError = AttachmentError | { text: string };
@@ -85,7 +88,7 @@ export async function intakeFiles(
   await Promise.all(
     files.map(async (file, index) => {
       const result = isImageFile(file)
-        ? await readAttachment(file, options.allowImages).catch(() => undefined)
+        ? await readAttachment(file, options.allowImages, options.ids?.[index]).catch(() => undefined)
         : undefined;
       const image = result && !("reason" in result) ? result : undefined;
       const path = (await known)?.[index];

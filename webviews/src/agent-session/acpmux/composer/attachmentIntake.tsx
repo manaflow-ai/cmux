@@ -78,6 +78,9 @@ export type AttachmentIntakeOptions = {
   /// When the composer moves to another chat: whether the files still being read move with it (a
   /// harness switch's new session carries the prompt). A chat that had no id yet always carries.
   carries?(): boolean;
+  /// The person's paste or drop (`kind`) just made `chips`, in the same task: the composer may place
+  /// the images in the prompt's text (composer/inlineAttachments.tsx). A chip keeps its id when ready.
+  place?(chips: readonly PendingAttachment[], kind: DroppedKind): void;
 };
 
 /** Append a batch while replacing the same attachment id and collapsing repeated local path links
@@ -166,13 +169,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
   /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
-  const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind) => {
+  /// `ids`: the placeholders' ids (Retry's, so a place in the text stays the chip's).
+  const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind, ids?: string[]) => {
     if (files.length === 0) return;
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files.map((file) => ({
-      id: crypto.randomUUID(),
+    const shown: PendingAttachment[] = files.map((file, index) => ({
+      id: ids?.[index] ?? crypto.randomUUID(),
       name: file.name,
       image: isImageFile(file),
       scope: batch.scope,
@@ -181,6 +185,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const gesture = (gestures.current += 1);
     batches.current.add(batch);
     setPending((chips) => [...chips, ...shown]);
+    if (kind) current.place?.(shown, kind);
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
     const made: (string | undefined)[] = [];
@@ -225,6 +230,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
           ...(uploads && current.upload ? { upload: current.upload } : {}),
           cancelled: (index) => !sources.current.has(shown[index]!.id) && !made[index],
+          ids: shown.map((chip) => chip.id),
         },
         {
           ready,
@@ -257,7 +263,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     if (!source) return;
     cancel(id);
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
-    void attach([source.file], source.uploads);
+    // Its id stays, and with it any place it has in the prompt's text.
+    void attach([source.file], source.uploads, undefined, [id]);
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {

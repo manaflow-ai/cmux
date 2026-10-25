@@ -59,6 +59,93 @@ export function hasInlineMarks(input: string, chips: readonly ComposerAttachment
   return input.split(INLINE_ATTACHMENT_MARK).length - 1 === inline;
 }
 
+/// The composer's draft names each attachment placed in its text by id, between two marks: the
+/// editor's inline node (MarkdownField.tsx) is written so, and a draft read back (a chat reopened,
+/// a relaunch) gets the same node back. An id is a chip's own (a UUID, a copy's `~` suffix); a
+/// lone U+FFFC is the person's text. `placeInline` turns them into bare marks when the prompt goes.
+export const INLINE_TOKEN = /￼([\w.~-]+)￼/g;
+
+export function inlineToken(id: string): string {
+  return `${INLINE_ATTACHMENT_MARK}${id}${INLINE_ATTACHMENT_MARK}`;
+}
+
+/// The ids of the attachments placed in `text`, in its order.
+export function inlineTokenIds(text: string): string[] {
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return [];
+  return [...text.matchAll(INLINE_TOKEN)].map((match) => match[1]!);
+}
+
+/// The draft as it goes: each placed attachment's token becomes the bare mark `promptBlocks` pairs
+/// with it, those attachments first in the text's order and `inline`, then the strip's in their
+/// order. A token whose attachment is gone goes as nothing.
+export function placeInline(
+  text: string,
+  attachments: readonly ComposerAttachment[],
+): { text: string; attachments: ComposerAttachment[] } {
+  const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+  const placed: ComposerAttachment[] = [];
+  const out = text.includes(INLINE_ATTACHMENT_MARK)
+    ? text.replace(INLINE_TOKEN, (_, id: string) => {
+        const attachment = byId.get(id);
+        if (!attachment || placed.includes(attachment)) return "";
+        placed.push(attachment);
+        return INLINE_ATTACHMENT_MARK;
+      })
+    : text;
+  const strip = attachments
+    .filter((attachment) => !placed.includes(attachment))
+    .map(({ inline: _, ...attachment }) => attachment);
+  return { text: out, attachments: [...placed.map((attachment) => ({ ...attachment, inline: true })), ...strip] };
+}
+
+/// `attachments` with the ones placed in the text (`ids`, in its order) in the text's order, each in
+/// the slot one of them held: the strip shows them as the prompt reads. The same array when it
+/// already does.
+export function orderedByMarks<T extends { id: string }>(attachments: readonly T[], ids: readonly string[]): T[] {
+  const placed = new Set(ids);
+  const slots = attachments.flatMap((attachment, index) => (placed.has(attachment.id) ? [index] : []));
+  if (slots.length < 2) return attachments as T[];
+  const rank = new Map(ids.map((id, index) => [id, index]));
+  const inOrder = slots.map((slot) => attachments[slot]!).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  if (inOrder.every((attachment, index) => attachment === attachments[slots[index]!])) return attachments as T[];
+  const next = [...attachments];
+  slots.forEach((slot, index) => {
+    next[slot] = inOrder[index]!;
+  });
+  return next;
+}
+
+/// `text`, a sent prompt's words (as shown, maybe edited since: Retry, Edit and Resend), with the
+/// marks `sent` placed attachments by, each where it was among the words: a mark in words that stayed
+/// keeps its place, one after them moves with them, one inside the words that changed goes after
+/// the change. So a resent prompt goes in the order it was written.
+export function carryMarks(sent: string, text: string): string {
+  const pieces = sent.split(INLINE_ATTACHMENT_MARK);
+  if (pieces.length < 2) return text;
+  const plain = pieces.join("");
+  let head = 0;
+  while (head < plain.length && head < text.length && plain[head] === text[head]) head += 1;
+  let tail = 0;
+  while (
+    tail < plain.length - head &&
+    tail < text.length - head &&
+    plain[plain.length - 1 - tail] === text[text.length - 1 - tail]
+  )
+    tail += 1;
+  const at = (offset: number) =>
+    offset <= head ? offset : offset >= plain.length - tail ? offset + text.length - plain.length : text.length - tail;
+  let out = "";
+  let from = 0;
+  let offset = 0;
+  for (const piece of pieces.slice(0, -1)) {
+    offset += piece.length;
+    const to = Math.max(from, at(offset));
+    out += text.slice(from, to) + INLINE_ATTACHMENT_MARK;
+    from = to;
+  }
+  return out + text.slice(from);
+}
+
 export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */

@@ -1,5 +1,5 @@
 import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
-import type { ComposerAttachment } from "./attachments";
+import { type ComposerAttachment, inlineTokenIds } from "./attachments";
 import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
 import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
@@ -192,10 +192,16 @@ export function ComposerBox({
               // Every key belongs to the input method while it composes.
               const composing = event.isComposing || event.keyCode === 229;
               if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
-              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              // Backspace at the prompt's start takes back the last chip (backspacedAttachment), of
+              // those not placed in the text: one there is the text's to delete, where it is.
+              const inText = new Set(inlineTokenIds(field.value));
               const backspaced = composing
                 ? undefined
-                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+                : backspacedAttachment(
+                    event,
+                    prompt.current?.atStart() ?? false,
+                    attachments.filter((item) => !inText.has(item.id)),
+                  );
               if (backspaced) {
                 event.preventDefault();
                 setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
