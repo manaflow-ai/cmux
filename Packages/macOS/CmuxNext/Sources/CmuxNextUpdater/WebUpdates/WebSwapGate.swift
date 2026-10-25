@@ -7,7 +7,9 @@ public import Foundation
 /// leaves it), and until every served page answers that a reload keeps all it holds (a draft, its
 /// chips, its place, its selection, no open menu, nothing being sent). Any other answer, or none in
 /// ``answerWithin``, waits ``retry`` and asks again. Pure decisions; `WebUpdates` reads the app.
-nonisolated public enum WebSwapGate {
+nonisolated public struct WebSwapGate: Sendable {
+    public init() {}
+
     /// No input for this long while cmux is in the front.
     public static let quietInput: Duration = .seconds(30)
     /// The wait once cmux leaves the front.
