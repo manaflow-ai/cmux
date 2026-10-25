@@ -39,6 +39,10 @@ Per mode:
            its Chromium pages selected). helper: light, the host page idles and scrolls while the in-process tab
            stays open, idle, in the other pane (cmux's pump still runs for it and the spare page).
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
+  input    helper: typing and the caret, one blur and one focus when cmux's focus moves out and back, copy and
+           paste through cmux's Edit menu, and Chromium's native UI from the host (context menu, <select>, alert,
+           file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME, find
+           and drag are listed as not forwarded.
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
            `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
@@ -77,8 +81,15 @@ PAGE = """<!doctype html><meta charset=utf-8><title>host probe</title>
 #box{position:fixed;left:0;top:70%;width:60px;height:60px;background:#f0c000}
 .go{animation:slide 0.5s linear infinite alternate}@keyframes slide{to{transform:translateX(600px)}}</style>
 <input id=t><button id=b>click</button><div id=box></div>
+<select id=s style="position:fixed;left:10%;top:55%;width:20%;height:30px"><option>one<option>two<option>three</select>
+<button id=al style="position:fixed;left:45%;top:55%;width:15%;height:40px" onclick="S.dialogs++; alert('probe')">alert</button>
+<input id=f type=file style="position:fixed;left:65%;top:55%;width:20%">
 <script>
-const S = {key: [], click: [], raf: [], key_paint: [], click_paint: []};
+const S = {key: [], click: [], raf: [], key_paint: [], click_paint: [], focus: 0, blur: 0, dialogs: 0, menus: 0};
+addEventListener('focus', () => { S.focus++; report(); });
+addEventListener('blur', () => { S.blur++; report(); });
+addEventListener('contextmenu', () => { S.menus++; report(); });
+document.addEventListener('selectionchange', () => report());
 // The wall time (ms since 1970, the system clock the bench reads with time.time()) of the animation frame that
 // shows each change: the bench subtracts its own send time, so both ends share one clock in both modes. A
 // forwarded event's timeStamp cannot be used: the host's CEF windowed Send*Event gives the event no time, and
@@ -93,7 +104,7 @@ addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); ret
 addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
 function pct(list, q) { if (!list.length) return null; const s = [...list].sort((a, b) => a - b); return +s[Math.round(q * (s.length - 1))].toFixed(2); }
 function summary(list) { return {n: list.length, p50: pct(list, 0.5), p95: pct(list, 0.95), max: pct(list, 1)}; }
-function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), key_paint: S.key_paint, click_paint: S.click_paint}); }
+function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus}); }
 window.__pace = function(ms) {
   S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
   let last = null; const end = performance.now() + ms;
@@ -524,7 +535,7 @@ def run_helper(rpc, url, inproc_tab):
         return False
     bx, by, bw, bh = max(borders, key=lambda b: b[0])
     # The probe's fixed layout: the field spans 10-70 % at 20 % height, the button 10-40 % at 40 % (+40 px).
-    spots = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40)}
+    spots = {"t": (0.4, 0.2, 10), "b": (0.25, 0.4, 40), "s": (0.2, 0.55, 15), "al": (0.52, 0.55, 20), "f": (0.75, 0.55, 12)}
 
     def click_point(element):
         fx, fy, dy = spots[element]
@@ -570,6 +581,8 @@ def run_helper(rpc, url, inproc_tab):
     row["host_pid"] = state.get("pid")
     row["fork_api"] = state.get("fork_api")
 
+    row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid)
+
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
     app_pid = before.get("app_pid")
@@ -597,6 +610,83 @@ def run_helper(rpc, url, inproc_tab):
         pixels["pass"] = added("shown") and (not after or added("after_restart"))
     row["pixels"] = pixels
     return True
+
+
+def input_rows(rpc, url, title, click_point, borders, host_pid):
+    """The host page's input paths, each a pass/fail row (the page's focus is DevTools focus emulation, its window
+    never key): typing and the caret, focus and blur when cmux's focus moves out and back, copy and paste through
+    cmux's Edit menu, and Chromium's own native UI (context menu, <select>, alert, file picker) with the frontmost
+    pid and the host's activation counters. IME, find (Cmd-F) and drag are not forwarded by the prototype (slice 2,
+    section 4 of the design): rows say so instead of testing."""
+    rows = {}
+    stats = lambda: probe_stats(title()) or {}
+    counters = lambda: rpc("debug.chromium_host.measure", {"op": "input"}) or {}
+
+    def front_ok():
+        # The running host's pid: native rows restart it.
+        return front_pid() != ((rpc("debug.chromium_host") or {}).get("pid") or host_pid)
+
+    # 1. Typing and the caret: the field holds what was typed, has the focus, and the caret is at its end.
+    rpc("debug.mouse", click_point("t"))
+    before = stats().get("field") or 0
+    for _ in range(5):
+        rpc("debug.key", {"key": "a"})
+    after = wait(lambda: (lambda st: st if (st.get("field") or 0) >= before + 5 else None)(stats()), 5) or stats()
+    rows["typing"] = {"field_before": before, "field_after": after.get("field"), "active": after.get("active"),
+                      "has_focus": after.get("has_focus"), "caret": after.get("caret")}
+    rows["typing"]["pass"] = (after.get("field") or 0) >= before + 5 and after.get("active") == "t" and \
+        after.get("has_focus") is True and after.get("caret") == after.get("field")
+
+    # 2. Focus out of the page (a click on the left pane) and back (a click on the page): one blur, one focus.
+    start = stats()
+    left = min(borders, key=lambda b: b[0])
+    rpc("debug.mouse", {"x": left[0] + left[2] / 2, "y": left[1] + left[3] / 2})
+    out = wait(lambda: (lambda st: st if (st.get("blur") or 0) > (start.get("blur") or 0) else None)(stats()), 5) or stats()
+    rpc("debug.mouse", click_point("t"))
+    back = wait(lambda: (lambda st: st if (st.get("focus") or 0) > (out.get("focus") or 0) else None)(stats()), 5) or stats()
+    rows["focus_moves"] = {"blur": (out.get("blur") or 0) - (start.get("blur") or 0),
+                           "focus": (back.get("focus") or 0) - (out.get("focus") or 0),
+                           "has_focus_out": out.get("has_focus"), "has_focus_back": back.get("has_focus")}
+    rows["focus_moves"]["pass"] = rows["focus_moves"]["blur"] == 1 and rows["focus_moves"]["focus"] == 1 and \
+        out.get("has_focus") is False and back.get("has_focus") is True
+
+    # 3. Copy and paste through cmux's Edit menu (Cmd-A, Cmd-C, Delete, Cmd-V): the field's text comes back.
+    typed = stats().get("field") or 0
+    rpc("debug.key", {"key": "a", "modifiers": ["cmd"]})
+    rpc("debug.key", {"key": "c", "modifiers": ["cmd"]})
+    rpc("debug.key", {"key": "delete"})
+    cleared = wait(lambda: (lambda st: st if st.get("field") == 0 else None)(stats()), 5) or stats()
+    rpc("debug.key", {"key": "v", "modifiers": ["cmd"]})
+    pasted = wait(lambda: (lambda st: st if st.get("field") == typed else None)(stats()), 5) or stats()
+    rows["copy_paste"] = {"typed": typed, "cleared": cleared.get("field"), "pasted": pasted.get("field")}
+    rows["copy_paste"]["pass"] = typed > 0 and cleared.get("field") == 0 and pasted.get("field") == typed
+
+    # 4. Chromium's native UI from the host process. Each one in a fresh host (close, open), so a UI that stays
+    # open (a menu, a modal panel) cannot leak into the next row.
+    def native(name, action):
+        start_counters = counters()
+        action()
+        time.sleep(1.5)  # test harness: the UI opens (a menu, a dialog, a panel)
+        end_counters = counters()
+        out = {"front_is_host": not front_ok(), "page": {k: stats().get(k) for k in ("dialogs", "menus")},
+               "activations": (end_counters.get("activations") or 0) - (start_counters.get("activations") or 0),
+               "key_windows": (end_counters.get("key_windows") or 0) - (start_counters.get("key_windows") or 0)}
+        out["pass"] = not out["front_is_host"] and out["activations"] == 0 and out["key_windows"] == 0
+        rpc("debug.chromium_host", {"op": "close"})
+        rpc("debug.chromium_host", {"op": "open", "url": url, "focus": True})
+        wait(lambda: (lambda r: r if r.get("shown_context_id") and (r.get("title") or "").startswith("probe ") else None)(
+            rpc("debug.chromium_host") or {}), 60, 0.25)
+        rows[name] = out
+
+    native("context_menu", lambda: rpc("debug.mouse", {**click_point("t"), "button": "right"}))
+    native("select_popup", lambda: rpc("debug.mouse", click_point("s")))
+    native("alert", lambda: rpc("debug.mouse", click_point("al")))
+    native("file_picker", lambda: rpc("debug.mouse", click_point("f")))
+    rows["not_forwarded"] = {"ime": "no NSTextInputClient in ChromiumHostPageView; windowed Ime* are DCHECK(false) in CEF (slice 2)",
+                             "find": "Cmd-F has no host path (slice 3, the shim behind the wire)",
+                             "drag": "drag and drop is not forwarded (slice 4)",
+                             "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
+    return rows
 
 
 def run_lifetime(app, url):
