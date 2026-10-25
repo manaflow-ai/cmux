@@ -12,7 +12,7 @@ async fn listed(daemon: &Daemon, session: &str) -> Value {
         .unwrap_or(Value::Null)
 }
 
-/// huge-blue, 2026-10-25: 77 Codex chats read `running` for a day. Each Codex sent its model
+/// huge-blue, 2026-10-25: 72 Codex chats read `running` for a day. Each Codex sent its model
 /// request, never heard back and lived on with the turn open, ignoring the cancel; each daemon
 /// restart adopted its host and rebuilt the turn as just started. The adopted turn keeps its
 /// logged start, and once its model has said nothing for `stalledTurnMs` (counted from the log,
@@ -74,4 +74,43 @@ async fn an_adopted_turn_whose_model_went_quiet_ends_as_stalled_and_frees_its_ag
     assert!(row["turn"].is_null(), "{row}");
     assert_eq!(row["lastTurn"]["detail"], "stalled", "{row}");
     assert!(gone_within(harness_pid, Duration::from_secs(20)), "the stalled agent still runs");
+}
+
+/// An adopted turn quiet inside a tool call that had not ended when the daemon restarted still
+/// gets four periods: its open tool calls come from the log too.
+#[tokio::test]
+async fn an_adopted_turn_inside_an_open_tool_call_gets_four_periods() {
+    let mut daemon = Daemon::new("stalltool", "approve-all");
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
+               "permissionPolicy": "approve-all", "stalledTurnMs": 2500})
+        .to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "tool-hang"}]}),
+        )
+        .await;
+    let heard = daemon.wait_event(&session, "open tool call", |e| {
+        e["kind"] == "tool_call" && e["msg"]["params"]["update"]["toolCallId"] == "th-1"
+    })["at"]
+        .as_u64()
+        .unwrap();
+    daemon.sigterm();
+    drop(client);
+    std::thread::sleep(Duration::from_secs(1));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["detail"], "stalled", "{result}");
+    let at = result["at"].as_u64().unwrap();
+    assert!(at >= heard + 10_000, "ended inside its open tool call before 4 periods: {result}");
 }

@@ -30,7 +30,7 @@ async fn start(c: &mut TestClient, id: &str, text: &str, word: &str) {
     .await;
 }
 
-/// huge-blue, 2026-10-25: 77 Codex chats read `running` for a day, each turn waiting on a model
+/// huge-blue, 2026-10-25: 72 Codex chats read `running` for a day, each turn waiting on a model
 /// request that never came back. A turn nobody holds ends `stalledTurnMs` after its model's last
 /// sign; one a client shows waits until it lets go; 0 turns the check off.
 #[tokio::test]
@@ -125,4 +125,75 @@ async fn a_turn_whose_model_keeps_working_is_not_stalled() {
     let ended = until_results(&hub, &id, 1).await;
     assert_eq!(ended.len(), 1, "{ended:?}");
     assert_eq!(ended[0]["status"], "completed", "{ended:?}");
+}
+
+/// A long command that prints nothing is work: a turn quiet inside a tool call that has not
+/// ended gets four periods, and then a tool that never ends no longer holds it.
+#[tokio::test]
+async fn a_turn_quiet_inside_an_open_tool_call_gets_four_periods() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    let id = new_session(&mut c, "stall-tool").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "tool-hang", None)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| {
+        p["sessionId"] == id && p["update"]["toolCallId"] == "th-1"
+    })
+    .await;
+    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+
+    clock.advance(Duration::from_secs(61));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    clock.advance(Duration::from_secs(120));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(results(&hub, &id).is_empty(), "a turn inside a running tool was ended at 3 min");
+
+    clock.advance(Duration::from_secs(60));
+    let ended = until_results(&hub, &id, 1).await;
+    assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
+    assert!(ended[0]["stalledMs"].as_u64().unwrap() >= 240_000, "{ended:?}");
+}
+
+/// A turn that failed over to its fallback profile (a usage limit) and whose fallback then went
+/// quiet still ends: the fallback's prompt takes the forced end too.
+#[tokio::test]
+async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let profile = |fallback: Option<&str>, env: &[(&str, &str)]| HarnessProfile {
+        kind: Default::default(),
+        argv: vec!["python3".into(), fake.into()],
+        env: env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect(),
+        description: None,
+        fallback: fallback.map(str::to_owned),
+        family: None,
+        models: vec![],
+        model: None,
+        effort: None,
+        policy: None,
+    };
+    let mut agents = BTreeMap::new();
+    agents.insert("fake".to_owned(), profile(Some("fake-pool"), &[]));
+    agents.insert("fake-pool".to_owned(), profile(None, &[("FAKE_FALLBACK", "1")]));
+    let mut cfg =
+        Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
+    cfg.store.mode = StoreMode::Memory;
+    cfg.permission_policy = PermissionPolicy::ApproveAll;
+    cfg.stalled_turn_ms = Some(60_000);
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    let mut c = connect(&hub).await;
+    let id = new_session(&mut c, "stall-failover").await;
+    start(&mut c, &id, "limit-then-hang", "working").await;
+    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    assert_eq!(find(&events, "failover").len(), 1, "no failover");
+
+    clock.advance(Duration::from_secs(61));
+    let ended = until_results(&hub, &id, 1).await;
+    assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
 }

@@ -874,6 +874,22 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "tool-hang" starts a tool call that never ends and says nothing more: a long command that
+    # prints nothing, or a hung one (`hub/stalled_turn.rs`).
+    if text == "tool-hang":
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "th-1", "title": "Run a long build",
+                     "kind": "execute", "status": "in_progress"})
+        time.sleep(3600)
+        return
+    # "limit-then-hang": a usage limit, then on the fallback profile (FAKE_FALLBACK=1) one word
+    # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
+    if text == "limit-then-hang":
+        if os.environ.get("FAKE_FALLBACK") != "1":
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            return
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
+        time.sleep(3600)
+        return
     # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
     # each sign well inside the stall limit (`hub/stalled_turn.rs`).
     if text.startswith("ticking:"):
