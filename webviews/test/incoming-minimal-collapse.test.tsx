@@ -157,3 +157,32 @@ test("the line opens with no fade-in, its height alone moving; closing fades out
     Object.assign(foldMotion, motion);
   }
 });
+
+test("in Minimal Mode a closed message estimates as its line; one opened in this chat as its whole card", async () => {
+  const { layoutConversation } = await import("../src/agent-session/acpmux/model");
+  const { setMessageOpened } = await import("../src/agent-session/acpmux/conversation/incomingOpened");
+  const long = Array.from({ length: 14 }, (_, index) => `Line ${index + 1} of the landing report.`).join("\n");
+  const row = {
+    id: "estimate-1",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: long,
+    incoming: { kind: "message", message: { name: "grid-lane", text: long, raw: long } },
+  };
+  const height = (sessionId: string) =>
+    layoutConversation([row] as never, 720, new Map(), undefined, undefined, undefined, sessionId).heights[0]!;
+  const normal = height("chat-a");
+  setChatDisplay({ [MINIMAL_MODE_KEY]: true });
+  try {
+    const closed = height("chat-a");
+    expect(closed).toBeLessThan(normal);
+    setMessageOpened("chat-a", "estimate-1", true);
+    // Opened: the whole card, longer than normal mode's eight-line cut; another chat's row of the
+    // same id stays closed.
+    expect(height("chat-a")).toBeGreaterThan(normal);
+    expect(height("chat-b")).toBe(closed);
+  } finally {
+    setMessageOpened("chat-a", "estimate-1", false);
+  }
+});

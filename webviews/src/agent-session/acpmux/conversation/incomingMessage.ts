@@ -86,30 +86,46 @@ function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "
 /// line read as written, up to the fence that closes it (its marker, at least as long, alone).
 export function messagePreview(text: string): string {
   const lines = text.split("\n");
-  // The labels the message defines, which a shortcut reference (`[docs]`) names.
+  // The labels the message defines outside its code, which a reference (`[docs]`, `[text][docs]`) names.
   const defined = new Set<string>();
+  let fence: Fence | undefined;
   for (const raw of lines) {
-    const definition = LINK_DEFINITION.exec(raw);
+    const code = fenceStep(raw, fence);
+    fence = code.fence;
+    const definition = code.marker || code.inside ? null : LINK_DEFINITION.exec(raw);
     if (definition) defined.add(linkLabel(definition[1]!));
   }
-  let fence: { mark: string; length: number } | undefined;
+  fence = undefined;
   for (const raw of lines) {
-    if (fence) {
-      const closing = FENCE_CLOSE.exec(raw);
-      if (closing && closing[1]![0] === fence.mark && closing[1]!.length >= fence.length) fence = undefined;
-      else if (raw.trim()) return clip(raw);
+    const code = fenceStep(raw, fence);
+    fence = code.fence;
+    if (code.marker) continue;
+    if (code.inside) {
+      if (raw.trim()) return clip(raw);
       continue;
     }
-    const opening = FENCE.exec(raw);
-    if (opening) {
-      fence = { mark: opening[1]![0]!, length: opening[1]!.length };
-      continue;
-    }
-    if (LINK_DEFINITION.test(raw)) continue;
+    if (LINK_DEFINITION.test(raw) || THEMATIC_BREAK.test(raw)) continue;
     const line = inlineText(raw.replace(LINE_LEAD, ""), defined);
     if (line) return clip(line);
   }
   return "";
+}
+
+/// An open code fence: its marker's character and length.
+type Fence = { mark: string; length: number };
+
+/// `raw` read against the open `fence`: whether it opens or closes one (`marker`), whether it is a
+/// line of code (`inside`), and the fence open after it.
+function fenceStep(raw: string, fence: Fence | undefined): { fence?: Fence; marker: boolean; inside: boolean } {
+  if (fence) {
+    const closing = FENCE_CLOSE.exec(raw);
+    if (closing && closing[1]![0] === fence.mark && closing[1]!.length >= fence.length)
+      return { marker: true, inside: false };
+    return { fence, marker: false, inside: true };
+  }
+  const opening = FENCE.exec(raw);
+  if (opening) return { fence: { mark: opening[1]![0]!, length: opening[1]!.length }, marker: true, inside: false };
+  return { marker: false, inside: false };
 }
 
 /// A code fence's opening line: three or more backticks or tildes, an info string after them.
@@ -118,6 +134,8 @@ const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 const FENCE_CLOSE = /^\s{0,3}(`{3,}|~{3,})\s*$/;
 /// A reference link's definition: `[id]: https://… "title"`.
 const LINK_DEFINITION = /^\s{0,3}\[([^\]\n]+)\]:\s*\S/;
+/// A thematic break: three or more of one of `-`, `*` or `_`, spaces between them allowed.
+const THEMATIC_BREAK = /^\s{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
 /// A link label as references match it: case and runs of spaces ignored.
 const linkLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
 /// A line's leading marks, nested: quotes, a heading, a list item (with a task box).
@@ -135,7 +153,8 @@ function inlineText(line: string, defined: ReadonlySet<string>): string {
 }
 
 /// `line` with each link and image as its label: `[label](url "title")`, a URL with balanced
-/// parentheses in it, `[label][id]`, `[label][]`, and `[label]` when the message defines it.
+/// parentheses in it; by reference, `[label][id]`, `[label][]` and `[label]`, only when the message
+/// defines the id (or the label); an undefined reference stays as written.
 function withoutLinks(line: string, defined: ReadonlySet<string>): string {
   let out = "";
   let at = 0;
@@ -145,6 +164,18 @@ function withoutLinks(line: string, defined: ReadonlySet<string>): string {
     const close = labelEnd(line, open);
     if (close < 0) break;
     const label = line.slice(open + 1, close);
+    if (line[close + 1] === "[") {
+      const idEnd = line.indexOf("]", close + 2);
+      const end = idEnd < 0 ? close + 1 : idEnd + 1;
+      const id = idEnd < 0 ? undefined : line.slice(close + 2, idEnd) || label;
+      const image = open > at && line[open - 1] === "!";
+      out +=
+        id !== undefined && defined.has(linkLabel(id))
+          ? line.slice(at, image ? open - 1 : open) + label
+          : line.slice(at, end);
+      at = end;
+      continue;
+    }
     const after = linkEnd(line, close + 1);
     if (after < 0 && !defined.has(linkLabel(label))) {
       out += line.slice(at, close + 1);
@@ -170,13 +201,9 @@ function labelEnd(line: string, open: number): number {
   return -1;
 }
 
-/// Where a link's target that starts at `from` ends: past `(url "title")`, its parentheses balanced,
-/// or past `[id]`; -1 when none starts there.
+/// Where an inline link's target that starts at `from` ends: past `(url "title")`, its parentheses
+/// balanced; -1 when none starts there.
 function linkEnd(line: string, from: number): number {
-  if (line[from] === "[") {
-    const close = line.indexOf("]", from);
-    return close < 0 ? -1 : close + 1;
-  }
   if (line[from] !== "(") return -1;
   let depth = 0;
   let quote: string | undefined;

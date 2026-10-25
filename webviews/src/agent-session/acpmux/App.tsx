@@ -2490,6 +2490,7 @@ export function VirtualTranscript({
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
       !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
+      sessionId,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };

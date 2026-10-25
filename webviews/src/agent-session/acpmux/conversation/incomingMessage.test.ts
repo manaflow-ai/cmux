@@ -537,9 +537,22 @@ test("a message's closed line previews its first line of text, its spaces collap
   // Links: parentheses in the URL, a title, by reference, an image, an autolink.
   expect(messagePreview("See [the docs](https://example.com/a_(b)_c) now")).toBe("See the docs now");
   expect(messagePreview('Read [the guide](https://example.com/g "Guide (v2)") first')).toBe("Read the guide first");
-  expect(messagePreview("Opened [PR 12][pr] and [notes][]\n\n[pr]: https://example.com/12")).toBe(
-    "Opened PR 12 and notes",
+  expect(
+    messagePreview("Opened [PR 12][pr] and [notes][]\n\n[pr]: https://example.com/12\n[Notes]: https://example.com/n"),
+  ).toBe("Opened PR 12 and notes");
+  // A reference whose id (or, for `[label][]`, label) the message does not define stays as written.
+  expect(messagePreview("Opened [PR 12][nope] and [notes][]")).toBe("Opened [PR 12][nope] and [notes][]");
+  // A definition inside fenced code defines nothing.
+  expect(messagePreview("Read [docs] first\n\n```md\n[docs]: https://example.com/docs\n```")).toBe(
+    "Read [docs] first",
   );
+  expect(messagePreview("Read [docs] first\n\n~~~\n[docs]: x\n~~~\n[docs]: https://example.com/docs")).toBe(
+    "Read docs first",
+  );
+  // A thematic break is no text, with spaces between its marks or none.
+  expect(messagePreview("---\nShipped the fix.")).toBe("Shipped the fix.");
+  expect(messagePreview("* * *\n  _ _ _\n***\nAfter the rules")).toBe("After the rules");
+  expect(messagePreview("--\nTwo dashes are text")).toBe("--");
   expect(messagePreview("[pr]: https://example.com/12\nShipped.")).toBe("Shipped.");
   expect(messagePreview("![chart](https://example.com/c.png) attached")).toBe("chart attached");
   expect(messagePreview("Logs at <https://example.com/log>")).toBe("Logs at https://example.com/log");

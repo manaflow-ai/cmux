@@ -49,6 +49,7 @@ import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
 import { mentionedRepository } from "../../../githubReferences";
 import { useChatDisplay } from "../chatDisplay";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { messageOpened, setMessageOpened } from "./incomingOpened";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -58,8 +59,6 @@ const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
   descendant: "message.from.descendant",
 };
 
-/// The messages the person opened, by chat and row (row ids repeat across chats).
-const opened = new Set<string>();
 /// The messages whose reply is open, and the reply drafts, by the same key.
 const replying = new Set<string>();
 const replyDrafts = new Map<string, string>();
@@ -91,11 +90,13 @@ export function IncomingMessageLine({
   githubRepository?: string;
 }) {
   const t = useT();
-  const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
-  const [open, setOpen] = useState(() => opened.has(key));
+  const session = useContext(PromptMarksSession);
+  const key = `${session ?? ""}\u0000${id}`;
+  // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
+  // estimator reads it.
+  const [open, setOpen] = useState(() => messageOpened(session, id));
   const show = (next: boolean) => {
-    if (next) opened.add(key);
-    else opened.delete(key);
+    setMessageOpened(session, id, next);
     setOpen(next);
   };
   const toggleButton = useRef<HTMLButtonElement>(null);

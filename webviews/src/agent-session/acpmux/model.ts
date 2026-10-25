@@ -1175,6 +1175,7 @@ function measuredRowHeight(
   cache: Map<string, PreparedRow>,
   beforeFooter = false,
   lastTurn = false,
+  sessionId?: string,
 ): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
@@ -1191,13 +1192,16 @@ function measuredRowHeight(
   // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
   if (row.incoming?.kind === "message") {
-    // In Minimal Mode the closed message is its line alone, images too (opened, the row measures itself).
-    if (chatDisplay().minimal) return finish(26 + 4 + MESSAGE_GAP);
+    // In Minimal Mode a closed message is its line alone, images too; one the person opened
+    // (incomingOpened.ts) is its whole card, uncut.
+    const minimal = chatDisplay().minimal;
+    const opened = minimal && messageOpened(sessionId, row.id);
+    if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
     const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const card = 4 + 16 + Math.min(lines, RECEIVED_LINES * lineHeight) + 6;
+    const card = 4 + 16 + (opened ? lines : Math.min(lines, RECEIVED_LINES * lineHeight)) + 6;
     return finish(26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0));
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
@@ -1262,6 +1266,8 @@ export function layoutConversation(
   /// The last layout at this width, whose rows (by object) the new rows may start with: those
   /// keep their places, and only the rows after the first change are placed again.
   previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
+  sessionId?: string,
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
@@ -1294,7 +1300,7 @@ export function layoutConversation(
       height =
         customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
           ? customHeight
-          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last-turn");
+          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last-turn", sessionId);
       known?.set(row, { width, height, edge });
     }
     heights[index] = height;
@@ -1412,6 +1418,7 @@ import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
 import { chatDisplay, currentChatMetrics } from "./chatDisplay";
+import { messageOpened } from "./conversation/incomingOpened";
 
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(
