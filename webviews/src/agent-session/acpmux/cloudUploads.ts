@@ -41,6 +41,9 @@ export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS): Call {
     });
 }
 
+/// Thrown inside an upload the person cancelled; never a note.
+const CANCELLED = new Error("cancelled");
+
 function notTaken(error: unknown): boolean {
   return NOT_TAKEN.has((error as { code?: string } | null)?.code ?? "");
 }
@@ -60,13 +63,24 @@ function uploadedPaths(value: unknown): string[] {
     : [];
 }
 
-export async function uploadToMachine(files: File[], host: Call): Promise<UploadResult> {
+/// `cancelled(index)`: the person took file `index` away (its tile's x). Checked before each chunk:
+/// its upload stops there, the host drops what it staged, and its path is "" (Leo, 2026-10-25:
+/// "...from cancelling the thing").
+export async function uploadToMachine(
+  files: File[],
+  host: Call,
+  cancelled: (index: number) => boolean = () => false,
+): Promise<UploadResult> {
   const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
   const paths: string[] = [];
   const manifest = files.map(({ name, size }) => ({ name, size }));
   let batchToken: string | undefined;
-  for (const file of files) {
+  for (const [index, file] of files.entries()) {
+    if (cancelled(index)) {
+      paths.push("");
+      continue;
+    }
     let started: unknown;
     try {
       started = await call("chat.upload.begin", {
@@ -94,6 +108,7 @@ export async function uploadToMachine(files: File[], host: Call): Promise<Upload
         throw new Error("The upload could not be started.");
       const chunkSize = Math.min(Number(begin.chunkSize), CHUNK_BYTES);
       for (let offset = 0; offset < file.size;) {
+        if (cancelled(index)) throw CANCELLED;
         const end = Math.min(file.size, offset + chunkSize);
         const bytes = new Uint8Array(await file.slice(offset, end).arrayBuffer());
         if (bytes.length !== end - offset) throw new Error("The file could not be read.");
@@ -107,6 +122,10 @@ export async function uploadToMachine(files: File[], host: Call): Promise<Upload
     } catch (error) {
       // Straight to the host, not behind another step deadline.
       void host("chat.upload.cancel", { token }).catch(() => undefined);
+      if (error === CANCELLED) {
+        paths.push("");
+        continue;
+      }
       return { error: error instanceof Error ? error.message : String(error) };
     }
   }
