@@ -104,9 +104,15 @@ struct AgentPageProviderEventsTests {
         let provider = AgentPageProvider { _ in nil }
         let router = PageRouter(descriptor: .agent, routes: [PageRoute(prefix: AgentPageOps.namespace, provider: provider)])
         var dropped: (@MainActor () -> Void)?
-        router.sendWithDrop = { _, onDrop in dropped = onDrop }
+        // A new subscription's events go out on a later main-actor turn (#24617): wait for the send.
+        let sent = CountWaiter(1)
+        router.sendWithDrop = { _, onDrop in
+            dropped = onDrop
+            sent.add()
+        }
         _ = await router.handle(["t": .string("sub"), "id": .number(1), "stream": .string(AgentPageProvider.hostEvents)])
         provider.publish(Self.command("router-reset"))
+        await sent.wait()
         #expect(dropped != nil)
         router.close()
         dropped?()

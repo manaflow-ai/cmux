@@ -44,9 +44,9 @@ enum StashHandlers {
                 guard !ids.isEmpty else { throw ActionFailure.invalidTarget(StashHandlerStrings.noPage) }
                 save(invocation, services, workspaces: false, toastIn: services.windows.active?.window) { try await stash.stash(tabs: ids) }
             })
-            // A tab menu shows the row disabled with the reason; nothing to look up without a tab target.
+            // A tab menu row and the palette's run on the focused tab (no target) show the same reason.
             ActionTargetReasons.set(id, in: registry) { invocation in
-                guard invocation.target?.kind == .tab, let found = try? pages(scope, invocation, context, quiet: true) else { return nil }
+                guard invocation.target.map({ $0.kind == .tab }) ?? true, let found = try? pages(scope, invocation, context, quiet: true) else { return nil }
                 return found.isEmpty ? StashHandlerStrings.noPage : nil
             }
             ActionTargetVisibility.hide(id, in: registry) { invocation in
@@ -101,7 +101,10 @@ enum StashHandlers {
         let services = context.services
         let found: (TabModel, PaneModel)?
         if quiet {
-            found = invocation.target.flatMap { $0.kind == .tab ? services.locateTab($0.id) : nil }
+            // No target: the focused pane's selected tab, as the run takes it (`daemonTab`), with no refusal.
+            let focused = services.windows.active?.focusedPane
+            found = invocation.target.map { $0.kind == .tab ? services.locateTab($0.id) : nil }
+                ?? focused.flatMap { pane in pane.stripModel.selectedID.flatMap { pane.tab($0) }.map { ($0, pane.pane) } }
         } else {
             found = context.daemonTab(invocation).map { ($0.tab, $0.pane) }
         }
