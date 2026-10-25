@@ -176,9 +176,16 @@ fn only_tls_or_loopback_carries_a_ticket() {
 #[test]
 fn the_read_only_gate_allows_reads_and_nothing_else() {
     use crate::rpc::method::*;
-    for m in
-        [INITIALIZE, SESSION_LIST, MUX_SESSIONS, MUX_WATCH, MUX_ATTACH, MUX_EVENTS, MUX_HISTORY]
-    {
+    for m in [
+        INITIALIZE,
+        SESSION_LIST,
+        MUX_SESSIONS,
+        MUX_WATCH,
+        MUX_ATTACH,
+        MUX_EVENTS,
+        MUX_HISTORY,
+        MUX_RESOLVE,
+    ] {
         assert!(read_only_allows(m), "{m}");
     }
     for m in [
@@ -284,4 +291,27 @@ fn a_read_only_or_daemon_machine_never_has_full_access() {
     s.devices[0].full_access = true;
     s.devices[1].full_access = true;
     assert!(s.devices.iter().all(|d| !d.grants_full_access()));
+}
+
+#[test]
+fn a_new_phone_credential_ends_the_old_one_and_keeps_its_setting() {
+    let mut s = Store::default();
+    let (first, replaced) = s.issue_phone("phone-a", &"01".repeat(32), "dv_1", T0).unwrap();
+    assert!(replaced.is_none() && !first.grants_full_access(), "off by default");
+    assert!(s.set_full_access("phone-a", true).unwrap().grants_full_access());
+    let (second, replaced) = s.issue_phone("phone-a", &"02".repeat(32), "dv_2", T0 + 1).unwrap();
+    assert_eq!(replaced.as_deref(), Some("dv_1"));
+    assert!(second.grants_full_access());
+    assert_eq!(s.devices, vec![second], "one record per phone, the old one gone");
+    assert!(s.device_for(&"01".repeat(32)).is_none());
+    assert_eq!(s.device_for(&"02".repeat(32)).map(|d| d.id.as_str()), Some("dv_2"));
+    // Another role's live record keeps its name, and a refused issue changes nothing.
+    s.issue("laptop", Role::Client, &"03".repeat(32), "dv_3", None, T0).unwrap();
+    let before = s.clone();
+    assert_eq!(
+        reason(&s.issue_phone("laptop", &"04".repeat(32), "dv_4", T0).unwrap_err()),
+        "name_taken"
+    );
+    assert!(s.issue_phone("bad name", &"05".repeat(32), "dv_5", T0).is_err());
+    assert_eq!(s, before);
 }

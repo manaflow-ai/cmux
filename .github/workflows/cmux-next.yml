@@ -2109,7 +2109,7 @@ jobs:
           # CmuxNextApp). The app check cannot vouch for them.
           for target in $SWIFT_CANARY_TARGETS; do
             case "$target" in
-              CmuxNextAppPermissions|CmuxNextServerHelperDaemon)
+              CmuxNextAppPermissions|CmuxNextServerHelperDaemon|CmuxNextUiLayerPreview)
                 echo "::notice title=Build fleet compile check::$target is not linked into the app; the Mac canary runs."
                 echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
                 exit 0 ;;
@@ -4258,7 +4258,8 @@ jobs:
         timeout-minutes: 5
         env:
           GH_TOKEN: ${{ github.token }}
-          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || vars.CI_NEXT_DEV_PRODUCT_REUSE == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
+          # format(): an unset variable is null, and null == '0' is true (both coerce to the number 0).
+          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
           # A repository variable the compile step reads changes the product but not this file: key it.
           SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
         run: |

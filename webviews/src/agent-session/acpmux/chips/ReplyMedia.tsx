@@ -268,7 +268,9 @@ function useMediaPreviewAllowed(): boolean {
 export function VideoThumbnail({ src, name, onError }: { src: string; name: string; onError(): void }) {
   const t = useT();
   const video = useRef<HTMLVideoElement>(null);
+  const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const [duration, setDuration] = useState<string | undefined>();
   const previewAllowed = useMediaPreviewAllowed();
   const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
@@ -279,6 +281,25 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
   }, [dismiss, previewAllowed]);
 
   useEffect(() => {
+    if (started || !hovered || !previewAllowed) return;
+    const element = video.current;
+    const cancel = () => {
+      if (startedRef.current) return;
+      dismiss();
+      if (element?.muted) element.pause();
+    };
+    document.addEventListener("scroll", cancel, true);
+    document.addEventListener("visibilitychange", cancel);
+    window.addEventListener("pagehide", cancel);
+    return () => {
+      if (!startedRef.current) cancel();
+      document.removeEventListener("scroll", cancel, true);
+      document.removeEventListener("visibilitychange", cancel);
+      window.removeEventListener("pagehide", cancel);
+    };
+  }, [dismiss, hovered, previewAllowed, started]);
+
+  useEffect(() => {
     const element = video.current;
     if (!element || started) return;
     if (previewing) void element.play()?.catch(() => {});
@@ -287,6 +308,7 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
 
   const play = () => {
     const element = video.current;
+    startedRef.current = true;
     dismiss();
     setStarted(true);
     if (!element) return;
@@ -324,9 +346,11 @@ export function VideoThumbnail({ src, name, onError }: { src: string; name: stri
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
           onMouseEnter={() => {
+            setHovered(true);
             if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
           }}
           onMouseLeave={() => {
+            setHovered(false);
             setHover(null);
           }}
         >

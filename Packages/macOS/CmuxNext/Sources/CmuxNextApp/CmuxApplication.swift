@@ -54,6 +54,13 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
     var mouseDownObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: a left mouse-up, or a left-button drag, after AppKit dispatched it.
+    var leftButtonObserver: ((NSEvent) -> Void)?
+    /// Set once by `AppServices`: a key-down, before anything handles it.
+    var keyDownObserver: ((NSEvent) -> Void)?
+    /// Where the left mouse-down in dispatch went down (screen coordinates), taken before AppKit
+    /// dispatched it: a titlebar press's window drag has moved the window by the time it returns.
+    private(set) var mouseDownScreenLocation: NSPoint?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -113,6 +120,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func dispatch(_ event: NSEvent) {
+        if event.type == .keyDown { keyDownObserver?(event) }
+        if event.type == .leftMouseDown {
+            mouseDownScreenLocation = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? event.locationInWindow
+        }
         if event.type == .keyDown {
             // Router-consumed keys never reach AppKit local event monitors.
             (Self.accessibilityWindow(for: keyWindow ?? event.window)?.windowController as? WindowController)?.hideShortcutHintsForKeyDown(event)
@@ -125,6 +136,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
             super.sendEvent(event)
         }
         if event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown { BenchSpans.measure("app.mouseDownObserver") { mouseDownObserver?(event) } }
+        if event.type == .leftMouseUp || event.type == .leftMouseDragged { leftButtonObserver?(event) }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
         if event.type == .mouseMoved { ArrowCursorView.pointerDidMove() }

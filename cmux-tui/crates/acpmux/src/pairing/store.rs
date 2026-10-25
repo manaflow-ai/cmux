@@ -120,9 +120,10 @@ impl Device {
     }
 
     /// Whether the setting covers this record now: a live `client` machine
-    /// with it on. A read-only or daemon-role record never drives chats here.
+    /// or `phone` with it on. A read-only or daemon-role record never drives
+    /// chats here.
     pub fn grants_full_access(&self) -> bool {
-        self.full_access && self.revoked_ms.is_none() && self.role == Role::Client
+        self.full_access && self.revoked_ms.is_none() && self.role.drives_chats()
     }
 }
 
@@ -306,9 +307,47 @@ impl Store {
         found.filter(|d| d.revoked_ms.is_none())
     }
 
+    /// `Pairing::issue_phone`: a new `phone` record named `name`. It replaces
+    /// the live phone record of that name (removed here, its id returned so
+    /// its connections close) and takes its Full-access setting, so a phone
+    /// the app issues a credential for at each launch keeps one record. A
+    /// live record of another role keeps its name (`name_taken`).
+    pub fn issue_phone(
+        &mut self,
+        name: &str,
+        token: &str,
+        id: &str,
+        now_ms: u64,
+    ) -> Result<(Device, Option<String>), RpcError> {
+        let old = self
+            .devices
+            .iter()
+            .position(|d| d.revoked_ms.is_none() && d.name == name && d.role == Role::Phone);
+        // Names are unique among live records: set the old one aside for the issue's check.
+        if let Some(at) = old {
+            self.devices[at].revoked_ms = Some(now_ms);
+        }
+        let mut device = match self.issue(name, Role::Phone, token, id, None, now_ms) {
+            Ok(device) => device,
+            Err(e) => {
+                if let Some(at) = old {
+                    self.devices[at].revoked_ms = None;
+                }
+                return Err(e);
+            }
+        };
+        let Some(at) = old else { return Ok((device, None)) };
+        let previous = self.devices.remove(at);
+        device.full_access = previous.full_access;
+        if let Some(new) = self.devices.iter_mut().find(|d| d.id == id) {
+            new.full_access = previous.full_access;
+        }
+        Ok((device, Some(previous.id)))
+    }
+
     /// Turn the Full-access setting of the live device with id or name `key`
-    /// on or off. Only a `client` machine drives chats here, so only one can
-    /// have it on; turning it off is always accepted.
+    /// on or off. Only a `client` machine or a `phone` drives chats here, so
+    /// only one can have it on; turning it off is always accepted.
     pub fn set_full_access(&mut self, key: &str, on: bool) -> Result<Device, RpcError> {
         let at = self
             .devices
@@ -320,9 +359,9 @@ impl Store {
                     .with_data(json!({"reason": "not_found"}))
             })?;
         let d = &mut self.devices[at];
-        if on && d.role != Role::Client {
+        if on && !d.role.drives_chats() {
             return Err(RpcError::invalid_params(format!(
-                "{} is paired {}: only a client machine drives chats here, so only one can run them in Full access",
+                "{} is paired {}: only a client machine or a phone drives chats here, so only one can run them in Full access",
                 d.name,
                 d.role.as_str()
             ))

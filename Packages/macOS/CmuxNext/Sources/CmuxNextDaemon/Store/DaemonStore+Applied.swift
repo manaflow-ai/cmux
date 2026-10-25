@@ -24,7 +24,7 @@ extension DaemonStore {
     public func whenApplied(_ transaction: ClientTransactionID, reaching sequence: UInt64? = nil,
                             _ body: @escaping @MainActor () -> Void) {
         // A read-your-writes wait never waits on a script batch's stage: what it needs shows now.
-        if let stage, stage.holds(through: sequence, echo: transaction) { stage.commit(all: true) }
+        if let stage, stage.holds(through: sequence, echo: transaction) { stage.commitAll() }
         if confirmedTransactions.contains(transaction) { return body() }
         if let sequence, appliedSequence >= sequence { return body() }
         appliedWaiters.append(AppliedWaiter(transaction: transaction, sequence: sequence, body: body))

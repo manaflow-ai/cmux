@@ -349,6 +349,8 @@
               "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
+              "appearance.metrics.dividerThickness",
+              "appearance.metrics.dividerHitWidth",
               "appearance.metrics.titlebarHeight",
               "appearance.borders",
               "appearance.focusIndicator",
@@ -12458,6 +12460,123 @@
       "title" : {
         "key" : "settings.appearance.columnGap",
         "text" : "Column Gap"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        6,
+        3
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.dividerThickness",
+      "keywords" : [
+        "divider",
+        "split",
+        "pane",
+        "line",
+        "thickness",
+        "dividerThickness"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "dividerThickness"
+      ],
+      "range" : {
+        "max" : 6,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -6,
+        12,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.dividerThickness",
+        "text" : "Divider Thickness"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        24,
+        12.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.dividerHitWidth",
+      "keywords" : [
+        "divider",
+        "split",
+        "pane",
+        "drag",
+        "hit",
+        "width",
+        "dividerHitWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "dividerHitWidth"
+      ],
+      "range" : {
+        "max" : 24,
+        "min" : 1,
+        "placeholder" : 7,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -22,
+        47,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.dividerHitWidth",
+        "text" : "Divider Drag Width"
       },
       "validation" : "portable"
     },

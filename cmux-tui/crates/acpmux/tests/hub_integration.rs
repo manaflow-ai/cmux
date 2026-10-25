@@ -59,6 +59,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
 mod silent_turn;
+#[path = "hub_integration/stalled_turn.rs"]
+mod stalled_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]

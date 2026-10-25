@@ -3,7 +3,7 @@
 public import Darwin
 #endif
 
-/// Marks a call that blocks: in builds with the detector (Debug, bench, and Nightly to come), a blocking call on the main thread
+/// Marks a call that blocks: in builds with the detector (Debug, bench and Nightly), a blocking call on the main thread
 /// outside ``allowBlocking(_:_:)`` is a violation; in Release this compiles to nothing.
 ///
 /// This is cmux's `base::ScopedBlockingCall` (Chrome's `AssertBlockingAllowed`). It belongs in
@@ -14,9 +14,9 @@ public import Darwin
 ///
 /// A violation: Debug records it once per call site (one unified-log line, the Debug menu and
 /// `debug.blocking`), or stops the process when it was started with `CMUX_BLOCKING_TRAP=1`. Bench
-/// builds (`-DCMUX_BLOCKING_CHECKS`) record it for `debug.blocking`. To come: a Nightly built with
-/// `-DCMUX_BLOCKING_CHECKS` will record it and continue, and send it to the opt-in hang reports once
-/// their sink is installed.
+/// builds (`-DCMUX_BLOCKING_CHECKS`) record it for `debug.blocking`. A cmux NEXT Nightly (also built with
+/// `-DCMUX_BLOCKING_CHECKS`) records it and continues: one public unified-log line of kind + image UUID +
+/// offset frames per call site (``BlockingLogSink``); the opt-in hang reports do not carry it yet.
 /// Off the main thread the check is one `pthread_main_np()` call and one branch; a repeat of a
 /// known call site on the main thread is one table probe and one atomic add.
 ///
