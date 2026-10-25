@@ -175,7 +175,10 @@ extension TerminalController {
                         payload["resource"] = resource.id.rawValue
                         payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
                     } catch {
-                        if error is CancellationError { throw error }
+                        // Keep request cancellation as a transport timeout, but
+                        // preserve the resource when the provider cancels only
+                        // the projection after creation has already succeeded.
+                        if error is CancellationError, Task.isCancelled { throw error }
                         payload["open"] = false
                         payload["projection_failed"] = true
                         payload["projection_error"] = Self.surfaceDisplayProjectionFailureMessage
@@ -253,7 +256,10 @@ extension TerminalController {
                         payload["resource"] = resource.id.rawValue
                         payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
                     } catch {
-                        if error is CancellationError { throw error }
+                        // Keep request cancellation as a transport timeout, but
+                        // preserve the resource when the provider cancels only
+                        // the projection after creation has already succeeded.
+                        if error is CancellationError, Task.isCancelled { throw error }
                         payload["open"] = false
                         payload["projection_failed"] = true
                         payload["projection_error"] = Self.surfaceDisplayProjectionFailureMessage
