@@ -972,8 +972,13 @@ fn an_acpmux_service_someone_else_wrote_is_refused_and_a_matching_one_adopted() 
     // (written beside it and renamed, never cut), and the daemon goes back.
     // A full disk while the new text is copied in, or while the old text is
     // kept aside: the old unit stays whole (written beside it and renamed,
-    // never cut), nothing is left beside it, and the daemon goes back.
-    for (tag, full) in [("adopt-old-full", "*.service.acpmux-new"), ("adopt-old-full-backup", "*.acpmux-old.new")] {
+    // never cut), nothing is left beside it, and the daemon goes back. (The
+    // update's own refresh of the unit fails first on the same full disk,
+    // at its copy of the old text.)
+    for (tag, full) in [
+        ("adopt-old-full", "*.service.acpmux-old|*.service.acpmux-new"),
+        ("adopt-old-full-backup", "*.service.acpmux-old|*.acpmux-old.new"),
+    ] {
         let peer = FakePeer::new(tag);
         peer.under_foreign_unit(false);
         peer.write(&format!("{UNITS}/acpmux.service"), OLD_SYSTEMD_UNITS[0]);
