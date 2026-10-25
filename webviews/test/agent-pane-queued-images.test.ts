@@ -165,6 +165,16 @@ test("a queued record's images show with their bytes, and an edit's record repla
   );
   expect(edited?.prompt).toBe("why does the toolbar overlap?");
   expect(edited?.images).toEqual([{ id: SHOT_B, mimeType: "image/png", src: `data:image/png;base64,${PNG_B}` }]);
+  // Review (Codex): an edit that took the last image out omits the field; the row keeps no image.
+  const textOnly = {
+    kind: "queue_updated",
+    msg: { promptId: "p-q", text: "never mind the pictures", turnId: "turn-2", prompt: [blocks[0]] },
+  };
+  const [cleared] = await queueOf(
+    [{ ...listed, prompt: "never mind the pictures", images: [] }],
+    [...turn, queued, updated, textOnly],
+  );
+  expect(cleared?.images ?? []).toEqual([]);
 });
 
 test("a prompt sent behind the running turn with two images queues a row with both, before acpmux answers", async () => {
