@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "The daemon's feature snapshot: the generated registry table (schemas/features) and the app's snapshot from CMUX_FEATURES_SNAPSHOT or a client hello"
+description = "The daemon's feature snapshot: the generated registry table (schemas/features) resolved with CMUX_ENABLE_FEATURES/CMUX_DISABLE_FEATURES or a client hello"
 
 [lints]
 workspace = true
