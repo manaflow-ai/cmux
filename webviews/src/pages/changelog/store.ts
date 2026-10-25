@@ -8,6 +8,7 @@ import {
   type ChangelogDesign,
   type IndexEntry,
   type ListResult,
+  type NewsLayout,
   type ReelResult,
   type ReleaseNotes,
 } from "./types";
@@ -54,6 +55,13 @@ export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const design = new URLSearchParams(query).get("design");
   return design === "journal" || design === "rail" || design === "digest" ? design : "ledger";
+}
+
+/** The update's news layout the route names (`news=stack|grid|lead`); alternate by default. */
+export function parseNewsLayout(hash: string): NewsLayout {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const news = new URLSearchParams(query).get("news");
+  return news === "stack" || news === "grid" || news === "lead" ? news : "alternate";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
