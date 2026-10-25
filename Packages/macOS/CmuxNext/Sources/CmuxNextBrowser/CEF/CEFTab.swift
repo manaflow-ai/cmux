@@ -471,6 +471,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        agentFiles.withdraw()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()

@@ -80,7 +80,12 @@ extension BrowserPageService {
                                        data: row.json)
                 }
                 var result: [String: JSONValue] = ["download": row.json]
-                if let target = Self.optionalString(call, "path"), let source = row.path {
+                if let target = Self.optionalString(call, "path") {
+                    guard let source = row.path else {
+                        throw ControlError(code: "io_error", message: ControlStrings.format("control.error.downloadCopyFailed",
+                                                                                            "Could not save the download to %1$@: %2$@",
+                                                                                            target, row.filename))
+                    }
                     result["path"] = .string(try Self.copyDownload(from: source, to: target))
                 }
                 return .object(result)
@@ -105,6 +110,8 @@ extension BrowserPageService {
     }
 
     /// Copies a finished download to `target` (a folder takes the file's name) and answers the copy's path.
+    /// The download itself is never removed: a target that is the download answers its path, and an existing
+    /// folder at the target is refused, not replaced.
     static func copyDownload(from source: String, to target: String) throws -> String {
         let manager = FileManager.checked
         let from = URL(fileURLWithPath: source)
@@ -113,14 +120,22 @@ extension BrowserPageService {
         if target.hasSuffix("/") || (manager.fileExists(atPath: to.path, isDirectory: &isFolder) && isFolder.boolValue) {
             to = to.appendingPathComponent(from.lastPathComponent)
         }
+        let failed = { (reason: String) in
+            ControlError(code: "io_error", message: ControlStrings.format("control.error.downloadCopyFailed",
+                                                                          "Could not save the download to %1$@: %2$@", to.path, reason))
+        }
+        if from.resolvingSymlinksInPath().standardizedFileURL.path == to.resolvingSymlinksInPath().standardizedFileURL.path {
+            return from.path
+        }
+        isFolder = false
+        let exists = manager.fileExists(atPath: to.path, isDirectory: &isFolder)
+        if exists && isFolder.boolValue { throw failed(to.path) }
         do {
             try manager.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if manager.fileExists(atPath: to.path) { try manager.removeItem(at: to) }
+            if exists { try manager.removeItem(at: to) }
             try manager.copyItem(at: from, to: to)
         } catch {
-            throw ControlError(code: "io_error", message: ControlStrings.format("control.error.downloadCopyFailed",
-                                                                                "Could not save the download to %1$@: %2$@",
-                                                                                to.path, error.localizedDescription))
+            throw failed(error.localizedDescription)
         }
         return to.path
     }

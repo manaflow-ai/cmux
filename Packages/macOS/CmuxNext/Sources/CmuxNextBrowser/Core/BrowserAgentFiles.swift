@@ -71,7 +71,10 @@ public final class BrowserAgentFiles {
         do {
             opened = try await open()
         } catch {
+            // A chooser that took the files before the click's script failed: the page has them.
+            if case .chosen? = ended[id] { return ended.removeValue(forKey: id) ?? .withdrawn }
             end(id, .withdrawn)
+            ended[id] = nil
             throw error
         }
         if !opened { end(id, .withdrawn) }
@@ -125,6 +128,11 @@ public final class BrowserAgentFiles {
         }
         end(offer.id, .chosen(offer.files))
         return offer.files
+    }
+
+    /// Ends the standing offer (its tab closed): its upload answers withdrawn at once.
+    public func withdraw() {
+        if let offer { end(offer.id, .withdrawn) }
     }
 
     private func arm(_ files: [URL]) -> Int {

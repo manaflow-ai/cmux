@@ -22,8 +22,9 @@ public final class BrowserDownloadWaits {
 
     private var starts: [ObjectIdentifier: (at: ContinuousClock.Instant, tab: String)] = [:]
     private var reported: Set<ObjectIdentifier> = []
-    /// Waits for the next download from a tab (nil: any tab), oldest first.
-    private var next: [(tab: String?, take: (BrowserDownload) -> Void)] = []
+    /// Waits for the next download from a tab (nil: any tab), oldest first, by token.
+    private var next: [(token: Int, tab: String?, take: (BrowserDownload) -> Void)] = []
+    private var lastToken = 0
     private let clock: any Clock<Duration>
 
     public init(clock: any Clock<Duration> = ContinuousClock()) {
@@ -33,9 +34,11 @@ public final class BrowserDownloadWaits {
     /// A download from tab `key` started.
     public func started(_ item: BrowserDownload, tab key: String) {
         starts[ObjectIdentifier(item)] = (.now, key)
-        let taking = next.filter { $0.tab == nil || $0.tab == key }
-        next.removeAll { $0.tab == nil || $0.tab == key }
-        taking.forEach { $0.take(item) }
+        // One wait per download: the oldest one waiting for this tab's next.
+        guard let index = next.firstIndex(where: { $0.tab == nil || $0.tab == key }) else { return }
+        let waiter = next.remove(at: index)
+        reported.insert(ObjectIdentifier(item))
+        waiter.take(item)
     }
 
     /// Forgets downloads no longer listed.
@@ -55,13 +58,22 @@ public final class BrowserDownloadWaits {
             item = found
         } else if let recent = unreported(tab: tab, among: items) {
             item = recent
-        } else if let newer = await within(limit, { take in self.next.append((tab, take)) }) {
-            item = newer
         } else {
+            lastToken += 1
+            let token = lastToken
+            let newer = await within(limit, { take in self.next.append((token, tab, take)) })
+            next.removeAll { $0.token == token }
+            guard let newer else { return .timedOut }
+            item = newer
+        }
+        // Claimed while it runs, so a second wait does not take it too; a wait that times out gives it back,
+        // so the agent's next wait follows the same download.
+        let id = ObjectIdentifier(item)
+        let claimed = reported.insert(id).inserted
+        guard await within(remaining(), { done in item.onFinish(done) }) != nil else {
+            if claimed || starts[id] != nil { reported.remove(id) }
             return .timedOut
         }
-        reported.insert(ObjectIdentifier(item))
-        guard await within(remaining(), { done in item.onFinish(done) }) != nil else { return .timedOut }
         return .ended(item)
     }
 

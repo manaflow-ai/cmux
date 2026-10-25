@@ -274,6 +274,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        agentFiles.withdraw()
         removeStandIn()
         faviconTask?.cancel()
         titleTimer.cancel()

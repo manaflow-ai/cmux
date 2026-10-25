@@ -161,6 +161,19 @@ import Testing
         #expect(result["download"]?["filename"] == "report.pdf")
     }
 
+    /// `--path ~/Downloads` names the download's own folder: the file stays and its path is the answer.
+    @Test func aPathThatIsTheDownloadItselfKeepsTheFile() async throws {
+        let (folder, paths) = try scratch(["report.pdf"])
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let engine = ChooserEngine(chooser: "chosen", download: BrowserPageDownload(id: "AB12", filename: "report.pdf", status: "finished", path: paths[0]))
+        let router = install(engine)
+
+        let result = try await call(router, "browser.page.download.wait", ["path": .string(folder.path)]).get()
+
+        #expect(FileManager.default.fileExists(atPath: paths[0]), "the wait deleted the download it was asked to copy")
+        #expect(result["path"] == .string(paths[0]))
+    }
+
     @Test func aDownloadThatDidNotFinishFailsTheWaitWithItsRow() async throws {
         let failed = BrowserPageDownload(id: "AB12", filename: "big.iso", status: "failed", reason: "Network error")
         let router = install(ChooserEngine(chooser: "chosen", download: failed))

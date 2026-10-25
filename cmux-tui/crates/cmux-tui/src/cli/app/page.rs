@@ -196,11 +196,16 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("selector".into(), json!(selector));
             let files: Vec<String> = files.iter().map(|file| absolute(file)).collect();
             params.insert("files".into(), json!(files));
-            if let Some(ms) = options.value("timeout-ms") {
-                let ms: u64 = ms.parse().map_err(|_| usage())?;
-                params.insert("timeout_ms".into(), json!(ms));
-                timeout = READ_TIMEOUT + Duration::from_millis(ms);
-            }
+            let ms = match options.value("timeout-ms") {
+                Some(ms) => {
+                    let ms: u64 = ms.parse().map_err(|_| usage())?;
+                    params.insert("timeout_ms".into(), json!(ms));
+                    ms
+                }
+                None => DEFAULT_CHOOSER_WAIT_MS,
+            };
+            // The app may first wait for the page's load, then the chooser, then the page-script fallback.
+            timeout = UPLOAD_MARGIN + Duration::from_millis(ms);
             "browser.page.upload"
         }
         // `download list [--limit N]`, `download [wait] [--id ID] [--path P] [--timeout-ms N]` (the old
@@ -513,6 +518,11 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
 fn absolute(path: &str) -> String {
     std::env::current_dir().unwrap_or_default().join(path).to_string_lossy().into_owned()
 }
+
+/// How long the app gives a chooser to open after an upload's click, by default.
+const DEFAULT_CHOOSER_WAIT_MS: u64 = 3_000;
+/// An upload's time besides the chooser wait: the page's first load (15 s at most) and the fallback.
+const UPLOAD_MARGIN: Duration = Duration::from_secs(30);
 
 /// A download wait's own default (the app's `browser.page.download.wait`).
 const DEFAULT_DOWNLOAD_WAIT_MS: u64 = 30_000;
