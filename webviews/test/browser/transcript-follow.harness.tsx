@@ -1,7 +1,9 @@
 // The chat's transcript as the agent pane lays it out (App.tsx): VirtualTranscript fills a fixed
 // height. The test hands it rows (`window.__showRows`), as a chat's snapshots do while a reply streams.
 import { createRoot } from "react-dom/client";
+import { flushSync } from "react-dom";
 import { VirtualTranscript, type ScrollAnchor } from "../../src/agent-session/acpmux/App";
+import { followTrace } from "../../src/agent-session/acpmux/followTrace";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 // The pane's styles, as its dev entry loads them (acpmux/dev.tsx).
@@ -66,6 +68,10 @@ const draw = () =>
   shown = rows;
   draw();
 };
+(window as unknown as { __showRowsSync: (rows: AcpmuxRow[]) => void }).__showRowsSync = (rows) => {
+  shown = rows;
+  flushSync(draw);
+};
 (window as unknown as { __showSession: (id: string, rows: AcpmuxRow[]) => void }).__showSession = (id, rows) => {
   sessionId = id;
   shown = rows;
@@ -79,3 +85,5 @@ const draw = () =>
   openAt = anchor;
   draw();
 };
+(window as unknown as { __followSnapshot: () => ReturnType<typeof followTrace.snapshot> }).__followSnapshot = () =>
+  followTrace.snapshot();

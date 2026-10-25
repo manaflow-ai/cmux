@@ -3537,7 +3537,11 @@ export function VirtualTranscript({
       return;
     }
     const was = scrolledTo.current;
-    scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    const measured = scrollPosition(node, layout.totalHeight);
+    // A recent upward input is authoritative even when it moved only a pixel or two. The
+    // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
+    const recentUp = performance.now() - readerAt.current <= READER_SCROLL_MS && next < was.top - 0.5;
+    scrolledTo.current = recentUp ? { ...measured, atLatest: false } : measured;
     const latest = Math.max(0, layout.totalHeight - node.clientHeight);
     if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
       // Not the reader's scroll: the view keeps following the reply.
@@ -3596,15 +3600,24 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     const node = ref.current;
-    const reader = () => {
+    const reader = (event?: Event) => {
       readerAt.current = performance.now();
       followTrace.input();
+      // Release the follow intent synchronously when a reader starts moving up. The browser can
+      // deliver the wheel before its scroll event; a streamed snapshot in that gap must not pin
+      // the view back to the bottom. Capture the event so nested rows cannot commit first.
+      const movingUp =
+        event !== undefined &&
+        ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
+          event.type === "touchstart" ||
+          (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
+      if (movingUp) follow(false);
       clearTimeout(settle.current);
       settle.current = undefined;
       jumpTarget.current = undefined;
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
-    for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
+    for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
     // A turn fold still sliding rows lands first, and the offset takes up however far that moved the
@@ -3671,7 +3684,7 @@ export function VirtualTranscript({
     gutterRelease.current = gutter?.release;
     return () => {
       clearTimeout(settle.current);
-      for (const name of inputs) node?.removeEventListener(name, reader);
+      for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
