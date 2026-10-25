@@ -93,9 +93,8 @@ import Testing
     /// move passes, and a mouse-up ends unbuffered delivery.
     @Test func theApplicationHookFlushesOnDiscreteEventsAndEndsUnbufferedOnMouseUp() {
         let (scheduler, _) = Self.scheduler()
-        let coalescers = FrameInputCoalescers { _ in
-            FrameInputCoalescer(scheduler: scheduler, clock: ManualClock(), ledger: WakeupLedger())
-        }
+        // The window's scheduler stands in for FrameScheduler.forWindow (no display link in tests).
+        let coalescers = FrameInputCoalescers { _ in scheduler.input }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
@@ -114,8 +113,12 @@ import Testing
         coalescers.willDispatch(.leftMouseUp)
         coalescer.post(.drag, owner: "drag", sample: Self.sample(1)) { _, _, _ in log.append("drag") }
         #expect(log == ["hover"], "the mouse-up ended unbuffered delivery")
-        window.close()
+        #expect(coalescers.hasPending)
+        // The window closed: its scheduler invalidates, and the scheduler's coalescer drops its work.
+        scheduler.invalidate()
         #expect(!coalescers.hasPending, "a closed window's work is dropped")
+        coalescers.willDispatch(.keyDown)
+        #expect(log == ["hover"], "dropped work never runs")
     }
 
     /// The window's input runs in the frame tick before its frame clients, so an autoscroll or a

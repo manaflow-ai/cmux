@@ -95,6 +95,8 @@ public final class FrameScheduler: NSObject {
     var onLinkChange: (@MainActor (_ exists: Bool) -> Void)?
     private let makeLinkOverride: LinkFactory?
     private let ledger: WakeupLedger
+    private let clock: any Clock<Duration>
+    private var madeInput: FrameInputCoalescer?
     private let stall: DemandTimer
     private var stalls = 0
     private var lastTimestamp: CFTimeInterval?
@@ -127,6 +129,7 @@ public final class FrameScheduler: NSObject {
             self.window = window
         }
         self.ledger = ledger
+        self.clock = clock
         self.makeLinkOverride = makeLink
         stall = DemandTimer(owner: "FrameScheduler.stall", clock: clock, ledger: ledger)
         super.init()
@@ -146,6 +149,15 @@ public final class FrameScheduler: NSObject {
     }
 
     public var isRunning: Bool { link.map { !$0.isPaused } ?? false }
+
+    /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
+    /// clients (made on first use; dropped with the scheduler's window).
+    public var input: FrameInputCoalescer {
+        if let madeInput { return madeInput }
+        let made = FrameInputCoalescer(scheduler: self, clock: clock, ledger: ledger)
+        madeInput = made
+        return made
+    }
 
     /// A display link exists (only while clients are active).
     public var hasLink: Bool { link != nil }
@@ -193,6 +205,8 @@ public final class FrameScheduler: NSObject {
 
     /// Drops the link and every client (the window closed).
     public func invalidate() {
+        madeInput?.invalidate()
+        madeInput = nil
         for client in clients.values { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()

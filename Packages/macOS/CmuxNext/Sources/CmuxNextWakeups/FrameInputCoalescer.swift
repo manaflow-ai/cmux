@@ -48,8 +48,9 @@ public final class FrameInputCoalescer {
     /// The frame-interval fallback when no tick told the display's rate yet.
     public static let defaultFrameInterval: Duration = .microseconds(16_667)
 
-    private let scheduler: FrameScheduler
-    private lazy var client = FrameClient(inputStageOf: scheduler, owner: "FrameInputCoalescer") { [weak self] tick in
+    /// Weak: a window's scheduler owns its coalescer (``FrameScheduler/input``).
+    private weak var scheduler: FrameScheduler?
+    private lazy var client = FrameClient(inputStageOf: scheduler ?? .app, owner: "FrameInputCoalescer") { [weak self] tick in
         self?.frameTick(tick) ?? false
     }
     private let fallback: DemandTimer
@@ -68,7 +69,7 @@ public final class FrameInputCoalescer {
     /// Frames that delivered pending work (debug and tests).
     public private(set) var frameFlushes = 0
 
-    /// A coalescer on `scheduler`, the window's ``FrameScheduler``. `clock` runs the fallback.
+    /// A coalescer on `scheduler` (a window's is ``FrameScheduler/input``). `clock` runs the fallback.
     public init(scheduler: FrameScheduler, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
         self.scheduler = scheduler
         fallback = DemandTimer(owner: "FrameInputCoalescer.fallback", clock: clock, ledger: ledger)
@@ -140,7 +141,7 @@ public final class FrameInputCoalescer {
         unbufferedOwners.removeAll()
     }
 
-    /// Drops the pending work and the fallback (the window closed).
+    /// Drops the pending work and the fallback (the window closed: its scheduler calls this).
     public func invalidate() {
         let hadPending = !order.isEmpty
         order.removeAll()

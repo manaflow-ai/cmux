@@ -1,47 +1,48 @@
 public import AppKit
-import CmuxNextCompat
 
-/// The ``FrameInputCoalescer`` of each window, and the application's hook for discrete input:
-/// `sendEvent` calls ``willDispatch(_:)`` for every event, which flushes the pending continuous
-/// work before a key or button is dispatched and ends unbuffered delivery on pointer up.
+/// The application's hook into every window's ``FrameInputCoalescer``: `sendEvent` calls
+/// ``willDispatch(_:)`` for every event, which flushes the pending continuous work before a key
+/// or button is dispatched and ends unbuffered delivery on pointer up.
 ///
-/// Owned by the application (one per process, injected into whoever posts); a window's coalescer
-/// is made on first use and dropped when the window closes.
+/// One per application, injected into whoever posts. A window's coalescer is its
+/// ``FrameScheduler/input``, so it closes with the window's scheduler; this type only tracks which
+/// coalescers have work and which ones were handed out.
 @MainActor
 public final class FrameInputCoalescers {
     public typealias Factory = @MainActor (NSWindow) -> FrameInputCoalescer
 
-    private struct Entry {
-        weak var window: NSWindow?
-        let coalescer: FrameInputCoalescer
-        let closeObserver: MainActorObservation
+    private struct Weak {
+        weak var value: FrameInputCoalescer?
     }
 
     private let make: Factory
-    private var entries: [ObjectIdentifier: Entry] = [:]
-    /// The windows with pending work: a key-down with none costs one emptiness check.
-    private var withPending: Set<ObjectIdentifier> = []
+    /// The coalescers handed out (pointer up ends their unbuffered delivery).
+    private var known: [ObjectIdentifier: Weak] = [:]
+    /// The coalescers with pending work: a key-down with none costs one emptiness check.
+    private var withPending: [ObjectIdentifier: Weak] = [:]
 
-    /// `make` builds a window's coalescer (default: on the window's ``FrameScheduler``).
+    /// `make` gives a window's coalescer (default: the window scheduler's ``FrameScheduler/input``).
     public init(make: Factory? = nil) {
         if let make {
             self.make = make
         } else {
-            self.make = { window in FrameInputCoalescer(scheduler: FrameScheduler.forWindow(window)) }
+            self.make = { window in FrameScheduler.forWindow(window).input }
         }
     }
 
-    /// `window`'s coalescer, made on first use.
+    /// `window`'s coalescer.
     public func coalescer(for window: NSWindow) -> FrameInputCoalescer {
-        let key = ObjectIdentifier(window)
-        if let entry = entries[key], entry.window === window { return entry.coalescer }
-        drop(key)
         let coalescer = make(window)
-        coalescer.onPendingChange = { [weak self] pending in self?.pendingChanged(key, pending) }
-        let closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak self] in
-            self?.drop(key)
+        let key = ObjectIdentifier(coalescer)
+        if known[key]?.value !== coalescer {
+            known = known.filter { $0.value.value != nil }
+            known[key] = Weak(value: coalescer)
+            coalescer.onPendingChange = { [weak self, weak coalescer] pending in
+                guard let coalescer else { return }
+                self?.pendingChanged(coalescer, pending)
+            }
+            if coalescer.hasPending { pendingChanged(coalescer, true) }
         }
-        entries[key] = Entry(window: window, coalescer: coalescer, closeObserver: closeObserver)
         return coalescer
     }
 
@@ -55,7 +56,7 @@ public final class FrameInputCoalescers {
         case .keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown:
             flushBeforeDiscreteInput()
         case .leftMouseUp, .rightMouseUp, .otherMouseUp:
-            for entry in entries.values { entry.coalescer.pointerUp() }
+            for entry in known.values { entry.value?.pointerUp() }
         default:
             return
         }
@@ -64,20 +65,15 @@ public final class FrameInputCoalescers {
     /// Delivers every window's pending continuous work now.
     public func flushBeforeDiscreteInput() {
         guard !withPending.isEmpty else { return }
-        for key in withPending { entries[key]?.coalescer.flushBeforeDiscreteInput() }
+        for entry in Array(withPending.values) { entry.value?.flushBeforeDiscreteInput() }
     }
 
-    private func pendingChanged(_ key: ObjectIdentifier, _ pending: Bool) {
+    private func pendingChanged(_ coalescer: FrameInputCoalescer, _ pending: Bool) {
+        let key = ObjectIdentifier(coalescer)
         if pending {
-            withPending.insert(key)
+            withPending[key] = Weak(value: coalescer)
         } else {
-            withPending.remove(key)
+            withPending[key] = nil
         }
-    }
-
-    private func drop(_ key: ObjectIdentifier) {
-        guard let entry = entries.removeValue(forKey: key) else { return }
-        entry.coalescer.invalidate()
-        withPending.remove(key)
     }
 }
