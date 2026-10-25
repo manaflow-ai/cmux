@@ -21,6 +21,8 @@ import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
 import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { acpmuxSendCall } from "./acpmuxSends";
+import { subsessionCall } from "./subsessionCalls";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -886,6 +888,7 @@ function codexLiveTurn(
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").
     if (call.kind === "execute" && !line.doingDraft) line.doingCommand = true;
+    Object.assign(line, sendingTo(call));
     line.doingAt = (call.startedAt ?? named.at) + clockOffset;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;
   const answering = last.kind === "assistant";
@@ -986,7 +989,20 @@ function activityLine(
     ...(below && { below: true }),
   };
   if (command) line.doingCommand = true;
+  if (running?.tool) Object.assign(line, sendingTo(running.tool));
   return line;
+}
+
+/// The message a call in flight sends, for the live line: "Sending message to tests", never the
+/// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
+function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
+  const send = acpmuxSendCall(tool);
+  if (send) return { doingSendTo: send.target };
+  if (tool.kind === "execute" && tool.command) return {};
+  const call = subsessionCall(tool);
+  if (call?.tool !== "send") return {};
+  const id = call.sessionId;
+  return { doingSendTo: id.length > 12 ? `${id.slice(0, 8)}…` : id, doingSendSession: id };
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
