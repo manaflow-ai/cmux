@@ -2246,6 +2246,8 @@ export function VirtualTranscript({
         sessionId?: string;
         /// A new registry estimates every row again, so nothing is kept.
         registry: NativeRegistry;
+        /// A new chat look (Minimal Mode included) estimates every row again too: nothing is kept.
+        look: ReturnType<typeof useChatDisplay>;
         first: number;
         last: number;
         /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
@@ -2326,6 +2328,30 @@ export function VirtualTranscript({
     });
   }, [rows]);
   useLayoutEffect(flushDrawn);
+  // Minimal Mode draws another agent's closed message as its line alone (IncomingMessageCard.tsx):
+  // a toggle forgets those rows' drawn heights, so rows offscreen place by the new estimate instead of
+  // their old card's height, and marks them changed so the placement starts from the first of them
+  // (the toggle's own render places every row again: `look` above). One O(rows) pass, once per
+  // Minimal Mode toggle, never per event or token; a mounted row reports its new height as usual.
+  const drawnMinimal = useRef(chatLook.minimal);
+  useLayoutEffect(() => {
+    if (drawnMinimal.current === chatLook.minimal) return;
+    drawnMinimal.current = chatLook.minimal;
+    const incoming = new Set<string>();
+    for (const row of rowsRef.current) if (row.incoming?.kind === "message") incoming.add(row.id);
+    if (!incoming.size) return;
+    for (const id of incoming) pendingDrawn.current.delete(id);
+    setDrawn((current) => {
+      let next: Map<string, DrawnHeight> | undefined;
+      for (const id of incoming) {
+        if (!current.has(id)) continue;
+        next ??= new Map(current);
+        next.delete(id);
+        changedDrawn.current.add(id);
+      }
+      return next ?? current;
+    });
+  }, [chatLook.minimal]);
   const didOpenAtLatest = useRef(false);
   /// The open waits, unseen, while older pages bring back `openAt`'s row; expired, it opens at the latest.
   const [seeking, setSeeking] = useState(false);
@@ -2468,6 +2494,7 @@ export function VirtualTranscript({
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
       !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
+      sessionId,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
@@ -2489,6 +2516,7 @@ export function VirtualTranscript({
       last.width === rowWidth &&
       last.sessionId === sessionId &&
       last.registry === registry &&
+      last.look === chatLook &&
       drawn.size > 0
     ) {
       const limit = Math.min(rows.length, last.rows.length);
@@ -2533,12 +2561,13 @@ export function VirtualTranscript({
       width: rowWidth,
       sessionId,
       registry,
+      look: chatLook,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, width]);
+  }, [estimated, drawn, registry, rows, sessionId, width, chatLook]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.

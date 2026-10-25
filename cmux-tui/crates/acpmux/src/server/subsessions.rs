@@ -6,6 +6,11 @@
 //!   (a)): a unix socket connection whose `initialize` carried a matching
 //!   `callerSession`. A request field never names the caller. `send` reaches
 //!   a descendant or the caller's own parent; `get` and `stop` a descendant.
+//! - `start {parent?, prompt, name?, harness?, model?, effort?, cwd?, worktree?}`: `parent`
+//!   (`acpmux new|run --parent`) names the session the child starts under, of any harness
+//!   family. A caller names itself or a descendant it may write to
+//!   (`Hub::subsession_write_target`, as `send` and `stop`); the person (the app's proof) names
+//!   any session here. Left out, it is the caller.
 //! - `start`'s `host`: `auto` or `auto-build` weighs this machine with the
 //!   placement engine first and refuses when it has no room; the reply's
 //!   `placed` says why it went ahead (`server/place.rs` `subsession_host`).
@@ -19,8 +24,8 @@
 //!   `maxRunning` (`hub/subsession_runs.rs`).
 
 use super::{Conn, str_param};
-use crate::hub::Hub;
 use crate::hub::subsessions::{LimitsActor, StartRequest};
+use crate::hub::{Hub, Session};
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -53,6 +58,26 @@ fn caller_required(hub: &Hub, conn: &Conn) -> RpcError {
         "sub-session tools act for the agent session that calls them: connect with that session's caller token (its cmux-subsessions MCP server does)",
     )
     .with_data(json!({"reason": "subsessions.caller_required"}))
+}
+
+/// The session a start acts for: the proven caller, itself or a descendant it names as
+/// `parent`, or the session the person names. Any other connection is refused, as for every
+/// sub-session tool: the child runs its parent's policy and mode, so naming a parent widens.
+fn start_parent(hub: &Hub, conn: &Conn, params: &Value) -> Result<Arc<Session>, RpcError> {
+    let named = str_param(params, "parent").filter(|p| !p.is_empty());
+    match (conn.caller(), named) {
+        (Some(caller), named) => {
+            let caller = hub.resolve(caller)?;
+            match named {
+                Some(key) if hub.resolve(key)?.id != caller.id => {
+                    hub.subsession_write_target(&caller, key, false)
+                }
+                _ => Ok(caller),
+            }
+        }
+        (None, Some(key)) if conn.is_person() => hub.resolve(key),
+        (None, _) => Err(caller_required(hub, conn)),
+    }
 }
 
 /// A limit field: absent keeps it, null clears it, a number sets it.
@@ -102,28 +127,30 @@ async fn handle(
             limit(params, "maxRunning")?,
         );
     }
+    if m == method::MUX_SUBSESSION_START {
+        let parent = start_parent(hub, conn, params)?;
+        // Weighed before anything starts: a refused placement makes no child.
+        let placed = super::place::subsession_host(hub, str_param(params, "host")).await?;
+        let text = |k: &str| str_param(params, k).map(str::to_owned);
+        let req = StartRequest {
+            prompt: text("prompt").unwrap_or_default(),
+            name: text("name"),
+            harness: text("harness"),
+            model: text("model"),
+            effort: text("effort"),
+            cwd: text("cwd").map(PathBuf::from),
+            worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+        };
+        let mut started = hub.start_subsession(&parent, req).await?;
+        if let Some(placed) = placed {
+            started["placed"] = json!(placed);
+        }
+        return Ok(started);
+    }
     // The caller token is read only on the unix socket (`server/mod.rs`).
     let caller = conn.caller().ok_or_else(|| caller_required(hub, conn))?;
     let caller = hub.resolve(caller)?;
     match m {
-        method::MUX_SUBSESSION_START => {
-            // Weighed before anything starts: a refused placement makes no child.
-            let placed = super::place::subsession_host(hub, str_param(params, "host")).await?;
-            let text = |k: &str| str_param(params, k).map(str::to_owned);
-            let req = StartRequest {
-                prompt: text("prompt").unwrap_or_default(),
-                name: text("name"),
-                harness: text("harness"),
-                model: text("model"),
-                cwd: text("cwd").map(PathBuf::from),
-                worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
-            };
-            let mut started = hub.start_subsession(&caller, req).await?;
-            if let Some(placed) = placed {
-                started["placed"] = json!(placed);
-            }
-            Ok(started)
-        }
         method::MUX_SUBSESSION_LIST => {
             let all = str_param(params, "scope") == Some("descendants");
             Ok(hub.subsession_list(&caller, all))

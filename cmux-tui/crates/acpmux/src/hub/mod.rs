@@ -122,6 +122,7 @@ mod start_gate;
 pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
+mod subsession_results;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;

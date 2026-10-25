@@ -295,13 +295,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settings.start(announcingDiagnostics: true)
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [firstFrame] in await firstFrame.opened() })
-        ChatSettingsPush.start(settings: settings, socketPath: QuitAgents.environment(services)?.socketPath)
+        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
+        let acpmux = QuitAgents.environment(services)
+        ChatSettingsPush.start(settings: settings, socketPath: acpmux?.isAttached == true ? nil : acpmux?.socketPath)
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
         services.mobile.follow(settings, launch: services.environment.launch)
         services.chatsFeed?.keepCurrent()
         services.projectsImport.start(feed: services.chatsFeed)
         if let feed = services.chatsFeed { AgentPageChats.wire(services.agentTabs, to: feed, opener: services.chatsOpener) }
-        AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
+        AgentPageChats.wirePager(services.agentTabs, environment: acpmux, opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
         NewTabWeather.wire(services.agentTabs, services: services)

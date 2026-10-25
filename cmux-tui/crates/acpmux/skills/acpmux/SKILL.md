@@ -140,6 +140,14 @@ one command; running it again reuses the session and worktree and sends nothing:
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
 ```
 
+A child of another harness under your own chat (a Codex child of a Claude chat): it lists
+under your chat, and your sub-session tools read, message and stop it.
+
+```bash
+acpmux run --parent "$ACPMUX_SESSION_ID" -m codex -e high "PROMPT"   # prints its reply
+acpmux new --parent "$ACPMUX_SESSION_ID" -m opencode -n tests -d "PROMPT"
+```
+
 Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
 surface for what (CLI, `cmux-subsessions` MCP, cmux MCP): `cmux-tui/crates/acpmux/docs/agent-surfaces.md`
 in the cmux repository.
