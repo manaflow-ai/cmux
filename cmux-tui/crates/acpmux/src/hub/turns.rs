@@ -500,6 +500,8 @@ impl Hub {
                             // The new agent session gets every rule again.
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
+                        // Its start read the chat ready: the turn runs on.
+                        self.set_status(session, SessionStatus::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
                             // Like the first prompt: Stop's and a stalled turn's forced end
                             // (`cancel.rs`, `stalled_turn.rs`) end it too.
