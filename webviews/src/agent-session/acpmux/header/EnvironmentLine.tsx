@@ -6,9 +6,9 @@
 // section (so a click with it already in view still answers); with the Inspector off (Debug Settings
 // `agent.inspector`) it opens the chat folder's Files tree instead (`environmentOpener`).
 //
-// The App keeps it in a small row below the tab row, aligned by the user's placement setting. The
-// compact form remains for embedded previews and tests; a connection problem's label takes the
-// header's status slot instead (ChatHeaderStatus.tsx).
+// The App keeps Left in a small row below the tab row; Right preserves the original header slot and
+// compact tab-row lead. A connection problem's label takes the header's status slot instead.
+import { memo } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
@@ -28,7 +28,7 @@ export function environmentOpener(
   return openFiles;
 }
 
-export function EnvironmentLine({
+export const EnvironmentLine = memo(function EnvironmentLine({
   summary,
   machineName,
   peerKinds,
@@ -104,5 +104,27 @@ export function EnvironmentLine({
     >
       {content}
     </div>
+  );
+}, sameEnvironmentLine);
+
+function sameEnvironmentLine(
+  previous: Parameters<typeof EnvironmentLine>[0],
+  next: Parameters<typeof EnvironmentLine>[0],
+): boolean {
+  const previousSummary = previous.summary;
+  const nextSummary = next.summary;
+  const previousPeer = previousSummary?.peer;
+  const nextPeer = nextSummary?.peer;
+  return (
+    previous.compact === next.compact &&
+    previous.machineName === next.machineName &&
+    previous.onOpen === next.onOpen &&
+    previousSummary?.cwd === nextSummary?.cwd &&
+    previousSummary?.branch === nextSummary?.branch &&
+    previousSummary?.worktree === nextSummary?.worktree &&
+    previousSummary?.host === nextSummary?.host &&
+    previousSummary?.hostKind === nextSummary?.hostKind &&
+    previousPeer === nextPeer &&
+    previous.peerKinds?.[previousPeer ?? ""] === next.peerKinds?.[nextPeer ?? ""]
   );
 }
