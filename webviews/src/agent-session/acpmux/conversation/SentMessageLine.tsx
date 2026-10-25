@@ -103,7 +103,9 @@ export function SentMessageLine({
             <span className="cv-tool__detail">{`: “${preview}”`}</span>
           )}
           {detail && <span className="cv-tool__detail">{` · ${detail}`}</span>}
-          {shape === "sentence" && preview && state !== "failed" && <span className="cv-tool__detail cv-sent__preview">{preview}</span>}
+          {shape === "sentence" && preview && state !== "failed" && (
+            <span className="cv-tool__detail cv-sent__preview">{preview}</span>
+          )}
         </span>
         <ChevronRight
           size={14}
