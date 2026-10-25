@@ -12,6 +12,8 @@ export type ComposerAttachment = {
   id: string;
   /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
   kind: "image" | "text" | "document" | "link" | "audio" | "pasted";
+  /** Placed in the draft by the composer: its INLINE_ATTACHMENT_MARK is in the text, in order. */
+  inline?: boolean;
   name: string;
   mimeType: string;
   size: number;
@@ -45,6 +47,97 @@ export type PromptBlock =
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
   | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
+
+/** The replacement character stored in the editor for one inline attachment. */
+export const INLINE_ATTACHMENT_MARK = "\uFFFC";
+
+/** Whether `input`'s marks are the composer's: one per inline attachment, in order. Otherwise every
+ * U+FFFC is the person's own text (a pasted object character), kept as written. */
+export function hasInlineMarks(input: string, chips: readonly ComposerAttachment[]): boolean {
+  const inline = chips.filter((attachment) => attachment.inline).length;
+  if (!inline || !input.includes(INLINE_ATTACHMENT_MARK)) return false;
+  return input.split(INLINE_ATTACHMENT_MARK).length - 1 === inline;
+}
+
+/// The composer's draft names each attachment placed in its text by id, between two marks: the
+/// editor's inline node (MarkdownField.tsx) is written so, and a draft read back (a chat reopened,
+/// a relaunch) gets the same node back. An id is a chip's own (a UUID, a copy's `~` suffix); a
+/// lone U+FFFC is the person's text. `placeInline` turns them into bare marks when the prompt goes.
+export const INLINE_TOKEN = /￼([\w.~-]+)￼/g;
+
+export function inlineToken(id: string): string {
+  return `${INLINE_ATTACHMENT_MARK}${id}${INLINE_ATTACHMENT_MARK}`;
+}
+
+/// The ids of the attachments placed in `text`, in its order.
+export function inlineTokenIds(text: string): string[] {
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return [];
+  return [...text.matchAll(INLINE_TOKEN)].map((match) => match[1]!);
+}
+
+/// The draft as it goes: each placed attachment's token becomes the bare mark `promptBlocks` pairs
+/// with it, those attachments first in the text's order and `inline`, then the strip's in their
+/// order. A token whose attachment is gone goes as nothing.
+export function placeInline(
+  text: string,
+  attachments: readonly ComposerAttachment[],
+): { text: string; attachments: ComposerAttachment[] } {
+  const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+  const placed: ComposerAttachment[] = [];
+  const out = text.includes(INLINE_ATTACHMENT_MARK)
+    ? text.replace(INLINE_TOKEN, (_, id: string) => {
+        const attachment = byId.get(id);
+        if (!attachment || placed.includes(attachment)) return "";
+        placed.push(attachment);
+        return INLINE_ATTACHMENT_MARK;
+      })
+    : text;
+  const strip = attachments
+    .filter((attachment) => !placed.includes(attachment))
+    .map(({ inline: _, ...attachment }) => attachment);
+  return { text: out, attachments: [...placed.map((attachment) => ({ ...attachment, inline: true })), ...strip] };
+}
+
+/// `attachments` with the ones placed in the text (`ids`, in its order) in the text's order, each in
+/// the slot one of them held: the strip shows them as the prompt reads. The same array when it
+/// already does.
+export function orderedByMarks<T extends { id: string }>(attachments: readonly T[], ids: readonly string[]): T[] {
+  const placed = new Set(ids);
+  const slots = attachments.flatMap((attachment, index) => (placed.has(attachment.id) ? [index] : []));
+  if (slots.length < 2) return attachments as T[];
+  const rank = new Map(ids.map((id, index) => [id, index]));
+  const inOrder = slots.map((slot) => attachments[slot]!).sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+  if (inOrder.every((attachment, index) => attachment === attachments[slots[index]!])) return attachments as T[];
+  const next = [...attachments];
+  slots.forEach((slot, index) => {
+    next[slot] = inOrder[index]!;
+  });
+  return next;
+}
+
+/// A prompt coming back to the composer (Edit, a failed send, a queued prompt taken back to edit)
+/// in the shape it went (`placeInline`): bare marks, its placed attachments `inline` in the text's
+/// order. Each bare mark becomes its attachment's token again, by id, and the attachments lose
+/// `inline` (the composer's own say nothing; `placeInline` sets it when the prompt goes). Marks that
+/// do not match its inline attachments one for one are the person's text and stay as they are.
+export function bindMarks(
+  text: string,
+  attachments: readonly ComposerAttachment[],
+): { text: string; attachments: ComposerAttachment[] } {
+  const own = attachments.map(({ inline: _, ...attachment }) => attachment);
+  if (!hasInlineMarks(text, attachments)) return { text, attachments: own };
+  const placed = attachments.filter((attachment) => attachment.inline);
+  let next = 0;
+  return { text: text.replaceAll(INLINE_ATTACHMENT_MARK, () => inlineToken(placed[next++]!.id)), attachments: own };
+}
+
+/// `text` without its attachments' places: for a host that keeps a draft's text and not its
+/// attachments (a new chat's `chat.unsentDraft`), where no mark could find its attachment again.
+export function withoutInlineTokens(text: string): string {
+  return text.includes(INLINE_ATTACHMENT_MARK) ? text.replace(INLINE_TOKEN, "") : text;
+}
+
+export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -95,9 +188,12 @@ export async function readAttachments(
   return { attachments, errors };
 }
 
-export async function readAttachment(file: File, allowImages: boolean): Promise<ComposerAttachment | AttachmentError> {
+export async function readAttachment(
+  file: File,
+  allowImages: boolean,
+  id: string = crypto.randomUUID(),
+): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
-  const id = crypto.randomUUID();
   if (isPdf(file)) {
     if (file.size > MAX_DOCUMENT_BYTES) return { name, reason: "tooLarge" };
     const bytes = new Uint8Array(await file.arrayBuffer());
@@ -158,6 +254,7 @@ export const thumbnail = thumbnailOffThread;
 
 /// The prompt's text with each text file appended as a fenced block under its name.
 export function promptText(text: string, attachments: ComposerAttachment[]): string {
+  const visibleText = hasInlineMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : text;
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -171,43 +268,81 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
       (attachment) =>
         `Attached file: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes). Read the linked file with your tools.`,
     );
-  return [text, ...files, ...notes].filter(Boolean).join("\n\n");
+  return [visibleText, ...files, ...notes].filter(Boolean).join("\n\n");
 }
 
 /// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
 /// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
+/** The editor's ordered runs. Attachments without a mark remain at the end for old drafts. */
+export function orderedDraftParts(input: string, chips: readonly ComposerAttachment[]): OrderedDraftPart[] {
+  if (!hasInlineMarks(input, chips))
+    return input
+      ? [
+          { type: "text", text: input },
+          ...chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment })),
+        ]
+      : chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }));
+  const parts: OrderedDraftPart[] = [];
+  const inline = chips.filter((attachment) => attachment.inline);
+  let start = 0;
+  let next = 0;
+  for (let at = input.indexOf(INLINE_ATTACHMENT_MARK); at >= 0; at = input.indexOf(INLINE_ATTACHMENT_MARK, at + 1)) {
+    const text = input.slice(start, at);
+    if (text) parts.push({ type: "text", text });
+    const attachment = inline[next++];
+    if (attachment) parts.push({ type: "attachment", attachment });
+    start = at + INLINE_ATTACHMENT_MARK.length;
+  }
+  const tail = input.slice(start);
+  if (tail) parts.push({ type: "text", text: tail });
+  // The attachments not placed in the text (the strip's) go after it, in their order.
+  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment });
+  return parts;
+}
+
+export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  if (attachment.kind === "image" && attachment.data)
+    blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
+  else if (attachment.kind === "document" && attachment.data)
+    blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+  else if (attachment.kind === "audio" && attachment.data)
+    blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
+  else if (attachment.kind === "link" && attachment.path)
+    blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
+  if (attachment.kind === "image" && attachment.originalPath)
+    blocks.push({
+      type: "resource_link",
+      uri: fileUri(attachment.originalPath),
+      name: attachment.originalName ?? attachment.name,
+    });
+  return blocks;
+}
+
+/** ACP content in the same order as the editor. Unmarked legacy drafts keep their old shape. */
 export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
   const { text, attachments } = liftInlineImages(input, chips);
+  if (!hasInlineMarks(text, attachments)) {
+    const blocks: PromptBlock[] = [];
+    const body = promptText(text, attachments);
+    if (body) blocks.push({ type: "text", text: body });
+    blocks.push(...pastedTextBlocks(attachments));
+    for (const attachment of attachments) blocks.push(...attachmentBlocks(attachment));
+    return blocks;
+  }
   const blocks: PromptBlock[] = [];
-  const body = promptText(text, attachments);
-  if (body) blocks.push({ type: "text", text: body });
-  blocks.push(...pastedTextBlocks(attachments));
-  for (const attachment of attachments) {
-    if (attachment.kind === "image" && attachment.data)
-      blocks.push({
-        type: "image",
-        mimeType: attachment.mimeType,
-        data: attachment.data,
-        name: attachment.name,
-      });
-    else if (attachment.kind === "document" && attachment.data)
-      blocks.push({
-        type: "document",
-        mimeType: "application/pdf",
-        data: attachment.data,
-        name: attachment.name,
-      });
-    else if (attachment.kind === "link" && attachment.path)
-      blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
-    else if (attachment.kind === "audio" && attachment.data)
-      blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
-    if (attachment.kind === "image" && attachment.originalPath)
-      blocks.push({
-        type: "resource_link",
-        uri: fileUri(attachment.originalPath),
-        name: attachment.originalName ?? attachment.name,
-      });
+  for (const part of orderedDraftParts(text, attachments)) {
+    if (part.type === "text") {
+      if (part.text) blocks.push({ type: "text", text: part.text });
+      continue;
+    }
+    if (part.attachment.kind === "text") {
+      const body = promptText("", [part.attachment]);
+      if (body) blocks.push({ type: "text", text: body });
+    } else if (part.attachment.kind === "pasted" && part.attachment.text) {
+      blocks.push({ type: "text", text: part.attachment.text, _meta: { cmux: { pasted: true } } });
+    } else blocks.push(...attachmentBlocks(part.attachment));
   }
   return blocks;
 }

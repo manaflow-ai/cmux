@@ -6,6 +6,14 @@ import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
 import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
+import {
+  inlineAttachmentNode,
+  inlinePlugin,
+  insertInline,
+  orderInline,
+  removeInline,
+  sliceHoldsInline,
+} from "./composer/inlineNode";
 import { followActionsWidth } from "./composerScrollLane";
 import { MINIMAL_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import {
@@ -79,6 +87,13 @@ export type MarkdownFieldHandle = {
   redo(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
+  /// Places attachments `ids` at the caret, in the text (composer/inlineNode.ts); false where they
+  /// cannot go (a code block, an editor not made yet).
+  insertInline(ids: readonly string[]): boolean;
+  /// Takes attachment `id` out of the text.
+  removeInline(id: string): void;
+  /// Puts the attachments placed in the text in `ids`' order, each place in the text kept.
+  orderInline(ids: readonly string[]): void;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -110,6 +125,8 @@ export type MarkdownFieldProps = {
   onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
+  /// The element each attachment placed in the text draws its chip into, by id, as they change.
+  onInlineViews?(views: ReadonlyMap<string, HTMLElement>): void;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
   plugins?: Plugin[];
   /// Shift-Enter adds a line (default true).
@@ -156,6 +173,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onSubmit === next.onSubmit &&
     previous.onReturnInput === next.onReturnInput &&
     previous.onFirstInput === next.onFirstInput &&
+    previous.onInlineViews === next.onInlineViews &&
     previous.plugins === next.plugins &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
@@ -351,6 +369,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onSubmit,
     onReturnInput,
     onFirstInput,
+    onInlineViews,
     plugins = [],
     multiline = true,
     placeholder,
@@ -375,6 +394,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onSubmit,
     onReturnInput,
     onFirstInput,
+    onInlineViews,
   });
   latest.current = {
     onChange,
@@ -385,6 +405,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onSubmit,
     onReturnInput,
     onFirstInput,
+    onInlineViews,
   };
   const composing = useRef(false);
   const touched = useRef(false);
@@ -419,6 +440,29 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       composing: composing.current || editorView.composing,
       paste,
     }) === true;
+
+  // Each placed attachment's element (composer/inlineNode.ts), told to the composer once per task.
+  const inlineViews = useRef(new Map<string, HTMLElement>());
+  const inlineTold = useRef(false);
+  const tellInlineViews = () => {
+    if (inlineTold.current) return;
+    inlineTold.current = true;
+    queueMicrotask(() => {
+      inlineTold.current = false;
+      latest.current.onInlineViews?.(new Map(inlineViews.current));
+    });
+  };
+  const inline = useRef({
+    add: (id: string, dom: HTMLElement) => {
+      inlineViews.current.set(id, dom);
+      tellInlineViews();
+    },
+    remove: (id: string, dom: HTMLElement) => {
+      if (inlineViews.current.get(id) !== dom) return;
+      inlineViews.current.delete(id);
+      tellInlineViews();
+    },
+  });
 
   const mount = useCallback((root: HTMLDivElement | null) => {
     if (!root) return;
@@ -539,6 +583,12 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             },
             handleTextInput: (editorView, _from, _to, text) => beforeInput(editorView, text),
             handlePaste: (editorView, event, slice) => {
+              // A copy of the prompt's own text with an attachment placed in it carries that
+              // attachment (its node, by id); the rest of a paste is its plain text.
+              if (sliceHoldsInline(slice)) {
+                editorView.dispatch(editorView.state.tr.replaceSelection(slice).scrollIntoView());
+                return true;
+              }
               // A paste is its plain text, as copied: with HTML too, the plain text wins, and HTML
               // alone goes in as its text. Left to Milkdown, a plain paste was parsed as markdown
               // (its `<br />` blank-line placeholder, HTML or JSX source went in as typed tags) and
@@ -723,6 +773,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       .use(gfm)
       .use(history)
       .use(clipboard)
+      .use(inlineAttachmentNode)
+      .use(inlinePlugin(inline.current))
       .create()
       .then((made) => {
         if (disposed) {
@@ -896,6 +948,17 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         selectAll: () => {
           refocus.current = null;
           if (view.current) selectAll(view.current.state, view.current.dispatch);
+        },
+        insertInline: (ids) => {
+          if (!view.current) return false;
+          refocus.current = null;
+          return insertInline(view.current, ids);
+        },
+        removeInline: (id) => {
+          if (view.current) removeInline(view.current, id);
+        },
+        orderInline: (ids) => {
+          if (view.current) orderInline(view.current, ids);
         },
         element: () => wrapper.current,
         plainText: () => {
