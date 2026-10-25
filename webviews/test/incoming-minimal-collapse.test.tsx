@@ -61,7 +61,8 @@ afterAll(() => {
 });
 
 const t = translatorFor("en");
-const text = "\n**Rebased** onto [main](https://example.com/main); ready for review.\n\nThe retry tests pass.\nCI is green.";
+const text =
+  "\n**Rebased** onto [main](https://example.com/main); ready for review.\n\nThe retry tests pass.\nCI is green.";
 
 async function line(id: string) {
   const opened: string[] = [];

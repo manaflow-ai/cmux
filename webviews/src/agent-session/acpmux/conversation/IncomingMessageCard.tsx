@@ -23,7 +23,17 @@
 // message is its line alone: the sender's chip, then the message's first line (messagePreview), cut
 // with an ellipsis, then the chevron. The line opens the card in place, the fold playing as a tool
 // row's does (useAnchoredCollapse.ts: at once under Reduce Motion), and closes it again.
-import { useCallback, useContext, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { useT, type StringKey } from "../i18n";
 import { RECEIVED_LINES, type PromptImage } from "../model";
 import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
