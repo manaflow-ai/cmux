@@ -449,6 +449,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
+import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -688,10 +689,52 @@ const keptAttachments: KeptAttachments = {
     callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),
 };
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
-const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
-  void callNative("chat.scrollAnchor", { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 }).catch(
-    () => undefined,
-  );
+const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) => {
+  const place = { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 };
+  const write = anchorWrites.get(sessionId) ?? { sent: 0, kept: 0, inFlight: 0, failed: false, place };
+  write.place = place;
+  anchorWrites.set(sessionId, write);
+  sendScrollAnchor(write);
+};
+type AnchorWrite = {
+  /// The newest place sent and the newest one the host answered for (`kept` behind `sent`: not kept yet).
+  sent: number;
+  kept: number;
+  inFlight: number;
+  /// The newest write was refused: the next ask sends it again.
+  failed: boolean;
+  place: { sessionId: string; rowId: string | null; offset: number };
+};
+/// Per chat, so one chat's write never stands in for another's.
+const anchorWrites = new Map<string, AnchorWrite>();
+const sendScrollAnchor = (write: AnchorWrite) => {
+  const n = ++write.sent;
+  write.failed = false;
+  write.inFlight += 1;
+  void callNative("chat.scrollAnchor", write.place)
+    .then(
+      () => {
+        if (n === write.sent) write.kept = n;
+      },
+      () => {
+        if (n === write.sent) write.failed = true;
+      },
+    )
+    .finally(() => {
+      write.inFlight -= 1;
+    });
+};
+// WEB-SWAP: a web update's reload reopens the chat at the kept place, so it waits for the newest
+// one to be kept. A refused one goes again on the next ask (pages/shared/webSwap.ts).
+holdWebSwap(() => {
+  let reason: string | null = null;
+  for (const write of anchorWrites.values()) {
+    if (write.kept >= write.sent) continue;
+    if (write.failed && write.inFlight === 0) sendScrollAnchor(write);
+    reason = "transcript.place-unsaved";
+  }
+  return reason;
+});
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
 /// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach. A
@@ -3299,18 +3342,34 @@ export function VirtualTranscript({
     anchorDeferred.current = false;
     reportedAnchor.current = undefined;
   }, [sessionId]);
+  const onAnchorRef = useRef(onAnchor);
+  onAnchorRef.current = onAnchor;
+  // WEB-SWAP: the transcript reopens at the place it reported (`chat.scrollAnchor`), so a web
+  // update's reload waits only for a report still due (pages/shared/webSwap.ts). A hidden pane
+  // reports where the reader last saw it (below), so it never holds the swap.
+  useEffect(
+    () =>
+      holdWebSwap(() => (onAnchorRef.current && anchorTimer.current !== undefined ? "transcript.place-unsaved" : null)),
+    [],
+  );
   const reportAnchor = () => {
+    anchorTimer.current = undefined;
     const node = ref.current;
     // Before the chat opens its offset is not the reader's: the kept place stays.
     if (!node || !onAnchor || !didOpenAtLatest.current) return;
     // A hidden pane (Home shown in its place) has no viewport: nothing it reads is where the reader is.
     anchorDeferred.current = node.clientHeight === 0;
-    if (anchorDeferred.current) return;
+    // Meanwhile it keeps where the reader last saw it (as `pane.wakeState` does); the report comes
+    // again once it shows.
+    if (anchorDeferred.current && seenAnchor.current === undefined) return;
     const { layout: placed, rows: shown } = latestLayout.current;
     const index = visibleLayoutRange(placed, node.scrollTop, 0, 0).first;
     const row = shown[index];
-    const anchor: ScrollAnchor | null =
-      scrolledTo.current.atLatest || !row ? null : { rowId: row.id, offset: node.scrollTop - placed.tops[index] };
+    const anchor: ScrollAnchor | null = anchorDeferred.current
+      ? (seenAnchor.current ?? null)
+      : scrolledTo.current.atLatest || !row
+        ? null
+        : { rowId: row.id, offset: node.scrollTop - placed.tops[index] };
     const key = JSON.stringify(anchor);
     if (key === reportedAnchor.current) return;
     reportedAnchor.current = key;
@@ -3670,6 +3729,8 @@ export function VirtualTranscript({
         ref={ref}
         className="acpmux-scroll"
         role="feed"
+        // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
+        {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
         aria-label={t("transcript.label")}
         onScroll={onScroll}
         onWheel={onWheel}
@@ -5989,6 +6050,21 @@ function AcpmuxPane() {
         else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
       }),
   );
+  /// Prompts on their way through this page before the client holds them (a chat starting, a
+  /// harness switch's row), and chats starting for a prompt (`chat.new`).
+  const untakenSends = useRef(0);
+  // WEB-SWAP: a web update's reload waits while a prompt that left the composer lives only in this
+  // page: one on its way to acpmux, one waiting for a new chat, a failed one with Retry
+  // (direct.ts `swapHold`, pages/shared/webSwap.ts).
+  useEffect(
+    () =>
+      holdWebSwap(
+        () =>
+          directClient.current?.swapHold() ||
+          (untakenSends.current > 0 || startingSends.busy || heldBack.current?.length ? "composer.send-untaken" : null),
+      ),
+    [startingSends],
+  );
   /// What a released page's composer held (the handshake's `wake`), for the composer once it mounts.
   const pendingWake = useRef<ComposerWake | undefined>(undefined);
   /// Where the shown transcript rests now (VirtualTranscript `anchorNow`).
@@ -6716,6 +6792,27 @@ function AcpmuxPane() {
         ) => {
           // The reader sent it: the transcript goes to its latest message now, even scrolled up.
           setSends((count) => count + 1);
+          // WEB-SWAP: until the client holds the prompt (its own `swapHold`), only this call does.
+          untakenSends.current += 1;
+          let counted = true;
+          const handedOn = () => {
+            if (counted) untakenSends.current -= 1;
+            counted = false;
+          };
+          try {
+            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn);
+          } finally {
+            handedOn();
+          }
+        };
+        const sendThrough = async (
+          text: string,
+          attachments: import("./attachments").ComposerAttachment[],
+          accepted: (() => void) | undefined,
+          steer: boolean,
+          promptId: string | undefined,
+          handedOn: () => void,
+        ) => {
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -6769,6 +6866,8 @@ function AcpmuxPane() {
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
+          // The client counts it from here (it registers the send before its first wait).
+          handedOn();
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
@@ -7212,6 +7311,13 @@ function AcpmuxPane() {
           prewarm: (harness, cwd) => client.prewarm(harness, cwd),
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
+        };
+        // WEB-SWAP: a New Tab's prompt waits in its sender while its chat starts (screenActions.ts):
+        // a web update's reload waits for the start too.
+        const startChat = window.cmuxAcpmuxActions["chat.new"]!;
+        window.cmuxAcpmuxActions["chat.new"] = (params) => {
+          untakenSends.current += 1;
+          return startChat(params).finally(() => (untakenSends.current -= 1));
         };
         notifyDraftActionsChanged();
         harnessSwitch.setHandlers({

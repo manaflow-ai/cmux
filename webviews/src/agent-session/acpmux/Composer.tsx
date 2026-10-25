@@ -76,6 +76,7 @@ import {
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
+import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -636,6 +637,27 @@ export function Composer({
   }, [sessionId, text, draft]);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
+  // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
+  // chips kept with the chat (composerDraft.ts, keptAttachments.ts), nothing being sent, read or
+  // dictated, no shell mode (pages/shared/webSwap.ts).
+  const swapState = useRef({ dictating, reading: 0, sessionId, chips: 0 });
+  swapState.current = { dictating, reading: pending.length, sessionId, chips: attachments.length };
+  useEffect(
+    () =>
+      holdWebSwap(() => {
+        const state = swapState.current;
+        if (sending.current) return "composer.sending";
+        if (state.dictating) return "composer.dictation";
+        if (state.reading) return "composer.attachment-reading";
+        if (shellRef.current.shell) return "composer.shell";
+        // A new chat's prompt has no chat to keep it with yet.
+        if (!state.sessionId)
+          return (field.current?.value() ?? textRef.current).trim() || state.chips ? "composer.new-chat" : null;
+        if (hydratedSession.current !== state.sessionId) return "composer.draft-restoring";
+        return null;
+      }),
+    [],
+  );
   // After the session effect, so a switch that ends with its session change still carries.
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
@@ -657,6 +679,13 @@ export function Composer({
       }
       hydratedSession.current = sessionId;
       flushPendingDraftWrites();
+      // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
+      // caret after the text as it was (pages/shared/webSwap.ts).
+      if (takeWebSwapFocus("composer"))
+        requestAnimationFrame(() => {
+          field.current?.focus();
+          field.current?.setCaret(Number.MAX_SAFE_INTEGER);
+        });
     });
     return () => {
       current = false;
@@ -1468,6 +1497,8 @@ export function Composer({
     <form
       ref={form}
       className="acpmux-composer"
+      // A web update's reload gives the prompt the keyboard back (pages/shared/webSwap.ts).
+      {...{ [WEB_SWAP_FOCUS]: "composer" }}
       data-cmux-component="Composer"
       data-cmux-source="webviews/src/agent-session/acpmux/Composer.tsx:1420"
       data-shell={shell ? "" : undefined}
@@ -1557,6 +1588,8 @@ export function Composer({
                   ? `acpmux-mention-${mentionSelected}`
                   : undefined,
             spellcheck: String(spellChecking),
+            // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
+            [WEB_SWAP_KEPT_TEXT]: "",
           },
           onBeforeInput: stablePromptCallbacks.onBeforeInput,
           onChange: stablePromptCallbacks.onChange,
