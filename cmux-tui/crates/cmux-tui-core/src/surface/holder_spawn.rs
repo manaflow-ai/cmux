@@ -2,7 +2,7 @@
 //! one a previous daemon of the session left running.
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStringExt;
 
 use cmux_holder::SpawnRequest;
@@ -308,7 +308,7 @@ fn holder_environment(
             env.insert(key.into(), value.into());
         }
     }
-    env.remove("TERM_PROGRAM_VERSION");
+    env.remove(OsStr::new("TERM_PROGRAM_VERSION"));
     env
 }
 
@@ -354,10 +354,11 @@ mod tests {
             extra_env: vec![("TERM_PROGRAM_VERSION".into(), "1.3.2".into())],
             ..SurfaceOptions::default()
         };
-        let inherited = BTreeMap::from([(OsString::from("TERM_PROGRAM_VERSION"), OsString::from("1.3.2"))]);
+        let inherited =
+            BTreeMap::from([(OsString::from("TERM_PROGRAM_VERSION"), OsString::from("1.3.2"))]);
 
         let environment = holder_environment(&opts, inherited);
 
-        assert!(!environment.contains_key("TERM_PROGRAM_VERSION"));
+        assert!(!environment.contains_key(OsStr::new("TERM_PROGRAM_VERSION")));
     }
 }
