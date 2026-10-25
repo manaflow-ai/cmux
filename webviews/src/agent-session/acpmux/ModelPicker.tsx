@@ -493,7 +493,12 @@ export function ModelPicker(props: ModelPickerProps) {
     [onHarnessHint],
   );
   useEffect(() => {
-    if (open || !restoreFocus.current) return;
+    if (open) return;
+    // A pick's prompt focus belongs to its own close: a reopen before the frames below run cancels
+    // them, and the next close (Escape) returns to the model button.
+    const picked = toPrompt.current;
+    toPrompt.current = false;
+    if (!restoreFocus.current) return;
     restoreFocus.current = false;
     // A pointerup can still apply its default focus after React closes the popup. Defer the
     // restoration until that browser action has finished. A second frame also covers the
@@ -502,8 +507,6 @@ export function ModelPicker(props: ModelPickerProps) {
     let second: number | undefined;
     const first = requestAnimationFrame(() => {
       second = requestAnimationFrame(() => {
-        const picked = toPrompt.current;
-        toPrompt.current = false;
         if (!(picked && focusPrompt())) trigger.current?.focus({ preventScroll: true });
       });
     });
