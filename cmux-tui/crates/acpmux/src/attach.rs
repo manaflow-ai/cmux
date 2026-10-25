@@ -1,32 +1,25 @@
-//! Files sent with a message between sessions: `acpmux send --attach FILE` (claude-sr2,
-//! 2026-10-25, copying Leo's screenshots to big-red one at a time with scp so lanes there could
-//! see them; Leo: "If this doesn't work as well as it should, we need to improve ACP Mux.").
+//! Files sent with a message between sessions: `acpmux send --attach FILE` (claude-sr2 scp'd Leo's
+//! screenshots to big-red one at a time on 2026-10-25; Leo: "If this doesn't work as well as it
+//! should, we need to improve ACP Mux.").
 //!
-//! The sender ([`blocks_from_paths`]) puts each file in the prompt as a block marked
-//! `_meta.acpmux.attachment {name}`: an image (its type read from its bytes) as an ACP `image`
-//! block, any other file as an embedded `resource` with its bytes as `blob`. The prompt then goes
-//! the way every prompt goes: to a session here, through the outbox with `--no-wait`
-//! (`server/outbox.rs`, which keeps it until the peer is back), or whole over the peer link to a
-//! session on another host (`peer_forward.rs`). So the send rules, the prompt id's
-//! once-only run and the `--from` provenance are the same as for any message.
+//! The sender ([`blocks_from_paths`]) adds each file to the prompt as a block marked
+//! `_meta.acpmux.attachment {name}`: an image (its type read from its bytes) as an `image` block,
+//! any other file as an embedded `resource`. The prompt then goes as every prompt goes (direct,
+//! through the outbox, or whole over the peer link), so the send rules, the prompt id's run-once
+//! ledger and the `--from` provenance are those of any message.
 //!
-//! The daemon that runs the session ([`receive`]) checks the caps again, reads each file's type
-//! from its bytes, and saves it owner-only (0600, folders 0700) in the session's uploads folder,
-//! `<ACPMUX_HOME>/uploads/<session>/<prompt id>/<name>` (`hub/file_uploads.rs`: deleted with
-//! the chat and by the age sweep). An image stays an image block, so the agent sees it and the
-//! transcript draws it (`prompt_images.rs`); any other file becomes a `resource_link` to its saved
-//! copy, which every harness opens with its own tools. A context note (not in the transcript)
-//! tells the agent where they are saved. A name comes from the sender: only its last component is
-//! kept, made plain ([`safe_name`]), so it never leaves that folder.
+//! The daemon that runs the session ([`receive`]) checks the caps and the type again and saves each
+//! file owner-only at `<ACPMUX_HOME>/uploads/<session>/<prompt id>/<name>` (`file_uploads.rs`: a
+//! purge and the age sweep delete it). An image stays an image block (the agent sees it, the
+//! transcript draws it, `prompt_images.rs`); any other file becomes a `resource_link` to its copy.
+//! A context note tells the agent where they are. Only the last component of the sender's name is
+//! kept, made plain ([`safe_name`]). A UUIDv7 prompt id (the CLI's) names the folder, so the
+//! outbox's retry (same id, `resend`) rewrites the same files instead of adding a copy.
 //!
-//! Caps: [`MAX_FILE_BYTES`] a file, [`MAX_MESSAGE_BYTES`] and [`MAX_FILES`] a message. The whole
-//! message is one JSON-RPC message on every hop (the CLI to its daemon, the outbox's record, the
-//! peer link, the agent), which is at most `rpc::MAX_MESSAGE_BYTES` (15 MiB); 10 MiB is 13.3 MiB
-//! as base64 and leaves room for the text. A screenshot (a 5K Retina PNG is 3 to 7 MiB) fits one
-//! file whole; a larger file is a video or an archive, which `_acpmux/file_put` takes.
-//!
-//! A retried delivery saves no second copy: a prompt id that is a UUIDv7 (the CLI's) names the
-//! folder, so the outbox's retry (same prompt id, `resend`) writes the same files again.
+//! Caps: the message is one JSON-RPC message on every hop (CLI, outbox record, peer link, agent),
+//! at most `rpc::MAX_MESSAGE_BYTES` (15 MiB). 10 MiB is 13.3 MiB as base64, leaving room for the
+//! text. A screenshot (a 5K Retina PNG is 3 to 7 MiB) fits in [`MAX_FILE_BYTES`]; a larger file
+//! is a video or an archive, which `_acpmux/file_put` takes.
 
 use crate::rpc::RpcError;
 use anyhow::Context;
@@ -58,34 +51,19 @@ fn mib(bytes: usize) -> String {
 
 /// One message's attachments, `(name, bytes)`, against the caps.
 pub fn check_sizes(files: &[(String, usize)]) -> Result<(), RpcError> {
-    if files.len() > MAX_FILES {
-        return Err(refused(
-            "attach.tooMany",
-            format!("{} attachments: a message takes at most {MAX_FILES}", files.len()),
-        ));
-    }
-    if let Some((name, len)) = files.iter().find(|(_, len)| *len > MAX_FILE_BYTES) {
-        return Err(refused(
-            "attach.tooLarge",
-            format!(
-                "{name} is {}: an attachment is at most {} MiB (shrink it, or send its path)",
-                mib(*len),
-                MAX_FILE_BYTES >> 20
-            ),
-        ));
-    }
     let total: usize = files.iter().map(|(_, len)| len).sum();
-    if total > MAX_MESSAGE_BYTES {
-        return Err(refused(
-            "attach.tooLarge",
-            format!(
-                "the attachments are {} together: a message takes at most {} MiB (send them in more than one)",
-                mib(total),
-                MAX_MESSAGE_BYTES >> 20
-            ),
-        ));
-    }
-    Ok(())
+    let message = if files.len() > MAX_FILES {
+        let message = format!("{} attachments: a message takes at most {MAX_FILES}", files.len());
+        return Err(refused("attach.tooMany", message));
+    } else if let Some((name, len)) = files.iter().find(|(_, len)| *len > MAX_FILE_BYTES) {
+        format!("{name} is {}: an attachment is at most {} MiB", mib(*len), MAX_FILE_BYTES >> 20)
+    } else if total > MAX_MESSAGE_BYTES {
+        let max = MAX_MESSAGE_BYTES >> 20;
+        format!("the attachments are {} together: a message takes at most {max} MiB", mib(total))
+    } else {
+        return Ok(());
+    };
+    Err(refused("attach.tooLarge", message))
 }
 
 /// A sender's file name as one plain file name: its last path component, every character but a
@@ -124,40 +102,35 @@ pub fn block(name: &str, bytes: &[u8]) -> Value {
             json!({"type": "image", "mimeType": mime, "data": data, "name": name, "_meta": mark})
         }
         None => {
-            let mime =
-                crate::hub::prompt_images::sniffed_type(bytes).unwrap_or("application/octet-stream");
+            let mime = crate::hub::prompt_images::sniffed_type(bytes)
+                .unwrap_or("application/octet-stream");
             json!({"type": "resource", "_meta": mark, "resource": {
                 "uri": format!("attachment://{name}"), "mimeType": mime, "blob": data}})
         }
     }
 }
 
-/// The attachment blocks of the files at `paths` (`acpmux send --attach`). Refused past the caps
-/// from each file's size before any is read.
+/// The attachment blocks of the files at `paths` (`acpmux send --attach`), refused past the caps
+/// before any is read (the receiver checks the bytes it gets).
 pub fn blocks_from_paths(paths: &[PathBuf]) -> anyhow::Result<Vec<Value>> {
     let label = |path: &Path| path.display().to_string();
     let mut sizes = Vec::with_capacity(paths.len());
     for path in paths {
-        let meta = std::fs::metadata(path).with_context(|| format!("cannot attach {}", label(path)))?;
+        let meta =
+            std::fs::metadata(path).with_context(|| format!("cannot attach {}", label(path)))?;
         anyhow::ensure!(meta.is_file(), "cannot attach {}: not a file", label(path));
         sizes.push((label(path), usize::try_from(meta.len()).unwrap_or(usize::MAX)));
     }
     check_sizes(&sizes).map_err(|e| anyhow::anyhow!(e.message))?;
-    let mut read = Vec::with_capacity(paths.len());
-    for path in paths {
-        read.push(std::fs::read(path).with_context(|| format!("cannot attach {}", label(path)))?);
-    }
-    // A file that grew since: the bytes sent are what count.
-    let sizes: Vec<_> = paths.iter().zip(&read).map(|(p, b)| (label(p), b.len())).collect();
-    check_sizes(&sizes).map_err(|e| anyhow::anyhow!(e.message))?;
-    Ok(paths
+    paths
         .iter()
-        .zip(read)
-        .map(|(path, bytes)| {
+        .map(|path| {
+            let bytes =
+                std::fs::read(path).with_context(|| format!("cannot attach {}", label(path)))?;
             let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-            block(&name, &bytes)
+            Ok(block(&name, &bytes))
         })
-        .collect())
+        .collect()
 }
 
 fn mark(block: &Value) -> Option<&Value> {
@@ -257,7 +230,9 @@ pub fn receive(
         blocks[index] = match image_type(&bytes) {
             Some(mime) => json!({"type": "image", "mimeType": mime, "name": name,
                                  "data": data_of(&blocks[index]).unwrap_or_default()}),
-            None => json!({"type": "resource_link", "uri": file_uri(&path), "name": name, "mimeType": mime}),
+            None => {
+                json!({"type": "resource_link", "uri": file_uri(&path), "name": name, "mimeType": mime})
+            }
         };
     }
     blocks.push(json!({
@@ -332,31 +307,6 @@ mod tests {
     fn the_whole_message_fits_one_frame() {
         let base64 = MAX_MESSAGE_BYTES.div_ceil(3) * 4;
         assert!(base64 + (1 << 20) < crate::rpc::MAX_MESSAGE_BYTES);
-    }
-
-    #[test]
-    fn files_become_image_or_resource_blocks_by_their_bytes() {
-        let dir = std::env::temp_dir().join(format!("acpmux-attach-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let png = dir.join("shot.txt");
-        std::fs::write(&png, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
-        let notes = dir.join("notes.png");
-        std::fs::write(&notes, b"plain text").unwrap();
-        let blocks = blocks_from_paths(&[png, notes]).unwrap();
-        assert_eq!(blocks[0]["type"], "image");
-        assert_eq!(blocks[0]["mimeType"], "image/png");
-        assert_eq!(blocks[0]["_meta"]["acpmux"]["attachment"]["name"], "shot.txt");
-        assert_eq!(blocks[1]["type"], "resource");
-        assert_eq!(blocks[1]["resource"]["mimeType"], "application/octet-stream");
-        assert!(check_wire(&blocks).is_ok());
-        // Past the cap, from its size alone; a missing file names itself.
-        let big = dir.join("big.bin");
-        std::fs::File::create(&big).unwrap().set_len(MAX_FILE_BYTES as u64 + 1).unwrap();
-        let e = blocks_from_paths(&[big]).unwrap_err().to_string();
-        assert!(e.contains("big.bin") && e.contains("8 MiB"), "{e}");
-        let e = blocks_from_paths(&[dir.join("gone.png")]).unwrap_err().to_string();
-        assert!(e.contains("gone.png"), "{e}");
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

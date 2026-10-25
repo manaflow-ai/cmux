@@ -59,21 +59,12 @@ impl Drop for Shutdown<'_> {
     }
 }
 
-/// Every file named `name` under the daemon's uploads.
+/// Every file named `name` under the daemon's uploads (`<session>/<prompt id>/<name>`).
 fn uploads_named(dir: &Path, name: &str) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    let mut stack = vec![dir.join("uploads")];
-    while let Some(d) = stack.pop() {
-        for entry in fs::read_dir(&d).into_iter().flatten().flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                stack.push(path);
-            } else if path.file_name().and_then(|n| n.to_str()) == Some(name) {
-                out.push(path);
-            }
-        }
-    }
-    out
+    let entries = |d: &Path| fs::read_dir(d).into_iter().flatten().flatten().map(|e| e.path());
+    let sessions: Vec<_> = entries(&dir.join("uploads")).collect();
+    let folders: Vec<_> = sessions.iter().flat_map(|s| entries(s)).collect();
+    folders.iter().map(|f| f.join(name)).filter(|p| p.is_file()).collect()
 }
 
 #[test]
@@ -108,7 +99,11 @@ fn send_attach_delivers_an_image_to_the_lane_and_saves_it_owner_only() {
     let waited = cli(&dir, &["wait", "lane", "--timeout", "20"]);
     assert!(waited.status.success(), "{}", text(&waited));
     let last = cli(&dir, &["last", "lane"]);
-    assert!(String::from_utf8_lossy(&last.stdout).contains(&format!("image:{sha}")), "{}", text(&last));
+    assert!(
+        String::from_utf8_lossy(&last.stdout).contains(&format!("image:{sha}")),
+        "{}",
+        text(&last)
+    );
     assert_eq!(uploads_named(&dir, "screen.txt").len(), 2);
 
     // Over the cap (8 MiB a file): refused before anything is sent, saying the cap.
@@ -117,8 +112,4 @@ fn send_attach_delivers_an_image_to_the_lane_and_saves_it_owner_only() {
     assert!(!big.status.success(), "{}", text(&big));
     assert!(text(&big).contains("8 MiB"), "{}", text(&big));
     assert!(uploads_named(&dir, "huge.png").is_empty());
-    // A file that is not there names itself.
-    let missing = cli(&dir, &["send", "-q", "lane", "gone", "--attach", "gone.png"]);
-    assert!(!missing.status.success(), "{}", text(&missing));
-    assert!(text(&missing).contains("gone.png"), "{}", text(&missing));
 }

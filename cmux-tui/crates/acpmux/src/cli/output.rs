@@ -46,16 +46,14 @@ pub(crate) struct PromptId {
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => {
-                Self {
-                    id,
-                    resend: true,
-                    from_agent: None,
-                    supersede: None,
-                    cli_host: None,
-                    attachments: Vec::new(),
-                }
-            }
+            Some(id) => Self {
+                id,
+                resend: true,
+                from_agent: None,
+                supersede: None,
+                cli_host: None,
+                attachments: Vec::new(),
+            },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
                 resend: false,
