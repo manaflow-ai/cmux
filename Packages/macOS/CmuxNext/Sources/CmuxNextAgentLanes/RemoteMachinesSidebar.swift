@@ -206,7 +206,12 @@ public final class RemoteMachinesSidebar {
             let page = await read(peer, cursor)
             guard let self, !Task.isCancelled else { return }
             olderReads[peer] = nil
-            guard let page, olderShown.contains(peer) else { return }
+            guard olderShown.contains(peer) else { return }
+            guard let page else {
+                // A first page that failed closes the row again, so the next click reads it anew.
+                if older[peer]?.read != true { olderShown.remove(peer) }
+                return
+            }
             var next = older[peer] ?? Older()
             next.chats += page.chats.filter { chat in !next.chats.contains { $0.id == chat.id } }
             (next.next, next.read) = (page.next, true)
