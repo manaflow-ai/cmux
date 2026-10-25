@@ -132,10 +132,14 @@ struct CloudHubLoopbackTests {
         let url = try #require(RemoteLocalhostService.cloudDesktopURL(machine: "VM-Test"))
         #expect(url.host(percentEncoded: false) == "vm-test.cloud-desktop.localhost")
         #expect(BrowserNavigationGuard.isCloudDesktop(url))
-        #expect(BrowserNavigationGuard.isCloudDesktop(try #require(URL(string: "http://VM-TEST.Cloud-Desktop.LOCALHOST:6901/"))))
+        let shouted = try #require(URL(string: "http://VM-TEST.Cloud-Desktop.LOCALHOST:6901/"))
+        #expect(BrowserNavigationGuard.isCloudDesktop(shouted))
         #expect(RemoteLocalhostService.desktopMachine(url: url) == "vm-test")
-        for other in ["http://localhost:6901/vnc.html", "http://cloud-desktop.localhost.example.com/", "https://example.com/"] {
-            #expect(!BrowserNavigationGuard.isCloudDesktop(try #require(URL(string: other))), "\(other)")
+        let others = ["http://localhost:6901/vnc.html", "http://cloud-desktop.localhost.example.com/", "https://example.com/"]
+            .compactMap(URL.init(string:))
+        #expect(others.count == 3)
+        for other in others {
+            #expect(!BrowserNavigationGuard.isCloudDesktop(other), "\(other)")
         }
     }
 
@@ -145,7 +149,8 @@ struct CloudHubLoopbackTests {
     func aTunnelReaderReadsInOrderAndReturnsCredit() async throws {
         let hub = try FakeHub(reply: 0x00)
         let path = hub.path
-        let opener = try #require(HubLoopbackOpener(hub: { .init(socket: path, token: FakeHub.token) }, address: "10.149.25.1"))
+        let made = HubLoopbackOpener(hub: { .init(socket: path, token: FakeHub.token) }, address: "10.149.25.1")
+        let opener = try #require(made)
         let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
         let reader = LoopbackTunnelReader(tunnel)
         try await tunnel.write(Data("RFB 003.008\n".utf8))
