@@ -332,7 +332,10 @@ pub(crate) async fn stream_prompt(
         tokio::select! {
             r = &mut turn, if !steered.waiting() => match steered.answered(r?) {
                 Some(answer) => break answer,
-                None => continue,
+                None => match steered.settled(&client, id).await {
+                    Some(answer) => break answer,
+                    None => continue,
+                },
             },
             _ = tick => {
                 if let Some(d) = deadline
@@ -347,6 +350,8 @@ pub(crate) async fn stream_prompt(
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
+                // Events were dropped: the end of the turn it steered into may be among them.
+                if m == crate::cli::steer_reply::LAGGED && let Some(answer) = steered.settled(&client, id).await { break answer; }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
@@ -651,7 +656,10 @@ async fn collect_once(
         tokio::select! {
             r = &mut turn, if !steered.waiting() => match steered.answered(r?) {
                 Some(answer) => break answer,
-                None => continue,
+                None => match steered.settled(&client, id).await {
+                    Some(answer) => break answer,
+                    None => continue,
+                },
             },
             _ = tick => {
                 if let Some(d) = deadline
@@ -666,6 +674,8 @@ async fn collect_once(
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
+                // Events were dropped: the end of the turn it steered into may be among them.
+                if m == crate::cli::steer_reply::LAGGED && let Some(answer) = steered.settled(&client, id).await { break answer; }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
@@ -755,6 +765,11 @@ async fn collect_once(
             _ => None,
         })
         .unwrap_or_default();
+    // A steer's reply is the reply of the turn it went into, from the log: the send attached
+    // after that turn started, and may have missed its end.
+    if let Some(turn) = steered.turn() {
+        reply = turn_reply(&client, id, turn).await?;
+    }
     // A resent prompt id streams nothing: its turn already ran, so read the
     // reply of that turn (not necessarily the newest) from the log.
     if reply.is_empty() && result.pointer("/_meta/acpmux/duplicate") == Some(&json!(true)) {

@@ -5,13 +5,25 @@
 //! next tool boundary, and the turn runs on (`claude_stdio`); codex-acp answers it only when the
 //! turn ends (`hub/steer_end.rs`). So after a `steered` answer the send waits for that turn's
 //! end in the session's events (`turn_end`, `turn_error`, `turn_result`) and answers with it,
-//! and its reply is that turn's last words. A steer whose turn ended before the agent read it
-//! runs as the next prompt (`steer_end.rs`), whose answer comes back as any prompt's does.
+//! and its reply is that turn's last words, read from the log. A steer whose turn ended before
+//! the agent read it runs as the next prompt (`steer_end.rs`), whose answer comes back as any
+//! prompt's does.
+//!
+//! The end may not come as an event: the turn ended before the send attached (a resend of the
+//! same `--prompt-id` answered with the first run's `steered`), or the daemon dropped events for
+//! a slow reader (`_acpmux/lagged`). So right after the `steered` answer, and on each lagged
+//! notice, the send asks the daemon whether that turn still runs, and reads its end from the log
+//! if not (`settled`).
 
+use crate::client::Client;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::sync::Arc;
+
+/// The daemon dropped events for this connection (`server/fanout.rs`).
+pub(crate) const LAGGED: &str = "_acpmux/lagged";
 
 /// What a waiting send heard of its steer.
 #[derive(Default)]
@@ -81,6 +93,28 @@ impl SteerReply {
     /// It waits for the end of another prompt's turn, which is not the send's to stop.
     pub(crate) fn waiting(&self) -> bool {
         self.into.is_some()
+    }
+
+    /// The turn its steer went into, once the agent read it: the send's reply is that turn's.
+    pub(crate) fn turn(&self) -> Option<&str> {
+        self.into.as_deref()
+    }
+
+    /// The end of the turn it waits for when that turn no longer runs, read from the session
+    /// `id`'s log; `None` while it runs, or while its end is still being written (its event
+    /// comes then). A failed read is `None` too: the wait goes on, and a closed connection ends
+    /// it as any send's.
+    pub(crate) async fn settled(&self, client: &Arc<Client>, id: &str) -> Option<Result<Value>> {
+        let turn = self.into.as_deref()?;
+        let info = json!({"sessionId": id, "waitLogs": false});
+        let info = client.request(method::MUX_INFO, info).await.ok()?;
+        if info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn) {
+            return None;
+        }
+        let query = json!({"sessionId": id, "limit": 2000, "kinds": ["turn_result"]});
+        let events = crate::cli::output::with_older(client, query).await.ok()?;
+        let of_turn = |e: &Value| turn_end(method::MUX_EVENT, e).filter(|(t, _)| t == turn);
+        events.iter().rev().find_map(of_turn).map(|(_, end)| end)
     }
 
     /// Its prompt may have gone into another prompt's running turn: a timeout leaves that turn

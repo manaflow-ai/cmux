@@ -162,6 +162,13 @@ async fn an_agents_waiting_send_steers_and_answers_with_the_turns_final_reply() 
     let text = reply["reply"].as_str().unwrap_or_default();
     assert!(text.contains("after-gate"), "the turn's final reply, got {reply}");
     assert!(!b.queued(&pid));
+    // The same send again (a resend after a lost connection) is answered by the first run's
+    // `steered`, after the turn ended: it answers with that turn's end from the log at once.
+    let mut again =
+        b.send(&["send", "--from", "lane-a", "--prompt-id", &pid, &b.id, "rebase first"]);
+    let (resent, _) = done(tokio::spawn(async move { again.output().await })).await;
+    assert_eq!(resent["stopReason"], "end_turn", "{resent}");
+    assert_eq!(resent["reply"], reply["reply"], "{resent}");
 }
 
 /// The streaming send (no `--json`, no `--quiet`) waits for the turn's end the same way, and an
