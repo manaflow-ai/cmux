@@ -619,6 +619,259 @@
           ]
         },
         {
+          "id": "home.previousConversation",
+          "title": {
+            "en": "Previous Conversation",
+            "ar": "المحادثة السابقة",
+            "bs": "Prethodni razgovor",
+            "da": "Forrige samtale",
+            "de": "Vorherige Unterhaltung",
+            "es": "Conversación anterior",
+            "fr": "Conversation précédente",
+            "it": "Conversazione precedente",
+            "ja": "前の会話",
+            "km": "ការសន្ទនាមុន",
+            "ko": "이전 대화",
+            "no": "Forrige samtale",
+            "pl": "Poprzednia rozmowa",
+            "pt-BR": "Conversa anterior",
+            "ru": "Предыдущий разговор",
+            "th": "การสนทนาก่อนหน้า",
+            "tr": "Önceki Sohbet",
+            "uk": "Попередня розмова",
+            "vi": "Cuộc trò chuyện trước",
+            "zh-CN": "上一个对话",
+            "zh-TW": "上一個對話"
+          },
+          "shortcut": {
+            "key": "\t",
+            "modifiers": [
+              "ctrl",
+              "shift"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "[",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.nextConversation",
+          "title": {
+            "en": "Next Conversation",
+            "ar": "المحادثة التالية",
+            "bs": "Sljedeći razgovor",
+            "da": "Næste samtale",
+            "de": "Nächste Unterhaltung",
+            "es": "Conversación siguiente",
+            "fr": "Conversation suivante",
+            "it": "Conversazione successiva",
+            "ja": "次の会話",
+            "km": "ការសន្ទនាបន្ទាប់",
+            "ko": "다음 대화",
+            "no": "Neste samtale",
+            "pl": "Następna rozmowa",
+            "pt-BR": "Próxima conversa",
+            "ru": "Следующий разговор",
+            "th": "การสนทนาถัดไป",
+            "tr": "Sonraki Sohbet",
+            "uk": "Наступна розмова",
+            "vi": "Cuộc trò chuyện tiếp theo",
+            "zh-CN": "下一个对话",
+            "zh-TW": "下一個對話"
+          },
+          "shortcut": {
+            "key": "\t",
+            "modifiers": [
+              "ctrl"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "]",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.selectConversationByNumber",
+          "title": {
+            "en": "Select Conversation 1…9",
+            "ar": "اختيار المحادثة 1…9",
+            "bs": "Odaberi razgovor 1…9",
+            "da": "Vælg samtale 1…9",
+            "de": "Unterhaltung 1…9 auswählen",
+            "es": "Seleccionar conversación 1…9",
+            "fr": "Sélectionner la conversation 1…9",
+            "it": "Seleziona conversazione 1…9",
+            "ja": "会話 1…9 を選択",
+            "km": "ជ្រើសរើសការសន្ទនា 1…9",
+            "ko": "대화 1…9 선택",
+            "no": "Velg samtale 1…9",
+            "pl": "Wybierz rozmowę 1…9",
+            "pt-BR": "Selecionar conversa 1…9",
+            "ru": "Выбрать разговор 1…9",
+            "th": "เลือกการสนทนา 1…9",
+            "tr": "Sohbet 1…9'u Seç",
+            "uk": "Вибрати розмову 1…9",
+            "vi": "Chọn cuộc trò chuyện 1…9",
+            "zh-CN": "选择对话 1…9",
+            "zh-TW": "選擇對話 1…9"
+          },
+          "shortcut": {
+            "family": "digits",
+            "key": "1",
+            "modifiers": [
+              "ctrl"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "1",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "2",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "3",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "4",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "5",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "6",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "7",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "8",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "9",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",
@@ -1199,27 +1452,27 @@
         {
           "id": "paletteKey.toggleActions",
           "title": {
-            "en": "Palette: Show or Hide Actions",
-            "ar": "لوحة الأوامر: إظهار الإجراءات أو إخفاؤها",
-            "bs": "Paleta: prikaži ili sakrij radnje",
-            "da": "Palet: Vis eller skjul handlinger",
-            "de": "Palette: Aktionen ein- oder ausblenden",
-            "es": "Paleta: mostrar u ocultar acciones",
-            "fr": "Palette : afficher ou masquer les actions",
-            "it": "Tavolozza: mostra o nascondi azioni",
+            "en": "Palette: Show/Hide Actions",
+            "ar": "لوحة الأوامر: إظهار/إخفاء الإجراءات",
+            "bs": "Paleta: prikaži/sakrij radnje",
+            "da": "Palet: Vis/skjul handlinger",
+            "de": "Palette: Aktionen ein-/ausblenden",
+            "es": "Paleta: mostrar/ocultar acciones",
+            "fr": "Palette : afficher/masquer les actions",
+            "it": "Tavolozza: mostra/nascondi azioni",
             "ja": "パレット: アクションの表示を切り替え",
-            "km": "បន្ទះ៖ បង្ហាញ ឬលាក់សកម្មភាព",
-            "ko": "팔레트: 작업 표시 또는 숨기기",
-            "no": "Palett: Vis eller skjul handlinger",
-            "pl": "Paleta: Pokaż lub ukryj akcje",
-            "pt-BR": "Paleta: Mostrar ou Ocultar Ações",
-            "ru": "Палитра: показать или скрыть действия",
-            "th": "แผงคำสั่ง: แสดงหรือซ่อนการทำงาน",
-            "tr": "Palet: Eylemleri Göster veya Gizle",
-            "uk": "Палітра: показати або сховати дії",
-            "vi": "Bảng lệnh: Hiện hoặc ẩn thao tác",
-            "zh-CN": "面板：显示或隐藏操作",
-            "zh-TW": "命令面板：顯示或隱藏動作"
+            "km": "បន្ទះ៖ បង្ហាញ/លាក់សកម្មភាព",
+            "ko": "팔레트: 작업 표시/숨기기",
+            "no": "Palett: Vis/skjul handlinger",
+            "pl": "Paleta: Pokaż/ukryj akcje",
+            "pt-BR": "Paleta: Mostrar/Ocultar Ações",
+            "ru": "Палитра: показать/скрыть действия",
+            "th": "แผงคำสั่ง: แสดง/ซ่อนการทำงาน",
+            "tr": "Palet: Eylemleri Göster/Gizle",
+            "uk": "Палітра: показати/сховати дії",
+            "vi": "Bảng lệnh: Hiện/ẩn thao tác",
+            "zh-CN": "面板：显示/隐藏操作",
+            "zh-TW": "命令面板：顯示/隱藏動作"
           },
           "shortcut": null,
           "chord": null,
@@ -8133,27 +8386,27 @@
         {
           "id": "openTeamPicker",
           "title": {
-            "en": "Team Picker…",
-            "ar": "منتقي الفريق…",
-            "bs": "Odabir tima…",
-            "da": "Teamvælger…",
-            "de": "Team auswählen…",
-            "es": "Selector de equipo…",
-            "fr": "Sélecteur d’équipe…",
-            "it": "Selettore team…",
-            "ja": "チームを選択…",
-            "km": "ជ្រើសក្រុម…",
-            "ko": "팀 선택…",
-            "no": "Teamvelger…",
-            "pl": "Wybór zespołu…",
-            "pt-BR": "Seletor de Equipe…",
-            "ru": "Выбор команды…",
-            "th": "ตัวเลือกทีม…",
-            "tr": "Ekip Seçici…",
-            "uk": "Вибір команди…",
-            "vi": "Chọn nhóm…",
-            "zh-CN": "团队选择器…",
-            "zh-TW": "選擇團隊…"
+            "en": "Switch Active Team…",
+            "ar": "تبديل الفريق النشط…",
+            "bs": "Promijeni aktivni tim…",
+            "da": "Skift aktivt team…",
+            "de": "Aktives Team wechseln…",
+            "es": "Cambiar equipo activo…",
+            "fr": "Changer d’équipe active…",
+            "it": "Cambia team attivo…",
+            "ja": "アクティブなチームを切り替え…",
+            "km": "ប្ដូរក្រុមសកម្ម…",
+            "ko": "활성 팀 전환…",
+            "no": "Bytt aktivt team…",
+            "pl": "Zmień aktywny zespół…",
+            "pt-BR": "Trocar equipe ativa…",
+            "ru": "Сменить активную команду…",
+            "th": "สลับทีมที่ใช้งานอยู่…",
+            "tr": "Etkin ekibi değiştir…",
+            "uk": "Змінити активну команду…",
+            "vi": "Chuyển nhóm đang dùng…",
+            "zh-CN": "切换当前团队…",
+            "zh-TW": "切換目前團隊…"
           },
           "shortcut": {
             "key": "t",

@@ -1,24 +1,30 @@
-# Meta Muse Code. It has no ACP mode (`muse serve` speaks Muse's own session
-# protocol), so cmux runs it in a terminal tab (`cmux harness run muse`).
-# Install: curl -fsSL https://dev.meta.ai/install.sh | sh   (then `muse login`)
-# Status in the terminal comes from its hooks: `cmux agent hook install muse`.
+# Meta Muse Code through the cmux-muse-acp adapter, which bridges Muse's own
+# session protocol (`muse serve`) to ACP: chats, the Chief engine, the model
+# picker and modes (Default, Read-only, Plan) work like any ACP harness.
+# Install Muse: curl -fsSL https://dev.meta.ai/install.sh | sh   (then `muse login`)
+# Install the adapter (audited fork of BrokkAi/muse-acp):
+#   cargo install --git https://github.com/manaflow-ai/cmux-muse-acp --locked muse-acp
+# acpmux finds `muse-acp` on PATH by itself; this file only pins it.
 schema = 1
 id = "muse"
 name = "Muse Code"
 icon = "meta"
-protocol = "terminal"
-command = "muse"
-args = ["--model", "${model}"]
+family = "muse"
+protocol = "acp"
+command = "muse-acp"
 
-[defaults]
-model = "muse-spark-1.3"
+# The `muse` the adapter starts, when the daemon's PATH lacks it.
+# [env]
+# MUSE_CLI = "/Users/you/.local/bin/muse"
 
-# Models: muse-spark-1.3, muse-spark-1.2, muse-wonder-1.0 and the
-# -contributor variants; a terminal harness has no model picker.
+[capabilities]
+permission_modes = true
+resume = true
 
 [auth]
 login = "muse login"
 docs = "https://dev.meta.ai/docs/muse-code"
+check = ["muse-acp", "--version"]
 
 [sessions]
 adapter = "muse"

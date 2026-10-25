@@ -104,7 +104,7 @@ impl Selector {
     }
 
     pub fn path(&self, id: PathId) -> Option<PathView> {
-        self.find(id).map(|index| self.paths[index].view)
+        self.paths.iter().find(|path| path.view.id == id).map(|path| path.view)
     }
 
     pub fn add_path(&mut self, id: PathId, kind: PathKind) -> Result<(), SelectorError> {
@@ -131,9 +131,12 @@ impl Selector {
         id: PathId,
         outcome: ProbeOutcome,
     ) -> Result<Option<Switch>, SelectorError> {
-        let index = self.find(id).ok_or(SelectorError::UnknownPath(id))?;
         let dead_after = self.config.dead_after_lost;
-        let path = &mut self.paths[index];
+        let path = self
+            .paths
+            .iter_mut()
+            .find(|path| path.view.id == id)
+            .ok_or(SelectorError::UnknownPath(id))?;
         match outcome {
             ProbeOutcome::Answered { rtt_us } => {
                 path.lost = 0;
@@ -171,19 +174,9 @@ impl Selector {
     }
 
     fn alive(&self, id: Option<PathId>) -> Option<&Path> {
-        let index = self.find(id?)?;
-        let path = &self.paths[index];
+        let id = id?;
+        let path = self.paths.iter().find(|path| path.view.id == id)?;
         (path.view.state == PathState::Alive).then_some(path)
-    }
-
-    /// Whether `challenger` beats `incumbent` by the hysteresis margin.
-    fn beats_by_margin(&self, challenger: &PathView, incumbent: &PathView) -> bool {
-        let (Some(new), Some(old)) = (challenger.rtt_us, incumbent.rtt_us) else {
-            return false;
-        };
-        let margin =
-            self.config.min_gain_us.max(old.saturating_mul(self.config.min_gain_percent) / 100);
-        new.saturating_add(margin) <= old
     }
 
     /// After an answer on `answered`: a challenger's own answer advances its
@@ -194,16 +187,16 @@ impl Selector {
         let Some(incumbent) = self.alive(self.current).map(|path| path.view) else {
             return;
         };
-        for index in 0..self.paths.len() {
-            let view = self.paths[index].view;
+        let config = self.config;
+        for path in &mut self.paths {
+            let view = path.view;
             if view.id == incumbent.id
                 || view.state != PathState::Alive
                 || view.kind.class() != incumbent.kind.class()
             {
                 continue;
             }
-            let beats = self.beats_by_margin(&view, &incumbent);
-            let path = &mut self.paths[index];
+            let beats = beats_by_margin(&config, &view, &incumbent);
             if view.id == answered {
                 path.better_streak = if beats { path.better_streak.saturating_add(1) } else { 0 };
             } else if incumbent.id == answered && !beats {
@@ -232,7 +225,7 @@ impl Selector {
                         path.view.state == PathState::Alive
                             && path.view.kind.class() == current_class
                             && path.better_streak >= self.config.switch_streak
-                            && self.beats_by_margin(&path.view, &current.view)
+                            && beats_by_margin(&self.config, &path.view, &current.view)
                     })
                     .min_by_key(|path| (path.view.rtt_us.unwrap_or(u64::MAX), path.view.id));
                 if best.view.kind.class() < current_class {
@@ -253,4 +246,13 @@ impl Selector {
         }
         Some(Switch { from, to })
     }
+}
+
+/// Whether `challenger` beats `incumbent` by the hysteresis margin.
+fn beats_by_margin(config: &SelectorConfig, challenger: &PathView, incumbent: &PathView) -> bool {
+    let (Some(new), Some(old)) = (challenger.rtt_us, incumbent.rtt_us) else {
+        return false;
+    };
+    let margin = config.min_gain_us.max(old.saturating_mul(config.min_gain_percent) / 100);
+    new.saturating_add(margin) <= old
 }

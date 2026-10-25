@@ -309,6 +309,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagent_transcript",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/workflows",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/app_reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/stats",
       "params": true,
       "result": true
@@ -333,7 +351,25 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_queue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/send_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/step_now",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/steer_withdraw",
       "params": true,
       "result": true
     },
@@ -433,6 +469,12 @@
     {
       "kind": "request",
       "name": "_acpmux/info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_files",
       "params": true,
       "result": true
     },
@@ -585,6 +627,84 @@
     {
       "kind": "request",
       "name": "_acpmux/file_put",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_chunk",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_finish",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/dispatch",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/steer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/briefs",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/task_new",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tasks",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/resolve",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_range",
       "params": true,
       "result": true
     },
@@ -1070,6 +1190,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/peer_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_add",
       "params": true,
       "result": true
@@ -1113,6 +1251,12 @@
     {
       "kind": "request",
       "name": "_acpmux/pair_issue",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/pair_set",
       "params": true,
       "result": true
     },
@@ -1585,6 +1729,16 @@
             "null"
           ]
         },
+        "stalledSince": {
+          "default": null,
+          "description": "A `working` lane that has stalled: since when its turn has had no tool\ncall in flight and no sign of its model (`turn.stalledSince`); null\notherwise. The state stays `working`, so a client that reads only it\nis unchanged.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "state": {
           "$ref": "#/types/LaneState"
         },
@@ -1606,6 +1760,7 @@
       "required": [
         "error",
         "since",
+        "stalledSince",
         "state",
         "step",
         "title"
@@ -1876,16 +2031,26 @@
           ]
         },
         "recipient": {
-          "type": "string"
+          "description": "Session recipient for ordinary mail. Omit when `target` is supplied.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sender": {
           "type": "string"
+        },
+        "target": {
+          "description": "Quiet reports alias (`reports:<person>`). Omit for session mail.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "id",
         "sender",
-        "recipient",
         "body"
       ],
       "type": "object"
@@ -2835,6 +3000,14 @@
             "null"
           ]
         },
+        "titleSource": {
+          "default": null,
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {
@@ -2883,6 +3056,10 @@
             "string",
             "null"
           ]
+        },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
@@ -3256,6 +3433,14 @@
             "null"
           ]
         },
+        "titleSource": {
+          "default": null,
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {
@@ -3303,6 +3488,10 @@
             "string",
             "null"
           ]
+        },
+        "waitsForSlot": {
+          "description": "A sub-session whose queued prompt waits for a free run slot of its parent: the parent\nruns as many sub-sessions as its `maxRunning` allows (`hub/subsession_runs.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
         },
         "watching": {
           "description": "The family of a conversation another app runs that this chat only shows; null otherwise.",
@@ -3361,6 +3550,20 @@
           "minimum": 1,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns\n(its name, e.g. `huge-blue`). Empty is no filter.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions in this status\n(`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.",
+          "type": [
+            "string",
             "null"
           ]
         }
@@ -3451,6 +3654,15 @@
         "promptId": {
           "type": "string"
         },
+        "stalledSince": {
+          "description": "Since when it has stalled: no tool call in flight and no sign of its\nmodel since then, for `stalledTurnMs` or more (`hub/activity.rs`);\nnull while it has not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "startedAt": {
           "format": "uint64",
           "minimum": 0,
@@ -3471,6 +3683,7 @@
         "planStep",
         "prompt",
         "promptId",
+        "stalledSince",
         "startedAt",
         "turnId",
         "turnSeq"

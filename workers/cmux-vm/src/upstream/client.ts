@@ -113,10 +113,33 @@ export interface FileStatRecord {
   readonly group: string;
 }
 
+/** A per-VM client session the provider issued: shown to the caller once, never stored except the identity id. */
+export interface ClientSessionGrant {
+  /** The provider identity holding the grant and the token; internal, kept to revoke it. */
+  readonly upstreamIdentityId: UpstreamId;
+  /** The provider access token, scoped to this VM and Linux user. */
+  readonly token: string;
+  /** The provider's id of the VM: the token is used with it directly. */
+  readonly providerVmId: UpstreamId;
+  readonly apiBaseUrl: string;
+  readonly sshHost: string;
+}
+
 export type Owns<C, R> = TenantOwnsResource<C, R>;
 type Write<C> = KeyHasScope<C, "vm:write">;
 
 export interface UpstreamClientService {
+  /**
+   * Mints a provider identity granted only this owned VM as `linuxUser`, and
+   * one access token for it. A failure leaves no identity behind.
+   */
+  readonly openClientSession: <C, R>(
+    vm: Named<R, VmId>,
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:exec"> },
+    linuxUser: string,
+  ) => Effect.Effect<ClientSessionGrant, UpstreamError>;
+  /** Deletes a provider identity this service minted, with its tokens and grants; "gone" when it no longer existed. */
+  readonly deleteIdentity: (identityId: UpstreamId) => Effect.Effect<"deleted" | "gone", UpstreamError>;
   /** Identifies this exact canonical allocation, without exposing its private provider ID. */
   readonly instanceFingerprint: <C, R>(vm: Named<R, VmId>, proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> }) => Effect.Effect<string>;
   /** Reads saved-disk metadata without running guest code, including when retired. */

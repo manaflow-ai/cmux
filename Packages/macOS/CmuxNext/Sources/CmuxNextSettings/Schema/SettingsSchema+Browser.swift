@@ -89,7 +89,7 @@ nonisolated enum BrowserSettingsSchema {
                 help: SettingsText.keyed("settings.browser.hibernation.help", "Frees memory; history and position are kept."),
                 summary: SettingsText.keyed("settings.browser.hibernation.summary", "Frees memory; history and scroll are kept"),
                 kind: .choiceOrNumber([
-                    SettingChoice("moderate", SettingsText.keyed("settings.choice.moderate", "After 1 Hour")),
+                    SettingChoice("moderate", SettingsText.keyed("settings.choice.after30Minutes", "After 30 Minutes")),
                     SettingChoice("aggressive", SettingsText.keyed("settings.choice.aggressive", "After 10 Minutes")),
                     SettingChoice("off", SettingsText.keyed("settings.choice.never", "Never")),
                 ], SettingNumber(1...1_440, step: 5, unit: .minutes, placeholder: 30)),

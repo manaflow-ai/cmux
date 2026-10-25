@@ -101,6 +101,13 @@ impl FakeSignaling {
         let _ = held_rx.recv();
     }
 
+    /// Send `frame` (a JSON text frame) to `device`'s socket, as the backend
+    /// does (a `mailbox` frame right after `hello`); false when it is not connected.
+    pub fn send_to_device(&self, device: &str, frame: &serde_json::Value) -> bool {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.devices.get(device).is_some_and(|d| d.out.send(Message::Text(frame.to_string().into())).is_ok())
+    }
+
     /// Drop the socket of `device` (simulates a signaling outage).
     pub fn kick(&self, device: &str) {
         let removed = self.state.lock().unwrap_or_else(PoisonError::into_inner).devices.remove(device);

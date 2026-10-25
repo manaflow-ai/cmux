@@ -4985,127 +4985,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أدوات المطور: بدء تسجيل الأداء أو إيقافه"
+            "value": "أدوات المطور: بدء/إيقاف تسجيل الأداء"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Razvojni alati: Pokreni ili zaustavi snimanje performansi"
+            "value": "Razvojni alati: Pokreni/zaustavi snimanje performansi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Udviklerværktøjer: Start eller stop ydeevneoptagelse"
+            "value": "Udviklerværktøjer: Start/stop ydeevneoptagelse"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Entwicklerwerkzeuge: Leistungsaufzeichnung starten oder stoppen"
+            "value": "Entwicklerwerkzeuge: Leistungsaufzeichnung starten/stoppen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Developer Tools: Start or Stop Performance Recording"
+            "value": "Developer Tools: Start/Stop Performance Recording"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Herramientas de desarrollo: Iniciar o detener grabación de rendimiento"
+            "value": "Herramientas de desarrollo: Iniciar/detener grabación de rendimiento"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Outils de développement: Démarrer ou arrêter l’enregistrement des performances"
+            "value": "Outils de développement: Démarrer/arrêter l’enregistrement des performances"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Strumenti sviluppatore: Avvia o interrompi registrazione delle prestazioni"
+            "value": "Strumenti sviluppatore: Avvia/interrompi registrazione delle prestazioni"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "デベロッパツール: パフォーマンス記録を開始または停止"
+            "value": "デベロッパツール: パフォーマンス記録を開始/停止"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍: ចាប់ផ្ដើម ឬបញ្ឈប់ការថតដំណើរការ"
+            "value": "ឧបករណ៍អ្នកអភិវឌ្ឍន៍: ចាប់ផ្ដើម/បញ្ឈប់ការថតដំណើរការ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "개발자 도구: 성능 기록 시작 또는 중지"
+            "value": "개발자 도구: 성능 기록 시작/중지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Utviklerverktøy: Start eller stopp ytelsesopptak"
+            "value": "Utviklerverktøy: Start/stopp ytelsesopptak"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Narzędzia deweloperskie: Rozpocznij lub zatrzymaj nagrywanie wydajności"
+            "value": "Narzędzia deweloperskie: Rozpocznij/zatrzymaj nagrywanie wydajności"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ferramentas do Desenvolvedor: Iniciar ou parar gravação de desempenho"
+            "value": "Ferramentas do Desenvolvedor: Iniciar/parar gravação de desempenho"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Инструменты разработчика: Начать или остановить запись производительности"
+            "value": "Инструменты разработчика: Начать/остановить запись производительности"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องมือนักพัฒนา: เริ่มหรือหยุดบันทึกประสิทธิภาพ"
+            "value": "เครื่องมือนักพัฒนา: เริ่ม/หยุดบันทึกประสิทธิภาพ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Geliştirici Araçları: Performans Kaydını Başlat veya Durdur"
+            "value": "Geliştirici Araçları: Performans Kaydını Başlat/Durdur"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Інструменти розробника: Почати або зупинити запис продуктивності"
+            "value": "Інструменти розробника: Почати/зупинити запис продуктивності"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Công cụ nhà phát triển: Bắt đầu hoặc dừng ghi hiệu suất"
+            "value": "Công cụ nhà phát triển: Bắt đầu/dừng ghi hiệu suất"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "开发者工具: 开始或停止性能录制"
+            "value": "开发者工具: 开始/停止性能录制"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "開發者工具: 開始或停止效能錄製"
+            "value": "開發者工具: 開始/停止效能錄製"
           }
         }
       }

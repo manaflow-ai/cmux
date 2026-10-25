@@ -50,6 +50,7 @@ public nonisolated struct DeepLinkExport: Sendable {
         }
         let resourceRule = "<prefix> + \(DeepLink.resourceHexDigits) lowercase hex digits [0-9a-f]"
         let tokenRule = "\(DeepLink.tokenLengths.lowerBound) to \(DeepLink.tokenLengths.upperBound) ASCII letters, digits, '-', '_' or '.'"
+        let agentSessionRule = "\(DeepLink.agentSessionLengths.lowerBound) to \(DeepLink.agentSessionLengths.upperBound) ASCII letters, digits, '-', '_', '.', or ':'"
         let kinds: [[String: Any]] = [
             ["kind": "workspace", "id_prefix": "ws_", "id_rule": resourceRule,
              "example": example(.workspace("ws_" + Self.exampleHex))],
@@ -64,7 +65,7 @@ public nonisolated struct DeepLinkExport: Sendable {
             ["kind": "agent", "path": "agent/<harness>/<session>",
              "id_rule": "harness: an acpmux harness name, \(DeepLink.shortTokenLengths.lowerBound) to "
                 + "\(DeepLink.shortTokenLengths.upperBound) lowercase ASCII letters, digits or '-'; "
-                + "session: the harness's own session id, \(tokenRule)",
+                + "session: the harness's own session id, \(agentSessionRule)",
              "hints": "optional ?\(DeepLink.hostHintKey)=<machine name>&\(DeepLink.nameHintKey)=<agent name>, for display only: "
                 + "\(DeepLink.shortTokenLengths.lowerBound) to \(DeepLink.shortTokenLengths.upperBound) characters of the session id rule; "
                 + "a malformed hint is dropped",

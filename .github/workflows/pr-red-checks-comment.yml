@@ -7,6 +7,12 @@ name: PR red checks comment
 # The script comes from the base commit, never the pull request's code.
 on:
   workflow_call:
+    inputs:
+      own_checks_green:
+        # Whether the caller's tracked jobs all passed (or were skipped). Then a status line that
+        # names no red has nothing for this call to change, and the script reads no check runs.
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -43,4 +49,5 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           # Each red check is compared with this commit's run of it: new reds block, base reds do not.
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          OWN_CHECKS_GREEN: ${{ inputs.own_checks_green }}
         run: python3 scripts/ci/pr_red_checks_comment.py

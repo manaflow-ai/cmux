@@ -15,7 +15,9 @@ file exists. With CLAUDE_CONFIG_DIR set (and no FAKE_CLAUDE_STORE), the store
 is Claude Code's own layout: <CLAUDE_CONFIG_DIR>/projects/p/<id>.jsonl, with
 a user and an assistant line per prompt; "history-probe" replies with the
 prompts the conversation holds (a resumed or forked transcript's included).
-"hold: PATH" answers once PATH exists, so a test can act while a turn runs.
+"hold: PATH" answers once PATH exists, so a test can act while a turn runs;
+"tool-hold: PATH" does so inside a running Bash call, after "partial words"
+(history-probe's "unresolved" lists tool calls stored with no result).
 A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
@@ -23,7 +25,8 @@ reads before the stopped turn's result (a Stop Claude Code answers late).
 "long-step" is one step (a long tool call) that runs until the interrupt, as
 Claude Code 2.1 does it: user lines written during the step wait; at the
 interrupt the step's result comes first, then each waiting line is echoed and
-answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20).
+answered ("read: TEXT") as one more turn (cosmic-gray, 2026-10-20); a
+cancel_async_message drops a waiting line by its uuid.
 A stop_task control request ends its task killed (task_updated);
 FAKE_CLAUDE_STOP_NOTIFY=1 sends the task's task_notification too.
 "fg-shell" runs a foreground Bash call until a background_tasks control
@@ -196,6 +199,13 @@ def long_step(prompt):
         msg = json.loads(got)
         if msg.get("type") == "user":
             waiting.append(msg)
+        elif (msg.get("request") or {}).get("subtype") == "cancel_async_message":
+            # Drops a waiting line by its uuid, as Claude Code does; a no-op once it was read.
+            uuid = msg["request"].get("message_uuid")
+            kept = [m for m in waiting if m.get("uuid") != uuid]
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {"cancelled": len(kept) < len(waiting)}}})
+            waiting = kept
         elif msg.get("type") == "control_request":
             send({"type": "control_response", "response": {"subtype": "success",
                   "request_id": msg.get("request_id"), "response": {}}})
@@ -521,6 +531,26 @@ while True:
             send({"type": "result", "subtype": "success", "result": "", "num_turns": 0, "duration_api_ms": 0,
                   "local_command": True, "usage": {"input_tokens": 0, "output_tokens": 0}})
             continue
+        # "tool-hold: PATH": the turn says "partial words", then runs a Bash call (stored as a
+        # tool_use with no result yet, as Claude Code does) until PATH exists.
+        if said.startswith("tool-hold: "):
+            import time
+            gate = said[len("tool-hold: "):]
+            send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
+                                                     "delta": {"type": "text_delta", "text": "partial words"}}})
+            use = {"type": "tool_use", "id": "toolu_hold", "name": "Bash", "input": {"command": "sleep 600", "description": "Wait"}}
+            send({"type": "assistant", "message": {"content": [use]}})
+            if STORE and LAYOUT:
+                with open(stored(SESSION), "a") as f:
+                    f.write(json.dumps({"type": "assistant", "sessionId": SESSION, "timestamp": at,
+                                        "message": {"role": "assistant", "content": [use]}}) + "\n")
+            while not os.path.exists(gate):
+                time.sleep(0.02)
+            if STORE and LAYOUT:
+                with open(stored(SESSION), "a") as f:
+                    f.write(json.dumps({"type": "user", "sessionId": SESSION, "timestamp": at, "message": {"role": "user",
+                                        "content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}}) + "\n")
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_hold", "content": "waited"}]}})
         # "hold: PATH" keeps the turn running until PATH exists.
         if said.startswith("hold: "):
             import time
@@ -539,9 +569,16 @@ while True:
         if said.strip() == "history-probe" and STORE and LAYOUT:
             with open(stored(SESSION)) as f:
                 records = [json.loads(line) for line in f if line.strip()]
+            blocks = [b for r in records for b in (r["message"]["content"] if isinstance(r["message"]["content"], list) else [])
+                      if isinstance(b, dict)]
+            used = [b["id"] for b in blocks if b.get("type") == "tool_use"]
+            answered = {b["tool_use_id"] for b in blocks if b.get("type") == "tool_result"}
             text = json.dumps({"prompts": [r["message"]["content"] for r in records
-                                           if r.get("type") == "user" and r["message"]["content"] != "history-probe"],
-                               "sessions": sorted({r["sessionId"] for r in records})})
+                                           if r.get("type") == "user" and isinstance(r["message"]["content"], str)
+                                           and r["message"]["content"] != "history-probe"],
+                               "sessions": sorted({r["sessionId"] for r in records}),
+                               # Tool calls the conversation holds with no result: Claude's API refuses those.
+                               "unresolved": [i for i in used if i not in answered]})
         documents = [b for b in content if isinstance(b, dict) and b.get("type") == "document"]
         if said.strip() == "document-probe":
             text = json.dumps({
