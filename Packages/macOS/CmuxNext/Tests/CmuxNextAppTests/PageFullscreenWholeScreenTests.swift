@@ -23,6 +23,30 @@ struct PageFullscreenWholeScreenTests {
         return (tab, pane)
     }
 
+    /// Frames until `condition` holds: the chrome hears its page on a later main-actor turn.
+    private func until(_ fixture: Fixture, _ what: String, _ condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+            fixture.frame()
+        }
+        try #require(condition(), "\(what) never happened")
+    }
+
+    /// The page goes fullscreen and the chrome has heard it.
+    private func enter(_ tab: MockBrowserTab, _ fixture: Fixture) async throws {
+        tab.simulate(.contentFullscreenChanged(true))
+        try await settle(fixture)
+    }
+
+    /// A few turns and frames, so every main-actor hop after a change has run.
+    private func settle(_ fixture: Fixture) async throws {
+        for _ in 0..<5 {
+            try await Task.sleep(for: .milliseconds(20))
+            fixture.frame()
+        }
+    }
+
     @Test func aLonePanesPageTakesTheWholeWindow() async throws {
         let fixture = try await Fixture(keys: ["k0", "k1"])
         defer { fixture.close() }
@@ -34,19 +58,14 @@ struct PageFullscreenWholeScreenTests {
         #expect(inset != root.bounds, "the main pane starts inset by its gutter")
 
         tab.simulate(.contentFullscreenChanged(true))
-        fixture.frame()
-        // DIAG
-        let content = try #require(fixture.controller.content)
-        let chrome = try #require(pane.view.subviews.first { $0 is BrowserChromeView } as? BrowserChromeView)
-        Issue.record("diag: state=\(tab.state.isContentFullscreen) delegateIsController=\(chrome.window?.delegate is WindowController) hasCallback=\(chrome.onContentFullscreenChange != nil) visiblePanes=\(content.panes.values.filter(\.isVisible).count) allPanes=\(content.panes.count) parkedDrawing=\(fixture.controller.parked.values.filter { !$0.drawsNothing }.count) chromeHidden=\(chrome.isHiddenOrHasHiddenAncestor) inPane=\(chrome.isDescendant(of: pane.view)) windowSame=\(chrome.window === fixture.controller.window)")
+        try await until(fixture, "the page takes the window") { fixture.controller.pagePresentation != nil }
         #expect(fixture.controller.pagePresentation?.entersWindowFullScreen == true, "the window enters full screen for the page")
         #expect(root.contentHost.frame == root.bounds, "the page fills the window, edge to edge")
         #expect(root.sidebar.isHiddenOrHasHiddenAncestor, "the sidebar steps aside")
         #expect(pane.view.hidesStrip, "the tab strip steps aside")
 
         tab.simulate(.contentFullscreenChanged(false))
-        fixture.frame()
-        #expect(fixture.controller.pagePresentation == nil)
+        try await until(fixture, "the window takes its chrome back") { fixture.controller.pagePresentation == nil }
         #expect(root.contentHost.frame == inset, "the main pane is back where it was")
         #expect(!root.sidebar.isHidden, "the sidebar is back")
         #expect(!pane.view.hidesStrip, "the tab strip is back")
@@ -62,8 +81,8 @@ struct PageFullscreenWholeScreenTests {
         let inset = root.contentHost.frame
         let (tab, pane) = try page(in: fixture)
 
-        tab.simulate(.contentFullscreenChanged(true))
-        fixture.frame()
+        try await enter(tab, fixture)
+        #expect(tab.state.isContentFullscreen)
         #expect(fixture.controller.pagePresentation == nil, "the window keeps its chrome")
         #expect(root.contentHost.frame == inset)
         #expect(!root.sidebar.isHidden)
@@ -78,8 +97,7 @@ struct PageFullscreenWholeScreenTests {
         let inset = root.contentHost.frame
         let (tab, _) = try page(in: fixture)
         tab.simulate(.contentFullscreenChanged(true))
-        fixture.frame()
-        try #require(fixture.controller.pagePresentation != nil)
+        try await until(fixture, "the page takes the window") { fixture.controller.pagePresentation != nil }
 
         fixture.controller.showWorkspace(requested: "k1")
         fixture.frame()
@@ -96,8 +114,7 @@ struct PageFullscreenWholeScreenTests {
         fixture.controller.window?.collectionBehavior = [.fullScreenNone]
         let (tab, _) = try page(in: fixture)
         tab.simulate(.contentFullscreenChanged(true))
-        fixture.frame()
-        try #require(fixture.controller.pagePresentation != nil)
+        try await until(fixture, "the page takes the window") { fixture.controller.pagePresentation != nil }
 
         fixture.controller.parkContentForPage()
         fixture.frame()
