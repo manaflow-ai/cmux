@@ -245,11 +245,11 @@ struct TraceRingTests {
         #expect(records.map(\.arg0) == (0 ..< TraceRingChild.records).map(UInt64.init))
     }
 
-    #if !DEBUG
     /// Per-thread chunks keep writers apart: the p99 of a 31-record batch with 8 threads writing at once
-    /// stays within 20% of one thread alone. Release only (Debug timing says nothing); needs 9 cores.
+    /// stays within 20% of one thread alone. Optimized builds only (-c release; Debug timing says
+    /// nothing); needs 9 cores.
     @Test func eightContendedThreadsKeepTheSingleThreadP99() {
-        guard ProcessInfo.processInfo.activeProcessorCount >= 9 else { return }
+        guard !_isDebugAssertConfiguration(), ProcessInfo.processInfo.activeProcessorCount >= 9 else { return }
         let single = (0 ..< 3).map { _ in Self.batchP99(threads: 1) }.min() ?? 0
         let contended = (0 ..< 3).map { _ in Self.batchP99(threads: 8) }.min() ?? 0
         #expect(Double(contended) <= Double(single) * 1.2,
@@ -284,7 +284,6 @@ struct TraceRingTests {
         }
         return UInt64(worst.value.load(ordering: .relaxed))
     }
-    #endif
 
     // MARK: - Helpers
 
