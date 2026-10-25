@@ -162,7 +162,7 @@ function codexLineage(): Subagent[] {
 /** Leo's panel (2026-10-25, synthetic names): two chats running whose doing lines are raw shell
  *  lines, and `done` subagents that ended, one a minute apart; `done` 3 makes the two-agent panel,
  *  116 the 118-agent one ("View all 116"). */
-function panel(done: number) {
+function panel(done: number, running = 2) {
   const ended = Array.from({ length: done }, (_, index) =>
     agent(`Lane ${String(index + 1).padStart(3, "0")}`, 130 - index, "completed", {
       kind: "general-purpose",
@@ -189,7 +189,13 @@ function panel(done: number) {
         true,
         "cd /Users/you/Projects/checkouts/workspace/broker-host-gh && sed -i '' 's/old/new/' broker.ts",
       ),
-      child("child-card", "claude-sr2/subsession-card", 5, true, "Check the card's doing line · Read AgentCard.tsx"),
+      child(
+        "child-card",
+        "claude-sr2/subsession-card",
+        5,
+        running > 1,
+        "Check the card's doing line · Read AgentCard.tsx",
+      ),
     ],
   };
 }
@@ -272,6 +278,14 @@ export default agentPaneEntry({
           throw new Error(`a line never shows a raw shell line: ${details.join(" | ")}`);
       },
       snapshot: panel(3),
+    },
+    "panel-one-running": {
+      note: "One of the two chats ended: the header and its collapse stay while ended lines show (it used to unmount once fewer than two ran).",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line"));
+        headInView(ctx);
+      },
+      snapshot: panel(3, 1),
     },
     "panel-118": {
       note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top and View all at the foot; only the list scrolls.',
