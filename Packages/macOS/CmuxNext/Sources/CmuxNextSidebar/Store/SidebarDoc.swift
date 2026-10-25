@@ -48,6 +48,9 @@ public nonisolated struct SidebarDocSection: Hashable, Sendable, Identifiable {
     public var keepsClosed: Bool
     /// A machine section made a remote group (remote-groups-DESIGN.md slice 4).
     public var hostGroup = false
+    /// A persisted explicit Remove Remote Group choice. This remains distinct
+    /// from a legacy section whose false host_group value was omitted on wire.
+    public var hostGroupOptOut = false
 
     public init(id: String, kind: SidebarDocSectionKind, title: String? = nil, showsTitle: Bool = false, region: SidebarRegion = .middle,
                 look: SectionLook = .list, arrangement: SectionArrangement = .list, room: String? = nil, maxRows: Int? = nil,
