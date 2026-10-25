@@ -1,0 +1,51 @@
+import AppKit
+@testable import CmuxNextAgentPane
+@testable import CmuxNextApp
+import CmuxNextDesign
+@testable import CmuxNextLayout
+@testable import CmuxNextTabs
+import Foundation
+import Testing
+
+/// Chat tools and their menus share the chat's glass. The layout's decorative pane frame lives
+/// above page windows, so framing the chat also draws that line across page menus.
+@MainActor @Suite(.serialized) struct AgentPaneFramelessChromeTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func chatHasNoSeparatePaneFrame(hidesStrip: Bool, wholeCard: Bool) throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "frameless-chat-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body>Chat</body></html>".utf8).write(to: file)
+        let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        defer { page.close() }
+        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
+                                   reveal: LaunchReveal(deadline: .zero))
+        pane.hidesStrip = hidesStrip
+        pane.show(page)
+        let host = PaneHostView(pane: PaneID("chat"), content: pane)
+        host.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
+        host.applyShape(padding: 4, cornerRadius: 12, wholeCard: wholeCard)
+        pane.layoutSubtreeIfNeeded()
+        updateChrome(host)
+        #expect(!host.chrome.showsBorder, "a decorative pane border outlines the chat tools")
+        #expect(!host.chrome.showsRing, "the focus frame draws above the chat tools and page menus")
+        #expect(pane.contentHost.layer?.cornerRadius == 0, "the chat has a second rounded panel edge")
+
+        // Reusing the pane for a terminal or browser restores its configured frame.
+        pane.show(NSView())
+        pane.layoutSubtreeIfNeeded()
+        updateChrome(host)
+        #expect(host.chrome.showsRing, "a regular pane lost its configured focus frame after a chat")
+    }
+
+    private func updateChrome(_ host: PaneHostView) {
+        host.setChrome(showsRing: true, dim: 0, focusRing: FocusRingSettings(),
+                       border: PaneOverlayView.Border(shows: true), attention: nil,
+                       attentionSettings: AttentionSettings(), focused: true, animated: false)
+    }
+}
