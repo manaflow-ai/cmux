@@ -70,7 +70,9 @@ test("sending keeps existing transcript rows mounted and does not redraw them", 
     renders.set(item.id, (renders.get(item.id) ?? 0) + 1);
     useEffect(() => {
       mounts.set(item.id, (mounts.get(item.id) ?? 0) + 1);
-      return () => unmounts.set(item.id, (unmounts.get(item.id) ?? 0) + 1);
+      return () => {
+        unmounts.set(item.id, (unmounts.get(item.id) ?? 0) + 1);
+      };
     }, [item.id]);
     return <div data-testid={`tracking-${item.id}`}>{item.text}</div>;
   };
@@ -95,7 +97,10 @@ test("sending keeps existing transcript rows mounted and does not redraw them", 
     });
   try {
     await render(existing, 0);
-    await render(existing.map((item) => ({ ...item })), 0);
+    await render(
+      existing.map((item) => ({ ...item })),
+      0,
+    );
     const before = new Map(renders);
     const afterSend = [...existing.map((item) => ({ ...item })), row("prompt-2", "user", "New prompt")];
     await render(afterSend, 1);
