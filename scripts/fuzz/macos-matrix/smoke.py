@@ -22,8 +22,8 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   favicon    the tab's favicon URL, which FaviconScript reads in an isolated world, reaches the
              store (debug.sidebar_rows open_tab_favicons for the page's origin)
   type_waits browser.page.insert_text answers only after the page handled the text (its
-             gesture-free round trip): the page's input handler holds the page for 2 s, so the
-             call takes 1.5 s or more, and the field holds the text
+             gesture-free round trip): the page's input handler holds the page for 1.2 s, so the
+             call takes 0.9 s or more, and the field holds the text
   design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default),
              Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
              the page (enableDesignMode runs in an isolated world without a gesture)
@@ -75,7 +75,10 @@ SCRIPTS_PORT = 8738
 SCRIPTS_TITLE = "cmux-matrix-scripts"
 ICON_PATH = "/cmux-matrix-icon.png"
 TYPED = "cmux42"
-HOLD_MS = 2000  # the page's input handler holds the page this long
+# The page's input handler holds the page this long. Well under the control router's 2 s request
+# deadline (ControlRouter requestDeadline): a 2000 ms hold raced it, and on macOS 26 a 2081 ms call
+# answered "timeout" (exit 1) after the text was typed (run of 2026-10-24, build 419d8048).
+HOLD_MS = 1200
 REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit",
                   "favicon", "type_waits", "design_on", "design_off", "page_info", "settings", "alive", "quit")
 
