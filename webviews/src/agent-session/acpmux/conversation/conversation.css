@@ -1639,51 +1639,13 @@ pre.cv-math-source {
   --cv-tool-row-height: 26px;
   --cv-tool-run-bottom-gap: 8px;
 }
-/* An opened run's calls; past nine 26px rows the list scrolls. */
+/* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
+   but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
+   own their horizontal overflow below. */
 .cv-tool-run {
-  max-height: 234px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-/* Scrolled, its top fades out under the summary line above it (Leo 2026-10-21: "in that top section
-   fade would be good"), so a row half scrolled away dissolves instead of sitting cut in half against
-   the line. The transcript's top edge (.acpmux-scroll[data-fade-top], below): an alpha mask on the
-   list itself, never a painted overlay, so it covers nothing, catches no clicks and lets the pane's
-   glass show through in light and dark; at the list's start the edge is plain (data-fade-top,
-   scrollEdges.ts). The scrollbar's lane at the right keeps full ink. Reduce Transparency keeps a
-   plain edge. */
-.cv-tool-run[data-fade-top] {
-  --cv-tool-run-fade-top: 18px;
-  -webkit-mask-image:
-    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
-    linear-gradient(#000, #000);
-  mask-image:
-    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
-    linear-gradient(#000, #000);
-  -webkit-mask-size:
-    100% 100%,
-    var(--cmux-scroller-size, 8px) 100%;
-  mask-size:
-    100% 100%,
-    var(--cmux-scroller-size, 8px) 100%;
-  -webkit-mask-position:
-    0 0,
-    100% 0;
-  mask-position:
-    0 0,
-    100% 0;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-}
-@media (prefers-reduced-transparency: reduce) {
-  .cv-tool-run[data-fade-top] {
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-}
-:root[data-reduce-transparency] .cv-tool-run[data-fade-top] {
-  -webkit-mask-image: none;
-  mask-image: none;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
 }
 .cv-tool {
   all: unset;
@@ -1784,7 +1746,7 @@ pre.cv-math-source {
 }
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
-  margin-left: 34px;
+  margin-inline-start: 0;
 }
 .acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
   right: 24px;
@@ -2320,6 +2282,15 @@ button.cv-received__name:focus-visible {
 }
 .cv-received__toggle > .cv-rotor {
   flex: none;
+}
+/* Minimal Mode's closed message (IncomingMessageCard.tsx): the message's first line after the
+   chip, cut with an ellipsis, the chevron after it. model.ts estimates the line alone. */
+.cv-received__preview {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 26px;
 }
 .cv-received__toggle:hover,
 .cv-received__toggle:focus-visible {
@@ -3928,6 +3899,38 @@ article.acpmux-row:empty {
 }
 .cv-user__take-back:disabled {
   opacity: 0.5;
+}
+/* Send now worked (PendingSteer.tsx): Send now and the X fade, then fold their width to nothing.
+   The action row keeps its one line, so nothing above or below moves; the timer that removes them
+   reads the same fold duration (fold.ts foldMs), 0 under Reduce Motion or with animation off. */
+.cv-user__pending--leaving {
+  overflow: hidden;
+  pointer-events: none;
+  max-width: 0;
+  opacity: 0;
+}
+.cv-user__pending--leaving .cv-user__send-now:disabled,
+.cv-user__pending--leaving .cv-user__take-back:disabled {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-user__pending--leaving {
+    animation: cv-user-pending-leave var(--cv-fold-duration) var(--cv-actions-ease) forwards;
+  }
+}
+@keyframes cv-user-pending-leave {
+  from {
+    max-width: var(--cv-pending-width);
+    opacity: 1;
+  }
+  45% {
+    max-width: var(--cv-pending-width);
+    opacity: 0;
+  }
+  to {
+    max-width: 0;
+    opacity: 0;
+  }
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
    message and its Details, and a quiet line once sent or when it was not. */

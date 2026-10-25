@@ -21,6 +21,7 @@ import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTo
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
   ChatInspector,
+  inspectorTopOffset,
   inspectorChatShift,
   pushedWidth,
   pushes,
@@ -180,6 +181,12 @@ const meta = (element: HTMLElement | null) =>
   element?.querySelector(".acpmux-chat-inspector-section__meta")?.textContent;
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
+
+test("the Inspector inset follows the visible Left chip row only", () => {
+  expect(inspectorTopOffset(0, true)).toBe("calc(var(--acpmux-header-height, 44px) + var(--ui-row-height))");
+  expect(inspectorTopOffset(28, true)).toBe("calc(28px + var(--ui-row-height))");
+  expect(inspectorTopOffset(28, false)).toBe("28px");
+});
 
 test("the Inspector opens with a first chat: its environment, context use and outputs; the toggle closes it", async () => {
   const container = installDom(true);
@@ -343,6 +350,20 @@ test("the chat shifts left only when the chat and the panel both fit that way", 
   expect(inspectorChatShift(1600, 320)).toBe(0);
   // 1200px: a 225px gutter lacks 111px, which the left gutter has: the column moves left by 111px.
   expect(inspectorChatShift(1200, 320)).toBe(111);
+  // The left gutter keeps the thread rail's room (threadMinimap/model.ts MIN_GUTTER): in a 1100px
+  // pane the column would have to move 146px out of a 190px gutter, onto the rail, so nothing moves.
+  expect(inspectorChatShift(1100, 320)).toBe(0);
+  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 48px: it moves.
+  expect(inspectorChatShift(1140, 320)).toBe(126);
+  // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
+  // lacks 146px, and the form moves left by all of it, keeping 44px.
+  expect(inspectorChatShift(1140, 320, undefined, true)).toBe(146);
+  // It keeps its own 18px from the pane's edge (HANDOFF_FORM_EDGE): at 1114px its 177px gutter lacks
+  // 159px and keeps exactly 18px; at 1112px moving 160px would keep 16px, and at 1100px 4px, so
+  // nothing moves and the panel floats over the form.
+  expect(inspectorChatShift(1114, 320, undefined, true)).toBe(159);
+  expect(inspectorChatShift(1112, 320, undefined, true)).toBe(0);
+  expect(inspectorChatShift(1100, 320, undefined, true)).toBe(0);
   // Where the two gutters together cannot hold it, nothing moves and the panel floats over the chat.
   expect(inspectorChatShift(720, 320)).toBe(0);
   expect(inspectorChatShift(0, 320)).toBe(0);

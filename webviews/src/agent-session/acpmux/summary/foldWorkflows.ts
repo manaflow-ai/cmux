@@ -1,6 +1,6 @@
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent as FoldAgent } from "../subagents/workflowAgents";
-import type { WorkflowAgent, WorkflowSummary } from "./workflow";
+import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
 
 export type WorkflowDetailRequest = { sessionId: string; runId: string; agentId: string };
 export type WorkflowLaunch = { scriptPath: string; args?: unknown; resumeFromRunId?: string };
@@ -12,8 +12,11 @@ export type WorkflowCapacitySignal = {
 };
 
 const STATES = new Set(["pending", "running", "waiting", "completed", "failed", "paused", "cancelled"]);
+/// Claude's workflow agent states as the pane's: queued waits; blocked (a dependency failed) failed;
+/// skipped ended without running, as a cancelled agent did.
+const ALIASES: Record<string, WorkflowAgent["state"]> = { queued: "waiting", blocked: "failed", skipped: "cancelled" };
 const stateOf = (state?: string): WorkflowAgent["state"] =>
-  STATES.has(state ?? "") ? (state as WorkflowAgent["state"]) : state === "queued" ? "waiting" : "unknown";
+  STATES.has(state ?? "") ? (state as WorkflowAgent["state"]) : (ALIASES[state ?? ""] ?? "unknown");
 
 // Node identity owns UI state. The same runId on two nodes is a resume relationship, never a
 // React key: each node can contain an agent at index 0 with a different live lifetime.
@@ -40,7 +43,57 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
     lastProgressAt: agent.lastProgressAt,
     retryReason: agent.retryReason,
     cached: agent.cached,
+    model: agent.model,
+    elapsedMs: agent.elapsedMs,
+    startedAt: agent.startedAt,
   };
+}
+
+/// How many of `agents` run, wait, ended well and failed. A paused agent counts as running (its
+/// row says paused); one whose state is not known counts only in `total`.
+export type Tally = { running: number; queued: number; done: number; failed: number; total: number };
+export function tally(agents: readonly WorkflowAgent[]): Tally {
+  const out = { running: 0, queued: 0, done: 0, failed: 0, total: agents.length };
+  for (const agent of agents) {
+    if (agent.state === "completed") out.done += 1;
+    else if (agent.state === "failed" || agent.state === "cancelled") out.failed += 1;
+    else if (agent.state === "running" || agent.state === "paused") out.running += 1;
+    else if (agent.state === "waiting" || agent.state === "pending") out.queued += 1;
+  }
+  return out;
+}
+
+/// A phase's state from its agents: running while one runs, completed when all ended well, failed
+/// when one failed and none runs or waits, pending before any started.
+export function phaseState(agents: readonly WorkflowAgent[]): WorkflowPhase["state"] {
+  const { running, queued, done, failed, total } = tally(agents);
+  if (running > 0) return "running";
+  if (total > 0 && done === total) return "completed";
+  if (failed > 0 && queued === 0) return "failed";
+  if (done + failed > 0) return "running";
+  return "pending";
+}
+
+/// The agents of `phase`, in the workflow's order.
+export function phaseAgents(workflow: WorkflowSummary, phase: WorkflowPhase): WorkflowAgent[] {
+  const ids = new Set(phase.agentIds);
+  return workflow.agents.filter((agent) => ids.has(agent.id));
+}
+
+/// The phases after the last one any agent started in, none of whose agents started: what runs next.
+export function upNext(workflow: WorkflowSummary): WorkflowPhase[] {
+  const started = workflow.phases.map((phase) => phaseState(phaseAgents(workflow, phase)) !== "pending");
+  const last = started.lastIndexOf(true);
+  return workflow.phases.filter((phase, i) => i > last && phase.id !== "unassigned");
+}
+
+/// A model id as people say it: `claude-opus-5-5` -> "Opus 5.5", `sonnet` -> "Sonnet"; else as is.
+export function modelName(model: string): string {
+  const match = /^(?:claude-)?([a-z]+)(?:-(\d+)(?:-(\d+))?)?(?:-\d{8})?$/i.exec(model.trim());
+  if (!match) return model;
+  const [, family, major, minor] = match;
+  const name = family!.charAt(0).toUpperCase() + family!.slice(1);
+  return major ? `${name} ${major}${minor ? `.${minor}` : ""}` : name;
 }
 
 /// The node's workflow agents, in order. A node restored from the page's cached snapshot carries the
@@ -48,21 +101,30 @@ function agentOf(node: Subagent, agent: FoldAgent): WorkflowAgent {
 const foldAgents = (node: Subagent): FoldAgent[] =>
   node.workflowAgents instanceof Map ? [...node.workflowAgents.values()] : [];
 
+/// One workflow node's summary, uncached (a transcript card; the panel's list uses the adapter).
+export const workflowOf = (node: Subagent, sessionId: string): WorkflowSummary => summarize(node, sessionId);
+
 function summarize(node: Subagent, sessionId: string): WorkflowSummary {
   const agents = foldAgents(node).map((agent) => agentOf(node, agent));
-  const phases = (node.phases ?? []).map((phase) => ({
-    id: String(phase.index),
-    name: phase.title,
-    state: "unknown" as const,
-    agentIds: foldAgents(node)
-      .filter((agent) => agent.phaseIndex === phase.index)
-      .map((agent) => workflowAgentKey(node.id, agent.index)),
-  }));
+  const phases: WorkflowPhase[] = (node.phases ?? []).map((phase) => {
+    const members = foldAgents(node).filter((agent) => agent.phaseIndex === phase.index);
+    return {
+      id: String(phase.index),
+      name: phase.title,
+      state: phaseState(members.map((agent) => agentOf(node, agent))),
+      agentIds: members.map((agent) => workflowAgentKey(node.id, agent.index)),
+    };
+  });
   // Unassigned agents remain visible; an absent phase is not evidence of a completed phase.
   const assigned = new Set(phases.flatMap((phase) => phase.agentIds));
   const unassigned = agents.filter((agent) => !assigned.has(agent.id));
   if (unassigned.length)
-    phases.push({ id: "unassigned", name: "", state: "unknown", agentIds: unassigned.map((agent) => agent.id) });
+    phases.push({
+      id: "unassigned",
+      name: "",
+      state: phaseState(unassigned),
+      agentIds: unassigned.map((agent) => agent.id),
+    });
   const counts = node.agents;
   const sampled = foldAgents(node).filter(
     (agent) => agent.state === "completed" && !agent.cached && agent.tokens !== undefined,
@@ -84,6 +146,7 @@ function summarize(node: Subagent, sessionId: string): WorkflowSummary {
     sessionId,
     runId: node.runId,
     title: node.name,
+    description: node.task,
     state: node.paused ? "paused" : stateOf(node.state),
     action: node.action,
     phases,
@@ -120,6 +183,7 @@ export function createWorkflowAdapter() {
         node.agents?.started,
         node.agents?.failed,
         node.agents?.queued,
+        node.task,
         node.tokens,
         node.action,
         node.startedAt,

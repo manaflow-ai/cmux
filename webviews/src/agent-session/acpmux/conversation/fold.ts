@@ -52,6 +52,21 @@ export function foldMs(node: HTMLElement | null): number {
   return foldMotion.duration(node);
 }
 
+// A row's own disclosure animation changes layout before ResizeObserver delivers its new size.
+// The virtualizer places that row synchronously during this short window, even if scrolling has
+// released its header anchor. Expiry is checked in O(1) only when the row actually resizes; no
+// timer or transcript walk is added, and unmounted row elements are weakly held.
+const heightFolds = new WeakMap<Element, number>();
+const HEIGHT_FOLD_SETTLE_MS = 50; // motion-allow: measurement grace after a fold, not an animation
+
+export function heightFoldInFlight(row: Element): boolean {
+  const until = heightFolds.get(row);
+  if (until === undefined) return false;
+  if (performance.now() <= until) return true;
+  heightFolds.delete(row);
+  return false;
+}
+
 const always = () => true;
 
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
@@ -72,8 +87,9 @@ export type Fold = {
 /// A collapsible's body: `present` while it is open or closing, and the ref for its `.cv-fold` box.
 /// Each change of `open` after the first render plays the fold when `animates()` says so (a folded
 /// thought plays only the reader's toggle, not its automatic fold). A fold that turns back midway
-/// starts from where it was drawn.
-export function useFold(open: boolean, animates: () => boolean = always): Fold {
+/// starts from where it was drawn. With `fadeIn` false the body opens at full opacity, only its
+/// height moving (Leo, 2026-10-24: "No fade in. Just boom ... Fade out, yes"); it still fades out.
+export function useFold(open: boolean, animates: () => boolean = always, fadeIn = true): Fold {
   const ref = useRef<HTMLDivElement>(null);
   const [closing, setClosing] = useState(false);
   const [shownOpen, setShownOpen] = useState(open);
@@ -148,9 +164,11 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     // From where the box is drawn now: midway through the other fold, else closed or open. An open
     // ends at the height measured here and then lets go of it (no fill), so the body takes its own
     // height again, content that loaded meanwhile included.
+    const row = node.closest(".acpmux-row");
+    if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
-    const fromOpacity = turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
+    const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     node.style.overflow = "hidden";

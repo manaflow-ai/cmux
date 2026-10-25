@@ -12,6 +12,7 @@ public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
     private var warmed = false
+    private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
     private var appliedPalette = -1
 
@@ -81,6 +82,10 @@ public final class MessagesLabHomeView: NSView {
     public override func layout() {
         super.layout()
         if controller.host.frame != bounds { controller.host.frame = bounds }
+        if let compose = controller.demo?.compose, appliedComposerSpellChecking != composerSpellCheckingEnabled {
+            compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
+            appliedComposerSpellChecking = composerSpellCheckingEnabled
+        }
         if !warmed, window != nil, controller.demo != nil {
             warmed = true
             // MessagesLab warms the first send's one-time costs at idle after
@@ -115,6 +120,15 @@ public final class MessagesLabHomeView: NSView {
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
+    }
+
+    /// Whether the native composer opts into the system spell checker. The host owns this
+    /// preference; the default is off so opening Home never changes the user's typing behavior.
+    public var composerSpellCheckingEnabled = false {
+        didSet {
+            guard composerSpellCheckingEnabled != oldValue else { return }
+            controller.demo?.compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
+        }
     }
 
     /// How the Chief's running indicator reads (``HomeTurnProgressStyle``), asked at each of its ticks:
@@ -167,7 +181,7 @@ public final class MessagesLabHomeView: NSView {
             // cmux: the window background is per view too; a view made after the
             // process-wide theme was set would keep the one it was made with.
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText, edge: theme.active.fieldEdge)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).

@@ -27,7 +27,7 @@ final class AppControl {
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
     #endif

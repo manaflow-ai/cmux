@@ -118,12 +118,30 @@ class Session:
         return after
 
     def chromium_page(self, pane):
-        """Opens a Chromium page in `pane` (selected) and checks debug.cef; raises when it is not Chromium."""
+        """Opens a Chromium page in `pane` (selected) and checks debug.cef; raises when it is not Chromium, or
+        when no Chromium page window comes up over the pane: every Command event then misses the layout's
+        page-window route, and a pan that never ran is no frame number (0 of 336 events, 2026-10-24: the
+        open added no tab and the run went on)."""
         workspace = self.stress.focused_workspace()
+        refusals = len(self.stress.refusals)
         self.stress.add_tab(workspace, pane, "chromium")
         problems = self.stress_module.cef_problems(self.app.rpc("debug.cef"), self.stress_module.WEB_DEV_CONFIG)
         if problems:
             raise RuntimeError(f"the page is not Chromium: {problems}")
+        kinds = [t.get("kind") for t in self.stress.tabs(workspace, pane)]
+        if "browser" not in kinds:
+            raise RuntimeError(f"openBrowser.chromium added no browser tab to {pane} (its tabs: {kinds}; "
+                               f"refusals: {self.stress.refusals[refusals:]})")
+
+        def page_window():
+            for page in (self.app.rpc("debug.cef") or {}).get("devtools") or []:
+                if page.get("pane") == pane and any(c.get("visible") and not c.get("devtools") for c in page.get("child_windows") or []):
+                    return page
+            return None
+
+        if not self.stress_module.wait(page_window, 20, step=0.2):
+            raise RuntimeError(f"no Chromium page window came up over {pane} in 20 s (debug.cef devtools: "
+                               f"{json.dumps((self.app.rpc('debug.cef') or {}).get('devtools'))[:300]})")
         return problems
 
     def point(self, pane):

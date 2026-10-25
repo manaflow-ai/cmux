@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 
 /// Byte transport for one terminal, the seam between a Ghostty surface and
 /// whatever owns the PTY.
@@ -68,6 +69,11 @@ public nonisolated protocol TerminalIO: Sendable {
     /// restore did not match the owner's check): a daemon IO asks for a full
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
+
+    /// The name the typing probe gives this IO's terminal (``TypingLatencyProbe/Source``): the same one
+    /// the attachment that sends its keys uses, so an echo counts only for the terminal that typed.
+    /// Nil (the default): the probe takes no echo hop from this IO while a press is tied to a terminal.
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { get }
 }
 
 public extension TerminalIO {
@@ -78,6 +84,7 @@ public extension TerminalIO {
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { nil }
 }
 
 /// One event from a ``TerminalIO``.

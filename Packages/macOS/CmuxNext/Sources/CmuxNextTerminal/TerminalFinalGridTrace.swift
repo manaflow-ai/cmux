@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// When a split's or a close's terminals reach their final grid (`debug.terminal_final_grid`,
 /// scripts/cmux-next/bench-terminal-resize.py `split-resize`; Lawrence 2026-10-23: Cmd-D and Cmd-W must
 /// resize the program in the terminal before the animation ends). DEBUG builds only.

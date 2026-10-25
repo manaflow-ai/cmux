@@ -128,6 +128,7 @@ Swift/Rust builds and tests stay on the fleet.
 - `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
   its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
+- Threads: [threading-model.md](plans/cmux-next/threading-model.md) says what each thread owns, may block on, its QoS and bound; the main thread never blocks (Debug detector, `allowBlocking` only for a listed reason).
 - Copy Chrome's performance model (Lawrence 2026-10-24). Before you design a fast path, find how Chromium
   does the same job and do that, or write in the commit why cmux differs:
   - The main thread never blocks: no sync daemon, disk, network or lock wait on it (Chrome's UI-thread
@@ -157,6 +158,22 @@ Swift/Rust builds and tests stay on the fleet.
 - The hook's guardrails refuse new debt in added lines (`scripts/cmux-next/guardrails.py --list`). When the
   hook warns that its installed copy is not origin/feat-cmux-next's, run `scripts/install-git-hooks.sh` from a
   checkout at origin/feat-cmux-next. The hooks are per clone: every worktree of it, main-based ones too, runs them.
+
+## Crash classes
+
+Each class of nightly crash has one guard. Do not work around it; fix the code.
+- Unrecognized selector (a `super` call the framework class does not answer, a selector Chromium sends to
+  NSApp): `scripts/cmux-next/check-objc-selectors.py` and `ObjCSelectorRuntimeTests` (runtime walk).
+- AppKit off the main thread: suites run under Xcode's Main Thread Checker
+  (`scripts/ci/run_swift_test_bundle.py`, `CMUX_MAIN_THREAD_CHECKER`, `MainThreadCheckerLoadedTests`).
+- Stale AppKit index (-1 rows and columns): CmuxNextCompat's `clickedRowIfValid`, `selectedRowIfValid`,
+  `clickedItemIfValid`, `item(ifValidRow:inColumn:)`; guardrails rule `appkit-index`.
+- Undo into replaced text: set text from code only through `replaceAllTextUndoably(_:)` (CmuxNextDesign)
+  in a view with `allowsUndo = true`; guardrails rule `undo-text-write`.
+- Traps (`!`, `as!`, index, `fatalError`): `scripts/cmux-next/crash_ratchet.py`, whose baseline only goes down.
+- Memory corruption and data races: run the suites of risky code under `CMUX_SWIFT_SANITIZE=address` or
+  `thread` (`cmux-ci run --env CMUX_SWIFT_SANITIZE=...`); malloc zone changes: `malloc-zone-race/run.sh corrupt`.
+- A crash that hangs: `CrashDeadline` (10 s) and the out-of-process `CrashWatcher` (15 s) end the app.
 
 ## Swift namespace convention
 
