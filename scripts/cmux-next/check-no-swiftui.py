@@ -17,8 +17,11 @@ Findings, in tracked Swift files under Packages/macOS:
      have. The allowlist only shrinks; a new screen is AppKit. A file moved
      since REF keeps its entry under its new path: a git rename of an entry
      REF allowed, or (a move that also rewrote the file, below git's rename
-     similarity) an entry swapped for the one entry REF allowed with the
-     same file name whose file is gone.
+     similarity) an entry swapped one-for-one for the entry REF allowed with
+     the same file name whose file is gone (the name unique among both the
+     gone and the added entries). An entry for a file that already imported
+     SwiftUI at REF adds no SwiftUI: it is printed as a note, not a finding
+     (it acknowledges a base red; the review sees the list grow).
 
 The allowlist is scripts/cmux-next/no-swiftui-allowlist.txt, one
 repo-relative path per line, sorted; `#` starts a comment.
@@ -92,6 +95,16 @@ def renamed_since(root: pathlib.Path, base: str) -> dict[str, str]:
     return moves
 
 
+def imported_at(root: pathlib.Path, ref: str, path: str) -> bool:
+    """Whether `path` existed at `ref` and imported SwiftUI there."""
+    try:
+        text = subprocess.run(["git", "-C", str(root), "show", f"{ref}:{path}"],
+                              check=True, capture_output=True, text=True).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    return IMPORT.search(re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)) is not None
+
+
 def by_name(paths) -> dict[str, list[str]]:
     """File name -> the paths with that name."""
     names: dict[str, list[str]] = {}
@@ -134,9 +147,20 @@ def main() -> int:
                                  check=True, capture_output=True, text=True).stdout
             old_allowed = set(parse_allowlist(old))
             moves = renamed_since(root, args.base)
+            added = sorted(allowed_set - old_allowed)
+            # A move that also rewrote the file: pair one gone entry with one added entry of the
+            # same file name, only when the name is unique on both sides.
             dropped = by_name(f for f in old_allowed - allowed_set if not (root / f).exists())
-            for f in sorted(allowed_set - old_allowed):
-                if moves.get(f) in old_allowed or len(dropped.get(pathlib.PurePosixPath(f).name, [])) == 1:
+            added_names = by_name(added)
+            for f in added:
+                name = pathlib.PurePosixPath(f).name
+                if moves.get(f) in old_allowed or (len(dropped.get(name, [])) == 1 and len(added_names[name]) == 1):
+                    continue
+                if imported_at(root, args.base, f):
+                    # Not new SwiftUI: the file already imported it at the base (a base red this
+                    # entry acknowledges). Shown, so the review sees the list grow.
+                    print(f"note: {f} is new in {ALLOWLIST} but already imported SwiftUI at {args.base}",
+                          file=sys.stderr)
                     continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
         except subprocess.CalledProcessError:
