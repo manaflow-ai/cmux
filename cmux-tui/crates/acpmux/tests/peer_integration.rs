@@ -2169,7 +2169,8 @@ async fn a_peer_resolves_a_sessions_text_masked() {
     let b = hub(config(PermissionPolicy::Ask)).await;
     let mut cb = client(b.clone()).await;
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "secret-resolve"}}});
-    let id = cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let id =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
     let text = format!("push with {}", github_token());
     let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
     cb.call(method::SESSION_PROMPT, prompt).await.unwrap();
