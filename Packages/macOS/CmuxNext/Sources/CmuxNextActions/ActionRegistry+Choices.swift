@@ -15,6 +15,7 @@ extension ActionRegistry {
         let trailer = choiceTrailer(for: descriptor.id, target: target, in: context)
         guard !cases.isEmpty || trailer != nil else { return nil }
         let submenu = NSMenu(title: title)
+        submenu.autoenablesItems = false
         let coordinator = ActionChoicesMenuCoordinator(registry: self, action: descriptor.id, argument: argument.name, target: target)
         // `NSMenu.delegate` is weak; the coordinator lives as long as the menu.
         choiceCoordinators.setObject(coordinator, forKey: submenu)
@@ -28,7 +29,9 @@ extension ActionRegistry {
             } else {
                 .string(choice.value)
             }
-            item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [argument.name: value])
+            let payload = ActionMenuPayload(id: descriptor.id, target: target, arguments: [argument.name: value])
+            item.representedObject = payload
+            item.isEnabled = ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: self, withArguments: false), in: self)
             item.state = choice.value == current ? .on : .off
             submenu.addItem(item)
         }
@@ -37,7 +40,9 @@ extension ActionRegistry {
             submenu.addItem(.separator())
             let more = NSMenuItem(title: ActionSuggestionsStrings.more, action: #selector(ActionMenuTarget.performAction(_:)), keyEquivalent: "")
             more.target = menuTarget
-            more.representedObject = ActionMenuPayload(id: descriptor.id, target: target)
+            let payload = ActionMenuPayload(id: descriptor.id, target: target)
+            more.representedObject = payload
+            more.isEnabled = ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: self, withArguments: false), in: self)
             submenu.addItem(more)
         }
         if let trailer {
@@ -58,7 +63,9 @@ extension ActionRegistry {
               let item = makeMenuItem(for: trailerID) else { return nil }
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
-        item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [:])
+        let payload = ActionMenuPayload(id: descriptor.id, target: target, arguments: [:])
+        item.representedObject = payload
+        item.isEnabled = ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: self, withArguments: false), in: self)
         return item
     }
 }

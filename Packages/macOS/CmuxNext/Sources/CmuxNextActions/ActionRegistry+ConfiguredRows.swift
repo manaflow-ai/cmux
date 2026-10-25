@@ -12,7 +12,9 @@ extension ActionRegistry {
     public func makeConfiguredContextItem(for id: ActionID, target: ActionTargetRef?, title: String?) -> NSMenuItem? {
         guard let item = makeMenuItem(for: id) else { return nil }
         let invocation = ActionInvocation(target: target)
-        item.representedObject = ActionMenuPayload(id: canonicalID(for: id), target: target)
+        let payload = ActionMenuPayload(id: canonicalID(for: id), target: target)
+        item.representedObject = payload
+        item.isEnabled = ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: self, withArguments: false), in: self)
         item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
         ActionTargetTitles.decorate(item, id: canonicalID(for: id), invocation: invocation, in: self)
         if let title { item.title = title }

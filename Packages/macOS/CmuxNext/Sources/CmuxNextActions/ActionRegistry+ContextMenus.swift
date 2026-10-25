@@ -21,7 +21,10 @@ extension ActionRegistry {
         let runFacts = Self.impliedContext(for: context)
         let effective = self.context.union(runFacts).union(implied)
         let menu = NSMenu()
-        menu.autoenablesItems = true
+        // Context menus are complete snapshots. Letting AppKit validate every row while the
+        // pointer tracks through the menu repeats action predicates on the main thread for each
+        // hover event, which makes a large workspace menu feel sticky.
+        menu.autoenablesItems = false
         let entries = entries ?? ContextMenuCatalog.shared.entries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
         menuItems(entries, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels).forEach(menu.addItem)
         return menu
@@ -36,6 +39,9 @@ extension ActionRegistry {
               let item = makeMenuItem(for: id) else { return nil }
         item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments,
                                                    implied: Self.impliedContext(for: context))
+        if let payload = item.representedObject as? ActionMenuPayload {
+            item.isEnabled = ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: self, withArguments: false), in: self)
+        }
         item.keyEquivalent = ""
         item.keyEquivalentModifierMask = []
         if let title { item.title = title }
@@ -79,7 +85,9 @@ extension ActionRegistry {
                 let invocation = ActionInvocation(target: target, arguments: arguments)
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
-                item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
+                let payload = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
+                item.representedObject = payload
+                item.isEnabled = ActionTargetReasons.canPerform(payload.id, invocation: payload.invocation(in: self, withArguments: false), in: self)
                 item.image = Self.menuIcon(descriptor.symbol)
                 // A menu-only short title (the palette keeps the action's title).
                 if let label = labels[id] { item.title = label }
@@ -92,6 +100,7 @@ extension ActionRegistry {
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
                 item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
                 let submenu = NSMenu(title: item.title)
+                submenu.autoenablesItems = false
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)
@@ -101,6 +110,7 @@ extension ActionRegistry {
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
                 item.image = Self.menuIcon(folder.symbol)
                 let submenu = NSMenu(title: folder.title)
+                submenu.autoenablesItems = false
                 childItems.forEach(submenu.addItem)
                 item.submenu = submenu
                 items.append(item)

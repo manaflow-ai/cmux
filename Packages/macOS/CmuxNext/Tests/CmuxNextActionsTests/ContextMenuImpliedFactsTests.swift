@@ -51,6 +51,7 @@ struct ContextMenuImpliedFactsTests {
         registry.context = []
         let menu = registry.makeContextMenu(for: .bookmarksBar, implied: .browserFocused)
         let add = try #require(row("bookmark.addPage", in: menu))
+        #expect(!menu.autoenablesItems, "context menus snapshot validation before tracking")
         #expect(!add.isEnabled, "a row that lacks its required context is enabled until AppKit updates the menu")
     }
 }
