@@ -33,5 +33,18 @@ struct RemoteRdServiceInputTests {
 
         #expect(table.sites.isEmpty, "service input waited for the transport queue on the main thread: \(table.sites)")
     }
+
+    /// Before the welcome the core takes no service input: each queued event's seq is nil, in
+    /// call order, without the caller waiting.
+    @Test func serviceInputBeforeTheWelcomeHasNoSeq() async throws {
+        let transport = try Self.transport()
+        transport.connect()
+
+        let first = transport.sendServiceInput(Data("{\"t\":\"key\"}".utf8), mustDeliver: true)
+        let second = transport.sendServiceInput(Data("{\"t\":\"pointer\"}".utf8), mustDeliver: false)
+
+        #expect(await first.value == nil)
+        #expect(await second.value == nil)
+    }
 }
 #endif

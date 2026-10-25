@@ -88,7 +88,7 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
             page: pane.view, source: { [transport] stream in transport.surfaceSource(stream: stream) },
             send: { [transport] event, mustDeliver in
                 guard let bytes = RemoteBrowserInputEncoder.bytes(event) else { return }
-                _ = transport.sendServiceInput(bytes, mustDeliver: mustDeliver)
+                transport.sendServiceInput(bytes, mustDeliver: mustDeliver)
             })
         nativeUI.onMenuChoice = { [weak self] token, choice in self?.apply(.menuChosen(token: token, choice: choice)) }
         nativeUI.onDialogAnswer = { [weak self] token, accept, text in self?.apply(.dialogAnswered(token: token, accept: accept, text: text)) }
@@ -237,15 +237,16 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
 
     // MARK: RemoteBrowserPageChannel
 
-    public func sendKey(_ event: NSEvent) -> UInt32 {
-        guard let json = RemoteBrowserInputEncoder.key(event), let bytes = RemoteBrowserInputEncoder.bytes(json) else { return 0 }
+    public func sendKey(_ event: NSEvent) -> Task<UInt32?, Never> {
+        // task-owner: a key the encoder refuses has no seq; ends at once.
+        guard let json = RemoteBrowserInputEncoder.key(event), let bytes = RemoteBrowserInputEncoder.bytes(json) else { return Task { nil } }
         // Key releases must arrive, or the page sees a stuck key.
-        return transport.sendServiceInput(bytes, mustDeliver: event.type == .keyUp) ?? 0
+        return transport.sendServiceInput(bytes, mustDeliver: event.type == .keyUp)
     }
 
     public func sendPointer(_ event: NSEvent, at point: CGPoint) {
         guard let json = RemoteBrowserInputEncoder.pointer(event, at: point), let bytes = RemoteBrowserInputEncoder.bytes(json) else { return }
-        _ = transport.sendServiceInput(bytes, mustDeliver: RemoteBrowserInputEncoder.mustDeliver(event))
+        transport.sendServiceInput(bytes, mustDeliver: RemoteBrowserInputEncoder.mustDeliver(event))
     }
 
     public func history(_ op: RemoteBrowserHistoryOp) {

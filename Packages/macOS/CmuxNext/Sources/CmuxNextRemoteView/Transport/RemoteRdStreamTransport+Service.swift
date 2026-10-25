@@ -29,19 +29,29 @@ extension RemoteRdStreamTransport {
     }
 
     /// Queues one service input event (opaque bytes, tag 0x80) and returns
-    /// its rd input sequence number, which the service's answers name (rb's
-    /// `rb.key_unhandled {input_seq}`). Nil before the welcome, after the
-    /// end, when the host's welcome does not list `input.service`, or for
-    /// bytes the core refuses. Waits for the transport queue, so call it
-    /// from outside that queue (the main actor).
-    public func sendServiceInput(_ bytes: Data, mustDeliver: Bool) -> UInt32? {
-        dispatchPrecondition(condition: .notOnQueue(queue))
-        return queue.blockingSync { [self] in
-            guard !engine.handshake.isEnded,
-                  engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true,
-                  let seq = try? engine.input.sendService(bytes, mustDeliver: mustDeliver) else { return nil }
-            pump()
-            return seq
+    /// a task for its rd input sequence number, which the service's answers
+    /// name (rb's `rb.key_unhandled {input_seq}`). The event is queued at the
+    /// call, in call order with the transport's other work; the caller never
+    /// waits for the transport queue. The task's value is nil before the
+    /// welcome, after the end, when the host's welcome does not list
+    /// `input.service`, or for bytes the core refuses.
+    @discardableResult
+    public func sendServiceInput(_ bytes: Data, mustDeliver: Bool) -> Task<UInt32?, Never> {
+        let (seqs, reply) = AsyncStream.makeStream(of: UInt32?.self, bufferingPolicy: .bufferingNewest(1))
+        queue.async { [self] in
+            var seq: UInt32?
+            if !engine.handshake.isEnded, engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true {
+                seq = try? engine.input.sendService(bytes, mustDeliver: mustDeliver)
+            }
+            // The seq goes out before the input's packets, so it is known before any answer names it.
+            reply.yield(seq)
+            reply.finish()
+            if seq != nil { pump() }
+        }
+        // task-owner: hands one input's seq to the caller; ends when the transport queue has run the input.
+        return Task {
+            for await seq in seqs { return seq }
+            return nil
         }
     }
 

@@ -62,6 +62,15 @@ public final class RemoteBrowserTab: BrowserTab {
     public func handleKey(_ event: NSEvent) {
         let seq = channel.sendKey(event)
         guard event.type == .keyDown else { return }
+        // task-owner: keeps one key down under its input seq once the transport queued it; ends then.
+        Task { [weak self] in
+            guard let seq = await seq.value else { return }
+            self?.remember(event, seq: seq)
+        }
+    }
+
+    /// Keeps a sent key down until the host answers for it (or 64 newer ones push it out).
+    private func remember(_ event: NSEvent, seq: UInt32) {
         sentKeys[seq] = event
         sentOrder.append(seq)
         if sentOrder.count > Self.sentKeyLimit {
