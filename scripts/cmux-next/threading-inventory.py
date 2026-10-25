@@ -14,13 +14,22 @@ rule it breaks, so raw-blocking here also holds the raw primitives main-blocking
 Each hit carries its call-graph context, read lexically from the source:
   enclosing_func  `Type.name` of the function, initializer, subscript or computed property around the line
   is_async        whether that declaration is `async` (effects after its parameter list)
-  isolation       main | pool | nonisolated | actor: the innermost main-thread opener (`MainActor.run {`), pool
-                  opener (`Task.detached {`, `queue.async {`, a global queue), or declaration that states isolation
-                  (`@MainActor`, `@concurrent`, `nonisolated`, an `actor`), else the target's default
-  caller_count    call sites `name(` of the function where Swift lets them be: its file (`private`), its module
-                  (internal, the default) or all Sources (`public`, `package`, `open`); `Type(` for an initializer;
-                  null for a deinit, subscript or accessor. A name-based fan-in: an upper bound when other types of
-                  that scope share the name. Lexical: an extension in another file does not tell its type's isolation.
+  isolation       main | pool | nonisolated | actor | unknown: the innermost main-thread opener (`MainActor.run {`,
+                  `DispatchQueue.main.asyncAfter {`, a `{ @MainActor in` closure), pool opener (`Task.detached {`,
+                  `queue.async {`, `group.addTask {`, a global queue), or declaration that states isolation
+                  (`@MainActor`, `@concurrent`, `nonisolated`, an `actor`, minus its `static` members), else the
+                  target's default. Control flow, `Task {`, an immediately called closure and the inline forms
+                  (`map`, `forEach`, `withLock`, `withTaskGroup`, ...) keep their context's isolation; any other
+                  closure (an assigned handler, a completion, `@Sendable`) is `unknown`: it may run later or
+                  elsewhere, as guardrails' runs_on_main says.
+  caller_count    call sites of the function where Swift lets them be: its file (`private`), its module (internal,
+                  the default) or all Sources (`public`, `package`, `open`, also inside an extension that states no
+                  access); `Type(` for an initializer; null for a deinit, subscript or accessor. A call site has the
+                  function's name, argument labels that fit its parameters (defaults may be left out, a trailing
+                  closure fills the rest), and a receiver that fits: `Type.` / `Self.` / a bare call inside the
+                  type for a static member, any value or a bare call inside the type for an instance member. A
+                  value's type is not resolved, so a same-named, same-labelled method of another type still counts:
+                  an upper bound. Lexical: an extension in another file does not tell its type's isolation.
 
   threading-inventory.py --count                                   # hits per rule at HEAD
   threading-inventory.py --rev 772cdfc45ac --count
@@ -28,8 +37,9 @@ Each hit carries its call-graph context, read lexically from the source:
   threading-inventory.py --rule main-blocking --jsonl
   threading-inventory.py --rule raw-blocking --paths Packages/macOS/CmuxNext/Sources/CmuxNextFiles/
 
-Reads git objects only (ls-tree, cat-file): no network, no file writes, not even bytecode caches. Not a CI gate
-(Lawrence 2026-10-23); run it yourself.
+Reads git objects only (ls-tree, cat-file): no network, no file in the repo or beside the scripts, not even bytecode
+caches. git_batch hands git its request through an unnamed temporary file in TMPDIR (a pipe hangs on some hosts),
+which is gone when the read returns. Not a CI gate (Lawrence 2026-10-23); run it yourself.
 """
 from __future__ import annotations
 
@@ -96,9 +106,27 @@ DEFAULT_LOCATOR = g.MAIN_SCAN.pattern
 ALWAYS = g.ALWAYS_BLOCKING
 
 NEVER = re.compile(r"(?!)")
+# Closures that run their body on the main thread, checked before POOL_OPENER: `DispatchQueue.main.asyncAfter(…) {`
+# and `RunLoop.main.perform {` are not guardrails' MAIN_OPENER forms, and `Task.detached { @MainActor in` is a pool
+# opener's text. Matched on the joined header, which ends with the `{`.
+MAIN_CALL = re.compile(r"\b(?:DispatchQueue|RunLoop|OperationQueue)\.main\s*\.\s*(?:async|asyncAfter|sync|perform|addOperation)\b"
+                       r"[^{]*\{$|\bMainActor\s*\.\s*(?:run|assumeIsolated)\b[^{]*\{$")
+CLOSURE_ATTRIBUTES = re.compile(r"\s*(?:@\w+(?:\([^)]*\))?\s*)*")
 POOL_OPENER = re.compile(r"\bTask\.detached\b|\bDispatchQueue\.global\(|\.concurrentPerform\b|\bdetachNewThread\b"
                          r"|(?:^|[=(,]\s*|\breturn\s+)Thread\s*(\{|\(block:)|\baddOperation\s*\{"
+                         r"|\baddTask(?:UnlessCancelled)?\s*(\([^{]*\))?\s*\{"
                          r"|(?<!\bmain)\.async(After)?\s*(\([^{]*\))?\s*\{")
+# Closures that run inline, in their context's isolation: `Task {` inherits it, and these calls run their closure
+# before they return.
+INLINE_CALLS = (r"map|compactMap|flatMap|filter|forEach|reduce|contains|first|last|firstIndex|lastIndex|allSatisfy|"
+                r"sorted|sort|min|max|removeAll|mapValues|compactMapValues|partition|drop|prefix|split|merge|merging|"
+                r"withLock|withLockUnchecked|withUnsafe\w*|withCString|withMemoryRebound|withExtendedLifetime|"
+                r"autoreleasepool|with(?:Throwing)?(?:Discarding)?TaskGroup|with(?:Checked|Unsafe)(?:Throwing)?Continuation|"
+                r"withTaskCancellationHandler|withValue|withObservationTracking")
+INLINE_CLOSURE = re.compile(rf"\bTask\s*(?:\([^{{}}]*\))?\s*\{{$|\b(?:{INLINE_CALLS})\s*(?:\([^{{}}]*\))?\s*\{{$"
+                            rf"|\b(?:{INLINE_CALLS})\(\s*(?:\w+\s*:\s*)?\{{$")
+ASSIGNED_CLOSURE = re.compile(r"(?<![=!<>])=\s*\{$")
+INVOKED_LINES = 400  # how far an assigned closure is followed to its `}()`
 FUNC_KINDS = {"func", "init", "deinit", "subscript"}
 ACCESSORS = {"get", "set", "willSet", "didSet", "_read", "_modify"}
 TYPE_KINDS = {"class", "struct", "enum", "actor", "extension", "protocol"}
@@ -108,10 +136,21 @@ VAR_KEYWORD = re.compile(r"\bvar\b")
 TYPE_NAME = re.compile(r"\b(?:class|struct|enum|actor|protocol)\s+(\w+)|\bextension\s+([\w.]+)")
 EFFECTS = re.compile(r"\s*((?:async|reasync|throws(?:\s*\([^)]*\))?|rethrows)\b\s*)*")
 NONISOLATED = re.compile(r"\bnonisolated\b(?!\s*\(unsafe\))")
+STATIC = re.compile(r"\bstatic\b|\bclass\s+(?=(?:func|var|let|subscript)\b)")
 PRIVATE = re.compile(r"\b(private|fileprivate)\b(?!\s*\(set\))")
 PUBLIC = re.compile(r"\b(public|open|package)\b(?!\s*\(set\))")
+INTERNAL = re.compile(r"\binternal\b(?!\s*\(set\))")
+# A line of attributes only (`@MainActor @Observable`); guardrails' ATTRIBUTE_LINE takes one.
+ATTRIBUTES_LINE = re.compile(rf"^\s*(?:{g.ATTRIBUTE}\s*)+$")
 CALL = re.compile(r"(?<![\w$])`?(\w+)`?\s*\(")
+# A call site: `name(`, or a trailing-closure-only `name {`.
+CALL_SITE = re.compile(r"(?<![\w$])`?(\w+)`?\s*([({])")
 NOT_A_CALL_BEFORE = re.compile(r"(\bfunc|\bcase\s*\.?|\bcase\s+let\s+\.?)\s*$")
+# What may stand before a trailing-closure-only call `name {`. A type list (`: P, Q {`), a condition (`if ok {`,
+# `x == y {`) or a declaration is not a call.
+BRACE_CALL_BEFORE = re.compile(r"(?:^|(?<![=!<>])=|[(.]|\b(?:return|await|try[?!]?))\s*$")
+ARG_LABEL = re.compile(r"\s*`?(\w+)`?\s*:(?!:)")
+CALL_LINES = 30  # how far an argument list is read across lines
 
 
 @dataclass
@@ -131,15 +170,40 @@ class Hit:
     # Not reported: what caller_count and --group root need.
     func_name: str | None = field(default=None, repr=False)
     func_line: int | None = field(default=None, repr=False)
-    func_scope: tuple[str, str] | None = field(default=None, repr=False)
+    callee: Callee | None = field(default=None, repr=False)
 
     def record(self) -> dict:
         out = asdict(self)
-        for key in ("func_name", "func_line", "func_scope"):
+        for key in ("func_name", "func_line", "callee"):
             out.pop(key)
         if out["group"] is None:
             out.pop("group")
         return out
+
+
+Scope = tuple[str, str]  # ("file", path) | ("module", module) | ("tree", "")
+
+
+@dataclass(frozen=True)
+class Param:
+    label: str  # the argument label a call writes (`_` for none)
+    optional: bool  # a default value or a variadic: a call may leave it out
+    variadic: bool = False  # takes any number of arguments
+    plain_value: bool = False  # a String, number, URL, Data, array...: no trailing closure can fill it
+
+
+@dataclass(frozen=True)
+class Callee:
+    """What a call site of a hit's function must match: name, kind (func | init), the type it is a member of, whether
+    it is static, its parameters (None when the header could not be read: any labels fit) and the scope callers are
+    in."""
+    name: str
+    kind: str
+    owner: str | None
+    static: bool
+    params: tuple[Param, ...] | None
+    scope: Scope
+    returns_own_type: bool = False  # `-> Self` or `-> Owner`: an implicit member `.name(` can reach a static one
 
 
 @dataclass
@@ -148,9 +212,12 @@ class Context:
     func_name: str | None = None  # the name a call site uses (`Type` for an initializer)
     func_kind: str | None = None
     func_line: int | None = None  # 1-based line of the declaration's `{`
-    func_access: str | None = None  # file | tree | None (unstated) from the declaration's own modifiers
-    type_access: str | None = None  # file | tree | module of the innermost type or extension around it
+    func_header: tuple[str, int] | None = None  # (joined header, end of its keyword)
+    func_access: str | None = None  # file | tree | module (`internal`) | None (unstated): the declaration's own
+    func_static: bool = False  # `static` / `class` on the function or a function around it
+    type_access: str | None = None  # file | tree | module | None (unstated) of the innermost type or extension
     type_is_extension: bool = False
+    in_private_type: bool = False  # some type or extension around it is private or fileprivate
     is_async: bool | None = None
     isolation: str | None = None
     types: list[str] = field(default_factory=list)  # innermost first
@@ -168,12 +235,12 @@ def declaration_header(lines: list[str], number: int, opener: str) -> tuple[str,
     if not g.DECLARATION_OPENER.search(opener):
         while k >= 0 and number - 1 - k <= g.HEADER_LINES:
             text = g.code_of(lines[k])
-            if HEADER_END.search(text) or g.ATTRIBUTE_LINE.match(text):
+            if HEADER_END.search(text) or ATTRIBUTES_LINE.match(text):
                 break
             parts.insert(0, text)
             k -= 1
     above = []
-    while k >= 0 and (g.ATTRIBUTE_LINE.match(lines[k]) or g.COMMENT_LINE.match(lines[k])
+    while k >= 0 and (ATTRIBUTES_LINE.match(lines[k]) or g.COMMENT_LINE.match(lines[k])
                       or g.code_of(lines[k]).strip() == "nonisolated"):
         if not g.COMMENT_LINE.match(lines[k]):
             above.insert(0, g.code_of(lines[k]).strip())
@@ -182,26 +249,37 @@ def declaration_header(lines: list[str], number: int, opener: str) -> tuple[str,
 
 
 def access_of(prefix: str) -> str | None:
-    """Where a declaration with these modifiers can be called from: its file, the whole tree, or unstated."""
+    """Where a declaration with these modifiers can be called from: its file, the whole tree, its module
+    (`internal` stated), or None when no access is stated."""
     if PRIVATE.search(prefix):
         return "file"
     if PUBLIC.search(prefix):
         return "tree"
+    if INTERNAL.search(prefix):
+        return "module"
     return None
 
 
 def call_scope(ctx: Context) -> str:
     """Where the enclosing function's callers can be (Swift access control): file, module or tree. A member is
-    internal unless it says otherwise, a `public extension` makes its members public, and a private type keeps
-    its members in its file."""
-    if "file" in (ctx.func_access, ctx.type_access):
+    internal unless it says otherwise; a private type or extension keeps its members in its file. A public member
+    of a type is as visible as the type. In an extension the extended type limits it, and a lexical reader cannot
+    see that type, so a public member of an extension that states no access counts the whole tree (an upper bound);
+    only `internal extension` keeps it in its module. A `public extension` makes its unmarked members public."""
+    if ctx.func_access == "file" or ctx.type_access == "file" or ctx.in_private_type:
         return "file"
+    if ctx.type_is_extension:
+        if ctx.func_access == "tree":
+            return "module" if ctx.type_access == "module" else "tree"
+        return "tree" if ctx.type_access == "tree" else "module"
     if ctx.func_access == "tree":
-        return "tree" if ctx.type_access in (None, "tree") else "module"
-    return "tree" if ctx.type_is_extension and ctx.type_access == "tree" else "module"
+        return "tree" if not ctx.types or ctx.type_access == "tree" else "module"
+    return "module"
 
 
-def declared_isolation(prefix: str, kind: str) -> str | None:
+def declared_isolation(prefix: str, kind: str, static_member: bool = False) -> str | None:
+    """The isolation a declaration with PREFIX states. An actor's static members are not isolated to it: they run
+    where their caller does (STATIC_MEMBER)."""
     if "@MainActor" in prefix:
         return "main"
     if "@concurrent" in prefix:
@@ -209,7 +287,7 @@ def declared_isolation(prefix: str, kind: str) -> str | None:
     if NONISOLATED.search(prefix):
         return "nonisolated"
     if kind == "actor":
-        return "actor"
+        return "nonisolated" if static_member else "actor"
     return None
 
 
@@ -236,35 +314,108 @@ def is_async(header: str, keyword_end: int, kind: str) -> bool:
     return "async" in EFFECTS.match(rest).group(0).split()
 
 
+def invoked_inline(lines: list[str], number: int, opener: str) -> bool:
+    """Whether the closure whose `{` ends OPENER on 1-based line NUMBER is called where it stands (`= { ... }()`)."""
+    depth, k, start = 0, number - 1, len(opener) - 1
+    while k < len(lines) and k - (number - 1) <= INVOKED_LINES:
+        code = g.code_of(lines[k])
+        for pos in range(start, len(code)):
+            depth += code[pos] == "{"
+            depth -= code[pos] == "}"
+            if depth == 0:
+                return code[pos + 1:].lstrip().startswith("(")
+        k, start = k + 1, 0
+    return False
+
+
+CASE_LABEL = re.compile(r"^\s*(?:case\b[^:]*|default\s*):")
+
+
+def own_statement(opener: str) -> str:
+    """The statement OPENER's last `{` belongs to: OPENER after any `}` that closes a block opened above it and any
+    `{` still open before it (a closure argument closed on the line stays), and after a `case ...:` label."""
+    cut, open_at = 0, []
+    for pos, c in enumerate(opener[:-1]):
+        if c == "{":
+            open_at.append(pos)
+        elif c == "}":
+            if open_at:
+                open_at.pop()
+            else:
+                cut = pos + 1
+    cut = max([cut] + [pos + 1 for pos in open_at[-1:]])
+    return CASE_LABEL.sub("", opener[cut:], count=1)
+
+
+def is_control(lines: list[str], number: int, opener: str) -> bool:
+    """Whether the block OPENER opens on 1-based line NUMBER is control flow. The header may wrap (`if a,\\n b {`),
+    and the line above may end a statement with no `;`, so each start back to the previous statement's end is
+    tried."""
+    text = own_statement(opener)
+    k = number - 2 if len(text) == len(opener) else -1  # a brace before it on the line ends the header there
+    while not g.CONTROL_OPENER.search(text):
+        if k < 0 or number - 1 - k > g.HEADER_LINES:
+            return False
+        code = g.code_of(lines[k])
+        if HEADER_END.search(code) or ATTRIBUTES_LINE.match(code):
+            return False
+        text, k = f"{code} {text}", k - 1
+    return True
+
+
+def closure_isolation(lines: list[str], number: int, opener: str, header: str) -> str | None:
+    """The isolation a non-declaration block on 1-based line NUMBER gives its body, or None when it keeps its
+    context's: control flow, `Task {`, an inline call (`forEach {`, `withLock {`) or a closure called where it
+    stands. Any other closure may run later or on another thread (guardrails' runs_on_main does not judge it):
+    unknown."""
+    attributes = CLOSURE_ATTRIBUTES.match(g.code_of(lines[number - 1])[len(opener):]).group(0)
+    statement = own_statement(opener)
+    if "@MainActor" in attributes or MAIN_CALL.search(header) or g.MAIN_OPENER.search(statement):
+        return "main"
+    if POOL_OPENER.search(statement):
+        return "pool"
+    if is_control(lines, number, opener):
+        return None
+    if "@Sendable" in attributes:
+        return "unknown"
+    if INLINE_CLOSURE.search(header):
+        return None
+    if ASSIGNED_CLOSURE.search(header) and invoked_inline(lines, number, opener):
+        return None
+    return "unknown"
+
+
 def context_of(lines: list[str], index: int, prefix: str, default_main: bool) -> Context:
     """The declaration, isolation and enclosing types of LINES[INDEX] (0-based), walking its openers outward."""
     ctx = Context()
     accessor: tuple[str, int, str, int] | None = None  # (keyword, opener line, header, keyword end)
+    static_line = bool(STATIC.search(prefix))  # a type-level `static let q = ...` hit
+    typed = False  # the innermost type or extension was seen
     for opener, number in g.enclosing_openers(lines, index, NEVER, prefix):
-        line_code = g.code_of(lines[number - 1])
         header, attributes = declaration_header(lines, number, opener) if number - 1 != index else (opener, "")
         match = g.DECLARATION_OPENER.search(header)
         if match is None:
             if ctx.isolation is None and ctx.func_kind is None:
-                if g.MAIN_OPENER.search(opener) or g.MAIN_OPENER.search(line_code):
-                    ctx.isolation = "main"
-                elif POOL_OPENER.search(opener):
-                    ctx.isolation = "pool"
-            continue  # control flow, or a closure that inherits its context's isolation
+                ctx.isolation = closure_isolation(lines, number, opener, header)
+            continue
         kind = match.group(4) or "var"
         kind = "init" if kind.startswith("init") else kind
         keyword_start = match.start(4) if match.group(4) else VAR_KEYWORD.search(header).start()
         keyword_end = match.end(4) if match.group(4) else keyword_start + 3
         decl_prefix = f"{attributes} {header[:keyword_start]}"
+        if kind not in TYPE_KINDS and kind not in ACCESSORS and STATIC.search(decl_prefix):
+            ctx.func_static = True
         if ctx.isolation is None:
-            ctx.isolation = declared_isolation(decl_prefix, kind)
+            static_member = ctx.func_static if ctx.func_kind is not None or accessor else static_line
+            ctx.isolation = declared_isolation(decl_prefix, kind, static_member)
         if kind in ACCESSORS:
             accessor = accessor or (kind, number, header, keyword_end)
             continue
         if kind in TYPE_KINDS:
-            if ctx.type_access is None:
-                ctx.type_access = access_of(decl_prefix) or "module"
-                ctx.type_is_extension = kind == "extension"
+            access = access_of(decl_prefix)
+            ctx.in_private_type = ctx.in_private_type or access == "file"
+            if not typed:
+                typed, ctx.type_access, ctx.type_is_extension = True, access, kind == "extension"
             name = TYPE_NAME.search(header[keyword_start:])
             if name:
                 ctx.types.append((name.group(1) or name.group(2)).split(".")[-1])
@@ -274,7 +425,7 @@ def context_of(lines: list[str], index: int, prefix: str, default_main: bool) ->
             continue
         if ctx.func_kind is not None:
             continue  # a local function's outer function: the hit belongs to the innermost one
-        ctx.func_kind, ctx.func_line = kind, number
+        ctx.func_kind, ctx.func_line, ctx.func_header = kind, number, (header, keyword_end)
         ctx.func_access = access_of(decl_prefix)
         if kind == "func":
             found = FUNC_NAME.search(header)
@@ -369,31 +520,225 @@ def judge(tree: Tree, rules: Iterable[str], paths: Callable[[str], bool]) -> lis
     return found
 
 
-Scope = tuple[str, str]  # ("file", path) | ("module", module) | ("tree", "")
-
-
 def scope_key(scope: str, path: str) -> Scope:
     return (scope, path if scope == "file" else g.module_of(path) if scope == "module" else "")
 
 
-def caller_counts(tree: Tree, wanted: dict[str, set[Scope]]) -> dict[tuple[str, Scope], int]:
-    """{(name, scope): call sites of NAME inside SCOPE} for each scope WANTED asks of a name. A call site is `name(`
-    in code (comments and string contents dropped), not `func name(` or an enum case pattern."""
-    counts: dict[tuple[str, Scope], int] = collections.Counter()
-    if not wanted:
+OPEN, CLOSE = "([{", ")]}"
+
+
+def split_top(text: str, angles: bool) -> list[str]:
+    """TEXT split at its top-level commas; ANGLES counts `<...>` as nesting (a type, not a comparison)."""
+    parts, depth, start = [], 0, 0
+    for i, c in enumerate(text):
+        if c in OPEN or (angles and c == "<"):
+            depth += 1
+        elif c in CLOSE or (angles and c == ">" and text[i - 1:i] != "-"):
+            depth -= 1
+        elif c == "," and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return [part for part in parts if part.strip()]
+
+
+def closing(text: str, start: int) -> int:
+    """The index of the bracket that closes TEXT[START], or -1."""
+    depth = 0
+    for i in range(start, len(text)):
+        depth += text[i] in OPEN
+        depth -= text[i] in CLOSE
+        if depth == 0:
+            return i
+    return -1
+
+
+LEADING_ATTRIBUTES = re.compile(rf"^\s*(?:{g.ATTRIBUTE}\s*)*")
+PLAIN_VALUE = re.compile(r"^\s*(?:inout\s+)?(?:String|Substring|Character|U?Int(?:8|16|32|64)?|Bool|Double|Float|"
+                         r"CGFloat|TimeInterval|URL|Data|Date|UUID|\[[^\]]*\])[?!]?\s*$")
+DEFAULT_VALUE = re.compile(r"(?<![=!<>-])=(?!=)")
+
+
+def parameters(header: str, keyword_end: int) -> tuple[Param, ...] | None:
+    """The parameters of the function or initializer HEADER declares (its keyword ends at KEYWORD_END), or None when
+    the header holds no whole parameter list."""
+    rest, angle, i = header[keyword_end:], 0, 0
+    while i < len(rest) and not (rest[i] == "(" and angle <= 0):
+        if rest[i] == "{":
+            return None
+        angle += rest[i] == "<"
+        angle -= rest[i] == ">" and rest[i - 1:i] != "-"
+        i += 1
+    end = closing(rest, i) if i < len(rest) else -1
+    if end < 0:
+        return None
+    params = []
+    for part in split_top(rest[i + 1:end], angles=True):
+        part = part[LEADING_ATTRIBUTES.match(part).end():]
+        names, colon, kind = part.partition(":")
+        if not colon or not names.split():
+            return None
+        typed = DEFAULT_VALUE.split(kind, 1)
+        variadic = "..." in typed[0]
+        params.append(Param(names.split()[0].strip("`"), len(typed) > 1 or variadic, variadic,
+                            bool(PLAIN_VALUE.match(typed[0]))))
+    return tuple(params)
+
+
+RETURN_TYPE = re.compile(r"->\s*([\w.]+)[?!]?\s*(?:where\b[^{]*)?\{?\s*$")
+
+
+def returns_own_type(header: str, owner: str | None) -> bool:
+    """Whether the declaration HEADER returns `Self` or its type OWNER (optionally optional)."""
+    found = RETURN_TYPE.search(header)
+    return found is not None and found.group(1).split(".")[-1] in ("Self", owner)
+
+
+def call_arguments(lines: list[str], index: int, code: str, start: int) -> tuple[list[str], bool] | None:
+    """(argument labels, whether a trailing closure follows) of the call whose `(` is CODE[START] on LINES[INDEX]
+    (`_` for an unlabelled argument), or None when its `)` is not within CALL_LINES lines."""
+    text, k = code[start:], index
+    while True:
+        end = closing(text, 0)
+        if end >= 0:
+            labels = [label.group(1) if (label := ARG_LABEL.match(arg)) else "_"
+                      for arg in split_top(text[1:end], angles=False)]
+            return labels, text[end + 1:].lstrip().startswith("{")
+        k += 1
+        if k >= len(lines) or k - index > CALL_LINES:
+            return None
+        text += " " + g.code_of(lines[k])
+
+
+def fits(params: tuple[Param, ...] | None, labels: list[str] | None, trailing: bool) -> bool:
+    """Whether a call with LABELS (and a TRAILING closure) can call a function with PARAMS: each label takes the next
+    parameter of that label, skipping only ones that may be left out; what is left may be left out, except that a
+    trailing closure fills the last one. Unknown parameters or labels fit (an upper bound)."""
+    if params is None or labels is None:
+        return True
+    i = 0
+    for label in labels:
+        while i < len(params) and params[i].label != label:
+            if not params[i].optional:
+                return False
+            i += 1
+        if i == len(params):
+            return False
+        i += not params[i].variadic
+    rest = params[i:]
+    if trailing:
+        return bool(rest) and not rest[-1].plain_value and all(p.optional for p in rest[:-1])
+    return all(p.optional for p in rest)
+
+
+def receiver_of(before: str) -> tuple[str, str | None]:
+    """What a call is made on, from the code BEFORE its name: bare, self, Self, a type (`Type.`), an implicit
+    member (`.make(` on the contextual type) or a value (`x.`, `f().`, `x?.`, `super.`)."""
+    found = RECEIVER.search(before)
+    if found is None:
+        return "bare", None
+    name = found.group(1)
+    if name is None:
+        dot = before.rstrip()[:-1].rstrip()
+        if not dot:
+            return "chain", None  # `.name(` starting a line: a chain on the line above, or an implicit member
+        return ("value", None) if dot[-1].isalnum() or dot[-1] in ")]?!_" else ("implicit", None)
+    if name in ("self", "Self"):
+        return name, None
+    return ("type", name) if name[0].isupper() else ("value", name)
+
+
+def receiver_fits(callee: Callee, called: str, receiver: tuple[str, str | None], caller_type) -> bool:
+    """Whether a call named CALLED on RECEIVER can reach CALLEE; CALLER_TYPE() is the type the call is written in."""
+    kind, name = receiver
+    if callee.kind == "init":
+        if called != "init":
+            return kind in ("bare", "type")  # `Type(`, `Outer.Type(`
+        if kind == "type":
+            return name == callee.owner  # `Type.init(`
+        return kind in ("self", "Self") and caller_type() == callee.owner  # `self.init(` delegating
+    if kind == "type":
+        return callee.static and name == callee.owner
+    if kind == "implicit":
+        return callee.static and callee.returns_own_type  # `.make(` builds the contextual type
+    if kind == "value":
+        return not callee.static and callee.owner is not None
+    if kind == "chain":
+        return callee.owner is not None
+    if callee.owner is None:
+        return kind == "bare"  # a free function
+    return caller_type() == callee.owner  # bare, `self.` or `Self.` inside the type
+
+
+def type_by_line(lines: list[str]) -> list[str | None]:
+    """The innermost type or extension (its last name component) each line starts in, by a forward brace scan."""
+    out, stack = [], []
+    for i, line in enumerate(lines):
+        out.append(next((name for name in reversed(stack) if name), None))
+        code = g.code_of(line)
+        start = 0
+        for brace in re.finditer(r"[{};]", code):
+            c = brace.group(0)
+            if c == "{":
+                segment = code[start:brace.end()]
+                header = g.block_header(lines, i + 1, segment) if start == 0 else segment
+                match = g.DECLARATION_OPENER.search(header)
+                name = None
+                if match and match.group(4) in TYPE_KINDS:
+                    found = TYPE_NAME.search(header[match.start(4):])
+                    name = (found.group(1) or found.group(2)).split(".")[-1] if found else None
+                stack.append(name)
+            elif c == "}" and stack:
+                stack.pop()
+            start = brace.end()
+    return out
+
+
+def caller_counts(tree: Tree, callees: Iterable[Callee]) -> dict[Callee, int]:
+    """{callee: its call sites in its scope}. A call site is `name(` or `name {` in code (comments and string
+    contents dropped), not `func name(` or an enum case pattern, whose labels and receiver fit the callee."""
+    counts: dict[Callee, int] = collections.Counter()
+    by_name: dict[str, list[Callee]] = collections.defaultdict(list)
+    for callee in set(callees):
+        by_name[callee.name].append(callee)
+        if callee.kind == "init":
+            by_name["init"].append(callee)
+    if not by_name:
         return counts
     for path, text in tree.sources.items():
         here = {("file", path), ("module", g.module_of(path)), ("tree", "")}
-        for line in text.split("\n"):
-            if "(" not in line:
+        lines = text.split("\n")
+        types: list | None = None
+        for index, line in enumerate(lines):
+            if "(" not in line and "{" not in line:
                 continue
             code = g.code_of(line)
-            for match in CALL.finditer(code):
-                scopes = wanted.get(match.group(1))
-                if scopes is None or NOT_A_CALL_BEFORE.search(code[:match.start()]):
+            for match in CALL_SITE.finditer(code):
+                candidates = by_name.get(match.group(1))
+                before = code[:match.start()]
+                if not candidates or NOT_A_CALL_BEFORE.search(before):
                     continue
-                for scope in scopes & here:
-                    counts[(match.group(1), scope)] += 1
+                candidates = [c for c in candidates if c.scope in here]
+                if not candidates:
+                    continue
+                if match.group(2) == "(":
+                    arguments = call_arguments(lines, index, code, match.end() - 1)
+                    labels, trailing = arguments if arguments else (None, False)
+                elif BRACE_CALL_BEFORE.search(before):
+                    labels, trailing = [], True
+                else:
+                    continue
+                receiver = receiver_of(before)
+
+                def caller_type(index=index):
+                    nonlocal types
+                    if types is None:
+                        types = type_by_line(lines)
+                    return types[index]
+                for callee in candidates:
+                    if fits(callee.params, labels, trailing) and receiver_fits(callee, match.group(1), receiver,
+                                                                               caller_type):
+                        counts[callee] += 1
     return counts
 
 
@@ -414,18 +759,20 @@ def inventory(tree: Tree, rules: Iterable[str] = tuple(RULES), paths: Callable[[
         prefix = code[:match.start()] if match else code
         module = g.module_of(hit.path)
         ctx = context_of(lines, index, prefix, module in targets)
+        owner = ctx.types[0] if ctx.types else None
+        callee = None
+        if ctx.func_name:
+            callee = Callee(ctx.func_name, ctx.func_kind, owner, ctx.func_static and ctx.func_kind == "func",
+                            parameters(*ctx.func_header) if ctx.func_header else None,
+                            scope_key(call_scope(ctx), hit.path),
+                            bool(ctx.func_header) and returns_own_type(ctx.func_header[0], owner))
         hits.append(Hit(rule_id, hit.path, hit.number, module, module in targets, lines[index].strip(),
-                        ctx.enclosing_func, ctx.is_async, ctx.isolation, None,
-                        ctx.types[0] if ctx.types else None, func_name=ctx.func_name, func_line=ctx.func_line,
-                        func_scope=scope_key(call_scope(ctx), hit.path) if ctx.func_name else None))
-    wanted: dict[str, set[Scope]] = collections.defaultdict(set)
+                        ctx.enclosing_func, ctx.is_async, ctx.isolation, None, owner,
+                        func_name=ctx.func_name, func_line=ctx.func_line, callee=callee))
+    counts = caller_counts(tree, (hit.callee for hit in hits if hit.callee))
     for hit in hits:
-        if hit.func_name:
-            wanted[hit.func_name].add(hit.func_scope)
-    counts = caller_counts(tree, wanted)
-    for hit in hits:
-        if hit.func_name:
-            hit.caller_count = counts.get((hit.func_name, hit.func_scope), 0)
+        if hit.callee:
+            hit.caller_count = counts.get(hit.callee, 0)
     order = {rule: i for i, rule in enumerate(rules)}
     hits.sort(key=lambda h: (order[h.rule], h.path, h.line))
     return hits
@@ -510,10 +857,15 @@ def group_by_root(tree: Tree, hits: list[Hit], max_hits: int) -> list[tuple[str,
     for key in keys:
         components[find(key)].append(key)
 
+    used: collections.Counter = collections.Counter()
+
     def root_label(members: list) -> str:
+        """`root:Module/Type.func` of the component's root; the second chunk group with the same root is `~2`."""
         roots = [k for k in members if k not in called] or members
         hit = units[roots[0]][0]
-        return f"{hit.module}/{hit.enclosing_func or Path(hit.path).name}"
+        label = f"root:{hit.module}/{hit.enclosing_func or Path(hit.path).name}"
+        used[label] += 1
+        return label if used[label] == 1 else f"{label}~{used[label]}"
 
     ordered = sorted(components.values(), key=lambda m: (units[m[0]][0].module, m[0][0], m[0][1] or 0))
     out: list[tuple[str, list[Hit]]] = []
@@ -526,22 +878,14 @@ def group_by_root(tree: Tree, hits: list[Hit], max_hits: int) -> list[tuple[str,
             out.append((pending_label, pending))
             pending = []
         if len(member_hits) > max_hits:
-            out += chunked(f"root:{root_label(members)}", member_hits, max_hits)
+            out += chunked(root_label(members), member_hits, max_hits)
             continue
         if not pending:
-            pending_label, pending_module = f"root:{root_label(members)}", module
+            pending_label, pending_module = root_label(members), module
         pending += member_hits
     if pending:
         out.append((pending_label, pending))
-    seen: collections.Counter = collections.Counter(label for label, _ in out)
-    numbered: collections.Counter = collections.Counter()
-    unique = []
-    for label, chunk in out:
-        if seen[label] > 1 and "#" not in label:
-            numbered[label] += 1
-            label = f"{label}~{numbered[label]}"
-        unique.append((label, chunk))
-    return unique
+    return out
 
 
 # ---------------------------------------------------------------- output

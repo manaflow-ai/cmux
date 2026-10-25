@@ -5,7 +5,14 @@ The fixture has one hit per rule (main-blocking, raw-blocking, maybe-main-blocki
 `await backoff.wait(` that no rule reports, a sync main-actor function with 4 call sites (a comment, a string, a
 declaration and a call from another module do not count), and the isolation forms the JSONL names (main, pool,
 nonisolated, actor). The CLI runs on a throwaway git repo with sockets switched off and must leave every file as it
-was (no __pycache__ either).
+was (no __pycache__ either, nothing left in TMPDIR).
+
+Smaller trees pin the context reader: escaping closures (`readabilityHandler = {`, a completion, `@Sendable`) are
+`unknown` while inline ones (`forEach`, `Task {`, `{ ... }()`, control flow) keep their function's isolation; main
+openers win over pool openers; an actor's static members are not actor-isolated; `@MainActor @Observable` on one
+line states isolation. caller_count follows access (a public member of an unmarked extension is called from other
+modules), argument labels and receivers (`registry.bind(` is not `Handlers.bind(into:context:)`, `items.remove(at:)`
+is not `remove(_:)`), and two split call-graph components with one root name get distinct labels.
 
 Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the inventory:
   python3 -m pytest scripts/cmux-next/tests/test_threading_inventory.py
@@ -265,12 +272,232 @@ struct Off {
         show = hit(hits, "raw-blocking", "_ = try? Data(contentsOf")
         self.assertEqual((show.enclosing_func, show.isolation, show.is_async), ("Off.show", "main", False))
 
+    def test_attributes_sharing_a_line(self):
+        # guardrails' ATTRIBUTE_LINE takes one attribute per line; `@MainActor @Observable` still states isolation.
+        source = {SRC + "CmuxNextCore/Phone.swift": """import Foundation
+
+@MainActor @Observable
+public final class Phone {
+    public func shot(_ url: URL) -> Data? {
+        try? Data(contentsOf: url)
+    }
+}
+
+@Observable @MainActor
+final class Recorder {
+    func clip(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+}
+"""}
+        hits = [h for h in inventory.inventory(tree(source)) if h.rule == "raw-blocking"]
+        self.assertEqual(hit(hits, "raw-blocking", "Data(contentsOf").isolation, "main")
+        self.assertEqual(hit(hits, "raw-blocking", "fileExists").isolation, "main")
+
+    def test_escaping_closures_are_unknown_and_inline_ones_inherit(self):
+        # A handler the system calls later on its own queue is not main code, though its function is.
+        source = {SRC + "CmuxNextUI/Shell.swift": """import Foundation
+
+final class Shell {
+    func run(_ reader: FileHandle, center: Center, request: Request, file: URL) {
+        reader.readabilityHandler = { handle in
+            let data = handle.availableData
+            _ = data
+        }
+        center.add(request) { error in
+            try? FileManager.default.removeItem(at: file)
+        }
+        let work: @Sendable () -> Void = {
+            _ = try? Data(contentsOf: file)
+        }
+        let later = { @Sendable in
+            _ = try? String(contentsOf: file, encoding: .utf8)
+        }
+        [file].forEach { url in
+            _ = FileManager.default.fileExists(atPath: url.path)
+        }
+        Task {
+            _ = FileManager.default.contents(atPath: file.path)
+        }
+        let size: Int = {
+            (try? FileManager.default.attributesOfItem(atPath: file.path))?.count ?? 0
+        }()
+        defer {
+            _ = try? FileManager.default.contentsOfDirectory(atPath: file.path)
+        }
+        if size > 0 {
+            _ = FileManager.default.isExecutableFile(atPath: file.path)
+        }
+        for url in [file].flatMap({ url in [url].map { $0 } }) {
+            _ = try? url.resourceValues(forKeys: [.fileSizeKey])
+        }
+    }
+}
+"""}
+        hits = [h for h in inventory.inventory(tree(source)) if h.rule == "raw-blocking"]
+        isolation = {text: hit(hits, "raw-blocking", text).isolation for text in (
+            "availableData", "removeItem", "Data(contentsOf", "String(contentsOf", "fileExists", "contents(atPath",
+            "attributesOfItem", "contentsOfDirectory", "isExecutableFile", "resourceValues")}
+        self.assertEqual(isolation, {
+            "availableData": "unknown", "removeItem": "unknown", "Data(contentsOf": "unknown",
+            "String(contentsOf": "unknown", "fileExists": "main", "contents(atPath": "main",
+            "attributesOfItem": "main", "contentsOfDirectory": "main", "isExecutableFile": "main",
+            "resourceValues": "main"})
+
+    def test_main_openers_before_pool_openers(self):
+        source = {SRC + "CmuxNextCore/Later.swift": """import Foundation
+
+struct Later {
+    func go(_ url: URL) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+            _ = try? Data(contentsOf: url)
+        }
+        Task.detached { @MainActor in
+            _ = try? String(contentsOf: url, encoding: .utf8)
+        }
+        Task.detached {
+            _ = FileManager.default.fileExists(atPath: url.path)
+        }
+    }
+
+    func pick(_ kind: Int, _ url: URL) async -> Data? {
+        switch kind {
+        case 1: return await Task.detached { FileManager.default.contents(atPath: url.path) }.value
+        default: return nil
+        }
+    }
+}
+"""}
+        hits = [h for h in inventory.inventory(tree(source)) if h.rule == "raw-blocking"]
+        self.assertEqual(hit(hits, "raw-blocking", "Data(contentsOf").isolation, "main")
+        self.assertEqual(hit(hits, "raw-blocking", "String(contentsOf").isolation, "main")
+        self.assertEqual(hit(hits, "raw-blocking", "fileExists").isolation, "pool")
+        self.assertEqual(hit(hits, "raw-blocking", "contents(atPath").isolation, "pool")
+
+    def test_static_members_of_an_actor_are_not_isolated_to_it(self):
+        source = {SRC + "CmuxNextCore/Installer.swift": """import Foundation
+
+actor Installer {
+    static func size(of url: URL) -> Int {
+        (try? FileManager.default.attributesOfItem(atPath: url.path))?.count ?? 0
+    }
+
+    func save(_ data: Data, to url: URL) throws {
+        try data.write(to: url)
+    }
+
+    static let probe = FileManager.default.fileExists(atPath: "/tmp")
+}
+"""}
+        hits = [h for h in inventory.inventory(tree(source)) if h.rule == "raw-blocking"]
+        size = hit(hits, "raw-blocking", "attributesOfItem")
+        self.assertEqual((size.enclosing_func, size.isolation), ("Installer.size", "nonisolated"))
+        self.assertEqual(hit(hits, "raw-blocking", "data.write").isolation, "actor")
+        self.assertEqual(hit(hits, "raw-blocking", "fileExists").isolation, "nonisolated")
+
     def test_rule_and_path_filters(self):
         only = inventory.inventory(tree(), ["task-priority"], inventory.path_matcher([SRC + "CmuxNextCore/Work.swift"]))
         self.assertEqual([(h.rule, h.text) for h in only], [("task-priority", "Task.detached {")])
         globbed = inventory.inventory(tree(), ["raw-blocking"], inventory.path_matcher([SRC + "CmuxNextUI/*.swift"]))
         self.assertEqual({h.module for h in globbed}, {"CmuxNextUI"})
         self.assertEqual(inventory.inventory(tree(), ["raw-blocking"], inventory.path_matcher([SRC + "Nothing/"])), [])
+
+
+class CallerCountTests(unittest.TestCase):
+    def counts(self, sources: dict[str, str]) -> dict[str, int | None]:
+        hits = inventory.inventory(tree(sources), ["raw-blocking"])
+        return {h.enclosing_func: h.caller_count for h in hits}
+
+    def test_public_member_of_an_unmarked_extension_is_called_from_other_modules(self):
+        counts = self.counts({
+            SRC + "CmuxNextCore/Box.swift": """import Foundation
+
+public struct Box {
+    public init() {}
+}
+
+extension Box {
+    public func fetch(_ url: URL) -> Data? {
+        try? Data(contentsOf: url)
+    }
+}
+
+internal extension Box {
+    func peek(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+}
+
+private extension Box {
+    func hidden(_ url: URL) -> Data? {
+        FileManager.default.contents(atPath: url.path)
+    }
+}
+""",
+            SRC + "CmuxNextUI/UseBox.swift": """import Foundation
+import CmuxNextCore
+
+final class UseBox {
+    func use(_ url: URL) {
+        _ = Box().fetch(url)
+        _ = Box().peek(url)
+        _ = Box().hidden(url)
+    }
+}
+"""})
+        self.assertEqual((counts["Box.fetch"], counts["Box.peek"], counts["Box.hidden"]), (1, 0, 0))
+
+    def test_labels_and_receiver_pick_the_call_sites(self):
+        counts = self.counts({
+            SRC + "CmuxNextCore/Handlers.swift": """import Foundation
+
+enum Handlers {
+    static func bind(into registry: Registry, context: Context) {
+        _ = FileManager.default.fileExists(atPath: context.path)
+    }
+}
+
+final class Backups {
+    func remove(_ id: String) {
+        try? FileManager.default.removeItem(atPath: id)
+    }
+
+    func load(_ id: String, completion: @escaping (Data?) -> Void) {
+        completion(FileManager.default.contents(atPath: id))
+    }
+
+    func each(_ body: () -> Void) {
+        _ = FileManager.default.isExecutableFile(atPath: "/each")
+        body()
+    }
+}
+""",
+            SRC + "CmuxNextCore/Wiring.swift": """import Foundation
+
+struct Wiring {
+    func wire(_ registry: Registry, _ context: Context, backups: Backups, items: inout [Int]) {
+        Handlers.bind(into: registry, context: context)
+        registry.bind("a") { _ in }
+        registry.bind("b", to: 1)
+        backups.remove("x")
+        items.remove(at: 0)
+        items.remove(
+            at: 1
+        )
+        backups.load("y") { _ in }
+        backups.load(
+            "z",
+            completion: { _ in }
+        )
+        backups.load { _ in }
+        backups.each {
+            print("each")
+        }
+    }
+}
+"""})
+        self.assertEqual({k: counts[k] for k in ("Handlers.bind", "Backups.remove", "Backups.load", "Backups.each")},
+                         {"Handlers.bind": 1, "Backups.remove": 1, "Backups.load": 2, "Backups.each": 1})
 
 
 class GroupTests(unittest.TestCase):
@@ -292,6 +519,23 @@ class GroupTests(unittest.TestCase):
             self.assertTrue(all(len(chunk) == 1 for _, chunk in groups))
             self.assertEqual(sum(len(chunk) for _, chunk in groups), len(self.hits))
             self.assertEqual(len({label for label, _ in groups}), len(groups))
+
+    def test_split_components_with_one_root_name_keep_apart(self):
+        # Two initializers of one type in two files: same root label, each split into chunks.
+        body = """    init({label} url: URL) {{
+        _ = FileManager.default.fileExists(atPath: url.path)
+        _ = try? Data(contentsOf: url)
+    }}
+"""
+        sources = {SRC + "CmuxNextCore/FooA.swift": "import Foundation\n\nstruct Foo {\n" + body.format(label="a") + "}\n",
+                   SRC + "CmuxNextCore/FooB.swift": "import Foundation\n\nextension Foo {\n" + body.format(label="b")
+                   + "}\n"}
+        fixture = tree(sources)
+        hits = inventory.inventory(fixture, ["raw-blocking"])
+        groups = inventory.group_by_root(fixture, hits, 1)
+        labels = [label for label, _ in groups]
+        self.assertEqual(len(labels), 4)
+        self.assertEqual(len(set(labels)), len(labels), labels)
 
     def test_module_groups(self):
         labels = [label for label, _ in inventory.group_by_module(self.hits, 25)]
@@ -370,12 +614,17 @@ class CLITests(unittest.TestCase):
             socket.socket, socket.create_connection, socket.getaddrinfo = saved
 
     def test_no_writes(self):
+        # The repo, the scripts tree and TMPDIR (where git_batch's unnamed request file lives while git reads it)
+        # are left as they were.
         before, scripts_before = snapshot(self.repo), snapshot(SCRIPTS)
-        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
-        result = subprocess.run([sys.executable, str(TOOL), "--group", "root", "--jsonl"], cwd=self.repo, env=env,
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(result.stdout.strip())
+        with tempfile.TemporaryDirectory() as watched:
+            env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+            env["TMPDIR"] = watched
+            result = subprocess.run([sys.executable, str(TOOL), "--group", "root", "--jsonl"], cwd=self.repo,
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(result.stdout.strip())
+            self.assertEqual(os.listdir(watched), [])
         self.assertEqual(snapshot(self.repo), before)
         self.assertEqual(snapshot(SCRIPTS), scripts_before)
 
