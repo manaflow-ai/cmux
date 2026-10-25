@@ -579,6 +579,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "CmuxNextTrace TraceRuntime.shared: the one process-wide trace runtime (category flags, Release trace rings, name and thread tables, crash-key page, HangWatch slots, metrics store), Chrome's TraceLog / GlobalHistogramAllocator / HangWatcher model (base/trace_event/trace_log.h). Trace points, hang-watch scopes and histogram records run in every module and on every thread, including C hooks, renderer callbacks and deinits with no injection path; code that can inject takes a TraceRuntime(role:) instance (Metrics(runtime:), tests). The single reviewed exception of the p09-observability program (plans/cmux-next/chrome-parity/p09-observability.md section 3A, task 000); no other p09 task may add a global."
+    },
+    {
+      "date": "2026-10-24",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helperPrototype) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands."
     }
   ],
   "observer_wrappers": [
