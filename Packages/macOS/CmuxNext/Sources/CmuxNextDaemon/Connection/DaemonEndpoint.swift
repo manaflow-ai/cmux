@@ -384,6 +384,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// .cmux-scratch/sidebar-rewrite/CONTRACT.md). Without it the sidebar
     /// keeps the personal order and `sidebar-layout-v1` path.
     case sidebarDoc = "sidebar-doc-v1"
+    /// The section patch field that preserves an explicit Remove Remote Group
+    /// choice when false `host_group` values are omitted on the wire.
+    case sidebarHostGroupOptOut = "sidebar-host-group-opt-out-v1"
     /// The client orders rows from the sidebar document only, so the daemon
     /// sends no `workspace_placement` restatement (cmux-tui
     /// state/placement_shift.rs). Echoed only by a connection whose
@@ -507,7 +510,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
              .workspaceGroupIcon, .workspaceGroupPin, .screenGroupIcon, .tabGroupIcon, .sessionIcon,
              .localAttachments, .linkPreview, .chiefInspect, .terminalPendingSequence, .terminalCommandHistory,
-             .sidebarLayout, .sidebarDoc, .placementShift, .paletteUsage, .browserDevices, .browserFit,
+             .sidebarLayout, .sidebarDoc, .sidebarHostGroupOptOut, .placementShift, .paletteUsage, .browserDevices, .browserFit,
              .browserFitWidth, .keybindings, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
              .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,

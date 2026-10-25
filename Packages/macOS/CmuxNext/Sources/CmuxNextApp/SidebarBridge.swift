@@ -258,6 +258,7 @@ final class SidebarBridge {
     /// takes over after that echo so the two paths cannot race.
     private func markCloudMachineGroups() {
         guard model.docDrag != nil, let store = SidebarDocStore.current else { return }
+        guard services.machines.local.supports(DaemonCapability.sidebarHostGroupOptOut.rawValue) else { return }
         let sessions = services.machines.cloud.compactMap { $0.daemon.store.registryID }
         for session in Self.cloudSessionsWithLegacySections(sessions, records: store.records) {
             RemoteGroupHandlers.mark(session: session)

@@ -140,9 +140,6 @@ public final class SidebarDocStore {
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
-            // The load is authoritative: an unanswered migration either made
-            // it into this document or can be retried on the next show.
-            self.pendingHostGroupMarks.removeAll()
             self.isActive = true
             self.bump()
             let early = self.earlyBatches
