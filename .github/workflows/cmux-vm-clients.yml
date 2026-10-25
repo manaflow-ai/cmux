@@ -103,7 +103,7 @@ jobs:
         with:
           name: cmux-vm-client-generated
           path: workers/cmux-vm/cli/crates/cmux-vm-client/src/generated*.rs
-          retention-days: 7
+          retention-days: 3
 
       - name: No upstream provider name in the clients
         if: ${{ !cancelled() }}
@@ -150,7 +150,7 @@ jobs:
         with:
           name: cmux-vm-sdk-generated
           path: workers/cmux-vm/sdk/src/schema.d.ts
-          retention-days: 7
+          retention-days: 3
 
       - name: Typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}

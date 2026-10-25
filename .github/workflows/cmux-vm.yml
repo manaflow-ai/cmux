@@ -201,7 +201,7 @@ jobs:
           name: cmux-vm-openapi
           path: workers/cmux-vm/dist/openapi.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
   # Read-only: confirms the repository Cloudflare token works and can see
   # Workers scripts and Hyperdrive configs. Prints HTTP codes and counts only.

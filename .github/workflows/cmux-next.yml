@@ -2609,7 +2609,7 @@ jobs:
           name: cmux-next-fast-tier-cargo-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier-cargo.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
@@ -2880,7 +2880,7 @@ jobs:
           name: cmux-next-build-metrics-swift-test-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
       - name: Compile string catalogs into the resource bundles
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
@@ -2991,7 +2991,7 @@ jobs:
           name: swift-test-crash-reports-${{ github.run_attempt }}
           path: ${{ runner.temp }}/swift-test-crash-reports
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
       # A pass records itself for the next run on the same inputs: an artifact named after
       # the key, which every pull request and the base can list (scripts/ci/job_reuse.py
       # takes only passes of this repository's own runs). Never from a fork pull request.
@@ -3192,7 +3192,7 @@ jobs:
           name: cmux-next-build-metrics-daemon-test-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
       # The generated files checks of a push (CMUX_NEXT_FOLD_GENERATED), on the
       # package and tests built above and before the catalogs are compiled into
@@ -3326,7 +3326,7 @@ jobs:
           name: daemon-test-crash-reports-${{ github.run_attempt }}
           path: ${{ runner.temp }}/swift-test-crash-reports
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
   # Generated files are fresh: the action catalog, surfaces and inventory
   # (ActionSurfaceParityTests and its siblings) and the settings exports with
@@ -3569,7 +3569,7 @@ jobs:
           name: cmux-next-build-metrics-generated-files-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-build-metrics
           if-no-files-found: ignore
-          retention-days: 14
+          retention-days: 3
 
       - name: Check generated action catalog, surfaces and inventory
         if: ${{ steps.reuse.outputs.hit != 'true' }}
