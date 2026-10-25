@@ -9,11 +9,11 @@ import type { Translate } from "../i18n";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
-/// The send a line makes, without whether it owns the call's exit status (tested on its own below).
+/// The send a line makes, without whether it owns the call's exit status or surely ran (tested below).
 function read(line: string) {
   const send = acpmuxSend(line);
   if (!send) return send;
-  const { ownsExit: _, ...rest } = send;
+  const { ownsExit: _, unsure: __, ...rest } = send;
   return rest;
 }
 
@@ -148,6 +148,8 @@ describe("acpmuxSend", () => {
     expect(read("tail -1 log.txt; acpmux send a b")?.others).toBe(1);
     // Two sends are two messages: the command row keeps both, one in a substitution too.
     expect(read("acpmux send a x; acpmux send b y")).toBeUndefined();
+    expect(read('acpmux send first hi; acpmux send "$SECOND" hi')).toBeUndefined();
+    expect(read("acpmux send first hi; reach box 'acpmux send \"$X\" hi'")).toBeUndefined();
     expect(read('acpmux send x "$(acpmux send y z)"')).toBeUndefined();
     // A substitution that does more than read is work, wherever it is.
     expect(read('echo "$(touch /tmp/x)" | acpmux send a -')?.others).toBe(1);
@@ -261,6 +263,13 @@ describe("acpmuxSend", () => {
 });
 
 describe("whose exit status the call reports", () => {
+  test("not when a || before the send may skip it; unsure when a && or || before it may", () => {
+    expect(acpmuxSend("test -d / || acpmux send lane hi")).toMatchObject({ unsure: true });
+    expect(acpmuxSend("test -d / || acpmux send lane hi")?.ownsExit).toBeUndefined();
+    expect(acpmuxSend("cd ~/wt && acpmux send lane hi")).toMatchObject({ ownsExit: true, unsure: true });
+    expect(acpmuxSend("cd ~/wt; acpmux send lane hi")?.unsure).toBeUndefined();
+  });
+
   test("the send's when it is the line's last command, its output piped nowhere", () => {
     expect(acpmuxSend("acpmux send lane hi")?.ownsExit).toBe(true);
     expect(acpmuxSend("cd ~/wt && acpmux send lane hi")?.ownsExit).toBe(true);
@@ -319,6 +328,16 @@ describe("acpmuxSendCall", () => {
     const refused = 'acpmux: no_session: no session matches "lane"; run `acpmux ls` or `acpmux ensure lane`';
     expect(acpmuxSendCall(bash(piped, { exitCode: 0, output: refused }))?.state).toBe("failed");
     expect(acpmuxSendCall(bash(piped, { exitCode: 0, output: "queued" }))?.state).toBe("sent");
+  });
+
+  test("ended, not sent, when nothing says whether a send that may have been skipped went", () => {
+    const skipped = "git push && acpmux send lane done; git status";
+    expect(acpmuxSendCall(bash(skipped, { exitCode: 0, output: "nothing to commit" }))?.state).toBe("ended");
+    expect(acpmuxSendCall(bash("test -d / || acpmux send lane hi", { exitCode: 0 }))?.state).toBe("ended");
+    // With --json, acpmux's error object says it failed.
+    const json = 'acpmux send --json lane hi | jq .';
+    const refused = '{"error":{"code":"no_session","message":"no session matches lane"}}';
+    expect(acpmuxSendCall(bash(json, { exitCode: 0, output: refused }))?.state).toBe("failed");
   });
 
   test("its state: running, sent, or failed on a nonzero exit", () => {

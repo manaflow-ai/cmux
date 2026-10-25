@@ -33,13 +33,17 @@ export type AcpmuxSend = {
   /// How many other commands the line runs that do work of their own (`git push && acpmux send …`,
   /// a redirect that writes a file): the row says "and N more", its command behind Raw.
   others?: number;
-  /// The call's exit status is the send's: it is the line's last command, its output piped nowhere.
-  /// Otherwise (`acpmux send … | tail -1`, `… && make`) the status is another command's.
+  /// The call's exit status is the send's: it is the line's last command, its output piped nowhere,
+  /// and no `||` before it could skip it. Otherwise (`acpmux send … | tail -1`, `… && make`) the
+  /// status is another command's.
   ownsExit?: true;
+  /// Whether the send ran is not known from the line: a `&&` or `||` before it may have skipped it.
+  unsure?: true;
 };
 
-/// The line acpmux prints when a send fails (`acpmux: no_session: no session matches "x"; …`).
-const SEND_ERROR = /^acpmux: [a-z_]+: /m;
+/// What acpmux prints when a send fails: its text line (`acpmux: no_session: no session matches
+/// "x"; …`), or with `--json` its error object (`{"error":{"code":"no_session",…}}`).
+const SEND_ERROR = /^acpmux: [a-z_]+: |"error"\s*:\s*\{\s*"code"/m;
 
 /// Whether the send failed: by the call's status and exit code when they are the send's, else by
 /// the error line acpmux printed; a failed background run counts either way.
@@ -48,8 +52,9 @@ export function sendFailed(send: AcpmuxSend, status: { failed: boolean; output?:
   return SEND_ERROR.test(status.output ?? "");
 }
 
-/// A send's state as its row reads it.
-export type SendState = "sending" | "sent" | "failed";
+/// A send's state as its row reads it; `ended` when the call ended but neither its status nor its
+/// output says whether the message went (`git push && acpmux send …; git status`).
+export type SendState = "sending" | "sent" | "failed" | "ended";
 
 export type AcpmuxSendCall = AcpmuxSend & { state: SendState };
 
@@ -69,7 +74,8 @@ export function acpmuxSendCall(tool: Tool): AcpmuxSendCall | undefined {
     }) ||
     (send.ownsExit === true && (background === "failed" || background === "stopped"));
   const running = tool.status === "pending" || tool.status === "in_progress" || background === "running";
-  return { ...send, state: failed ? "failed" : running ? "sending" : "sent" };
+  const state = failed ? "failed" : running ? "sending" : send.ownsExit || !send.unsure ? "sent" : "ended";
+  return { ...send, state };
 }
 
 /// One shell word: its text after quote removal, and whether it is that text whatever the shell's
@@ -461,6 +467,8 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
   let at = -1;
   /// The send came from `acpmux send`'s own words here, not from a nested line.
   let direct = false;
+  /// Commands that send, read or not (`acpmux send "$LANE" hi` is a send whose target is unknown).
+  let sends = 0;
   for (const [index, command] of commands.entries()) {
     const words = unwrapped(command.words);
     const name = program(words[0]);
@@ -492,9 +500,18 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     } else if (name === "acpmux" || name === "acpmux-debug-cli") {
       let sub = 1;
       while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
-      if (words[sub]?.text === "send") send = sendArgs(words.slice(sub + 1), stdinOf(commands, index), host);
-    } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send")
+      if (words[sub]?.text === "send") {
+        sends += 1;
+        send = sendArgs(words.slice(sub + 1), stdinOf(commands, index), host);
+      }
+    } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send") {
+      sends += 1;
       send = sendArgs(words.slice(3), stdinOf(commands, index), host);
+    }
+    // A nested line counts its send, read or not: two messages keep the command row.
+    const nested = name === "reach" || SHELLS.has(name);
+    if (nested && (send || NESTED_SEND.test(command.words.map((word) => word.text).join(" ")))) sends += 1;
+    if (sends > 1) return undefined;
     if (send) {
       if (found) return undefined;
       found = send;
@@ -531,12 +548,20 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
   const send: AcpmuxSend = { ...found };
   delete send.others;
   delete send.ownsExit;
+  delete send.unsure;
   if (others) send.others = others;
-  // A nested line (`reach host '…'`, `bash -c '…'`) passes on whether its send owns its status.
+  // A nested line (`reach host '…'`, `bash -c '…'`) passes on whether its send owns its status
+  // and whether it surely ran.
+  const before = commands.slice(0, at).map((command) => command.op);
+  const skippable = before.includes("||");
+  if (found.unsure || skippable || before.includes("&&")) send.unsure = true;
   const last = at === commands.length - 1 && commands[at]!.op !== "|" && commands[at]!.op !== "&";
-  if (last && (direct || found.ownsExit)) send.ownsExit = true;
+  if (last && !skippable && (direct || found.ownsExit)) send.ownsExit = true;
   return send;
 }
+
+/// A send somewhere in a nested line's words.
+const NESTED_SEND = /\b(?:acpmux(?:-debug-cli)?(?:\s+--[a-z-]+)*\s+send|cmux\s+acp\s+send)\b/;
 
 /// Whether a filter's words are options it may take, their numbers (`-n 5`), and at most its operands.
 function onlyFilters(words: readonly ShellWord[], filter: (typeof FILTERS)[string]): boolean {
