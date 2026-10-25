@@ -174,7 +174,7 @@ public final class TerminalSession {
             }
         }
 
-        eventsTask = Self.consume(io.events, for: self)
+        eventsTask = Self.consume(io.events, io: io, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
@@ -325,7 +325,7 @@ public final class TerminalSession {
     /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
     /// may use (nil while the surface still waits for its first content, or none is live). Only
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
-    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, io: any TerminalIO,
                                             for session: TerminalSession) -> Task<Void, Never> {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
@@ -334,7 +334,7 @@ public final class TerminalSession {
                     TypingLatencyProbe.shared.mark(.outputReceived)
                     ExpectedActivity.shared.note(.terminalOutput)
                     await lane.waitForCapacity()
-                    lane.processOutput(data)
+                    lane.processOutput(data, sharedCheck: io.sharedOutputCheck(data))
                     continue
                 }
                 guard let session else { return }
@@ -344,7 +344,7 @@ public final class TerminalSession {
     }
 
     /// Handles one event on the main actor. Returns the lane later output may go to off the main
-    /// actor (``consume(_:for:)``).
+    /// actor (``consume(_:io:for:)``).
     private func handle(_ event: TerminalIOEvent) async -> TerminalOutputLane? {
         await apply(event)
         return surfaceHasContent ? surfaceView.lane : nil
@@ -386,7 +386,7 @@ public final class TerminalSession {
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()
             // The surface may have been swapped while waiting (a replay).
-            surfaceView.lane?.processOutput(data)
+            surfaceView.lane?.processOutput(data, sharedCheck: io.sharedOutputCheck(data))
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()

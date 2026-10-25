@@ -68,6 +68,13 @@ public nonisolated protocol TerminalIO: Sendable {
     /// restore did not match the owner's check): a daemon IO asks for a full
     /// snapshot. Ordered with `write`.
     func resyncRequested() async
+
+    /// The check of `.output` bytes that are a live view of shared memory the producer may
+    /// overwrite at any time (a daemon's output ring), or nil for any other bytes. The output lane
+    /// copies such bytes out first, then calls the check, and parses the copy only when it is true
+    /// (seqlock order); a false check has started the stream's resync. Called once per event, off
+    /// the main actor.
+    func sharedOutputCheck(_ data: Data) -> (@Sendable () -> Bool)?
 }
 
 public extension TerminalIO {
@@ -78,6 +85,7 @@ public extension TerminalIO {
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
+    nonisolated func sharedOutputCheck(_ data: Data) -> (@Sendable () -> Bool)? { nil }
 }
 
 /// One event from a ``TerminalIO``.

@@ -144,10 +144,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.close()
     }
 
-    // MARK: TerminalIO
-
-    /// The daemon's VT core answers DA/DSR, so the surface mirrors only.
-    var answersTerminalQueries: Bool { true }
+    // MARK: TerminalIO (the daemon's VT core answers DA/DSR: the default `answersTerminalQueries`)
 
     func write(_ data: Data) async {
         if let creatingInput, await creatingInput.write(data) { return }
@@ -175,6 +172,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     func resyncRequested() async {
         driver.requestResync()
     }
+
+    func sharedOutputCheck(_ data: Data) -> (@Sendable () -> Bool)? { driver.sharedOutputCheck(data) }
 
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         guard cols > 0, rows > 0 else { return }

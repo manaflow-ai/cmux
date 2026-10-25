@@ -20,6 +20,9 @@ public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     /// Detaches and closes the connection; its `events` then finish.
     /// Idempotent.
     func detachNow()
+    /// The check of output bytes that are a live view of shared memory (copy them, then call it);
+    /// nil for any other bytes.
+    func sharedOutputCheck(_ data: Data) -> (@Sendable () -> Bool)?
 }
 
 /// Runs a ``TerminalAttachMachine`` against real attachments: one reducer
@@ -142,6 +145,12 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// event: the link and its geometry stay as they are.
     public func requestResync() {
         core.withLock { $0.machine.liveLink }?.link.sendSnapshotRequest(reason: .gap)
+    }
+
+    /// The live link's check of output bytes that are a live view of shared memory, or nil
+    /// (``TerminalAttachLink/sharedOutputCheck(_:)``). Reads the live link once.
+    public func sharedOutputCheck(_ data: Data) -> (@Sendable () -> Bool)? {
+        core.withLock { $0.machine.liveLink }?.link.sharedOutputCheck(data)
     }
 
     // MARK: Diagnostics
@@ -308,6 +317,11 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     private func finishTask(_ attempt: Int) {
         _ = core.withLock { $0.tasks.removeValue(forKey: attempt) }
     }
+}
+
+public extension TerminalAttachLink {
+    /// No shared-memory output by default.
+    nonisolated func sharedOutputCheck(_ data: Data) -> (@Sendable () -> Bool)? { nil }
 }
 
 /// The live link: a daemon byte-mode attachment on its own connection.

@@ -23,6 +23,9 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     private let queue: DispatchQueue
     /// Touched only on `queue`.
     private var surface: ghostty_surface_t?
+    /// The copy of a shared-memory span, reused chunk to chunk (no allocation once grown).
+    /// Touched only on `queue`.
+    private var sharedCopy: [UInt8] = []
     private let closing = Atomic<Bool>(false)
     /// The last READY restore succeeded. Written on `queue`; history after a
     /// failed READY is skipped until the next READY.
@@ -50,15 +53,33 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
-    func processOutput(_ data: Data) {
+    /// Parses `data` on the lane, in order with the other queued work.
+    ///
+    /// - Parameter sharedCheck: For bytes that are a live view of shared memory the producer may
+    ///   overwrite (``TerminalIO/sharedOutputCheck(_:)``): the bytes are copied out first, then the
+    ///   check runs, and only a true check parses the copy (seqlock order). nil parses `data` as is.
+    func processOutput(_ data: Data, sharedCheck: (@Sendable () -> Bool)? = nil) {
         guard !data.isEmpty else { return }
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
-            data.withUnsafeBytes { buffer in
-                guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-                ghostty_surface_process_output(surface, base, UInt(buffer.count))
+            if let sharedCheck {
+                sharedCopy.removeAll(keepingCapacity: true)
+                sharedCopy.append(contentsOf: data)
+                // Overwritten before or during the copy: skipped; the check asked for a resync.
+                guard sharedCheck() else { return }
+                sharedCopy.withUnsafeBufferPointer { buffer in
+                    guard let base = buffer.baseAddress else { return }
+                    base.withMemoryRebound(to: CChar.self, capacity: buffer.count) { chars in
+                        ghostty_surface_process_output(surface, chars, UInt(buffer.count))
+                    }
+                }
+            } else {
+                data.withUnsafeBytes { buffer in
+                    guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+                    ghostty_surface_process_output(surface, base, UInt(buffer.count))
+                }
             }
             TypingLatencyProbe.shared.mark(.outputParsed)
             #if DEBUG || CMUX_BENCH_HOOKS
