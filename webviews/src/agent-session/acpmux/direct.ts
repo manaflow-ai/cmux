@@ -3093,6 +3093,13 @@ export class AcpmuxDirectClient {
             policyUnenforced: { policy: msg.policy, why: opencode ? "ownSettings" : "noAskingMode" },
           });
         }
+      } else if (event.kind === "subsession") {
+        // A child an `acpmux run --parent` call of this chat started (acpmux #25019): that call's
+        // run, whose card stands for the call's row from now on.
+        this.subagents.harness = this.summary?.harness;
+        const call = this.subagents.reduceChild(event, msg);
+        if (call) this.dropToolItem(call);
+        this.takeSubagentRows();
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;

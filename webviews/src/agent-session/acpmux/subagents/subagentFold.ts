@@ -3,6 +3,7 @@ import { childRows, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName } from "../hiddenTools";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
+  type AgentRun,
   agentRun,
   agentRunOf,
   backgroundOutputPath,
@@ -80,6 +81,9 @@ export type Subagent = {
   session?: string;
   host?: string;
   result?: string;
+  /// The acpmux sub-session it is (`acpmux run --parent`), by id: Open chat opens it, and its
+  /// records (``reduceChild``) say its state and reply.
+  child?: string;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -93,6 +97,9 @@ export type SubagentStops = { requested: Set<string>; reasons: Map<string, Subag
 export const subagentStops = (): SubagentStops => ({ requested: new Set(), reasons: new Map() });
 
 export type Event = { seq: number; at: number; msg?: any };
+type Step = { event: Event; update: any };
+/// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
+const PENDING_CHILDREN = 16;
 type Group = { id: string; at: number; version: number; ids: string[] };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
@@ -138,6 +145,12 @@ export class SubagentFold {
   /// A call started another family's agent while the chat's harness was not known: once it is,
   /// the pane folds the records again (direct.ts ``learnChatThread``).
   deferredRun = false;
+  /// `acpmux run --parent` calls whose sub-session acpmux has not said started (``reduceChild``):
+  /// what each runs, its first update and its newest. The oldest go past PENDING_CHILDREN.
+  private readonly parentCalls = new Map<string, { run: AgentRun; command: string; first: Step; last?: Step }>();
+  /// The run each sub-session is, by its session id; the runs whose reply acpmux recorded.
+  private readonly children = new Map<string, string>();
+  private readonly recorded = new Set<string>();
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
@@ -239,10 +252,31 @@ export class SubagentFold {
       return true;
     }
     if (this.notRuns.has(call)) return false;
+    const pending = this.parentCalls.get(call);
+    if (pending) {
+      // Drawn as the call until acpmux says its sub-session started. One that ended (not one moved
+      // to the background) started none, or its start already came.
+      pending.last = { event, update };
+      const ended = update.status === "failed" || update.status === "completed";
+      if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update))))
+        this.parentCalls.delete(call);
+      return false;
+    }
     const command = update?.rawInput?.command;
     // A call whose command has not come yet may still be one.
     if (typeof command !== "string" && !Array.isArray(command)) return false;
     const run = typeof command === "string" ? agentRun(command) : agentRunOf(command.map(String));
+    const line = typeof command === "string" ? command : command.join(" ");
+    // A sub-session of a chat (acpmux #25019): its records name its harness, even one the command
+    // does not, and only this chat's own children come to its log.
+    if (run?.parent !== undefined && this.harness) {
+      this.parentCalls.set(call, { run, command: line, first: { event, update } });
+      for (const old of this.parentCalls.keys()) {
+        if (this.parentCalls.size <= PENDING_CHILDREN) break;
+        this.parentCalls.delete(old);
+      }
+      return false;
+    }
     // Only another family's: both harnesses known and different (a chat whose harness is not known
     // yet keeps its calls).
     if (!run?.harness || !this.harness || harnessFamily(run.harness) === harnessFamily(this.harness)) {
@@ -251,6 +285,12 @@ export class SubagentFold {
       this.notRuns.add(call);
       return false;
     }
+    this.startRun(call, { event, update }, run, line);
+    return true;
+  }
+
+  /// The agent shell call `call` started, from its first update.
+  private startRun(call: string, { event, update }: Step, run: AgentRun, command: string): Subagent {
     const description = text(update.rawInput.description);
     const model = runModel(run);
     const label = run.harness ? harnessLabel(run.harness) : undefined;
@@ -262,7 +302,7 @@ export class SubagentFold {
       ...((label || model) && { kind: [label, model].filter(Boolean).join(" · ") }),
       state: "running",
       startedAt: event.at,
-      command: typeof command === "string" ? command : command.join(" "),
+      command,
       ...(run.harness && { harness: run.harness }),
       ...(model && { model }),
       ...(run.session && { session: run.session }),
@@ -280,7 +320,72 @@ export class SubagentFold {
     this.groupOf.set(agent.id, group);
     this.open = undefined;
     this.updateRun(agent, event, update);
-    return true;
+    return agent;
+  }
+
+  /// A `subsession` record on the chat's log (acpmux #25019, `hub/subsession_results.rs`). A child
+  /// of another family that an `acpmux run --parent` call of the chat started is that call's run,
+  /// with acpmux's harness, model and effort; each `turn_ended` says its state and its reply. A
+  /// child the `start_session` tool started has its card already (SubsessionCallCard.tsx). Returns
+  /// the call whose row the run now stands for.
+  reduceChild(event: Event, record: any): string | undefined {
+    const child = text(record?.childSessionId);
+    if (!child) return undefined;
+    if (record.event === "started") return this.startChild(record, child);
+    const agent = record.event === "turn_ended" ? this.agents.get(this.children.get(child) ?? "") : undefined;
+    if (!agent) return undefined;
+    const said = text(record.result?.reply) ?? text(record.result?.error);
+    if (said) {
+      agent.result = said;
+      this.recorded.add(agent.id);
+    }
+    agent.state = record.state === "done" ? "completed" : record.state === "cancelled" ? "cancelled" : "failed";
+    agent.endedAt = event.at;
+    this.ended.add(agent.id);
+    this.forgetOutput(agent.id);
+    this.touch(agent);
+    return undefined;
+  }
+
+  private startChild(record: any, child: string): string | undefined {
+    if (this.children.has(child)) return undefined;
+    // The call that named it (`-n`) or asked it what it was asked: never a guess, since a child the
+    // start_session tool started meanwhile has the same parent. A call that says neither (its
+    // prompt in a file) stays its command.
+    const name = text(record.shortName);
+    const asked = promptKey(record.prompt);
+    let call: string | undefined;
+    for (const [id, pending] of this.parentCalls) {
+      const named = pending.run.session !== undefined && pending.run.session === name;
+      if (named || (asked !== undefined && promptKey(pending.run.prompt) === asked)) {
+        call = id;
+        break;
+      }
+    }
+    const pending = call !== undefined ? this.parentCalls.get(call) : undefined;
+    if (call === undefined || !pending) return undefined;
+    this.parentCalls.delete(call);
+    const harness = text(record.harness) ?? pending.run.harness;
+    if (!harness || !this.harness || harnessFamily(harness) === harnessFamily(this.harness)) {
+      this.notRuns.add(call);
+      return undefined;
+    }
+    const model = text(record.model);
+    const effort = text(record.effort);
+    const prompt = pending.run.prompt ?? text(record.prompt);
+    const run = {
+      ...pending.run,
+      harness,
+      ...(model && { model }),
+      ...(effort && { effort }),
+      ...(prompt && { prompt }),
+    };
+    const agent = this.startRun(call, pending.first, run, pending.command);
+    agent.child = child;
+    if (!promptTitle(prompt)) agent.name = text(record.title) ?? agent.name;
+    this.children.set(child, agent.id);
+    if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
+    return call;
   }
 
   private updateRun(agent: Subagent, event: Event, update: any): void {
@@ -295,7 +400,8 @@ export class SubagentFold {
         if (file) this.runOutputs.set(file, agent.id);
       } else {
         const reply = runReply(output);
-        if (reply) agent.result = reply;
+        // What acpmux recorded it said is its reply, not what the shell printed of it.
+        if (reply && !this.recorded.has(agent.id)) agent.result = reply;
         this.endRun(agent, status === "failed" ? "failed" : "completed", event.at);
         return;
       }
@@ -335,7 +441,7 @@ export class SubagentFold {
     if (!agent || update?.status !== "completed") return;
     this.outputReads.delete(call);
     const reply = runReply(withoutLineNumbers(outputOf(update)));
-    if (reply && reply !== agent.result) {
+    if (reply && reply !== agent.result && !this.recorded.has(agent.id)) {
       agent.result = reply;
       this.touch(agent);
     }
@@ -645,6 +751,13 @@ function withoutLineNumbers(output: string | undefined): string | undefined {
 }
 
 const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_started", "host_ended"]);
+
+/// A prompt's start as acpmux's `started` record quotes it (masked, its whitespace as it was): what a
+/// call's own prompt is matched by.
+function promptKey(prompt: unknown): string | undefined {
+  const start = typeof prompt === "string" ? prompt.replace(/\s+/g, " ").trim().slice(0, 60) : "";
+  return start || undefined;
+}
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
 const count = (value: unknown) =>
