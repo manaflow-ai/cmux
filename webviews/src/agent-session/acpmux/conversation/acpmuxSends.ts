@@ -30,6 +30,9 @@ export type AcpmuxSend = {
   text?: string;
   /// `--no-wait`: it printed how the daemon took it (`queued`, `steered`) instead of the reply.
   noWait: boolean;
+  /// How many other commands the line runs that do work of their own (`git push && acpmux send …`,
+  /// a redirect that writes a file): the row says "and N more", its command behind Raw.
+  others?: number;
 };
 
 /// A send's state as its row reads it.
@@ -74,7 +77,9 @@ export type ShellCommand = {
 type Pending = Partial<Pick<ShellCommand, "stdin" | "runs">>;
 
 const REDIRECT = /^(?:\d*(?:<<<|<<-|<<|>>|>&|<&|>\||<>|>|<)|&>>|&>)/;
-const META = /[\s;&|()<>]/;
+/// What ends a word: the shell's blanks (a space, a tab, a line break; not U+00A0 or other Unicode
+/// spaces, which a shell keeps in the word) and its operators.
+const META = /[ \t\r\n;&|()<>]/;
 
 /// A command line's simple commands, in order, as a POSIX shell (bash, zsh) splits and quotes them.
 /// Lenient: an unclosed quote or substitution runs to the end of the line.
@@ -440,11 +445,14 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     } else if (SHELLS.has(name)) {
       // `-c` among the options before the first operand (`bash script -c …` runs script).
       let flag = -1;
-      for (let place = 1; place < words.length && words[place]!.text.startsWith("-"); place++)
-        if (/^-[a-z]*c[a-z]*$/.test(words[place]!.text)) {
+      // Only options that still run the script (`-n` only checks it, `-o` takes a value).
+      for (let place = 1; place < words.length && words[place]!.text.startsWith("-"); place++) {
+        if (!/^-[cilex]+$/.test(words[place]!.text)) break;
+        if (words[place]!.text.includes("c")) {
           flag = place;
           break;
         }
+      }
       const script = flag > 0 ? words[flag + 1] : undefined;
       if (script?.literal) send = acpmuxSend(script.text, host, depth + 1);
     } else if (name === "acpmux" || name === "acpmux-debug-cli") {
@@ -460,23 +468,35 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     }
   }
   if (!found) return undefined;
-  // No step writes a file or runs a substitution that does more than read, and every step but the
-  // send only sets up, reports, feeds the send, or filters what it printed.
+  // Every other step that does more than set up, report, feed the send or filter what it printed
+  // is other work, and so is a step that writes a file or runs a substitution that does more than
+  // read: the row counts them ("and 1 more"). A line the shell refuses (an unclosed quote), a send
+  // inside a substitution (a second message), or an `exit` before the send is no send row.
+  let others = found.others ?? 0;
   let pipedFromSend = false;
   for (const [index, command] of commands.entries()) {
     pipedFromSend = index > at && commands[index - 1]!.op === "|" && (index === at + 1 || pipedFromSend);
-    if (command.writes || !(command.runs ?? []).every((script) => onlyReads(script, depth))) return undefined;
-    if (index === at) continue;
+    const runs = command.runs ?? [];
+    if (runs.includes(UNCLOSED)) return undefined;
+    const busy = runs.filter((script) => !onlyReads(script, depth));
+    if (busy.some((script) => /\bacp/.test(script))) return undefined;
     const words = unwrapped(command.words);
     const name = program(words[0]);
-    if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
+    if (name === "exit" && index < at) return undefined;
+    if (command.writes || busy.length) others += 1;
+    else if (index === at) continue;
+    else if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
     // A filter reads the send's output only when nothing else is its stdin (`| tail -1 < log`).
-    if (pipedFromSend && !command.stdin && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!)) continue;
+    else if (pipedFromSend && !command.stdin && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!))
+      continue;
     // `cat <<EOF | acpmux send x -`: cat only hands the send its text.
-    if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
-    return undefined;
+    else if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
+    else others += 1;
   }
-  return found;
+  const send: AcpmuxSend = { ...found };
+  delete send.others;
+  if (others) send.others = others;
+  return send;
 }
 
 /// Whether a filter's words are options it may take, their numbers (`-n 5`), and at most its operands.
