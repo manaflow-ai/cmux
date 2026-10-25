@@ -198,6 +198,15 @@ acpmux ensure NAME -m codex --host HOST
 acpmux wait                                      # covers remote sessions too
 ```
 
+A remote start runs under the peer's rules. `--cwd` must sit inside the peer's
+`webRoots` (a missing folder there is made); with no `--cwd` the session gets a
+scratch folder. `--mode` is refused, and the session starts in the harness's
+asking mode. `--policy approve-all` passes only when the peer serves this machine
+as a peer (`servedAs` in `acpmux --json host ls`); otherwise start it on that
+machine itself, `ssh HOST 'acpmux new … --policy approve-all -d'`, and drive it
+from here as `HOST/NAME`. Every such refusal ends with the command that works
+(`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
+
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
 current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not
 come back on the new build is rolled back). Only do either when the task asks

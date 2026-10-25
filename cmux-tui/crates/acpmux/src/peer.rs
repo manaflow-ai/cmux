@@ -279,6 +279,26 @@ impl Peer {
         Ok((remote.token, peer))
     }
 
+    /// Whether the peer said at its last handshake that it serves this daemon as a peer (it
+    /// took the peer token), not as a remote Web client.
+    pub fn served_as_peer(&self) -> bool {
+        self.served_as.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some("peer")
+    }
+
+    /// The ssh destination that reaches the peer's machine: an `ssh://` peer's own, else the
+    /// host of its `ws://` or `wss://` URL, else its name.
+    pub fn ssh_destination(&self) -> String {
+        if let Ok(t) = ssh_target(&self.url) {
+            return t.destination;
+        }
+        let host = self
+            .url
+            .parse::<tokio_tungstenite::tungstenite::http::Uri>()
+            .ok()
+            .and_then(|u| u.host().map(|h| h.trim_start_matches('[').trim_end_matches(']').to_owned()));
+        host.filter(|h| !h.is_empty()).unwrap_or_else(|| self.name.clone())
+    }
+
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
