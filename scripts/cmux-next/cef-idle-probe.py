@@ -107,10 +107,15 @@ def main():
         time.sleep(3)  # the probes' own rAF and evaluation work ends before the window
         tracer = trace.ChromiumTracer(port, opts.out)
         tracer.start()
+        windows = app.rpc("debug.window_list", timeout=10).get("windows") or []
+        report["window_start"] = [{k: w.get(k) for k in ("kind", "key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]
         before = app.rpc("debug.cef", timeout=10).get("pump") or {}
         t0 = time.monotonic()
         time.sleep(opts.window)
         after = app.rpc("debug.cef", timeout=10).get("pump") or {}
+        windows = app.rpc("debug.window_list", timeout=10).get("windows") or []
+        report["window_end"] = [{k: w.get(k) for k in ("kind", "key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]
+        print("CEF-IDLE-WINDOW " + json.dumps({"start": report["window_start"], "end": report["window_end"]}), flush=True)
         seconds = time.monotonic() - t0
         tracer.stop()
         report["pump_per_s"] = {k: round((after.get(k, 0) - before.get(k, 0)) / seconds, 2)
