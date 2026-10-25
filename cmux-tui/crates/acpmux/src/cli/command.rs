@@ -1011,7 +1011,10 @@ pub struct NewArgs {
     /// A preset from `acpmux preset`: harness plus model, effort, policy, env. `-m` and `-e` still win.
     #[arg(long, short)]
     pub preset: Option<String>,
-    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
+    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path
+    /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
+    /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
+    /// machine as a remote client, are refused with the command that works instead.
     /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
     #[arg(long)]
     pub host: Option<String>,
