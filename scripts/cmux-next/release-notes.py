@@ -209,7 +209,7 @@ def parse_highlight(path, text):
     clip = CLIP.fullmatch(meta.get("clip", ""))
     if clip:
         item["media"] = [{"url": clip["url"], "sha256": clip["sha256"], "kind": "image", "alt": meta["title"]}]
-    elif meta.get("clip"):
+    elif "clip" in meta:
         # Left out, never a failed build: CI's whats-new-clips.py check holds the line to its shape.
         print(f"{path}: 'clip:' is not '{CLIP_PREFIX}ID/NAME.webp | SHA256'; left out", file=sys.stderr)
     return item

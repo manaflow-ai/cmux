@@ -62,7 +62,7 @@ class ClipTests(unittest.TestCase):
         self.assertEqual(self.build(self.base, head)[0]["media"][0]["alt"], "Archive sidebar workspaces")
 
     def test_a_clip_from_anywhere_else_is_left_out_and_the_notes_still_build(self):
-        for line in (f"clip: https://example.com/a.webp | {SHA}", f"clip: {CLIP}", f"clip: {CLIP} | xyz"):
+        for line in (f"clip: https://example.com/a.webp | {SHA}", f"clip: {CLIP}", f"clip: {CLIP} | xyz", "clip:"):
             head = self.commit(line, "sidebar: archive (#1)")
             done = self.build(self.base, head, check=False)
             self.assertEqual(done.returncode, 0, line)

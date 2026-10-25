@@ -301,16 +301,19 @@ def publish(clip_id: str, local: Path, highlights: Path = HIGHLIGHTS) -> str:
     if not highlight.is_file():
         raise ClipError(f"no highlight {clip_id}.md")
     data = local.read_bytes()
-    if not (data[:4] == b"RIFF" and data[8:12] == b"WEBP") or len(data) > MAX_BYTES:
-        raise ClipError(f"{local} is not a WebP of at most {MAX_BYTES} bytes")
+    # The .webp name too: the privacy check reads a file as media (every frame) by its suffix.
+    webp = data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+    if local.suffix.lower() != ".webp" or not webp or len(data) > MAX_BYTES:
+        raise ClipError(f"{local} is not a .webp of at most {MAX_BYTES} bytes")
     digest = hashlib.sha256(data).hexdigest()
     path = f"whats-new/{clip_id}/{digest[:12]}.webp"
     spec = importlib.util.spec_from_file_location("pr_media_tool", ROOT / "scripts/pr-media.py")
     pr_media = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = pr_media
     spec.loader.exec_module(pr_media)
-    # Runs the shared privacy check on every frame before the write (pr_media_privacy.py).
-    pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id}")
+    # The shared privacy check (pr_media_privacy.py) reads every frame first; a refusal uploads nothing.
+    pr_media.check_privacy([(path, local)], REPO)
+    pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id}", checked=True)
     url = URL_PREFIX + f"{clip_id}/{digest[:12]}.webp"
     highlight.write_text(set_clip_line(highlight.read_text(), f"clip: {url} | {digest}"))
     print(url)
@@ -374,6 +377,11 @@ def main(argv: list[str] | None = None) -> int:
             render(a.id, a.capture, out)
         return 0
     except (ClipError, subprocess.CalledProcessError) as error:
+        print(f"whats-new-clips: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:  # pr-media.py's PrivacyError: the message names paths and kinds only
+        if type(error).__name__ != "PrivacyError":
+            raise
         print(f"whats-new-clips: {error}", file=sys.stderr)
         return 1
 
