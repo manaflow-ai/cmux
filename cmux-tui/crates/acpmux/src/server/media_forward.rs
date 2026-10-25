@@ -141,7 +141,8 @@ impl RemoteMedia {
         // is closed on the peer's current one (refused harmlessly if it went with the old one).
         if peer.link_epoch() != epoch {
             release(peer.clone(), session.to_owned(), theirs);
-            return Err(refused("media.closed", "the link to the peer changed; open the file again"));
+            let message = "the link to the peer changed; open the file again";
+            return Err(refused("media.closed", message));
         }
         let mut raw = [0u8; 16];
         getrandom::fill(&mut raw).map_err(|e| RpcError::internal(format!("no handle: {e}")))?;
