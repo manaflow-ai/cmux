@@ -109,6 +109,8 @@ describe("agentRun", () => {
       `f() { codex exec "x"; }`,
       `function g { codex exec "x"; }`,
       `review() (codex exec "x")`,
+      `args=(codex exec "x")`,
+      `f() { printf '}'; codex exec "x"; }`,
     ])
       expect(agentRun(command)).toBeUndefined();
   });
