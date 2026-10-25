@@ -70,6 +70,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     }
     v["pressure"] =
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect();
+    // What the machine health loop found wrong and could not fix
+    // (`machine_health.rs`); none on a machine without the loop.
+    if let Some(problems) = super::machine_health::problems() {
+        v["problems"] = problems;
+    }
     if !origin.web_class() {
         v["host"] = json!(crate::hub::host_label());
     }
