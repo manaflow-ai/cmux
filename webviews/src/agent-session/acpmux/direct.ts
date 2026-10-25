@@ -42,7 +42,7 @@ import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { carryMarks } from "./resendInline";
-import { isInterleaved, normalizePromptContentPart } from "./conversation/promptContent";
+import { hasPromptAttachments, normalizePromptContentPart } from "./conversation/promptContent";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
@@ -647,10 +647,9 @@ function recordedInlineParts(msg: any): PromptContentPart[] | undefined {
     const normalized = normalizePromptContentPart(part);
     return normalized ? [normalized] : [];
   });
-  // Recorded but not interleaved (text alone, or text then its attachments): no ordered parts, and an
-  // empty list, not undefined, so an update replaces the parts a queued prompt had (an edit that
-  // took its image out never shows the old image).
-  return isInterleaved(parts) ? parts : [];
+  // Text alone clears the parts a queued prompt had, so removing its image cannot leave the old
+  // image visible. A trailing attachment still keeps its recorded place after the text.
+  return hasPromptAttachments(parts) ? parts : [];
 }
 
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.

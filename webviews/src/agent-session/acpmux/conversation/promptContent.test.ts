@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { normalizePromptContentPart, promptContentParts } from "./promptContent";
+import { hasPromptAttachments, normalizePromptContentPart, promptContentParts } from "./promptContent";
 
 const row = (inlineParts?: AcpmuxRow["inlineParts"]): Pick<AcpmuxRow, "inlineParts"> => ({ inlineParts });
 
@@ -60,4 +60,12 @@ test("rehydrates text-file and pasted chips with their durable block text", () =
     expect.objectContaining({ kind: "file", name: "notes.txt", text: "notes.txt\n```\nbody\n```" }),
     expect.objectContaining({ kind: "pasted", name: "Pasted text", text: "a large paste" }),
   ]);
+});
+
+
+test("a trailing attachment uses the ordered layout, while text alone keeps its plain bubble", () => {
+  expect(hasPromptAttachments([{ kind: "text", text: "Look at this" }, { kind: "image" }])).toBe(true);
+  expect(hasPromptAttachments([{ kind: "file" }])).toBe(true);
+  expect(hasPromptAttachments([{ kind: "text", text: "Long text" }])).toBe(false);
+  expect(hasPromptAttachments(undefined)).toBe(false);
 });

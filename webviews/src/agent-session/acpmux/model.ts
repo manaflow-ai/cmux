@@ -1,5 +1,5 @@
 import type { ChatUnavailable } from "./chatUnavailable";
-import { isInterleaved } from "./conversation/promptContent";
+import { hasPromptAttachments } from "./conversation/promptContent";
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
@@ -1243,7 +1243,7 @@ function measuredRowHeight(
   // Summing attachment slots is intentionally conservative when text and a file share a line;
   // underestimating would make virtual scrolling jump as thumbnails decode.
   const inline = row.inlineParts;
-  if (row.kind === "user" && isInterleaved(inline)) {
+  if (row.kind === "user" && hasPromptAttachments(inline)) {
     let inlineHeight = 0;
     const { lineHeight } = metrics();
     const inlineWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);

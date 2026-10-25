@@ -194,6 +194,7 @@ test("taking back an inline steer restores its ordered draft before its row is w
   };
   const row = {
     id: "user-inline",
+    at: 0,
     version: 1,
     kind: "user",
     text: "beforeafter",

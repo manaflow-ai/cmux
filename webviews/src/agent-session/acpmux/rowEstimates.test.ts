@@ -52,13 +52,12 @@ test("a prompt of text alone estimates as plain text even with ordered parts", (
   expect(heightsOf([ordered])).toEqual(heightsOf([plain]));
 });
 
-// Review (Codex): a prompt the strip sent (its text, then its images) keeps the plain bubble's estimate
-// even when the daemon records its ordered parts; only text after an attachment makes it ordered.
-test("text then its attachments estimates as the plain bubble", () => {
+// A trailing attachment still occupies its ordered slot after the text in the default Inline view.
+test("text then its attachments reserves an ordered media slot", () => {
   const image = { kind: "image", id: "a", mimeType: "image/png" };
   const plain = { ...prompt("strip"), text: "Look at this" };
   const recorded = { ...plain, id: "recorded", inlineParts: [{ kind: "text", text: "Look at this" }, image] };
-  expect(heightsOf([recorded])).toEqual(heightsOf([plain]));
+  expect(heightsOf([recorded])[0]).toBeGreaterThan(heightsOf([plain])[0]!);
 });
 
 test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {

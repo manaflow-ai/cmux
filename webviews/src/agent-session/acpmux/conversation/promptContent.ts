@@ -85,6 +85,12 @@ export function isInterleaved<T extends { kind: string }>(parts: readonly T[] | 
   return media >= 0 && parts.slice(media + 1).some((part) => part.kind === "text");
 }
 
+/** Any recorded attachment needs ordered rendering, including one after the final text run.
+ * Text-only prompts keep the existing collapsed plain-text bubble. */
+export function hasPromptAttachments<T extends { kind: string }>(parts: readonly T[] | undefined): parts is readonly T[] {
+  return parts?.some((part) => part.kind !== "text") ?? false;
+}
+
 export function promptContentParts(row: Pick<AcpmuxRow, "inlineParts">): PromptContentPart[] {
   if (!row.inlineParts?.length) return [];
   return row.inlineParts.flatMap((part) => {
