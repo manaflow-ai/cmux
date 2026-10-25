@@ -54,6 +54,8 @@ export type Recording =
       warned: number;
       /** Return came while the released keys' save was on the way: that save closes the recorder. */
       closing?: boolean;
+      /** This recording, among the page's recordings: an answer for an older one changes nothing. */
+      session: number;
     };
 
 /** New keys that take other actions' keys, waiting for Overwrite, Ignore or Cancel. */
@@ -301,8 +303,12 @@ export class KeybindingsStore {
       held: "",
       confirmed: 0,
       warned: 0,
+      session: ++this.sessions,
     });
   }
+
+  /** Counts the row recordings started (`session`). */
+  private sessions = 0;
 
   stopRecording(): void {
     if (this.snapshot.recording) this.endRecording();
@@ -316,6 +322,11 @@ export class KeybindingsStore {
     // Keys taken or refused were never saved: Close keeps the row's keys.
     if (recording.prompt || recording.refusal) {
       this.endRecording();
+      return;
+    }
+    // The released keys' save is still on the way: that save closes the recorder.
+    if (recording.key && this.committing === recording.key) {
+      this.set({ recording: { ...recording, closing: true } });
       return;
     }
     if (recording.key) void this.commit(recording, "close");
@@ -348,7 +359,7 @@ export class KeybindingsStore {
     let saved = await this.save(asked, { conflictFirst: true });
     if (saved === "failed") {
       const current = this.snapshot.recording;
-      if (current?.target === "row" && current.binding.command === recording.binding.command && current.refusal)
+      if (current?.target === "row" && current.session === recording.session && current.refusal)
         await this.recapture(current);
       return;
     }
@@ -378,7 +389,7 @@ export class KeybindingsStore {
     else await this.reload();
     const current = this.snapshot.recording;
     // Another row's recorder took over while the writes ran: it stays as it is.
-    if (current?.target !== "row" || current.binding.command !== recording.binding.command) return;
+    if (current?.target !== "row" || current.session !== recording.session) return;
     if (prompt.after === "close" && !current.refusal) this.endRecording();
     else await this.recapture(current);
   }
@@ -393,10 +404,9 @@ export class KeybindingsStore {
   /** The recorder stays open with `recording`; only the app's capture starts over. */
   private async recapture(recording: Extract<Recording, { target: "row" }>): Promise<void> {
     if (!this.client) return;
+    // `record.start` starts the app's capture over in place: no gap in which a key runs an action.
     this.set({ recording });
-    await this.client.call(KeybindingOps.recordStop, {}).catch(() => undefined);
-    const current = this.snapshot.recording;
-    if (current?.target === "row" && current.row === recording.row) await this.beginRecording(current);
+    await this.beginRecording(recording);
   }
 
   private async beginRecording(recording: Recording): Promise<void> {
@@ -448,6 +458,12 @@ export class KeybindingsStore {
     }
     const finished = event.done || event.cancelled;
     if (recording.target === "search") {
+      // A bare Return as a shortcut's first key stops the search, as Escape does.
+      const only = strokes(event.key);
+      if (!event.cancelled && only.length === 1 && (only[0] === "return" || only[0] === "enter")) {
+        this.endRecording();
+        return;
+      }
       if (!event.cancelled && event.key && event.key !== this.snapshot.keyFilter?.key) {
         this.refilter({ text: event.key, keyFilter: { key: event.key, exact: false } });
       }
@@ -549,7 +565,7 @@ export class KeybindingsStore {
     }
     const saved = await this.save({ ...current, key, display });
     const now = this.snapshot.recording;
-    if (now?.target !== "row" || now.binding.command !== binding.command) return;
+    if (now?.target !== "row" || now.session !== recording.session) return;
     // A refused save keeps the recorder open on why, recording the next shortcut.
     if (saved !== "saved" && now.refusal) await this.recapture({ ...now, closing: undefined });
     else if (after === "close" || now.closing) this.endRecording();

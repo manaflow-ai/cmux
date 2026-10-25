@@ -106,10 +106,11 @@ enum KeybindingReports {
     /// `when` is the condition the write would carry (`KeybindingPageWrites.savedWhen`).
     /// Each row's `takesAll`: the new keys' `when` holds wherever that entry runs
     /// (`WhenClause.implies`), so Overwrite removes its keys; else the entry keeps them outside
-    /// the new keys' context. `asDefault`: the keys are the action's shipped default again
+    /// the new keys' context; `sameScope` (`KeybindingPageWrites.sameScopeOwners`) always loses
+    /// them. `asDefault`: the keys are the action's shipped default again
     /// (`KeybindingPageWrites.restoresDefault`); as in ``list``, two shipped defaults never conflict.
     static func conflicts(_ params: [String: JSONValue], when: WhenClause?, asDefault: Bool = false,
-                          registry: ActionRegistry) -> JSONValue {
+                          sameScope: Set<ActionID> = [], registry: ActionRegistry) -> JSONValue {
         let command = registry.canonicalID(for: ActionID(rawValue: params["command"]?.stringValue ?? ""))
         guard let keys = keys(from: params["key"]?.stringValue ?? "") else { return ["bindings": []] }
         let entries = RegistryKeyBindings(registry).table.entries
@@ -128,7 +129,8 @@ enum KeybindingReports {
             object["conflicts"] = []
             // The new keys hold wherever this entry runs: Overwrite takes them from it. Else they
             // only win where their own `when` holds, and the entry keeps them everywhere else.
-            object["takesAll"] = .bool(WhenClause.implies(entries[index].when, when))
+            // An action the write refuses to share the keys with (`sameScope`) always loses them.
+            object["takesAll"] = .bool(sameScope.contains(entries[index].command) || WhenClause.implies(entries[index].when, when))
             return .object(object)
         }
         return ["bindings": .array(rows)]

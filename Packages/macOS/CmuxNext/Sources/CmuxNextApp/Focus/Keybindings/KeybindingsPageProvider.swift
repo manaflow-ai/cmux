@@ -46,8 +46,9 @@ final class KeybindingsPageProvider: PageProvider {
             let when = writes.map { $0.savedWhen(fields) }
                 ?? fields["when"]?.stringValue.flatMap { try? WhenClause.parse($0) }
             let asDefault = writes?.restoresDefault(fields) ?? false
+            let sameScope = writes?.sameScopeOwners(fields) ?? []
             guard case .object(var reply) = KeybindingReports.conflicts(fields, when: when, asDefault: asDefault,
-                                                                        registry: services.registry)
+                                                                        sameScope: sameScope, registry: services.registry)
             else { return [:] }
             if let refusal = writes?.refusal(fields) {
                 reply["refusal"] = .string(refusal.message)
@@ -148,9 +149,14 @@ final class KeybindingsPageProvider: PageProvider {
     }
 
     private func startRecording() {
+        // One slot for every window's page: another page recording loses it, and says so.
+        if let holder = services.keyRouter.keyRecorderOwner as? KeybindingsPageProvider, holder !== self {
+            holder.loseCapture()
+        }
         recorder = KeyRecorder()
         awaitingRelease = false
         sentHeld = ""
+        services.keyRouter.keyRecorderOwner = self
         services.keyRouter.keyRecorder = { [weak self] event, window in
             guard let self, let page = self.pageWindow(), window === page || window?.parent === page else { return false }
             self.record(event)
@@ -164,15 +170,25 @@ final class KeybindingsPageProvider: PageProvider {
         }
     }
 
-    /// Ends this provider's capture. The key router's slot is one for every window's page: a
-    /// provider that is not recording leaves another page's capture alone.
+    /// Ends this provider's capture. The key router's slot is one for every window's page: only
+    /// the provider that holds it clears it, and one that is not recording does nothing.
     private func stopRecording() {
         guard recorder != nil else { return }
         recorder = nil
         awaitingRelease = false
-        services.keyRouter.keyRecorder = nil
+        if services.keyRouter.keyRecorderOwner === self {
+            services.keyRouter.keyRecorder = nil
+            services.keyRouter.keyRecorderOwner = nil
+        }
         if let flagsMonitor { NSEvent.removeMonitor(flagsMonitor) }
         flagsMonitor = nil
+    }
+
+    /// Another window's page took the capture slot: this page's recording ends as cancelled.
+    private func loseCapture() {
+        guard recorder != nil else { return }
+        stopRecording()
+        send([], done: false, cancelled: true, held: "")
     }
 
     private func record(_ event: NSEvent) {
