@@ -292,6 +292,9 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("react-apps-head-results-shard${{ matrix.shard }}-attempt", text)
         self.assertIn("overwrite: true", text)
         self.assertIn("react-apps-base-check:", text)
+        base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+        # The base builds with its own declared bun, before it installs anything.
+        self.assertLess(base.index("run: scripts/cmux-next/private-bun.sh"), base.index("bun install --frozen-lockfile"))
         self.assertIn("actions/download-artifact@", text)
         self.assertIn("guards_new_reds.py --label \"Webview test\"", text)
         self.assertIn("printf '{}\\n' > \"$BASE_RESULTS\"", text)
