@@ -74,7 +74,7 @@ public final class RemoteMachinesSidebar {
         public var open: (_ lane: AgentActivityLane) -> Void
 
         public init(peers: @escaping @Sendable () async -> [AcpmuxPeerList.Peer]?,
-                    older: @escaping @Sendable (String, String?) async -> AcpmuxSessionPage.Page? = { _, _ in nil },
+                    older: @escaping @Sendable (String, String?) async -> AcpmuxSessionPage.Page?,
                     displayName: @escaping (String) -> String?, open: @escaping (AgentActivityLane) -> Void) {
             self.peers = peers
             self.older = older
