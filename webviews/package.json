@@ -112,7 +112,7 @@
   "devEngines": {
     "packageManager": {
       "name": "bun",
-      "version": "1.4.4",
+      "version": "1.4.2",
       "onFail": "error"
     }
   }
