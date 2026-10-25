@@ -78,6 +78,8 @@ extension SidebarListViewComponents {
         // opens while a drag runs: its limit counts rows, so the drag's base rows (without the dragged ones) and the
         // drop's result would show different rows.
         if shownDrag != nil || external != nil { o.rowLimit = 0 }
+        // External tab drops still use the older reducer: keep its unfolded group-exit geometry and visible tab slots.
+        if external != nil { o.foldsDone = false }
         if includeGap, case let .newWorkspace(section, group, index)? = external?.proposal {
             o.gap = DropPosition(section: section, group: group, index: index)
             o.gapHeight = metrics.rowHeight

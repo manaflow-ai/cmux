@@ -112,7 +112,7 @@ nonisolated struct RustRow: Codable {
     /// A drag keeps the "Done (N)" rows folded, so a group can end in such a row, or, with the fold open, in a Done
     /// workspace drawn below it with its tab rows: the resolver then reads the group as it would with no fold
     /// (`endingGroup`), and a drop below it can still leave the group.
-    static func resolvable(_ rows: [SidebarRow]) -> [RustRow] {
+    static func resolvable(_ rows: [SidebarRow], preservesTabRows: Bool = false) -> [RustRow] {
         var resolvable: [RustRow] = []
         var folded: [String] = []
         for row in rows {
@@ -131,7 +131,7 @@ nonisolated struct RustRow: Codable {
                 resolvable.append(RustRow(row))
             }
         }
-        for group in folded { endingGroup(group, in: &resolvable) }
+        if !preservesTabRows { for group in folded { endingGroup(group, in: &resolvable) } }
         return resolvable
     }
 
