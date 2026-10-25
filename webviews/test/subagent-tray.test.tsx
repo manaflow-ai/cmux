@@ -897,13 +897,28 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     }
   });
 
-  test("one of two running ending keeps the header and its collapse while ended lines show", async () => {
-    const { items, finished } = panel(1, 3);
-    const { root, done } = await render(
-      createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
-    );
+  test("one of two running ending keeps the same header node, its collapse and its focus", async () => {
+    const now = Date.now();
+    const runs = [agent("Run 0", { startedAt: now - 9000 }), agent("Run 1", { startedAt: now - 8000 })];
+    const tray = (agents: Subagent[]) =>
+      createElement(SubagentTray, {
+        items: trayItems(agents, [], NONE, true),
+        finished: finishedTrayItems(agents, NONE),
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      });
+    const { root, show, done } = await render(tray(runs));
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running");
+      head.focus();
+      // Run 1 ends: one runs, one ended. The header stays, the same node, focused and open.
+      await show(tray([runs[0]!, { ...runs[1]!, state: "completed", endedAt: now }]));
+      expect(root.querySelector(".acpmux-running-tray__head")).toBe(head);
+      expect(dom.window.document.activeElement).toBe(head);
+      expect(head.getAttribute("aria-expanded")).toBe("true");
+      expect(head.getAttribute("aria-controls")).toBe(root.querySelector(".acpmux-running-tray__list")!.id);
       expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("1 subagent running");
       await act(async () => head.click());
       expect(root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
@@ -929,24 +944,27 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     }
   });
 
-  test("words stay words: prose that starts like a program, a quoted separator, an ended agent", async () => {
-    const { trayDetail, isShellLine } = await import("../src/agent-session/acpmux/subagents/trayDetail");
+  test("only a tool call's title becomes a command; plan prose stays as written", async () => {
+    const { toolDetail, doingDetail, isCommandTitle } =
+      await import("../src/agent-session/acpmux/subagents/trayDetail");
     const t = (key: string, values?: Record<string, unknown>) =>
       key === "tools.runningCommand" ? `Running ${String(values?.command)}` : key;
-    for (const prose of [
-      "Find the bug in the fold",
-      "Make a plan",
-      "Open the file",
-      "go ahead",
-      "Check the card's line",
-    ])
-      expect(isShellLine(prose)).toBe(false);
-    for (const command of ["find . -name '*.ts'", "cd repo && terraform plan", "ls -la", "FOO=1 make test"])
-      expect(isShellLine(command)).toBe(true);
-    expect(trayDetail(t as never, "Check the card's line · Read AgentCard.tsx")).toBe(
-      "Check the card's line · Read AgentCard.tsx",
+    // ACP titles other calls in capitalized words; a shell call's title is the command as typed.
+    for (const title of ["Read AgentCard.tsx", "Run cargo test -p acpmux", "Edit 2 files", "Grep retries"])
+      expect(isCommandTitle(title)).toBe(false);
+    for (const command of ["git status", "ls", "cat README.md", "make test", "./x.sh", "FOO=1 bun test", "~/bin/x"])
+      expect(isCommandTitle(command)).toBe(true);
+    expect(toolDetail(t as never, "cd repo && terraform plan")).toBe("Running terraform plan");
+    expect(toolDetail(t as never, "Read AgentCard.tsx")).toBe("Read AgentCard.tsx");
+    // A plan step is prose, whatever it starts with, and is never split: only the tool part changes.
+    const step = 'find the bug in `SubagentTray.tsx` · make sure --help says "a · b"';
+    expect(doingDetail(t as never, step, undefined)).toBe(step);
+    expect(doingDetail(t as never, `${step} · git status`, "git status")).toBe(`${step} · Running git status`);
+    const quoted = 'echo "a \\" · git status"';
+    expect(doingDetail(t as never, quoted, quoted)).toBe(`Running ${quoted}`);
+    expect(doingDetail(t as never, "Check the card · Read AgentCard.tsx", "Read AgentCard.tsx")).toBe(
+      "Check the card · Read AgentCard.tsx",
     );
-    expect(trayDetail(t as never, 'echo "a · b"')).toBe('Running echo "a · b"');
     // An ended agent keeps its kind, never a "Running …" of its last call.
     const now = Date.now();
     const ended = agent("Linter", {
@@ -1002,8 +1020,15 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
         title: "fanout-infra",
         state: "running",
         doing: "cd /Users/you/Projects/checkouts/ws/broker && sed -i '' 's/a/b/' broker.ts",
+        doingTool: "cd /Users/you/Projects/checkouts/ws/broker && sed -i '' 's/a/b/' broker.ts",
       },
-      { sessionId: "c2", title: "card", state: "running", doing: "Check the card · Read AgentCard.tsx" },
+      {
+        sessionId: "c2",
+        title: "card",
+        state: "running",
+        doing: "Check the card · Read AgentCard.tsx",
+        doingTool: "Read AgentCard.tsx",
+      },
     ];
     const items = trayItems(
       [agent("Reviewer", { startedAt: Date.now(), action: "FOO=1 bun test test/subagent-tray.test.tsx" })],

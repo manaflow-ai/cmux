@@ -51,7 +51,7 @@ import { AgentLine } from "./AgentLine";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";
 import { itemStart, type TrayItem } from "./runningTray";
-import { trayDetail } from "./trayDetail";
+import { doingDetail, toolDetail } from "./trayDetail";
 import { trayPanelLook } from "./trayPanel.experiment";
 import type { StartedSession } from "../started/startedSessions";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -194,7 +194,7 @@ export const SubagentTray = memo(function SubagentTray({
       return (
         <AgentLine
           name={item.agent.name}
-          detail={(item.agent.state === "running" ? trayDetail(t, item.agent.action) : undefined) ?? item.agent.kind}
+          detail={(item.agent.state === "running" ? toolDetail(t, item.agent.action) : undefined) ?? item.agent.kind}
           mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
           state={t(subagentStatusLabel(item.agent, waiting))}
@@ -271,7 +271,7 @@ export const SubagentTray = memo(function SubagentTray({
     return (
       <AgentLine
         name={item.session.title}
-        detail={liveSession(item.session) ? trayDetail(t, item.session.doing) : undefined}
+        detail={liveSession(item.session) ? doingDetail(t, item.session.doing, item.session.doingTool) : undefined}
         title={item.session.doing}
         kind={t("tray.kind.subagent")}
         chevron

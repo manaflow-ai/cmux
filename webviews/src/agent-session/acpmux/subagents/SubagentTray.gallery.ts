@@ -100,7 +100,7 @@ const described = activity(
 );
 
 /** A chat this chat's agent started (`acpmux new`), its turn running or ended. */
-const child = (id: string, title: string, minutes: number, running: boolean, doing?: string) =>
+const child = (id: string, title: string, minutes: number, running: boolean, doing?: string, doingTool?: string) =>
   session({
     sessionId: id,
     title,
@@ -110,6 +110,7 @@ const child = (id: string, title: string, minutes: number, running: boolean, doi
     createdAt: minutesAgo(minutes),
     ...(running && { lane: "working" as const }),
     ...(doing && { doing }),
+    ...(doingTool && { doingTool }),
   });
 
 /** The subagents a Codex chat's records fold into, as acpmux wrote them for Leo's chat (2026-10-22):
@@ -162,6 +163,8 @@ function codexLineage(): Subagent[] {
 /** Leo's panel (2026-10-25, synthetic names): two chats running whose doing lines are raw shell
  *  lines, and `done` subagents that ended, one a minute apart; `done` 3 makes the two-agent panel,
  *  116 the 118-agent one ("View all 116"). */
+const INFRA_DOING = "cd /Users/you/Projects/checkouts/workspace/broker-host-gh && sed -i '' 's/old/new/' broker.ts";
+
 function panel(done: number, running = 2) {
   const ended = Array.from({ length: done }, (_, index) =>
     agent(`Lane ${String(index + 1).padStart(3, "0")}`, 130 - index, "completed", {
@@ -187,7 +190,8 @@ function panel(done: number, running = 2) {
         "claude-sr2/fanout-infra",
         6,
         true,
-        "cd /Users/you/Projects/checkouts/workspace/broker-host-gh && sed -i '' 's/old/new/' broker.ts",
+        INFRA_DOING,
+        INFRA_DOING,
       ),
       child(
         "child-card",
@@ -195,6 +199,7 @@ function panel(done: number, running = 2) {
         5,
         running > 1,
         "Check the card's doing line · Read AgentCard.tsx",
+        "Read AgentCard.tsx",
       ),
     ],
   };
@@ -213,17 +218,22 @@ function headInView(ctx: PlayContext): void {
   if (!hit || !head.contains(hit)) throw new Error("the header must be the thing drawn at its place");
 }
 
-/** Opens every ended line, scrolls the list to its end, then checks the head and View all stay. */
+/** Opens every ended line (once; a play that already opened them leaves them open), scrolls the
+ *  list to its end, then checks the head and View all stay. A panel without View all only scrolls. */
 const scrollPanel = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__finished"));
-  await ctx.click({ selector: ".acpmux-running-tray__finished" });
-  await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
+  const more = () => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished");
+  if (more() && more()!.getAttribute("aria-expanded") !== "true") {
+    await ctx.click({ selector: ".acpmux-running-tray__finished" });
+    await ctx.waitFor(() => more()?.getAttribute("aria-expanded") === "true");
+  }
   await ctx.scroll({ selector: ".acpmux-running-tray__list" }, "bottom");
   headInView(ctx);
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
   if (tray.scrollTop !== 0) throw new Error("the tray never scrolls as a whole; only its list does");
-  const more = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__finished")!.getBoundingClientRect();
-  if (more.bottom > tray.getBoundingClientRect().bottom + 0.5) throw new Error("View all stays at the tray's foot");
+  const foot = more()?.getBoundingClientRect();
+  if (foot && foot.bottom > tray.getBoundingClientRect().bottom + 0.5)
+    throw new Error("View all stays at the tray's foot");
 };
 
 const panelScript = [
