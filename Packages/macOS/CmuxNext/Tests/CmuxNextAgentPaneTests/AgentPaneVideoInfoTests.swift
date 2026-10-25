@@ -140,7 +140,7 @@ struct AgentPaneVideoInfoTests {
         let original = AVURLAsset(url: source)
         let duration = try await original.load(.duration)
         let movie = AVMutableMovie()
-        try await movie.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: original, at: .zero, copySampleData: false)
+        try movie.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: original, at: .zero, copySampleData: false)
         try movie.writeHeader(to: url, fileType: .mov, options: .truncateDestinationToMovieHeaderOnly)
     }
 
@@ -154,11 +154,15 @@ struct AgentPaneVideoInfoTests {
         #expect(await AgentPaneVideoInfo.read(secret) != nil)
         let pointer = folder.appendingPathComponent("pointer.mov")
         try await Self.referenceMovie(at: pointer, to: secret)
-        // The pointer is a real movie of the same length that only references the secret's samples.
-        #expect(try await AVURLAsset(url: pointer).load(.duration).seconds > 0)
-        let size = { (url: URL) in (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0 }
-        #expect(size(pointer) > 0 && size(pointer) < size(secret) / 4)
+        // The pointer is a real movie: opened the default way, its frames decode, from the secret's samples.
+        let open = AVAssetImageGenerator(asset: AVURLAsset(url: pointer))
+        #expect((try? await open.image(at: CMTime(seconds: 0.5, preferredTimescale: 600))) != nil)
+        // The host reads the pointer's own file only: no frame of the secret's comes back.
         #expect(await AgentPaneVideoInfo.read(pointer) == nil)
+        // Without the secret the pointer shows nothing even opened the default way: its media was the secret's.
+        try FileManager.default.removeItem(at: secret)
+        let gone = AVAssetImageGenerator(asset: AVURLAsset(url: pointer))
+        #expect((try? await gone.image(at: CMTime(seconds: 0.5, preferredTimescale: 600))) == nil)
     }
 
     @Test func aFileThatIsNotAVideoGivesNothing() async throws {
