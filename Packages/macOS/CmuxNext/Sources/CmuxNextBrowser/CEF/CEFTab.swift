@@ -433,6 +433,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// focus: only a browser's creation used to replay the ask.
     func grantPendingFocusIfShown() {
         guard pendingFocus, host.visibleTab === self, !isOccluded, !awaitsWindowMove, let browserID else { return }
+        // Not while the person types in another window (Cmd-N, then Cmd-` before the page painted):
+        // the ask waits until this page's window has the keys again.
+        if let key = NSApp.keyWindow, let owner = container.window, key !== owner, key.parent !== owner { return }
         pendingFocus = false
         host.lifecycleTrace.record(id, "focus(pending) granted")
         grantFocus(browserID)

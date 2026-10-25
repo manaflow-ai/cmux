@@ -188,7 +188,7 @@ final class FocusEffectApplier: FocusEffectApplying {
                 // Another Chromium page window took the keys without a click (the New Tab spare
                 // made right after Cmd-N): the page asks again, or typing goes to that window.
                 // Its own window being key keeps the sticky rule, so the ask runs once.
-                if Self.anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
+                if anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
                 return
             }
             blurChildWindowPage()
@@ -197,9 +197,12 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
     }
 
-    /// Whether the key window is a Chromium page window of `window` other than `page`'s own.
-    private static func anotherPageWindowIsKey(than page: any BrowserTab, in window: NSWindow) -> Bool {
-        guard let key = NSApp.keyWindow, key !== window, isChromiumPageWindow(key) else { return false }
+    /// Whether the key window is one of this window's Chromium page windows (the key rule's own,
+    /// never another cmux window's page or a popup's) other than `page`'s own.
+    private func anotherPageWindowIsKey(than page: any BrowserTab, in window: NSWindow) -> Bool {
+        guard let key = NSApp.keyWindow, key !== window, Self.isChromiumPageWindow(key),
+              paneShowingDevTools(window: key) == nil,
+              ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return false }
         return (page as? CEFTab)?.isPageWindow(key) != true
     }
 
