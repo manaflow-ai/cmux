@@ -85,6 +85,10 @@ public final class SidebarDocStore {
     @ObservationIgnored private var failedLoads = 0
     /// Refs already sent to `sidebar.adopt` this session.
     @ObservationIgnored private var adopting: Set<SidebarDocWorkspaceRef> = []
+    /// Cloud machine sections currently being migrated to host groups. This is
+    /// shared by every window through the one document store, so an optimistic
+    /// update cannot be resent on each `show` before its echo arrives.
+    @ObservationIgnored var pendingHostGroupMarks: Set<String> = []
     /// What to run when a fold (`setGroupCollapsed`) is refused, by its key.
     @ObservationIgnored private var foldRefusals: [String: @MainActor () -> Void] = [:]
 
@@ -136,6 +140,9 @@ public final class SidebarDocStore {
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
+            // The load is authoritative: an unanswered migration either made
+            // it into this document or can be retried on the next show.
+            self.pendingHostGroupMarks.removeAll()
             self.isActive = true
             self.bump()
             let early = self.earlyBatches
@@ -158,6 +165,10 @@ public final class SidebarDocStore {
         case .applied(let revision):
             let folds = records.apply(batch: data)
             if let revision { records.revision = revision }
+            pendingHostGroupMarks = pendingHostGroupMarks.filter { session in
+                guard let section = records.sections["\(Self.machineSectionPrefix)\(session)"] else { return true }
+                return !section.hostGroup && !section.hostGroupOptOut
+            }
             guard let folds else {
                 groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
                 return bump()
@@ -300,7 +311,8 @@ public final class SidebarDocStore {
 
     /// Applies `intent` to the mirror and sends it; throws (after telling every list) when it is refused at once.
     /// `redraws` false (a fold): the rows the mirror orders do not change, so no rebuild follows the intent.
-    private func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool, redraws: Bool = true,
+    func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool, redraws: Bool = true,
+                        outcome: (@MainActor (Bool) -> Void)? = nil,
                         _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) throws(SidebarDocSendRefusal) {
         lastIntentKey = intent.idempotencyKey
         func refused(_ message: String) -> SidebarDocSendRefusal {
@@ -334,6 +346,7 @@ public final class SidebarDocStore {
                     self.foldRefusals[key] = nil
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
+                        outcome?(true)
                         self.drop(key, redraws: redraws)
                         NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
                     }
@@ -364,6 +377,7 @@ public final class SidebarDocStore {
                     // The daemon refused it: no batch will echo the key. The rows spring back once.
                     self.foldRefusals.removeValue(forKey: key)?()
                     self.drop(key)
+                    outcome?(false)
                     self.refuse(SidebarDocStrings.describe(error), key: key)
                     return
                 }

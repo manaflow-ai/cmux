@@ -45,7 +45,7 @@ import Testing
 }
 
 /// The plan that marks or unmarks a host's section (remote-groups-DESIGN.md slices 4 and 5).
-struct SidebarDocHostGroupPlanTests {
+@MainActor struct SidebarDocHostGroupPlanTests {
     private func records(hostGroup: Bool?) -> SidebarDocRecords {
         guard let hostGroup else { return SidebarDocRecords() }
         var section = SidebarDocSection(id: "sec_m_mini", kind: .machine(session: "mini"))
@@ -83,5 +83,55 @@ struct SidebarDocHostGroupPlanTests {
         let legacy = SidebarDocSection(id: "sec_m_mini", kind: .machine(session: "mini"))
         let legacyRecords = SidebarDocRecords(revision: 1, sections: [legacy.id: legacy])
         #expect(SidebarBridge.cloudSessionsWithLegacySections(["mini"], records: legacyRecords) == ["mini"])
+    }
+
+    @Test func aPendingMigrationIsSentOnceThenRetriesAfterRefusal() async throws {
+        let remote = HostGroupRefusingRemote()
+        let store = SidebarDocStore(remote: remote)
+        let previous = SidebarDocStore.current
+        SidebarDocStore.current = store
+        defer { SidebarDocStore.current = previous }
+        store.refresh()
+        for _ in 0..<100 where !store.isActive { await Task.yield() }
+        try #require(store.isActive, "the host-group test document did not load")
+
+        store.markHostGroup(session: "mini", title: "Cloud machine")
+        store.markHostGroup(session: "mini", title: "Cloud machine")
+        for _ in 0..<100 where remote.applyCount == 0 { await Task.yield() }
+        #expect(remote.applyCount == 1)
+        for _ in 0..<100 where !store.pendingHostGroupMarks.isEmpty { await Task.yield() }
+        #expect(store.pendingHostGroupMarks.isEmpty)
+
+        store.markHostGroup(session: "mini", title: "Cloud machine")
+        for _ in 0..<100 where remote.applyCount < 2 { await Task.yield() }
+        #expect(remote.applyCount == 2)
+    }
+}
+
+@MainActor private final class HostGroupRefusingRemote: SidebarDocRemote {
+    private struct Refused: Error {}
+    var applyCount = 0
+    var isAvailable: Bool { true }
+
+    func get() async throws -> Data {
+        Data(#"{"revision":"1","sections":[{"id":"sec_m_mini","kind":{"type":"machine","session_id":"mini"}}],"items":[]}"#.utf8)
+    }
+
+    func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply { try await refused() }
+    func pin(_ items: [String], key: String) async throws -> SidebarDocReply { try await refused() }
+    func unpin(_ items: [String], key: String) async throws -> SidebarDocReply { try await refused() }
+    func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply { try await refused() }
+
+    func apply(ops: Data, key: String) async throws -> SidebarDocReply {
+        applyCount += 1
+        if applyCount == 1 {
+            try await Task.sleep(for: .milliseconds(20))
+            throw Refused()
+        }
+        return SidebarDocReply(revision: nil, inverse: Data("[]".utf8))
+    }
+
+    private func refused() async throws -> SidebarDocReply {
+        throw Refused()
     }
 }
