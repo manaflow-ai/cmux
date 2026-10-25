@@ -1007,7 +1007,193 @@ class ShardsAndStatusJobs(unittest.TestCase):
         self.assertNotIn("run 20", str(caught.exception))
 
 
+class SkippedRunsOnABaseCommit(unittest.TestCase):
+    """2026-10-24: base commit e8697614 ran the checks job twice: push run 40146316318 failed it and
+    a later workflow_dispatch DEV run skipped it. The newer, skipped check hid the red."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.jobs = {1: lint_job(1, 10, HEAD)}
+        self.gh.logs = {1: lint_log()}
+        self.gh.base_runs = []
+        self.gh.history = {"feat-cmux-next": [TIP, TIP_1]}
+
+    def test_a_newer_skipped_run_of_the_job_does_not_hide_the_red(self):
+        red = lint_job(2, 40, TIP)
+        skipped = dict(lint_job(3, 41, TIP), conclusion="skipped")
+        self.gh.jobs.update({2: red, 3: skipped})
+        self.gh.logs[2] = lint_log()
+        self.gh.commit_checks[TIP] = [check_run(red), check_run(skipped)]
+        text = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh))
+        self.assertIn(f"base tip {TIP[:10]}", text)
+        self.assertIn("/job/2", text)
+
+    def test_the_newest_verdict_still_wins_over_an_older_one(self):
+        red = lint_job(2, 40, TIP)
+        green = dict(lint_job(3, 41, TIP), conclusion="success")
+        green["steps"] = [dict(step, conclusion="success") for step in green["steps"]]
+        self.gh.jobs.update({2: red, 3: green})
+        self.gh.logs.update({2: lint_log(), 3: ""})
+        self.gh.commit_checks[TIP] = [check_run(red), check_run(green)]
+        with self.assertRaisesRegex(excuse.Refused, f"green on base tip {TIP[:10]}"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
+
+
+class AssertionNoise(unittest.TestCase):
+    """2026-10-24: the checks job's script tests print a mkdtemp folder and a Python set of every
+    package folder; both differ run to run, and refused #24997 for a red the base had."""
+
+    def test_a_temporary_folder_name_and_a_string_set_are_masked(self):
+        job = failed_job(1, 10, HEAD, name=CHECKS, step=L10N)
+        head = excuse.printed(job, l10n_log(1, "grep: /tmp/cmux-prepush-foe40iki/head/x: No such file",
+                                            "AssertionError: 'Tests/A' not found in {'Sources/B', 'Sources/C'}"))
+        base = excuse.printed(job, l10n_log(1, "grep: /tmp/cmux-prepush-1awnk_q2/head/x: No such file",
+                                            "AssertionError: 'Tests/A' not found in {'Sources/D', 'Sources/B'}"))
+        self.assertEqual(head, base)
+        # What the assertion says is missing is still compared.
+        other = excuse.printed(job, l10n_log(1, "AssertionError: 'Tests/E' not found in {'Sources/B'}"))
+        self.assertNotIn("AssertionError: 'Tests/A' not found in {…}", other)
+
+
+class LogOfARunStillGoing(unittest.TestCase):
+    """gh serves no run log until the whole run completes; a finished job's own log is read instead."""
+
+    class Recorder(excuse._evidence.GitHub):
+        def __init__(self, failures):
+            self.calls, self.failures = [], failures
+
+        def run(self, args):
+            self.calls.append(args)
+            for marker, message in self.failures:
+                if marker in args:
+                    raise excuse.Refused("GitHub evidence request failed: " + message)
+            return "2026-10-24T00:00:00.0000000Z hello\n"
+
+    JOB = {"id": 5, "run_id": 9, "name": "job"}
+
+    def test_a_job_whose_run_is_still_going_is_read_from_its_raw_log(self):
+        gh = self.Recorder([("--log", "run 9 is still in progress; logs will be available when it is complete")])
+        self.assertIn("job\tUNKNOWN STEP\t2026-10-24T00:00:00.0000000Z hello", gh.log(REPO, self.JOB))
+        self.assertEqual(gh.calls[-1], ["api", "--allow-escape-sequences", f"repos/{REPO}/actions/jobs/5/logs"])
+
+    def test_an_older_gh_without_the_escape_flag_is_asked_without_it(self):
+        gh = self.Recorder([("--log", "run 9 is still in progress"),
+                            ("--allow-escape-sequences", "unknown flag: --allow-escape-sequences")])
+        self.assertIn("hello", gh.log(REPO, self.JOB))
+        self.assertEqual(gh.calls[-1], ["api", f"repos/{REPO}/actions/jobs/5/logs"])
+
+    def test_any_other_failure_still_refuses(self):
+        gh = self.Recorder([("--log", "HTTP 404: Not Found")])
+        with self.assertRaisesRegex(excuse.Refused, "404"):
+            gh.log(REPO, self.JOB)
+
+
+WEB = "cmux-next web bundles (source-keyed cache)"
+WEB_STEP = "Build web bundles"
+CSS_ERROR = ("error: the agent pane imports webviews/src/summary/WorkflowCard.css but build-agent-pane-web.sh "
+             "does not add it to the page's styles")
+PR_NUMBER = 24997
+
+
+class OutsideTheDiff(unittest.TestCase):
+    """A red whose failed steps name only files the pull request does not change, on a job the base had
+    red, is not the pull request's even when the base prints it differently or has fixed it since."""
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.gh.base_runs = []
+        self.gh.history = {"feat-cmux-next": [TIP]}
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, name=WEB, step=WEB_STEP),
+                        2: failed_job(2, 40, TIP, name=WEB, step=WEB_STEP)}
+        self.gh.logs = {1: self.web_log(CSS_ERROR),
+                        2: self.web_log("error: the agent pane imports webviews/src/Other.css but nothing adds it")}
+        self.gh.commit_checks[TIP] = [check_run(self.gh.jobs[2])]
+        self.files = [{"filename": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView+Transport.swift"}]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"/pulls/{PR_NUMBER}/files?per_page=100"):
+                self.gh.routes.append(route)
+                return [copy.deepcopy(self.files)]
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    @staticmethod
+    def web_log(*lines):
+        return log(WEB, WEB_STEP, "##[group]Run bash scripts/cmux-next/build-web-bundles.sh", "##[endgroup]",
+                   *lines, "##[error]Process completed with exit code 1.")
+
+    def judge(self, pr=PR_NUMBER):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh, pr=pr)
+
+    def test_a_red_naming_only_files_the_pr_does_not_change_is_excused(self):
+        text = "\n".join(self.judge())
+        self.assertIn(f"only files #{PR_NUMBER} does not change", text)
+        self.assertIn("WorkflowCard.css", text)
+        self.assertIn(f"base tip {TIP[:10]}", text)
+        # The file list is read once, only when the base comparison did not excuse.
+        self.assertEqual(sum("/pulls/" in route for route in self.gh.routes), 1)
+
+    def test_without_the_pull_request_the_base_comparison_alone_decides(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on base tip"):
+            self.judge(pr=None)
+
+    def test_a_named_file_a_bare_name_or_a_renamed_file_the_pr_changes_blocks(self):
+        for changed in ({"filename": "webviews/src/summary/WorkflowCard.css"},
+                        {"filename": "webviews/scripts/build-agent-pane-web.sh"},
+                        {"filename": "webviews/src/summary/Card.css",
+                         "previous_filename": "webviews/src/summary/WorkflowCard.css"}):
+            self.files = [changed]
+            with self.assertRaisesRegex(excuse.Refused, "which this pull request changes"):
+                self.judge()
+
+    def test_a_failing_test_is_never_pinned_to_files(self):
+        for line in ("AssertionError: 'x' not found in Sources/A.swift", " FAIL  webviews/src/a.test.ts > renders",
+                     "(fail) markdown table keys > webviews/src/table.ts [18.20ms]", ISSUE):
+            self.gh.logs[1] = self.web_log(line)
+            with self.assertRaisesRegex(excuse.Refused, "failed a test"):
+                self.judge()
+
+    def test_an_error_or_a_red_step_naming_no_file_blocks(self):
+        self.gh.logs[1] = self.web_log(CSS_ERROR, "##[error]error: the bundle key is stale")
+        with self.assertRaisesRegex(excuse.Refused, "error naming no file"):
+            self.judge()
+        self.gh.logs[1] = self.web_log("3 findings")
+        with self.assertRaisesRegex(excuse.Refused, "naming no file"):
+            self.judge()
+
+    def test_a_pr_changing_check_code_workflows_or_a_baseline_blocks(self):
+        for path in ("scripts/cmux-next/no-swiftui-allowlist.txt", ".github/workflows/cmux-next.yml",
+                     "Packages/macOS/CmuxNext/godfile-baseline.tsv"):
+            self.files = [{"filename": path}]
+            with self.assertRaisesRegex(excuse.Refused, "check code or a baseline"):
+                self.judge()
+
+    def test_a_job_no_base_commit_had_red_blocks(self):
+        self.gh.jobs[2]["conclusion"] = "success"
+        self.gh.commit_checks[TIP] = [check_run(self.gh.jobs[2])]
+        with self.assertRaisesRegex(excuse.Refused, "no feat-cmux-next commit or run read has it red"):
+            self.judge()
+
+    def test_a_file_list_github_cut_short_blocks(self):
+        self.files = [{"filename": f"f{index}.txt"} for index in range(excuse.MAX_PR_FILES)]
+        with self.assertRaisesRegex(excuse.Refused, "which it changes is unknown"):
+            self.judge()
+
+    def test_the_checks_jobs_summary_step_is_not_a_finding(self):
+        self.gh.logs[1] = "\n".join([self.web_log(CSS_ERROR), log(
+            WEB, AGGREGATE_STEP, "##[group]Run failed=()", "##[endgroup]",
+            "##[error]red check: Web bundle key inputs", "- Web bundle key inputs (failure)",
+            "##[error]Process completed with exit code 1.")])
+        self.assertTrue(self.judge())
+
+
 class Script(unittest.TestCase):
+    def test_gh_merge_green_names_the_pull_request_to_the_base_comparison(self):
+        text = (ROOT / "scripts/gh-merge-green").read_text()
+        self.assertEqual(text.count('base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pull "$num"'), 2)
+
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
         self.assertIn("base_red_excuse.py", text)
