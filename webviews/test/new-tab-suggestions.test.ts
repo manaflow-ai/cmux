@@ -163,6 +163,21 @@ test("a workspace's exact name leads with its tab, Ask second, the web search la
   expect(screenRows("app", context({ tabs: [{ id: "t", kind: "terminal", title: "~", workspace: "app-efficiency" }] }))[0]?.type).toBe("ask");
 });
 
+test("a workspace row named exactly leads over the tabs in it", () => {
+  const rows = screenRows(
+    "app-efficiency",
+    context({
+      tabs: [
+        { id: "t-1", kind: "terminal", title: "~", workspace: "app-efficiency" },
+        { id: "t-2", kind: "terminal", title: "~", workspace: "app-efficiency" },
+      ],
+      workspaces: [{ id: "ws-eff", name: "app-efficiency" }],
+    }),
+  );
+  expect(rows[0]).toMatchObject({ type: "workspace", id: "ws-eff" });
+  expect(rows[1]?.type).toBe("ask");
+});
+
 test("a tab's exact title leads even though its row shows the cleaned title", () => {
   const rows = screenRows("Reddit - The heart of the internet", photo);
   expect(rows[0]).toMatchObject({ type: "tab", id: "reddit-tab" });

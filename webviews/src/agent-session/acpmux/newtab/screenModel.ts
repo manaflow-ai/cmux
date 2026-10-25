@@ -122,7 +122,7 @@ function navigationRows(
   const found = suggestions([...open, ...completed, ...matches(query, context.omnibar)], context.omnibar);
   // What leads above Ask: the address, the page a site's whole name or a host-like word completes
   // ("reddit", "reddit.c"; "reddi" or "app" ask), or a tab or workspace named exactly that.
-  const top = open.length || namesSite(query, completed[0]) ? found[0] : found.find((row) => namedExactly(query, row, context.omnibar));
+  const top = open.length || namesSite(query, completed[0]) ? found[0] : exactMatch(query, found, context.omnibar);
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
   const fit = (lead: ScreenRow[]) => ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
@@ -142,14 +142,18 @@ function namesSite(query: string, row: ScreenRow | undefined): boolean {
   return needle.includes(".") || canonicalAddress(row.url).toLowerCase().startsWith(`${needle}.`);
 }
 
-/// A tab or workspace whose name is the typed text, any case: "app-efficiency" is that workspace, or
-/// a tab in it (a terminal tab titled "~" lists under its workspace's name). A tab's own title counts
-/// as the host sent it, before the row cleaned it.
-function namedExactly(query: string, row: ScreenRow, omnibar: OmnibarContext): boolean {
-  if (row.type !== "tab" && row.type !== "workspace") return false;
-  const tab = row.type === "tab" ? omnibar.tabs.find((candidate) => candidate.id === row.id) : undefined;
+/// The row named exactly what was typed, any case: a workspace by its name first ("app-efficiency"),
+/// then a tab by its title as the host sent it (before the row cleaned it), then a tab in a
+/// workspace of that name (a terminal tab titled "~" lists under its workspace's name).
+function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarContext): ScreenRow | undefined {
   const needle = query.toLocaleLowerCase();
-  return [row.title, tab?.title, tab?.workspace].some((name) => name?.trim().toLocaleLowerCase() === needle);
+  const named = (name: string | undefined) => name?.trim().toLocaleLowerCase() === needle;
+  const tab = (row: ScreenRow) => (row.type === "tab" ? omnibar.tabs.find((candidate) => candidate.id === row.id) : undefined);
+  return (
+    rows.find((row) => row.type === "workspace" && named(row.title)) ??
+    rows.find((row) => row.type === "tab" && (named(row.title) || named(tab(row)?.title))) ??
+    rows.find((row) => row.type === "tab" && named(tab(row)?.workspace))
+  );
 }
 
 /// Whether the text starts the create action's name (`name`, else English) or a word of it ("new",
