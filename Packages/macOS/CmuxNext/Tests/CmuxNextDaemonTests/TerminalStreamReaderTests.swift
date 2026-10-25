@@ -166,29 +166,51 @@ import Testing
         }
     }
 
-    /// A span lapped while it waits in the view's queue is caught right
-    /// before the parse: ``TerminalStreamReader/isIntact(_:)`` is false, so
-    /// the view never parses bytes the writer is overwriting (review of
-    /// 0ade7bf4318, minor 1). Before the lap the same span is intact.
-    @Test func aSpanLappedWhileQueuedIsNotIntactBeforeItsParse() async throws {
+    /// The seqlock order for a ring span (review of 0ade7bf4318, minor 1):
+    /// copy, then check, then parse the copy. A lap between the copy and the
+    /// check fails the check, which asks for exactly one resync (the span's
+    /// release later asks for none). A span whose copy passed the check never
+    /// resyncs, even when the writer laps it before its release.
+    @Test func aRingSpanLappedBetweenItsCopyAndItsCheckIsSkippedAndResyncsOnce() async throws {
         let fixture = try Fixture()
         let ring = try TestRing(base: 0)
         defer { fixture.transport.close(); close(fixture.daemon); ring.remove() }
         let ringHeader = AttachFrameHeader(kind: .ring, stream: 9, length: 2, offset: 0)
         fixture.reader.receive(.ring(ringHeader, Data("{}".utf8), descriptor: ring.readerDescriptor()))
         fixture.reader.receive(fixture.ready(at: 0))
-        ring.write(String(repeating: "q", count: 40), at: 0)
+        ring.write(String(repeating: "q", count: 20), at: 0)
+        fixture.reader.receive(advance(to: 20))
+        ring.write(String(repeating: "r", count: 20), at: 20)
         fixture.reader.receive(advance(to: 40))
-        var spans: [Data] = []
-        for event in await fixture.drain() {
-            if case .output(let data, _) = event { spans.append(data) }
+        do {
+            var spans: [Data] = []
+            for event in await fixture.drain() {
+                if case .output(let data, _) = event { spans.append(data) }
+            }
+            #expect(spans.count == 2)
+            let kept = try #require(spans.first), skipped = try #require(spans.last)
+            #expect(fixture.reader.sharedSpanCheck(Data("a frame's own bytes".utf8)) == nil, "not a view of the ring")
+
+            // The first span: copied, checked before any lap, parsed from the copy.
+            let keptCheck = try #require(fixture.reader.sharedSpanCheck(kept), "a ring span gets a check")
+            let keptCopy = [UInt8](kept)
+            #expect(keptCheck(), "the copy taken before any lap is the published bytes")
+            #expect(String(decoding: keptCopy, as: UTF8.self) == String(repeating: "q", count: 20))
+
+            // The second span: copied, then the writer laps it, then the check.
+            let skippedCheck = try #require(fixture.reader.sharedSpanCheck(skipped))
+            _ = [UInt8](skipped)
+            ring.write(String(repeating: "w", count: 30), at: 150, reserve: 180)
+            #expect(!skippedCheck(), "a lap between the copy and the check was not caught")
+            let sent = fixture.sent(1)
+            #expect(sent.count == 1 && sent.first?.contains("\"gap\"") == true, "\(sent)")
         }
-        let span = try #require(spans.first)
-        #expect(fixture.reader.isIntact(span), "a span the writer has not reached is intact")
-        // The writer runs a whole ring ahead while the span still waits for the parse.
-        ring.write(String(repeating: "w", count: 20), at: 120, reserve: 140)
-        #expect(!fixture.reader.isIntact(span), "a lapped span was handed to the parser")
-        #expect(fixture.reader.isIntact(Data("not a ring span, a copy".utf8)))
+        // Both spans are released now (the kept one lapped too): no more resyncs.
+        let after = await Task.detached { [daemon = fixture.daemon] () -> Int in
+            var pending = pollfd(fd: daemon, events: Int16(POLLIN), revents: 0)
+            return Int(Darwin.poll(&pending, 1, 300))
+        }.value
+        #expect(after == 0, "a released span asked for a second resync")
     }
 
     @Test func aViewHoldingHalfTheRingResyncsInsteadOfTakingMoreSpans() async throws {

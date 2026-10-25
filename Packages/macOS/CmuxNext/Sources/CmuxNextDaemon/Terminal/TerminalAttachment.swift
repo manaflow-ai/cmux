@@ -311,15 +311,19 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
     }
 
-    /// Whether an `.output` event's bytes may be parsed now. False only for a
-    /// shared-memory ring span the daemon has started to overwrite since it was
-    /// queued: the view skips it, and the stream resyncs from a snapshot when
-    /// the span is released. Call right before the parse.
+    /// The check of an `.output` event whose bytes are a live view of the
+    /// daemon's shared-memory output ring, or nil for any other bytes (parse
+    /// them as they are).
+    ///
+    /// The ring's writer may overwrite a span at any time, so a consumer
+    /// follows the seqlock order: copy the bytes out, then call the check,
+    /// then parse the copy only when the check is true. A false check skips
+    /// the span and has already asked the daemon for a fresh snapshot.
     ///
     /// - Parameter data: The bytes of an `.output` event of ``events``.
-    /// - Returns: False when the bytes are being overwritten.
-    public nonisolated func outputIsIntact(_ data: Data) -> Bool {
-        reader?.isIntact(data) ?? true
+    /// - Returns: The check to call after the copy, or nil.
+    public nonisolated func sharedOutputCheck(_ data: Data) -> (@Sendable () -> Bool)? {
+        reader?.sharedSpanCheck(data)
     }
 
     /// Output bytes waiting for the consumer (diagnostics, tests).
