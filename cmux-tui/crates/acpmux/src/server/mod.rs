@@ -90,6 +90,9 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+    /// The media files of peers' chats it opened, closed on the peer when it closes
+    /// (`media_forward.rs`).
+    pub(super) remote_media: media_forward::RemoteMedia,
 }
 
 // Bound only request handlers that do finite work on behalf of the connection.
@@ -1072,7 +1075,14 @@ async fn serve_connection_from(
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
         ephemeral: StdMutex::new(Some(Vec::new())),
-        media: crate::hub::media_handles::Handles::default(),
+        // A peer daemon's link carries all its clients' reads, which it caps one by one
+        // (`media_forward.rs`).
+        media: if auth == ConnAuth::PeerToken {
+            crate::hub::media_handles::Handles::for_peer_link()
+        } else {
+            crate::hub::media_handles::Handles::default()
+        },
+        remote_media: media_forward::RemoteMedia::default(),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -1217,6 +1227,7 @@ async fn serve_connection_from(
     }
     fan.abort();
     conn.media.close_all();
+    conn.remote_media.close_all();
     view::release_all(&hub, &conn);
     // Leases first: ending one is cheap and synchronous, while the ephemeral
     // release awaits each session's kill. A leased peer must not keep
@@ -1392,6 +1403,7 @@ pub mod conn_auth;
 mod ephemeral;
 mod fanout;
 mod forum;
+mod media_forward;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
