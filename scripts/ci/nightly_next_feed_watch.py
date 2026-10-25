@@ -294,15 +294,17 @@ def legacy_lag(now: dt.datetime, next_xml: str, legacy_xml: str,
                max_lag_minutes: float = LEGACY_MAX_LAG_MINUTES) -> tuple[int | None, str]:
     """(the build cmux NIGHTLY's feed has waited for past the limit, or None; what was found).
     Reads only the two feeds, so an API error never hides a stale feed."""
-    newest_next = max(nightly_builds(next_xml), default=None)
     old = max((build for build, _ in nightly_builds(legacy_xml)), default=0)
-    if newest_next is None or newest_next[0] <= old:
+    # Every Nightly build cmux NIGHTLY's feed lacks. The wait runs from the oldest of them, so a
+    # newer publication never restarts it; the newest is the one the legacy jobs should publish.
+    missing = sorted(item for item in nightly_builds(next_xml) if item[0] > old)
+    if not missing:
         return None, f"current at build {old}"
-    build, published = newest_next
-    waited = (now - published).total_seconds() / 60
+    waited = (now - min(published for _, published in missing)).total_seconds() / 60
+    build = missing[-1][0]
     if waited < max_lag_minutes:
-        return None, f"build {build} published {waited:.0f} min ago; the legacy jobs have {max_lag_minutes:g}"
-    return build, f"cmux NIGHTLY's feed {LEGACY_FEED_URL} is at build {old}, {waited:.0f} min behind cmux NEXT build {build}"
+        return None, f"build {build} is {waited:.0f} min behind; the legacy jobs have {max_lag_minutes:g}"
+    return build, f"cmux NIGHTLY's feed {LEGACY_FEED_URL} is at build {old}, {waited:.0f} min behind cmux NEXT (newest {build})"
 
 
 def legacy_rerun(gh: GitHub, build: int) -> str:
