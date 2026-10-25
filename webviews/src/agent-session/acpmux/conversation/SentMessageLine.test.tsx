@@ -204,3 +204,12 @@ test("a send that fails while open shows its Raw", async () => {
   await act(async () => root!.render(<AcpmuxSendLine tool={failed} send={acpmuxSendCall(failed)!} />));
   expect(container.querySelector(".cv-shell")?.textContent).toContain("no_session");
 });
+
+test("a send the call does not say went reads only who it was for", async () => {
+  const container = await line(
+    bash("git push -q && acpmux send --no-wait lane 'Pushed.'; git status --short", { exitCode: 0, output: "" }),
+  );
+  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  expect(row.dataset.sendState).toBe("ended");
+  expect(row.textContent).toBe("Message to lane · and 2 more commandsPushed.");
+});

@@ -73,6 +73,14 @@ export function targetChat(store: SubsessionStore, target: string, sessionId?: s
 }
 
 const NO_STORE = new SubsessionStore();
+/// Each state's sentence; `ended`: the call does not say whether the message went.
+const SEND_LABEL = {
+  sending: "send.sending",
+  sent: "send.sent",
+  failed: "send.failed",
+  ended: "send.ended",
+} as const satisfies Record<SendState, string>;
+
 /// Where the target placeholder sits in the translated line, so the name can be a link.
 const MARK = "\u0001";
 
@@ -133,9 +141,9 @@ export function SentMessageLine({
   const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
   const preview = text ? messagePreview(text) : "";
   const label =
-    shape === "arrow" && state !== "failed" && preview
+    shape === "arrow" && (state === "sending" || state === "sent") && preview
       ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
-      : t(state === "sending" ? "send.sending" : state === "failed" ? "send.failed" : "send.sent", { target: MARK });
+      : t(SEND_LABEL[state], { target: MARK });
   const [before, after = ""] = label.split(MARK);
   const name =
     chat && chats ? (
