@@ -850,7 +850,7 @@ describe("the tray tells the truth", () => {
   });
 });
 
-describe("the tray's header stays (Leo 2026-10-25: \"sometimes it disappears\")", () => {
+describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")', () => {
   const panel = (running: number, ended: number) => {
     const now = Date.now();
     const agents = [

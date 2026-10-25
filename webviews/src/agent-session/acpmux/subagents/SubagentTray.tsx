@@ -120,13 +120,14 @@ export const SubagentTray = memo(function SubagentTray({
   const subagents = items.filter((item) => item.kind !== "command").length;
   const commands = items.length - subagents;
   const starts = items.map(itemStart).filter((start): start is number => start !== undefined);
-  const title = [
-    working ? subagents > 0 && t("subagents.allRunning", { n: subagents }) : items.length > 0 && t("bgWork.running"),
-    !working && subagents > 0 && t("subagents.count", { n: subagents }),
-    commands > 0 && t("turn.working.commands", { n: commands }),
-  ]
-    .filter((part): part is string => typeof part === "string")
-    .join(" · ") || t("summary.subagents");
+  const title =
+    [
+      working ? subagents > 0 && t("subagents.allRunning", { n: subagents }) : items.length > 0 && t("bgWork.running"),
+      !working && subagents > 0 && t("subagents.count", { n: subagents }),
+      commands > 0 && t("turn.working.commands", { n: commands }),
+    ]
+      .filter((part): part is string => typeof part === "string")
+      .join(" · ") || t("summary.subagents");
   // Keep live and ended cards in one keyed child list. When a task completes, its card moves
   // between groups without remounting, so keyboard focus and the open affordance stay put.
   const cards = [
