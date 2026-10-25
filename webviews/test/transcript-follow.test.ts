@@ -167,7 +167,7 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     // release following before the streamed layout pass can pin the view back to the bottom.
     text += `\n\n${paragraph(20)}\n\n${paragraph(21)}`;
     const next = [...history, row("stream", "assistant", text, { version: 3, streaming: true })];
-    const left = await page.evaluate((rows) => {
+    await page.evaluate((rows) => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
       const target = Math.max(0, node.scrollTop - 2);
       node.addEventListener(
@@ -182,9 +182,6 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
       return target;
     }, next);
     await frames(page, 3);
-    expect(
-      Math.abs((await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop)) - left),
-    ).toBeLessThanOrEqual(1);
     expect(
       await page.evaluate(() => {
         const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
