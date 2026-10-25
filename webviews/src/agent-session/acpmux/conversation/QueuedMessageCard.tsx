@@ -3,7 +3,7 @@
 // queued message is read after the running turn; a steered one when the agent's current step ends.
 // The card's ⋯ menu acts on it: Steer (`_acpmux/queue_edit` send_now), Edit message (back into the
 // composer), queueing off or on (queueing.ts), and Delete. A menu opens on the click (ui/Menu).
-import { createContext, useContext, useState } from "react";
+import { useContext, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow, QueuedPromptImage } from "../model";
@@ -11,8 +11,9 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { setQueueing, useQueueing } from "../queueing";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import type { IncomingMessage } from "./incomingMessage";
+import { TurnActionsContext } from "./turnActions";
 
-/// What a waiting message's ⋯ menu does (App.tsx provides it): Steer it now (`send_now`), take it
+/// What a waiting message's ⋯ menu does (App.tsx, through TurnActions `queuedMessages`): Steer it now (`send_now`), take it
 /// into the composer with its images to edit, ask it in a side chat (where the chat opens one; a
 /// message with images stays, as a side chat asks the text alone), or delete it. Each is false when
 /// it already started.
@@ -22,7 +23,6 @@ export type QueuedMessageActionsValue = {
   remove: (promptId: string) => Promise<boolean>;
   sideChat?: (promptId: string, text: string) => Promise<boolean>;
 };
-export const QueuedMessageActionsContext = createContext<QueuedMessageActionsValue | undefined>(undefined);
 
 /// The note: when the agent reads the message, after the running turn or after its current step.
 export function QueuedMessageNote({ after }: { after: "turn" | "step" }) {
@@ -127,7 +127,7 @@ export function QueuedMessageCard({
   onReply?(message: IncomingMessage, text: string): Promise<void>;
   githubRepository?: string;
 }) {
-  const act = useContext(QueuedMessageActionsContext);
+  const act = useContext(TurnActionsContext).queuedMessages?.();
   const [steered, setSteered] = useState(false);
   const queued = row.queuedMessage;
   if (!queued || row.incoming?.kind !== "message") return null;

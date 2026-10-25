@@ -43,7 +43,6 @@ import {
 } from "./model";
 import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import {
-  QueuedMessageActionsContext,
   QueuedMessageCard,
   QueuedMessageMenu,
   QueuedMessageNote,
@@ -5265,8 +5264,12 @@ function AcpmuxPane() {
     readOnly: readOnlySubagent,
     canSend: remoteComposer(snapshot).canSend,
   });
+  // Another agent's waiting message's ⋯ menu actions (conversation/QueuedMessageCard.tsx), made
+  // below where the side chat is known; the cards read them as they draw.
+  const queuedMessageActionsRef = useRef<QueuedMessageActionsValue | undefined>(undefined);
   const turnActions = useMemo<TurnActions>(
     () => ({
+      queuedMessages: () => queuedMessageActionsRef.current,
       ...(stableBranches.size > 0 && {
         branches: {
           of: stableBranches,
@@ -6164,6 +6167,8 @@ function AcpmuxPane() {
         : undefined,
     [connected, sideChatOffered, readQueuedImage],
   );
+  // Read by the cards as they draw (TurnActions `queuedMessages`): set here, before the rows draw.
+  queuedMessageActionsRef.current = queuedMessageActions;
   /// Prompts on their way through this page before the client holds them (a chat starting, a
   /// harness switch's row), and chats starting for a prompt (`chat.new`).
   const untakenSends = useRef(0);
@@ -8209,106 +8214,104 @@ function AcpmuxPane() {
         <ImageViewerContext.Provider value={openImage}>
           <ShellActionsContext.Provider value={shellActions}>
             <TurnActionsContext.Provider value={turnActions}>
-              <QueuedMessageActionsContext.Provider value={queuedMessageActions}>
-                <RunInBackgroundContext.Provider value={backgroundHint}>
-                  <TurnCountsContext.Provider value={turnCountsFor}>
-                    <SessionEditsContext.Provider value={editRows}>
-                      <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
-                        <SubagentNavContext.Provider value={setSubagentView}>
-                          <SubagentPaneContext.Provider value={showSubagent}>
-                            <WorkingCountsContext.Provider value={workingCounts}>
-                              <WaitingOnContext.Provider value={waiting}>
-                                <SubagentStopContext.Provider value={stopSubagent}>
-                                  <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-                                    <SubagentHarnessContext.Provider
-                                      value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                                    >
-                                      <SessionHoverContext.Provider value={sessionHover}>
-                                        <SubsessionContext.Provider value={subsessions}>
-                                          <StartedMentionsContext.Provider value={startedMentions}>
-                                            <FailedSendsContext.Provider value={failedSends}>
-                                              <ChatFindScope
-                                                rows={childRows ?? sourceRows}
-                                                shown={childRows ? undefined : transcriptRows}
-                                                openFold={openFold}
-                                                findRef={findRef}
-                                              >
-                                                {(find) => (
-                                                  <VirtualTranscript
-                                                    rows={transcriptRows}
-                                                    sourceRows={childRows ? undefined : sourceRows}
-                                                    working={snapshot.isWorking}
-                                                    // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                                    jumpButton={!quick}
-                                                    needsYou={needsYou.pill}
-                                                    focusComposer={() => composerHandle.current?.focus()}
-                                                    // Quick Chat's panel stacks its composer below the transcript.
-                                                    dock={quick ? undefined : dock}
-                                                    queueWithdrawn={snapshot.queueWithdrawn}
-                                                    queueIds={quick ? undefined : queueIds}
-                                                    find={quick ? undefined : find}
-                                                    sessionId={
-                                                      childRows
-                                                        ? `${shownSessionId}:subagent:${subagentView}`
-                                                        : shownSessionId
-                                                    }
-                                                    canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                                    historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                                    onLoadOlder={() =>
-                                                      directClient.current?.loadOlder() ?? Promise.resolve()
-                                                    }
-                                                    openAt={
-                                                      !childRows &&
-                                                      shownSessionId &&
-                                                      scrollAnchor?.sessionId === shownSessionId
-                                                        ? scrollAnchor
-                                                        : undefined
-                                                    }
-                                                    anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                                    // A prompt goes to the chat, not to the subagent shown in its place.
-                                                    sends={childRows ? undefined : sends}
-                                                    onAnchor={
-                                                      quick || childRows || !shownSessionId
-                                                        ? undefined
-                                                        : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                                    }
-                                                    expanded={expanded}
-                                                    showMinimap={minimapVisible}
-                                                    reveal={childRows ? undefined : revealRow}
-                                                    coldOpen={!childRows && opened.cold ? opened.open : undefined}
-                                                    onColdOpenShown={coldOpenShown}
-                                                    afterLatest={
-                                                      !childRows && trayPlacement === "after-latest-message"
-                                                        ? trayNode
-                                                        : undefined
-                                                    }
-                                                    registry={registry}
-                                                    githubRepository={githubRepository}
-                                                    fallbackRepository={
-                                                      pullRequestRef(headerPullRequest?.url ?? "")?.repo
-                                                    }
-                                                    // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                                    onOpenDiff={quick ? undefined : openDiff}
-                                                    onToggleActivity={toggleActivity}
-                                                  />
-                                                )}
-                                              </ChatFindScope>
-                                            </FailedSendsContext.Provider>
-                                          </StartedMentionsContext.Provider>
-                                        </SubsessionContext.Provider>
-                                      </SessionHoverContext.Provider>
-                                    </SubagentHarnessContext.Provider>
-                                  </SubagentClockContext.Provider>
-                                </SubagentStopContext.Provider>
-                              </WaitingOnContext.Provider>
-                            </WorkingCountsContext.Provider>
-                          </SubagentPaneContext.Provider>
-                        </SubagentNavContext.Provider>
-                      </SessionCwdContext.Provider>
-                    </SessionEditsContext.Provider>
-                  </TurnCountsContext.Provider>
-                </RunInBackgroundContext.Provider>
-              </QueuedMessageActionsContext.Provider>
+              <RunInBackgroundContext.Provider value={backgroundHint}>
+                <TurnCountsContext.Provider value={turnCountsFor}>
+                  <SessionEditsContext.Provider value={editRows}>
+                    <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
+                      <SubagentNavContext.Provider value={setSubagentView}>
+                        <SubagentPaneContext.Provider value={showSubagent}>
+                          <WorkingCountsContext.Provider value={workingCounts}>
+                            <WaitingOnContext.Provider value={waiting}>
+                              <SubagentStopContext.Provider value={stopSubagent}>
+                                <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                                  <SubagentHarnessContext.Provider
+                                    value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                                  >
+                                    <SessionHoverContext.Provider value={sessionHover}>
+                                      <SubsessionContext.Provider value={subsessions}>
+                                        <StartedMentionsContext.Provider value={startedMentions}>
+                                          <FailedSendsContext.Provider value={failedSends}>
+                                            <ChatFindScope
+                                              rows={childRows ?? sourceRows}
+                                              shown={childRows ? undefined : transcriptRows}
+                                              openFold={openFold}
+                                              findRef={findRef}
+                                            >
+                                              {(find) => (
+                                                <VirtualTranscript
+                                                  rows={transcriptRows}
+                                                  sourceRows={childRows ? undefined : sourceRows}
+                                                  working={snapshot.isWorking}
+                                                  // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                                  jumpButton={!quick}
+                                                  needsYou={needsYou.pill}
+                                                  focusComposer={() => composerHandle.current?.focus()}
+                                                  // Quick Chat's panel stacks its composer below the transcript.
+                                                  dock={quick ? undefined : dock}
+                                                  queueWithdrawn={snapshot.queueWithdrawn}
+                                                  queueIds={quick ? undefined : queueIds}
+                                                  find={quick ? undefined : find}
+                                                  sessionId={
+                                                    childRows
+                                                      ? `${shownSessionId}:subagent:${subagentView}`
+                                                      : shownSessionId
+                                                  }
+                                                  canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                                  historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                                  onLoadOlder={() =>
+                                                    directClient.current?.loadOlder() ?? Promise.resolve()
+                                                  }
+                                                  openAt={
+                                                    !childRows &&
+                                                    shownSessionId &&
+                                                    scrollAnchor?.sessionId === shownSessionId
+                                                      ? scrollAnchor
+                                                      : undefined
+                                                  }
+                                                  anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                                  // A prompt goes to the chat, not to the subagent shown in its place.
+                                                  sends={childRows ? undefined : sends}
+                                                  onAnchor={
+                                                    quick || childRows || !shownSessionId
+                                                      ? undefined
+                                                      : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                                  }
+                                                  expanded={expanded}
+                                                  showMinimap={minimapVisible}
+                                                  reveal={childRows ? undefined : revealRow}
+                                                  coldOpen={!childRows && opened.cold ? opened.open : undefined}
+                                                  onColdOpenShown={coldOpenShown}
+                                                  afterLatest={
+                                                    !childRows && trayPlacement === "after-latest-message"
+                                                      ? trayNode
+                                                      : undefined
+                                                  }
+                                                  registry={registry}
+                                                  githubRepository={githubRepository}
+                                                  fallbackRepository={
+                                                    pullRequestRef(headerPullRequest?.url ?? "")?.repo
+                                                  }
+                                                  // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                                  onOpenDiff={quick ? undefined : openDiff}
+                                                  onToggleActivity={toggleActivity}
+                                                />
+                                              )}
+                                            </ChatFindScope>
+                                          </FailedSendsContext.Provider>
+                                        </StartedMentionsContext.Provider>
+                                      </SubsessionContext.Provider>
+                                    </SessionHoverContext.Provider>
+                                  </SubagentHarnessContext.Provider>
+                                </SubagentClockContext.Provider>
+                              </SubagentStopContext.Provider>
+                            </WaitingOnContext.Provider>
+                          </WorkingCountsContext.Provider>
+                        </SubagentPaneContext.Provider>
+                      </SubagentNavContext.Provider>
+                    </SessionCwdContext.Provider>
+                  </SessionEditsContext.Provider>
+                </TurnCountsContext.Provider>
+              </RunInBackgroundContext.Provider>
             </TurnActionsContext.Provider>
           </ShellActionsContext.Provider>
         </ImageViewerContext.Provider>
