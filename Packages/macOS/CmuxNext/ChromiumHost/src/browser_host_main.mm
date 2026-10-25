@@ -136,6 +136,13 @@ constexpr int kFromCmux = 3;
 int g_to_cmux = -1;
 int g_fork_api = 0;
 uint32_t (*g_set_layer_hosting)(int, int) = nullptr;
+// Fork API 30 (optional; null below it): a hosted page window that never
+// orders in, and its key state given by cmux (cef_cmux.h).
+int (*g_set_detached_hosting)(int, int) = nullptr;
+int (*g_set_embedder_active)(int, int) = nullptr;
+// cmux_browser_set_detached_hosting took this page: input and focus go
+// through the fork, the host's window may stay off screen.
+bool g_detached = false;
 CefRefPtr<CefBrowser> g_browser;
 bool g_creating = false;
 bool g_closing = false;
@@ -231,6 +238,13 @@ void TryHosting() {
   uint32_t id = g_set_layer_hosting(g_browser->GetIdentifier(), 1);
   if (!id) return;  // the next tracker read, load state or geometry asks again
   g_context = id;
+  // API 30: the page window leaves the host's window and never orders in, so
+  // no window of the host can become key; the focus then goes through
+  // cmux_browser_set_embedder_active (SetPageFocused).
+  if (g_set_detached_hosting && g_set_detached_hosting(g_browser->GetIdentifier(), 1)) {
+    g_detached = true;
+    if (g_page_focused) SetPageFocused(true);
+  }
   cmux_host::Header h;
   h.kind = cmux_host::kContext;
   h.v[0] = static_cast<int32_t>(id);
@@ -469,6 +483,14 @@ void HandleInput(const cmux_host::Header& h) {
 // events, document.hasFocus(), a caret, text input) while its window stays
 // inactive; keys arrive over the wire either way.
 void SetPageFocused(bool focused) {
+  // Fork API 30, a detached page: Chromium sees its page window become or
+  // resign key (Views focus on the web contents, so keys reach the page; the
+  // caret, focus rings, document.hasFocus()) while no AppKit window becomes
+  // key. Focus emulation alone moves only the document's focus: keys sent
+  // with SendKeyEvent did not reach the field (cmux20-bench, 2026-10-25).
+  if (g_detached && g_set_embedder_active && g_set_embedder_active(g_browser->GetIdentifier(), focused ? 1 : 0)) {
+    return;
+  }
   CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
   params->SetBool("enabled", focused);
   g_browser->GetHost()->ExecuteDevToolsMethod(0, "Emulation.setFocusEmulationEnabled", params);
@@ -703,6 +725,8 @@ int main(int argc, char* argv[]) {
   if (void* image = dlopen(binary.c_str(), RTLD_NOLOAD | RTLD_LAZY)) {
     if (auto version = reinterpret_cast<int (*)()>(dlsym(image, "cmux_cef_api_version"))) g_fork_api = version();
     g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(image, "cmux_browser_set_layer_hosting"));
+    g_set_detached_hosting = reinterpret_cast<int (*)(int, int)>(dlsym(image, "cmux_browser_set_detached_hosting"));
+    g_set_embedder_active = reinterpret_cast<int (*)(int, int)>(dlsym(image, "cmux_browser_set_embedder_active"));
   }
   if (g_fork_api < cmux_host::kMinForkAPI || !g_set_layer_hosting) {
     SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " is older than the host needs (" +
