@@ -213,12 +213,12 @@ final class PaneHostView: NSView, RestingPlacement {
         let framesContent = reporter?.paneFramesContent ?? true
         var style = LayoutStyle()
         style.panePadding = padding
-        style.paneCornerRadius = framesContent ? cornerRadius : 0
+        style.paneCornerRadius = framesContent || wholeCard ? cornerRadius : 0
         let rect = clipView.frame
         let (header, footer) = roundedBands
         let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
         let radius = PaneChromeGeometry.cornerRadius(for: rounded, style: style)
-        if let reporter, !wholeCard || !framesContent {
+        if let reporter, !wholeCard {
             clipView.setCornerRadius(0)
             reporter.setPaneContentCornerRadius(radius)
         } else {

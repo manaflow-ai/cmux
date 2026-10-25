@@ -42,6 +42,7 @@ import Testing
         #expect(!host.chrome.showsBorder, "a decorative pane border outlines the chat tools")
         #expect(!host.chrome.showsRing, "the focus frame draws above the chat tools and page menus")
         #expect(pane.contentHost.layer?.cornerRadius == 0, "the chat has a second rounded panel edge")
+        #expect(pane.superview?.layer?.cornerRadius == (wholeCard ? 12 : 0), "the floating card lost its outer silhouette")
 
         // Reusing the pane for a terminal or browser restores its configured frame.
         pane.show(NSView())
