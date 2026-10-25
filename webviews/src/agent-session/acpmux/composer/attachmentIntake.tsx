@@ -128,6 +128,10 @@ export type PendingAttachment = {
 /// What Retry needs of a pending chip: its file and how it came in.
 type PendingSource = { file: File; uploads: boolean };
 
+/// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
+/// by its name and type, and it is read once `file` settles.
+export type MadeFile = { name: string; type: string; file: Promise<File> };
+
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
 /// `attach(files, uploads, kind)` adds files another way (the + menu's chooser, which uploads like a
@@ -172,8 +176,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
   /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
-  const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind) => {
-    if (files.length === 0) return;
+  const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) => {
+    if (given.length === 0) return;
+    const files = given;
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
@@ -183,7 +188,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       image: isImageFile(file),
       scope: batch.scope,
     }));
-    shown.forEach((chip, index) => sources.current.set(chip.id, { file: files[index]!, uploads }));
+    shown.forEach((chip, index) => {
+      const file = files[index]!;
+      if (file instanceof File) sources.current.set(chip.id, { file, uploads });
+      else {
+        // Its tile is there now; the file is the source once it is made.
+        sources.current.set(chip.id, { file: new File([], file.name, { type: file.type }), uploads });
+        void file.file.then((made) => {
+          if (sources.current.has(chip.id)) sources.current.set(chip.id, { file: made, uploads });
+        });
+      }
+    });
     const gesture = (gestures.current += 1);
     batches.current.add(batch);
     setPending((chips) => [...chips, ...shown]);
@@ -224,8 +239,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, failed } : chip)));
     };
     try {
+      // A file still being made (a huge paste's text, made a slice per task) is awaited here, after
+      // its tile drew.
+      const settled = await Promise.all(files.map((file) => (file instanceof File ? file : file.file)));
       await intakeFiles(
-        files,
+        settled,
         {
           allowImages: current.allowImages,
           ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),

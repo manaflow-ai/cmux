@@ -1,6 +1,11 @@
 import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
+import {
+  AttachmentStrip,
+  backspacedAttachment,
+  type MadeFile,
+  type PendingAttachment,
+} from "./composer/attachmentIntake";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -46,7 +51,7 @@ export type ComposerBoxProps = {
   onCancelAttachment?(id: string): void;
   onRetryAttachment?(id: string): void;
   /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
-  onPasteFile?(file: File): void;
+  onPasteFile?(file: MadeFile): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;

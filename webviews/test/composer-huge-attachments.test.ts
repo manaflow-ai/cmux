@@ -28,7 +28,9 @@ function jpeg(width: number, height: number): Blob {
   // SOI, an APP0 segment, then SOF0 with the size.
   const app0 = [0xff, 0xe0, 0x00, 0x10, ...Array.from({ length: 14 }, () => 0)];
   const sof = [0xff, 0xc0, 0x00, 0x11, 0x08, height >> 8, height & 0xff, width >> 8, width & 0xff, 3];
-  return new Blob([new Uint8Array([0xff, 0xd8, ...app0, ...sof, ...Array.from({ length: 12 }, () => 0)])], { type: "image/jpeg" });
+  return new Blob([new Uint8Array([0xff, 0xd8, ...app0, ...sof, ...Array.from({ length: 12 }, () => 0)])], {
+    type: "image/jpeg",
+  });
 }
 
 test("a picture's size comes from its header, without decoding it", async () => {
@@ -75,9 +77,11 @@ test("a cancelled upload stops at its next chunk and the host drops what it stag
   expect(sent).toEqual({ paths: ["", "/tmp/kept.bin"] });
 });
 
-test("a paste past what a prompt carries is a file of its text", async () => {
-  const text = "x".repeat(PASTE_FILE_CHARS + 1);
-  const file = pastedTextFile(text);
+test("a paste past what a prompt carries is a file of its text, made a slice per task", async () => {
+  // Past one slice, with a character of two halves (an emoji) right on a slice's end.
+  const head = "x".repeat(4 * 1024 * 1024 - 1);
+  const text = `${head}😀${"y".repeat(PASTE_FILE_CHARS)}`;
+  const file = await pastedTextFile(text);
   expect(file.name).toBe("Pasted text.txt");
-  expect(file.size).toBe(text.length);
+  expect(await file.text()).toBe(text);
 });
