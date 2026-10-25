@@ -1,17 +1,19 @@
 // l10n-allow-file: bench fixture prompts and replies, not shipped UI.
-// Frame cost of the full-height thread minimap (ScrollMap.tsx, #22784) on a 2,000-row chat, against
-// the compact rail (the default) and no rail, in the real pane (the pane's dev entry and a stand-in
-// acpmux, as test/support/papercutChat.ts) on Chromium. Each arm runs idle, a steady wheel scroll and
-// a streaming reply that appends rows; a Chrome trace of the renderer's main thread gives the busy
-// time in each 16.7 ms frame slot (scripting and rendering apart), its p50 and p95, and long tasks.
-//   bun bench/thread-minimap-frame-cost.bench.ts [rounds=3] [turns=1000]
+// Frame cost of the thread rail on a 2,000-row chat: no rail, the compact rail (the default) and the
+// full-height minimap (ScrollMap.tsx, #22784), in the real pane (a production build of the pane's
+// dev entry and a stand-in acpmux, as test/support/papercutChat.ts) on Chromium. Each arm runs idle,
+// a steady wheel scroll and a streaming reply that appends rows; a Chrome trace of the renderer's main
+// thread gives the busy time in each painted frame (scripting and rendering apart), its p50 and p95,
+// and long tasks.
+//   PROD_DIR=<pane build> bun bench/thread-minimap-frame-cost.bench.ts [rounds=3] [turns=1000]
+// PROD_DIR is required: the output of vite's build() on vite.config.acpmux-pane.mjs, so React runs
+// as it ships. KEEP_TRACES=1 keeps the traces (and PROFILE=1's CPU profiles); otherwise they go.
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { warmViteServer } from "../test/support/warmDevServer";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
 const TURNS = Number(process.argv[3] ?? 1000);
@@ -19,8 +21,18 @@ const ARMS = (process.env.ARMS?.split(",") ?? ["off", "compact", "full"]) as rea
 const SCENARIOS = ["idle", "scroll", "stream"] as const;
 const SECONDS = 4;
 const PROFILE = process.env.PROFILE === "1";
+const KEEP_TRACES = process.env.KEEP_TRACES === "1";
+const PROD_DIR = process.env.PROD_DIR;
+if (!PROD_DIR || !fs.existsSync(path.join(PROD_DIR, "index.html"))) {
+  console.error(
+    "thread-minimap-frame-cost: set PROD_DIR to a production build of the agent pane's dev entry " +
+      "(vite build with vite.config.acpmux-pane.mjs; the directory with its index.html). " +
+      "The dev server's development React is not what ships, so it is not measured.",
+  );
+  process.exit(2);
+}
+const prodDir = PROD_DIR;
 
-const webviews = path.resolve(import.meta.dir, "..");
 const { events, session } = papercutEvents({ turns: TURNS, running: false });
 let socket: { send(data: string): void } | undefined;
 let seq = events.length;
@@ -46,51 +58,9 @@ const answer = (method: string): unknown => {
       return null;
   }
 };
-const daemon = Bun.serve({
-  port: 0,
-  hostname: "127.0.0.1",
-  fetch(request, server) {
-    return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
-  },
-  websocket: {
-    message(ws, raw) {
-      const message = JSON.parse(String(raw)) as { id?: number; method: string };
-      socket = ws;
-      if (message.id !== undefined)
-        ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
-    },
-  },
-});
-// PROD_DIR: a production build of the pane's dev entry (vite build -c vite.config.acpmux-pane.mjs),
-// served as static files, so React runs as it ships; without it, the Vite dev server.
-const PROD_DIR = process.env.PROD_DIR;
-let vite: { close(): Promise<void> } | undefined;
-let port: number;
-if (PROD_DIR) {
-  const statics = Bun.serve({
-    port: 0,
-    hostname: "127.0.0.1",
-    fetch(request) {
-      const pathname = new URL(request.url).pathname;
-      const file = Bun.file(path.join(PROD_DIR, pathname === "/" ? "index.html" : pathname));
-      return new Response(file);
-    },
-  });
-  port = statics.port!;
-  vite = { close: async () => void statics.stop(true) };
-} else {
-  const { createServer } = await import("vite");
-  const server = await createServer({
-    configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    server: { port: 0, host: "127.0.0.1", strictPort: false },
-    logLevel: "error",
-  });
-  await server.listen();
-  await warmViteServer(server, "/");
-  port = (server.httpServer!.address() as { port: number }).port;
-  vite = server;
-}
-const url = `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+
+/// The pane's URL, once its servers are up.
+let url = "";
 
 async function open(browser: Browser, arm: string): Promise<Page> {
   seq = events.length;
@@ -257,65 +227,111 @@ async function drive(page: Page, scenario: (typeof SCENARIOS)[number]) {
   }
 }
 
-const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "minimap-bench-"));
-const browser = await chromium.launch({ headless: true });
-// The first load can run Vite's dependency optimizer and reload mid-compile.
-await (await open(browser, "off")).close();
 const results: Record<string, ReturnType<typeof analyze>[]> = {};
-for (let round = 0; round < ROUNDS; round++) {
-  for (const arm of ARMS) {
-    for (const scenario of SCENARIOS) {
-      const page = await open(browser, arm);
-      const drawn = await page.evaluate(() => ({
-        scrollmap: document.querySelectorAll(".acpmux-scrollmap").length,
-        minimap: document.querySelectorAll(".acpmux-minimap").length,
-        marks: document.querySelectorAll(".acpmux-minimap__tick").length,
-      }));
-      if (round === 0) console.error(arm, scenario, JSON.stringify(drawn));
-      const file = path.join(tmp, `${arm}-${scenario}-${round}.json`);
-      await browser.startTracing(page, {
-        path: file,
-        categories: ["devtools.timeline", "toplevel", "blink.console", ...(process.env.TRACE_CATS?.split(",") ?? [])],
-      });
-      const cdp = PROFILE ? await page.context().newCDPSession(page) : undefined;
-      if (cdp) {
-        await cdp.send("Profiler.enable");
-        await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
-        await cdp.send("Profiler.start");
-      }
-      await page.evaluate(() => {
-        console.timeStamp("bench-begin");
-        const w = window as unknown as { benchFrames?: boolean };
-        w.benchFrames = true;
-        const stamp = () => {
-          if (!w.benchFrames) return;
-          console.timeStamp("f");
+/// What the run acquired, released in reverse in the `finally` below, each on its own: one that
+/// fails to close still lets the rest close.
+const releases: Array<[string, () => unknown]> = [];
+let tmp = "";
+try {
+  tmp = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "minimap-bench-"));
+  releases.push([
+    "traces",
+    () => {
+      if (KEEP_TRACES) console.log(`traces kept in ${tmp}`);
+      else fs.rmSync(tmp, { recursive: true, force: true });
+    },
+  ]);
+  const daemon = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(request, server) {
+      return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+    },
+    websocket: {
+      message(ws, raw) {
+        const message = JSON.parse(String(raw)) as { id?: number; method: string };
+        socket = ws;
+        if (message.id !== undefined)
+          ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+      },
+    },
+  });
+  releases.push(["stand-in acpmux", () => daemon.stop(true)]);
+  // The production build, served as static files.
+  const statics = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch(request) {
+      const pathname = new URL(request.url).pathname;
+      return new Response(Bun.file(path.join(prodDir, pathname === "/" ? "index.html" : pathname)));
+    },
+  });
+  releases.push(["static server", () => statics.stop(true)]);
+  url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  const browser = await chromium.launch({ headless: true });
+  releases.push(["browser", () => browser.close()]);
+  // A first load warms the page's caches, so the first measured run is not the cold one.
+  await (await open(browser, "off")).close();
+  for (let round = 0; round < ROUNDS; round++) {
+    for (const arm of ARMS) {
+      for (const scenario of SCENARIOS) {
+        const page = await open(browser, arm);
+        const drawn = await page.evaluate(() => ({
+          scrollmap: document.querySelectorAll(".acpmux-scrollmap").length,
+          minimap: document.querySelectorAll(".acpmux-minimap").length,
+          marks: document.querySelectorAll(".acpmux-minimap__tick").length,
+        }));
+        if (round === 0) console.error(arm, scenario, JSON.stringify(drawn));
+        const file = path.join(tmp, `${arm}-${scenario}-${round}.json`);
+        await browser.startTracing(page, {
+          path: file,
+          categories: ["devtools.timeline", "toplevel", "blink.console", ...(process.env.TRACE_CATS?.split(",") ?? [])],
+        });
+        const cdp = PROFILE ? await page.context().newCDPSession(page) : undefined;
+        if (cdp) {
+          await cdp.send("Profiler.enable");
+          await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+          await cdp.send("Profiler.start");
+        }
+        await page.evaluate(() => {
+          console.timeStamp("bench-begin");
+          const w = window as unknown as { benchFrames?: boolean };
+          w.benchFrames = true;
+          const stamp = () => {
+            if (!w.benchFrames) return;
+            console.timeStamp("f");
+            requestAnimationFrame(stamp);
+          };
           requestAnimationFrame(stamp);
-        };
-        requestAnimationFrame(stamp);
-      });
-      await drive(page, scenario);
-      await page.evaluate(() => {
-        (window as unknown as { benchFrames?: boolean }).benchFrames = false;
-        console.timeStamp("bench-end");
-      });
-      if (cdp) {
-        const { profile } = await cdp.send("Profiler.stop");
-        fs.writeFileSync(path.join(tmp, `${arm}-${scenario}-${round}.cpuprofile`), JSON.stringify(profile));
+        });
+        await drive(page, scenario);
+        await page.evaluate(() => {
+          (window as unknown as { benchFrames?: boolean }).benchFrames = false;
+          console.timeStamp("bench-end");
+        });
+        if (cdp) {
+          const { profile } = await cdp.send("Profiler.stop");
+          fs.writeFileSync(path.join(tmp, `${arm}-${scenario}-${round}.cpuprofile`), JSON.stringify(profile));
+        }
+        await browser.stopTracing();
+        (results[`${arm}/${scenario}`] ??= []).push(analyze(file));
+        await page.close();
       }
-      await browser.stopTracing();
-      (results[`${arm}/${scenario}`] ??= []).push(analyze(file));
-      await page.close();
+    }
+  }
+} finally {
+  for (const [name, release] of releases.reverse()) {
+    try {
+      await release();
+    } catch (error) {
+      console.error(`thread-minimap-frame-cost: could not release the ${name}:`, error);
     }
   }
 }
-await browser.close();
-await vite!.close();
-await daemon.stop(true);
 
 const median = (v: number[]) => pct(v, 50);
 const fmt = (n: number) => n.toFixed(2).padStart(6);
-console.log(`turns=${TURNS} (rows=${TURNS * 2}) rounds=${ROUNDS} seconds=${SECONDS} trace dir ${tmp}`);
+console.log(`turns=${TURNS} (rows=${TURNS * 2}) rounds=${ROUNDS} seconds=${SECONDS} production build ${prodDir}`);
 console.log("ms per frame:       busy p50  busy p95  mean  script p95 render p95 frame p95 frames longtasks");
 for (const [key, runs] of Object.entries(results)) {
   console.log(
