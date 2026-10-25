@@ -44,7 +44,10 @@ public final class AgentPaneScrollAnchors {
     /// - Parameter writer: where the file's bytes go (tests record them).
     init(directory: URL?, writer: any AgentPaneStateFileWriting) {
         file = directory?.appending(path: Self.fileName)
-        store = file.map { AgentPaneStateFile<[Entry]>(url: $0, writer: writer) }
+        store = file.map {
+            AgentPaneStateFile<[Entry]>(url: $0, writer: writer,
+                                        queue: DispatchSerialQueue(label: "com.cmuxterm.app.next.agent-pane.scroll-anchors", qos: .utility))
+        }
     }
 
     public func anchor(for sessionId: String) -> AgentPaneScrollAnchor? {

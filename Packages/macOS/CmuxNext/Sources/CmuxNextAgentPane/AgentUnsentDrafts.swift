@@ -23,7 +23,10 @@ public final class AgentUnsentDrafts {
     /// - Parameter writer: where the file's bytes go (tests record them).
     init(file: URL?, writer: any AgentPaneStateFileWriting) {
         self.file = file
-        store = file.map { AgentPaneStateFile<[String: String]>(url: $0, writer: writer) }
+        store = file.map {
+            AgentPaneStateFile<[String: String]>(url: $0, writer: writer,
+                                                 queue: DispatchSerialQueue(label: "com.cmuxterm.app.next.agent-pane.unsent-drafts", qos: .utility))
+        }
         // concurrency-allow: one read of a small local state file when the tab store is made
         let data = file.flatMap { try? Data(contentsOf: $0) }
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]

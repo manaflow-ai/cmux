@@ -125,7 +125,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
   `cmux.agent-activity.socket`, `com.cmuxterm.app.next.chief-settle`, `com.cmuxterm.app.next.tasks.socket`,
-  `cua-helper-v2-reap`, `cua-helper-v2-stdout`
+  `cua-helper-v2-reap`, `cua-helper-v2-stdout`, `com.cmuxterm.app.next.agent-pane.scroll-anchors` and
+  `com.cmuxterm.app.next.agent-pane.unsent-drafts` (the executors of the two `AgentPaneStateFile` actors: one
+  small atomic file write each, utility)
 - Diagnostics: `cmux-next.hang-episodes`, `cmux-next.hang-episodes.symbols`, `com.cmuxterm.app.next.run-marker`,
   `com.cmuxterm.app.next.crash-forwarder`, `com.cmuxterm.app.next.owner-panic-forwarder`,
   `com.cmuxterm.next.typing-probe`, `com.cmuxterm.app.next.blocking-drain`, `com.cmux.host-pressure`,
