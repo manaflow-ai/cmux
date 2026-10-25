@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 489,
+  "count": 490,
   "sections": [
     {
       "id": "general",
@@ -1378,6 +1378,19 @@
             "max": 1.25,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "agentPane.display.environment.placement",
+          "title": "Session Info Chip",
+          "help": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
+          "kind": "choice",
+          "default": "left",
+          "group": "Agent Chat",
+          "values": [
+            "left",
+            "right",
+            "off"
+          ]
         },
         {
           "key": "agentPane.display.font.lineHeight",
