@@ -22,9 +22,10 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
   favicon    the tab's favicon URL, which FaviconScript reads in an isolated world, reaches the
              store (debug.sidebar_rows open_tab_favicons for the page's origin)
   type_waits browser.page.insert_text answers only after the page handled the text (its
-             gesture-free round trip): the page's input handler holds the page for 2 s, so the
-             call takes 1.5 s or more, and the field holds the text
-  design_on  Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
+             gesture-free round trip): the page's input handler holds the page for 1.2 s, so the
+             call takes 0.9 s or more, and the field holds the text
+  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default),
+             Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
              the page (enableDesignMode runs in an isolated world without a gesture)
   design_off the same keys turn it off: the overlay host is gone
   page_info  View Site Information (browser.pageInfo) opens its panel (debug.window_list)
@@ -74,7 +75,10 @@ SCRIPTS_PORT = 8738
 SCRIPTS_TITLE = "cmux-matrix-scripts"
 ICON_PATH = "/cmux-matrix-icon.png"
 TYPED = "cmux42"
-HOLD_MS = 2000  # the page's input handler holds the page this long
+# The page's input handler holds the page this long. Well under the control router's 2 s request
+# deadline (ControlRouter requestDeadline): a 2000 ms hold raced it, and on macOS 26 a 2081 ms call
+# answered "timeout" (exit 1) after the text was typed (run of 2026-10-24, build 419d8048).
+HOLD_MS = 1200
 REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit",
                   "favicon", "type_waits", "design_on", "design_off", "page_info", "settings", "alive", "quit")
 
@@ -266,23 +270,30 @@ class Smoke:
         self.step("favicon", bool(icon) and str(icon).endswith(ICON_PATH), {"favicon": icon})
 
         # Timed in the guest: the call's own time, without the SSH round trip.
-        timed = ("use Time::HiRes qw(time); my $t = time; open STDOUT, '>', '/dev/null'; system @ARGV;"
-                 " printf STDERR \"ms=%d rc=%d\\n\", (time - $t) * 1000, $? >> 8")
+        # The first output line is "ms=N rc=N", then the reply.
+        timed = ("use Time::HiRes qw(time); my $t = time; open(STDERR, '>&', STDOUT);"
+                 " open(my $fh, '-|', @ARGV) or die; my $out = do { local $/; <$fh> }; close $fh;"
+                 " printf \"ms=%d rc=%d\\n\", (time - $t) * 1000, $? >> 8; print $out")
         r = g.sh(f"/usr/bin/perl -e {shlex.quote(timed)} -- "
                  + g._cli(["app", "call", "browser.page.insert_text", json.dumps({"text": TYPED})]), timeout=60)
-        fields = dict(part.split("=", 1) for part in (r.stderr or "").split() if "=" in part)
+        lines = (r.stdout or "").splitlines()
+        fields = dict(part.split("=", 1) for part in (lines[0] if lines else "").split() if "=" in part)
         ms = int(fields["ms"]) if fields.get("ms", "").isdigit() else None
         value = self.page_eval("document.getElementById('f').value")
         self.step("type_waits", ms is not None and ms >= HOLD_MS * 0.75 and fields.get("rc") == "0" and value == TYPED,
-                  {"call_ms_vm": ms, "rc": fields.get("rc"), "field": value, "hold_ms": HOLD_MS})
+                  {"call_ms_vm": ms, "rc": fields.get("rc"), "field": value, "hold_ms": HOLD_MS,
+                   "reply": "\n".join(lines[1:]).strip()[-400:]})
 
         overlay = "!!document.querySelector('[data-cmux-design-mode=\"overlay\"]')"
+        # Design mode is behind a Debug Settings toggle (off by default): on for these two steps.
+        picker = self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": True})
         self.vnc.chord("ctrl+opt+cmd+d")
         on = self.wait(lambda: self.page_eval(overlay) is True, 15)
         self.step("design_on", bool(on), {"overlay": self.page_eval(overlay)})
         self.vnc.chord("ctrl+opt+cmd+d")
         off = self.wait(lambda: self.page_eval(overlay) is False, 15)
-        self.step("design_off", bool(on) and bool(off), {"overlay": self.page_eval(overlay)})
+        self.step("design_off", bool(on) and bool(off), {"overlay": self.page_eval(overlay), "picker": picker})
+        self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": None})
 
         def info_panel():
             return [w for w in self.call("debug.window_list").get("windows") or []

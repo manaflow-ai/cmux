@@ -12,8 +12,9 @@ import Foundation
 /// held ready reply keeps the session open, and a check answers with the waiting update. So a Dev
 /// build published after the staged one would wait for a restart. While an update waits, this
 /// probes the feed (the read-only probe, filtered by the ring as Sparkle filters) once per
-/// `updates.checkIntervalSeconds`, and at once when the person checks or picks a ring. When the
-/// ring has a strictly newer build, it cancels the staged installer (Skip on Sparkle's held reply,
+/// `updates.checkIntervalSeconds` (the tip app: every ``TipUpdateCheck/interval``), and
+/// at once when the person checks or picks a ring. When the ring has a strictly newer build, it
+/// cancels the staged installer (Skip on Sparkle's held reply,
 /// which records no skipped version and touches no file of the person's) and starts a check
 /// through this app's driver (``UpdateController/checkForUpdates()``, never Sparkle's silent
 /// driver), which downloads the newer build and stages it, replaceable again, for the card. If
@@ -139,11 +140,30 @@ final class StagedUpdateRefresh {
         arm(updater)
     }
 
+    /// Whether the pending probe is the tip app's (``probesFast(_:)``).
+    private(set) var armedFast = false
+
+    /// The tip app probes every ``TipUpdateCheck/interval`` while a probe could replace the staged
+    /// build, so a newer tip replaces it; otherwise (and in every other app) once per the person's
+    /// interval, so a staged build nothing can replace never wakes every few minutes.
+    private func probesFast(_ updater: UpdaterService) -> Bool {
+        updater.identity.isTipBuild && TipUpdateCheck.interval < schedule.interval && updater.disabledReason == nil && isReplaceable(updater)
+    }
+
+    /// Downloads became automatic or stopped, or the managed policy moved: the pending probe takes
+    /// the interval that now applies.
+    func policyChanged(updater: UpdaterService) {
+        guard timer.isScheduled, armedFast != probesFast(updater) else { return }
+        timer.cancel()
+        arm(updater)
+    }
+
     /// Schedules the next probe one interval from now, unless one is pending or running.
     private func arm(_ updater: UpdaterService) {
         guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled, !installing,
               case .ready = updater.flow.phase else { return }
-        timer.schedule(after: .seconds(schedule.interval)) { @MainActor [weak self, weak updater] in
+        armedFast = probesFast(updater)
+        timer.schedule(after: .seconds(armedFast ? TipUpdateCheck.interval : schedule.interval)) { @MainActor [weak self, weak updater] in
             guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
             self.arm(updater)
         }

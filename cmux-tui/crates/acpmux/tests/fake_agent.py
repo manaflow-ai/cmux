@@ -897,6 +897,40 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "tool-hang" starts a tool call that never ends and says nothing more: a long command that
+    # prints nothing, or a hung one (`hub/stalled_turn.rs`).
+    if text == "tool-hang":
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "th-1", "title": "Run a long build",
+                     "kind": "execute", "status": "in_progress"})
+        time.sleep(3600)
+        return
+    # "tool-done-hang": a tool call that ends 1.5 s later, then nothing more: the turn's
+    # deadline comes back to one period once no tool call is open (`hub/stalled_turn.rs`).
+    if text == "tool-done-hang":
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tdh-1", "title": "Run a check",
+                     "kind": "execute", "status": "in_progress"})
+        time.sleep(1.5)
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
+        time.sleep(3600)
+        return
+    # "limit-then-hang": a usage limit, then on the fallback profile (FAKE_FALLBACK=1) one word
+    # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
+    if text == "limit-then-hang":
+        if os.environ.get("FAKE_FALLBACK") != "1":
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            return
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
+        time.sleep(3600)
+        return
+    # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
+    # each sign well inside the stall limit (`hub/stalled_turn.rs`).
+    if text.startswith("ticking:"):
+        n, ms = (int(v) for v in text[len("ticking:"):].split(":"))
+        for i in range(n):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"tick{i} "}})
+            time.sleep(ms / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -1155,6 +1189,11 @@ def main():
                 threading.Thread(target=finish_load, daemon=True).start()
                 continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+            # FAKE_LOAD_REPLAY_TOOL=1: the history replayed on load holds a tool call that never
+            # ended (a turn cut off mid-tool), as a real adapter replays it.
+            if os.environ.get("FAKE_LOAD_REPLAY_TOOL") == "1":
+                update(params["sessionId"], {"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Run an old build",
+                                             "kind": "execute", "status": "in_progress"})
             # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
             # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
             load_mode = os.environ.get("FAKE_LOAD_MODE")

@@ -49,7 +49,7 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             // the new one at; the placeholder fails until it is filled in.
             let advertise = match role {
                 Role::Daemon => format!(" --advertise '{ADVERTISE_PLACEHOLDER}'"),
-                Role::Client | Role::ReadOnly => String::new(),
+                Role::Client | Role::ReadOnly | Role::Phone => String::new(),
             };
             v["install_command"] = json!(format!("{}{advertise}", install_command(&ticket)));
             v["join_command"] = json!(format!("cmux host join '{ticket}'{advertise}"));
@@ -271,7 +271,7 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             params["advertiseToken"] = issued["token"].clone();
             issued_here = issued["deviceId"].as_str().map(str::to_owned);
         }
-        Role::Client | Role::ReadOnly => {
+        Role::Client | Role::ReadOnly | Role::Phone => {
             let peers = client.request("_acpmux/peers", json!({})).await?;
             let taken = peers["peers"].as_array().is_some_and(|ps| {
                 ps.iter().any(|p| p["name"].as_str() == Some(peer_name.as_str()))

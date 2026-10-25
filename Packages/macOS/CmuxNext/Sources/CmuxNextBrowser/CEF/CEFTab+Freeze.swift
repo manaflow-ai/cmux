@@ -15,4 +15,15 @@ extension CEFTab: BrowserFreezing {
         // No one waits for the reply (the runtime drops a reply without a waiter).
         return shim.devToolsCall(browserID, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": frozen ? "frozen" : "active"])) != 0
     }
+
+    /// Freezes a page that is never shown (the spare window's about:blank placeholder) through DevTools
+    /// `Page.setWebLifecycleState`, which hides it to Chromium first (`WasHidden`): the fork's
+    /// `cmux_shim_tab_set_frozen` freezes only pages Chromium already counts hidden, and
+    /// `CefBrowserHost::WasHidden` does nothing for a windowed Chrome-style browser. Unfrozen, the
+    /// placeholder counted visible and ran rAF at ~98/s at idle (fleet probe 4e065838, macOS 27). It is
+    /// never thawed: a take closes it on the next turn (`CEFPaneHost.closeSparePlaceholder`).
+    func freezeNeverShownPage(_ browser: Int32) {
+        guard let shim = runtime.shim else { return }
+        _ = shim.devToolsCall(browser, "Page.setWebLifecycleState", CEFDevToolsResult.params(["state": "frozen"]))
+    }
 }

@@ -179,6 +179,7 @@ export const SubagentTray = memo(function SubagentTray({
         <AgentLine
           name={item.agent.name}
           detail={item.agent.action ?? item.agent.kind}
+          mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
           state={t(subagentStatusLabel(item.agent, waiting))}
           time={formatDuration(elapsed(item.agent, now))}
@@ -188,7 +189,11 @@ export const SubagentTray = memo(function SubagentTray({
           kind={t("tray.kind.subagent")}
           chevron
           onOpen={() => onOpen(item.agent.id)}
-          after={stop && item.agent.state === "running" && <StopButton agent={item.agent} stop={stop} />}
+          after={
+            stop &&
+            item.agent.state === "running" &&
+            !item.agent.command && <StopButton agent={item.agent} stop={stop} />
+          }
         />
       );
     if (item.kind === "command") {

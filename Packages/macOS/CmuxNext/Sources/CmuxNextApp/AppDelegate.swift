@@ -28,10 +28,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let firstFrame = FirstFrameGate()
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
+    /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
-    /// A second quit signal began the forced exit (`QuitSignal`); later signals do nothing.
-    private var forceExitStarted = false
+    /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
+    private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
+        self?.services?.crashRecovery.applicationWillTerminate()
+        AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+        self?.services?.home.applicationWillTerminate()
+    }, save: { [weak self] in
+        await self?.services?.home.flushCacheForQuit()
+    })
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
     /// person's pending-input check and task signposts. Built here, the composition root, and
@@ -50,8 +58,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
-    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?, launchCleanup: LaunchCleanup = LaunchCleanup()) {
+    init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
+        self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
@@ -69,24 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let services = self?.services else { return NSApp.terminate(nil) }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
-            // One forced exit: a third signal while it runs changes nothing.
-            guard self?.forceExitStarted != true else { return }
-            self?.forceExitStarted = true
-            self?.services?.crashRecovery.applicationWillTerminate()
-            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-            let home = self?.services?.home
-            home?.applicationWillTerminate()
-            // The Home cache's last batch (drafts) gets 160 ms, then the process ends: 3x the measured p99
-            // of a first write after launch with a large Home (52 ms, HomeCacheQuitWriteTimeTests). The limit
-            // is a dedicated thread's `_exit` (QuitDeadline): neither a full cooperative pool nor a blocked
-            // main thread (the stuck quit this exit is for) can hold the process, and no atexit handler runs
-            // beside AppKit and Chromium. The normal end is `exit` on the main thread, as AppKit's own.
-            QuitDeadline(reason: "a forced quit began its Home cache write").arm(after: .milliseconds(160))
-            // task-owner: the forced quit's last save; the process ends after it or at the deadline
-            Task { @MainActor in
-                await home?.flushCacheForQuit()
-                exit(0)
-            }
+            self?.forcedQuitExit.start()
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
@@ -118,7 +111,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment, mainWork: mainWork)
+        let services = AppServices(environment: environment, work: launchReads.work, mainWork: mainWork,
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.

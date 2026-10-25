@@ -111,7 +111,7 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
 /// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
 /// prompt's "Show prompt"). Whether there is more is measured: the pane's width decides the wrap,
 /// so a resize can bring the toggle in or take it away (one observer per cut, gone with it).
-function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
+export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);

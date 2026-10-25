@@ -22,11 +22,30 @@ export type AgentCardProps = {
   queued?: number;
   /// It waits for a run slot: it has not started, whatever its state says.
   slot?: boolean;
+  /// How long it has run, or ran, after its state.
+  time?: string;
+  /// Its state's word when the state's own is not it (a run that was stopped).
+  stateLabel?: string;
   onOpen?: () => void;
+  /// The open button's word: "Open chat" when absent.
+  openLabel?: string;
   children?: ReactNode;
 };
 
-export function AgentCard({ name, harness, model, state, doing, queued, slot, onOpen, children }: AgentCardProps) {
+export function AgentCard({
+  name,
+  harness,
+  model,
+  state,
+  doing,
+  queued,
+  slot,
+  time,
+  stateLabel,
+  onOpen,
+  openLabel,
+  children,
+}: AgentCardProps) {
   const t = useT();
   // A profile names its family first (`claude-sr2`): its family's mark when it has none.
   const mark = harness ? knownMark(harness, harness.split(/[-_/]/)[0]) : undefined;
@@ -41,8 +60,9 @@ export function AgentCard({ name, harness, model, state, doing, queued, slot, on
         {state && (
           <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
             {state === "working" && <Spinner size={12} loading />}
-            {slot ? t("subsession.state.slot") : t(SUBSESSION_STATE_LABEL[state])}
+            {slot ? t("subsession.state.slot") : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))}
             {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
+            {time ? ` · ${time}` : ""}
           </span>
         )}
         {onOpen && (
@@ -52,7 +72,7 @@ export function AgentCard({ name, harness, model, state, doing, queued, slot, on
             aria-label={t("subagents.open", { name })}
             onClick={onOpen}
           >
-            {t("subsession.openChat")}
+            {openLabel ?? t("subsession.openChat")}
           </button>
         )}
       </div>

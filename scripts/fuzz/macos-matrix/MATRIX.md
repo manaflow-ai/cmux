@@ -71,7 +71,8 @@ terminal shows the output line `cmux-matrix-42`), `split` (Split Right makes a s
 tab loads a page served in the guest, and `debug.cef` says ready with no `unavailable` reason and no WebKit
 fallback), `webkit` (a WebKit tab loads the same page), then WebKit's gesture-free scripts on a second WebKit
 tab (port 8738): `favicon` (the favicon URL FaviconScript reads reaches the store), `type_waits`
-(`browser.page.insert_text` answers only after the page handled the text: the page holds 2 s in its input handler),
+(`browser.page.insert_text` answers only after the page handled the text: the page holds 1.2 s in its input handler,
+under the router's 2 s request deadline),
 `design_on` and `design_off` (Ctrl-Opt-Cmd-D over VNC adds and removes the design-mode overlay), `page_info` (View
 Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
@@ -94,6 +95,8 @@ has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the sour
   links. `test_probe_names.sh` checks each refusal (run it on a fleet host).
 - `CMUX_MATRIX_APP` holds the build's app path in the guest, for a later probe that needs the app.
 - Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
+- `key-change-cost` (issue #24913): ms of one key-window change between a window and its child window, with
+  0-120 hidden workspace-like view trees in the window and out of it (does a hidden tree cost a key change?).
 
 ### cmux-unit and xctrace in the guest
 

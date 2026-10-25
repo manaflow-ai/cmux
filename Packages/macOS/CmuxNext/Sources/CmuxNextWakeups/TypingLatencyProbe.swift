@@ -18,6 +18,16 @@ import CmuxNextSignposts
 /// Times are milliseconds after the event's own timestamp (seconds since
 /// boot, the same clock as `CLOCK_UPTIME_RAW`).
 ///
+/// One press at a time, tied to its terminal: the echo hops take a `source`
+/// (``mark(_:source:next:)``), and a hop counts only from the object the
+/// previous hop named. The attachment that sent the press (``Mark/socketSubmit``)
+/// names who may decode and receive its echo, the receiving session names its
+/// output lane, and the lane names the layer whose frame shows the echo. Output
+/// of a busy neighbor terminal therefore never closes the press. The flow id
+/// goes on the `send` of the attachment that first asks (``openFlow(for:)``,
+/// read on Ghostty's IO thread); a second terminal's input while a press is open
+/// carries it only if no attachment has claimed the press yet.
+///
 /// `commit_ms` is the end of the first main run-loop turn after dispatch,
 /// past Core Animation's commit observer: the frame that carries what the
 /// key changed in an AppKit text view (the Home composer, the omnibar).
@@ -29,7 +39,7 @@ import CmuxNextSignposts
 /// each sample also gets a flow id, and every hop it records, plus the
 /// extra ``hop(_:)`` points and the commit of the frame that shows the echo,
 /// is a `key.flow` signpost event (``Signposter/flowHop(_:flow:ageMicroseconds:)``).
-/// The daemon's `send` request carries ``openFlow``, so the daemon, the
+/// The daemon's `send` request carries ``openFlow(for:)``, so the daemon, the
 /// terminal host and the holder mark the same press on the same clock. The
 /// variable alone turns sampling on (no CSV is written without
 /// `CMUX_NEXT_TYPING_PROBE`).
@@ -38,6 +48,16 @@ public final class TypingLatencyProbe: Sendable {
                                                   flows: !(ProcessInfo.processInfo.environment["CMUX_NEXT_TRACE_FLOWS"] ?? "").isEmpty)
 
     public static var isEnabled: Bool { shared.output != nil || shared.flows != nil }
+
+    /// What an echo hop runs for (``mark(_:source:next:)``): a daemon terminal by its surface id on the
+    /// network side (the attachment that sent the key and the session's IO both know it), an object on
+    /// the render side (the output lane, the layer).
+    public enum Source: Hashable, Sendable {
+        /// A daemon terminal's surface id (`SurfaceID.rawValue`), never the unresolved 0.
+        case terminal(UInt64)
+        /// One object: an output lane, a layer, or an attachment whose surface is not resolved yet.
+        case object(ObjectIdentifier)
+    }
 
     public enum Mark: Int, CaseIterable, Sendable {
         case dispatchStart, dispatchEnd, ioWrite, socketSubmit, outputDecoded, outputReceived, outputParsed, contents, commit
@@ -93,6 +113,9 @@ public final class TypingLatencyProbe: Sendable {
         var event: UInt64
         var marks = [UInt64?](repeating: nil, count: Mark.allCases.count)
         var ioWriteOnMain = false
+        /// The object each hop must come from, set by the hop before it (``mark(_:source:next:)``);
+        /// nil: any source.
+        var expected = [Source?](repeating: nil, count: Mark.allCases.count)
         /// Written at ``Mark/commit`` instead of ``Mark/contents`` (``closeAtCommit()``).
         var closesAtCommit = false
     }
@@ -132,11 +155,15 @@ public final class TypingLatencyProbe: Sendable {
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
-    /// The flow id of the open key press, for the daemon's `send` request; nil while flows are off
-    /// or no press is open.
-    public var openFlow: UInt64? {
+    /// The flow id of the open key press for a `send` of the attachment `source`: nil while flows are
+    /// off, no press is open, or another attachment already sent the press.
+    public func openFlow(for source: Source) -> UInt64? {
         guard flows != nil else { return nil }
-        return state.withLock { $0.open?.flow }
+        return state.withLock { state -> UInt64? in
+            guard let open = state.open else { return nil }
+            let claimed = open.expected[Mark.outputDecoded.rawValue]
+            return claimed == nil || claimed == source ? open.flow : nil
+        }
     }
 
     /// Records a `key.flow` hop of the open press that no CSV column has (`app.key.terminal`: the key
@@ -175,16 +202,34 @@ public final class TypingLatencyProbe: Sendable {
     }
 
     /// Records `mark` for the open sample the first time it runs. A mark
-    /// before the hop it follows (``Mark/after``) is ignored. Output hops
-    /// are not tied to a surface: type into one terminal while sampling.
-    public func mark(_ mark: Mark) {
+    /// before the hop it follows (``Mark/after``) is ignored, and so is a mark
+    /// from another `source` than the one the hop before named.
+    ///
+    /// - Parameters:
+    ///   - source: What this hop runs for: the daemon terminal for ``Mark/socketSubmit``,
+    ///     ``Mark/outputDecoded`` and ``Mark/outputReceived``, the output lane for
+    ///     ``Mark/outputParsed``, the layer for ``Mark/contents``. Nil for the key hops; a nil
+    ///     source never matches a hop that expects one.
+    ///   - next: The object the following hop must come from: the session's output lane at
+    ///     ``Mark/outputReceived``, the lane's layer at ``Mark/outputParsed``.
+    public func mark(_ mark: Mark, source: Source? = nil, next: Source? = nil) {
         guard output != nil || flows != nil else { return }
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let onMain = mark == .ioWrite && Thread.isMainThread
         let (finished, recorded) = state.withLock { state -> (Sample?, Sample?) in
             guard var sample = state.open, sample.marks[mark.rawValue] == nil else { return (nil, nil) }
             if let after = mark.after, sample.marks[after.rawValue] == nil { return (nil, nil) }
+            if let expected = sample.expected[mark.rawValue], expected != source { return (nil, nil) }
             sample.marks[mark.rawValue] = now
+            switch mark {
+            case .socketSubmit:
+                // The attachment that sent the press decodes and receives its echo.
+                sample.expected[Mark.outputDecoded.rawValue] = source
+                sample.expected[Mark.outputReceived.rawValue] = source
+            case .outputReceived: sample.expected[Mark.outputParsed.rawValue] = next
+            case .outputParsed: sample.expected[Mark.contents.rawValue] = next
+            default: break
+            }
             if mark == .ioWrite { sample.ioWriteOnMain = onMain }
             if mark == .contents || (mark == .commit && sample.closesAtCommit) {
                 state.open = nil
