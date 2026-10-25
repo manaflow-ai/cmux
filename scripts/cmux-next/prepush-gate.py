@@ -70,6 +70,10 @@ json's own totals; its rule modules (arch_rules/, the layer gate) refuse what th
 starts on a thread before the scanners, so a push pays what is left of it at the guardrails (its cost is the
 Swift files it reads and analyzes; --timings prints the wait). Its one escape is a dated exception in
 arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
+Also local only: "Baseline paths follow renames" (follow-renames.py --check): refuses a push whose own commits leave
+an entry of a path-keyed baseline (crash allowlist, main-actor work, OWNERS.md, the route table and the rest of its
+REGISTRY) naming no tracked file, the trace of a `git mv` that did not run follow-renames.py --from-git or
+move-app-files.py. Entries already stale at the base pass. --no-guardrails turns it off; it fails open.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -255,6 +259,32 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
     return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
 
 
+def renamed_files(repo: Path, base: str, head: str, changed: list[str]) -> dict[str, str]:
+    """{new path: old path} for the CHANGED files git sees as renames over BASE (move-app-files.py moves): the base
+    tree checks the old file at its old path, and its findings count as the new path's, so a pure move adds none."""
+    out = git(repo, "diff", "--name-status", "-M", "--diff-filter=R", "-z", base, head).decode().split("\0")
+    wanted, renamed = set(changed), {}
+    for i in range(0, len(out) - 2, 3):
+        if out[i].startswith("R") and out[i + 2] in wanted:
+            renamed[out[i + 2]] = out[i + 1]
+    return renamed
+
+
+def moved_spelling(text: str, renamed: dict[str, str]) -> str:
+    """TEXT (a base finding) with each renamed file's old path spelled as its new one, in every form a check prints:
+    the repository path and the path under the package's Sources/ or Tests/ (which every longer form contains)."""
+    for new, old in renamed.items():
+        for prefix in (PKG + "/Sources/", PKG + "/Tests/"):
+            if old.startswith(prefix) and new.startswith(PKG + "/"):
+                old_tail = old[len(prefix):]
+                new_tail = new[len(PKG + "/Sources/"):] if new.startswith(PKG + "/Sources/") else new[len(PKG + "/Tests/"):]
+                text = re.sub(r"(?<![\w.+@-])" + re.escape(old_tail) + r"(?![\w+@-])", lambda _m, n=new_tail: n, text)
+                break
+        else:
+            text = re.sub(r"(?<![\w.+@/-])" + re.escape(old) + r"(?![\w+@-])", lambda _m, n=new: n, text)
+    return text
+
+
 # ---------------------------------------------------------------- pinned tools
 
 def platform_key() -> str:
@@ -340,7 +370,7 @@ def ls_tree(repo: Path, rev: str, prefix: str) -> list[str]:
 
 
 def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path,
-                trusted_scripts: Path | None = None) -> tuple[Path, Path]:
+                trusted_scripts: Path | None = None, renamed: dict[str, str] | None = None) -> tuple[Path, Path]:
     # The check scripts and their data sit at the top of scripts/cmux-next (plus lint/); its test,
     # release and harness subfolders are not read by any check and would only slow the copy.
     scripts = [] if trusted_scripts else [p for p in ls_tree(repo, head, SCRIPTS + "/")
@@ -356,6 +386,9 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
             files[p] = rev
         for p in changed:
             files[p] = rev
+        if side == "base":
+            for old in (renamed or {}).values():
+                files[old] = rev
         dest = work / side
         write_tree(repo, dest, files)
         if trusted_scripts:
@@ -426,8 +459,11 @@ class Finding(str):
         return finding
 
 
-def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
-    seen = collections.Counter(normalize(r, base_tree) for r in records(base_out))
+def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path,
+                renamed: dict[str, str] | None = None) -> list[str]:
+    """HEAD_OUT's findings that BASE_OUT does not have; a renamed file's base findings count under its new path."""
+    # Keyed at the old path (normalize reads the source line from the base tree), then spelled as the new one.
+    seen = collections.Counter(moved_spelling(normalize(r, base_tree), renamed or {}) for r in records(base_out))
     fresh = []
     for record in records(head_out):
         key = normalize(record, head_tree)
@@ -535,6 +571,33 @@ def _rows(data: object, prefix: tuple = ()) -> dict[tuple, int]:
     return {prefix: data} if isinstance(data, int) and not isinstance(data, bool) else {}
 
 
+def commit_renames(repo: Path, sha: str) -> dict[str, str]:
+    """{new path: old path} for the files commit SHA renames (git's rename detection against its parent)."""
+    out = git(repo, "diff", "--name-status", "-M", "-z", sha + "^", sha, check=False).decode(errors="replace").split("\0")
+    renamed, i = {}, 0
+    while i < len(out) and out[i]:
+        if out[i].startswith(("R", "C")):
+            if out[i].startswith("R"):
+                renamed[out[i + 2]] = out[i + 1]
+            i += 3
+        else:
+            i += 2
+    return renamed
+
+
+def followed_moves(allow: dict[tuple, dict], old: dict[tuple, dict], new: dict[tuple, dict],
+                   renamed: dict[str, str]) -> dict[tuple, dict]:
+    """ALLOW less the entries that only followed their file's rename (follow-renames.py, move-app-files.py): the
+    old path's entry of the same class is gone and the count did not rise. A reviewed allowance moves with its code."""
+    out = {}
+    for (path, cls), entry in allow.items():
+        was = (renamed.get(path), cls)
+        if was[0] and was in old and was not in new and (entry.get("count") or 0) <= (old[was].get("count") or 0):
+            continue
+        out[(path, cls)] = entry
+    return out
+
+
 def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str | None, dict, dict]]:
     """Per non-merge commit of BASE..HEAD that changes the crash data: (sha, subject, its Crash-allow-OK trailer or
     None, {allowlist key: entry added or raised}, {baseline row: value raised}), against the commit's own parent."""
@@ -548,6 +611,8 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
             continue
         old, new = _allow_entries(_json_at(repo, sha + "^", CRASH_ALLOWLIST)), _allow_entries(_json_at(repo, sha, CRASH_ALLOWLIST))
         allow = {k: e for k, e in new.items() if k not in old or (e.get("count") or 0) > (old[k].get("count") or 0)}
+        if allow:
+            allow = followed_moves(allow, old, new, commit_renames(repo, sha))
         old_rows, new_rows = _rows(_json_at(repo, sha + "^", CRASH_BASELINE)), _rows(_json_at(repo, sha, CRASH_BASELINE))
         rows = {k: v for k, v in new_rows.items() if v > old_rows.get(k, 0)}
         if allow or rows:
@@ -771,7 +836,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
-        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp), trusted_scripts)
+        renamed = renamed_files(repo, base, head, changed)
+        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp), trusted_scripts, renamed)
         # The tool rules and pins come from the head; a commit older than the gate uses the checkout's.
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
@@ -801,6 +867,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 code, out = run(fill(job[1], tree), tree)
             else:
                 _, fn, binary, config, files = job
+                if tree == base_tree:
+                    files = [renamed.get(f, f) for f in files]
                 out = fn(binary, config, tree, files)
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
@@ -820,7 +888,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
-                fresh = new_records(base_out, head_out, base_tree, head_tree)
+                fresh = new_records(base_out, head_out, base_tree, head_tree, renamed)
                 if fresh:
                     found.append((name, fresh))
     if timings:
@@ -1039,12 +1107,70 @@ def perf_cron_tests(repo: Path, ranges: list) -> bool:
     return refused
 
 
+FOLLOW_RENAMES = "follow-renames.py"
+FOLLOW_RENAMES_TIMEOUT = 60
+
+
+def can_leave_stale_paths(repo: Path, base: str, head: str, script: Path) -> bool:
+    """Whether BASE..HEAD deletes or renames a file, or edits a path-keyed file (follow-renames.py --list): only
+    those leave an entry naming nothing, so every other push skips the scan (it reads every tracked path)."""
+    try:
+        listed = subprocess.run([sys.executable, "-I", str(script), "--list"], capture_output=True, text=True,
+                                timeout=FOLLOW_RENAMES_TIMEOUT, stdin=subprocess.DEVNULL).stdout.split()
+        out = git(repo, "diff", "--name-status", "-M", "-z", base, head, check=False).decode(errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    fields = out.split("\0")
+    i = 0
+    while i < len(fields) and fields[i]:
+        status = fields[i]
+        width = 3 if status[:1] in ("R", "C") else 2
+        if status[:1] in ("D", "R") or fields[i + 1] in listed or fields[i + width - 1] in listed:
+            return True
+        i += width
+    return False
+
+
+def stale_baseline_paths(repo: Path, ranges: list, trusted_scripts: Path | None) -> bool:
+    """follow-renames.py --check on each pushed head; True when the push's own commits leave a stale baseline path.
+
+    An entry counts only when its head names nothing and neither the base nor any range the push does not own (a
+    merged origin/feat-cmux-next) already had it stale. The hook runs the installed copy, a manual run this
+    checkout's. Local only, like the guardrails; it fails open (a git error or a missing copy warns)."""
+    script = (trusted_scripts or repo / SCRIPTS) / FOLLOW_RENAMES
+    if not script.is_file():
+        log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} is not installed; rerun scripts/install-git-hooks.sh. Baseline "
+            "paths were not checked.")
+        return False
+    refused = False
+    for own in ranges:
+        bases = [own.base, *(a for _, a in own.before)]
+        if not can_leave_stale_paths(repo, own.base, own.head, script):
+            continue
+        cmd = [sys.executable, "-I", str(script), "--repo", str(repo), "--check", "--rev", own.head]
+        for base in bases:
+            cmd += ["--base", base]
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=FOLLOW_RENAMES_TIMEOUT, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} --check did not run ({type(error).__name__}: {error}); not "
+                "applied to this push.")
+            continue
+        if done.returncode == 1:
+            log(f"prepush-gate: at {own.head[:12]}: {done.stdout.strip()}")
+            refused = True
+        elif done.returncode != 0:
+            log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} --check failed ({done.stderr.strip()[-400:]}); not applied "
+                "to this push.")
+    return refused
+
+
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
 # source lines unlike CI's check-app-size.sh. push_range.py decides which commits are the push's own, for the
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py", "git_batch.py")
+                  "push_range.py", "git_batch.py", "follow-renames.py")
 RULES_SUBDIR = "arch_rules"
 
 
@@ -1232,13 +1358,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
         t0 = time.monotonic()
+        guarded = stale_baseline_paths(repo, ranges, trusted_scripts) or guarded
+        if args.timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  baseline paths follow renames")
+        t0 = time.monotonic()
         guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines, push_range, args.remote), trusted_scripts) or guarded
         if args.timings:
             log(f"  {time.monotonic() - t0:5.2f}s  compile trailer")
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print(f"prepush-gate: push refused by the guardrails, the perf cron tests or the compile trailer ({elapsed:.1f}s)")
+            print("prepush-gate: push refused by the guardrails, the perf cron tests, a stale baseline path or the compile "
+                  f"trailer ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0
