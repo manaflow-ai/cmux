@@ -182,11 +182,54 @@ extension WindowRootView {
     /// frame. A radius change alone moves no page, so Chromium pages are
     /// told to re-read their clip.
     func updateMainPaneShade() {
-        let radius = mainPaneCornerRadius
+        let radius = presentsPage ? 0 : mainPaneCornerRadius
         if contentHost.setCornerRadius(radius), let window {
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
         let alpha = Metrics.mainPaneChromeShade(isDark: themeTokens.isDark)
         mainPaneShade.update(card: contentHost.frame, radius: radius, alpha: alpha)
+    }
+}
+
+// A fullscreen page with the whole window (`WindowController+FullScreen`):
+// the content host leaves its side and edge pins for the window's edges, with
+// no gutter or corners, and the chrome around it hides. The sidebar keeps its
+// model state (shown, width), so nothing of it is saved or animated; leaving
+// restores the pins and shows what it hid.
+extension WindowRootView {
+    /// Every side and edge pin of the content host (all sides: a side switch meanwhile swaps sets).
+    var contentHostPins: [NSLayoutConstraint] {
+        (sidePins.values.flatMap { $0 } + mainPaneEdges).filter { $0.firstItem === contentHost }
+    }
+
+    func applyPagePresentation() {
+        if presentsPage {
+            NSLayoutConstraint.deactivate(contentHostPins)
+            NSLayoutConstraint.activate(pagePresentationPins)
+            hidePagePresentationChrome()
+        } else {
+            NSLayoutConstraint.deactivate(pagePresentationPins)
+            NSLayoutConstraint.activate((sidePins[sidebarSide] ?? []).filter { $0.firstItem === contentHost } + mainPaneEdges)
+            applySidebarRail()
+            for view in pagePresentationHidden { view.isHidden = false }
+            pagePresentationHidden = []
+            applyMainPane()
+        }
+        needsLayout = true
+        layoutSubtreeIfNeeded()
+        updateMainPaneShade()
+        // The card's corners and edges moved without its pages moving: Chromium pages re-read their clip.
+        if let window { NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window) }
+    }
+
+    /// Hides the chrome around the content host, remembering the views it hid (one hidden on its own stays so).
+    /// Layout runs it again, after the passes that show their views (the right sidebar's width).
+    func hidePagePresentationChrome() {
+        let chrome: [NSView?] = [sidebar, titlebar, toolbarBand, trafficLightsGlass, titlebarRevealRegion, mainPaneShade,
+                                 rightPanel, titlebarBadge, hostPressureIndicator]
+        for case let view? in chrome where !view.isHidden {
+            pagePresentationHidden.append(view)
+            view.isHidden = true
+        }
     }
 }

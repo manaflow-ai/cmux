@@ -15,6 +15,7 @@ extension WindowRootView {
     func applySidebarSide() {
         for (side, constraints) in sidePins where side != sidebarSide { NSLayoutConstraint.deactivate(constraints) }
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
+        if presentsPage { NSLayoutConstraint.deactivate(contentHostPins) }
         applySidebarRail()
         sidebar.side = sidebarSide
         // The right sidebar's inset moves to the other edge with it.

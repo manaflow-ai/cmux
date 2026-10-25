@@ -51,6 +51,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
     /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
     private(set) var isSuspended = false
+    /// The window gives this pane's fullscreen page the whole screen (`WindowController+FullScreen`):
+    /// the strip hides with the rest of the window's chrome.
+    var presentsPage = false {
+        didSet { if presentsPage != oldValue { view.hidesStrip = snapshotHidesStrip || presentsPage } }
+    }
+    private var snapshotHidesStrip = false // the last snapshot's own choice, kept under `presentsPage`
+    private var windowController: WindowController? { view.window?.delegate as? WindowController }
     #if DEBUG
     private(set) var debugSnapshotRuns = 0 // this pane's strip maps (`structure()`), read by tests
     #endif
@@ -289,7 +296,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
         if force { view.stripView.discardPendingReorder() }
-        if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
+        snapshotHidesStrip = snapshot.hidesStrip
+        if view.hidesStrip != (snapshot.hidesStrip || presentsPage) { view.hidesStrip = snapshot.hidesStrip || presentsPage }
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
@@ -425,6 +433,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
+        windowController?.revalidatePagePresentation() // a page that had the screen was switched away
     }
 
     /// Another pane took `key`'s view (the tab moved there) or its surface
@@ -504,6 +513,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.presence = presence
         services.cache.setPresence(presence, presenter: self)
         noteNeighbors()
+        windowController?.revalidatePagePresentation() // a pane beside a page that has the screen
         guard !isSuspended else { return services.surfaceInvariant.noteChange() }
         // Content destroyed while away re-attaches (daemon replay) as soon as
         // the pane nears the viewport, so it is ready before it scrolls in.
