@@ -83,6 +83,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
 | `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account. |
+| `mobile.terminalSizing` | string | `"smallest"` | `smallest`, `mac`, `latest`, `priority` | Terminal Size When Shared. Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone. |
+| `mobile.terminalSizingOrder` | array | `[]` |  | Terminal Size Priority. The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.dockColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Dock Column Edge |
@@ -91,6 +93,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.rows` | boolean | `true` |  | Rows. Off hides New Row and fits a column's existing rows into it without scrolling. |
 | `layout.focusFollowsMouse` | boolean | `false` |  | Focus Follows Mouse. Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus. |
 | `layout.scrollAreas` | boolean | `false` |  | Scroll Areas. Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns. |
+| `layout.scrollModifier` | string | `"command"` | `command`, `none` | Scroll Columns and Rows With. Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them. |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `layout.newPanePlacement` | string | `"tab"` | `tab`, `split` | New Terminals and Browsers. Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout). |
@@ -154,7 +157,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.paneBorder` | string | `"subtle"` | `subtle`, `none` | Border |
 | `layout.paneBorderColor` | string |  |  | Border Color |
 | `layout.paneBorderWidth` | real |  | 0.5 to 4 | Border Width |
-| `focusRing.enabled` | boolean | `true` |  | Show Focus Ring |
+| `focusRing.enabled` | boolean | `false` |  | Show Focus Ring |
 | `focusRing.style` | string | `"ring"` | `ring`, `glow`, `none` | Style |
 | `focusRing.contrast` | string | `"subtle"` | `subtle`, `standard`, `strong` | Contrast |
 | `focusRing.color` | string |  |  | Color |
@@ -210,7 +213,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.statusIndicator.honorStatusStyle` | boolean | `true` |  | Let Statuses Choose Their Style. A status that asks for a style (cmux status set --style) uses it. |
 | `status.inferCommandBusy` | boolean | `false` |  | Show Running Commands. A shell command that runs a while shows as busy. |
 | `status.inferCommandBusyAfter` | real | `3` | 0 to 600 | Show After |
-| `diff.layout` | string | `"unified"` | `split`, `unified` | Layout |
+| `diff.layout` | string | `"auto"` | `auto`, `split`, `unified` | Layout |
 | `diff.diffIndicators` | string | `"bars"` | `bars`, `classic`, `none` | Change Markers |
 | `diff.colors` | string | `"theme"` | `theme`, `muted`, `standard` | Diff Colors |
 | `diff.wordWrap` | boolean | `false` |  | Wrap Lines |
@@ -219,6 +222,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
 | `diff.groupByKind` | boolean | `false` |  | Group Files by Kind |
+| `diff.hideWhitespace` | boolean | `false` |  | Hide White Space |
+| `diff.showBulkActions` | boolean | `true` |  | Stage All and Revert All Bar |
 | `markdown.remoteImages` | boolean | `false` |  | Load Web Images Automatically. Web image sites can see your address and when you open a document. When off, each document asks before loading its web images. |
 | `markdown.layout.width` | real | `72` | 30 to 1000 | Text Width. The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box. |
 | `markdown.layout.fullWidth` | boolean | `false` |  | Full Width. Text fills the whole pane instead of the text width. |
@@ -355,6 +360,10 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.newTabWidgets.weather` | boolean | `false` |  | Show Weather on New Tab. The current weather and today's high and low, for the city below or your time zone's city. |
 | `tabs.newTabWidgets.weatherCity` | string | `""` |  | Weather City. A city for the weather widget. Empty uses your time zone's city. |
 | `tabs.newTabWidgets.machines` | boolean | `false` |  | Show Machines on New Tab. Your machines and whether each is online. |
+| `tabs.newTabWidgets.clock` | boolean | `false` |  | Show Clock on New Tab. A quiet local time display beside the composer. |
+| `tabs.newTabWidgets.timer` | boolean | `false` |  | Show Stopwatch on New Tab. A small elapsed-time stopwatch beside the composer. |
+| `tabs.newTabWidgets.warmGreeting` | boolean | `false` |  | Show Warm Greeting on New Tab. A time-of-day greeting such as Good afternoon. |
+| `tabs.newTabWidgets.quote` | boolean | `false` |  | Show Quote of the Day on New Tab. A bundled public-domain quote, changing daily. |
 | `tabs.newTabWidgets.order` | array | `["projects","actions","chats"]` | `projects`, `actions`, `chats` | New Tab Widget Order. The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them. |
 | `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |
 | `appearance.colorTransition.duration` | real | `200` | 0 to 2000 | Color Change Duration. How long a color change takes. 0 changes colors at once. |
@@ -535,9 +544,13 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.editedFiles.scope` | string | `"turn"` | `turn`, `session` | Edited Files Card Covers |
 | `agentPane.showContextUsage` | boolean | `true` |  | Show Context Usage. The ring beside the model that fills as the chat uses its context window. |
 | `agentPane.showDictation` | boolean | `true` |  | Show Dictation Button. The microphone beside Send in every composer, including the New Tab page. |
+| `agentPane.spellChecking` | boolean | `false` |  | Check Spelling While Typing. Underlines misspellings and offers system suggestions in the composer. |
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again. |
 | `diagnostics.hangReports` | boolean | `false` |  | Send Hang Reports. Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent. |
+| `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility. |
+| `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect. |
+| `deviceHub.url` | string | `""` |  | Device Hub Address. Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub. |
 | `EnrollmentToken` | string |  |  | Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership. |
 | `ManagedTeam` | string |  |  | Team id (team_...) that manages this device. |
 | `RestrictToManagedTeam` | boolean |  |  | Refuse sign-in to any team other than ManagedTeam on this device. |

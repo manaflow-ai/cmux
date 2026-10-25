@@ -114,6 +114,8 @@ enum SidebarStyle {
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
+    /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
+    static let archivedAlpha: CGFloat = 0.45
     /// The members' line: 2 pt, as Chrome's (Leo 2026-10-19), at every density.
     static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
@@ -133,6 +135,10 @@ enum SidebarStyle {
     /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
     /// header part left side"), while the header's name keeps the rows' text column.
     static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
+    /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. One inset less than the
+    /// rows' (4 pt compact, 6 pt comfortable), at every level and in Minimal Mode.
+    static var groupEdgePadding: CGFloat { max(0, horizontalInset - Metrics.space1) }
     /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
     /// cut line"). A `joined` line has none.
     static var groupLineCut: CGFloat { Metrics.space3 }

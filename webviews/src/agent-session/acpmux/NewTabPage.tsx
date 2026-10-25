@@ -1,3 +1,5 @@
+import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
+import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { AgentMark as BrandMark } from "../shared/AgentMark";
@@ -6,6 +8,7 @@ import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
+import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
@@ -33,6 +36,7 @@ import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseWeather, type NewTabWeather } from "./newtab/ambient";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -46,6 +50,7 @@ import {
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { DropOverlay } from "./composer/DropOverlay";
+import { useHarnessesListed } from "./catalog";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -135,6 +140,8 @@ export type NewTabHost = {
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
   /// only, never All chats. Unset lists All chats where the template does.
   allChats?: false;
+  /// How the rows under the field rank (newtab/screenModel.ts SuggestionOrder); unset is the default.
+  suggestionOrder?: SuggestionOrder;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -160,6 +167,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const template = parseNewTabTemplate(object.template);
   const pageWidgets = parsePageWidgets(object.pageWidgets);
   const weather = parseWeather(object.weather);
+  const order = suggestionOrder(object.suggestionOrder);
   return {
     hotkeys,
     initialKind,
@@ -191,6 +199,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.headlineOff === true ? { headlineOff: true as const } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
+    ...(order ? { suggestionOrder: order } : {}),
   };
 }
 
@@ -336,6 +345,7 @@ export function NewTabPage({
   onInputReady,
 }: Props) {
   const t = useT();
+  const { spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
   useNoEntryMotion();
@@ -360,9 +370,10 @@ export function NewTabPage({
   // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
   // chips pick on this snapshot, and Return starts the chat on the same harness and model.
   const remembered = useLastPick(projectCwd);
+  const harnessesListed = useHarnessesListed();
   const { harness, snapshot: chipSnapshot } = useMemo(
-    () => newTabStart(snapshot, snapshot.catalog, lastAgent, projectCwd, remembered),
-    [snapshot, lastAgent, projectCwd, remembered],
+    () => newTabStart(snapshot, snapshot.catalog, lastAgent, projectCwd, remembered, harnessesListed),
+    [snapshot, lastAgent, projectCwd, remembered, harnessesListed],
   );
   const chipModel = useNewTabChipModel(chipSnapshot);
   const [text, setText] = useState(location ?? "");
@@ -409,6 +420,18 @@ export function NewTabPage({
   });
   attachmentRef.current = attachments;
   const holdForAttachments = useSendWhenAttached(pending.length);
+  // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
+  // query (the location comes back with the page), staged attachments, and a kind or folder picked
+  // (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    text !== (location ?? "")
+      ? "newtab.draft"
+      : attachments.length || pending.length
+        ? "newtab.attachments"
+        : kind !== initialKind || picked !== undefined
+          ? "newtab.choice"
+          : null,
+  );
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useEffect(() => {
     const element = field.current;
@@ -614,12 +637,13 @@ export function NewTabPage({
             <input
               ref={field}
               className="acpmux-newtab-field"
+              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
               aria-label={placeholder}
               placeholder={placeholder}
               value={text}
               aria-controls="acpmux-omni"
               aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
-              spellCheck={kind === "agent"}
+              spellCheck={spellChecking && kind === "agent"}
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(event) => edit(event.target.value)}

@@ -12,7 +12,7 @@ final class WebKitMediaHandler: NSObject, WKScriptMessageHandler {
     /// The controller keeps the handler; the handler keeps the tab weakly.
     static func install(on tab: WebKitTab, into controller: WKUserContentController) {
         let world = WKContentWorld.world(name: BrowserMediaState.world)
-        let observer = BrowserMediaState.observerScript(post: "window.webkit.messageHandlers.\(BrowserMediaState.channel).postMessage(report)")
+        let observer = BrowserMediaState.observerScript(post: "window.webkit.messageHandlers.\(BrowserMediaState.channel).postMessage(message)")
         controller.addUserScript(WKUserScript(source: observer, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world))
         controller.addUserScript(WKUserScript(source: BrowserMediaState.actionsScript, injectionTime: .atDocumentStart,
                                               forMainFrameOnly: false, in: .page))
@@ -22,9 +22,9 @@ final class WebKitMediaHandler: NSObject, WKScriptMessageHandler {
     }
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let media = BrowserMediaState.report(message.body) else { return }
-        tab?.apply(.mediaChanged(media))
-        tab?.keepAudioMute(after: media)
+        guard let report = BrowserMediaState.frameReport(message.body) else { return }
+        tab?.apply(.mediaChanged(report.media, frame: report.frame))
+        tab?.keepAudioMute(after: report.media)
     }
 }
 

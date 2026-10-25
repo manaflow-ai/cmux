@@ -26,6 +26,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var paneBackgroundsObservation: Task<Void, Never>?
     let contentHost = NSView()
     private(set) weak var content: NSView?
+    /// A view in the window that this pane, in no window yet, shows: it moves here when the pane enters one.
+    private var windowEntry = WindowEntryHandoff()
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
     var onResize: (() -> Void)?
@@ -171,7 +173,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first
         // layout pass instead of staying at width zero.
-        if let content {
+        if hostsContent, let content {
             let resized = content.frame != contentHost.bounds
             if resized { content.frame = contentHost.bounds }
             // Content shown before the pane had its size (a restored selected
@@ -201,9 +203,18 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// toolbar does not: it is inside the content area).
     private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
 
+    /// A chat with its native tab strip hidden still owns the top strip in its
+    /// webview. Keep the pane ring below that strip so focus does not draw an
+    /// extra hairline above the chat header (Austin, 2026-10-23).
+    private var hiddenAgentHeaderHeight: CGFloat {
+        guard hidesStrip, content is AgentPaneView else { return 0 }
+        return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
+    }
+
     var paneHeaderHeight: CGFloat {
+        if hiddenAgentHeaderHeight > 0 { return hiddenAgentHeaderHeight }
         // The band is inside the browser, under its toolbar.
-        (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
+        return (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0. In a browser's band
@@ -283,14 +294,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         let leaving = hosted !== view && !holds ? hosted : nil
         // Its omnibar row on this pane's edge before it lays out here.
         (view as? any ToolbarEdgeHosting)?.toolbarPosition = toolbarPosition
-        if let view { install(view, replacing: leaving) }
+        if let view, !windowEntry.defers(view, to: contentHost) { install(view, replacing: leaving) }
         if holds, let shown, let view { beginPaintHold(outgoing: shown, incoming: view) }
         // A terminal's theme scope inherits this pane's workspace theme.
         view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
-        if let previous, previous !== view, previous.superview == nil {
-            (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
-        }
+        if let previous, previous !== view, previous.superview == nil { (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil }
         content = view
         // After the incoming view is in: a browser that leaves stays parked
         // here, and the keyboard it held goes to what shows now.
@@ -346,6 +355,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's scope follows the pane's (a workspace theme).
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        // Cmd-N's panes are built outside the window: the New Tab page moves in now, never out of the window.
+        if let view = windowEntry.entered(contentHost), view === content { show(view) }
         // The pins need both views in one window (v4 note 1).
         updateBand()
         reparentRootedThemeScope()

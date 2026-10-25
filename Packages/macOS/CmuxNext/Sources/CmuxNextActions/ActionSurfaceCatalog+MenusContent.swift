@@ -198,6 +198,7 @@ nonisolated extension ActionSurfaceCatalog {
         "remote.newGroup": [p(.sidebarBackground, .create, 200, folder: .new)],
         "remote.newWorkspace": [p(.sshMachine, .create, 0)],
         "remote.openTerminalHere": [p(.pane, .create, 7, folder: .new)],
+        "remote.openRemote": [p(.pane, .create, 8, folder: .new)],
         "remote.reconnect": [p(.sshMachine, .connection, 100)],
         "remote.disconnect": [p(.sshMachine, .connection, 101)],
         "remote.install": [p(.sshMachine, .connection, 102)],

@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextResources
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
 /// (`sidebar.hoverCards.delay`, `HoverCardTiming.showDelay` by default, cx-23e1f) on a tab; with one open, another

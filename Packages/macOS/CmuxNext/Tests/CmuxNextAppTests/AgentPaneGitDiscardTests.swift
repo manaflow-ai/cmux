@@ -149,6 +149,25 @@ struct AgentPaneGitDiscardTests {
         #expect(Self.read(repo + "/added.txt") == "added\n")
     }
 
+    /// A page reload cancels its request part way through a revert: every git step still runs (restore
+    /// --staged, restore --worktree, then the Trash), so the repository is never left half reverted.
+    /// Before: AsyncProcess stopped git at the cancel and skipped the later steps, reported as a timeout.
+    @Test func aRevertWhoseCallerIsCancelledRunsEveryStep() async throws {
+        let rig = try Self.rig()
+        let repo = rig.repo
+        try "precious\n".write(toFile: repo + "/ita.txt", atomically: true, encoding: .utf8)
+        try Self.git(repo, "add", "-N", "ita.txt")
+        let revert = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await Self.revert(rig, ["a.txt", "ita.txt", "new.txt"], scope: "unstaged")
+        }
+        let outcome = try await revert.value
+        #expect(outcome == .reverted(undo: nil), "\(outcome)")
+        #expect(Self.read(repo + "/a.txt") == (1...20).map { "line \($0)" }.joined(separator: "\n") + "\n")
+        #expect(try Self.git(repo, "ls-files", "--", "ita.txt").isEmpty)
+        #expect(try rig.binned() == ["ita.txt", "new.txt"])
+    }
+
     /// An intent-to-add file (`git add -N`) is new: Unstaged revert takes it out of the index and
     /// moves it, content and all, to the Trash. Restoring it from the index would empty it.
     @Test func unstagedRevertOfAnIntentToAddFileTrashesItsContent() async throws {

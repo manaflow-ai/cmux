@@ -63,6 +63,22 @@ pub fn peer_token(fd: std::os::fd::RawFd) -> Option<PeerToken> {
     }
 }
 
+/// The executable of the process `token` names, read by the token itself
+/// (`proc_pidpath_audittoken`): the kernel answers only while the pid still
+/// has the token's pid version, so a process that reused the pid, or one
+/// that exec'd another program since it connected, gets `None`. macOS only.
+pub fn executable_path(token: &PeerToken) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::caller::macos::executable_path(&token.0)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = token;
+        None
+    }
+}
+
 /// Why a peer is not the containing app.
 #[derive(Debug)]
 pub enum NotTheApp {

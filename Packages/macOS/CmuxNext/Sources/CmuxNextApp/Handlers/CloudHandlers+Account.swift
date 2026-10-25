@@ -30,6 +30,7 @@ extension CloudHandlers {
             }
             run("new cloud workspace", context) {
                 if let id = await context.services.windows.createWorkspace(on: session.daemon) { show(id, context) }
+                RemoteGroupHandlers.mark(session: session.daemon.store.registryID) // one group per Cloud machine
             }
         }
     }
@@ -44,7 +45,7 @@ extension CloudHandlers {
         return CloudCreationFlow(
             creations: cloud.creations,
             create: { creation in try await cloud.createMachine(name: nil, creation: creation, startedByPerson: startedByPerson, askedBy: askedBy) },
-            open: { session in try await firstWorkspace(on: session, context) },
+            open: { session in defer { RemoteGroupHandlers.mark(session: session.daemon.store.registryID) }; return try await firstWorkspace(on: session, context) },
             show: { id, creation in
                 let after = creation.readyAfter.map { String(format: "%.1f s", Double($0.components.seconds) + Double($0.components.attoseconds) / 1e18) } ?? "?"
                 cloud.logger.info("new cloud workspace \(id, privacy: .public) on \(creation.session?.machineID ?? "?", privacy: .public) ready after \(after, privacy: .public)")

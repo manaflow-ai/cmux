@@ -77,7 +77,7 @@ public final class UpdateController {
     /// - Parameters:
     ///   - log: The update log sink (the app's `UpdateLogStore`).
     ///   - clock: Clock for bounded UI delays. Defaults to ``SystemUpdateClock``.
-    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's hourly check.
+    ///   - settings: The Sparkle defaults/migration configuration. Defaults to cmux's 15-minute check.
     ///   - hostBundle: The bundle Sparkle reads its configuration and version from.
     ///   - defaults: The `UserDefaults` the settings are applied to.
     ///   - fileManager: Filesystem access for the Sparkle installation-cache workaround;
