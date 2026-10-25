@@ -184,11 +184,23 @@ final class FocusEffectApplier: FocusEffectApplying {
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
-            guard focusedChildWindowPage !== page else { return }
+            guard focusedChildWindowPage !== page else {
+                // Another Chromium page window took the keys without a click (the New Tab spare
+                // made right after Cmd-N): the page asks again, or typing goes to that window.
+                // Its own window being key keeps the sticky rule, so the ask runs once.
+                if Self.anotherPageWindowIsKey(than: page, in: window) { setPageFocus(page, true) }
+                return
+            }
             blurChildWindowPage()
             setPageFocus(page, true)
             focusedChildWindowPage = page
         }
+    }
+
+    /// Whether the key window is a Chromium page window of `window` other than `page`'s own.
+    private static func anotherPageWindowIsKey(than page: any BrowserTab, in window: NSWindow) -> Bool {
+        guard let key = NSApp.keyWindow, key !== window, isChromiumPageWindow(key) else { return false }
+        return (page as? CEFTab)?.isPageWindow(key) != true
     }
 
     /// The docked DevTools of `page` takes the keyboard (a separate target
