@@ -263,6 +263,12 @@ export interface MenuPopupProps {
    * it; without one, or when the button has no such ancestor, the box is the window.
    */
   boundary?: string;
+  /**
+   * False keeps the menu in the page when it has no room (default: it goes past the window's edge,
+   * popupHost.ts). For a menu the native panel cannot draw: a rail beside its rows, a scroll area of
+   * its own. It then fits by its own max height.
+   */
+  escapes?: boolean;
   children: ReactNode;
 }
 
@@ -285,6 +291,7 @@ export function MenuPopup({
   finalFocus,
   onKeyDown,
   boundary,
+  escapes = true,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -312,11 +319,16 @@ export function MenuPopup({
     [host],
   );
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
-  useEscapingPopup(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
-    side: side === "top" ? "top" : "bottom",
-    align: align === "end" ? "end" : "start",
-    gap: UI_ANCHOR_GAP,
-  });
+  useEscapingPopup(
+    escapes && (side === "top" || side === "bottom") ? host : null,
+    popup,
+    () => anchorElement(anchor, popup),
+    {
+      side: side === "top" ? "top" : "bottom",
+      align: align === "end" ? "end" : "start",
+      gap: UI_ANCHOR_GAP,
+    },
+  );
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner

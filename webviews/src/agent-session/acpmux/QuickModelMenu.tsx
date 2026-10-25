@@ -618,6 +618,10 @@ export function QuickModelMenu({
         label={t("picker.model")}
         className={`acpmux-quick-menu${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
         boundary={CHAT_COLUMN}
+        // New Tab's rows never go to the native panel: it would drop the rail and the More models
+        // scroll area (a tab with no Effort or Account submenu counts as flat, popupHost.ts). The
+        // menu's max height keeps it in the window instead (modelPicker.css).
+        escapes={!newTab}
         // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
         onKeyDown={keyDown}
       >
