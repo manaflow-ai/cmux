@@ -87,7 +87,8 @@ import Testing
             Issue.record("no conflicts reply")
             return
         }
-        #expect(Set(taken.compactMap { Self.field($0, "command")?.stringValue }).isSuperset(of: Self.actualSizes))
+        let takenCommands = Set(taken.compactMap { Self.field($0, "command")?.stringValue })
+        #expect(takenCommands.isSuperset(of: Self.actualSizes))
         // A global Cmd-0 holds wherever each of them runs: Overwrite takes it from all of them.
         #expect(taken.allSatisfy { Self.field($0, "takesAll") == .bool(true) })
     }
@@ -114,7 +115,8 @@ import Testing
             Issue.record("no conflicts reply")
             return
         }
-        #expect(!none.contains { Self.field($0, "command")?.stringValue == "browserZoomReset" })
+        let noneCommands = none.compactMap { Self.field($0, "command")?.stringValue }
+        #expect(!noneCommands.contains("browserZoomReset"))
     }
 
     /// Actual Size moved to Cmd-F and back to Cmd-0 is its shipped default again (the table lists
