@@ -12,7 +12,10 @@
 //! `peer` and `status` narrow the list before it is paged: only the sessions
 //! that peer owns (the sidebar's machine group), only those in that status
 //! (`closed`: its Older row). A peer's hundreds of closed sessions then come a
-//! page at a time instead of the whole multi-megabyte list.
+//! page at a time instead of the whole multi-megabyte list. Only
+//! `_acpmux/sessions` takes them: a watch streams every session's changes, so
+//! a filtered first page would promise a scope its events do not keep
+//! (`refuse_watch_filters`).
 
 use super::*;
 
@@ -69,13 +72,26 @@ pub(crate) fn session_list_reply(sorted: Vec<Value>, params: &Value) -> Result<V
     Ok(json!({"sessions": sessions, "nextCursor": next}))
 }
 
-/// A string filter param: absent or null is no filter, an empty string or another type is refused.
+/// A string filter param: absent, null or empty is no filter (the schema allows all three);
+/// another type is refused.
 fn text_filter<'a>(params: &'a Value, name: &str) -> Result<Option<&'a str>, RpcError> {
     match params.get(name) {
         None | Some(Value::Null) => Ok(None),
-        Some(Value::String(text)) if !text.is_empty() => Ok(Some(text)),
-        Some(_) => Err(RpcError::invalid_params(format!("{name} must be a non-empty string"))),
+        Some(Value::String(text)) => Ok((!text.is_empty()).then_some(text.as_str())),
+        Some(_) => Err(RpcError::invalid_params(format!("{name} must be a string"))),
     }
+}
+
+/// `_acpmux/watch` refuses `peer` and `status`: its events cover every session.
+pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
+    for name in ["peer", "status"] {
+        if text_filter(params, name)?.is_some() {
+            return Err(RpcError::invalid_params(format!(
+                "{name} filters _acpmux/sessions only: a watch streams every session"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// After the session updated at `updated_ms` whose id hashes to `key`.
@@ -196,8 +212,15 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_or_non_string_filter_is_refused() {
-        assert!(session_list_reply(list(), &json!({"peer": ""})).is_err());
+    fn an_empty_filter_is_none_and_a_non_string_one_is_refused() {
+        assert_eq!(ids(&session_list_reply(list(), &json!({"peer": ""})).unwrap()).len(), 5);
         assert!(session_list_reply(list(), &json!({"status": 3})).is_err());
+    }
+
+    #[test]
+    fn a_watch_refuses_filters_its_events_would_not_keep() {
+        assert!(refuse_watch_filters(&json!({"peer": "huge-blue"})).is_err());
+        assert!(refuse_watch_filters(&json!({"status": "closed", "limit": 5})).is_err());
+        assert!(refuse_watch_filters(&json!({"limit": 5, "peer": null, "status": ""})).is_ok());
     }
 }

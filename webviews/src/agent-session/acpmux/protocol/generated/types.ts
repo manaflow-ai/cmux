@@ -751,9 +751,15 @@ export interface SessionsParams {
   cursor?: (string | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
-  /** Only the sessions this acpmux peer owns (its name, e.g. `huge-blue`). */
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
+   * (its name, e.g. `huge-blue`). Empty is no filter.
+   */
   peer?: (string | null);
-  /** Only the sessions in this status (`running`, `ready`, `idle`, `waiting`, `closed`). */
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
+   * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
+   */
   status?: (string | null);
 }
 

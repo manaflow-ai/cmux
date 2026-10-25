@@ -3542,14 +3542,14 @@
           ]
         },
         "peer": {
-          "description": "Only the sessions this acpmux peer owns (its name, e.g. `huge-blue`).",
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns\n(its name, e.g. `huge-blue`). Empty is no filter.",
           "type": [
             "string",
             "null"
           ]
         },
         "status": {
-          "description": "Only the sessions in this status (`running`, `ready`, `idle`, `waiting`, `closed`).",
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions in this status\n(`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.",
           "type": [
             "string",
             "null"
