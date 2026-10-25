@@ -334,6 +334,15 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_password_generation_enabled, "cmux_set_password_generation_enabled");
   CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
   CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
+  CMUX_BIND(browser_set_detached_hosting, "cmux_browser_set_detached_hosting");
+  CMUX_BIND(browser_set_embedder_active, "cmux_browser_set_embedder_active");
+  CMUX_BIND(post_user_input_task, "cmux_post_user_input_task");
+  CMUX_BIND(browser_send_wheel, "cmux_browser_send_wheel");
+  CMUX_BIND(browser_text_input_watch, "cmux_browser_text_input_watch");
+  CMUX_BIND(browser_accessibility_token, "cmux_browser_accessibility_token");
+  CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
+  CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
+  CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
 #undef CMUX_BIND
 }
 

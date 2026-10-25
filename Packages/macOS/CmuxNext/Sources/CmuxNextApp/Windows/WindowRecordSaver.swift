@@ -164,8 +164,8 @@ final class WindowRecordSaver {
     /// Mirrors the windows into the daemon's window records (`WindowRecordMirror`).
     private func mirror(_ records: [WindowRecord]) async {
         let daemon = services.daemon
-        guard daemon.supports(DaemonCapabilities.windowRecords), let connection = daemon.connection,
-              let install = try? services.cloud.localDeviceID() else { return }
+        guard daemon.supports(DaemonCapability.windowRecords.rawValue), let connection = daemon.connection,
+              let install = try? await services.cloud.installID() else { return }
         await recordMirror.sync(records, installID: install, client: connection.state) { message in
             daemon.logger.error("\(message, privacy: .public)")
         }

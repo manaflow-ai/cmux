@@ -22,6 +22,7 @@ import { Close, FileDoc, ImageIcon } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
+import { keptThumb } from "./imagePool";
 import { intakeFiles } from "./intakeFiles";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
@@ -371,7 +372,9 @@ function AttachmentChip({
   const language = usePaneLanguage();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
-  const [thumb, setThumb] = useState<{ url: string; width: number; height: number }>();
+  const [thumb, setThumb] = useState<{ url: string; width: number; height: number } | undefined>(() =>
+    keptThumb(attachment.id),
+  );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
@@ -385,7 +388,7 @@ function AttachmentChip({
       ? t(ATTACHMENT_LABELS.pastedText)
       : attachment.name;
   useEffect(() => {
-    if (!image || !attachment.data) return;
+    if (!image || !attachment.data || keptThumb(attachment.id)) return;
     let live = true;
     void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((made) => {
       if (live) setThumb(made);
@@ -393,7 +396,7 @@ function AttachmentChip({
     return () => {
       live = false;
     };
-  }, [attachment.data, attachment.mimeType, image]);
+  }, [attachment.data, attachment.id, attachment.mimeType, image]);
   const remove = (
     <button
       type="button"

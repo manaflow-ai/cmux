@@ -85,7 +85,7 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let (control, trust_gate) = (opts.control, opts.trust_gate);
         let prompt_id = opts.prompt_id.unwrap_or_default();
-        self.check_steer(session, control)?;
+        self.check_steer(session, control, opts.full_access_device.as_deref())?;
         // A running turn has a live agent.
         let child = self.child_for(session).await?;
         let agent_sid = session
@@ -108,7 +108,8 @@ impl Hub {
         let fallback = (!opts.steer_only).then(|| blocks.clone());
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
-        params["_meta"] = json!({"steer": true});
+        // Its promptId names it to a withdraw (`queue_edit.rs` `withdraw`).
+        params["_meta"] = json!({"steer": true, "promptId": prompt_id});
         // Until the agent answers it, Send now can stop the agent's step for it
         // (`queue_edit.rs`); a queued prompt sent now stops it right away.
         let step_now = {
@@ -141,9 +142,16 @@ impl Hub {
                     // Queued under its key, so a later correction still replaces it.
                     supersede: opts.supersede,
                     display_parts: opts.display_parts,
+                    full_access_device: opts.full_access_device,
                     ..PromptOptions::default()
                 };
                 return Box::pin(self.run_prompt(session, blocks, client, false, opts)).await;
+            }
+            // Taken back before the agent read it: the log says so, and the steer ends there.
+            Err(e) if e.message.starts_with(crate::claude_stdio::STEER_WITHDRAWN) => {
+                let msg = json!({"promptId": prompt_id, "turnId": turn_id});
+                self.append(session, "mux", "steer_withdrawn", msg);
+                json!({"stopReason": "withdrawn"})
             }
             r => r?,
         };

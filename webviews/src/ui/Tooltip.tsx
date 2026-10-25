@@ -82,7 +82,14 @@ export interface AnchoredCardProps {
   onPointerLeave?: PointerEventHandler<HTMLDivElement>;
   /** The card's own element (its padding included), for a caller's inside/outside checks. */
   popupRef?: Ref<HTMLDivElement>;
+  /** Identifies this portal to a shared hover bridge. */
+  hoverBridgeId?: number;
   children: ReactNode;
+}
+
+/** Data marker shared with useHoverCard while the portal card is in the DOM. */
+export function hoverBridgeMarker(id: number | undefined): { "data-cmux-hover-bridge"?: number } {
+  return id === undefined ? {} : { "data-cmux-hover-bridge": id };
 }
 
 /**
@@ -104,6 +111,7 @@ export function AnchoredCard({
   onPointerEnter,
   onPointerLeave,
   popupRef,
+  hoverBridgeId,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
@@ -125,6 +133,7 @@ export function AnchoredCard({
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}
             aria-label={interactive ? ariaLabel : undefined}
+            {...hoverBridgeMarker(hoverBridgeId)}
             onPointerEnter={onPointerEnter}
             onPointerLeave={onPointerLeave}
           >

@@ -23,7 +23,8 @@ package nonisolated struct RipgrepMatch: Equatable, Sendable {
 /// Find in Directory's search: `rg` over a local directory, run the way the
 /// old app's file explorer ran it (fixed strings, smart case, hidden files,
 /// VCS and build folders skipped), stopped after `limit` matches.
-package nonisolated enum RipgrepSearch {
+package nonisolated struct RipgrepSearch {
+    package nonisolated init() {}
     package nonisolated enum Outcome: Equatable, Sendable {
         case matches([RipgrepMatch], limited: Bool)
         /// rg failed before finding anything (exit status 2: a bad path or

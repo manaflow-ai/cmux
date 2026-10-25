@@ -174,6 +174,16 @@ const quick: ModelPickerProps = {
   },
 };
 
+/// The optional effort treatment Leo asked to compare: the default stays the Effort submenu, while
+/// this variant uses the same stepped track with endpoint-inclusive thumb geometry.
+const quickSlider: ModelPickerProps = {
+  ...quick,
+  quick: {
+    ...quick.quick!,
+    effort: { ...quick.quick!.effort!, slider: true, sliderStyle: "accent" },
+  },
+};
+
 /// A started Claude chat that can fork, on a Mac with a second Claude account (its own profile).
 const startedFork: ModelPickerProps = {
   ...quick,
@@ -190,6 +200,15 @@ const openQuick: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 
+const openQuickSlider: Play = async (ctx) => {
+  await openQuick(ctx);
+  // Base UI's submenu trigger opens on hover and ignores a plain mouse click; Enter on the
+  // focused Effort row exercises the same path as keyboard users and keeps this capture reliable.
+  await ctx.focus({ role: "menuitem", name: /^Effort/ });
+  await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
+};
+
 export default componentEntry<GalleryProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
@@ -204,7 +223,7 @@ export default componentEntry<GalleryProps>({
     "ui/ScrollArea.tsx#ScrollArea",
     "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
-  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
+  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
     import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
       <UpdateOfferContext.Provider value={offer}>
@@ -285,7 +304,10 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
       },
     },
+    // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
+    // the harness-only rail with no machine/session initials.
     "quick-menu": { props: quick, play: openQuick },
+    "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
     // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
     "quick-menu-accounts": {
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
@@ -353,8 +375,8 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
       },
     },
-    // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
-    // square), and its rail tab its initial.
+    // A folder profile is a machine choice, not a harness: it remains the selected model source,
+    // while the rail contains only Claude/Codex harnesses.
     "profile-without-mark": {
       props: {
         ...base,
@@ -374,6 +396,11 @@ export default componentEntry<GalleryProps>({
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-mp-harness")].every(
+            (tab) => tab.getAttribute("title")?.split(" · ")[0] !== "Vercel AI Gateway",
+          ),
+        );
       },
     },
   },
