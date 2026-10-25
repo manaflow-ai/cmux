@@ -1484,6 +1484,10 @@ async fn dispatch_request(
             hub.wait_logs().await;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
+            // Again after the wait, right before the change (`full_access_hold`).
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
+            let device = super::remote_guard::full_access_device(hub, conn, &params);
+            hub.full_access_hold(&s.meta(), control, device.as_deref())?;
             let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }

@@ -625,6 +625,11 @@ impl Hub {
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
                         self.remote_floor_cancel(session, "remote.unsandboxed_agent");
                     }
+                    // Nor one in a mode only a machine's Full-access setting allows: which
+                    // machine sent it is not kept across a restart (`full_access_hold`).
+                    if self.full_access_hold(&session.meta(), control, None).is_err() {
+                        self.remote_floor_cancel(session, "remote.full_access_ended");
+                    }
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come
                     // (`await_response` also takes one that arrived first).

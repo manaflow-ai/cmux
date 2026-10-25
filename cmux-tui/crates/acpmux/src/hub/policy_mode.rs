@@ -237,9 +237,10 @@ impl Hub {
     /// `crate::pairing`): every chat a remote connection started whose mode its narrower policy
     /// does not hold (which only that setting lets happen) moves back to its policy's mode, as
     /// `follow_policy` moves it, and the turn it runs then stops, before the change is answered.
-    /// Every such chat, whichever machine moved it, so none is missed after a daemon restart;
-    /// another machine that still has the setting may move its chat again. Returns how many
-    /// chats it put back.
+    /// Every such chat, whichever machine moved it; another machine that still has the setting
+    /// may move its chat again. Also once at daemon start (`daemon.rs`), after the agent hosts
+    /// are adopted: which machine moved a chat is not kept, so a restart puts every such chat
+    /// back (fail closed). Returns how many chats it put back.
     pub(crate) async fn hold_policies_again(self: &Arc<Self>) -> usize {
         let default = self.config.read().await.permission_policy;
         let table = self.web_modes();
