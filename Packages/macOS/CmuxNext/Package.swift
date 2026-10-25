@@ -167,8 +167,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-8e5bbb825874bd9ef0923a01c941348bf242d9c7/CCmuxAppFFI.xcframework.zip",
-    checksum: "4905984c126fd513b61d981613a392bdd95e459983522819e870111f59746e43"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-ecdb356418c355bbe8f16f883194748c47c28ebe/CCmuxAppFFI.xcframework.zip",
+    checksum: "77731711f1088f285e168b27f0171363ea5bb619dc7b6e0e56464ff208dd18f4"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -196,12 +196,19 @@ let uiLayerPreviewTargets: [Target] = [
 let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
+    .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
 ] + uiLayerPreviewProducts
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
+            name: "CmuxNextAppCore",
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextSidebar"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
             name: "CmuxNextApp",
             dependencies: [
+                "CmuxNextAppCore",
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
                 "CmuxNextFavicons",

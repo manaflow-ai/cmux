@@ -1,6 +1,7 @@
-//! Where new work goes: the one placement engine `new --host auto`,
-//! `dispatch --host auto` and the sub-session tool's host `auto` call
-//! (`pick`).
+//! Where new work goes: the one placement engine `new --host auto` and
+//! `dispatch --host auto` call (`pick`), and the sub-session tool's host
+//! `auto` too, with this machine its only candidate (a family lives on one
+//! daemon; `server/place.rs` `subsession_host`).
 //!
 //! Each candidate is a connected peer (or this machine) with its last health
 //! reading (`peer_health.rs`). A host's room is counted in lanes it can still
@@ -35,6 +36,33 @@ use std::path::PathBuf;
 pub enum Work {
     Agent,
     Build,
+}
+
+impl Work {
+    /// The work a host value names: `auto` an agent lane, `auto-build` a
+    /// build; any other value is a host, not a placement.
+    pub fn of_host(host: &str) -> Option<Self> {
+        match host {
+            "auto" => Some(Self::Agent),
+            "auto-build" => Some(Self::Build),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Build => "build",
+        }
+    }
+}
+
+/// Where a verdict of [`place`] put the work, in the words `new --host auto`
+/// prints and the sub-session tool returns: `placed on NAME: 31 GB RAM free,
+/// ...`. `None`: no host has room.
+pub fn placed(verdict: &Value) -> Option<String> {
+    verdict.get("pick")?.as_str()?;
+    Some(format!("placed on {}", verdict.get("why").and_then(Value::as_str).unwrap_or_default()))
 }
 
 /// One host to weigh: its name, whether it is this machine, and its last
@@ -308,7 +336,7 @@ pub fn place(candidates: &[Candidate], registry: Option<&Value>, work: Work) -> 
         "pick": pick.map(|w| w.name.clone()),
         "local": pick.is_some_and(|w| w.local),
         "why": why,
-        "work": if work == Work::Build { "build" } else { "agent" },
+        "work": work.as_str(),
         "hosts": weighed.iter().map(|w| json!({
             "name": w.name,
             "local": w.local,

@@ -753,7 +753,9 @@ impl Hub {
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
         self.pause_queue(session, turn_id);
-        let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
+        // `turn_ended` say why.
+        let msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
@@ -789,6 +791,8 @@ impl Hub {
         }
         last.insert("endedAt".into(), json!(now_ms()));
         session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+        // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
+        self.subsession_turn_ended(session, turn_result);
     }
 
     /// The profile to fall over to, when the current one names one that exists.

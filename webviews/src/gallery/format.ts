@@ -186,6 +186,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
    *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
   sessionStatus?: boolean;
+  /** The chat's `display` push (AgentPaneDisplaySetting.swift, chatDisplay.ts): `agentPane.display.*`
+   *  keys and the app keys the chat follows, such as Minimal Mode (`{ "sidebar.minimal": true }`). */
+  display?: Record<string, unknown>;
   /** Labs workflows (Settings `workflowLabs`, off by default) on, as the app's `workflowLabs` push
    *  sends it: a Claude workflow's transcript card and its Session Info panel. */
   workflowLabs?: boolean;

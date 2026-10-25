@@ -29,6 +29,8 @@ At most `maxRunning` of your sub-sessions run at once (16 unless the user
 changed it); a start past it is queued and starts by itself when one finishes.
 `list_sessions` (under `self`) or `acpmux session limits @` shows your limits
 and how many run and wait; only the user or your parent session raises them.
+A sub-session runs on this machine; `host: "auto"` first checks it has room
+(the engine `acpmux new --host auto` uses) and refuses the start when not.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
@@ -136,6 +138,14 @@ one command; running it again reuses the session and worktree and sends nothing:
 
 ```bash
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
+```
+
+A child of another harness under your own chat (a Codex child of a Claude chat): it lists
+under your chat, and your sub-session tools read, message and stop it.
+
+```bash
+acpmux run --parent "$ACPMUX_SESSION_ID" -m codex -e high "PROMPT"   # prints its reply
+acpmux new --parent "$ACPMUX_SESSION_ID" -m opencode -n tests -d "PROMPT"
 ```
 
 Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
