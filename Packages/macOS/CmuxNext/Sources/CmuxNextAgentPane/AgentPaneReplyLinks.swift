@@ -39,9 +39,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
     /// becomes the host's drag only then, so page script alone never starts one.
     public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
-    /// Starts the host's drag of a real file out of the pane (the view's dragging session); false
-    /// when there is no pane to drag from.
-    public var startDrag: @MainActor (URL) -> Bool = { _ in false }
+    /// Starts the host's drag of a real file out of the pane (the view's dragging session) once
+    /// the file is read off the main actor; false when there is no pane to drag from.
+    public var startDrag: @MainActor (URL) async -> Bool = { _ in false }
     /// The Quick Look panel's source for ``quickLookFile``.
     private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).

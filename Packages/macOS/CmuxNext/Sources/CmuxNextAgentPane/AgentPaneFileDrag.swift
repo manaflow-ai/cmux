@@ -7,8 +7,9 @@ import UniformTypeIdentifiers
 /// A copy everywhere; the drag image is the picture or the file's icon.
 @MainActor
 final class AgentPaneFileDrag: NSObject, NSDraggingSource {
-    /// What a drag of a file carries besides its URL (``contents(of:)``): an image's bytes for the
-    /// pasteboard and its picture (at most 160 pt) for the drag image; both nil for another file.
+    /// What a drag of a file carries besides its URL, read off the main actor (``contents(of:)``):
+    /// an image's bytes for the pasteboard and its picture (at most 160 pt) for the drag image;
+    /// both nil for another file.
     nonisolated struct Contents {
         var data: Data?
         var picture: NSImage?
@@ -37,10 +38,10 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         return true
     }
 
-    /// Reads what a drag of `file` carries: for an image, its bytes (a mapped read of the local
-    /// copy: the drag's data must be on the pasteboard when it starts) and its picture, scaled to
-    /// at most 160 pt.
-    static func contents(of file: URL) -> Contents {
+    /// Reads what a drag of `file` carries, off the main actor: for an image, its bytes (a mapped
+    /// read of the local copy: the drag's data must be on the pasteboard when it starts) and its
+    /// picture, scaled to at most 160 pt. The caller starts the drag when it returns.
+    @concurrent nonisolated static func contents(of file: URL) async -> sending Contents {
         guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true,
               let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return Contents() }
         guard let image = NSImage(data: data), image.size.width > 0, image.size.height > 0 else { return Contents(data: data) }
