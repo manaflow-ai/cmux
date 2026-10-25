@@ -52,8 +52,12 @@ final class IconPickerService {
     /// Opens and closes the panel like every native popup (POLISH: calm motion).
     private let fade = PopupFade()
 
-    init(services: AppServices?) {
+    /// Makes the picker's page (the app's one ``WebUIHost``).
+    private let webUI: WebUIHost
+
+    init(services: AppServices?, webUI: WebUIHost) {
         self.services = services
+        self.webUI = webUI
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -142,8 +146,8 @@ final class IconPickerService {
         var routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
         // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
-        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
-                                     dynamicResources: symbols) else { return nil }
+        guard let page = webUI.open(PageOpenRequest(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
+                                                    dynamicResources: symbols)) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made

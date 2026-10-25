@@ -27,7 +27,7 @@ final class AgentActivityPageTab: BrowserTab {
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
 
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource) {
+    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource, webUI: WebUIHost) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -37,7 +37,8 @@ final class AgentActivityPageTab: BrowserTab {
         let model = AgentActivityModel(source: source)
         self.model = model
         let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source))
-        contentView = PageWebView(descriptor: .agentActivity, routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)])
+        contentView = webUI.open(PageOpenRequest(descriptor: .agentActivity,
+                                                 routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)]))
             ?? AgentActivityHostView(model: model, source: source)
         model.start()
     }
