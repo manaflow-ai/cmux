@@ -344,6 +344,72 @@ async fn a_socket_path_past_the_unix_limit_still_serves() {
     assert!(!bound.exists(), "the short socket stayed after shutdown");
 }
 
+/// A state write that fails while the daemon loads (huge-blue, 2026-10-25:
+/// `write .../daemon.tmp-N-0: No space left on device`) must not stop it. The
+/// pid file's path is a folder here, so every write of it fails; the daemon
+/// still reports ready, answers, leaves no temporary file behind (a full
+/// disk keeps none of them), and stops cleanly on SIGTERM.
+#[tokio::test]
+async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
+    let dir = scratch("nospc");
+    std::fs::create_dir_all(dir.join("daemon.pid")).unwrap();
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+        .args(["--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let pid = child.id() as i32;
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    let Some(ready) = ready else {
+        let _ = child.kill();
+        panic!("the daemon exited on a failed pid file write: {:?}", child.wait());
+    };
+    assert_eq!(ready["pid"], pid);
+    let mut rpc = Rpc::connect(&socket).await;
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["pid"], pid, "{status}");
+    // Past the first retries (1 s, then 2 s): still up, still answering.
+    tokio::time::sleep(Duration::from_millis(3_500)).await;
+    assert!(child.try_wait().unwrap().is_none(), "the daemon exited while retrying");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert_eq!(status["pid"], pid, "{status}");
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.starts_with("daemon.tmp-"))
+        .collect();
+    assert!(left.is_empty(), "failed writes left temporary files: {left:?}");
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    let term = Instant::now();
+    let code = loop {
+        if let Some(code) = child.try_wait().unwrap() {
+            break code;
+        }
+        if term.elapsed() > Duration::from_secs(8) {
+            let _ = child.kill();
+            panic!("daemon still running 8 s after SIGTERM");
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(code.success(), "{code:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///

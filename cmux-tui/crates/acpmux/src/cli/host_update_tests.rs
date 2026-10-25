@@ -467,6 +467,36 @@ fn an_update_pushes_the_targets_binary_and_restarts_the_unit() {
     assert!(peer.exists("agents"));
 }
 
+/// A host set up before the unit stopped giving up (huge-blue's
+/// `StartLimitBurst=5`) gets the new unit text from the update, and keeps
+/// its own drop-ins; an edited unit is the user's and stays.
+#[test]
+#[cfg(unix)]
+fn an_update_rewrites_the_unit_an_older_acpmux_wrote() {
+    let peer = FakePeer::new("refresh");
+    peer.write(&format!("{UNITS}/acpmux.service"), OLD_SYSTEMD_UNITS[0]);
+    peer.write(&format!("{UNITS}/acpmux.service.d/memory-backstop.conf"), BACKSTOP);
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(&format!("{UNITS}/acpmux.service")), SYSTEMD_UNIT);
+    assert_eq!(peer.read(&format!("{UNITS}/acpmux.service.d/memory-backstop.conf")), BACKSTOP);
+    let calls = peer.take_calls();
+    let at = |c: &str| calls.iter().position(|x| x == c);
+    assert!(
+        at("systemctl --user daemon-reload") < at("systemctl --user restart acpmux.service"),
+        "{calls:?}"
+    );
+
+    let peer = FakePeer::new("refresh-edited");
+    let edited = OLD_SYSTEMD_UNITS[0].replace("RestartSec=3", "RestartSec=10");
+    peer.write(&format!("{UNITS}/acpmux.service"), &edited);
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.read(&format!("{UNITS}/acpmux.service")), edited);
+}
+
 #[test]
 #[cfg(unix)]
 fn a_turn_that_starts_during_the_push_keeps_its_daemon() {
@@ -923,6 +953,20 @@ fn an_acpmux_service_someone_else_wrote_is_refused_and_a_matching_one_adopted() 
         (before.ino(), before.mtime(), before.mtime_nsec()),
         (after.ino(), after.mtime(), after.mtime_nsec())
     );
+
+    // One an earlier acpmux wrote (a move rolled back leaves it) is not a
+    // conflict: the move replaces it with this build's text.
+    let peer = FakePeer::new("adopt-old");
+    peer.under_foreign_unit(false);
+    peer.write(&format!("{UNITS}/acpmux.service"), OLD_SYSTEMD_UNITS[0]);
+    peer.offer(NEW, Some(NEW));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.migrated_from.as_deref()),
+        (Outcome::Updated, Some(FOREIGN)),
+        "{up:?}"
+    );
+    assert_eq!(peer.read(&format!("{UNITS}/acpmux.service")), SYSTEMD_UNIT);
 }
 
 #[test]

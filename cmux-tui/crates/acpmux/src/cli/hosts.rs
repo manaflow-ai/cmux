@@ -333,10 +333,50 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"
 /// user, at `~/.acpmux` (cmuxterm-hq plans/cmux-next/acpmux-one-daemon.md).
 /// `KillMode=process`: a stop or restart signals the daemon alone, whose
 /// SIGTERM leaves the hosted agents running for the next daemon to adopt;
-/// the default (`control-group`) would end every agent host with it. The
-/// start limit (5 in 60 s, above `RestartSec=3`'s 20) stops a unit whose
-/// daemon cannot take the lock from retrying forever.
+/// the default (`control-group`) would end every agent host with it.
+///
+/// It never gives up: `Restart=always` with no start limit
+/// (`StartLimitIntervalSec=0`), so a crash loop or a daemon that exits on a
+/// full disk is started again until it stays up. huge-blue (2026-10-25)
+/// shows why: a full disk failed the daemon five times in a minute, the old
+/// limit (5 in 60 s) left the unit failed, and acpmux stayed down for 33
+/// minutes until someone started it by hand. The delay grows from
+/// `RestartSec=3` to `RestartMaxDelaySec=60` over `RestartSteps=5`
+/// (systemd 254+; Ubuntu 24.04 has 255). An older systemd logs "Unknown key
+/// name ... ignoring" once per load and restarts every 3 s. A daemon that
+/// cannot take the lock (another daemon holds the home) is retried at most
+/// once a minute and takes over once that daemon is gone; `acpmux daemon
+/// shutdown` restarts it too (`systemctl --user stop acpmux.service` stops
+/// it). `host update` rewrites a unit an older acpmux wrote
+/// ([`OLD_SYSTEMD_UNITS`]) to this text.
 const SYSTEMD_UNIT: &str = "[Unit]
+Description=acpmux daemon
+After=default.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.cargo/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/acpmux daemon run
+WorkingDirectory=%h
+Restart=always
+RestartSec=3
+RestartSteps=5
+RestartMaxDelaySec=60
+KillMode=process
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
+";
+
+/// Unit texts earlier acpmux builds wrote, byte for byte: `host update`
+/// replaces one of them with [`SYSTEMD_UNIT`] ([`unit_refresh`]). A unit
+/// with any other text was written or edited by someone else and is left
+/// as it is.
+const OLD_SYSTEMD_UNITS: [&str; 1] = [
+    // #22899 (2026-10-21): gave up after 5 failed starts in 60 s.
+    "[Unit]
 Description=acpmux daemon
 After=default.target
 StartLimitIntervalSec=60
@@ -354,7 +394,35 @@ TimeoutStopSec=30
 
 [Install]
 WantedBy=default.target
-";
+",
+];
+
+/// Shell defining `acpmux_is_old FILE`: sets `acpmux_ours` to `yes` when FILE
+/// holds a unit an earlier acpmux wrote ([`OLD_SYSTEMD_UNITS`]), else empties it.
+fn old_unit_check() -> String {
+    let mut out = "acpmux_is_old() { acpmux_ours=; acpmux_o=$(mktemp) || return 0\n".to_owned();
+    for old in OLD_SYSTEMD_UNITS {
+        out += &format!("cat > \"$acpmux_o\" <<'ACPMUX_OLD_UNIT'\n{old}ACPMUX_OLD_UNIT\n");
+        out += "cmp -s \"$acpmux_o\" \"$1\" && acpmux_ours=yes\n";
+    }
+    out + "rm -f \"$acpmux_o\"; }\n"
+}
+
+/// `host update` on a host set up earlier: an `acpmux.service` an older
+/// acpmux wrote gets this build's text, and systemd reads it again before
+/// the restart. Drop-ins (`acpmux.service.d/*.conf`) and a unit with any
+/// other text are left alone.
+fn unit_refresh() -> String {
+    let check = old_unit_check();
+    format!(
+        "{check}acpmux_unit=$HOME/.config/systemd/user/acpmux.service; acpmux_ours=
+if [ -f \"$acpmux_unit\" ]; then acpmux_is_old \"$acpmux_unit\"; fi
+if [ -n \"$acpmux_ours\" ]; then cat > \"$acpmux_unit\" <<'ACPMUX_UNIT' || exit 1
+{SYSTEMD_UNIT}ACPMUX_UNIT
+systemctl --user daemon-reload >/dev/null 2>&1; fi
+"
+    )
+}
 
 /// What a Linux script prints when systemd (re)started the daemon: it has
 /// no readiness callback there, so the caller reads the status after a grace.
@@ -417,8 +485,9 @@ fn linux_restart(install: bool, json: bool) -> String {
     };
     let detached = restart_detached(json);
     let foreign = if install { FOREIGN_UNIT_REFUSAL.to_owned() } else { migrate(false) };
+    let refresh = if install { String::new() } else { unit_refresh() };
     format!(
-        "{DAEMON_UNIT}{foreign}if {usable}; then
+        "{refresh}{DAEMON_UNIT}{foreign}if {usable}; then
 if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
 if systemctl --user enable --now acpmux.service; then echo {SYSTEMD_STARTED}; else {detached}; fi; fi
@@ -762,6 +831,8 @@ mod tests {
         restarts: bool,
         /// `acpmux.service` is installed before the run (a host set up earlier).
         installed: bool,
+        /// The installed unit's text, when not this build's [`SYSTEMD_UNIT`].
+        installed_text: Option<&'static str>,
         /// A daemon of `~/.acpmux` runs, in this user unit's cgroup, or at this
         /// cgroup path when it starts with `/` (`None`: none runs).
         daemon_unit: Option<&'static str>,
@@ -777,6 +848,7 @@ mod tests {
         enables: true,
         restarts: true,
         installed: false,
+        installed_text: None,
         daemon_unit: None,
         survives_shutdown: false,
     };
@@ -835,7 +907,8 @@ mod tests {
         if host.installed {
             let dir = home.join(".config/systemd/user");
             std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(dir.join("acpmux.service"), SYSTEMD_UNIT).unwrap();
+            std::fs::write(dir.join("acpmux.service"), host.installed_text.unwrap_or(SYSTEMD_UNIT))
+                .unwrap();
         }
         if let Some(unit) = host.daemon_unit {
             std::fs::create_dir_all(home.join("proc/4242")).unwrap();
@@ -886,7 +959,7 @@ mod tests {
         let run = linux_restart_run("setup", true, LINGERING);
         assert_eq!(run.unit, SYSTEMD_UNIT);
         assert!(run.unit.contains("KillMode=process"), "a restart must keep the agent hosts");
-        assert!(run.unit.contains("Restart=on-failure"), "a deliberate shutdown stays down");
+        assert_never_gives_up(&run.unit);
         let steps: Vec<&str> = run
             .calls
             .iter()
@@ -908,6 +981,62 @@ mod tests {
             ]
         );
         assert!(run.started_by_systemd());
+    }
+
+    /// A full disk or a crash loop never leaves the unit failed (huge-blue,
+    /// 2026-10-25: the old start limit left acpmux down for 33 minutes).
+    fn assert_never_gives_up(unit: &str) {
+        let lines: Vec<&str> = unit.lines().collect();
+        for key in [
+            "StartLimitIntervalSec=0",
+            "Restart=always",
+            "RestartSec=3",
+            "RestartSteps=5",
+            "RestartMaxDelaySec=60",
+            "KillMode=process",
+        ] {
+            assert!(lines.contains(&key), "{key} missing:\n{unit}");
+        }
+        assert!(!unit.contains("StartLimitBurst="), "a start limit gives up:\n{unit}");
+        assert!(!unit.contains("MemoryHigh="), "MemoryHigh stalled the daemon for 37 min");
+        // `StartLimitIntervalSec=` is a [Unit] key; systemd ignores it under [Service].
+        let service = unit.find("[Service]").unwrap();
+        assert!(unit.find("StartLimitIntervalSec=0").unwrap() < service, "{unit}");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn linux_update_rewrites_a_unit_an_older_acpmux_wrote_and_keeps_anyone_elses() {
+        let host = LinuxHost { installed: true, active: true, ..LINGERING };
+        for old in OLD_SYSTEMD_UNITS {
+            let run = linux_restart_run(
+                "refresh-old",
+                false,
+                LinuxHost { installed_text: Some(old), ..host },
+            );
+            assert_eq!(run.unit, SYSTEMD_UNIT, "{}", run.err);
+            let reload = run.calls.iter().position(|c| c == "systemctl --user daemon-reload");
+            let restart =
+                run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
+            assert!(reload.is_some() && reload < restart, "reload, then restart: {:?}", run.calls);
+            assert!(run.started_by_systemd());
+        }
+        // Already this build's text: not rewritten, no reload.
+        let run = linux_restart_run("refresh-same", false, host);
+        assert_eq!(run.unit, SYSTEMD_UNIT);
+        assert!(!run.calls.iter().any(|c| c == "systemctl --user daemon-reload"), "{:?}", run.calls);
+        // Someone's own edit of the unit is theirs.
+        let edited = "[Service]\nExecStart=%h/.local/bin/acpmux daemon run\nRestart=on-failure\n";
+        let run = linux_restart_run(
+            "refresh-edited",
+            false,
+            LinuxHost { installed_text: Some(edited), ..host },
+        );
+        assert_eq!(run.unit, edited);
+        assert!(run.started_by_systemd());
+        // The old unit is the one #22899 shipped, the one huge-blue may hold.
+        assert!(OLD_SYSTEMD_UNITS[0].contains("StartLimitBurst=5\n"));
+        assert!(OLD_SYSTEMD_UNITS.iter().all(|old| *old != SYSTEMD_UNIT));
     }
 
     #[test]
@@ -1013,7 +1142,7 @@ mod tests {
             run.calls
         );
         assert!(!run.started_by_systemd() && !run.detached_start());
-        assert!(SYSTEMD_UNIT.contains("StartLimitBurst="), "a lock-held unit gives up");
+        assert_never_gives_up(SYSTEMD_UNIT);
     }
 
     #[test]
