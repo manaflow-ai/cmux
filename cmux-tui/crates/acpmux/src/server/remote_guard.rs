@@ -72,7 +72,7 @@
 use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
 /// Whether a session method acpmux does not handle itself goes on to the
@@ -331,14 +331,17 @@ async fn check_inner(
                 Some(canonical) => Some(canonical),
                 None if peer_new => {
                     let roots = roots.as_deref().unwrap_or_default();
-                    let made = make_inside_root(cwd, roots, deferred.is_none()).await;
-                    made.map_err(|e| e.unwrap_or_else(|| outside("cwd")))?
+                    match make_inside_root(cwd, roots, deferred.is_none()).await {
+                        Ok(made) => made,
+                        Err(Some(e)) => return Err(e),
+                        Err(None) => return Err(try_cwd(outside("cwd"), cwd, &told).await),
+                    }
                 }
                 None => return Err(cwd_refused(cwd).await),
             };
             if let Some(canonical) = canonical {
                 if !inside(&canonical) {
-                    return Err(outside("cwd"));
+                    return Err(try_cwd(outside("cwd"), cwd, &told).await);
                 }
                 params.set("cwd", Value::String(canonical));
             }
@@ -971,7 +974,10 @@ async fn cwd_refused(cwd: &str) -> RpcError {
     let mut e = folder_refused("cwd");
     let path = Path::new(cwd);
     let mut cause = "unusable";
-    for (i, ancestor) in path.ancestors().enumerate().take_while(|_| path.is_absolute()) {
+    // `mkdir -p` reads a `..` after a name that is no folder as an error: no `.` or `..`.
+    let plain = path.is_absolute()
+        && path.components().all(|c| matches!(c, Component::RootDir | Component::Normal(_)));
+    for (i, ancestor) in path.ancestors().enumerate().take_while(|_| plain) {
         match tokio::fs::symlink_metadata(ancestor).await {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Ok(_) if i > 0 && tokio::fs::metadata(ancestor).await.is_ok_and(|m| m.is_dir()) => {
@@ -983,6 +989,28 @@ async fn cwd_refused(cwd: &str) -> RpcError {
     }
     if let Some(data) = e.data.as_mut() {
         data["cause"] = Value::from(cause);
+    }
+    e
+}
+
+/// `e` (a proven peer's folder outside the roots) with `data.tryCwd`: a folder in the first
+/// configured root a start may use, `ROOT/<cwd's last name>` when nothing is there yet or it
+/// is a real folder (no link), else `ROOT` itself. None without a configured root.
+async fn try_cwd(mut e: RpcError, cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcError {
+    let Some(root) = told.as_ref().and_then(|t| t.first()) else { return e };
+    let mut pick = root.clone();
+    if let Some(leaf) = Path::new(cwd).file_name() {
+        let candidate = root.join(leaf);
+        let usable = match tokio::fs::symlink_metadata(&candidate).await {
+            Ok(m) => m.is_dir(),
+            Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+        };
+        if usable {
+            pick = candidate;
+        }
+    }
+    if let Some(data) = e.data.as_mut() {
+        data["tryCwd"] = Value::from(pick.to_string_lossy().into_owned());
     }
     e
 }
@@ -1001,12 +1029,14 @@ mod make_below_tests {
         let root = std::fs::canonicalize(&root).unwrap();
         make_below(&root, Path::new("a/b")).unwrap();
         assert!(root.join("a/b").is_dir());
-        // A folder of the base swapped for a link after the base was checked.
+        // A folder inside the base swapped for a link after the base was checked: the walk
+        // from `/` does not follow it, so nothing is made in `outside/b`.
+        std::fs::create_dir_all(outside.join("b")).unwrap();
         std::fs::remove_dir_all(root.join("a")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("a")).unwrap();
-        assert!(make_below(&root.join("a"), Path::new("b")).is_err());
-        assert!(make_below(&root, Path::new("a/b")).is_err());
-        assert!(!outside.join("b").exists());
+        assert!(make_below(&root.join("a/b"), Path::new("child")).is_err());
+        assert!(make_below(&root, Path::new("a/b/child")).is_err());
+        assert!(!outside.join("b/child").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

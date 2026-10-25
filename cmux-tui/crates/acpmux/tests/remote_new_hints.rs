@@ -133,6 +133,11 @@ async fn each_remote_new_refusal_names_its_reason_and_a_peer_hears_the_allowed_r
     assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
     assert_eq!(r["error"]["data"]["servedAs"], "peer", "{r}");
     assert_eq!(r["error"]["data"]["roots"][0], json!(root), "{r}");
+    // And a folder there to use instead: ROOT/<leaf>, or ROOT when that is a link.
+    assert_eq!(r["error"]["data"]["tryCwd"], json!(root.join(outside.file_name().unwrap())));
+    std::os::unix::fs::symlink(&outside, root.join(outside.file_name().unwrap())).unwrap();
+    let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&outside))).await;
+    assert_eq!(r["error"]["data"]["tryCwd"], json!(root), "{r}");
     let message = r["error"]["message"].as_str().unwrap();
     assert!(message.contains(&root.to_string_lossy().into_owned()), "{message}");
     let _ = std::fs::remove_dir_all(&root);

@@ -18,7 +18,6 @@
 use super::remote_guard::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::path::Path;
 
 /// `e`, with `data.host`, `data.try` (and `data.runOn` when it runs on HOST) and the command
 /// at the end of its message, when it is one of the refusals above; any other error unchanged.
@@ -30,13 +29,13 @@ pub(super) fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> 
         // An older peer does not say: what it said at the last handshake.
         None => peer.served_as_peer(),
     };
-    let roots = data.and_then(|d| d.get("roots")).and_then(Value::as_array);
-    let first_root = roots.and_then(|r| r.first()).and_then(Value::as_str);
+    // A folder inside its roots the peer checked for this start (`remote_guard::try_cwd`).
+    let try_cwd = data.and_then(|d| d.get("tryCwd")).and_then(Value::as_str);
     let ssh = crate::peer::ssh_target(&peer.url).ok().map(|t| t.destination);
     let mut run_on = None;
     // `missing` (mkdir -p makes it) or `unusable`; an older peer does not say.
     let cause = data.and_then(|d| d.get("cause")).and_then(Value::as_str);
-    let found = Found { served_as_peer, first_root, cause };
+    let found = Found { served_as_peer, try_cwd, cause };
     let (command, why) = match suggest(&Start::of(params), reason, found) {
         Hint::Here(start) => (start.command(Some(&peer.name)), String::new()),
         Hint::OnHost(start) => {
@@ -186,31 +185,27 @@ enum Hint {
 #[derive(Clone, Copy, Default)]
 struct Found<'a> {
     served_as_peer: bool,
-    first_root: Option<&'a str>,
+    try_cwd: Option<&'a str>,
     cause: Option<&'a str>,
 }
 
 /// The start that works after `reason`. A peer that serves this daemon as a remote Web
 /// client takes only its own roots (which it does not name) and asking policies, so the
-/// way out there is HOST's own CLI, in the folder asked for unless no `mkdir -p` makes it
-/// (then in the shell's own). A mode is dropped either way.
+/// way out there is HOST's own CLI, in the folder asked for unless the peer did not say
+/// `mkdir -p` makes it (then in the shell's own). From a peer that serves it as a peer, a
+/// folder outside its roots becomes the one it checked, else none (a scratch folder). A mode
+/// is dropped either way.
 fn suggest(start: &Start, reason: &str, found: Found) -> Hint {
-    let Found { served_as_peer, first_root, cause } = found;
+    let Found { served_as_peer, try_cwd, cause } = found;
     let mut next = Start { mode: None, ..start.clone() };
     if !served_as_peer || reason == POLICY_REFUSED {
-        if reason == CWD_MISSING && cause.is_some_and(|c| c != "missing") {
+        if reason == CWD_MISSING && cause != Some("missing") {
             next.cwd = None;
         }
         return Hint::OnHost(next);
     }
     match reason {
-        CWD_OUTSIDE_ROOTS => {
-            let leaf = start.cwd.as_deref().and_then(|c| Path::new(c).file_name());
-            next.cwd = first_root.map(|root| match leaf {
-                Some(leaf) => Path::new(root).join(leaf).to_string_lossy().into_owned(),
-                None => root.to_owned(),
-            });
-        }
+        CWD_OUTSIDE_ROOTS => next.cwd = try_cwd.map(str::to_owned),
         CWD_MISSING => next.cwd = None,
         _ => {}
     }
@@ -246,16 +241,15 @@ mod tests {
         assert_eq!(odd.command(None), r"acpmux new --cwd '/tmp/a b/it'\''s' -d");
     }
 
-    fn peer(first_root: Option<&str>) -> Found<'_> {
-        Found { served_as_peer: true, first_root, cause: None }
+    fn peer(try_cwd: Option<&str>) -> Found<'_> {
+        Found { served_as_peer: true, try_cwd, cause: None }
     }
 
     #[test]
     fn each_refusal_suggests_a_start_the_peer_takes() {
         let s = start();
-        // From a peer that serves us as a peer: a folder in its first root, or none; never
-        // a mode.
-        let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, peer(Some("/home/cmux/Projects")))
+        // From a peer that serves us as a peer: the folder it checked, or none; never a mode.
+        let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, peer(Some("/home/cmux/Projects/x")))
         else {
             panic!()
         };
@@ -275,8 +269,10 @@ mod tests {
             "mkdir -p /home/cmux/hb-acpmux/x && acpmux new -m codex/gpt-6 -n lane --cwd /home/cmux/hb-acpmux/x --policy approve-all -d"
         );
         // A path no `mkdir -p` makes (a file, a link) is left out.
-        let Hint::OnHost(next) = suggest(&s, CWD_MISSING, web(Some("unusable"))) else { panic!() };
-        assert_eq!(next.cwd, None);
+        for cause in [Some("unusable"), None] {
+            let Hint::OnHost(next) = suggest(&s, CWD_MISSING, web(cause)) else { panic!() };
+            assert_eq!(next.cwd, None, "{cause:?}");
+        }
     }
 
     #[test]
