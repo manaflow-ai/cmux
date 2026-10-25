@@ -26,14 +26,35 @@ const catalog: ModelPickerProps["catalog"] = [
   },
 ];
 
-const chat = (providers: QuickProviderLook): ModelPickerProps => ({
-  catalog,
+/// A rail beside it: Pi's one model two providers serve, and Claude Code's plain models.
+const railed: ModelPickerProps["catalog"] = [
+  ...catalog,
+  {
+    id: "pi",
+    name: "Pi",
+    models: [
+      { id: "together/qwen-3.5-coder", name: "Together/Qwen 3.5 Coder" },
+      { id: "fireworks/qwen-3.5-coder", name: "Fireworks/Qwen 3.5 Coder" },
+    ],
+  },
+  {
+    id: "claude",
+    name: "Claude Code",
+    models: [
+      { id: "claude-opus-5-5", name: "Opus 5.5" },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+    ],
+  },
+];
+
+const chat = (providers: QuickProviderLook, rail = false): ModelPickerProps => ({
+  catalog: rail ? railed : catalog,
   harness: "opencode",
   model: "opencode/deepseek-v4-pro",
   label: "DeepSeek V4 Pro",
   efforts: [],
   recents: [],
-  harnessFixed: true,
+  harnessFixed: !rail,
   quick: {
     providers,
     effort: {
@@ -54,6 +75,17 @@ const open: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"]') !== null);
 };
+
+/// Opens the menu, then the rail's `name` tab: the list keeps the chat tab's height and width.
+const openTab =
+  (name: string): Play =>
+  async (ctx) => {
+    await open(ctx);
+    await ctx.click({ selector: `.acpmux-quick-rail-tab[aria-label="${name}"]` });
+    await ctx.waitFor(
+      () => ctx.document.querySelector(`.acpmux-quick-rail-tab[aria-label="${name}"][aria-pressed="true"]`) !== null,
+    );
+  };
 
 /// Opens the menu, then the submenu row whose name starts with `name`.
 const openSub =
@@ -80,6 +112,16 @@ export default componentEntry<ModelPickerProps>({
       note: "Version A (ships): each model once, the provider it lands at the row's end; a Provider row switches the running model's.",
       props: chat("row"),
       play: open,
+    },
+    "provider-row-rail": {
+      note: "Version A beside the rail: the OpenCode tab's Provider row is in the list's held height.",
+      props: chat("row", true),
+      play: open,
+    },
+    "provider-row-rail-pi": {
+      note: "Version A, the Pi tab: the list keeps the OpenCode tab's height and width.",
+      props: chat("row", true),
+      play: openTab("Pi"),
     },
     "provider-row-open": {
       note: "Version A: the Provider row's submenu, the running provider checked.",
