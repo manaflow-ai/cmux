@@ -702,13 +702,19 @@ export default agentPaneEntry({
       },
     },
     "image-failed": {
-      note: "A kept draft's image whose bytes cannot be drawn: its chip says Couldn't load image, and × still removes it.",
+      note: "A kept draft's image whose bytes cannot be drawn: its chip says Couldn't load image and keeps its × (shown on hover).",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
       native: { "chat.draftAttachments.get": [KEPT_BROKEN_IMAGE] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image-failed"));
+        const chip = ctx.find({ selector: ".acpmux-attachment-image-failed" });
+        if (chip.querySelector(".acpmux-attachment-failed-text")?.textContent !== "Couldn't load image")
+          throw new Error("an image that cannot be drawn must say Couldn't load image");
+        if (!chip.querySelector("button.acpmux-attachment-remove[aria-label]"))
+          throw new Error("an image that cannot be drawn must keep its remove button");
+        await ctx.hover({ selector: ".acpmux-attachment-image-failed" });
       },
     },
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
@@ -762,6 +768,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
+        if (ctx.find({ selector: ".acpmux-attachment-document-name" }).textContent !== "design-notes.pdf")
+          throw new Error("the PDF card must name its file");
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pdf-viewer"));
         const dialog = ctx.document.querySelector<HTMLElement>(".acpmux-pdf-viewer");
@@ -799,6 +807,19 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         field.dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 3);
+        const links = ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-link[data-saved]");
+        const chips = [...links].map((chip) => ({
+          name: chip.querySelector(".acpmux-attachment-link-name")?.textContent,
+          note: chip.querySelector(".acpmux-attachment-link-note")?.textContent,
+          path: chip.title,
+        }));
+        for (const name of ["notes.md", "build-logs.zip", "repro.mov"]) {
+          const chip = chips.find((entry) => entry.name === name);
+          if (!chip) throw new Error(`no saved chip names ${name}`);
+          if (chip.note !== "Sent as file path") throw new Error(`${name}'s chip must say it goes as its file path`);
+          if (!chip.path.endsWith(`/${name}`) || !chip.path.includes("/Chat Uploads/"))
+            throw new Error(`${name}'s chip must link the copy the host saved, not ${chip.path}`);
+        }
         if (ctx.find({ selector: ".acpmux-md" }).textContent?.includes("Chat Uploads"))
           throw new Error("a saved file's path must go as its chip's link, not as prompt text");
       },
@@ -806,7 +827,11 @@ export default agentPaneEntry({
     "file-not-attached": {
       note: "A pasted file no content block takes, in a chat whose host saves nothing: no chip, and the note says why.",
       snapshot: chat(finished),
-      native: { "chat.upload": { nativeError: { code: "unsupported" } } },
+      // A host that saves nothing refuses both the staged upload and the older single call.
+      native: {
+        "chat.upload.begin": { nativeError: { code: "unsupported" } },
+        "chat.upload": { nativeError: { code: "unsupported" } },
+      },
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const file = new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
