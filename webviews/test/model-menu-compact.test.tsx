@@ -288,6 +288,7 @@ test("the optional reasoning slider replaces Effort's levels only when enabled",
   const effort = await openSub("Effort");
   expect(effort.querySelector(".acpmux-effort-range")).not.toBeNull();
   expect(effort.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
+  expect(doc().activeElement?.classList.contains("acpmux-effort-range")).toBe(true);
 });
 
 test("a number key picks that model in place", async () => {

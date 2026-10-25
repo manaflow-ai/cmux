@@ -22,7 +22,7 @@ export function EffortTrack({
   current,
   onPick,
   onEscape,
-  autoFocus = false,
+  focusOnMount = false,
   fallback,
   onRangeKey,
   onRangeClick,
@@ -40,15 +40,18 @@ export function EffortTrack({
   onRangeKey?(event: React.KeyboardEvent<HTMLInputElement>): void;
   /// A click on the slider, after any change it made (the reasoning menu commits the resting level).
   onRangeClick?(): void;
-  autoFocus?: boolean;
+  /// Focus the native range after its popup mounts so keyboard stepping starts on the slider.
+  focusOnMount?: boolean;
   /// Visual treatment for the opt-in reasoning slider.
   sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
   const range = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (autoFocus) range.current?.focus();
-  }, [autoFocus]);
+    if (!focusOnMount) return;
+    const frame = requestAnimationFrame(() => range.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [focusOnMount]);
   const at = (id: string | undefined) => efforts.findIndex((choice) => choice.id === id);
   const level = Math.max(0, at(current) >= 0 ? at(current) : at(fallback));
   const name = efforts[level]?.name ?? t("effort.title");

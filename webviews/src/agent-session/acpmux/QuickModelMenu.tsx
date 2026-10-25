@@ -447,6 +447,7 @@ export function QuickModelMenu({
                   onRangeKey={(event) => {
                     if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
                   }}
+                  focusOnMount
                 />
               </div>
             ) : (
