@@ -208,6 +208,16 @@ class Workflows(unittest.TestCase):
             if "steps.dev-product.outputs.hit != 'true'" in line and line.strip().startswith("if:"):
                 self.assertIn("inputs.dev_daily != true ||", line)
 
+    def test_an_unset_switch_leaves_reuse_on(self):
+        # An unset variable is null in an expression, and null == '0' is true (both coerce to the
+        # number 0): a bare `vars.X == '0'` switched reuse off for every run. Compare its string form.
+        import re
+        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        job = text[text.index("\n  cmux-scheme-compile:\n"):text.index("\n  crash-ends-app:\n")]
+        lookup = job[job.index("id: dev-product\n"):job.index("      - name: Fetch the same-tree cmux-tui")]
+        self.assertIn("format('{0}', vars.CI_NEXT_DEV_PRODUCT_REUSE) == '0'", lookup)
+        self.assertEqual(re.findall(r"(?<!')vars\.[A-Z0-9_]+\s*==\s*'[0-9]", lookup), [])
+
     def test_every_variable_the_compile_step_reads_is_keyed(self):
         # The workflow file is keyed, but a repository variable's value is not in it: one that changes
         # the build (the Swift compilation mode) must be passed to the key by the lookup step.
