@@ -133,7 +133,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         await page.waitForSelector(".acpmux-running-tray__head");
         await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
         await page.click(".acpmux-running-tray__finished");
-        await page.waitForFunction(() => document.querySelectorAll(".acpmux-running-tray li").length === 118);
+        await page.waitForFunction(() => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116);
         // Scroll everything that can scroll to its end, the tray itself included, as a wheel would.
         await page.hover(".acpmux-running-tray__list");
         for (let step = 0; step < 20; step += 1) await page.mouse.wheel(0, 800);
