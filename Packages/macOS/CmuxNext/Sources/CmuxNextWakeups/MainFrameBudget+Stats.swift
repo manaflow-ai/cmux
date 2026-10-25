@@ -27,5 +27,12 @@ extension MainFrameBudget {
         /// cost after it, charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
         public var renderPasses = 0
         public var maxRenderPassNanos: UInt64 = 0
+        /// Per class: times a task was held for the next frame because an input response was open
+        /// (``MainFrameBudget/noteDiscreteInput(expectsFrame:)``).
+        public var yieldedToInputResponse: [Int] = [0, 0, 0]
+        /// Input responses that reached the 100 ms cap before a link tick rendered.
+        public var inputResponseCapHits = 0
+        /// The longest input response, in nanoseconds (from the input to what closed it).
+        public var maxInputResponseNanos: UInt64 = 0
     }
 }
