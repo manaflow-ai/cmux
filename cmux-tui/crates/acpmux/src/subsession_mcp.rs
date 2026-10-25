@@ -379,7 +379,10 @@ mod tests {
         let placed = "placed on box: 40 GB RAM free, room for 4";
         let r = json!({"shortName": "t", "sessionId": "s", "depth": 1, "placed": placed});
         let text = started_text(&r);
-        assert!(text.starts_with("Started sub-session t") && text.ends_with(&format!("\n{placed}")), "{text}");
+        assert!(
+            text.starts_with("Started sub-session t") && text.ends_with(&format!("\n{placed}")),
+            "{text}"
+        );
         let r = json!({"shortName": "t", "sessionId": "s", "depth": 1});
         assert!(!started_text(&r).contains("placed on"));
     }

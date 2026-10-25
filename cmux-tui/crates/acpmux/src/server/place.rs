@@ -70,8 +70,11 @@ pub(super) async fn subsession_host(
         ))
         .with_data(json!({"reason": "subsessions.host_unsupported", "host": here})));
     };
-    let verdict =
-        crate::placement::place(&[this_machine(hub).await], crate::placement::load_registry().as_ref(), work);
+    let verdict = crate::placement::place(
+        &[this_machine(hub).await],
+        crate::placement::load_registry().as_ref(),
+        work,
+    );
     placed_here(&verdict).map(Some)
 }
 
@@ -139,14 +142,28 @@ mod tests {
         // A build on a host whose role takes none.
         let v = crate::placement::place(&here(health(40, 2)), Some(&reg), Work::Build);
         let e = placed_here(&v).unwrap_err();
-        assert!(e.message.contains("not placed on box: no builds here (lanes.build is false) (40 GB RAM free"), "{}", e.message);
+        assert!(
+            e.message.contains(
+                "not placed on box: no builds here (lanes.build is false) (40 GB RAM free"
+            ),
+            "{}",
+            e.message
+        );
         assert_eq!(e.data.as_ref().unwrap()["reason"], "subsessions.no_room");
         // Out of RAM: (10 - 8) / 4 is under one lane.
         let v = crate::placement::place(&here(health(10, 0)), Some(&reg), Work::Agent);
         let e = placed_here(&v).unwrap_err();
-        assert!(e.message.contains("not placed on box: no room: RAM is the limit"), "{}", e.message);
+        assert!(
+            e.message.contains("not placed on box: no room: RAM is the limit"),
+            "{}",
+            e.message
+        );
         // Not a lane host.
-        let v = crate::placement::place(&here(health(40, 0)), Some(&json!({"machines": {}})), Work::Agent);
+        let v = crate::placement::place(
+            &here(health(40, 0)),
+            Some(&json!({"machines": {}})),
+            Work::Agent,
+        );
         let e = placed_here(&v).unwrap_err();
         assert!(e.message.contains("not a lane host"), "{}", e.message);
     }

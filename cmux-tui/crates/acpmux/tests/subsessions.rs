@@ -274,7 +274,10 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     let e = pq.refused(START, json!({"prompt": "echo build", "host": "auto-build"})).await;
     assert_eq!(e["data"]["reason"], "subsessions.no_room", "{e}");
     let message = e["message"].as_str().unwrap();
-    assert!(message.contains(&format!("{here}: no builds here (lanes.build is false)")), "{message}");
+    assert!(
+        message.contains(&format!("{here}: no builds here (lanes.build is false)")),
+        "{message}"
+    );
     // No lane left under its max_lanes (or over its budget, on a busy test machine).
     registry(0);
     let e = pq.refused(START, json!({"prompt": "echo full", "host": "auto"})).await;
@@ -284,7 +287,11 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     let e = pq.refused(START, json!({"prompt": "echo far", "host": "elsewhere"})).await;
     assert_eq!(e["data"]["reason"], "subsessions.host_unsupported", "{e}");
     let list = pq.ok("_acpmux/subsession/list", json!({})).await;
-    assert_eq!(list["sessions"].as_array().unwrap().len(), 0, "a refused start made a child: {list}");
+    assert_eq!(
+        list["sessions"].as_array().unwrap().len(),
+        0,
+        "a refused start made a child: {list}"
+    );
     // With room it starts here and says why (a busy test machine may refuse it).
     registry(1000);
     let r = pq.call(START, json!({"prompt": "echo placed", "host": "auto"})).await;
