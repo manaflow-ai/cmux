@@ -3,7 +3,7 @@
 //! name and status) even when the sidebar is one list. Only a machine section
 //! can be one.
 
-use super::reduce::{apply_in_place, check};
+use super::reduce::{apply_in_place, check, repair};
 use super::*;
 
 fn doc() -> Doc {
