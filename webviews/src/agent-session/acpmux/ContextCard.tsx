@@ -103,6 +103,7 @@ export function ContextCardBody({
       <div
         className="acpmux-context-card-bar"
         role="progressbar"
+        aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
