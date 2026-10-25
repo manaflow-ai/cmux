@@ -49,7 +49,7 @@ if [[ "$mode" == corrupt ]]; then
     [[ -n "$first" ]] || first="run $run exit $status: $(tail -c 4000 "$dir/out")"
   done
   echo "corrupt: $runs runs: $corrupt saw a changed live block, $foreign failed the foreign realloc," \
-    "$ended ended by libmalloc or a signal, $noverdict gave no verdict (dlopen failed, no swap or no delegating zone)"
+    "$ended ended by libmalloc or a signal, $noverdict gave no verdict (dlopen failed, no delegating zone, or the stand-in zone does not own its block)"
   [[ -z "$first" ]] || printf 'first failure: %s\n' "$first"
   [[ "$corrupt" -eq 0 && "$foreign" -eq 0 && "$ended" -eq 0 && "$noverdict" -eq 0 ]]
   exit
