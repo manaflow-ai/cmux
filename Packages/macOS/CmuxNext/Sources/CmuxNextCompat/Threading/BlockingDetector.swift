@@ -3,7 +3,7 @@
 /// they are wired), the `debug.blocking` control method and the Debug menu.
 ///
 /// In Debug and bench builds (Nightly to come) it refers to the detector's process-wide table (see
-/// ``assertBlockingAllowed(_:fileID:line:)``); in Release it reads as empty and its calls do nothing.
+/// ``blockingCall(_:fileID:line:_:)``); in Release it reads as empty and its calls do nothing.
 ///
 /// ```swift
 /// let blocking = BlockingDetector.forProcess()      // AppServices (the composition root) only
@@ -80,8 +80,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Zeroes every site's count (between sweep steps); the sites stay known, so a site that blocks again
-    /// is counted, not sent to the sink again.
+    /// Zeroes every site's count and wall times (between sweep steps); the sites stay known, so a site that
+    /// blocks again is counted, not sent to the sink again.
     public func resetCounts() {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.resetCounts()
