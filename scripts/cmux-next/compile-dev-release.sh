@@ -20,8 +20,10 @@
 #   (check-cmux-scheme-compile.sh starts a cache build from an empty tree
 #   around them; kept build products linked stale objects, #21761).
 # - Two instances on a host never build there at once: host_build_lock.py
-#   takes HOST_ROOT/lock for this process, without waiting, and the EXIT trap
-#   releases it; a holder killed outright is found stale by the next taker.
+#   takes flock(2) on HOST_ROOT/lock through fd 9, without waiting. Every child
+#   (the clone, xcodebuild, ditto) inherits fd 9, so the kernel holds the lock
+#   until the last of them exits, however this script ends (SIGKILL included),
+#   and no lock outlives them.
 #
 # A busy lock, a lock error or a failed tree setup builds the old way at once,
 # per runner instance from the checkout (release-derived-data-path.sh, still
@@ -35,16 +37,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 workspace="$(cd "$here/../.." && pwd -P)"
 host_root="${HOME:?}/Library/Caches/cmux-next-ci/dev-daily-release/host"
 lock="$host_root/lock"
-owner=$$
-locked=0
 
-release_lock() {
-  if (( locked )); then
-    python3 -I "$here/host_build_lock.py" release "$lock" --pid "$owner" || true
-    locked=0
-  fi
-}
-trap release_lock EXIT
+# Closing this script's fd 9 drops its share of the lock; a child still running
+# keeps it until it exits.
+release_lock() { exec 9>&-; }
 trap 'exit 143' TERM INT HUP
 
 build_root="$workspace"
@@ -72,11 +68,11 @@ elif [[ "${CMUX_NEXT_COMPILATION_CACHE:-0}" != 1 ]]; then
   reason="compilation cache off"
 else
   lock_status=0
-  { mkdir -p "$host_root" && python3 -I "$here/host_build_lock.py" acquire "$lock" --pid "$owner"; } \
+  { mkdir -p "$host_root" && exec 9>>"$lock" && python3 -I "$here/host_build_lock.py" acquire "$lock" --fd 9; } \
     || lock_status=$?
+  (( lock_status == 0 )) || release_lock 2>/dev/null || true
   case "$lock_status" in
     0)
-      locked=1
       if host_setup; then
         mode=host
       else

@@ -140,6 +140,7 @@ on:
       - scripts/cmux-next/compile-dev-release.sh
       - scripts/cmux-next/host_build_lock.py
       - scripts/ci/canonical-build-root.sh
+      - scripts/ci/apfs_clone.py
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
@@ -372,6 +373,7 @@ on:
       - scripts/cmux-next/compile-dev-release.sh
       - scripts/cmux-next/host_build_lock.py
       - scripts/ci/canonical-build-root.sh
+      - scripts/ci/apfs_clone.py
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
