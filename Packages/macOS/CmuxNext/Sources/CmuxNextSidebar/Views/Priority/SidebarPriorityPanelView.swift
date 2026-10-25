@@ -1,5 +1,4 @@
 import AppKit
-import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -34,13 +33,8 @@ final class SidebarPriorityPanelView: NSView {
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     /// The chat whose row the pointer drags: `placeRows` leaves that row where the pointer has it.
     private(set) var draggingID: String?
-    /// While a drag is live: the app resigning active or the window losing key with the button up
-    /// cancels it, since its release may never come here. Removed when the drag ends.
-    private var dragObservers: [MainActorObservation] = []
-    /// While a drag is live, the app's left presses and releases before their window gets them
-    /// (as the main list's `observePointerEnds`): a new press, or a release sent to another window,
-    /// means this drag's release never comes. Removed when the drag ends.
-    private var dragMonitor: Any?
+    /// While a drag is live, focus loss and app pointer ends cancel it through the seam adapter.
+    private var dragObservation: SidebarPriorityDragObservation?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -61,12 +55,6 @@ final class SidebarPriorityPanelView: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
-
-    // Not an isolated deinit (cx-t7hu: its runtime hop traps when released inside an action's task-local scope).
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: AppKit monitors are main-thread owned
-        if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
-    }
 
     nonisolated override var isFlipped: Bool { true }
 
@@ -235,19 +223,11 @@ final class SidebarPriorityPanelView: NSView {
 
     private func startDrag(_ id: String) {
         draggingID = id
-        dragObservers = [MainActorObservation(NSApplication.didResignActiveNotification, object: NSApp) { [weak self] in
-            self?.cancelDrag()
-        }]
-        if let window {
-            dragObservers.append(MainActorObservation(NSWindow.didResignKeyNotification, object: window) { [weak self] in
-                // With the button still held the release still comes to this window.
-                if NSEvent.pressedMouseButtons & 1 == 0 { self?.cancelDrag() }
-            })
-        }
-        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
-            self?.pointerEventSeen(event.type, in: event.window)
-            return event
-        }
+        dragObservation = SidebarPriorityDragObservation(
+            window: window,
+            onEvent: { [weak self] type, eventWindow in self?.pointerEventSeen(type, in: eventWindow) },
+            onFocusLost: { [weak self] in self?.cancelDrag() }
+        )
     }
 
     /// A left press or release anywhere in the app during the drag (`dragMonitor`). A press: the
@@ -274,10 +254,8 @@ final class SidebarPriorityPanelView: NSView {
     private func stopDrag() {
         guard let id = draggingID else { return }
         draggingID = nil
-        for observer in dragObservers { observer.cancel() }
-        dragObservers = []
-        if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
-        dragMonitor = nil
+        dragObservation?.cancel()
+        dragObservation = nil
         if let row = rows[id] {
             row.endPress()
             row.layer?.zPosition = 0
