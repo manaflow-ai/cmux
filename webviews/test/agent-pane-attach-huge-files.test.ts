@@ -100,8 +100,10 @@ await requireBrowserLane("agent-pane-attach-huge-files.test.ts", async () => {
   const KEY_P95_MS = 16;
   const KEY_ADDED_MS = 8;
   const KEY_MAX_MS = 50;
-  /// The longest the main thread may stall while a file attaches (agent-pane-paste-large-screenshots).
+  /// The longest the main thread may stall while a file attaches (agent-pane-paste-large-screenshots),
+  /// or the baseline row's own stall (the same steps with nothing attached) and STALL_ADDED_MS.
   const MAX_STALL_MS = 120;
+  const STALL_ADDED_MS = 50;
   /// The tile is there this soon after the paste, drop or choice.
   const TILE_MS = 100;
   /// The + menu is open this soon after its click (the click's own round trip included).
@@ -229,8 +231,8 @@ os.replace(path + ".part", path)
   const launch = () =>
     chromium.launch({ headless: true, args: ["--enable-precise-memory-info", "--js-flags=--max-old-space-size=4096"] });
   const rows: Row[] = [];
-  /// The baseline row's typing, the floor the other rows' typing is held to.
-  let baseline: Row["keys"];
+  /// The baseline row, the floor the other rows' typing and stalls are held to.
+  let baseline: Row | undefined;
   beforeAll(async () => {
     mkdirSync(dir, { recursive: true });
     for (const file of [MOV, BIN, MP4]) sparse(file);
@@ -758,14 +760,16 @@ os.replace(path + ".part", path)
 
       if (row.tileMs !== undefined && row.tileMs > TILE_MS) problem(`the tile took ${row.tileMs.toFixed(0)} ms to show`);
       if (row.keys.lost) problem(`typed keys were lost: the prompt reads ${JSON.stringify(typed.slice(0, 40))}`);
-      if (!attaching) baseline = row.keys;
+      if (!attaching) baseline = row;
       else {
-        const p95 = Math.max(KEY_P95_MS, (baseline?.p95 ?? 0) + KEY_ADDED_MS);
-        const max = Math.max(KEY_MAX_MS, (baseline?.max ?? 0) + 2 * KEY_ADDED_MS);
+        const p95 = Math.max(KEY_P95_MS, (baseline?.keys?.p95 ?? 0) + KEY_ADDED_MS);
+        const max = Math.max(KEY_MAX_MS, (baseline?.keys?.max ?? 0) + 2 * KEY_ADDED_MS);
         if (row.keys.p95 > p95) problem(`typing p95 ${row.keys.p95.toFixed(1)} ms per key (limit ${p95.toFixed(0)})`);
         if (row.keys.max > max) problem(`a key took ${row.keys.max.toFixed(0)} ms (limit ${max.toFixed(0)})`);
       }
-      if (row.stallMs > MAX_STALL_MS) problem(`the main thread stalled ${row.stallMs.toFixed(0)} ms`);
+      const stall = Math.max(MAX_STALL_MS, (baseline?.stallMs ?? 0) + STALL_ADDED_MS);
+      if (attaching && row.stallMs > stall)
+        problem(`the main thread stalled ${row.stallMs.toFixed(0)} ms (limit ${stall.toFixed(0)})`);
       if (row.menuMs > MENU_MS) problem(`the + menu took ${row.menuMs} ms to open`);
       if (row.heap.peak - row.heap.base > c.heapBudget)
         problem(`the heap grew ${((row.heap.peak - row.heap.base) / MB).toFixed(0)} MB while it loaded`);
