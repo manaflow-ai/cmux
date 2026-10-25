@@ -171,8 +171,16 @@ export function installWheelGlide(scroller: HTMLElement): { stop: () => void; re
     const headed = gliding ? from + distance - done : from;
     const wanted = headed + wheelPixels(event, scroller.clientHeight);
     const target = Math.max(0, Math.min(max, wanted));
-    // Already at that end: nothing to glide (and the event still asks for older history at the top).
-    if (Math.abs(target - from) < 0.5) return;
+    // Already at that end: a fresh wheel still asks for older history at the top, but a reverse
+    // notch during a glide must be consumed and cancel the pending motion. Letting it through
+    // makes the browser apply the reverse immediately, then the old frame moves back over it.
+    if (Math.abs(target - from) < 0.5) {
+      if (gliding) {
+        event.preventDefault();
+        stop();
+      }
+      return;
+    }
     event.preventDefault();
     position = from;
     wrote = scroller.scrollTop;
