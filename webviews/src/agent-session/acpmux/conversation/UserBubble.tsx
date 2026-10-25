@@ -26,7 +26,7 @@ import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent, StripPromptAttachments } from "./InlinePromptContent";
 import { useComposerSettings } from "../composerSettings";
-import { promptContentParts, isInterleaved } from "./promptContent";
+import { hasPromptAttachments, promptContentParts } from "./promptContent";
 import {
   ForkButton,
   forkWithFeedback,
@@ -57,11 +57,15 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
   const orderedParts = useMemo(() => promptContentParts(row), [row]);
-  // Text alone keeps the plain bubble (PromptText's collapse and height); media makes it ordered.
-  const hasOrderedParts = isInterleaved(orderedParts);
+  // Text alone keeps the plain bubble (PromptText's collapse and height); any attachment makes it
+  // ordered, one at the end too, so it reads after its text and never above it.
+  const hasOrderedParts = hasPromptAttachments(orderedParts);
+  const hasText = orderedParts.some((part) => part.kind === "text" && part.text.trim());
   // The Strip view draws them in a row above the text, in the same order; Inline (the default) in the
   // text, as iMessage on the Mac does (Leo). Only the look: the row's parts are the same in both.
-  const strip = useComposerSettings().attachmentView === "strip" && hasOrderedParts;
+  // Attachments alone draw in the row in either view, with no bubble.
+  const view = useComposerSettings().attachmentView;
+  const strip = hasOrderedParts && (view === "strip" || !hasText);
   const shownParts = useMemo(
     () => (strip ? orderedParts.filter((part) => part.kind === "text") : orderedParts),
     [strip, orderedParts],
@@ -90,9 +94,7 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
       {strip && <StripPromptAttachments rowId={row.id} parts={orderedParts} show={show} renderImage={renderImage} />}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
-      {(strip
-        ? shownParts.some((part) => part.kind === "text" && part.text.trim())
-        : hasOrderedParts || text.trim()) && (
+      {(strip ? hasText : hasOrderedParts || text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
           {hasOrderedParts ? (
             <InlinePromptContent rowId={row.id} parts={shownParts} show={show} renderImage={renderImage} />
