@@ -4512,9 +4512,16 @@ jobs:
   # exact successful DEV artifact to the publisher here instead of waiting for
   # the cron dispatcher. The dispatcher remains the retry/backstop for a lost
   # or failed handoff.
+  # !cancelled(): without a status function the implicit success() also reads
+  # every job upstream of cmux-scheme-compile, and a DEV run always skips some
+  # (dev-daily-tree-wait when the tree was ready), so this job was skipped on
+  # every run and the publisher waited for the next cron tick (source run
+  # 40124390153, 2026-10-24). The result check below still requires the compile.
+  # A same-tree DEV run is handed over only when it ran on the commit it built:
+  # the publisher requires the run's head_sha to be the SHA in its name.
   request-cmux-next-dev-publish:
     needs: cmux-scheme-compile
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && needs.cmux-scheme-compile.result == 'success' && (inputs.same_tree_sha == '' || inputs.same_tree_sha == github.sha) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}
     name: Request cmux NEXT DEV publication
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
