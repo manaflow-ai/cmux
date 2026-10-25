@@ -89,6 +89,8 @@ public final class ControlRouter: Sendable {
         var targetResolver: TargetResolver?
         /// The local daemon's event sequence after a round trip (`after: "sync"`).
         var syncBarrier: (@Sendable () async throws -> UInt64)?
+        /// Told about a read barrier's wait for a home daemon sequence (``registerBarrierWait(_:)``).
+        var barrierWait: (@Sendable (UInt64) async -> (@Sendable () async -> Void))?
     }
 
     /// Maps a validated target to the App's model id, or throws a typed
@@ -154,6 +156,16 @@ public final class ControlRouter: Sendable {
     }
 
     var syncBarrier: (@Sendable () async throws -> UInt64)? { state.withLock { $0.syncBarrier } }
+
+    /// Installs what a read barrier (`after`) tells the App while it waits for the home daemon's
+    /// `sequence`: `wait` runs when the wait starts and returns what runs when it ends. The App
+    /// records a read-your-writes wait on its store there (`DaemonStore.beginAppliedWait`), so a
+    /// script batch's stage never holds an event the read needs.
+    public func registerBarrierWait(_ wait: @escaping @Sendable (UInt64) async -> (@Sendable () async -> Void)) {
+        state.withLock { $0.barrierWait = wait }
+    }
+
+    var barrierWait: (@Sendable (UInt64) async -> (@Sendable () async -> Void))? { state.withLock { $0.barrierWait } }
 
     /// Registered method names in registration order.
     public var methodNames: [String] { state.withLock { $0.order } }

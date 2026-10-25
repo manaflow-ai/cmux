@@ -20,5 +20,12 @@ extension AppControl {
             }
             return sequence
         }
+        // A read barrier for the local daemon's sequence is a read-your-writes wait on its store: a
+        // script batch's stage commits rather than hold an event the read needs.
+        router.registerBarrierWait { [weak daemon] sequence in
+            let store = await MainActor.run { daemon?.store }
+            await store?.beginAppliedWait(sequence)
+            return { await store?.endAppliedWait(sequence) }
+        }
     }
 }
