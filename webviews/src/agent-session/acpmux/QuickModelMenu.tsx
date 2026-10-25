@@ -162,7 +162,6 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
           </div>
         ))}
       </div>
-      <div className="ui-menu-group-label">{"\u00a0"}</div>
       {/* A separator after each of the first rows: back to back, their margins would collapse. */}
       {Array.from({ length: rows }, (_, index) => (
         <Fragment key={index}>
