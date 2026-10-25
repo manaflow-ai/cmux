@@ -2988,6 +2988,14 @@
             "null"
           ]
         },
+        "titleSource": {
+          "default": null,
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {
@@ -3414,6 +3422,7 @@
           ]
         },
         "titleSource": {
+          "default": null,
           "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
           "type": [
             "string",
