@@ -79,7 +79,10 @@ export function QueuedMessageCard({
           {act &&
             !queued.next &&
             steeredAt !== row.version &&
-            item("composer.queueSteer", () => void act.steer(promptId).then((ok) => ok && setSteeredAt(row.version), fail))}
+            item(
+              "composer.queueSteer",
+              () => void act.steer(promptId).then((ok) => ok && setSteeredAt(row.version), fail),
+            )}
           {act && item("composer.queueEditMessage", () => void act.edit(promptId, text, row.images ?? []).catch(fail))}
           {act?.sideChat &&
             !row.images?.length &&
