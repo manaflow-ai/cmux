@@ -181,3 +181,47 @@ test("a steer with an image acpmux could not give back stays", async () => {
   });
   expect([took, withdrawn]).toEqual([false, []]);
 });
+
+test("taking back an inline steer restores its ordered draft before its row is withdrawn", async () => {
+  const image = {
+    id: "image",
+    kind: "image" as const,
+    name: "shot.png",
+    mimeType: "image/png",
+    size: 3,
+    data: "AQID",
+    inline: true,
+  };
+  const row = {
+    id: "user-inline",
+    version: 1,
+    kind: "user",
+    text: "beforeafter",
+    steer: "waiting" as const,
+    steerPromptId: "p-inline",
+    images: [{ id: "image", mimeType: "image/png" }],
+  };
+  const calls: string[] = [];
+  let restored: unknown;
+  const took = await takeBackSteer(row, {
+    draft: async (id, text) => {
+      expect([id, text]).toEqual([row.id, row.text]);
+      calls.push("read");
+      return { input: "before\uFFFCafter", attachments: [image] };
+    },
+    attachments: async () => {
+      throw new Error("the unordered legacy path must not be used");
+    },
+    withdraw: async () => {
+      calls.push("withdraw");
+      return true;
+    },
+    restore: (input, attachments) => {
+      calls.push("restore");
+      restored = { input, attachments };
+    },
+  });
+  expect(took).toBe(true);
+  expect(calls).toEqual(["read", "withdraw", "restore"]);
+  expect(restored).toEqual({ input: "before\uFFFCafter", attachments: [image] });
+});
