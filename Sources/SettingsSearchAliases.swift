@@ -195,6 +195,7 @@ enum SettingsSearchAliasIndex {
         "automation:ripgrep-path": localized("settings.search.alias.setting.automation.ripgrep-path", defaultValue: "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"),
         "automation:subagent-notifications": localized("settings.search.alias.setting.automation.subagent-notifications", defaultValue: "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"),
         "automation:agent-error-auto-resume": localized("settings.search.alias.setting.automation.agent-error-auto-resume", defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"),
+        "automation:claude-account-auto-switch": localized("settings.search.alias.setting.automation.claude-account-auto-switch", defaultValue: "automation.claudeAccountAutoSwitch claude account switch usage limit rate limit quota exhausted next account agents.claudeAccounts"),
         "automation:cursor": localized("settings.search.alias.setting.automation.cursor", defaultValue: "automation.cursorIntegration cursor ide agent hooks notifications"),
         "automation:gemini": localized("settings.search.alias.setting.automation.gemini", defaultValue: "automation.geminiIntegration gemini cli google agent hooks notifications"),
         "automation:kiro": localized("settings.search.alias.setting.automation.kiro", defaultValue: "automation.kiroIntegration kiro cli amazon q agent hooks notifications"),

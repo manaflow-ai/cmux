@@ -443,6 +443,28 @@ Sends `continue` to a cmux-launched agent whose turn ended on a retryable upstre
 
 Default: `true`. Toggle it from **Settings > Automation > Auto-Resume Agents After Errors** or the command palette.
 
+## `automation.claudeAccountAutoSwitch`
+
+When a Claude Code session started by cmux stops because its account hit the usage limit, cmux moves that terminal to the next account in [`agents.claudeAccounts`](#agentsclaudeaccounts) and continues the same conversation there, as **Switch Claude Account** does.
+
+```json
+{
+  "automation": {
+    "claudeAccountAutoSwitch": true
+  }
+}
+```
+
+Default: `false`. Toggle it from **Settings > Automation > Switch Claude Account on Usage Limit** or the command palette.
+
+Behavior notes:
+
+- Accounts are tried in `agents.claudeAccounts` order, starting after the current one; the default `~/.claude` account comes first. An account that has already trusted the terminal's folder is preferred.
+- The account that hit its limit is skipped until it resets, at the time its limit message gives when there is one.
+- cmux types `continue` only when the resumed session waits at an empty prompt. If the new account has not trusted the folder yet, cmux types nothing and notifies you to confirm folder trust first.
+- When every other account is at its limit, nothing changes and the terminal keeps its usage-limit status.
+- Remote, SSH, and cloud terminals are never switched.
+
 ## `agentMessages.enabled`
 
 The app-wide switch for `cmux agent message`. When `false`, sends fail with "Agent messages are turned off (agentMessages.enabled is false).", nothing is stored, and messages already queued are marked `failed` instead of being delivered. Turning it back on does not resend them.

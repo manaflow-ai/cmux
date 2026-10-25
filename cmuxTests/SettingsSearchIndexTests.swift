@@ -45,6 +45,9 @@ struct SettingsSearchIndexTests {
         assertSearch("auto resume errors", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "agent-error-auto-resume"))
         assertSearch("overloaded", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "agent-error-auto-resume"))
         assertSearch("automation.agentAutoResume", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "agent-error-auto-resume"))
+        assertSearch("switch claude account", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-account-auto-switch"))
+        assertSearch("usage limit", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-account-auto-switch"))
+        assertSearch("automation.claudeAccountAutoSwitch", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-account-auto-switch"))
         assertSearch("option as alt", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config"))
         assertSearch("option", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "terminal-config"))
         assertSearch("environment variables", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-command"))
@@ -61,6 +64,13 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.entries(matching: "copy on select").first?.id
                 == SettingsSearchIndex.settingID(for: .terminal, idSuffix: "copy-on-select")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesClaudeAccountAutoSwitch() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "automation.claudeAccountAutoSwitch")
+                == SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-account-auto-switch")
         )
     }
 
