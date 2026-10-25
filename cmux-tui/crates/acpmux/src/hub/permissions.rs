@@ -107,6 +107,7 @@ impl Hub {
         let mut mode_write = None;
         let mut reported_tools = None;
         let mut goal_write = false;
+        let mut mark_cleared = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -135,8 +136,10 @@ impl Hub {
                 // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
                 // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
                 let reported = update.get("currentModeId").and_then(Value::as_str);
-                if reported != m.mode_set_by_cmux.as_deref() {
+                if m.mode_set_by_cmux.is_some() && reported != m.mode_set_by_cmux.as_deref() {
                     m.mode_set_by_cmux = None;
+                    // Saved now, so a restart does not load the mark back.
+                    mark_cleared = true;
                 }
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
@@ -176,6 +179,9 @@ impl Hub {
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);
+        }
+        if mark_cleared {
+            self.save_meta(session);
         }
     }
 
