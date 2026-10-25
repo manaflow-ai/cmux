@@ -15,7 +15,8 @@ final class CEFVerificationBridge {
     /// Weak: the tab owns the relay that owns this bridge.
     private weak var tab: CEFTab?
     private var observation: ObservationLoop?
-    private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
+    /// The document phase the calls were last sent for.
+    private var gate = CEFDocumentGate()
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -41,11 +42,17 @@ final class CEFVerificationBridge {
     private func documentChanged() {
         guard let tab else { return }
         let state = tab.state
-        guard state.phase == .committed || state.phase == .finished, let browser = tab.browserID else { return }
-        let document = (url: state.url, phase: state.phase)
-        guard boundDocument.map({ $0.url != document.url || $0.phase != document.phase }) ?? true else { return }
-        boundDocument = document
-        CEFDocumentCall.run(Self.documentCalls(phase: state.phase), on: tab, browser: browser, label: "verification detector")
+        guard let browser = tab.browserID else { return }
+        let calls = Self.callsOnChange(document: tab.committedDocument, phase: state.phase, gate: &gate)
+        guard !calls.isEmpty else { return }
+        CEFDocumentCall.run(calls, on: tab, browser: browser, label: "verification detector")
+    }
+
+    /// The calls for one observed change of the tab: ``documentCalls(phase:)`` once per document
+    /// at `.committed` and at `.finished` (``CEFDocumentGate``), none for an address change within
+    /// the document (`pushState`, `replaceState`).
+    static func callsOnChange(document: BrowserNavigationID?, phase: BrowserLoadPhase, gate: inout CEFDocumentGate) -> [CEFDocumentCall] {
+        gate.admits(document: document, phase: phase) ? documentCalls(phase: phase) : []
     }
 
     /// The DevTools calls for a document that reached `phase` (`.committed` or `.finished`): the

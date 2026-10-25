@@ -65,6 +65,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored let titleTimer = DemandTimer(owner: "CEFTab.title")
     @ObservationIgnored var isCreationPending = false
     @ObservationIgnored var navigation: BrowserNavigationID?
+    /// The navigation id the current document committed with (OnLoadStart): the document's
+    /// identity, which a same-document navigation keeps (`CEFDocumentGate`). Observed.
+    var committedDocument: BrowserNavigationID?
     @ObservationIgnored var nextNavigation: UInt64 = 0
     @ObservationIgnored var pendingURL: URL?
     /// The page `attach` loads: an agent-driven tab was created blank

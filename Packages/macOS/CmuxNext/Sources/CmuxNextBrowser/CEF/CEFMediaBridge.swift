@@ -19,8 +19,8 @@ final class CEFMediaBridge {
     /// Weak: the tab owns this bridge; after it is gone every entry point returns.
     private weak var tab: CEFTab?
     private var observation: ObservationLoop?
-    /// The committed document the binding was last added for.
-    private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
+    /// The document phase the binding was last added for.
+    private var gate = CEFDocumentGate()
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -48,14 +48,11 @@ final class CEFMediaBridge {
         } + [.readyHook(world: BrowserMediaState.world, hook: BrowserMediaState.readyHook)]
     }
 
-    /// A document committed or finished: its world exists now.
+    /// A document committed or finished: its worlds exist now. Once per document phase
+    /// (``CEFDocumentGate``): an address change within the document sends nothing.
     private func documentChanged() {
-        guard let tab else { return }
-        let state = tab.state
-        guard state.phase == .committed || state.phase == .finished, let browser = tab.browserID else { return }
-        let document = (url: state.url, phase: state.phase)
-        guard boundDocument.map({ $0.url != document.url || $0.phase != document.phase }) ?? true else { return }
-        boundDocument = document
+        guard let tab, let browser = tab.browserID,
+              gate.admits(document: tab.committedDocument, phase: tab.state.phase) else { return }
         run(Self.documentCalls, browser)
     }
 
