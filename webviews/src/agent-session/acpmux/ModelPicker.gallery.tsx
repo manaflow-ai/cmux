@@ -200,6 +200,12 @@ const openQuick: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
 
+const openQuickSlider: Play = async (ctx) => {
+  await openQuick(ctx);
+  await ctx.click({ selector: ".acpmux-quick-sub" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
+};
+
 export default componentEntry<GalleryProps>({
   id: "agent-pane.model-picker",
   title: "Model picker",
@@ -298,7 +304,7 @@ export default componentEntry<GalleryProps>({
     // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
     // the harness-only rail with no machine/session initials.
     "quick-menu": { props: quick, play: openQuick },
-    "quick-menu-slider": { props: quickSlider, play: openQuick },
+    "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
     // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
     "quick-menu-accounts": {
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
