@@ -89,6 +89,7 @@ impl Hub {
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
                 tap_session.heard_at.store(tap_hub.clock_now() as i64, Ordering::Relaxed);
+                tap_session.stalled_gen.fetch_add(1, Ordering::SeqCst);
                 tap_hub.heard_after_silence(&tap_session);
             }
             let (d, kind) = match (dir, msg) {

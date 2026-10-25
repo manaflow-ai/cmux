@@ -63,6 +63,11 @@ impl Hub {
     /// A `session/update` from `session`'s agent (`tap.rs`): its open tool calls follow it. The
     /// last one ending brings the turn's deadline nearer: the reaper looks again.
     pub(super) fn note_tool_update(&self, session: &Session, update: &Value) {
+        // Before its prompt is written the tools are not this turn's: a failover's old agent
+        // still sending, the new agent's history replayed on load.
+        if session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
+            return;
+        }
         let mut open = session.open_tools.lock().unwrap_or_else(|e| e.into_inner());
         let was_open = !open.is_empty();
         track_tool(&mut open, update);
@@ -76,6 +81,7 @@ impl Hub {
     pub(super) fn hold_stalled_count(session: &Session) {
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        session.stalled_gen.fetch_add(1, Ordering::SeqCst);
     }
 
     /// `session`'s running turn starts its stalled count, its prompt written: now, or at
@@ -90,10 +96,16 @@ impl Hub {
             }
             None => now,
         };
+        // A prompt just written starts with no tool call open; an adopted turn keeps the ones
+        // its log holds (`recover_work` set them).
+        if heard_ms.is_none() {
+            session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        }
         session.heard_at.store(at, Ordering::Relaxed);
         session.stalled_recheck.store(0, Ordering::Relaxed);
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) =
             session.turn().map(|t| t.turn_id);
+        session.stalled_gen.fetch_add(1, Ordering::SeqCst);
         self.idle_wake.notify_one();
     }
 
@@ -139,6 +151,8 @@ impl Hub {
         let now = self.clock_now();
         let period = stalled.as_nanos() as u64;
         for session in self.sessions() {
+            // Read first: anything that moves the count after it bumps it (`stalled_gen`).
+            let generation = session.stalled_gen.load(Ordering::SeqCst);
             let Some(turn) = Self::counted_turn(&session) else { continue };
             if Self::stalled_due(&session, period) > now {
                 continue;
@@ -157,13 +171,14 @@ impl Hub {
                 json!({"stopReason": "cancelled", "_meta": {"acpmux": {"stalledMs": silent_ms}}});
             // Off this pass, so a wedged host never holds the reaper: the agent of this very
             // turn gets the cancel (bounded), then the turn ends whether it answered or not.
-            // Both only while nothing moved its count since: no sign of its model, no new agent
-            // (a failover keeps the turn id but starts the count again), no other turn.
+            // Both only while nothing moved its count since (`stalled_gen`): no sign of its
+            // model, no new agent (a failover keeps the turn id but starts the count again), no
+            // other turn.
             let session = session.clone();
             let turn_id = turn.turn_id;
             tokio::spawn(async move {
                 let ours = |s: &Session| {
-                    s.heard_at.load(Ordering::Relaxed) == heard
+                    s.stalled_gen.load(Ordering::SeqCst) == generation
                         && Self::counted_turn(s).is_some_and(|t| t.turn_id == turn_id)
                 };
                 let _ = tokio::time::timeout(CANCEL_SEND, async {

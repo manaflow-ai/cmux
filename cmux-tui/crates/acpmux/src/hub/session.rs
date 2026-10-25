@@ -137,6 +137,9 @@ pub struct Session {
     /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
     /// before that, so a turn whose prompt has not reached its agent is never stalled.
     pub(super) stalled_counted: StdMutex<Option<String>>,
+    /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
+    /// stalled end decided at one value is not carried out at another.
+    pub(super) stalled_gen: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or

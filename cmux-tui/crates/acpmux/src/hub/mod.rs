@@ -787,6 +787,7 @@ impl Hub {
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
+            stalled_gen: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),

@@ -363,7 +363,7 @@ impl Hub {
                 .ok_or_else(|| RpcError::internal("no agent session")),
             Err(e) => Err(e),
         };
-        let (child, agent_sid) = match started {
+        let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(e) => {
                 self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
@@ -484,6 +484,8 @@ impl Hub {
                     // refusal (folder trust, mode, D13) is the turn's error.
                     (Ok(_), Some(e)) => result = Err(e),
                     (Ok(child2), None) => {
+                        // The turn ends on the fallback's agent: `finish_turn` reads its life.
+                        child = child2.clone();
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
