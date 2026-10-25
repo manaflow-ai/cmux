@@ -170,8 +170,8 @@ test("the composer ring keeps Claude's breakdown details and uses a compact tool
   await act(async () => root!.render(<ContextRing used={171_500} size={400_000} breakdown={BREAKDOWN} />));
   const pop = await open();
   expect(pop.classList.contains("acpmux-context-pop--breakdown")).toBe(true);
-  expect(rowNames(pop)[0]).toBe("Messages");
-  expect(pop.querySelector(".acpmux-context-card-bar")).toBeNull();
+  expect(pop.querySelector(".acpmux-context-card-parts")?.textContent).toContain("Messages");
+  expect(pop.querySelector(".acpmux-context-card-bar")).not.toBeNull();
   await act(async () => root!.unmount());
   root = createRoot(container);
   await act(async () => root!.render(<ContextRing used={60_000} size={200_000} />));

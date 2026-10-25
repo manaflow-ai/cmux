@@ -83,7 +83,7 @@
 
 .acpmux-context-card-bar > span,
 .acpmux-context-card-swatch {
-  background: var(--acpmux-context-segment);
+  background: var(--acpmux-context-segment, var(--agent-accent));
 }
 
 .acpmux-context-card-parts {
