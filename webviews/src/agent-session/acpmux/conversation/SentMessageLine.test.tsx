@@ -104,7 +104,7 @@ test("a sent message reads its target, how it was taken and its first line, and 
 test("in flight it is live, with the spinner", async () => {
   const running = await line(bash("acpmux send lane 'status?'", { status: "in_progress" }));
   const row = running.querySelector<HTMLButtonElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Sending message to laneStatus?");
+  expect(row.textContent).toBe("Sending message to lanestatus?");
   expect(row.classList.contains("is-live")).toBe(true);
   expect(row.querySelector(".cv-tool__icon svg")).not.toBeNull();
 });
