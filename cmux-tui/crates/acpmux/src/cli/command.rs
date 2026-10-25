@@ -1075,6 +1075,12 @@ pub struct NewArgs {
     /// Tell the new session that this session started it and how to report back.
     #[arg(long, value_name = "SESSION")]
     pub report_to: Option<String>,
+    /// Start it as SESSION's sub-session, of any harness (`-m codex`): it lists under SESSION's
+    /// chat and SESSION's agent reads, messages and stops it with its sub-session tools. SESSION
+    /// is the session this command runs in (`$ACPMUX_SESSION_ID`) or one of its sub-sessions.
+    /// Needs a prompt; prints the child's reply when its turn ends (with -d, only starts it).
+    #[arg(long, value_name = "SESSION")]
+    pub parent: Option<String>,
     /// Show the session in the cmux app's sidebar, in this workspace group
     /// (made when missing). Runs `cmux agent open` on this machine.
     #[arg(long, value_name = "GROUP")]

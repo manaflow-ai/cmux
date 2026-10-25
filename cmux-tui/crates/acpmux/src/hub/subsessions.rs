@@ -330,6 +330,8 @@ pub struct StartRequest {
     pub name: Option<String>,
     pub harness: Option<String>,
     pub model: Option<String>,
+    /// Thinking effort (`acpmux new --parent -e`); None is the harness's default.
+    pub effort: Option<String>,
     pub cwd: Option<PathBuf>,
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
@@ -621,13 +623,6 @@ impl Hub {
             }
             kept.keep();
         }
-        let link = child.meta().subsession.clone();
-        self.append(
-            parent,
-            "mux",
-            RECORD_KIND,
-            json!({"event": "started", "childSessionId": child.id, "shortName": link.as_ref().map(|l| &l.short_name)}),
-        );
         Ok(reply)
     }
 
@@ -676,6 +671,7 @@ impl Hub {
             cwd: Some(cwd.clone()),
             policy,
             model: req.model.clone(),
+            effort: req.effort.clone(),
             remote: pm.remote_origin,
             workspace_id: pm.workspace_id.clone(),
             // Same family: the parent's mode, set below. Another family: the
@@ -696,8 +692,15 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         let cm = probe.meta();
-        let accepted =
-            self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
+        // At its prompt's acceptance: the parent's log has `started` only for a child that runs,
+        // and before that turn's `turn_ended`.
+        let (hub, to, child) = (self.clone(), parent.clone(), probe.clone());
+        let (prompt, asked) = (req.prompt.clone(), (req.model.clone(), req.effort.clone()));
+        let started: Box<dyn FnOnce() + Send> =
+            Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
+        let accepted = self
+            .send_family_prompt(parent, &probe, &req.prompt, None, false, false, Some(started))
+            .await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -767,7 +770,9 @@ impl Hub {
 
     /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
     /// is accepted (started or queued). `steer`: into the running turn (`Delivery::NextStep`);
-    /// `interrupt`: `Hub::interrupt_once_queued`.
+    /// `interrupt`: `Hub::interrupt_once_queued`. `accepted` runs at the acceptance, before the
+    /// turn can end.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
@@ -776,6 +781,7 @@ impl Hub {
         prompt_id: Option<String>,
         steer: bool,
         interrupt: bool,
+        accepted: Option<Box<dyn FnOnce() + Send>>,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
@@ -801,6 +807,9 @@ impl Hub {
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
                 stop(&v);
+                if let Some(accepted) = accepted {
+                    accepted();
+                }
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
