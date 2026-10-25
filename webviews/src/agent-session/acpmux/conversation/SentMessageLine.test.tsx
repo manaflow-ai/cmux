@@ -123,7 +123,7 @@ test("a failed send says it could not send and opens to its output", async () =>
     }),
   );
   const row = container.querySelector<HTMLButtonElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Couldn't send to perf-laneProfile it.");
+  expect(row.textContent).toBe("Couldn't send to perf-lane");
   expect(row.dataset.sendState).toBe("failed");
   await act(async () => row.click());
   expect(container.querySelector(".cv-shell")?.textContent).toContain("no_session");
