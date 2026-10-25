@@ -85,3 +85,23 @@ test("a failed upload fails each file it held, with the host's reason", async ()
   );
   expect(failed).toEqual([[0, { text: "The disk is full." }]]);
 });
+
+// A file placed in the prompt's text at its paste is tied to it by its placeholder's id
+// (composer/inlineNode.ts), as an image is: the link chip it becomes takes that id.
+test("a file the host knows the path of becomes a link chip under its placeholder's id", async () => {
+  const taken = await intakeFiles([zip("build-logs.zip")], {
+    allowImages: true,
+    localPaths: async () => [{ path: "/home/dev/app/build-logs.zip", folder: false }],
+    ids: ["placed-1"],
+  });
+  expect(taken.attachments.map((chip) => [chip.kind, chip.id])).toEqual([["link", "placed-1"]]);
+});
+
+test("a file the host saved becomes a link chip under its placeholder's id", async () => {
+  const taken = await intakeFiles([zip("build-logs.zip")], {
+    allowImages: true,
+    upload: async () => ({ paths: ["/tmp/Chat Uploads/build-logs.zip"] }),
+    ids: ["placed-2"],
+  });
+  expect(taken.attachments.map((chip) => [chip.kind, chip.id])).toEqual([["link", "placed-2"]]);
+});

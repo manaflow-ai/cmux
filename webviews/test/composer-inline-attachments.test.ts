@@ -8,7 +8,11 @@
 // - a × in the strip takes it out of the text, Backspace in the text takes it out of the strip, and
 //   undo brings it back to both;
 // - moving it in the strip moves it in the text;
-// - the prompt's right-click turns inline placement off: a paste then goes to the strip only.
+// - a file goes in at the caret as an image does, and goes in the text's order (Leo: "text, image,
+//   text, file" in the order written);
+// - Settings' attachment view (agentPane.attachmentView, composerSettings.ts) is only a look:
+//   "strip" shows the attachments in the strip alone, and the prompt keeps every place, so turning
+//   it back to "inline" shows them where they were added and the prompt goes the same either way.
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -294,22 +298,91 @@ await requireBrowserLane("composer-inline-attachments.test.ts", async () => {
     await page.close();
   });
 
-  test("the prompt's right-click turns inline placement off: a paste goes to the strip only", async () => {
+  /// Settings' attachment view, as the host pushes it (composerSettings.ts `composer` event).
+  const view = (page: Page, attachmentView: "inline" | "strip") =>
+    page.evaluate(
+      (attachmentView) =>
+        (window as unknown as { cmuxAcpmuxComposer(value: unknown): void }).cmuxAcpmuxComposer({ attachmentView }),
+      attachmentView,
+    );
+  const shownInText = (page: Page) =>
+    page.evaluate(
+      () =>
+        [...document.querySelectorAll<HTMLElement>(".acpmux-md .acpmux-md-inline")].filter(
+          (node) => node.getBoundingClientRect().width > 0,
+        ).length,
+    );
+
+  test("the strip view shows attachments in the strip alone and keeps their places for the inline view", async () => {
     const page = await open();
-    await page.locator(".acpmux-composer-prompt [contenteditable=true]").click({ button: "right" });
-    await page.getByRole("menuitem", { name: "Keep Attachments Above the Prompt" }).click();
-    await page.locator(".acpmux-composer-prompt [contenteditable=true]").click();
-    await page.keyboard.type("strip only ");
+    await view(page, "strip");
+    await page.keyboard.type("strip ");
     await paste(page, 300);
+    await page.keyboard.type(" view");
     expect(await inStrip(page)).toEqual(["300"]);
-    expect(await page.locator(".acpmux-md .acpmux-md-inline").count()).toBe(0);
-    // And back on, for the next paste.
-    await page.locator(".acpmux-composer-prompt [contenteditable=true]").click({ button: "right" });
-    await page.getByRole("menuitem", { name: "Place Attachments in the Text" }).click();
+    expect(await shownInText(page)).toBe(0);
+    await view(page, "inline");
+    await page.waitForFunction(() => document.querySelectorAll(".acpmux-md .acpmux-md-inline img").length === 1);
+    expect(await shownInText(page)).toBe(1);
+    expect(await inText(page)).toEqual(["300"]);
+    await view(page, "strip");
+    prompts.length = 0;
+    const sent = new Promise<void>((resolve) => (prompted = resolve));
+    await page.keyboard.press("Enter");
+    await sent;
+    // The same prompt as the inline view sends: the image where it was added.
+    expect(prompts[0]!.map((block) => block.type)).toEqual(["text", "image", "text"]);
+    await view(page, "inline");
+    await page.close();
+  });
+
+  test("text, image, text, file: a file goes in at the caret and the prompt goes in that order", async () => {
+    const page = await browser!.newPage({ viewport: { width: 1100, height: 720 } });
+    // The host says where a pasted file is (`chat.attach.dropped`), so it goes as a link to it.
+    await page.addInitScript(() => {
+      Object.assign(window, {
+        webkit: {
+          messageHandlers: {
+            agentSession: {
+              postMessage: async ({ method, params }: { method: string; params: { names?: string[] } }) =>
+                // Only the file's: an image with a known original also sends a link to it.
+                method === "chat.attach.dropped" && params.names?.every((name) => name.endsWith(".zip"))
+                  ? {
+                      ok: true,
+                      value: { items: (params.names ?? []).map((name) => ({ path: `/home/dev/app/${name}` })) },
+                    }
+                  : { ok: true, value: null },
+            },
+          },
+        },
+      });
+    });
+    await page.goto(url());
+    await page.getByText("Send me screenshots.").waitFor();
     await page.locator(".acpmux-composer-prompt [contenteditable=true]").click();
-    await paste(page, 400);
-    expect(await inText(page)).toEqual(["400"]);
-    expect(await inStrip(page)).toEqual(["300", "400"]);
+    await page.keyboard.type("see ");
+    await paste(page, 300);
+    await page.keyboard.type(" and read ");
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File(["logs"], "build-logs.zip", { type: "application/zip" }));
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable=true]")!;
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    await page.waitForFunction(() => document.querySelectorAll(".acpmux-md .acpmux-md-inline").length === 2);
+    await page.waitForFunction(() => document.querySelector(".acpmux-md .acpmux-md-inline [data-kind='file']"));
+    await page.keyboard.type(" thanks");
+    prompts.length = 0;
+    const sent = new Promise<void>((resolve) => (prompted = resolve));
+    await page.keyboard.press("Enter");
+    await sent;
+    expect(prompts[0]!.map((block) => block.type)).toEqual(["text", "image", "text", "resource_link", "text"]);
+    expect(prompts[0]!.filter((block) => block.type === "text").map((block) => block.text)).toEqual([
+      "see ",
+      " and read ",
+      " thanks",
+    ]);
+    expect(prompts[0]!.find((block) => block.type === "resource_link")?.name).toBe("build-logs.zip");
     await page.close();
   });
 });
