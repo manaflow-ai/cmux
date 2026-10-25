@@ -247,7 +247,6 @@ impl Hub {
         // The parent's mode as it is now: it may have left full access since the start was checked.
         let live = parent.meta();
         let parent_mode = crate::web_modes::mode_of(&live);
-        let parent_full = self.caller_access(&live) == Access::Full;
         // The parent's rules above its policy (which can deny) and the MCP
         // servers the user turned off apply to the child too.
         {
@@ -280,17 +279,14 @@ impl Hub {
         let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
             && !super::start_mode::full_access_allowed();
         let inherit = same_family && !capped;
-        let mode = if inherit {
-            parent_mode
-        } else if parent_full || capped {
-            self.start_mode(probe).await
-        } else {
-            None
-        };
+        // Another family (or a capped parent): the parent's level on the child's modes
+        // (`start_mode.rs`, "Inherit"), which `hold_subsession` then holds to the parent.
+        let mode =
+            if inherit { parent_mode } else { self.start_mode_for(probe, Some(&parent.id)).await };
         if let Some(mode) = mode {
             let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
-            // The inherit rule (or the person's default under a full-access
-            // parent) grants it; a refusal ends the new session.
+            // The inherit rule (or the parent's level on another family) grants it; a refusal
+            // ends the new session.
             if inherit {
                 self.start_in_mode(false, Some(&parent.id), &params, probe, false).await?;
             } else if let Err(e) = self.set_mode(probe, &mode).await {
@@ -577,6 +573,18 @@ impl Hub {
         if self.policy_laxer(&child.meta(), pm).await {
             self.set_policy(child, caller_policy).await;
         }
+        self.hold_mode(pm, child).await
+    }
+
+    /// The harness half of [`Hub::hold_subsession`]: new session `child` never runs its harness
+    /// asking less than `pm`, the session that started it; moved to an asking mode, else refused
+    /// (the caller closes it). Also a chat a caller session started with no mode
+    /// (`start_mode.rs`, "Inherit"), against that session as it is now.
+    pub(super) async fn hold_mode(
+        self: &Arc<Self>,
+        pm: &SessionMeta,
+        child: &Arc<Session>,
+    ) -> Result<(), RpcError> {
         let mine = self.caller_access(pm);
         if self.receiver_access(&child.meta(), pm).await <= mine {
             return Ok(());
