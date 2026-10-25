@@ -103,12 +103,14 @@ enum AgentBesidePlacement {
                     return "beside-caller: the chat did not dock (see the app log)"
                 }
                 moved = true
+                // The agent's tool is selected beside the chat, unless the person chose a tab since.
+                // Before the New Tab pages follow the chat: that step is skipped when the person
+                // acted meanwhile (its generation moved), and the tool must not stay unselected then.
+                if let left = services.paneController(for: anchor), !(personActed() && content.focusedPane === left) {
+                    left.selectWhenReportedKeepingFocus(surface: surface)
+                }
                 await ChatColumnPlacement.moveNewTabPages(newTabPages, with: chat, from: anchor,
                                                           in: content, services: services, generation: dockIntent, whenDocked: { dock in
-                    // The agent's tool is selected beside the chat, unless the person chose a tab since.
-                    if let left = services.paneController(for: anchor), !(personActed() && content.focusedPane === left) {
-                        left.selectWhenReportedKeepingFocus(surface: surface)
-                    }
                     // Keyboard focus stays in the chat, now in its dock, before any New Tab pages follow
                     // it; a person's click focuses the tab. Not when the person acted since the run
                     // began: their focus stays where they put it.
