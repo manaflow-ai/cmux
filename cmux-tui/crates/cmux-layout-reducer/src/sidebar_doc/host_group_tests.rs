@@ -57,6 +57,17 @@ fn only_a_machine_section_is_a_remote_group() {
 }
 
 #[test]
+fn false_host_group_patch_is_harmless_on_a_custom_section() {
+    let mut doc = doc();
+    let before = doc.section("sec_custom").unwrap().clone();
+    apply(&mut doc, &[update("sec_custom", false)]).unwrap();
+    assert_eq!(doc.section("sec_custom").unwrap(), &before);
+    assert_eq!(apply(&mut doc, &[update("sec_custom", true)]), Err(Refusal::InvalidValue));
+    assert_eq!(doc.section("sec_custom").unwrap(), &before);
+    check(&doc).unwrap();
+}
+
+#[test]
 fn host_group_is_on_the_wire_only_when_set() {
     let mut section = Section::machine("mini");
     let plain = serde_json::to_value(&section).unwrap();
