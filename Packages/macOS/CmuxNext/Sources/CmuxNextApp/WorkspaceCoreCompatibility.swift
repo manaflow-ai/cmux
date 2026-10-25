@@ -57,14 +57,6 @@ extension AppServices: AppServicesProviding {
     var pageActions: any PageActionProviding { self }
 }
 
-// Legacy app handlers still use the concrete group editor while the core
-// callback carries only the read-only sidebar projection.
-extension WorkspaceSpawnSidebar {
-    var groupFlow: SidebarGroupFlow {
-        (self as! SidebarBridge).groupFlow
-    }
-}
-
 extension AppServices: WindowAccessProviding {
     func snapshot(windowID: String) -> (any WindowSnapshotProviding)? {
         windows.controller(for: windowID)

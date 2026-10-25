@@ -287,6 +287,37 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return .daemonFailed(logPath: environment.logPath, cause: cause)
     }
 
+    /// The refusal of a daemon of another acpmux home on this app's socket: it is another app's
+    /// or tag's. Never hand it off, stop it, key it or use it.
+    private static func foreignHome(_ status: AcpmuxStatus, _ environment: AcpmuxEnvironment) -> AgentPaneHostError {
+        logger.error("acpmux socket=\(environment.socketPath, privacy: .public) serves home=\(status.home ?? "", privacy: .public), not this app's home=\(environment.home.path, privacy: .public)")
+        AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
+        let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
+        return .daemonRefused(holder: holder, socketPath: environment.socketPath,
+                              reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)",
+                              executable: environment.executable.path)
+    }
+
+    /// `_acpmux/status` of a daemon that just started, or won the start: waits up to 3 s while
+    /// its socket is still being bound, as ``verifiedEndpoint(_:)`` does. Nil when none answers.
+    private static func startedStatus(_ environment: AcpmuxEnvironment) async -> AcpmuxStatus? {
+        let deadline = ContinuousClock.now + .seconds(3)
+        var delay: Duration = .milliseconds(100)
+        // wakeup-allow: bounded retry while the started daemon binds its Unix socket; this exits at the deadline or on any other failure.
+        while true {
+            do {
+                return try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
+            } catch AcpmuxStatusClient.Failure.unreachable where ContinuousClock.now < deadline {
+                // wakeup-allow: bounded backoff for the socket bind; the deadline limits this sleep to three seconds.
+                do { try await Task.sleep(for: min(delay, deadline - ContinuousClock.now)) } catch { return nil }
+                delay = min(delay * 2, .milliseconds(500))
+            } catch {
+                logger.error("acpmux status after a start failed error=\(String(describing: error), privacy: .public)")
+                return nil
+            }
+        }
+    }
+
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
                                     heal: (@Sendable (Int32) async -> Bool)?) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
@@ -295,14 +326,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             let status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             // A daemon of another acpmux home answers on this socket: it is another app's or
             // tag's. Never hand it off, stop it or use it.
-            guard status.serves(home: environment.home) else {
-                logger.error("acpmux socket=\(environment.socketPath, privacy: .public) serves home=\(status.home ?? "", privacy: .public), not this app's home=\(environment.home.path, privacy: .public)")
-                AcpmuxFailureLog(logPath: environment.logPath).record(.foreignHome, detail: "home \(status.home ?? "?")")
-                let holder = status.pid.flatMap(AcpmuxVersionHandoff.executablePath(pid:)).map(AcpmuxServerPeer.holderName(executablePath:))
-                throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: environment.socketPath,
-                                                       reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)",
-                                                       executable: environment.executable.path)
-            }
+            guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }
             // After an update the daemon may be the previous build's: hand it
             // off (its agents keep running under their hosts) and start ours.
             // A reconnect never stops or starts a daemon. It still gives a daemon that restarted
@@ -365,18 +389,29 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         do {
             let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
-            if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath) {
+            if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment)
                 await AcpmuxComputerUse.enroll(environment)
             }
             return endpoint
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
-            // Another client may have started the daemon first; the loser
-            // exits because the socket is taken. Ask the winner.
+            // Another client may have started the daemon first; the loser exits because the
+            // socket is taken. Ask the winner, checked as on the paths above: it serves this
+            // app's home, and it gets this launch's person key before a pane connects. A signed
+            // daemon gets the key only by enroll, and a pane that connects first proves nothing,
+            // so every Allow stayed refused until the app relaunched (cosmic-gray, 2026-10-24).
+            // A reconnect's rule: this branch never stops the winner (`mayHandOff: false`).
             do {
+                guard let status = await Self.startedStatus(environment) else {
+                    throw failure(environment, .exited, detail: "no daemon answers after the launch exited")
+                }
+                guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }
+                _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
                 await AcpmuxComputerUse.enroll(environment)
                 return try await Self.verifiedEndpoint(environment)
+            } catch let error as AgentPaneHostError {
+                throw error
             } catch let refusal as AcpmuxServerPeer.Refusal {
                 throw Self.refused(refusal, environment)
             } catch {
