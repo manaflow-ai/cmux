@@ -272,7 +272,7 @@ describe("shellCommands", () => {
     const [send, copy] = shellCommands('x "$(cat a)" `pwd` 2>&1 >/dev/null; > out');
     expect(send!.writes).toBeUndefined();
     expect(send!.runs).toEqual(["cat a", "pwd"]);
-    expect(copy).toEqual({ words: [], op: "", writes: true });
+    expect(copy).toEqual({ words: [], op: "", writes: true, stdout: true });
   });
 
   test("a substitution keeps its operators inside its word", () => {
