@@ -15,8 +15,10 @@
 #          (MallocCheckHeapStart=1 MallocCheckHeapEach=100 MallocScribble=1, and
 #          MallocStackLogging so a report names the allocation): a background thread dlopens
 #          the framework while the main thread churns canary-filled blocks. Counts runs that
-#          saw a changed live block (exit 2) or that libmalloc ended (any other failure), and
-#          prints the first failure's output. Exit 0 when every run was clean.
+#          saw a changed live block (exit 2), that failed the foreign realloc through the
+#          delegating zone kept as zones[0] (exit 4: the zone gave a PartitionAlloc block to the
+#          system zone), that libmalloc ended (an abort, such as "not allocated") or that gave no
+#          verdict, and prints the first failure's output. Exit 0 when every run was clean.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
@@ -32,18 +34,24 @@ if [[ "$mode" == corrupt ]]; then
   dir="$(mktemp -d)"
   trap 'rm -rf "$dir"' EXIT
   clang -O1 -g -I"$zone/include" "$here/corrupt.c" "$zone/early_zone.c" -o "$dir/corrupt"
-  corrupt=0 ended=0 first=""
+  corrupt=0 foreign=0 noverdict=0 ended=0 first=""
   for run in $(seq 1 "$runs"); do
     status=0
     MallocCheckHeapStart=1 MallocCheckHeapEach=100 MallocScribble=1 MallocStackLogging=1 \
       "$dir/corrupt" "$framework" "$seconds" > "$dir/out" 2>&1 || status=$?
     [[ "$status" -eq 0 ]] && continue
-    if [[ "$status" -eq 2 ]]; then corrupt=$((corrupt + 1)); else ended=$((ended + 1)); fi
+    case "$status" in
+      2) corrupt=$((corrupt + 1)) ;;
+      4) foreign=$((foreign + 1)) ;;
+      3|5|64) noverdict=$((noverdict + 1)) ;;
+      *) ended=$((ended + 1)) ;;
+    esac
     [[ -n "$first" ]] || first="run $run exit $status: $(tail -c 4000 "$dir/out")"
   done
-  echo "corrupt: $runs runs: $corrupt saw a changed live block, $ended ended by libmalloc or a signal"
+  echo "corrupt: $runs runs: $corrupt saw a changed live block, $foreign failed the foreign realloc," \
+    "$ended ended by libmalloc or a signal, $noverdict gave no verdict (dlopen failed, no delegating zone, or the stand-in zone does not own its block)"
   [[ -z "$first" ]] || printf 'first failure: %s\n' "$first"
-  [[ "$corrupt" -eq 0 && "$ended" -eq 0 ]]
+  [[ "$corrupt" -eq 0 && "$foreign" -eq 0 && "$ended" -eq 0 && "$noverdict" -eq 0 ]]
   exit
 fi
 bin="$(mktemp -d)/repro"
