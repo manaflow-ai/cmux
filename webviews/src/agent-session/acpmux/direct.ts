@@ -2961,7 +2961,9 @@ export class AcpmuxDirectClient {
               String(msg.text ?? ""),
               entry.next === true,
               false,
-              msg.images === undefined ? entry.images : recordImages(msg),
+              // The record names every image the prompt keeps: none named is none kept (an edit that
+              // took the last image out omits the field).
+              recordImages(msg),
               undefined,
               recordedInlineParts(msg) ?? entry.inlineParts,
             )
