@@ -191,6 +191,7 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
   const live = useSubsessionInfo(call.sessionId);
   return (
     <SentMessageLine
+      tool={tool}
       state={call.running ? "sending" : "sent"}
       target={live?.name ?? shortId(call.sessionId)}
       text={call.text}

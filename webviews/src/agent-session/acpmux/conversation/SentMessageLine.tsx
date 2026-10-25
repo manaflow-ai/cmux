@@ -6,12 +6,13 @@
 // opens to its output. Both ways of sending draw this one row: a cmux-subsessions `send_message`
 // (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
 // Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx).
-import { type ReactNode, useId, useState, useSyncExternalStore } from "react";
+import { type ReactNode, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCall, SendState } from "./acpmuxSends";
 import { messagePreview } from "./AgentMessageRow";
 import { messageDelivery } from "./agentMessages";
+import { useFindReveal } from "./chatFind";
 import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { ShellBlock } from "./ShellBlock";
@@ -45,6 +46,7 @@ const subscribe = (listener: () => void) => {
 const snapshot = () => look;
 
 export function SentMessageLine({
+  tool,
   state,
   target,
   text,
@@ -53,6 +55,8 @@ export function SentMessageLine({
   raw,
   rawOpen = false,
 }: {
+  /// The call: Find in Chat opens the row when its match is in it.
+  tool: Tool;
   state: SendState;
   /// Who it went to, by name.
   target: string;
@@ -69,6 +73,10 @@ export function SentMessageLine({
   const t = useT();
   const shape = useSyncExternalStore(subscribe, snapshot, snapshot);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  useFindReveal(
+    useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]),
+    () => setOpen(true),
+  );
   const id = useId();
   const preview = text ? messagePreview(text) : "";
   const label =
@@ -151,6 +159,7 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
         : undefined;
   return (
     <SentMessageLine
+      tool={tool}
       state={send.state}
       target={send.target}
       text={send.text}
