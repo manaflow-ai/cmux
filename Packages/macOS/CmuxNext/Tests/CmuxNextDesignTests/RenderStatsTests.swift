@@ -131,18 +131,24 @@ import Testing
         let clock = ContinuousClock()
         let armCall = clock.measure { _ = stats.arm() }
         #expect(armCall < .milliseconds(50))
-        #expect(await Self.longestMainActorGap { #expect(await stats.ready()) } < .milliseconds(250))
+        var counting = false
+        let firstGap = await Self.longestMainActorGap { counting = await stats.ready() }
+        #expect(counting)
+        #expect(firstGap < .milliseconds(250))
         #expect(stats.fullScans == 1)
         let disarmCall = clock.measure { stats.disarm() }
         #expect(disarmCall < .milliseconds(50))
         #expect(stats.arm())
-        #expect(await Self.longestMainActorGap { #expect(await stats.ready()) } < .milliseconds(250))
+        let secondGap = await Self.longestMainActorGap { counting = await stats.ready() }
+        #expect(counting)
+        #expect(secondGap < .milliseconds(250))
         stats.disarm()
         #expect(stats.fullScans == 1)
         stats.forgetScan()
         #expect(await armed(stats).fullScans == 2)
         stats.disarm()
-        #expect(await Self.longestMainActorGap { _ = await stats.ready() } < .milliseconds(250))
+        let restoreGap = await Self.longestMainActorGap { _ = await stats.ready() }
+        #expect(restoreGap < .milliseconds(250))
         await release(stats)
     }
 
