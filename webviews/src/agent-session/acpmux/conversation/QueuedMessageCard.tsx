@@ -22,6 +22,10 @@ export type QueuedMessageActionsValue = {
   edit: (promptId: string, text: string, images: readonly QueuedPromptImage[]) => Promise<boolean>;
   remove: (promptId: string) => Promise<boolean>;
   sideChat?: (promptId: string, text: string) => Promise<boolean>;
+  /// Where it waits in the whole queue now (the person's prompts too), for Move up and Move down.
+  position?: (promptId: string) => { index: number; count: number } | undefined;
+  /// Moves it to `index` in the whole queue (`_acpmux/queue_edit` move).
+  move?: (promptId: string, index: number) => Promise<boolean>;
 };
 
 /// The note: when the agent reads the message, after the running turn or after its current step.
@@ -43,6 +47,9 @@ export type QueuedMessageActions = {
   remove?: () => void;
   /// Asks it in a new side chat and withdraws it from the queue (the queue row's Open in side chat).
   sideChat?: () => void;
+  /// Where it waits now and how to move it there, read as the menu opens (the queue row's Move up
+  /// and Move down; the first can't move up, the last can't move down).
+  place?: { position: () => { index: number; count: number } | undefined; move: (index: number) => void };
   /// Whether the menu offers queueing off or on, as a queue row's ⋯ did.
   queueing?: boolean;
   /// The steer's label: "Steer" for a queued message, "Send now" for a steer.
@@ -55,15 +62,19 @@ export function QueuedMessageMenu({
   edit,
   remove,
   sideChat,
+  place,
   queueing: offersQueueing,
   steerLabel = "composer.queueSteer",
 }: QueuedMessageActions) {
   const t = useT();
   const queueing = useQueueing();
-  if (!steer && !edit && !remove && !sideChat && !offersQueueing) return null;
+  // Opening draws the menu again, so its moves read where the message waits now.
+  const [, setOpened] = useState(0);
+  if (!steer && !edit && !remove && !sideChat && !place && !offersQueueing) return null;
+  const at = place?.position();
   return (
     <span className="cv-received-actions cv-received__queued-actions">
-      <Menu>
+      <Menu onOpenChange={(open) => open && setOpened((count) => count + 1)}>
         <MenuButton
           className="cv-iconbtn cv-iconbtn--compact"
           data-menu="queued-message"
@@ -93,6 +104,24 @@ export function QueuedMessageMenu({
             <MenuItem className="acpmux-quick-item" onSelect={sideChat}>
               {t("composer.queueSideChat")}
             </MenuItem>
+          )}
+          {place && at && (
+            <>
+              <MenuItem
+                className="acpmux-quick-item"
+                disabled={at.index === 0}
+                onSelect={() => place.move(at.index - 1)}
+              >
+                {t("composer.queueMoveUp")}
+              </MenuItem>
+              <MenuItem
+                className="acpmux-quick-item"
+                disabled={at.index >= at.count - 1}
+                onSelect={() => place.move(at.index + 1)}
+              >
+                {t("composer.queueMoveDown")}
+              </MenuItem>
+            </>
           )}
           {offersQueueing && (
             <MenuItem className="acpmux-quick-item" onSelect={() => setQueueing(!queueing)}>
@@ -153,6 +182,14 @@ export function QueuedMessageCard({
               {...(act ? { edit: () => void act.edit(promptId, text, row.images ?? []).catch(fail) } : {})}
               {...(act?.sideChat && !row.images?.length
                 ? { sideChat: () => void act.sideChat!(promptId, text).catch(fail) }
+                : {})}
+              {...(act?.position && act.move
+                ? {
+                    place: {
+                      position: () => act.position!(promptId),
+                      move: (index: number) => void act.move!(promptId, index).catch(fail),
+                    },
+                  }
                 : {})}
               {...(act ? { remove: () => void act.remove(promptId).catch(fail) } : {})}
               queueing

@@ -2389,14 +2389,17 @@ export function VirtualTranscript({
   useEffect(() => {
     const previous = previousRowList.current;
     previousRowList.current = rows;
+    // The tail these rows end with, against the one the previous rows ended with (kept with them,
+    // whatever happened since: another view's rows in between are not this tail).
+    const tail = queuedTail ?? NO_ROWS;
+    const lastTail = previousTail.current;
+    previousTail.current = tail;
     // Rows that only grew below the ones there (a streaming turn) left none behind, also when the
     // running turn's line stays last under them (`below`, conversation/turns.ts).
     if (previous && previous.length <= rows.length) {
       // So do the waiting agent messages after it (conversation/queuedMessages.ts), the same tail
       // array while the queue holds: checked by identity, not row by row. A changed tail scans.
-      const tail = queuedTail ?? NO_ROWS;
-      const keptTail = previousTail.current === tail ? tail.length : 0;
-      previousTail.current = tail;
+      const keptTail = lastTail === tail ? tail.length : 0;
       const before = previous.length - 1 - keptTail;
       const line =
         keptTail +
@@ -6150,6 +6153,9 @@ function AcpmuxPane() {
         }
       : undefined;
   const queueSideChatRef = useRef(queueSideChat);
+  // The queue as acpmux has it now, which a waiting message's Move up/Move down places it in.
+  const queueRef = useRef(snapshot.queue);
+  queueRef.current = snapshot.queue;
   queueSideChatRef.current = queueSideChat;
   // Another agent's waiting message, from its card's ⋯ menu (conversation/QueuedMessageCard.tsx):
   // the queue row's Steer, Edit message (into the composer, its images too), Open in side chat and
@@ -6168,6 +6174,13 @@ function AcpmuxPane() {
               if (removed) composerHandle.current?.restore(text, attachments);
               return removed;
             },
+            // The queue row's Move up and Move down: acpmux's `move` to a place in the whole queue.
+            position: (promptId) => {
+              const queue = queueRef.current;
+              const index = queue.findIndex((entry) => entry.id === promptId);
+              return index < 0 ? undefined : { index, count: queue.length };
+            },
+            move: (promptId, index) => editQueued(promptId, { op: "move", index }),
             ...(sideChatOffered && {
               sideChat: (promptId: string, text: string) =>
                 queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),

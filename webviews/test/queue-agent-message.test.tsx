@@ -154,6 +154,9 @@ async function card(entry: ReturnType<typeof agent> & { next?: boolean; images?:
     ),
     remove: async (id: string) => (calls.push(`remove ${id}`), true),
     sideChat: async (id: string, text: string) => (calls.push(`side ${id} ${text}`), true),
+    // It waits second of three in the whole queue.
+    position: () => ({ index: 1, count: 3 }),
+    move: async (id: string, index: number) => (calls.push(`move ${id} ${index}`), true),
   };
   await show(
     <TurnActionsContext.Provider value={{ queuedMessages: () => actions }}>
@@ -183,6 +186,8 @@ test("the received card says when it is read and keeps the queue row's actions i
     t("composer.queueSteer"),
     t("composer.queueEditMessage"),
     t("composer.queueSideChat"),
+    t("composer.queueMoveUp"),
+    t("composer.queueMoveDown"),
     t("composer.queueingOff"),
     t("composer.queueDelete"),
   ]);
@@ -203,6 +208,15 @@ test("the received card says when it is read and keeps the queue row's actions i
   await act(async () => item(t("composer.queueSideChat")).click());
   await settle();
   expect(calls.at(-1)).toBe(`side a1 ${entry.prompt}`);
+  // Move up and Move down place it in the whole queue, as its queue row did.
+  await openMenu();
+  await act(async () => item(t("composer.queueMoveUp")).click());
+  await settle();
+  expect(calls.at(-1)).toBe("move a1 0");
+  await openMenu();
+  await act(async () => item(t("composer.queueMoveDown")).click());
+  await settle();
+  expect(calls.at(-1)).toBe("move a1 2");
 });
 
 test("a message sent now offers no second Steer; one with images keeps them and asks no side chat", async () => {
@@ -211,6 +225,8 @@ test("a message sent now offers no second Steer; one with images keeps them and 
   expect(items()).toEqual([
     t("composer.queueEditMessage"),
     t("composer.queueSideChat"),
+    t("composer.queueMoveUp"),
+    t("composer.queueMoveDown"),
     t("composer.queueingOff"),
     t("composer.queueDelete"),
   ]);
@@ -220,6 +236,8 @@ test("a message sent now offers no second Steer; one with images keeps them and 
   expect(items()).toEqual([
     t("composer.queueSteer"),
     t("composer.queueEditMessage"),
+    t("composer.queueMoveUp"),
+    t("composer.queueMoveDown"),
     t("composer.queueingOff"),
     t("composer.queueDelete"),
   ]);
