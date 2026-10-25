@@ -394,16 +394,18 @@ struct AgentPaneRemoteChatPathTests {
         for wireOnly in [false, true] {
             let rig = try Self.rig()
             defer { try? FileManager.default.removeItem(at: rig.folder) }
-            let loads = Loads()
-            rig.model.replyLinks.remoteImageLoader = { path in
-                await loads.add(path)
-                return picture
-            }
             let opened = Opened()
             if wireOnly {
                 await Self.turnRemote(rig.model, wireOnly: true, into: opened)
             } else {
                 rig.model.remoteChat = true
+            }
+            // The reply dispatcher hands `image.load` the transport's loader (the wire's), so the
+            // stand-in goes there, after the wire (if any) set its own.
+            let loads = Loads()
+            rig.model.transport.remoteImageLoader = { path in
+                await loads.add(path)
+                return picture
             }
             let shot = "/remote/out/shot.png"
             let inspect = await Self.ask(rig.model, "link.inspect", ["paths": [shot], "urls": [String]()])
