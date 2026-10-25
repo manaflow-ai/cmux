@@ -1717,6 +1717,16 @@
             "null"
           ]
         },
+        "stalledSince": {
+          "default": null,
+          "description": "A `working` lane that has stalled: since when its turn has had no tool\ncall in flight and no sign of its model (`turn.stalledSince`); null\notherwise. The state stays `working`, so a client that reads only it\nis unchanged.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "state": {
           "$ref": "#/types/LaneState"
         },
@@ -1738,6 +1748,7 @@
       "required": [
         "error",
         "since",
+        "stalledSince",
         "state",
         "step",
         "title"
@@ -3402,6 +3413,13 @@
             "null"
           ]
         },
+        "titleSource": {
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {
@@ -3601,6 +3619,15 @@
         "promptId": {
           "type": "string"
         },
+        "stalledSince": {
+          "description": "Since when it has stalled: no tool call in flight and no sign of its\nmodel since then, for `stalledTurnMs` or more (`hub/activity.rs`);\nnull while it has not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "startedAt": {
           "format": "uint64",
           "minimum": 0,
@@ -3621,6 +3648,7 @@
         "planStep",
         "prompt",
         "promptId",
+        "stalledSince",
         "startedAt",
         "turnId",
         "turnSeq"

@@ -149,6 +149,11 @@ path = "tests/test_build_metrics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_swift_typecheck_diagnostics.py"
+lane = "manual"
+reason = "Static phase-dependency and diagnostics-parser regression checks; feat-cmux-next guards has no Python test lane."
+
+[[test]]
 path = "tests/test_check_package_resolved_policy.py"
 lane = "linux-guard"
 
