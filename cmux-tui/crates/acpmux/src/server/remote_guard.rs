@@ -79,7 +79,7 @@ pub(super) mod hint;
 mod peer_folder;
 pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
-use peer_folder::{configured_web_roots, cwd_refused, make_inside_root, outside_told};
+use peer_folder::{configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told};
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
@@ -927,23 +927,21 @@ fn outside_roots(field: &str) -> RpcError {
     .with_data(serde_json::json!({"reason": CWD_OUTSIDE_ROOTS, "field": field}))
 }
 
-/// Each folder of `raw` in the filesystem's own spelling, once, without `/`, the home
-/// directory or any ancestor of it.
-async fn guarded_roots(raw: Vec<String>) -> Vec<PathBuf> {
-    let home = match dirs::home_dir() {
-        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
-        None => std::path::PathBuf::from("/"),
-    };
-    let mut roots = Vec::new();
-    for r in raw {
-        if let Some(root) = fs_spelling(&r).await
-            && !home.starts_with(&root)
-            && !roots.contains(&root)
-        {
-            roots.push(root);
-        }
-    }
-    roots
+/// The folders a Web connection may work in: `webRoots` from config.json,
+/// the known projects (every local session's cwd) and the workspace folders
+/// the person's app set (`_acpmux/workspace_roots_set`), each in the
+/// filesystem's own spelling. A root that is `/`, the home directory or any
+/// ancestor of it is dropped: one session started in `~` must not open
+/// `~/.ssh` or `~/Library` to the Web. Compared by path components.
+async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
+    let mut raw: Vec<String> = hub.config.read().await.web_roots.clone();
+    raw.extend(hub.sessions().iter().map(|s| s.meta().cwd.to_string_lossy().into_owned()));
+    // The folders of the workspaces the person's app lists now (its own
+    // daemon's tabs, `_acpmux/workspace_roots_set`), under the same guards.
+    raw.extend(hub.person.workspace_roots());
+    raw.sort();
+    raw.dedup();
+    guarded_roots(raw).await
 }
 
 /// `path` resolved (symlinks, `..`) and spelled as the filesystem stores it:

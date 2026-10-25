@@ -161,7 +161,26 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
 /// `webRoots` from config.json, under `web_roots`' guards, in config order.
 pub(super) async fn configured_web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<PathBuf> {
     let raw = hub.config.read().await.web_roots.clone();
-    super::guarded_roots(raw).await
+    guarded_roots(raw).await
+}
+
+/// Each folder of `raw` in the filesystem's own spelling, once, without `/`, the home
+/// directory or any ancestor of it.
+pub(super) async fn guarded_roots(raw: Vec<String>) -> Vec<PathBuf> {
+    let home = match dirs::home_dir() {
+        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
+        None => std::path::PathBuf::from("/"),
+    };
+    let mut roots = Vec::new();
+    for r in raw {
+        if let Some(root) = fs_spelling(&r).await
+            && !home.starts_with(&root)
+            && !roots.contains(&root)
+        {
+            roots.push(root);
+        }
+    }
+    roots
 }
 
 #[cfg(all(test, unix))]
