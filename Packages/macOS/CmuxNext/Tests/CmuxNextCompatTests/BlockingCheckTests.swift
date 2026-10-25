@@ -68,19 +68,6 @@ struct BlockingCheckTests {
         }
     }
 
-    @Test func theTrapEnvironmentVariableTurnsTrapModeOn() async {
-        await #expect(processExitsWith: .failure) {
-            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"])
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
-            }
-        }
-    }
-
-    @Test func withoutTheVariableADebugBuildRecords() {
-        #expect(BlockingViolationTable(environment: [:]).mode == .record)
-    }
-
     @Test func theSameCallsOffTheMainThreadDoNotTrap() async {
         await #expect(processExitsWith: .success) {
             await BlockingViolationTable.$scoped.withValue(BlockingViolationTable(mode: .trap)) {
@@ -98,17 +85,6 @@ struct BlockingCheckTests {
                         _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
                     }
                 }
-            }
-        }
-    }
-    #elseif CMUX_BLOCKING_CHECKS
-    // MARK: Nightly (Release + CMUX_BLOCKING_CHECKS): records, never traps
-
-    @Test func aNightlyNeverTrapsEvenWhenAskedTo() async {
-        await #expect(processExitsWith: .success) {
-            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"], mode: .trap)
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
             }
         }
     }

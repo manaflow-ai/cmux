@@ -4,11 +4,9 @@ internal import CoreFoundation
 internal import Darwin
 internal import Dispatch
 internal import Foundation
-#if DEBUG
 internal import os
-#endif
 
-/// The main-thread blocking detector's state (Debug and bench builds, Nightly to come; Release compiles it out).
+/// The main-thread blocking detector's state (Debug, bench and Nightly builds; Release compiles it out).
 ///
 /// One table per process (``shared``; arch-ratchet exception approved by the Performance Lead with PL-arch,
 /// 2026-10-24): a violation can happen in any module, inside any lock, before the composition root exists,
@@ -23,6 +21,12 @@ internal import os
 /// (`com.cmuxterm.app.next.blocking-drain`, utility) empties the ring: it resolves the stack to image UUID +
 /// offset frames, publishes the site, writes the Debug log line and calls the sink, so the sink never runs on
 /// the thread that blocked or inside that thread's locks.
+///
+/// Trap mode (`CMUX_BLOCKING_TRAP=1`, read once at init, in any checked build). Chrome's configurable DCHECK
+/// (base/check.h `DCHECK_IS_CONFIGURABLE`): a Nightly records and continues, and a launch that opts in stops at
+/// the call. Before it stops, the main thread hands the site to the sink through the drain queue and waits for
+/// it at most ``defaultTrapFlushMilliseconds`` (so the hang report keeps the call that ended the process),
+/// then logs one fault.
 @usableFromInline
 final class BlockingViolationTable: Sendable {
     /// The process's table.
@@ -40,8 +44,12 @@ final class BlockingViolationTable: Sendable {
     /// The most new sites waiting for the drain. Past it a new site counts in ``overflow`` and is not
     /// recorded yet, so its next call, after the drain caught up, records it.
     static let pendingLimit = 64
+    /// The longest a trap waits for the sink to take the site that stops the process (a sink that waits on a
+    /// lock the main thread holds must not turn the trap into a hang).
+    static let defaultTrapFlushMilliseconds = 50
 
     let mode: BlockingMode
+    let trapFlushMilliseconds: Int
     let lockWaitLimitNanos: UInt64
     let uptimeNanos: @Sendable () -> UInt64
 
@@ -59,9 +67,7 @@ final class BlockingViolationTable: Sendable {
     // Drain queue writes, any thread reads.
     private let published = Mutex<[PublishedSite]>([])
     private let sink = Mutex<(any BlockingViolationSink)?>(nil)
-    #if DEBUG
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "blocking")
-    #endif
 
     private struct PublishedSite {
         var id: Int
@@ -72,20 +78,19 @@ final class BlockingViolationTable: Sendable {
     /// Makes a table.
     ///
     /// - Parameters:
-    ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` (Debug builds only: every other build records).
+    ///   - environment: Read once, here, for `CMUX_BLOCKING_TRAP=1` (``BlockingMode/init(environment:)``).
     ///   - mode: A test's mode; nil reads `environment`.
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
     ///   - uptimeNanos: The clock a contended ``Mutex`` wait is measured with.
+    ///   - trapFlushMilliseconds: The longest a trap waits for the sink (``flushBeforeTrap()``).
     ///   - startsDrain: False holds the drain until ``startDrain()`` (tests fill the ring).
     init(environment: [String: String] = ProcessInfo.processInfo.environment, mode: BlockingMode? = nil,
          lockWaitLimitNanos: UInt64 = BlockingKind.lockWaitLimitNanos,
          uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
+         trapFlushMilliseconds: Int = BlockingViolationTable.defaultTrapFlushMilliseconds,
          startsDrain: Bool = true) {
-        #if DEBUG
-        self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "1" ? .trap : .record)
-        #else
-        self.mode = .record  // a bench (and, to come, a Nightly) never stops the app, whatever it was asked
-        #endif
+        self.mode = mode ?? BlockingMode(environment: environment)
+        self.trapFlushMilliseconds = trapFlushMilliseconds
         self.lockWaitLimitNanos = lockWaitLimitNanos
         self.uptimeNanos = uptimeNanos
         counts = .allocate(capacity: Self.siteLimit)
@@ -127,12 +132,11 @@ final class BlockingViolationTable: Sendable {
 
     private func blocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
         guard allowance == nil else { return }
-        #if DEBUG
-        if mode == .trap && kind != .lockWait {
-            fatalError("blocking \(kind.rawValue) on the main thread at \(fileID):\(line): move it off the main thread, or "
-                + "wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
-        }
-        #endif
+        record(kind, fileID: fileID, line: line)
+        if mode == .trap && kind != .lockWait { trap(kind, fileID: fileID, line: line) }
+    }
+
+    private func record(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
         let key = BlockingSiteKey(fileID: fileID, line: line)
         if let id = index.find(key) {
             UnsafeAtomic<Int>(at: counts + id).wrappingIncrement(ordering: .relaxed)
@@ -151,6 +155,29 @@ final class BlockingViolationTable: Sendable {
         UnsafeAtomic<Int>(at: counts + id).store(1, ordering: .relaxed)
         index.insert(key)
         wake.add(data: 1)
+    }
+
+    /// Trap mode's end: the sink gets the site (``flushBeforeTrap()``), one fault goes to the unified log,
+    /// then the process stops at the call.
+    @inline(never)
+    private func trap(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Never {
+        let location = "\(fileID):\(line)"
+        _ = flushBeforeTrap()
+        logger.fault("blocking \(kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): stopping (CMUX_BLOCKING_TRAP=1)")
+        fatalError("blocking \(kind.rawValue) on the main thread at \(location): move it off the main thread, or "
+            + "wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
+    }
+
+    /// Runs the drain now and waits for it at most ``trapFlushMilliseconds``: a trap's last step, so the sink has
+    /// the site that stops the process. The wait raises the drain to the waiter's priority
+    /// (`DispatchWorkItem.wait`), and the bound keeps a sink stuck on a lock the main thread holds from
+    /// turning the trap into a hang.
+    ///
+    /// - Returns: `.success` when the sink took every pending site in time.
+    func flushBeforeTrap() -> DispatchTimeoutResult {
+        let handOff = DispatchWorkItem(qos: .userInteractive, flags: .enforceQoS) { [self] in drain() }
+        drainQueue.async(execute: handOff)
+        return handOff.wait(timeout: .now() + .milliseconds(trapFlushMilliseconds))
     }
 
     // MARK: allowance (main thread)

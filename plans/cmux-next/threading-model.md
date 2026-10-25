@@ -16,11 +16,17 @@ How it is enforced:
   the next item). On the main thread outside `allowBlocking(<reason>)` a seam call is a violation, recorded once
   per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: one unified-log line per call site
   (`log stream --predicate 'category == "blocking"'`), the Debug menu's "Main-Thread Blocking (N)" and the
-  `debug.blocking` socket command; launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended `Mutex`
-  wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
-  `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
-  `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
-  names); it will never trap and has no log or menu. Release: compiled out.
+  `debug.blocking` socket command. Bench builds (`reload.sh --config bench`, `-DCMUX_BLOCKING_CHECKS`): recorded
+  for `debug.blocking`. Nightly (`-DCMUX_BLOCKING_CHECKS` from the `nightly.yml` flag): recorded and sent to
+  PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or names), no log line or
+  menu. Release: compiled out.
+- **Opt-in crash mode (every checked build: Debug, bench, Nightly).** Chrome's configurable DCHECK
+  (base/check.h `DCHECK_IS_CONFIGURABLE`: a Canary ships DCHECKs on but non-fatal, and a launch can make them
+  fatal). The default is record. Launch with `CMUX_BLOCKING_TRAP=1` (read once, when the table is made) and a
+  violation records its site, hands it to the sink through the drain queue and waits at most 50 ms for it (so
+  the hang report keeps the call that stopped the process, and a sink stuck on a lock the main thread holds
+  cannot turn the trap into a hang), logs one `os_log` fault (`category == "blocking"`), then stops the process
+  at the call. A contended `Mutex` wait is always recorded only: it is measured on the wall clock.
 - **What the detector does not see yet** (slice (c): migrate to a seam, or the probe below finds it): every
   raw call that does not go through a seam (today almost all of them: `FileManager.default`, `Data(contentsOf:)`
   and so on), `NSXPCConnection.synchronousRemoteObjectProxy`, `DispatchQueue.asyncAndWait`, semaphore and group
@@ -60,7 +66,7 @@ and changes both with the code).
 | **DispatchSource handlers** (control socket `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; file watchers; process and signal sources) | Event delivery only | Non-blocking reads | as the queue | Coalesced by the source; main-queue sources only hop |
 | **Hang watch** (p09-observability, owner PL-telemetry). App: the `HangWatch` slots in CmuxNextTrace, read by the hang monitor on the existing `cmux-next main-thread watchdog` thread's kqueue (no new thread). Rust: one `cmux-hang-watch` thread per process (cmux-hang-watch crate: daemon, holder, terminal host, acpmux) | Watched threads' and lanes' deadlines; the hang record and stack sample of an overdue slot | Its kqueue (app) or a `Condvar` (Rust). Sampling: between `thread_suspend` and `thread_resume` it only reads registers and stack memory into a preallocated buffer, no lock and no allocation | user-interactive (app, the watchdog's); default (Rust) | Opening or closing a scope is two atomic stores, no system call. One one-shot timer per minimum deadline while scopes open (at most 1 wake/s at 1 s); parked after one quiet minimum-deadline period (0 wakes at idle), the first open after that posts one wake. A watcher that wakes over 100 ms late blames nobody. One hang record per overdue scope |
 | **Trace ring adoption** (p09-observability, owner PL-telemetry). App: a `BackgroundWork` `.files` job at launch and at `trace.start` (no new thread). Rust: one `cmux-trace-open` one-shot thread per process at start | Moving the heap ring into its file: rename the spare file or create one, `mmap` `MAP_SHARED`, copy the heap records, swap the ring pointer; delete dead-pid rings older than 3 days | Disk (open, `ftruncate`, `mmap`, rename, unlink) | utility | Once per process start and once per recording start; the writers keep writing the heap ring until the swap, never wait for it; an `mmap` failure keeps the heap ring and is counted; a recording mapping is never unmapped while the process lives; the directory is capped at 16 MiB |
-| **Blocking detector drain** `com.cmuxterm.app.next.blocking-drain` | Resolving violations to image UUID + offset; the Debug log line; the sink | Nothing | utility | Ring of 64 new sites, 128 sites per launch; past either: counted in `overflow` |
+| **Blocking detector drain** `com.cmuxterm.app.next.blocking-drain` | Resolving violations to image UUID + offset; the Debug log line; the sink | Nothing | utility | Ring of 64 new sites, 128 sites per launch; past either: counted in `overflow`. In trap mode the main thread waits for one drain pass at most 50 ms before it stops the process |
 | **cmux-tui daemon (Rust)** request path: `mux-server` accept, one `mux-conn` thread per connection (max 64; over: `server.busy`), `mux-control-dispatch` per connection, `mux-line-out` writer | Requests, model, snapshots | Socket read on its own thread | not set (PL-qos) | Per connection 256 requests / 16 MiB (over: error, not run); outbound 256 per stream, 4096 per connection (over: the largest stream ends); write timeout 2 s; event bus 4096 per subscriber, then disconnect. Rules D1-D8 in perf-lead.md |
 | **Journal writer** `mux-session-journal-writer` (+ `-fanout`, maintenance, hook workers) | Durable session journal | Disk | not set | `sync_channel(1024)` terminal, `(256)` durable: the producer waits for space; durable wait deadline 30 s |
 | **Effect / terminal work** (`mux/resource_effects.rs` intents through the journal writer; `mux-terminal-work` pool, 8 workers) | Registry commits; terminal jobs | Disk (writer side) | not set | 1024 queued jobs; a job that does not fit runs inline |
