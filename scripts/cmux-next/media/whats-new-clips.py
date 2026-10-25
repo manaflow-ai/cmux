@@ -312,6 +312,9 @@ def publish(clip_id: str, local: Path, highlights: Path = HIGHLIGHTS) -> str:
     sys.modules[spec.name] = pr_media
     spec.loader.exec_module(pr_media)
     # The shared privacy check (pr_media_privacy.py) reads every frame first; a refusal uploads nothing.
+    # Without OCR it would pass a clip unread, so publish wants it (a Mac with Xcode).
+    if pr_media.privacy_module().ocr_binary() is None:
+        raise ClipError("publish reads every frame with Apple Vision first: run it on a Mac with Xcode")
     pr_media.check_privacy([(path, local)], REPO)
     pr_media.put_file(REPO, BRANCH, path, local, f"What's New clip: {clip_id}", checked=True)
     url = URL_PREFIX + f"{clip_id}/{digest[:12]}.webp"

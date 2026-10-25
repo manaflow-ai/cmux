@@ -123,6 +123,17 @@ class HighlightTests(unittest.TestCase):
             (highlights / "sidebar-archive.md").write_text(f"title: T\nclip: {URL}?x=1 | {SHA}\n\nBody.\n")
             self.assertTrue(any("lives at" in p for p in clips.check(specs, highlights)))  # release-notes.py drops it
 
+    def test_publish_wants_ocr_and_uploads_nothing_without_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            highlights = Path(tmp)
+            (highlights / "sidebar-archive.md").write_text("title: T\n\nBody.\n")
+            clip = Path(tmp, "clip.webp")
+            clip.write_bytes(b"RIFF\0\0\0\0WEBPVP8 ")
+            with mock.patch.object(clips, "load_spec"), mock.patch.dict("os.environ", {"PR_MEDIA_PRIVACY_OCR": "none"}):
+                with self.assertRaisesRegex(clips.ClipError, "Apple Vision"):
+                    clips.publish("sidebar-archive", clip, highlights)
+            self.assertNotIn("clip:", (highlights / "sidebar-archive.md").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
