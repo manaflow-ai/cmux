@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -17,7 +18,9 @@ import CmuxNextWakeups
 @MainActor
 final class AppControl {
     let watchdog = MainThreadWatchdog()
-    private let frames = FrameBatcher(owner: "Control.frames", kind: .budgeted(.automation))
+    /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
+    private let mainWork: MainWorkScheduler
+    private let frames: FrameBatcher
     private let frameProbe = DebugFrameProbe()
     private let mainCPUProbe = DebugMainCPUProbe()
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
@@ -32,17 +35,28 @@ final class AppControl {
     private(set) var errorJournal: ErrorJournalService?
     /// Over-budget action runs: the Release report's counters, and the Debug log line per run.
     private(set) var actionBudget: ActionBudgetReporter?
+    /// The task diagnostics mode (`CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1`): the watchdog records over-budget
+    /// tasks with a stack, and the action budget's Debug line names that it sampled them. Read once.
+    private let recordsTaskBudgets = MainThreadWatchdog.recordsTaskBudgets(environment: ProcessInfo.processInfo.environment)
 
     var socketPath: String? { service?.socketPath }
 
     private var inputMonitor: Any?
 
+    /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
+    ///   automation tasks, and the watchdog reads its board.
+    init(mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
+        frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
+    }
+
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
-        // Stall records name the scheduled main-thread task they caught; DEBUG and bench launches
-        // also record tasks past their class budget, with a stack (debug.hangs over_budget).
-        watchdog.attach(board: FrameScheduler.app.budget.board)
+        // Stall records name the scheduled main-thread task they caught; a launch in the task
+        // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
+        // over_budget). It perturbs what it measures, so it is off unless asked for.
+        watchdog.attach(board: mainWork.budget.board, recordTaskBudgets: recordsTaskBudgets)
         watchdog.busy.setHelperSource { AppProcesses.chromiumHelpers() }
         // Input explains CPU use to the busy watchdog (one atomic add per event).
         inputMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown,
@@ -58,7 +72,7 @@ final class AppControl {
                                                frameSource: frames, watchdog: watchdog)
         self.service = service
         let budget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
-                                          overBudget: watchdog.overBudget, sampling: MainThreadWatchdog.recordsTaskBudgets,
+                                          overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                           logsRuns: ControlService.isDebugBuild)
         actionBudget = budget
         services.restartControlListener = { [weak service] in try service?.restartListener() }
@@ -103,9 +117,10 @@ final class AppControl {
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
+            BlockingControl(detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
-            .mainActor("debug.main_budget") { call in
-                let budget = FrameScheduler.app.budget
+            .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
                 let report = budget.report
                 if call.params["reset"]?.boolValue == true { budget.resetStats() }
                 return .value(report)
@@ -132,6 +147,16 @@ final class AppControl {
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
+            // A split's or close's terminals: grids sent, drawn and announced, ms from start (bench-terminal-resize.py split-resize).
+            .mainActor("debug.terminal_final_grid") { [weak services] call in
+                guard let trace = services?.finalGridTrace else { return .value(.null) }
+                if call.params["action"]?.stringValue == "start" { trace.start(); return .value(["started": true]) }
+                func marks(_ list: [TerminalFinalGridTrace.Mark]) -> CmuxNextSettings.JSONValue { .array(list.map { ["ms": .number($0.ms), "grid": .string($0.grid)] }) }
+                return .value(["terminals": .object(trace.stop().mapValues { terminal in
+                    ["sends": marks(terminal.sends), "drawn": marks(terminal.drawn), "owner": marks(terminal.owner),
+                     "fitted": terminal.fitted.map(CmuxNextSettings.JSONValue.string) ?? .null]
+                })])
+            },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
             .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
             // Click by Hint labels (hint-mode-e2e.py).
@@ -218,12 +243,14 @@ final class AppControl {
             // The action signposts' commit boundary against this macOS's display observers.
             .mainActor("debug.commit_boundary") { _ in .value(DebugCommitBoundary().report()) },
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
-            .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
+            .async("debug.wakeups") { [budgeted = mainWork.frames] call in await DebugWakeups.report(call.params, budgeted: budgeted) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
             .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
                 // {"side_panel": "<control>"} runs a side panel header control first.
                 if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
+                // {"drop_spare": true} closes the spare Chromium window (its memory cost, PL-cef-tab).
+                if call.params["drop_spare"]?.boolValue == true { services.cache.cef.dropSpareWindow() }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.
@@ -440,10 +467,9 @@ final class AppControl {
                 .value(services.map { services in
                     services.burstTrace.control(call.params, facts: [
                         "key_repeat_delay_s": .number(NSEvent.keyRepeatDelay), "key_repeat_interval_s": .number(NSEvent.keyRepeatInterval),
-                        "quick_press_window_s": .number(services.quickPressWindow()),
                         "sequence_playing": .bool(player.isPlaying),
                         "pending_intents": JSONValue(services.daemon.store.pendingIntents.count),
-                        "resize_idle": .bool(ResizeCoordinator.shared.isIdle),
+                        "resize_idle": .bool(services.resizes.isIdle),
                         // The attach machines' own due echoes: a closed view is gone from the cache, so it never waits.
                         "terminals_awaiting_echo": JSONValue(services.cache.terminals.values.filter { $0.io.awaitsEcho }.count),
                     ])

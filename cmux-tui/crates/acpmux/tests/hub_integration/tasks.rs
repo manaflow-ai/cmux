@@ -1,0 +1,301 @@
+//! A task (`hub/tasks.rs`): one chat gives a session on this daemon a brief with
+//! `_acpmux/task_new`, the lane ends it in one call with a typed result (`_acpmux/report`
+//! `done|blocked|failed`), and the result comes back to the giver once, as the lane's card.
+//! Leo, 2026-10-24: "shouldn't you be able to tell more metadata regarding... when things are
+//! completed, when things are not completed?"
+
+use acpmux::config::{Config, StoreMode};
+use acpmux::hub::Hub;
+use acpmux::rpc::Message;
+use acpmux::server::{Origin, serve_connection_with};
+use serde_json::{Value, json};
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::mpsc;
+
+const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+
+fn hub() -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    Hub::new(cfg, store)
+}
+
+struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
+
+impl Client {
+    fn open(hub: &Arc<Hub>) -> Self {
+        Self::from(hub, Origin::Local)
+    }
+
+    fn from(hub: &Arc<Hub>, origin: Origin) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Self(in_tx, out_rx, 0)
+    }
+
+    /// A connection that proved it runs inside session `id` (`hub/person.rs` (a)): the agent
+    /// there running `acpmux task …`.
+    async fn in_session(hub: &Arc<Hub>, id: &str) -> Self {
+        let mut c = Self::open(hub);
+        let token = acpmux::hub::person::caller_token(id);
+        let caller = json!({"callerSession": {"sessionId": id, "token": token}});
+        c.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+        c
+    }
+
+    /// The reply to `method` (an error is returned, not asserted).
+    async fn reply(&mut self, method: &str, params: Value) -> Value {
+        self.2 += 1;
+        let id = self.2;
+        self.0.send(Message::request(id, method, params).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
+                .await
+                .expect("timed out")
+                .expect("connection closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value.get("id") == Some(&json!(id)) {
+                return value;
+            }
+        }
+    }
+
+    async fn call(&mut self, method: &str, params: Value) -> Value {
+        let value = self.reply(method, params).await;
+        assert!(value.get("error").is_none(), "{method}: {value}");
+        value["result"].clone()
+    }
+
+    async fn new_session(&mut self) -> String {
+        let params = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
+        self.call("session/new", params).await["sessionId"].as_str().unwrap().to_owned()
+    }
+
+    /// The session's `user_message` records whose prompt id starts with `prefix`, once there
+    /// are `count` of them (each is sent off the request's path).
+    async fn prompts(&mut self, session: &str, prefix: &str, count: usize) -> Vec<Value> {
+        for _ in 0..300 {
+            let page = self
+                .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
+                .await;
+            let found: Vec<Value> = page["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|e| e["msg"].clone())
+                .filter(|m| m["promptId"].as_str().is_some_and(|id| id.starts_with(prefix)))
+                .collect();
+            if found.len() >= count {
+                return found;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("{session} never got {count} prompt(s) {prefix}*");
+    }
+}
+
+#[tokio::test]
+async fn a_task_brings_its_typed_result_back_to_the_chat_that_gave_it_once() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let other = person.new_session().await;
+    let giver = hub.resolve(&coordinator).unwrap().meta().name;
+    let worker = hub.resolve(&lane).unwrap().meta().name;
+    let mut from_coordinator = Client::in_session(&hub, &coordinator).await;
+    let given = from_coordinator
+        .call(
+            "_acpmux/task_new",
+            json!({"sessionId": lane, "title": "Land #24961", "stopCondition": "#24961 is merged"}),
+        )
+        .await;
+    let task = &given["task"];
+    let id = task["taskId"].as_str().unwrap().to_owned();
+    assert_eq!(task["status"], "running", "{given}");
+    assert_eq!(task["fromSession"], coordinator.as_str(), "{given}");
+
+    // The lane gets the brief as the giver's message, the task id and the one call first.
+    let brief = person.prompts(&lane, &format!("task-{id}"), 1).await.remove(0);
+    let text = brief["text"].as_str().unwrap();
+    assert!(text.starts_with(&format!("Task {id} from {giver}: Land #24961")), "{text}");
+    assert!(text.contains(&format!("acpmux task done {id} --summary")), "{text}");
+    let sent =
+        json!({"kind": "session_message", "from": coordinator, "fromName": giver, "to": lane});
+    assert_eq!(brief.pointer("/_meta/provenance"), Some(&sent), "{brief}");
+
+    // Only the task's own session, or the chat that gave it, ends it; a result is checked.
+    let done = json!({"briefId": id, "status": "done", "summary": "Merged at squash 3d17019",
+                      "prs": ["https://github.com/manaflow-ai/cmux/pull/24961"], "shas": ["3d17019"]});
+    let mut from_other = Client::in_session(&hub, &other).await;
+    let refused = from_other.reply("_acpmux/report", done.clone()).await;
+    assert_eq!(refused.pointer("/error/data/reason"), Some(&json!("task.not_yours")), "{refused}");
+    let mut from_lane = Client::in_session(&hub, &lane).await;
+    let mut bad = done.clone();
+    bad["shas"] = json!(["3d17"]);
+    let refused = from_lane.reply("_acpmux/report", bad).await;
+    assert_eq!(refused.pointer("/error/data/reason"), Some(&json!("task.result_invalid")));
+
+    let reported = from_lane.call("_acpmux/report", done.clone()).await;
+    assert_eq!(reported["brief"]["status"], "done", "{reported}");
+    assert_eq!(reported["brief"]["result"]["by"], worker.as_str(), "{reported}");
+    // The same call again (a retry) is a replay: still one result, one card.
+    let again = from_lane.call("_acpmux/report", done).await;
+    assert_eq!(again["replayed"], true, "{again}");
+
+    let card = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let cards = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
+    assert_eq!(cards.len(), 1, "{cards:?}");
+    let card = &card[0];
+    let from_lane_card = json!({"kind": "task_result", "from": lane, "fromName": worker,
+                                "to": coordinator, "taskId": id, "state": "done"});
+    assert_eq!(card.pointer("/_meta/provenance"), Some(&from_lane_card), "{card}");
+    assert_eq!(
+        card["text"],
+        format!(
+            "Task {id} \"Land #24961\" done: Merged at squash 3d17019\n\
+             PR: https://github.com/manaflow-ai/cmux/pull/24961\nSHA: 3d17019"
+        ),
+    );
+
+    // The giver's list has it, ended, with its result; the open list does not.
+    let listed = from_coordinator.call("_acpmux/tasks", json!({})).await;
+    let rows = listed["tasks"].as_array().unwrap();
+    assert_eq!(rows.len(), 1, "{listed}");
+    assert_eq!(rows[0]["taskId"], id.as_str());
+    assert_eq!(rows[0]["result"]["summary"], "Merged at squash 3d17019");
+    assert!(rows[0]["lane"]["state"].is_string(), "{listed}");
+    let open = from_coordinator.call("_acpmux/tasks", json!({"open": true})).await;
+    assert_eq!(open["tasks"], json!([]), "{open}");
+    // Another chat gave none.
+    let theirs = from_other.call("_acpmux/tasks", json!({})).await;
+    assert_eq!(theirs["tasks"], json!([]), "{theirs}");
+}
+
+#[tokio::test]
+async fn a_blocked_task_says_why_and_a_task_is_given_only_to_a_session_here() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let mut from_coordinator = Client::in_session(&hub, &coordinator).await;
+    let missing = from_coordinator
+        .reply("_acpmux/task_new", json!({"sessionId": "build-box/codex-lane", "title": "x"}))
+        .await;
+    assert!(missing.get("error").is_some(), "{missing}");
+    let given = from_coordinator
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Fix the flaky test"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    let mut from_lane = Client::in_session(&hub, &lane).await;
+    let blocked = json!({"briefId": id, "status": "blocked", "summary": "CI is down"});
+    let refused = from_lane.reply("_acpmux/report", blocked.clone()).await;
+    assert_eq!(refused.pointer("/error/data/reason"), Some(&json!("task.result_invalid")));
+    let mut blocked = blocked;
+    blocked["why"] = json!("every runner is offline");
+    // A Web or peer connection proves no session: its result would read as the lane's.
+    for origin in [Origin::Web, Origin::Peer] {
+        let refused = Client::from(&hub, origin).reply("_acpmux/report", blocked.clone()).await;
+        assert_eq!(refused.pointer("/error/data/reason"), Some(&json!("task.not_yours")));
+    }
+    from_lane.call("_acpmux/report", blocked).await;
+    let card = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await.remove(0);
+    assert_eq!(
+        card["text"],
+        format!(
+            "Task {id} \"Fix the flaky test\" blocked: CI is down\nWhy: every runner is offline"
+        )
+    );
+    // A blocked task is still open, and the giver may end it once it is unblocked.
+    let open = from_coordinator.call("_acpmux/tasks", json!({"open": true})).await;
+    assert_eq!(open["tasks"][0]["status"], "blocked", "{open}");
+    let done = json!({"briefId": id, "status": "done", "summary": "Fixed after CI came back"});
+    from_coordinator.call("_acpmux/report", done).await;
+    // The giver ended it itself: no card to itself.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let cards = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
+    assert_eq!(cards.len(), 1, "{cards:?}");
+
+    // The person at this machine's terminal may end a task; the card says it was not the lane.
+    let given = from_coordinator
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Rerun the nightly"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    let done = json!({"briefId": id, "status": "done", "summary": "Reran it by hand"});
+    person.call("_acpmux/report", done).await;
+    let card = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await.remove(0);
+    let text = card["text"].as_str().unwrap();
+    assert!(
+        text.starts_with(&format!(
+            "Task {id} \"Rerun the nightly\" done: Reran it by hand\nEnded by: "
+        )),
+        "{text}"
+    );
+}
+
+#[tokio::test]
+async fn two_reports_at_once_send_one_card_and_a_card_not_delivered_is_kept_and_sent_again() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let mut from_coordinator = Client::in_session(&hub, &coordinator).await;
+
+    // A bad sender name is refused before the task is claimed: no row is left behind.
+    let bad = json!({"sessionId": lane, "title": "x", "idempotencyKey": "k1",
+                     "_meta": {"acpmux": {"fromAgent": "two\nlines"}}});
+    let refused = person.reply("_acpmux/task_new", bad).await;
+    assert!(refused.get("error").is_some(), "{refused}");
+    let all = person.call("_acpmux/tasks", json!({"all": true})).await;
+    assert_eq!(all["tasks"], json!([]), "{all}");
+
+    let given = from_coordinator
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Land it"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    let done = json!({"briefId": id, "status": "done", "summary": "Landed"});
+    let (mut a, mut b) =
+        (Client::in_session(&hub, &lane).await, Client::in_session(&hub, &lane).await);
+    let (first, second) =
+        tokio::join!(a.call("_acpmux/report", done.clone()), b.call("_acpmux/report", done));
+    assert_eq!(
+        [&first, &second].iter().filter(|r| r["replayed"] == true).count(),
+        1,
+        "{first} {second}"
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let cards = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
+    assert_eq!(cards.len(), 1, "{cards:?}");
+
+    // The chat that gave a task is gone: its result stays, marked not delivered, and the same
+    // call again tries again instead of replaying.
+    let gone = person.new_session().await;
+    let mut from_gone = Client::in_session(&hub, &gone).await;
+    let given =
+        from_gone.call("_acpmux/task_new", json!({"sessionId": lane, "title": "Orphan"})).await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    person.call("session/delete", json!({"sessionId": gone})).await;
+    let done = json!({"briefId": id, "status": "done", "summary": "Done anyway",
+                      "idempotencyKey": "orphan-done"});
+    a.call("_acpmux/report", done.clone()).await;
+    let row = |listed: &Value| {
+        listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str()).cloned()
+    };
+    let listed = person.call("_acpmux/tasks", json!({"all": true})).await;
+    let task = row(&listed).expect("the task");
+    assert_eq!(task["result"]["summary"], "Done anyway", "{task}");
+    assert!(task["result"]["undelivered"].is_string(), "{task}");
+    // The same call again, with the same idempotency key, is a retry, not a replay.
+    let again = a.call("_acpmux/report", done).await;
+    assert!(again.get("replayed").is_none(), "{again}");
+}

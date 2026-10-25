@@ -2102,6 +2102,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "workspace archive-unarchive",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.toggleArchive",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive\/Unarchive Workspace",
+      "title_key" : "action.workspace.toggleArchive",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "workspace mark-as-read",
       "context_menu" : "offered",
       "context_menus" : [
@@ -2603,6 +2631,34 @@
       "palette_suggested" : null,
       "title" : "Pin\/Unpin Group",
       "title_key" : "action.workspaceGroup.togglePin",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group toggle-archive",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.toggleArchive",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive\/Unarchive Group",
+      "title_key" : "action.workspaceGroup.toggleArchive",
       "title_table" : "ActionCatalog"
     },
     {
@@ -32228,6 +32284,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "sidebar toggle-item-archive",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarItem"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.item.toggleArchive",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive\/Unarchive Item",
+      "title_key" : "action.sidebar.item.toggleArchive",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "sidebar toggle-item-label",
       "context_menu" : "offered",
       "context_menus" : [
@@ -40952,15 +41036,28 @@
           }
         },
         {
+          "enabled_when" : "can_perform",
+          "id" : "sidebar.item.toggleArchive",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
           "kind" : "separator",
-          "order" : 1
+          "order" : 2
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPane.togglePointerInspector",
           "kind" : "action",
           "label" : "Inspect Element",
-          "order" : 2,
+          "order" : 3,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40971,13 +41068,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 3
+          "order" : 4
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.chief.toggleIdleSubagents",
           "kind" : "action",
-          "order" : 4,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -40988,13 +41085,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 5
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.profileControl.hide",
           "kind" : "action",
-          "order" : 6,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41007,7 +41104,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.edit",
           "kind" : "action",
-          "order" : 7,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41018,13 +41115,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 9
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.removeEverywhere",
           "kind" : "action",
-          "order" : 9,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41037,7 +41134,7 @@
           "enabled_when" : "can_perform",
           "id" : "sidebar.item.remove",
           "kind" : "action",
-          "order" : 10,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41051,7 +41148,7 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 11,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41278,6 +41375,24 @@
 
                 ]
               }
+            },
+            {
+              "kind" : "separator",
+              "order" : 2
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentPane.togglePointerInspector",
+              "kind" : "action",
+              "label" : "Inspect Element",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
             }
           ],
           "folder" : "options",
@@ -41351,9 +41466,8 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "agentPane.togglePointerInspector",
+          "id" : "sidebar.section.hide",
           "kind" : "action",
-          "label" : "Inspect Element",
           "order" : 12,
           "visible_when" : {
             "debug_only" : false,
@@ -41369,26 +41483,9 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "sidebar.section.hide",
-          "kind" : "action",
-          "order" : 14,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "kind" : "separator",
-          "order" : 15
-        },
-        {
-          "enabled_when" : "can_perform",
           "id" : "sidebar.section.closeWorkspaces",
           "kind" : "action",
-          "order" : 16,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41402,7 +41499,7 @@
           "id" : "sidebar.item.hideApp",
           "kind" : "action",
           "label" : "Hide App",
-          "order" : 17,
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41413,13 +41510,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 18
+          "order" : 16
         },
         {
           "enabled_when" : "can_perform",
           "id" : "sidebar.section.remove",
           "kind" : "action",
-          "order" : 19,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -44194,7 +44291,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.newSubgroup",
+              "id" : "workspaceGroup.toggleArchive",
               "kind" : "action",
               "order" : 3,
               "visible_when" : {
@@ -44207,7 +44304,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.markRead",
+              "id" : "workspaceGroup.newSubgroup",
               "kind" : "action",
               "order" : 4,
               "visible_when" : {
@@ -44220,7 +44317,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.markUnread",
+              "id" : "workspaceGroup.markRead",
               "kind" : "action",
               "order" : 5,
               "visible_when" : {
@@ -44233,7 +44330,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.clearNotifications",
+              "id" : "workspaceGroup.markUnread",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -44246,7 +44343,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.collapseAll",
+              "id" : "workspaceGroup.clearNotifications",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -44259,9 +44356,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.expandAll",
+              "id" : "workspaceGroup.collapseAll",
               "kind" : "action",
               "order" : 8,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.expandAll",
+              "kind" : "action",
+              "order" : 9,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44275,7 +44385,7 @@
               "id" : "workspaceGroup.collapseOthers",
               "kind" : "action",
               "label" : "Collapse Others",
-              "order" : 9,
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44288,7 +44398,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.editConfig",
               "kind" : "action",
-              "order" : 10,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44301,7 +44411,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.duplicate",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44314,7 +44424,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.copyID",
               "kind" : "action",
-              "order" : 12,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44325,13 +44435,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 13
+              "order" : 14
             },
             {
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.stash",
               "kind" : "action",
-              "order" : 14,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45063,9 +45173,26 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.resetWorkspaceColor",
+              "id" : "workspace.toggleArchive",
               "kind" : "action",
               "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "kind" : "separator",
+              "order" : 11
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.resetWorkspaceColor",
+              "kind" : "action",
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45078,7 +45205,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.removeAllColors",
               "kind" : "action",
-              "order" : 11,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45092,7 +45219,7 @@
               "id" : "workspace.setIcon",
               "kind" : "action",
               "label" : "Set Icon…",
-              "order" : 12,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45106,7 +45233,7 @@
               "id" : "workspace.clearIcon",
               "kind" : "action",
               "label" : "Remove Icon",
-              "order" : 13,
+              "order" : 15,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45221,7 +45348,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.setTheme",
               "kind" : "choices",
-              "order" : 14,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45234,7 +45361,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.clearTheme",
               "kind" : "action",
-              "order" : 15,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45313,7 +45440,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspace.setTint",
               "kind" : "choices",
-              "order" : 16,
+              "order" : 18,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45324,7 +45451,7 @@
             },
             {
               "kind" : "separator",
-              "order" : 17
+              "order" : 19
             },
             {
               "children" : [
@@ -45644,28 +45771,10 @@
               ],
               "folder" : "options",
               "kind" : "folder",
-              "order" : 18,
+              "order" : 20,
               "title" : "Options",
               "title_key" : "menu.folder.options",
               "title_table" : "Localizable"
-            },
-            {
-              "kind" : "separator",
-              "order" : 19
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "agentPane.togglePointerInspector",
-              "kind" : "action",
-              "label" : "Inspect Element",
-              "order" : 20,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
             },
             {
               "kind" : "separator",
@@ -45673,8 +45782,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.copyPath",
+              "id" : "agentPane.togglePointerInspector",
               "kind" : "action",
+              "label" : "Inspect Element",
               "order" : 22,
               "visible_when" : {
                 "debug_only" : false,
@@ -45685,21 +45795,12 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceID",
-              "kind" : "action",
-              "order" : 23,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
+              "kind" : "separator",
+              "order" : 23
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceLink",
+              "id" : "workspace.copyPath",
               "kind" : "action",
               "order" : 24,
               "visible_when" : {
@@ -45712,7 +45813,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.copyWorkspaceIDAndRef",
+              "id" : "palette.copyWorkspaceID",
               "kind" : "action",
               "order" : 25,
               "visible_when" : {
@@ -45725,7 +45826,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "copyWorkspaceSSHError",
+              "id" : "palette.copyWorkspaceLink",
               "kind" : "action",
               "order" : 26,
               "visible_when" : {
@@ -45738,7 +45839,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "agentChat.copyIdentifier",
+              "id" : "palette.copyWorkspaceIDAndRef",
               "kind" : "action",
               "order" : 27,
               "visible_when" : {
@@ -45750,14 +45851,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "copyWorkspaceSSHError",
+              "kind" : "action",
+              "order" : 28,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "agentChat.copyIdentifier",
+              "kind" : "action",
+              "order" : 29,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 28
+              "order" : 30
             },
             {
               "enabled_when" : "can_perform",
               "id" : "workspace.showResources",
               "kind" : "action",
-              "order" : 29,
+              "order" : 31,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45770,7 +45897,7 @@
               "enabled_when" : "can_perform",
               "id" : "revealWorkspaceInFinder",
               "kind" : "action",
-              "order" : 30,
+              "order" : 32,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -45783,23 +45910,6 @@
               "enabled_when" : "can_perform",
               "id" : "palette.openWorkspacePullRequests",
               "kind" : "action",
-              "order" : 31,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "kind" : "separator",
-              "order" : 32
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "palette.closeOtherWorkspaces",
-              "kind" : "action",
               "order" : 33,
               "visible_when" : {
                 "debug_only" : false,
@@ -45810,21 +45920,12 @@
               }
             },
             {
-              "enabled_when" : "can_perform",
-              "id" : "workspace.closeOthersInGroup",
-              "kind" : "action",
-              "order" : 34,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
+              "kind" : "separator",
+              "order" : 34
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesBelow",
+              "id" : "palette.closeOtherWorkspaces",
               "kind" : "action",
               "order" : 35,
               "visible_when" : {
@@ -45837,7 +45938,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "palette.closeWorkspacesAbove",
+              "id" : "workspace.closeOthersInGroup",
               "kind" : "action",
               "order" : 36,
               "visible_when" : {
@@ -45850,7 +45951,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.closeAll",
+              "id" : "palette.closeWorkspacesBelow",
               "kind" : "action",
               "order" : 37,
               "visible_when" : {
@@ -45863,7 +45964,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "reopenClosedWorkspace",
+              "id" : "palette.closeWorkspacesAbove",
               "kind" : "action",
               "order" : 38,
               "visible_when" : {
@@ -45876,7 +45977,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspace.stash",
+              "id" : "workspace.closeAll",
               "kind" : "action",
               "order" : 39,
               "visible_when" : {
@@ -45889,9 +45990,35 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "window.stash",
+              "id" : "reopenClosedWorkspace",
               "kind" : "action",
               "order" : 40,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspace.stash",
+              "kind" : "action",
+              "order" : 41,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "window.stash",
+              "kind" : "action",
+              "order" : 42,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

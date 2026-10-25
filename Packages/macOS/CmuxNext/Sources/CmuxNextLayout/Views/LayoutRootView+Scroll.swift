@@ -1,29 +1,39 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// Pointer and trackpad routing. Mouse-downs focus the pane under the pointer. Scrolls follow
 /// `layout.scrollModifier` (``LayoutModel/scrollModifier``):
 ///
 /// - `command` (default): a plain scroll, wheel or trackpad, either axis, goes to the pane under
 ///   the pointer; the layout takes it only over chrome with no pane under it (the gaps between
-///   panes and rows, the strip scrollbar). Command + scroll moves the layout anywhere on the
-///   screen, a Chromium page's own window included: sideways pans the columns strip (or the
-///   innermost scroll area that can move, scroll-areas-DESIGN.md I2), up and down scrolls the rows
-///   of the column under the pointer (rows.md V5), or pans the strip over a column whose rows do
-///   not overflow. Where the layout has nothing to scroll that way
-///   (no strip overflow, no rows that overflow), the pane gets the scroll.
+///   panes and rows, the strip scrollbar, the divider catcher panels over Chromium pages). Command
+///   + scroll moves the layout anywhere on the screen, a Chromium page's own window included:
+///   sideways pans the columns strip (or the innermost scroll area under the pointer that can move,
+///   scroll-areas-DESIGN.md I2), up and down scrolls the rows of the column under the pointer
+///   (rows.md V5), or pans the strip over a column whose rows do not overflow. A Command gesture
+///   that starts where the layout has anything to scroll (strip overflow, rows that overflow under
+///   the pointer, a scroll area under the pointer that can move) is the layout's even when its
+///   direction has nothing to move: it is kept and nothing moves. Only where the layout has
+///   nothing at all to scroll does the pane get the Command gesture.
 /// - `none`: the rule before `command`. Horizontal gestures over a columns screen are claimed by
 ///   the layout (first dominant axis decides), except where the pane's own content scrolls
 ///   sideways (`LayoutRootView+ScrollClaim`); vertical ones pass through, except over a column
 ///   whose rows overflow: there they scroll the rows over the gaps between rows, or anywhere
-///   with Command held.
+///   with Command held. A gesture that starts in a Chromium page's window is the page's.
 ///
 /// Either way the first event of a trackpad gesture (the touch, `mayBegin`, when there is one)
 /// decides its owner for the whole gesture, momentum included: pressing or releasing Command
-/// midway changes nothing. A mouse wheel
-/// decides per notch. A scroll that passes through to a pane focuses it only with
+/// midway changes nothing. Under `command`, a gesture that begins with Command held where the
+/// layout has anything to scroll is the layout's from that first event: the pane under the
+/// pointer never sees any of it, not even its zero-delta start, and the direction of the first
+/// move picks what moves. That decision is the only one: content that reacts to the same gesture
+/// itself (a Chromium page's swipe Back or Forward) reads it through ``ScrollGestureOwning``.
+/// Under both modifiers the layout sees the events of its page windows: a gesture it took keeps
+/// its events, end and coast included, when a pan slides a page under the still pointer, and a
+/// gesture that starts in a page window replaces the last gesture's lock.
+/// A mouse wheel decides per notch. A scroll that passes through to a pane focuses it only with
 /// focus-follows-mouse on (`LayoutRootView+ScrollFocus`).
-extension LayoutRootView {
+extension LayoutRootView: ScrollGestureOwning {
     enum ScrollLock {
         case idle
         case undecided(ScrollTargets)
@@ -34,17 +44,32 @@ extension LayoutRootView {
         case area(ScreenContentView, SplitID)
         case vertical(ScreenContentView, ColumnID)
         case passthrough
-        /// A canvas pan (LayoutRootView+Canvas), through its momentum.
+        /// A canvas pan (LayoutRootView+Canvas), until the gesture ends.
         case canvas(ScreenContentView)
+        /// The momentum that may follow a canvas pan, which the canvas owns. The gesture is over
+        /// (the layout owns no gesture now); the next gesture replaces it.
+        case canvasCoast(ScreenContentView)
         /// A gesture that began over a canvas pane (`none`): horizontal pans, vertical scrolls the pane.
         case canvasUndecided(ScreenContentView)
+        /// A gesture the layout took at its first event (``ScrollTargets/claimsWholeGesture``) that
+        /// has nothing to move its way: the layout keeps its events, so the pane, which never saw
+        /// the gesture start, sees none of it, and nothing moves.
+        case claimed
+    }
+
+    /// Whether the layout took the current trackpad gesture (``ScrollGestureOwning``): a strip,
+    /// row, area or canvas scroll, or a Command gesture claimed at its first event. False once that
+    /// gesture's end came: its coast belongs to the layout, but no gesture is current.
+    public var ownsCurrentScrollGesture: Bool {
+        switch scrollLock {
+        case .horizontal, .area, .vertical, .canvas, .claimed: true
+        case let .undecided(targets): targets.claimsWholeGesture
+        case .idle, .passthrough, .canvasUndecided, .canvasCoast: false
+        }
     }
 
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
-        if event.type == .scrollWheel {
-            guard let location = scrollLocationInWindow(of: event) else { return event }
-            return handleScroll(event, locationInWindow: location) ? nil : event
-        }
+        if event.type == .scrollWheel { return handleMonitoredScroll(event, from: event.window, at: event.locationInWindow) }
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
@@ -64,48 +89,92 @@ extension LayoutRootView {
         }
     }
 
-    /// Where a monitored scroll event points, in this view's window: its own point when it is
-    /// this window's. Under `command`, a Chromium page's own window (a child of this window over
-    /// its pane) counts too, so Command + scroll over a page moves the layout and a layout gesture
-    /// keeps its events when the strip slides a page under the still pointer. Nil: not ours.
-    private func scrollLocationInWindow(of event: NSEvent) -> NSPoint? {
-        guard let window, let eventWindow = event.window else { return nil }
-        if eventWindow === window { return event.locationInWindow }
-        guard eventWindow.parent === window, model.scrollModifier == .command,
-              WindowOverlayHost.isPageWindow(eventWindow) else { return nil }
-        return window.convertPoint(fromScreen: eventWindow.convertPoint(toScreen: event.locationInWindow))
+    /// The monitor's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it
+    /// at `location` (that window's coordinates). Apart from ``handleMonitored(_:)`` so tests can
+    /// send an event from a page or catcher window, which a synthesized event cannot carry.
+    /// Returns the event when it goes on, nil when the layout consumed it.
+    ///
+    /// The entry point for synthetic scrolls (`debug.mouse`, benches): it must stay behavior-equal to the
+    /// monitor path, which calls it for every real scroll.
+    public func handleMonitoredScroll(_ event: NSEvent, from eventWindow: NSWindow?, at location: NSPoint) -> NSEvent? {
+        guard let origin = Self.scrollOrigin(of: eventWindow, at: location, in: window) else { return event }
+        return handleScrollEvent(event, at: origin.locationInWindow, fromPageWindow: origin.isPageWindow)
+    }
+
+    /// Where a monitored scroll event came from, as the layout of one window routes it.
+    struct ScrollOrigin: Equatable {
+        /// The event's point in the layout's window.
+        var locationInWindow: NSPoint
+        /// The event came from a page window over a pane, not from the layout's window itself.
+        var isPageWindow: Bool
+    }
+
+    /// Where a scroll event of `eventWindow` at `location` points in `window`, the layout's window:
+    /// its own point when it is that window's. Two kinds of child window of `window` count too,
+    /// their point converted:
+    ///
+    /// - The layout's own divider catcher panels (``DividerMousePanel``), which cover every divider
+    ///   hit area while a Chromium page shows: layout input, as the same gap is with no page.
+    /// - A Chromium page's own window (a non-panel child over its pane), flagged `isPageWindow`:
+    ///   under `command` its Command + scroll moves the layout; under either modifier a gesture the
+    ///   layout took keeps its events when a pan slides a page under the still pointer, and a
+    ///   gesture that starts there ends the last one's lock.
+    ///
+    /// Other panels never count: overlays, and the remote browser's popups (`ContentChildPanel`),
+    /// whose lists scroll themselves. Nil: not this layout's.
+    static func scrollOrigin(of eventWindow: NSWindow?, at location: NSPoint, in window: NSWindow?) -> ScrollOrigin? {
+        guard let window, let eventWindow else { return nil }
+        if eventWindow === window { return ScrollOrigin(locationInWindow: location, isPageWindow: false) }
+        guard eventWindow.parent === window else { return nil }
+        let isCatcher = eventWindow is DividerMousePanel
+        guard isCatcher || (!(eventWindow is NSPanel) && WindowOverlayHost.isPageWindow(eventWindow)) else { return nil }
+        let point = window.convertPoint(fromScreen: eventWindow.convertPoint(toScreen: location))
+        return ScrollOrigin(locationInWindow: point, isPageWindow: !isCatcher)
     }
 
     /// What the layout could scroll for a gesture or a wheel notch that starts at a point: the
     /// strip (`columns`), a column's rows, the scroll areas there. `columnsTakeEitherAxis`: a
     /// vertical scroll (wheel notch or trackpad gesture) moves the strip when no rows take it (over
     /// the strip scrollbar, or with Command held: a mouse with one wheel still pans the columns).
+    /// `claimsWholeGesture`: a Command gesture under `command` with any target is the layout's from
+    /// its first event, whatever way it then moves (the pane never sees its start).
     struct ScrollTargets {
         var columns: ScreenContentView?
         var rows: (ScreenContentView, ColumnID)?
         var area: (ScreenContentView, NSPoint)?
         var columnsTakeEitherAxis = false
+        var claimsWholeGesture = false
 
         var isEmpty: Bool { columns == nil && rows == nil && area == nil }
     }
 
     /// The targets of a scroll starting at `locationInWindow`, by `layout.scrollModifier`.
-    private func scrollTargets(_ event: NSEvent, at locationInWindow: NSPoint) -> ScrollTargets {
+    /// `fromPageWindow`: the event came from a page window (``scrollOrigin(of:at:in:)``); there
+    /// only Command + scroll under `command` is the layout's, any other scroll is the page's
+    /// wherever it is.
+    private func scrollTargets(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> ScrollTargets {
         switch model.scrollModifier {
         case .noModifier:
+            guard !fromPageWindow else { return ScrollTargets() }
             return ScrollTargets(columns: activeColumnsView(at: locationInWindow), rows: rowScrollTarget(event, at: locationInWindow),
                                  area: areaScrollCandidate(at: locationInWindow))
         case .command:
             guard bounds.contains(convert(locationInWindow, from: nil)), let active = model.activeScreenID,
                   let view = screenViews[active] else { return ScrollTargets() }
             let local = view.convert(locationInWindow, from: nil)
-            let area = view.areaScrolls.isEmpty ? nil : (view, local)
+            // Only an area under the pointer that can move counts: one elsewhere on the screen
+            // must not claim a Command gesture with nothing to scroll here.
+            let area = view.scrollArea(at: local, direction: 1) != nil || view.scrollArea(at: local, direction: -1) != nil
+                ? (view, local) : nil
             if event.modifierFlags.contains(.command) {
                 // Anywhere on the screen, over any pane: the layout's scroll.
-                return ScrollTargets(columns: view.acceptsHorizontalScroll ? view : nil,
-                                     rows: view.rowScrollColumn(at: local, modifierHeld: true).map { (view, $0) }, area: area,
-                                     columnsTakeEitherAxis: true)
+                var targets = ScrollTargets(columns: view.acceptsHorizontalScroll ? view : nil,
+                                            rows: view.rowScrollColumn(at: local, modifierHeld: true).map { (view, $0) },
+                                            area: area, columnsTakeEitherAxis: true)
+                targets.claimsWholeGesture = !targets.isEmpty
+                return targets
             }
+            guard !fromPageWindow else { return ScrollTargets() }
             if let scrollbar = view.scrollbar, !scrollbar.isHidden, scrollbar.hitTest(local) != nil {
                 return ScrollTargets(columns: view.acceptsHorizontalScroll ? view : nil, columnsTakeEitherAxis: true)
             }
@@ -145,7 +214,13 @@ extension LayoutRootView {
     /// Whether `event` decides its gesture's owner: the touch (`mayBegin`), or `began` when no touch
     /// came first. A `began` after a `mayBegin` keeps the owner the touch chose, so Command pressed
     /// or released between them changes nothing; an end clears the touch.
-    private func decidesGestureOwner(_ event: NSEvent) -> Bool {
+    ///
+    /// A touch outside this view decides (nothing: the gesture is not this layout's) but is not
+    /// remembered. Several layouts share a window (multi-view) and each sees the touch, but only
+    /// the one under the pointer sees the rest of a gesture it takes; a remembered touch in another
+    /// one would outlive its gesture and stop that layout's next gesture without a touch (a Magic
+    /// Mouse, a re-swipe during momentum) from deciding.
+    private func decidesGestureOwner(_ event: NSEvent, at locationInWindow: NSPoint) -> Bool {
         let phase = event.phase
         guard event.momentumPhase.isEmpty, !phase.isEmpty else { return false }
         if phase.contains(.ended) || phase.contains(.cancelled) {
@@ -153,7 +228,7 @@ extension LayoutRootView {
             return false
         }
         if phase.contains(.mayBegin) {
-            ownerDecidedAtTouch = true
+            ownerDecidedAtTouch = bounds.contains(convert(locationInWindow, from: nil))
             return true
         }
         guard phase.contains(.began) else { return false }
@@ -167,12 +242,25 @@ extension LayoutRootView {
     /// when the layout consumed it (a strip or row scroll, or momentum the
     /// strip's spring owns).
     public func handleScroll(_ event: NSEvent, locationInWindow: NSPoint) -> Bool {
-        handleScrollEvent(event, at: locationInWindow) == nil
+        handleScrollEvent(event, at: locationInWindow, fromPageWindow: false) == nil
     }
 
-    private func handleScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint) -> NSEvent? {
-        let decides = decidesGestureOwner(event)
-        if let consumed = handleCanvasScroll(event, at: locationInWindow, decides: decides) { return consumed ? nil : event }
+    /// ``handleScroll(_:locationInWindow:)`` for the event monitor; returns the event when it goes
+    /// on, nil when consumed. `fromPageWindow`: the event came from a page window over a pane
+    /// (``scrollOrigin(of:at:in:)``). A consumed event is reported once (``onScrollTaken``).
+    func handleScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> NSEvent? {
+        let routed = routeScrollEvent(event, at: locationInWindow, fromPageWindow: fromPageWindow)
+        if routed == nil { onScrollTaken?() }
+        return routed
+    }
+
+    /// The routing of ``handleScrollEvent(_:at:fromPageWindow:)``: the event when it goes on, nil when the
+    /// layout consumed it.
+    private func routeScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> NSEvent? {
+        let decides = decidesGestureOwner(event, at: locationInWindow)
+        if let consumed = handleCanvasScroll(event, at: locationInWindow, decides: decides, fromPageWindow: fromPageWindow) {
+            return consumed ? nil : event
+        }
         // Momentum after a horizontal gesture we consumed: our spring owns the coast.
         if !event.momentumPhase.isEmpty {
             guard consumeMomentum else { return event }
@@ -183,7 +271,7 @@ extension LayoutRootView {
         let phase = event.phase
         if phase.isEmpty {
             // Discrete mouse wheel, decided per notch. Shift+wheel arrives as deltaX.
-            let targets = scrollTargets(event, at: locationInWindow)
+            let targets = scrollTargets(event, at: locationInWindow, fromPageWindow: fromPageWindow)
             let vertical = abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX)
             let horizontal = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY)
             if vertical, let (view, column) = targets.rows {
@@ -211,13 +299,19 @@ extension LayoutRootView {
 
         if decides {
             consumeMomentum = false
-            let targets = scrollTargets(event, at: locationInWindow)
+            let targets = scrollTargets(event, at: locationInWindow, fromPageWindow: fromPageWindow)
             scrollLock = targets.isEmpty ? .passthrough : .undecided(targets)
         }
 
         switch scrollLock {
-        case .canvas, .canvasUndecided:
+        case .canvas, .canvasUndecided, .canvasCoast:
             return event
+        case .claimed:
+            if phase.contains(.ended) || phase.contains(.cancelled) {
+                scrollLock = .idle
+                consumeMomentum = true
+            }
+            return nil
         case .idle, .passthrough:
             if case .passthrough = scrollLock, phase.contains(.began) { focusPaneForPassThroughScroll(at: locationInWindow) }
             if phase.contains(.ended) || phase.contains(.cancelled) { scrollLock = .idle }
@@ -225,11 +319,15 @@ extension LayoutRootView {
         case let .undecided(targets):
             let dx = abs(event.scrollingDeltaX)
             let dy = abs(event.scrollingDeltaY)
+            // A claimed gesture's start (the touch, a `began` with no delta) and an end before it
+            // moved stay the layout's: the pane must never see a gesture start that does not end.
+            let unmoved: NSEvent? = targets.claimsWholeGesture ? nil : event
             if phase.contains(.ended) || phase.contains(.cancelled) {
                 scrollLock = .idle
-                return event
+                if targets.claimsWholeGesture { consumeMomentum = true }
+                return unmoved
             }
-            guard dx + dy > 0 else { return event }
+            guard dx + dy > 0 else { return unmoved }
             // Innermost first: an area that can move in the gesture's first direction owns it (I2).
             if dx > dy, let (areaView, point) = targets.area,
                let id = areaView.scrollArea(at: point, direction: event.scrollingDeltaX < 0 ? 1 : -1) {
@@ -254,6 +352,10 @@ extension LayoutRootView {
                 scrollLock = .horizontal(view, verticalDeltas: true)
                 view.beginUserScroll()
                 view.userScroll(deltaX: event.scrollingDeltaY, timestamp: event.timestamp)
+                return nil
+            }
+            if targets.claimsWholeGesture {
+                scrollLock = .claimed
                 return nil
             }
             scrollLock = .passthrough

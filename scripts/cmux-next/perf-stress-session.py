@@ -220,18 +220,32 @@ class Stress:
 
     def show(self, workspace):
         """Shows `workspace` in the window (goToWorkspace); raises StressShapeError when it does not show."""
-        if self.focused_workspace() == workspace:
+        if self.window_showing(workspace):
             return
         self.action("goToWorkspace", {"workspace": workspace})
-        if not wait(lambda: self.focused_workspace() == workspace, 10, step=0.05):
+        if not wait(lambda: self.window_showing(workspace) is not None, 10, step=0.05):
             raise StressShapeError(f"workspace {workspace} never showed")
 
+    def window_showing(self, workspace, topology=None):
+        """The topology window that shows `workspace` (each window reports its own workspace and focused pane), or
+        None. Not the top-level focus: that is the ACTIVE window's, which another window (an open panel, a window
+        an earlier action left) can be while this one shows the workspace."""
+        return next((w for w in (topology or self.topology()).get("windows") or [] if w.get("workspace") == workspace), None)
+
     def focus_pane(self, pane_id):
-        """Focuses `pane_id`; raises StressShapeError when focus does not get there (a tab made next
-        would land in another pane, and the total would hide it)."""
+        """Focuses `pane_id` in the window that shows its workspace; raises StressShapeError when that window's
+        focused pane does not become it."""
         self.action("pane.focus", target=f"pane:{pane_id}")
-        if not wait(lambda: (self.topology().get("focus") or {}).get("pane") == pane_id, 10, step=0.05):
-            raise StressShapeError(f"focus never reached pane {pane_id}")
+
+        def focused():
+            topology = self.topology()
+            owner = next((w["id"] for w in topology.get("workspaces") or [] for p in self.panes(w) if p.get("id") == pane_id), None)
+            window = self.window_showing(owner, topology) if owner else None
+            return (window or {}).get("focused_pane") == pane_id or (topology.get("focus") or {}).get("pane") == pane_id
+        if not wait(focused, 10, step=0.05):
+            topology = self.topology()
+            raise StressShapeError(f"focus never reached pane {pane_id} (active focus {topology.get('focus')}, "
+                                   f"windows {[(w.get('key'), w.get('workspace'), w.get('focused_pane')) for w in topology.get('windows') or []]})")
 
     def tabs(self, workspace_id, pane_id):
         pane = next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)

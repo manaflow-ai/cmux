@@ -55,9 +55,20 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         }
 
         var size = winsize(ws_row: UInt16(clamping: rows), ws_col: UInt16(clamping: columns), ws_xpixel: 0, ws_ypixel: 0)
+        // The highest descriptor the child closes: the table size, read before fork, capped so an unlimited
+        // limit does not make the child loop for long.
+        let highestDescriptor = min(getdtablesize(), 1 << 16)
         var master: Int32 = -1
         let pid = forkpty(&master, nil, nil, &size)
         if pid == 0 {
+            // The shell gets only its PTY (0-2): every app descriptor without close-on-exec (a socket, a
+            // pipe, one received between recvmsg and FD_CLOEXEC) would pass through execve. close is
+            // async-signal-safe.
+            var descriptor: Int32 = 3
+            while descriptor < highestDescriptor {
+                _ = close(descriptor)
+                descriptor += 1
+            }
             _ = chdir(directory)
             // The app catches SIGPIPE (exec resets that), but a host process
             // that ignores it would pass SIG_IGN on: give the shell the default.

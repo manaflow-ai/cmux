@@ -155,9 +155,17 @@ the press number below). Each hop records the id where a message carries it; oth
 terminal. `trace.py` joins the hops of one press and draws them as slices on `key flow` tracks, joined by
 Perfetto flow arrows (JSON `bind_id` / `flow_out` / `flow_in`).
 
-Turned on by `CMUX_TRACE_FLOWS=<dir>`, which `trace.py record --app` sets; the daemon, the terminal hosts and
-the holder inherit it. Off, each hop costs one load. On, a Rust hop is a `try_send` to a bounded queue (8192
-records); one writer thread appends JSON lines to `<dir>/flows-<pid>.jsonl`. A full queue drops records and
+Turned on by `CMUX_NEXT_TRACE_FLOWS=<dir>` on the app, which `trace.py record --app` sets. The app strips every
+inherited `CMUX*` variable that is not a `CMUX_NEXT_*` launch knob, so the daemon launch passes it on as
+`CMUX_TRACE_FLOWS` (`DaemonDiagnosticKnobs`, also `CMUX_NEXT_TUI_DEBUG_SPANS` as `CMUX_TUI_DEBUG_SPANS`); the
+terminal hosts and the holder inherit it from the daemon. Each of these processes calls `cmux_flow_trace::init()` at start (daemon `serve`, the
+terminal host's `serve_terminal_host_process`, the holder's `serve`), which opens `<dir>/flows-<pid>.jsonl` and
+starts the writer thread, so no hop opens a file or starts a thread. A hop never allocates, locks or enters
+the kernel: off, it is one load of an unset `OnceLock` (test `cmux-flow-trace/tests/off.rs`); on, it reads the
+clock (commpage) and its thread id and pushes a plain record (the terminal id as at most 32 bytes) into a fixed
+ring of 8192 slots (test `tests/records.rs` counts the caller's allocations). The marks in the terminal host and
+in the daemon's local-PTY path run before the writer and runtime locks. The writer drains the ring every 50 ms
+while tracing is on, or when a hop finds it half full (the only wake a hop sends). A full ring drops records and
 counts them (`flow records dropped` in the summary). The app's hops are `key.flow` signpost events.
 
 | Hop | Process, thread | Carries |

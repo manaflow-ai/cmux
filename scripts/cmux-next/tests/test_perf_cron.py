@@ -400,6 +400,15 @@ class DisplayTests(OneRunRule):
             self.assertEqual([r["name"] for r in state["regressions"]], ["panes.split.4x2.frame" + B],
                              "a budgets part on the virtual display is compared at its refresh")
 
+    def test_an_incomplete_budget_report_does_not_become_a_done_part(self):
+        report = {"rows": [{"name": "panes.split.4x2.frame", "p95": 8.4}],
+                  "incomplete": [{"name": "panes.close.4x2.frame", "reason": "missing current p95"}]}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.report_tick(d, {"motion": report}, {})
+            self.assertEqual(state["history"][-1]["failed_parts"], ["motion"])
+            self.assertEqual(state["history"][-1]["status"], "incomplete")
+            self.assertEqual(state["last_good"]["sha"], "a" * 40, "partial budgets never establish a baseline")
+
     def test_the_issue_says_which_frame_rows_were_not_compared(self):
         state = cron.empty_state(T0)
         state["current"] = cron.new_measurement("a" * 40, "tip", [], T0)

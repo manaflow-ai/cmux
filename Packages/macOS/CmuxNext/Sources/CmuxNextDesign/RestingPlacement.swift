@@ -13,10 +13,29 @@ public protocol RestingPlacement: NSView {
     /// or resizes on every display frame until the spring lands. Content whose resize is costly
     /// (a terminal's PTY grid) waits for the landing (``PaneMotionSettling``).
     var isOnLayoutSpring: Bool { get }
+    /// While on a layout spring that changes its content's size: how much larger (negative: smaller) its
+    /// content area will rest than it is now, in points, as ``PaneMotionTargeting/paneMotionWillRest(sizeChange:)``
+    /// gives it at the spring's start. A view that joins the content mid-spring (a split's new pane gets its
+    /// terminal from the daemon's echo) asks for it here. Nil at rest or with no size change.
+    var restContentSizeChange: CGSize? { get }
 }
 
 public extension RestingPlacement {
     var isOnLayoutSpring: Bool { restOffset != .zero }
+    var restContentSizeChange: CGSize? { nil }
+}
+
+public extension NSView {
+    /// The nearest enclosing ``RestingPlacement``'s ``RestingPlacement/restContentSizeChange``: the size change
+    /// this view's spring will rest at, for a view that joins mid-spring. Nil outside a spring.
+    var enclosingRestSizeChange: CGSize? {
+        var ancestor = superview
+        while let view = ancestor {
+            if let placement = view as? RestingPlacement { return placement.isOnLayoutSpring ? placement.restContentSizeChange : nil }
+            ancestor = view.superview
+        }
+        return nil
+    }
 }
 
 /// A view inside a ``RestingPlacement`` that defers costly work while its placement is on a layout

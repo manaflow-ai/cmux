@@ -50,11 +50,12 @@ enum BenchSpans {
         return try body()
     }
 
-    /// Records an instant (a point in an async flow) under `name`.
-    static func mark(_ name: String) {
+    /// Records an instant (a point in an async flow) under `name`, or a span another module timed
+    /// (`CEFBenchMarks`) that is `milliseconds` long and ends now.
+    static func mark(_ name: String, milliseconds: Double = 0) {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard let origin, spans.count < capacity else { return }
-        spans.append(Span(name: name, start: Self.ms(.now - origin), milliseconds: 0))
+        spans.append(Span(name: name, start: Self.ms(.now - origin) - milliseconds, milliseconds: milliseconds))
         #endif
     }
 

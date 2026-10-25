@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0'
+IR_SHA256 = '723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2'
 
 
 @dataclass(frozen=True)
@@ -2963,6 +2963,7 @@ COMMANDS = {
             'bytes': CommandFieldMetadata(None, None),
             'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
+            'flow': CommandFieldMetadata(None, None),
             'paste': CommandFieldMetadata(7, None),
             'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),

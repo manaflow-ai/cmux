@@ -24,7 +24,23 @@ vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not compara
   CEF `SetFocus` > `-[NSWindow makeKeyAndOrderFront:]` > `makeKeyWindow` > `_changeKeyAndMainLimitedOK:` >
   `-[NSView _windowChangedKeyState]` (about 20 levels) > `NSButtonCell bezelConfigurationInView:`.
 - Same family as Hang B: a 10 s stall inside an AppKit key-window change that FocusEffectApplier drives.
-  macOS 15 hung in 3 of 4 runs (seeds 21, 22, 21 again); macOS 14 in 0 of 4 at that point.
+- Not macOS-15-only: a 30 min run on 14.8.7 trapped the same way (`PaneController.showSelected` >
+  `FocusEffectApplier` > `reclaimKeyFromPageWindow` > `makeKeyWindow` > `_windowChangedKeyState`). 26.6.2 did not
+  hang in 30 min. Counts: 15 in 3 of 4 runs, 14 in 1 of 1 thirty-minute runs (0 of 3 short ones), 26 in 0 of 1.
+  Issue: https://github.com/manaflow-ai/cmux/issues/24913.
+
+## Crash D: stack overflow in ScreenContentView's canvas camera (macOS 26)
+
+- Fleet fuzz seed 21 (30 min), macOS 26.6.2, step 2330: key ⌥⌘= (`canvasZoomIn`); fleet step
+  `766a087fc153d567d40a8098`. Exit status 139, `EXC_BAD_ACCESS` "Thread stack size exceeded due to excessive
+  recursion".
+- Main thread, repeating: `ScreenContentView.viewDidChangeBackingProperties` > `reconcileAndScroll` >
+  `reconcile` > `applyCamera` > `-[NSView setBoundsSize:]` > `_NSViewHierarchyDidChangeBackingProperties` >
+  `viewDidChangeBackingProperties` again. `applyCamera` sets a bounds size other than the frame size (the canvas
+  zoom), AppKit reports that as a backing change, and the override reconciles, which sets the bounds again.
+- The code is unchanged at the feat-cmux-next tip (ScreenContentView.swift and ScreenContentView+Canvas.swift).
+- The earlier macOS 26 "dead" at step 2952 (a87b5f47) had no report; with the exit diagnostics this rerun shows a
+  real crash at another step. The same seed does not give the same steps after the first death and relaunch.
 
 ## Exec (OS probes)
 
@@ -33,6 +49,10 @@ vm.sh (the fleet step needs the runner landed). Smoke times are "VM, not compara
 | 2026-10-24 | url-root-parent | 14.8.7 | 0    | `"/.."` | issue #4529 behavior |
 | 2026-10-24 | url-root-parent | 15.7.7 | 0    | `"/.."` | issue #4529 behavior |
 | 2026-10-24 | url-root-parent | 26.6.2 | 0    | `"/"`   | fixed by Apple |
+
+| 2026-10-24 | webkit-js-spi | 14.8.7 | 0 | `_evaluateJavaScript:withSourceURL:inFrame:inContentWorld:withUserGesture:completionHandler:` false; `_evaluateJavaScriptWithoutUserGesture:completionHandler:` true; `_callAsyncJavaScript:arguments:inFrame:inContentWorld:withUserGesture:completionHandler:` false; `_evaluateJavaScript:asAsyncFunction:withSourceURL:withArguments:forceUserGesture:inFrame:inWorld:completionHandler:` true | system WebKit |
+| 2026-10-24 | webkit-js-spi | 15.7.7 | 0 | true, true, false, true (same order) | |
+| 2026-10-24 | webkit-js-spi | 26.6.2 | 0 | true, true, false, true (same order) | |
 
 Verdict paths, checked by hand on 14.8.7 with throwaway probes: exit 1 is FAIL; a `fatalError` (exit 133) and
 a compile error are NO-VERDICT; the results upload in every case.
@@ -46,6 +66,9 @@ a compile error are NO-VERDICT; the results upload in every case.
 | 2026-10-24 | e2c9cf16ed1f173dd31bd02d (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 22 | 14 PASS; 15 FAIL: one 5 s hang at step 351 (a right-click), no sample (fixed in 52ea1f1890e) |
 | 2026-10-24 | 242004ecce1da33452f500c5 (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 15.7.7 | fuzz seed 23 | PASS, PASS |
 | 2026-10-24 | 7eb19ffe6c4f94b5ec8122b1 (aws-m4pro-6) | perf-1023-2138-v1 | 15.7.7 | fuzz seed 21, real 30 min (1972 steps) | FAIL: watchdog trap at step 536 (see "Hang C") |
+| 2026-10-24 | 766a087fc153d567d40a8098 (aws-m4pro-6) | perf-1023-2138-v1 | 26.6.2 | fuzz seed 21, real 30 min (2490 steps) | FAIL: stack overflow at step 2330, ⌥⌘= canvasZoomIn (see "Crash D") |
+| 2026-10-24 | f2ec771b8246d35edf1deb66 (aws-m4pro-6) | osmatrix-f0468dd2-v1 (tip with the launch fix 5e80b800479) | 14.8.7, 15.7.7 | smoke | PASS, PASS (537ab90cf05 broke launch on 14/15 with a missing Swift runtime symbol; fixed) |
+| 2026-10-24 | a87b5f477f4d6270f575f6f6 (aws-m4pro-6) | perf-1023-2138-v1 | 14.8.7, 26.6.2 | fuzz seed 21, real 30 min | 14 FAIL (2329 steps): watchdog trap at step 1401, same family; 26: no hang (3045 steps), one exit at step 2952 with no crash report (the windows were gone: a fuzz-caused exit) |
 
 The seed 21-23 runs asked for `--minutes 30` but stopped at the 600-step default (616 with the tour): 5 to 10
 min per major. Fixed after them: `--minutes` without `--steps` now walks until the time is up.

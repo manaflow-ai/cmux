@@ -26,7 +26,7 @@ fn of_kind<'a>(out: &'a [(String, Value)], kind: &str) -> Vec<&'a Value> {
 
 fn workflow_call(id: &str) -> Value {
     json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": id, "name": "Workflow",
-        "input": {"scriptPath": "/tmp/wf.js"}}]}})
+        "input": {"scriptPath": "/tmp/wf.js", "args": {"pr": 24789}}}]}})
 }
 
 fn launched(id: &str, transcript_dir: &str) -> Value {
@@ -69,7 +69,14 @@ async fn a_workflow_runs_as_a_background_subagent_with_its_progress() {
     assert_eq!(named.len(), 1, "{out:?}");
     assert_eq!(named[0]["name"], "probe");
     assert_eq!(named[0]["task"], "Two tiny agents");
+    // What a resume names again: the script path Claude Code returned; the args go only as a digest.
     assert_eq!(named[0]["runId"], "wf_4fe");
+    assert_eq!(
+        named[0]["scriptPath"],
+        "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"
+    );
+    assert_eq!(named[0]["argsDigest"], digest_of(&json!({"pr": 24789})).await);
+    assert!(named[0].get("args").is_none(), "args never go out");
 
     let started = json!({"type": "system", "subtype": "task_started", "task_id": "wx2", "tool_use_id": "toolu_w",
         "description": "Two tiny agents", "task_type": "local_workflow"});
@@ -251,6 +258,7 @@ async fn a_workflow_counts_only_agents_that_started() {
 async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
     t.inbound(&workflow_call("toolu_w")).await;
+    t.inbound(&launched("toolu_w", "/nonexistent")).await;
     let agent = json!({"type": "workflow_agent", "index": 1, "label": "review:#1", "state": "done",
         "phaseTitle": "Review", "startedAt": 10, "resultPreview": "SHIP"});
     t.inbound(&snapshot(json!([phase(1, "Review"), agent]))).await;
@@ -262,6 +270,14 @@ async fn a_workflow_ends_with_its_final_usage_and_every_agent() {
     let last = &out[0].1;
     assert_eq!((last["tokens"].clone(), last["toolUses"].clone()), (json!(52000), json!(9)));
     assert_eq!(last["workflowAgentsFull"], json!(true));
+    // What a resume names comes again with the end, for a reader of recent history alone.
+    assert_eq!(last["runId"], "wf_4fe");
+    assert_eq!(
+        last["scriptPath"],
+        "/home/me/.claude/projects/-w/s1/workflows/scripts/probe-wf_4fe.js"
+    );
+    assert_eq!(last["argsDigest"], digest_of(&json!({"pr": 24789})).await);
+    assert!(last.get("args").is_none(), "args never go out");
     assert_eq!(last["phases"], json!([{"index": 1, "title": "Review"}]));
     assert_eq!(
         last["workflowAgents"],
@@ -355,6 +371,55 @@ async fn a_preview_never_shows_part_of_a_secret() {
     assert!(agent.get("prompt").is_none_or(|p| !p.to_string().contains("Q7ZJ")), "{agent}");
 }
 
+/// The digest a launch sends for `args`, read from a launch of a Workflow call with them.
+async fn digest_of(args: &Value) -> Value {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(
+        &json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_d",
+        "name": "Workflow", "input": {"scriptPath": "/tmp/wf.js", "args": args}}]}}),
+    )
+    .await;
+    let out = updates(&t.inbound(&launched("toolu_d", "/nonexistent")).await);
+    of_kind(&out, "subagent_progress")[0]["argsDigest"].clone()
+}
+
+/// A workflow's args never go to a pane, whatever they hold (an env map, a base64 blob, a key named
+/// like a credential or not): only a digest, which says whether two runs had the same args.
+#[tokio::test]
+async fn a_workflows_args_go_out_only_as_a_digest() {
+    let launch = |args: Value| async move {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        t.inbound(&json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_w",
+            "name": "Workflow", "input": {"scriptPath": "/tmp/wf.js", "args": args}}]}}))
+            .await;
+        let out = updates(&t.inbound(&launched("toolu_w", "/nonexistent")).await);
+        of_kind(&out, "subagent_progress")[0].clone()
+    };
+    for args in [json!({"pr": 7}), json!({"env": {"FOO": "s3cr3t"}}), json!({"blob": "c2VjcmV0"})] {
+        let update = launch(args.clone()).await;
+        assert!(update.get("args").is_none(), "{update}");
+        assert_eq!(update["argsDigest"], digest_of(&args).await);
+        assert_eq!(update["argsDigest"].as_str().map(str::len), Some(32));
+        assert!(!update.to_string().contains("s3cr3t") && !update.to_string().contains("c2VjcmV0"));
+    }
+    assert_ne!(digest_of(&json!({"pr": 7})).await, digest_of(&json!({"pr": 8})).await);
+    // Keyed by this daemon: not the plain SHA-256 a guess could be tested against.
+    let plain: String = crate::sha256::sha256_hex(json!({"pr": 7}).to_string().as_bytes())
+        .chars()
+        .take(32)
+        .collect();
+    assert_ne!(digest_of(&json!({"pr": 7})).await, json!(plain));
+    // No args, no digest.
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(
+        &json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_w",
+        "name": "Workflow", "input": {"scriptPath": "/tmp/wf.js"}}]}}),
+    )
+    .await;
+    let out = updates(&t.inbound(&launched("toolu_w", "/nonexistent")).await);
+    assert!(of_kind(&out, "subagent_progress")[0].get("argsDigest").is_none());
+}
+
 /// The hub's subagent model carries the run's id, phases and agent changes.
 #[test]
 fn workflow_agents_reach_clients_in_the_subagent_model() {
@@ -372,6 +437,39 @@ fn workflow_agents_reach_clients_in_the_subagent_model() {
             "phases": [{"index": 1, "title": "Review"}],
             "workflowAgents": [{"index": 1, "state": "running", "label": "review:#1"}]}])
     );
+}
+
+/// The event log keeps how many items a big workflow snapshot held, not the
+/// items: each repeats every agent so far (`logged_line`). A small one, and
+/// any other line, is kept whole.
+#[test]
+fn the_log_keeps_a_big_workflow_snapshot_size_not_its_agents() {
+    let agents: Vec<Value> = (0..17)
+        .map(|n| json!({"type": "workflow_agent", "index": n, "label": format!("review:#{n}")}))
+        .collect();
+    let snapshot = json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
+        "usage": {"total_tokens": 19738}, "workflow_progress": agents});
+    let Message::Notification { method, params: Some(kept) } = logged_line(&snapshot) else {
+        panic!("not a notification")
+    };
+    assert_eq!(method, "claude.system.task_progress");
+    assert_eq!(
+        kept,
+        json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
+            "usage": {"total_tokens": 19738}, "_acpmux": {"workflowProgressItems": 17}})
+    );
+    let small = json!({"type": "system", "subtype": "task_progress", "task_id": "wx2",
+        "workflow_progress": [{"type": "workflow_phase", "index": 1, "title": "Review"}]});
+    let Message::Notification { params: Some(kept), .. } = logged_line(&small) else {
+        panic!("not a notification")
+    };
+    assert_eq!(kept, small);
+    let line =
+        json!({"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}});
+    let Message::Notification { method, params: Some(kept) } = logged_line(&line) else {
+        panic!("not a notification")
+    };
+    assert_eq!((method.as_str(), kept), ("claude.assistant", line));
 }
 
 #[tokio::test]

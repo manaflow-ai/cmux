@@ -178,11 +178,48 @@ fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     (!settings.is_empty()).then_some(Value::Object(settings))
 }
 
+/// The most items a workflow snapshot can hold and still be logged whole
+/// (`logged_line`): a small run's snapshots stay as Claude sent them.
+const LOGGED_SNAPSHOT_ITEMS: usize = 16;
+
+/// A raw Claude stdout line as the session's event log keeps it, under its
+/// own kind (`claude.<type>[.<subtype>]`). A workflow's `task_progress`
+/// snapshot (`workflow_progress`) repeats every agent of the run so far,
+/// about 1 KB each, and comes with every agent's start and end, so one run
+/// of several hundred agents would log hundreds of megabytes. A snapshot of
+/// more than `LOGGED_SNAPSHOT_ITEMS` items is logged as how many it held
+/// (`_acpmux.workflowProgressItems`); the translated `subagent_progress`
+/// keeps what changed (`workflows.rs`).
+pub fn logged_line(raw: &Value) -> Message {
+    let kind = format!(
+        "claude.{}{}",
+        raw.get("type").and_then(Value::as_str).unwrap_or("?"),
+        raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
+    );
+    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
+    let line = match (raw.as_object(), snapshot) {
+        (Some(fields), Some(items)) if items.len() > LOGGED_SNAPSHOT_ITEMS => {
+            let mut kept: serde_json::Map<String, Value> = fields
+                .iter()
+                .filter(|(key, _)| *key != "workflow_progress")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
+            Value::Object(kept)
+        }
+        _ => raw.clone(),
+    };
+    Message::notification(&kind, line)
+}
+
 /// The model choices offered in pickers before Claude Code's own list answers.
 pub fn models() -> &'static [(String, String)] {
     &MODELS
 }
 
+pub(crate) mod agent_transcript;
+#[cfg(test)]
+mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
 mod early_calls;

@@ -80,6 +80,12 @@ extension CEFRuntime {
         UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue() }
     }
 
+    /// The pump's cross-thread gate behind a callback context, from any thread (a `nonisolated let`
+    /// of the runtime, which lives for the rest of the process once started).
+    nonisolated static func pumpGate(at address: UInt) -> CEFPumpCrossThreadGate? {
+        UnsafeMutableRawPointer(bitPattern: address).map { Unmanaged<CEFRuntime>.fromOpaque($0).takeUnretainedValue().pumpGate }
+    }
+
     func handle(_ event: CEFShimEvent) {
         switch event {
         case .contextInitialized:
@@ -99,6 +105,13 @@ extension CEFRuntime {
             if let tab = tabsByBrowser[browser] { tab.beforeUnloadAsked(token: token, isReload: isReload) } else { _ = shim?.beforeUnloadReply(token, 1) }
         case .pageResource(let browser, let token, let url):
             answerPageResource(token: token, url: url, tab: tabsByBrowser[browser])
+        case .pageMessage(let browser, let mainFrame, let channel, let payload):
+            // Untrusted: a compromised renderer can post anything (`CEFPageMessage`).
+            if let tab = tabsByBrowser[browser], let message = CEFPageMessage(channel: channel, payload: payload, mainFrame: mainFrame) {
+                tab.agentRelay.pageMessage(message)
+            }
+        case .evaluateResult(let token, let status, let value):
+            evaluationAnswered(token: token, CEFEvaluationResult(status: status, text: value))
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .fileDialog(_, let dialogID, _, _, _):
@@ -133,7 +146,7 @@ extension CEFRuntime {
         case .omniboxSuggestions(let requestID, let extensionID, let json):
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
         case .authCallback(let browser, let url):
-            CEFSignInCallbacks.shared.stopped(browser: browser, url: url)
+            signInCallbacks.stopped(browser: browser, url: url)
         case .bookmarks(let json, let path):
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
         case .unknown:
@@ -214,7 +227,7 @@ extension CEFRuntime {
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         accessibility.attached(browser)
-        CEFSignInCallbacks.shared.attached(tab)
+        signInCallbacks.attached(tab)
     }
 
     private func browserClosed(_ browser: Int32) {
@@ -227,6 +240,7 @@ extension CEFRuntime {
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
+        failEvaluations(of: browser)
         // The fork counts a browser's window until its destructor, after this close.
         if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)
@@ -406,9 +420,10 @@ extension CEFShimEvent {
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
-             .fileDialog(let b, _, _, _, _):
+             .fileDialog(let b, _, _, _, _),
+             .pageMessage(let b, _, _, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
             nil
         }
     }

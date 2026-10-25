@@ -103,6 +103,10 @@ public final class LayoutRootView: NSView {
     /// true when the first one starts and false when the last one lands; the App holds
     /// `ResizeCoordinator` with it.
     public var onTerminalGridHold: ((Bool) -> Void)?
+    /// Called once for each scroll event the layout consumed (a strip, row, area or canvas scroll, or momentum
+    /// its spring owns), in that event's dispatch: the App's input dispatch context times it as the layout's
+    /// (`key.scroll_frame target=layout`). Never called for an event that goes on to a pane.
+    public var onScrollTaken: (() -> Void)?
     /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
     public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
 

@@ -17,8 +17,14 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = []
+    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
     public internal(set) var groups: [WorkspaceGroupModel] = []
+    /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
+    @ObservationIgnored public internal(set) var unreadTabReads = 0
+    /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
+    /// count when one changes and assigned only when the sum changes: an observer of the badge
+    /// observes this one value, never the tabs.
+    public internal(set) var unreadTotals = UnreadTotals()
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
     public internal(set) var profiles: [ProfileModel] = []
@@ -149,6 +155,9 @@ public final class DaemonStore: StateResourceQueries {
     /// The last live snapshot per workspace and what changed since (``SnapshotMemo``): the next
     /// snapshot applies only the workspaces that differ.
     @ObservationIgnored var snapshotMemo = SnapshotMemo()
+    /// Workspace snapshots the main actor compared or keyed for ``snapshotMemo`` since creation
+    /// (tests: a live resync with its off-main ``SnapshotDiff`` walks none).
+    @ObservationIgnored var snapshotWorkspacesWalkedOnMain = 0
     /// Set while `run(connection:scheduler:)` drives the store.
     @ObservationIgnored var driver: StoreDriver?
     @ObservationIgnored var isResyncing = false
@@ -258,16 +267,17 @@ public final class DaemonStore: StateResourceQueries {
     /// found (``SnapshotDiff``, computed off the main thread by the resync); nil or a diff of an
     /// older memo compares here. Only the changed, new and removed workspaces, and those an event
     /// touched since, are applied, indexed and laid; a snapshot the memo cannot vouch for
-    /// (``incrementalChanges(_:diff:)``) applies in full.
+    /// (``incrementalDiff(_:diff:)``) applies in full.
     func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
         withOverlayLifted(snapshot: true) {
-            if let touched = incrementalChanges(tree, diff: diff) {
-                applyTreeIncrementally(tree, touching: touched)
+            if let diff = incrementalDiff(tree, diff: diff) {
+                applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))
+                advanceSnapshotMemo(tree, applying: diff)
             } else {
                 applyTree(tree)
                 rebuildIndex()
+                recordSnapshotMemo(tree)
             }
-            recordSnapshotMemo(tree)
             if isProvisional { isProvisional = false }
             if !isLoaded {
                 isLoaded = true

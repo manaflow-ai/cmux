@@ -197,6 +197,8 @@ public nonisolated enum RefusalStrings {
     public static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     public static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
+    /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
+    public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
     public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }

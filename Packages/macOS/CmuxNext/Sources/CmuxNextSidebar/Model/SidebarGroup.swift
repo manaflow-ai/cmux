@@ -26,6 +26,8 @@ public nonisolated struct SidebarGroup: Identifiable, Hashable, Sendable {
     public var parent: GroupID?
     /// Group levels above this one: 0 at the top level.
     public var depth = 0
+    /// Archived in the sidebar document: its header draws dimmed (its members too). Set by `arrange`.
+    public var isArchived = false
 
     /// Every member in document order: the workspaces, with each item after
     /// the workspace it follows (first when it follows none; last when that
@@ -216,6 +218,8 @@ public nonisolated struct SidebarListItem: Hashable, Sendable {
     public var title: String
     /// The page icon address of a link (stored on the item, else the site's own).
     public var iconAddress: String?
+    /// Archived in the sidebar document: the row draws dimmed. Set by `arrange`.
+    public var isArchived = false
 
     public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil) {
         self.id = id

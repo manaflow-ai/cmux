@@ -252,6 +252,14 @@ pub mod method {
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
+    /// One of a session's subagents' transcripts, a page at a time, from the
+    /// files Claude Code writes (a workflow agent's, a background agent's):
+    /// `{sessionId, runId?, agentId, before?, after?, limit?}`
+    /// (`claude_stdio/agent_transcript.rs`).
+    pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// Every Claude workflow of this daemon's chats: `{includeEnded?}` →
+    /// `{workflows}` (`hub/workflow_index.rs`).
+    pub const MUX_WORKFLOWS: &str = "_acpmux/workflows";
     /// The app pane's reply in place, checked and signed (`server/app_reply.rs`).
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
@@ -352,6 +360,9 @@ pub mod method {
     pub const MUX_STEER: &str = "_acpmux/steer";
     pub const MUX_BRIEFS: &str = "_acpmux/briefs";
     pub const MUX_REPORT: &str = "_acpmux/report";
+    /// A brief for a session already on this daemon, and a session's tasks (`hub/tasks.rs`).
+    pub const MUX_TASK_NEW: &str = "_acpmux/task_new";
+    pub const MUX_TASKS: &str = "_acpmux/tasks";
     /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";

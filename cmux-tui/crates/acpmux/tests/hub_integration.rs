@@ -69,6 +69,8 @@ mod stop;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/tasks.rs"]
+mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 

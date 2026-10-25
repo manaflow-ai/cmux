@@ -118,11 +118,6 @@ pub(super) struct SendParams {
     pub(super) flow: Option<u64>,
 }
 
-/// The hex id flow marks name a terminal by (the host's terminal id; empty without one).
-fn flow_terminal(surface: &crate::Surface) -> String {
-    surface.flow_terminal_id()
-}
-
 pub(super) fn send(
     mux: &Arc<Mux>,
     client: u64,
@@ -209,10 +204,17 @@ pub(super) fn send(
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-            let terminal = || flow_terminal(&surface);
-            cmux_flow_trace::hop("daemon.send.write", flow.unwrap_or(0), terminal);
+            cmux_flow_trace::hop(
+                "daemon.send.write",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
             surface.write_bytes(&raw)?;
-            cmux_flow_trace::hop("daemon.send.written", flow.unwrap_or(0), terminal);
+            cmux_flow_trace::hop(
+                "daemon.send.written",
+                flow.unwrap_or(0),
+                surface.flow_terminal_id(),
+            );
         }
     }
     if submit {

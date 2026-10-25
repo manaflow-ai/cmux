@@ -59,6 +59,12 @@ pub(super) struct WorkflowRun {
     journal: JournalTail,
     /// When the last update went out.
     sent: Option<Instant>,
+    /// A digest of the Workflow call's `args` (`args_digest`): never the args, which may hold
+    /// anything; two runs with the same digest ran with the same args.
+    args_digest: Option<String>,
+    /// The run's id and script path from its launch, which its end sends again (`resume`).
+    run_id: Option<String>,
+    script_path: Option<String>,
 }
 
 /// What a run's `journal.jsonl` said up to `offset`: how many agents started
@@ -77,6 +83,13 @@ struct Rows {
     agents: Vec<Value>,
     /// Every agent, each whole: a client replaces what it had.
     full: bool,
+}
+
+impl WorkflowRun {
+    /// A run for a Workflow call's `input`, keeping a digest of its `args`.
+    pub(super) fn new(input: &Value) -> Self {
+        Self { args_digest: input.get("args").and_then(args_digest), ..Self::default() }
+    }
 }
 
 impl Translator {
@@ -111,12 +124,28 @@ impl Translator {
         if let Some(task) = text("taskId") {
             self.subagent_tasks.lock().await.insert(task.to_owned(), tool.to_owned());
         }
-        if let Some(dir) = text("transcriptDir")
-            && let Some(run) = self.workflows.lock().await.get_mut(tool)
-        {
-            run.dir = Some(PathBuf::from(dir));
-        }
+        let digest = match self.workflows.lock().await.get_mut(tool) {
+            Some(run) => {
+                if let Some(dir) = text("transcriptDir") {
+                    run.dir = Some(PathBuf::from(dir));
+                }
+                run.run_id = text("runId").map(str::to_owned);
+                run.script_path = text("scriptPath").map(str::to_owned);
+                run.args_digest.clone()
+            }
+            None => None,
+        };
         let mut update = json!({"sessionUpdate": "subagent_progress", "subagentSessionId": child});
+        // What a resume names again (`Workflow({scriptPath, resumeFromRunId, args})`): the script
+        // path Claude Code returned, the only kind it takes back. The args are never sent (they
+        // may hold anything, and updates are not masked): the agent that launched the run has them,
+        // and a digest says whether two runs had the same.
+        if let Some(path) = text("scriptPath") {
+            update.set("scriptPath", json!(path));
+        }
+        if let Some(digest) = digest {
+            update.set("argsDigest", json!(digest));
+        }
         if let Some(name) = text("workflowName") {
             update.set("name", json!(name));
         }
@@ -151,7 +180,7 @@ impl Translator {
         };
         let child = self.subagents.lock().await.get(&tool)?.clone();
         let snapshot = line.get("workflow_progress").and_then(Value::as_array);
-        let (workflow, journal, rows) = {
+        let (workflow, journal, rows, resume) = {
             let mut runs = self.workflows.lock().await;
             match runs.get_mut(&tool) {
                 Some(run) => {
@@ -168,11 +197,12 @@ impl Translator {
                         (None, Some(dir)) => Some((dir.clone(), run.journal.clone())),
                         _ => None,
                     };
-                    (Some(run.counts.clone()), journal, rows)
+                    let resume = ending.then(|| run.resume());
+                    (Some(run.counts.clone()), journal, rows, resume)
                 }
                 // A background agent's end is its state alone.
                 None if ending => return None,
-                None => (None, None, None),
+                None => (None, None, None, None),
             }
         };
         let usage = |key: &str| line.pointer(&format!("/usage/{key}")).and_then(Value::as_u64);
@@ -193,6 +223,10 @@ impl Translator {
         };
         if let Some(action) = action {
             update.set("action", json!(action));
+        }
+        // A run's end repeats what a resume names, for a reader of recent history alone.
+        for (key, value) in resume.unwrap_or_default() {
+            update.set(&key, value);
         }
         if let Some(rows) = rows {
             if let Some(phases) = rows.phases {
@@ -323,6 +357,22 @@ impl WorkflowRun {
         }
         self.counts = Some(counts);
         Rows { phases, agents, full: false }
+    }
+
+    /// What a resume of the run names (`runId`, `scriptPath`), and its args'
+    /// digest, as its launch sent them: its last update repeats them.
+    fn resume(&self) -> Vec<(String, Value)> {
+        let mut out = Vec::new();
+        if let Some(run) = &self.run_id {
+            out.push(("runId".to_owned(), json!(run)));
+        }
+        if let Some(path) = &self.script_path {
+            out.push(("scriptPath".to_owned(), json!(path)));
+        }
+        if let Some(digest) = &self.args_digest {
+            out.push(("argsDigest".to_owned(), json!(digest)));
+        }
+        out
     }
 
     /// Every agent as last sent, each whole, and the phases: a run's last
@@ -461,6 +511,26 @@ fn fold_word(head: &mut String, word: &mut String, chars: &mut usize) {
     head.push_str(&taken);
     word.clear();
 }
+
+/// A digest of a Workflow call's `args`: the first 16 bytes of an HMAC-SHA-256 of their JSON under
+/// a key this daemon draws at random once (`ARGS_KEY`), as hex. Two runs with the same args on this
+/// daemon have the same digest; nothing outside it can test a guess at the args against it. None
+/// for null args, or when the OS gives no randomness.
+fn args_digest(args: &Value) -> Option<String> {
+    if args.is_null() {
+        return None;
+    }
+    let key = ARGS_KEY.get_or_init(|| {
+        let mut key = [0u8; 32];
+        getrandom::fill(&mut key).ok().map(|()| key)
+    });
+    let mac =
+        cmux_local_auth::frontend_proof::hmac_sha256(key.as_ref()?, args.to_string().as_bytes());
+    Some(cmux_local_auth::frontend_proof::hex(mac.get(..16)?))
+}
+
+/// The key of `args_digest`, drawn once per daemon process; None when the OS gave no randomness.
+static ARGS_KEY: std::sync::OnceLock<Option<[u8; 32]>> = std::sync::OnceLock::new();
 
 /// Claude's answer to a `stop-<id>` control request as the reply to request `<id>`.
 pub(super) fn stop_reply(acp: &str, ok: bool, resp: &Value) -> Message {

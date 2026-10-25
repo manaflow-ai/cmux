@@ -127,6 +127,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // speaks for this daemon's own chats; a peer's chat comes from the peer's
     // daemon, so a pane draws rows from the payload, never from the id.
     Capability { id: "workflow-agents-v1", wire: &[method::SESSION_UPDATE] },
+    // Read one subagent's transcript, a page at a time: a Claude workflow
+    // agent's or background agent's, from the files Claude Code writes
+    // (`claude_stdio/agent_transcript.rs`).
+    Capability { id: "subagent-transcript-v1", wire: &[method::MUX_SUBAGENT_TRANSCRIPT] },
+    // Every Claude workflow of this daemon's chats, duplicates marked (`hub/workflow_index.rs`).
+    Capability { id: "workflows-index-v1", wire: &[method::MUX_WORKFLOWS] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
 ];

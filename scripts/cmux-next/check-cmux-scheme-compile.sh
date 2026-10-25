@@ -26,6 +26,15 @@
 #   last build there; precompiled modules that still fail as stale are dropped
 #   and the build retried once, as the fleet's dev builds do. A fresh
 #   directory has no such modules, so it is neither guarded nor retried.
+#
+# CMUX_NEXT_BROWSER_DATA_IMPORT=compiled-out compiles the browser-data import
+# out exactly as nightly.yml does for every nightly-next build (cx-f58x: Apple
+# notarizes cmux-next only without it): OTHER_SWIFT_FLAGS gains
+# -DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT and
+# browser-sources.json is emptied for the build, then restored. Any other
+# value (the default) builds the import in. The caller proves the result with
+# scripts/ci/check-browser-data-import-absent.sh and
+# scripts/ci/check-password-import-readers.sh.
 set -euo pipefail
 
 # xcodebuild compiles the app: fleet or GitHub runner only.
@@ -39,6 +48,7 @@ product_name="${CMUX_NEXT_PRODUCT_NAME:-}"
 bundle_id="${CMUX_NEXT_BUNDLE_ID:-}"
 code_sign_entitlements="${CMUX_NEXT_CODE_SIGN_ENTITLEMENTS:-}"
 auth_callback_scheme="${CMUX_NEXT_AUTH_CALLBACK_SCHEME:-}"
+browser_data_import="${CMUX_NEXT_BROWSER_DATA_IMPORT:-built-in}"
 case "$configuration" in
   Debug|Release) ;;
   *) echo "check-cmux-scheme-compile: unsupported configuration '$configuration'" >&2; exit 2 ;;
@@ -65,15 +75,36 @@ if [[ -n "$metrics_dir" ]]; then
 else
   log="$(mktemp)"
 fi
-if (( kept_path )); then
-  [[ -n "$metrics_dir" ]] || trap 'rm -f "$log"' EXIT
-else
-  if [[ -n "$metrics_dir" ]]; then
-    trap 'rm -rf -- "$derived_data"' EXIT
-  else
-    trap 'rm -f "$log"; rm -rf -- "$derived_data"' EXIT
+remove_log=0
+remove_derived_data=0
+[[ -n "$metrics_dir" ]] || remove_log=1
+(( kept_path )) || remove_derived_data=1
+browser_sources="Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
+browser_sources_backup=""
+# shellcheck source-path=SCRIPTDIR source=lib/workspace-resolved.sh
+source "$repo_root/scripts/cmux-next/lib/workspace-resolved.sh"
+# shellcheck disable=SC2329 # run by the EXIT trap
+on_exit() {
+  if [[ -n "$browser_sources_backup" ]]; then
+    cp -f "$browser_sources_backup" "$repo_root/$browser_sources" && rm -f "$browser_sources_backup"
   fi
+  # xcodebuild may rewrite the committed Package.resolved; a dirty tracked
+  # file makes the next job on a reused GitHub runner reset the whole
+  # workspace and rebuild every module (lib/workspace-resolved.sh). Only on
+  # a GitHub runner: a fleet step's checkout is its own.
+  [[ "${GITHUB_ACTIONS:-}" != true ]] || cmux_next_restore_workspace_resolved "$repo_root"
+  if (( remove_log )); then rm -f "$log"; fi
+  if (( remove_derived_data )); then rm -rf -- "$derived_data"; fi
+}
+trap on_exit EXIT
+swift_import_flags=""
+if [[ "$browser_data_import" == compiled-out ]]; then
+  swift_import_flags="-DCMUX_NO_PASSWORD_IMPORT -DCMUX_NO_BROWSER_DATA_IMPORT"
+  browser_sources_backup="$(mktemp "${TMPDIR:-/tmp}/browser-sources.XXXXXX")"
+  cp -f "$browser_sources" "$browser_sources_backup"
+  printf '%s\n' '{"schemaVersion": 1, "engines": {}, "browsers": []}' > "$browser_sources"
 fi
+echo "check-cmux-scheme-compile: browser-data import ${browser_data_import} (flags: ${swift_import_flags:-none})"
 build_attempt=0
 build() {
   build_attempt=$((build_attempt + 1))
@@ -85,10 +116,14 @@ build() {
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
+    # This is a compile check; release packaging retains the project dSYM setting.
+    DEBUG_INFORMATION_FORMAT=dwarf
   )
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
   [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
+  # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
+  [[ -n "$swift_import_flags" ]] && xcode_args+=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_import_flags")
   CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 \
     "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild "${xcode_args[@]}" \

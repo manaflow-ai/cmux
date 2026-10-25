@@ -43,6 +43,7 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 | Minimal rows | Name plus one state mark (spinner, unread dot, needs-you dot). No times, PR badge, status words or Now line by default. | Lawrence 10-21 |
 | Heights | Group headers, workspace rows and band rows have one height at each density. | Lawrence 10-19, 10-22 |
 | Performance | Terminal typing stays smooth while the sidebar rearranges (p95 frame under 8 ms). | Lawrence 11215 |
+| Archived rows | An archived workspace, group or link stays in its group (or its section), last, and draws dimmed: its ink, icon and group bar at `SidebarStyle.archivedAlpha` (0.45). Row height, insets, rail and controls do not change. Unarchive restores it. plans/cmux-next/archiving-DESIGN.md. | Aziz 2026-10-23 ("archiving moves the item to the end of its group (or root, if ungrouped) and shows it dimmed; unarchive restores it") |
 
 Default picked (title x): the 10-21 commit c779988d57d reserved an empty icon slot on every row so that
 rows with and without a favicon line up ("weird spacing"). On 11405 Lawrence asked for the text to sit
@@ -189,6 +190,7 @@ the gap, no row left out of place after drop or cancel).
 | [3110ef77bed..7542622b53e](https://github.com/manaflow-ai/cmux/compare/3110ef77bed...7542622b53e) Updated card x (a592: a069f81c3d1 red, 7542622b53e fix) | The "Updated to Nightly" card's x is native again (`SidebarUpdatedCardHost`): it shows on hover at the card's top right (8 by 7 pt inset, 18 pt, the page's old spot) and takes the first click, Escape closes the card. The page's own x never showed or clicked while a Chromium page's window had the key (Lawrence 2026-10-23: "i cant X this out anymore even when hovering on it"). No row, rail or indent change. |
 | [62c427ab5bd..a1af264c7a7](https://github.com/manaflow-ai/cmux/compare/62c427ab5bd...a1af264c7a7) | The Sidebar-Look gate and SidebarLookContractTests |
 | [89dbae323b5..30d164e1ec6](https://github.com/manaflow-ai/cmux/compare/89dbae323b5...30d164e1ec6) | Row close back to the trailing x (takes back #23783's dog-ear); a row without an icon starts its title at the inset (takes back c779988d57d's empty slot); look gallery test |
+| #24945 Update Ready card switch | The Automatic Updates switch starts its row at the card's text edge and the label follows (Leo 2026-10-22: "he preferred the checkbox on the left"; 2026-10-24: "I thought we said we were gonna put the toggle on the left"). The switch's size, colours, slide and cap-midline alignment, and every other part of the card, are unchanged. No row, rail or indent change. |
 
 ## Every sidebar package commit, Oct 19-23
 
@@ -446,3 +448,5 @@ the gap, no row left out of place after drop or cancel).
 - 2026-10-23: Follow-up repair keeps the tapered rail mask taller than both old and destination bounds during collapse springs.
 - 2026-10-24: Codex #24700 keeps the two-point rail's left edge straight and gives its right edge a six-point Chrome-style taper into the header, with the view frame clipping retained spring coverage.
 - 2026-10-24: Codex follow-up restores Chrome's plain two-point rail: a six-point header gap and quarter-rounds only on the right corners at both ends, with the left edge square.
+- 2026-10-24: Codex #24962 restores colored dots for named spaces in `ProfileBarView`; the fallback initials from `08d10063080d` are removed per Leo's "turn these back into dots" request, while explicit icons, selection, per-space color and `+` remain.
+- 2026-10-24: `56206f8a2e4` (Lawrence msg 1334, "cloud workspaces in one group, maybe nested"): New Cloud Workspace and a new Cloud machine mark that machine's section a remote group (`SidebarDocStore.markHostGroup`), so its workspaces draw under one header and nested groups go inside. No look change: the remote-group header look is as a283 made it.

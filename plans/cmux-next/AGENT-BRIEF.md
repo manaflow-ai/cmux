@@ -26,6 +26,7 @@
 - Work in your own worktree/branch as before (isolation is still required), but do NOT open a PR.
 - To land: `git fetch origin && git rebase origin/feat-cmux-next`, then run the merge gate locally: `swift build --build-tests` in Packages/macOS/CmuxNext, the test targets you touched (or the full package if you touched shared code), `scripts/cmux-next/check-no-godfiles.sh`, `scripts/cmux-next/check-concurrency.sh`, `scripts/cmux-next/check-l10n.sh`, `scripts/cmux-next/check-crash-safety.sh`, `scripts/cmux-next/check-theme-scope.sh`, `scripts/cmux-next/check-action-surfaces.sh`; cmux-tui changes still need the hosted verification green first.
 - Then `git push origin HEAD:feat-cmux-next`. If rejected (someone pushed first), rebase again, re-run the gate, push again. Never force-push feat-cmux-next.
+- Or queue it (2026-10-24): `landq submit --sha HEAD --wait` gates the commit on the build fleet (compile check, cmux-tui clippy and tests, `--swift-suites A,B` when you name them), lands it in a train of up to 4 and exits 0 when it lands, 1 when it bounces (the reason and log path are printed). Nothing builds on the laptop. `landq status` shows the queue.
 - Keep commits self-describing (what/why, root cause for fixes, failing-test commit before the fix for regressions) since there is no PR body; end each with the Co-Authored-By trailer.
 - Report the landed commit SHAs in your final reply.
 

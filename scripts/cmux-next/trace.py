@@ -15,7 +15,7 @@ into one Chrome trace event file (JSON, gzip) keyed by pid and thread, that ui.p
                    (categories stalls, tab-switch, pane-focus), on per-category tracks of the emitting process
   stalls           the app's main-thread watchdog (`debug.hangs`, threshold --hang-ms): every stall with its
                    main-thread stack sample and CPU time, on a track of the app
-  daemon spans     CMUX_TUI_DEBUG_SPANS (the daemon's create-path timing marks): each request's marks as
+  daemon spans     CMUX_TUI_DEBUG_SPANS (the daemon's create-path timing marks; set as CMUX_NEXT_TUI_DEBUG_SPANS on the app): each request's marks as
                    nested slices on a track of the daemon (placed by when its line was written; see the doc)
   chromium         Chromium's own trace over CDP (`Tracing.start` on the DevTools port the Debug build opens
                    with CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=N), clock-checked with
@@ -1041,9 +1041,11 @@ class TraceApp:
         self.probe = os.path.join(out, "typing.csv")
         self.flows = os.path.join(out, "flows")
         os.makedirs(self.flows, exist_ok=True)
-        # CMUX_TRACE_FLOWS reaches the daemon (a CMUX_ key, TerminalEnvironment) and from it the hosts and the holder.
+        # The app keeps only CMUX_NEXT_* launch knobs (LaunchIdentity strips every other inherited CMUX* variable):
+        # the daemon launch passes these two on as CMUX_TRACE_FLOWS and CMUX_TUI_DEBUG_SPANS (DaemonDiagnosticKnobs),
+        # and the daemon's terminal hosts and holder inherit them.
         env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms), "CMUX_NEXT_TYPING_PROBE": self.probe,
-               "CMUX_TUI_DEBUG_SPANS": self.spans, "CMUX_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
+               "CMUX_NEXT_TUI_DEBUG_SPANS": self.spans, "CMUX_NEXT_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
         self.cdp_port = None
         if not opts.no_cef:
             self.cdp_port = opts.cdp_port or free_port()
@@ -1245,18 +1247,32 @@ class Recording:
         """Focuses a pane of the measured workspace whose selected tab is a terminal that is not one of the busy
         ones, so the keys go to a terminal whose only output is their echo. A key-press flow takes the first
         output on its terminal after the PTY write as the echo: on a busy terminal that would be the busy loop's
-        line (plans/cmux-next/trace.md, "Key-press flows")."""
+        line (plans/cmux-next/trace.md, "Key-press flows").
+
+        This moves typing off the pane STRESS focuses (its first, busy one) in every record run: the summary
+        names both panes (`typed_pane`). A failure to find or focus the pane is a warning, never the build's
+        end: the trace is still taken, on the busy pane."""
         stress = self.stress
-        busy = set(getattr(stress, "busy", []) or [])
-        panes = stress.panes(stress.workspace(getattr(stress, "measured", None)))
-        quiet = next((pane for pane in reversed(panes)
-                      if any(t.get("kind") == "terminal" and t.get("selected") and t.get("id") not in busy
-                             for t in pane.get("tabs") or [])), None)
-        if quiet is None:
-            self.warn("no quiet terminal in the measured workspace: key-press flows type into a busy terminal")
-            return
-        stress.focus_pane(quiet["id"])
-        self.meta["typed_pane"] = quiet["id"]
+        typed = {"before": None, "after": None, "quiet": False}
+        self.meta["typed_pane"] = typed
+        try:
+            typed["before"] = (stress.topology().get("focus") or {}).get("pane")
+            busy = set(getattr(stress, "busy", []) or [])
+            panes = stress.panes(stress.workspace(getattr(stress, "measured", None)))
+            quiet = next((pane for pane in reversed(panes)
+                          if any(t.get("kind") == "terminal" and t.get("selected") and t.get("id") not in busy
+                                 for t in pane.get("tabs") or [])), None)
+            if quiet is None:
+                self.warn("no quiet terminal in the measured workspace: key-press flows type into a busy terminal")
+                return
+            stress.focus_pane(quiet["id"])
+            typed["after"] = (stress.topology().get("focus") or {}).get("pane")
+            typed["quiet"] = typed["after"] == quiet["id"]
+            if not typed["quiet"]:
+                self.warn(f"focus did not move to the quiet pane {quiet['id']} (focused: {typed['after']}): key-press "
+                          "flows type into a busy terminal")
+        except Exception as error:  # a warning: the trace is still taken (StageTimeout is a BaseException)
+            self.warn(f"could not focus a quiet terminal: {type(error).__name__}: {str(error)[:200]}")
 
     def build_light(self):
         """The light session: the window placed at the STRESS size, LIGHT_BACKGROUND workspaces (targets of the
@@ -1608,7 +1624,9 @@ def parse_toc(path):
     return toc
 
 
-THREAD_FMT = re.compile(r"^(.*?)\s+0x[0-9a-fA-F]+\s*\((.*?)(?:,\s*pid:\s*(\d+))?\)\s*$")
+# A thread's `fmt`: `Main Thread 0x1a (cmux DEV, pid: 42)` (xctrace 26.0) or `Main Thread (0x10f45bf)
+# (fixture-emitter, pid: 70219)` (Xcode 26.6, tests/trace-fixtures/xcode-26): the name, the id, then the process.
+THREAD_FMT = re.compile(r"^(.*?)\s+\(?0x[0-9a-fA-F]+\)?\s*\((.*?)(?:,\s*pid:\s*(\d+))?\)\s*$")
 
 
 def parse_value(elem, vals):
@@ -2647,7 +2665,7 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
     return {
         "host": meta.get("host"), "macos": meta.get("macos"), "tag": meta.get("tag"), "scenario": meta.get("scenario"),
         "scenario_label": meta.get("scenario_label"),
-        "window_s": None if window_s is None else round(window_s, 1), "load_at_start": meta.get("load_at_start"), "stress": meta.get("stress"), "storm_ops": meta.get("storm_ops"),
+        "window_s": None if window_s is None else round(window_s, 1), "load_at_start": meta.get("load_at_start"), "stress": meta.get("stress"), "typed_pane": meta.get("typed_pane"), "storm_ops": meta.get("storm_ops"),
         "light": meta.get("light"), "storm_targets": meta.get("storm_targets"),
         "keys": meta.get("keys"), "chords": meta.get("chords"), "key_to_frame_ms": meta.get("key_to_frame_ms"),
         "frames": meta.get("frames"), "cef": meta.get("cef"), "window_state": meta.get("window_state"),
@@ -2742,6 +2760,10 @@ def summary_text(s):
         st = s["stress"]
         lines.append(f"  STRESS: {st.get('workspaces')} workspaces, {st.get('measured_panes')} panes, tabs {st.get('measured_tabs')}, "
                      f"{st.get('busy_terminals')} busy terminals" + (f"; NOT the STRESS shape: {st['shape_error']}" if st.get("shape_error") else ""))
+    typed = s.get("typed_pane") or {}
+    if typed:
+        lines.append(f"  typed pane: {typed.get('before')} -> {typed.get('after')}"
+                     + ("" if typed.get("quiet") else " (NOT a quiet terminal: key-press flows may join the busy output)"))
     if s.get("storm_ops") is not None:
         lines.append(f"  storm ops {s.get('storm_ops')}, keys {s.get('keys')}, chords {s.get('chords')}, "
                      f"key to frame {s.get('key_to_frame_ms')}")
@@ -3764,7 +3786,96 @@ def check_flow_gaps_warn():
     assert any("flow id" in w and "daemon.send.write" in w for w in warnings), warnings
     assert flow_warnings([], [], []) == [], "a recording without flows warns about nothing"
 
-SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
+def check_focus_quiet_terminal():
+    """The keys move to a quiet terminal and the summary names both panes; a focus that fails or raises is a
+    warning, never the end of the build (review of flows3)."""
+    class FakeStress:
+        def __init__(self, focus_raises=False, focus_moves=True):
+            self.busy, self.measured, self.focus = ["t1"], "w", "p1"
+            self.focus_raises, self.focus_moves = focus_raises, focus_moves
+
+        def topology(self):
+            return {"focus": {"pane": self.focus}}
+
+        def workspace(self, _id):
+            return {}
+
+        def panes(self, _workspace):
+            return [{"id": "p1", "tabs": [{"kind": "terminal", "selected": True, "id": "t1"}]},
+                    {"id": "p2", "tabs": [{"kind": "terminal", "selected": True, "id": "t2"}]}]
+
+        def focus_pane(self, pane):
+            if self.focus_raises:
+                raise RuntimeError("socket closed")
+            if self.focus_moves:
+                self.focus = pane
+
+    import io
+    with tempfile.TemporaryDirectory() as out:
+        with contextlib.redirect_stdout(io.StringIO()):
+            rec = quiet_recording(out)
+            rec.stress = FakeStress()
+            rec.focus_quiet_terminal()
+            assert rec.meta["typed_pane"] == {"before": "p1", "after": "p2", "quiet": True}, rec.meta
+            assert not rec.meta["warnings"], rec.meta["warnings"]
+            rec = quiet_recording(out)
+            rec.stress = FakeStress(focus_raises=True)
+            rec.focus_quiet_terminal()
+            assert rec.meta["typed_pane"]["quiet"] is False and "socket closed" in rec.meta["warnings"][0], rec.meta
+            rec = quiet_recording(out)
+            rec.stress = FakeStress(focus_moves=False)
+            rec.focus_quiet_terminal()
+            assert rec.meta["typed_pane"] == {"before": "p1", "after": "p1", "quiet": False}, rec.meta
+            assert "did not move" in rec.meta["warnings"][0], rec.meta["warnings"]
+    text = summary_text({"typed_pane": {"before": "p1", "after": "p1", "quiet": False}})
+    assert "typed pane: p1 -> p1 (NOT a quiet terminal" in text, text
+
+
+FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")
+
+
+def check_real_xctrace_exports():
+    """Real exports (scripts/cmux-next/trace_fixtures.py on a fleet Mac, one folder per Xcode major): the column
+    tags time_profile_samples, xctrace_signposts, syscall_waits and parse_toc read are the ones xctrace writes.
+
+    At least one folder must exist. Each folder present is checked; a missing major is not a failure: the fleet
+    has no macOS 14 or 15 host today (every worker reports macos-26 or macos-27, 2026-10-24), so the Xcode 15 and
+    16 sets are added when such a host exists. A syscall table with no rows (a System Trace that ended before
+    its kernel tracing started) checks only its columns."""
+    folders = sorted(d for d in os.listdir(FIXTURES) if d.startswith("xcode-")) if os.path.isdir(FIXTURES) else []
+    assert folders, f"no real xctrace exports in {FIXTURES} (record them with trace_fixtures.py on a fleet Mac)"
+    for folder in folders:
+        where = os.path.join(FIXTURES, folder)
+        emitter = read_json(os.path.join(where, "fixture.json"))["emitter"]
+        toc = parse_toc(os.path.join(where, "profile-toc.xml"))
+        assert {"time-profile", "os-signpost"} <= set(toc["schemas"]) and toc["start_date"], (folder, toc)
+        assert "syscall" in parse_toc(os.path.join(where, "system-toc.xml"))["schemas"], folder
+        samples = time_profile_samples(os.path.join(where, "time-profile.xml"))
+        main = [x for x in samples if x[2].get("name") == "Main Thread" and isinstance(x[2].get("pid"), int)
+                and isinstance(x[2].get("tid"), int)]
+        assert main and all(x[1] > 0 for x in main), (folder, samples[:2])
+        spin = [x for x in main if any(emitter["spin_function"] in str(f) for f in x[3])]
+        # 20 rounds of 20 ms at 1 ms sampling: about 400 samples in the spin; half of that is a broken parse.
+        assert len(spin) >= emitter["rounds"] * emitter["spin_ms"] // 2, (folder, len(spin), main[0][3][:5])
+        stats = {}
+        posts = xctrace_signposts(os.path.join(where, "os-signpost.xml"), stats)
+        begins = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("begin")]
+        ends = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("end")]
+        assert len(begins) == len(ends) == emitter["rounds"], (folder, stats, posts[:3])
+        assert all(isinstance(x[0], int) for x in begins), begins[:2]
+        syscall = os.path.join(where, "syscall.xml")
+        rows = sum(1 for _ in xctrace_rows(syscall))
+        columns = re.findall(r"<mnemonic>([^<]+)</mnemonic>", open(syscall).read(4000))
+        assert {"start", "thread", "call", "duration", "backtrace"} <= set(columns), (folder, columns)
+        if rows:
+            waits = syscall_waits(syscall)
+            sleeps = [x for x in waits if x[2].get("name") == "Main Thread" and "semwait" in x[3]
+                      and x[1] >= emitter["usleep_ms"] * 1_000_000 * 0.8]
+            assert len(sleeps) >= emitter["rounds"] // 2, (folder, len(waits), [(x[3], x[1]) for x in waits[:5]])
+        print(f"{folder}: {len(spin)} spin samples, {len(begins)} signpost intervals, {rows} syscall rows")
+
+
+SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
               check_wrapped_group_ends,
@@ -3772,7 +3883,7 @@ SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_signal_after_the_stop, check_xctrace_gets_one_sigint, check_synthetic_tids_fit_uint32,
               check_cli_named_cmux_is_not_the_app, check_refuses_a_running_bundle, check_signpost_clock,
               check_import_with_a_fake_trace_processor, check_key_flows, check_flow_hops_are_exclusive,
-              check_flow_gaps_warn]
+              check_flow_gaps_warn, check_focus_quiet_terminal]
 
 
 def self_test():

@@ -4,6 +4,7 @@ use super::*;
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 
+mod briefs;
 mod composer;
 mod events;
 #[path = "requests/mailbox.rs"]
@@ -133,18 +134,6 @@ fn dispatch_name(params: &Value, brief: &str) -> String {
     out
 }
 
-fn peer_allowed(name: &str, brief: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    if ["air-blue", "cosmic-gray", "big-red"].contains(&n.as_str()) {
-        return false;
-    }
-    if n == "cmux16" {
-        let text = brief.to_ascii_lowercase();
-        return text.contains("capture") || text.contains("build");
-    }
-    true
-}
-
 fn peer_approve_all_allowed(
     policy: Option<&str>,
     preset_policy: Option<PermissionPolicy>,
@@ -154,17 +143,16 @@ fn peer_approve_all_allowed(
         || (approved && preset_policy == Some(PermissionPolicy::ApproveAll))
 }
 
-fn auto_peer(hub: &Arc<Hub>, brief: &str) -> Option<String> {
-    hub.peers()
-        .into_iter()
-        .filter(|p| p.get("connected").and_then(Value::as_bool) == Some(true))
-        .filter_map(|p| {
-            let name = p.get("name").and_then(Value::as_str)?.to_owned();
-            peer_allowed(&name, brief)
-                .then_some((p.get("sessions").and_then(Value::as_u64).unwrap_or(0), name))
-        })
-        .min_by_key(|(sessions, _)| *sessions)
-        .map(|(_, name)| name)
+/// `dispatch --host auto`: the placement engine's pick for the brief
+/// (`server/place.rs`), `None` for this machine, or why no host has room.
+async fn auto_host(hub: &Arc<Hub>, brief: &str) -> Result<Option<String>, String> {
+    let v = super::place::pick(hub, super::place::brief_work(brief)).await;
+    let why = v.get("why").and_then(Value::as_str).unwrap_or_default().to_owned();
+    match v.get("pick").and_then(Value::as_str) {
+        Some(_) if v.get("local").and_then(Value::as_bool) == Some(true) => Ok(None),
+        Some(name) => Ok(Some(name.to_owned())),
+        None => Err(why),
+    }
 }
 
 async fn dispatch_brief(
@@ -199,11 +187,13 @@ async fn dispatch_brief(
     let host = if forwarded || selected == "local" {
         None
     } else if selected == "auto" {
-        auto_peer(hub, &brief).ok_or_else(|| RpcError::not_found("no allowed connected agent host for dispatch; use --host HOST or connect a peer")) .map(Some)?
+        auto_host(hub, &brief).await.map_err(|why| {
+            RpcError::not_found(format!("{why}; use --host HOST or connect a peer"))
+        })?
     } else {
-        if !peer_allowed(&selected, &brief) {
+        if let Some(why) = super::place::role_refusal(&selected, super::place::brief_work(&brief)) {
             return Err(RpcError::invalid_params(format!(
-                "host {selected:?} is not allowed for this dispatch; choose an agent host (cmux16 is capture/build only)"
+                "host {selected:?} is not allowed for this dispatch ({why}); `acpmux host place` lists the hosts that are"
             )));
         }
         Some(selected.clone())
@@ -371,9 +361,12 @@ async fn dispatch_brief(
         .ok_or_else(|| RpcError::internal("dispatch session/new returned no sessionId"))?
         .to_owned();
     let session = hub.resolve(&sid)?;
-    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":params.get("host").cloned().unwrap_or(json!("local")),"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
+    let mut record = json!({"briefId":id,"title":title,"brief":brief,"from":from,"to":to,"target":selected,"host":match params.get("host").and_then(Value::as_str) { None => json!("local"), Some("auto") if !forwarded => json!("local"), Some(h) => json!(h) },"stopCondition":stop,"status":"running","sessionId":sid,"harness":session.meta().harness,"model":session.meta().model_request});
     if let Some(key) = idempotency {
         record["idempotencyKey"] = json!(key);
+    }
+    if let Some(caller) = conn.caller() {
+        record["fromSession"] = json!(caller); // its result card's chat (`hub/tasks.rs`)
     }
     let row = hub.briefs.put(record);
     let mut prompt = json!({"sessionId":session.id,"text":row.get("brief"),"_meta":{"acpmux":{"briefId":id,"fromAgent":row.get("from")}}});
@@ -421,10 +414,11 @@ async fn dispatch_brief(
         .pointer("/host_pressure/warning")
         .and_then(Value::as_str)
         .map(str::to_owned);
-    let suggestion = pressure
-        .as_ref()
-        .and_then(|_| auto_peer(hub, &brief))
-        .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
+    let suggestion = match &pressure {
+        Some(_) => auto_host(hub, &brief).await.ok().flatten(),
+        None => None,
+    }
+    .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
     let row = hub
         .briefs
         .update(&id, |r| {
@@ -439,145 +433,6 @@ async fn dispatch_brief(
     Ok(
         json!({"brief":row,"event":crate::hub::dispatch::event("dispatch", &row),"status":"running","warning":pressure,"suggestedHost":suggestion}),
     )
-}
-
-async fn steer_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<Value, RpcError> {
-    let id = params
-        .get("briefId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
-    let row = hub.briefs.get(id).ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
-    let idempotency = params
-        .get("idempotencyKey")
-        .or_else(|| params.get("idempotency_key"))
-        .and_then(Value::as_str);
-    if idempotency.is_some_and(|key| row.get("lastSteerKey").and_then(Value::as_str) == Some(key)) {
-        return Ok(
-            json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row),"replayed":true}),
-        );
-    }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
-        && let Some(peer) = hub.peer_by_name(host)
-    {
-        let mut forwarded = params.clone();
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
-        let result = peer.request(method::MUX_STEER, forwarded).await.map_err(|e| {
-            RpcError::internal(format!(
-                "steer to {host} failed: {e}; recovery: reconnect the peer and retry"
-            ))
-        })?;
-        if let Some(remote) = result.get("brief").cloned() {
-            hub.briefs.put(remote);
-        }
-        return Ok(result);
-    }
-    let sid = row
-        .get("sessionId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::not_found("brief has no session"))?;
-    let text = params
-        .get("text")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::invalid_params("steer text is required"))?;
-    let mut p = json!({"sessionId":sid,"text":text,"steer":true,"_meta":{"acpmux":{"briefId":id,"steer":true}}});
-    if let Some(via) = params.pointer("/_meta/acpmux/via").cloned() {
-        p["_meta"]["acpmux"]["via"] = via;
-    }
-    Box::pin(handle_request(hub, conn, method::SESSION_PROMPT, p)).await?;
-    let row = hub
-        .briefs
-        .update(id, |r| {
-            r["status"] = json!("running");
-            if let Some(key) = idempotency {
-                r["lastSteerKey"] = json!(key);
-            }
-        })
-        .unwrap_or(row);
-    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("steer", &row)}))
-}
-
-async fn list_briefs(hub: &Arc<Hub>, params: Value) -> Result<Value, RpcError> {
-    let status = params.get("status").and_then(Value::as_str);
-    let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(100) as usize;
-    let mut rows = hub.briefs.list(status, limit);
-    for peer in hub.connected_peers() {
-        let Ok(remote) = peer.request(method::MUX_BRIEFS, json!({"limit": 500})).await else {
-            continue;
-        };
-        for row in remote.get("briefs").and_then(Value::as_array).into_iter().flatten() {
-            let Some(id) = row.get("briefId").and_then(Value::as_str) else { continue };
-            if let Some(local) = rows
-                .iter_mut()
-                .find(|candidate| candidate.get("briefId").and_then(Value::as_str) == Some(id))
-            {
-                *local = row.clone();
-            } else if status
-                .is_none_or(|want| row.get("status").and_then(Value::as_str) == Some(want))
-            {
-                rows.push(row.clone());
-            }
-            hub.briefs.put(row.clone());
-        }
-    }
-    if let Some(want) = status {
-        rows.retain(|row| row.get("status").and_then(Value::as_str) == Some(want));
-    }
-    Ok(json!({"briefs":rows.into_iter().take(limit.clamp(1, 500)).collect::<Vec<_>>() }))
-}
-
-async fn report_brief(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<Value, RpcError> {
-    let id = params
-        .get("briefId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| RpcError::invalid_params("briefId is required"))?;
-    let row = hub.briefs.get(id).ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
-    let key = params
-        .get("idempotencyKey")
-        .or_else(|| params.get("idempotency_key"))
-        .and_then(Value::as_str);
-    if key.is_some_and(|key| row.get("lastReportKey").and_then(Value::as_str) == Some(key)) {
-        return Ok(
-            json!({"brief":row,"event":crate::hub::dispatch::event("report", &row),"replayed":true}),
-        );
-    }
-    if let Some(host) = row.get("host").and_then(Value::as_str).filter(|host| *host != "local")
-        && let Some(peer) = hub.peer_by_name(host)
-    {
-        let mut forwarded = params.clone();
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut forwarded);
-        let result = peer.request(method::MUX_REPORT, forwarded).await.map_err(|e| {
-            RpcError::internal(format!(
-                "report to {host} failed: {e}; recovery: reconnect the peer and retry"
-            ))
-        })?;
-        if let Some(remote) = result.get("brief").cloned() {
-            hub.briefs.put(remote);
-        }
-        return Ok(result);
-    }
-    let summary = params
-        .get("summary")
-        .or_else(|| params.get("details"))
-        .cloned()
-        .ok_or_else(|| RpcError::invalid_params("summary is required"))?;
-    let status = params.get("status").and_then(Value::as_str).unwrap_or("reported");
-    if !["reported", "merged", "running"].contains(&status) {
-        return Err(RpcError::invalid_params("status must be running, reported or merged"));
-    }
-    let row = hub
-        .briefs
-        .update(id, |r| {
-            r["status"] = json!(status);
-            r["report"] = summary.clone();
-            r["reportedAt"] = json!(crate::store::now_ms());
-            if let Some(key) = key {
-                r["lastReportKey"] = json!(key);
-            }
-            r["reportedBy"] =
-                json!(conn.caller().map(|id| hub.session_name(id)).unwrap_or_else(|| conn.label()));
-        })
-        .ok_or_else(|| RpcError::not_found(format!("no brief {id:?}")))?;
-    Ok(json!({"brief":row,"event":crate::hub::dispatch::event("report", &row)}))
 }
 
 /// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
@@ -648,9 +503,11 @@ async fn dispatch_request(
     }
     match m {
         method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
-        method::MUX_STEER => steer_brief(hub, conn, params).await,
-        method::MUX_BRIEFS => list_briefs(hub, params).await,
-        method::MUX_REPORT => report_brief(hub, conn, params).await,
+        method::MUX_STEER => briefs::steer(hub, conn, params).await,
+        method::MUX_BRIEFS => briefs::list(hub, params).await,
+        method::MUX_REPORT => briefs::report(hub, conn, params).await,
+        method::MUX_TASK_NEW => briefs::task_new(hub, conn, params).await,
+        method::MUX_TASKS => briefs::tasks(hub, conn, params).await,
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();
@@ -686,9 +543,9 @@ async fn dispatch_request(
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE,
                     method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                    method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_SHUTDOWN,
+                    method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -1028,10 +885,21 @@ async fn dispatch_request(
                 }
                 (provenance, _) => provenance,
             };
+            let declared = crate::hub::declared_sender(&params)?;
+            // A sender that named itself, with neither (`--from`, `ACPMUX_FROM`, a peer daemon
+            // forwarding its own session's prompt): that agent's message,
+            // so the transcript never shows it as the person's. Not a note a session here sends
+            // itself; names are each daemon's own, so a peer's `coordinator` is another session.
+            let provenance = provenance.or_else(|| {
+                let own = s.meta().name;
+                let name = declared
+                    .as_deref()
+                    .filter(|name| conn.origin == super::Origin::Peer || *name != own)?;
+                Some(crate::prompt_provenance::named_sender(name, &s.id))
+            });
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
-            let agent = crate::hub::declared_sender(&params)?
-                .or_else(|| conn.caller().map(|id| hub.session_name(id)));
+            let agent = declared.or_else(|| conn.caller().map(|id| hub.session_name(id)));
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
@@ -1074,7 +942,16 @@ async fn dispatch_request(
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
-            hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
+            // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
+            // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
+            // big-red" under their prompt. An agent's message names its sender instead.
+            let host = crate::prompt_provenance::cli_host(&params)
+                .filter(|_| !agent_message && opts.agent.is_none());
+            let client = match host {
+                Some(host) => format!("{}@{host}", conn.label()),
+                None => conn.label(),
+            };
+            hub.prompt_with(&s, blocks, &client, steer, opts).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to
@@ -1208,6 +1085,13 @@ async fn dispatch_request(
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
+        "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
+        // Names every machine and its numbers: this machine's own clients only.
+        "_acpmux/place" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
+            "_acpmux/place answers on this machine's unix socket only",
+        )),
+        "_acpmux/place" => Ok(super::place::place(hub, &params).await),
         "_acpmux/directories" => {
             let home = dirs::home_dir().unwrap_or_default();
             let base = str_param(&params, "cwd").map(PathBuf::from).unwrap_or_else(|| home.clone());
@@ -1646,9 +1530,15 @@ async fn dispatch_request(
         method::MUX_FILE_PUT_CHUNK => crate::hub::file_uploads::handle_chunk(hub, params).await,
         method::MUX_FILE_PUT_FINISH => crate::hub::file_uploads::handle_finish(hub, params).await,
         method::MUX_FILE_PUT_CANCEL => crate::hub::file_uploads::handle_cancel(hub, params).await,
+        // Every Claude workflow of this daemon's chats.
+        method::MUX_WORKFLOWS => crate::hub::workflow_index::handle(hub, &params),
         // A chat's media, from this connection's handles; a peer's chat went there.
         method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE => {
             crate::hub::media_read::handle(hub, &conn.media, m, &params).await
+        }
+        // A subagent's transcript, read from the files Claude Code writes for the chat.
+        method::MUX_SUBAGENT_TRANSCRIPT => {
+            crate::hub::subagent_transcript::handle(hub, &params).await
         }
         method::MUX_SHUTDOWN => {
             // `endAgents: true` (the app's Quit Everything) ends agents that

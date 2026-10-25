@@ -1,8 +1,8 @@
 {
   "_doc": "Architecture counts the pre-push ratchet holds (scripts/cmux-next/guardrails.py runs scripts/cmux-next/arch-ratchet.py; the method is scripts/cmux-next/arch_counts.py, whose docstring defines every row). A push may not raise a ratcheted row's total, in the code or in this file's totals, nor swap a counted global, broadcast or layer edge for another; when one drops, rerun `scripts/cmux-next/arch-ratchet.py --update` (the only writer). The one escape is a dated exception: add {\"date\": \"YYYY-MM-DD\", \"row\": \"<row>\", \"allow\": <n>, \"why\": \"...\"} to exceptions; the push that adds it may raise that row by n, and the next --update folds it into the totals and marks it with applied_sha (an applied entry is never edited or removed). --update refuses a rise that no pending exception covers, except a rise that commits already on origin/feat-cmux-next made past the hook (a GitHub merge, --no-verify): it records that one with a generated applied entry whose raised_by names those commits. A generated entry allows no rise in any push's code, and the push that brings it is re-checked: its commits must be on origin/feat-cmux-next, after the old measured_sha and in the new one, named by no other entry, and its allow at most their rise. Never CI.",
   "method": "arch_counts",
-  "method_version": 5,
-  "measured_sha": "98b020961a613c685cf7016ff7b295838102b89a",
+  "method_version": 6,
+  "measured_sha": "9c4b1ccc1285b2b9078289302ea8aef7fc9122b4",
   "measured_date": "2026-10-24",
   "rows": {
     "layer_hard": {
@@ -45,6 +45,10 @@
       "title": "NotificationCenter/KVO observer sites",
       "ratchet": true
     },
+    "blocking_allow_escapes": {
+      "title": "main-thread blocking allowances (`// blocking-allow:`, allowBlocking()",
+      "ratchet": true
+    },
     "app_lines": {
       "title": "CmuxNextApp Swift lines",
       "ratchet": false
@@ -55,13 +59,14 @@
     "layer_soft": 12,
     "layer_upward": 3,
     "layer_unplaced": 0,
-    "stateful_singletons": 204,
-    "global_mutable_statics": 478,
-    "assume_isolated_outside_adapters": 152,
-    "assume_isolated_total": 202,
+    "stateful_singletons": 199,
+    "global_mutable_statics": 476,
+    "assume_isolated_outside_adapters": 151,
+    "assume_isolated_total": 203,
     "app_broadcast_names": 13,
-    "observer_sites": 336,
-    "app_lines": 143341
+    "observer_sites": 340,
+    "blocking_allow_escapes": 0,
+    "app_lines": 143610
   },
   "packages": {
     "CmuxAuthRuntime": {
@@ -121,11 +126,11 @@
     },
     "CmuxNextApp": {
       "stateful_singletons": 33,
-      "global_mutable_statics": 74,
-      "assume_isolated_outside_adapters": 22,
-      "assume_isolated_total": 33,
+      "global_mutable_statics": 72,
+      "assume_isolated_outside_adapters": 21,
+      "assume_isolated_total": 32,
       "observer_sites": 104,
-      "app_lines": 143341
+      "app_lines": 143610
     },
     "CmuxNextApps": {
       "stateful_singletons": 1,
@@ -140,7 +145,7 @@
       "global_mutable_statics": 1
     },
     "CmuxNextBrowser": {
-      "stateful_singletons": 15,
+      "stateful_singletons": 13,
       "global_mutable_statics": 21,
       "assume_isolated_outside_adapters": 19,
       "assume_isolated_total": 22,
@@ -155,7 +160,7 @@
       "observer_sites": 2
     },
     "CmuxNextBrowserCore": {
-      "stateful_singletons": 4,
+      "stateful_singletons": 2,
       "app_broadcast_names": 1
     },
     "CmuxNextBrowserHistory": {
@@ -220,7 +225,7 @@
       "assume_isolated_outside_adapters": 26,
       "assume_isolated_total": 33,
       "app_broadcast_names": 4,
-      "observer_sites": 78
+      "observer_sites": 82
     },
     "CmuxNextDesignTokens": {
       "stateful_singletons": 2,
@@ -371,7 +376,7 @@
       "layer_hard": 1
     },
     "CmuxNextTabs": {
-      "stateful_singletons": 5,
+      "stateful_singletons": 4,
       "global_mutable_statics": 2,
       "assume_isolated_outside_adapters": 4,
       "assume_isolated_total": 10,
@@ -395,7 +400,7 @@
     "CmuxNextWakeups": {
       "stateful_singletons": 6,
       "global_mutable_statics": 1,
-      "assume_isolated_total": 3,
+      "assume_isolated_total": 5,
       "observer_sites": 1
     },
     "CmuxNextWebUpdates": {
@@ -549,6 +554,25 @@
       "allow": 2,
       "why": "method v5 places the local package closure's targets (architecture-layers.json): CmuxNextBridge (domain) -> CmuxAgentBrands (ui) and CmuxMobileRPC (domain) -> CmuxMobileSupport (ui, test-only link) were always there, now visible; lead's decision 2026-10-24, PL-arch may override",
       "applied_sha": "98b020961a613c685cf7016ff7b295838102b89a"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "observer_sites",
+      "allow": 4,
+      "why": "Honest recount, not a new observer (review 1 of 5a069bc6996, cmux-b6, asked for it): the old computed list of 5a069bc6996 hid 13 observers as 1 site; this commit removes 8 of them and restores the literal loop of its parent (5 window geometry notifications), which the ratchet counts as 5 sites. Counted sites +4, real observers -8.",
+      "applied_sha": "1fb69bf23aaf93ed996f1183458a047b7a7b84d2"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "CrashWatcher's pipe write end: an async-signal-safe fatal-signal handler writes to it, so it cannot live in an injected instance (same as CrashDeadline's semaphore); written once at launch, then only read (#22844)"
+    },
+    {
+      "date": "2026-10-24",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "CmuxNextCompat BlockingViolationTable.shared: one process-wide table of main-thread blocking call sites; the main thread writes a fixed call-site index (128 sites) and a lock-free single-producer ring (64), and a utility drain queue resolves frames and calls the installed sink; touched only on the violation path; blocking calls happen in any module with no injection point; other modules hold a BlockingDetector handle that only the composition root makes (BlockingDetector.forProcess()), tests bind their own table through a task-local. Approved by the Performance Lead with PL-arch, 2026-10-24."
     }
   ],
   "observer_wrappers": [

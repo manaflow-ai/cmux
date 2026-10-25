@@ -9,11 +9,13 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextKeepAwake
 import CmuxNextPages
+import CmuxNextWebUpdates
 import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -28,8 +30,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchCleanup: LaunchCleanup
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
+    /// A second quit signal began the forced exit (`QuitSignal`); later signals do nothing.
+    private var forceExitStarted = false
     private var settings: SettingsController?
-    private let control = AppControl()
+    /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
+    /// person's pending-input check and task signposts. Built here, the composition root, and
+    /// handed to the control socket and the services.
+    private let mainWork: MainWorkScheduler
+    private let control: AppControl
     private let mouseSideButtons = MouseSideButtons()
     private var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
@@ -46,6 +54,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.environment = environment
         self.daemonPrestart = daemonPrestart
         self.launchCleanup = launchCleanup
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+        self.mainWork = mainWork
+        control = AppControl(mainWork: mainWork)
         super.init()
     }
 
@@ -58,10 +69,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let services = self?.services else { return NSApp.terminate(nil) }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
+            // One forced exit: a third signal while it runs changes nothing.
+            guard self?.forceExitStarted != true else { return }
+            self?.forceExitStarted = true
             self?.services?.crashRecovery.applicationWillTerminate()
             AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-            self?.services?.home.applicationWillTerminate()
-            exit(0)
+            let home = self?.services?.home
+            home?.applicationWillTerminate()
+            // The Home cache's last batch (drafts) gets 160 ms, then the process ends: 3x the measured p99
+            // of a first write after launch with a large Home (52 ms, HomeCacheQuitWriteTimeTests). The limit
+            // is a dedicated thread's `_exit` (QuitDeadline): neither a full cooperative pool nor a blocked
+            // main thread (the stuck quit this exit is for) can hold the process, and no atexit handler runs
+            // beside AppKit and Chromium. The normal end is `exit` on the main thread, as AppKit's own.
+            QuitDeadline(reason: "a forced quit began its Home cache write").arm(after: .milliseconds(160))
+            // task-owner: the forced quit's last save; the process ends after it or at the deadline
+            Task { @MainActor in
+                await home?.flushCacheForQuit()
+                exit(0)
+            }
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
@@ -93,7 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PageDescriptor.registerFilePageRoots()
         PageDescriptor.registerAgentActivityRoot()
         DebugTimings.markLaunch("dfl.theme")
-        let services = AppServices(environment: environment)
+        let services = AppServices(environment: environment, mainWork: mainWork)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
@@ -118,7 +143,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        NSApp.mainMenu = MainMenu.make(registry: services.registry)
+        NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
         DebugTimings.markLaunch("dfl.menu")
         logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
         WindowActivation.activateApp()
@@ -185,8 +210,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
         PageWebView.openPanel = services.openPanel
-        // A WebKit browser tab's file input takes the same made-ahead panel as a cmux page's.
-        services.cache.webKit.fileInput = services.openPanel
         PageWebView.chromiumHosting = ChromiumPageHost(
             cef: services.cache.cef,
             preference: { [weak services] in
@@ -205,9 +228,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.startChromiumRuntime()
         firstFrame.whenOpen { [weak services] in services?.startLaterTabWarmups() }
         // Other apps' sign-ins, before any request a launch by one delivers.
-        // The engine's own OffTheRecordProfiles and CEFSignInCallbacks (CEFRuntime reads `.shared`).
+        // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
-                                                   profiles: .shared, signInCallbacks: .shared,
+                                                   profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
                                                    contextMenus: services.contextMenus)
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler
@@ -241,6 +264,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
     private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
+        // Start the web OTA launch check before any restored or prewarmed page can
+        // request its entry document. Otherwise the entry can come from the app
+        // bundle while later chunks come from the kept update tree.
+        WebUpdates.shared.prepare(launch.snapshot.updates, bundle: .main)
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()

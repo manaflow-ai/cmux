@@ -48,7 +48,7 @@ final class ChromiumPageHost: PageChromiumHosting {
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
-        let profile = pageProfile ?? OffTheRecordProfiles.shared.begin()
+        let profile = pageProfile ?? cef.stores.offTheRecord.begin()
         pageProfile = profile
         // Its own pane id: a page is never a tab of a browser pane's Chromium window.
         let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))

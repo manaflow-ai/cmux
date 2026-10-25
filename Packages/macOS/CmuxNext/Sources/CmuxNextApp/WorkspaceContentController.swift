@@ -54,6 +54,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var isParked = false
     /// When its window parked it (`WindowController.mountedContents` order).
     private(set) var parkedSerial: UInt64 = 0
+    /// Parked and not on screen beside the shown workspace: it draws nothing, so its panes do no
+    /// work for it (PL-script A2). They record what changed and show it once when it draws again
+    /// (`PaneController.suspend` / `resume`). A companion on screen beside the shown workspace
+    /// (`sidebar.multiView`) is parked but draws, so its panes keep working.
+    private(set) var drawsNothing = false
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
     /// nothing while parked, so it stops following them (a global change wakes no parked workspace).
@@ -61,17 +66,32 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         parkedSerial = serial
         isParked = true
         attentionObservation?.cancel()
+        setDrawsNothing(true)
     }
 
     /// Shows this parked content again: its observation kept the tree current, so no re-map or apply;
-    /// the attention rings are read now (this frame) and followed again.
+    /// each pane maps its strip once and shows its selection (`PaneController.resume`), and the
+    /// attention rings are read now (this frame) and followed again.
     func unpark() {
         isParked = false
+        setDrawsNothing(false)
         observeAttention()
     }
 
     /// Parked but on screen beside the shown workspace (`sidebar.multiView`): its attention rings draw, so it follows them.
-    func followAttention() { observeAttention() }
+    func followAttention() {
+        setDrawsNothing(false)
+        observeAttention()
+    }
+
+    /// Suspends or resumes every pane's strip and content work (`drawsNothing`).
+    private func setDrawsNothing(_ value: Bool) {
+        guard drawsNothing != value else { return }
+        drawsNothing = value
+        for controller in panes.values {
+            if value { controller.suspend() } else { controller.resume() }
+        }
+    }
 
     /// Installed: one topology (the coordinator restores its pane), whose ring draws in this frame.
     func didShow() {
@@ -89,10 +109,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         focus = state.focus
         layoutModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         _ = layoutView  // built here, then the bar and the content view, as before
-        // A pane close's neighbours resize their PTYs once, at rest (close-animation DESIGN.md).
-        layoutView.onTerminalGridHold = { [weak layoutView] held in
-            if let layoutView { ResizeCoordinator.shared.setHeld(held, by: layoutView) }
-        }
+        // A scroll the layout took is timed as the layout's (`key.scroll_frame target=layout`).
+        layoutView.onScrollTaken = { [inputDispatch = services.inputDispatch] in inputDispatch.noteLayoutTookScroll() }
         // A link dragged in from another app or a page: the drop zones a dragged tab has (LinkDropPlan).
         layoutView.linkDropHandler = { [weak self] url, target, perform in
             guard let self, let item = LinkDragItem(url, browserEnabled: LinkRouter.shared.routing().browserEnabled),
@@ -125,7 +143,6 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     func teardown() {
-        ResizeCoordinator.shared.setHeld(false, by: layoutView)
         observation?.cancel()
         connectionObservation?.cancel()
         attentionObservation?.cancel()

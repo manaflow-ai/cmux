@@ -495,7 +495,14 @@ final class BrowserHibernation {
     }
 
     private func freeze(_ key: String, _ page: any BrowserFreezing) {
-        page.setFrozen(true)
+        // The engine refuses a page it still counts visible: it stays awake and is asked again
+        // after `freezeSeconds` (a hidden page's visibility reaches the engine within a frame).
+        guard page.setFrozen(true) else {
+            freezeKeptAt[key] = .now
+            cache?.trace(key, "freeze refused")
+            replan()
+            return
+        }
         frozen.insert(key)
         cache?.trace(key, "frozen")
     }
@@ -668,7 +675,7 @@ final class BrowserHibernation {
     static func probe(_ tab: any BrowserTab) async -> PageProbe {
         do {
             let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated), try await tab.pageBusy())
+                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }

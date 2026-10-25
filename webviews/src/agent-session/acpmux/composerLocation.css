@@ -372,9 +372,6 @@
   overflow: visible;
   border-radius: var(--acpmux-composer-radius);
 }
-@media (prefers-reduced-motion: no-preference) {
-  .acpmux-access-menu { animation: ui-popup-open var(--ui-popup-open) ease-out; }
-}
 .acpmux-location-button,
 .acpmux-location-readonly {
   max-width: 190px;

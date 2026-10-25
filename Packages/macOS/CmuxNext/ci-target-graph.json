@@ -195,7 +195,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPermissionsTests",
       "targets": [
-        "CmuxNextAgentPermissions"
+        "CmuxNextAgentPermissions",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -248,6 +249,7 @@
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
+        "CmuxNextBrowserTabs",
         "CmuxNextCLIInstall",
         "CmuxNextChiefMemory",
         "CmuxNextChiefPetWiring",
@@ -268,6 +270,7 @@
         "CmuxNextDevices",
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
+        "CmuxNextFavicons",
         "CmuxNextFeed",
         "CmuxNextFiles",
         "CmuxNextFilesUI",
@@ -312,6 +315,7 @@
         "CmuxNextSettings",
         "CmuxNextSettingsWindow",
         "CmuxNextSidebar",
+        "CmuxNextSidebarActions",
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
@@ -358,6 +362,7 @@
         "CmuxNextApps",
         "CmuxNextBrowserHistory",
         "CmuxNextBrowserImport",
+        "CmuxNextBrowserTabs",
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCompat",
@@ -402,6 +407,7 @@
         "CmuxNextTestExitTrace",
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport",
         "CmuxNextWorkspaceNaming"
       ],
       "packages": [
@@ -540,12 +546,34 @@
       ],
       "packages": []
     },
+    "CmuxNextBrowserHostTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextBrowserHostTests",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHost",
+        "CmuxNextWakeups"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextBrowserImport": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport",
       "targets": [
         "CmuxNextCompat",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserTabs": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextDaemon",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -556,7 +584,8 @@
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextRemoteFetch"
+        "CmuxNextRemoteFetch",
+        "CmuxNextWakeups"
       ],
       "packages": [],
       "reads": [
@@ -741,7 +770,8 @@
         "CmuxNextControl",
         "CmuxNextDaemon",
         "CmuxNextSettings",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": []
@@ -817,6 +847,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDaemon"
       ],
       "packages": [],
@@ -843,8 +874,10 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextDesignTokens"
+        "CmuxNextDesignTokens",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CMUXMobileCore",
@@ -924,6 +957,15 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextFavicons": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextTabs"
+      ],
+      "packages": []
+    },
     "CmuxNextFeed": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFeed",
@@ -998,7 +1040,8 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
       "targets": [
         "CmuxNextActions",
-        "CmuxNextDesign"
+        "CmuxNextDesign",
+        "CmuxNextSignposts"
       ],
       "packages": []
     },
@@ -1316,6 +1359,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextPagesTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextPagesTestSupport",
@@ -1626,6 +1670,15 @@
         "CmuxAgentBrands"
       ]
     },
+    "CmuxNextSidebarActions": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSidebarActions",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextSidebar"
+      ],
+      "packages": []
+    },
     "CmuxNextSignposts": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSignposts",
@@ -1725,6 +1778,24 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextUiLayerPreview": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextIcons"
+      ],
+      "packages": []
+    },
+    "CmuxNextUiLayerPreviewTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextUiLayerPreviewTests",
+      "targets": [
+        "CmuxNextUiLayerPreview"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextUpdater": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater",
@@ -1763,6 +1834,15 @@
       "targets": [
         "CmuxNextCompat",
         "CmuxNextSignposts"
+      ],
+      "packages": []
+    },
+    "CmuxNextWakeupsTestSupport": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeupsTestSupport",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },

@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
+import { cliHost, incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -52,6 +52,29 @@ test("agent_message provenance names the sending chat", () => {
     const relayed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, kind } }, client: "acpmux-peer#air" });
     expect(relayed?.kind === "message" && relayed.message.remote).toBe(true);
   }
+});
+
+test("a report whose sender acpmux recorded by name is that agent's, from the machine it came from", () => {
+  // acpmux prompt_provenance.rs `named_sender`: `--from`, `ACPMUX_FROM`, or a peer daemon naming
+  // the session that sent it (claude-sr2, 2026-10-24: these read as the person's own words).
+  const named = { kind: "agent_message", from: "fromAgent", fromName: "codex-lane", to: "s-1" };
+  expect(incomingPrompt("#24927 merged.", { _meta: { provenance: named }, client: "acpmux-peer#01a16e" })).toEqual({
+    kind: "message",
+    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged." },
+  });
+  // The same record with no sender is the person's.
+  expect(incomingPrompt("#24927 merged.", { client: "acpmux-peer#01a16e" })).toBeUndefined();
+});
+
+test("the person's own acpmux send names the machine it ran on, here or through a peer", () => {
+  expect(cliHost("acpmux-cli#01a2f3@big-red")).toBe("big-red");
+  expect(cliHost("acpmux-peer#01a16e@big-red")).toBe("big-red");
+  expect(cliHost("acpmux-outbox#01a16e@huge-blue")).toBe("huge-blue");
+  for (const client of ["acpmux-cli#01a2f3", "cmux-react-agent-pane#01a16f@x", "acpmux-cli#a@b c", undefined, 3]) {
+    expect(cliHost(client)).toBeUndefined();
+  }
+  // The person's own words: no card.
+  expect(incomingPrompt("ship it", { client: "acpmux-cli#01a2f3@big-red" })).toBeUndefined();
 });
 
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {
@@ -305,6 +328,22 @@ test("another session's prompt to this one is that session's message, and opens 
   // The same client with no provenance and no name first is the person (the acpmux TUI, or
   // `acpmux send` at a shell).
   expect(incomingPrompt("PR #22761 merged.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+});
+
+test("a task's result is its lane's message, and opens the lane", () => {
+  const provenance = {
+    kind: "task_result",
+    from: "lane-7",
+    fromName: "codex-lane",
+    to: "coordinator-1",
+    taskId: "t-1a2b3c4d",
+    state: "done",
+  };
+  const card = 'Task t-1a2b3c4d "Land #24961" done: Merged\nPR: https://github.com/o/r/pull/1';
+  expect(incomingPrompt(card, { _meta: { provenance }, client: "acpmux" })).toEqual({
+    kind: "message",
+    message: { name: "codex-lane", sessionId: "lane-7", text: card, raw: card },
+  });
 });
 
 test("`acpmux send` from a shell is the message of the agent named first in brackets", () => {

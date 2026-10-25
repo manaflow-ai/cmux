@@ -1,4 +1,5 @@
 import CmuxNextBridge
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
 import CmuxNextLayout
 import Foundation

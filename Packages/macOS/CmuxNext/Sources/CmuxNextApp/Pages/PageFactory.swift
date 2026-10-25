@@ -218,8 +218,9 @@ struct PageFactory {
                           pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
-                                                          currentChoices: { SettingsWindowService.backdrops.choices },
+        let catalog = services.settingsWindow.backdropCatalog
+        let dynamicResources = SettingsBackdropThumbnails(choices: catalog.catalog.choices,
+                                                          currentChoices: { catalog.catalog.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)

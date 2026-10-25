@@ -316,10 +316,9 @@ final class InternalPageTabStore {
     /// Closes the page tabs of every pane `store` no longer lists, once it
     /// is connected with a live tree.
     func closeGonePanes(in store: DaemonStore) {
-        guard let live = Self.livePanes(store) else { return }
-        for (paneKey, owner) in paneStores where owner === store && !live.contains(paneKey) {
-            closePane(paneKey)
-        }
+        // The panes this store tracks, each by lookup: never the session's pane set.
+        let gone = paneStores.filter { $0.value === store && store.liveTreeLists(pane: $0.key) == false }.map(\.key)
+        for paneKey in gone { closePane(paneKey) }
     }
 
     private func forget(_ key: String) {
@@ -328,17 +327,13 @@ final class InternalPageTabStore {
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 
-    private static func livePanes(_ store: DaemonStore) -> Set<String>? {
-        guard case .connected = store.connectionState, store.isLoaded else { return nil }
-        return Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).map(\.id))
-    }
-
     private func watch(_ store: DaemonStore) {
         let id = ObjectIdentifier(store)
         guard watches[id] == nil else { return }
         // task-owner: stored in watches; cancelled once the store has no page tabs
         watches[id] = Task { [weak self] in
-            for await live in ObservationStream({ Self.livePanes(store).map { LiveTreeMark(panes: $0, tabListRevision: store.tabListRevision) } }) where live != nil {
+            // One observed value: the tab-list revision changes when a tab or a pane comes, goes or moves.
+            for await live in ObservationStream({ store.liveTabListRevision }) where live != nil {
                 guard let self else { return }
                 self.closeGonePanes(in: store)
                 self.closeGoneStoreTabs(in: store)
@@ -353,13 +348,6 @@ final class InternalPageTabStore {
             watches.removeValue(forKey: id)?.cancel()
         }
     }
-}
-
-/// What the page tab store's watch of a live tree compares: its panes and its tab-list revision
-/// (a store tab came, went or moved), so an unchanged tree wakes nothing.
-private struct LiveTreeMark: Equatable, Sendable {
-    var panes: Set<String>
-    var tabListRevision: UInt64
 }
 
 /// The store tab a page tab's `new-conversation-tab` created.

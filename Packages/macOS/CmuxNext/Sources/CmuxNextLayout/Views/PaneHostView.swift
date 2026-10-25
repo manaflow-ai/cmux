@@ -231,17 +231,27 @@ final class PaneHostView: NSView, RestingPlacement {
     /// it is now (`restSize` against the current frame, both less the padding): called by the screen once
     /// when a spring starts or retargets to a new size, never per frame.
     func announceRest() {
-        guard let restSize else { return }
+        guard let change = restSizeChange else { return }
+        heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
+        if heldContentSize != nil { layoutClip() }
+    }
+
+    /// The content area at rest (``restSize`` less the padding) minus the content's size now; nil without a
+    /// rest size or with no change.
+    private var restSizeChange: CGSize? {
+        guard let restSize else { return nil }
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
         let rest = PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: restSize), style: style).size
         let now = content.frame.size
         let change = CGSize(width: rest.width - now.width, height: rest.height - now.height)
-        guard abs(change.width) >= 0.5 || abs(change.height) >= 0.5 else { return }
-        heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
-        if heldContentSize != nil { layoutClip() }
+        guard abs(change.width) >= 0.5 || abs(change.height) >= 0.5 else { return nil }
+        return change
     }
+
+    /// `RestingPlacement`: the size change a view joining the content mid-spring will rest at.
+    var restContentSizeChange: CGSize? { isOnLayoutSpring ? restSizeChange : nil }
 
     /// The vertical edge held content rides, from the last ``announceRest()`` (nil: the near-edge rule).
     private var heldAnchor: PaneMotionAnchor?

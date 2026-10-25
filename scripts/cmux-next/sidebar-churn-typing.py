@@ -12,21 +12,35 @@ with that terminal focused, it types --samples keys in each phase:
           a workspace moves to the top, a task status changes, a workspace changes group, a status pill
           changes (round robin over random workspaces other than the typed one)
 
-Each key is `debug.key` with the client's send time as the event's timestamp (CLOCK_UPTIME_RAW), so the
-probe's `contents_ms` is send to the frame that shows the echo, waiting for the main thread included (a
-real key waits for it in the event queue). Per phase it reports key-to-frame p50/p95/max, the main-thread
+--input real (the number to quote): each key is a real key-down and key-up posted at the HID event tap
+(CGEventPost), so it takes a person's path: the window server, the app's event queue, AppKit dispatch, and
+the scheduler's pending-input check (SessionInputPending) that makes budgeted batches yield to it. The app
+runs frontmost for that (no CMUX_NEXT_NO_ACTIVATE), so the job must own the GUI session and have the input
+(Accessibility) grant: `nx-remote --needs input` or a whole mini. The probe's `contents_ms` is the event's
+HID time to the frame that shows the echo.
+--input debug (default, for hosts without an input grant): each key is `debug.key` with the client's send
+time as the event's timestamp (CLOCK_UPTIME_RAW). It goes through the control socket's injected-input lane,
+not the event queue, so it does not measure what a person's key waits for: never quote it as key latency. Per phase it reports key-to-frame p50/p95/max, the main-thread
 hangs over 8 ms (`debug.hangs`: count, max, frames over 8.3 ms), the frame intervals (`debug.frames`), the
 sidebar's own counters (`debug.sidebar_perf`) and, with --trace, a Time Profiler of the churn phase (main
 thread top frames).
 
   sidebar-churn-typing.py --app APP --tag TAG --out DIR [--json DIR/report.json] [--workspaces 150]
-      [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8]
+      [--samples 120] [--churn-hz 10] [--trace] [--gate-p95-ms 8] [--session light|stress]
+
+--session stress builds the STRESS session (perf-stress-session.py: 60 workspaces, the measured one 4 x 3 panes with
+nested splits, 6 tabs each, Chromium pages, 10 busy terminals) instead of the --workspaces empty ones; the typed
+terminal is the measured workspace's last pane, and the churn rearranges STRESS's 59 other workspaces. STRESS needs
+a 1920 x 1080 main display (split-spring.sh --vdisplay=120). The report quotes the built shape (`stress_session`).
 
 --gate-p95-ms: exit 1 when the churn phase's key-to-frame p95 is over that many ms, or over the idle
-phase's p95 by more than --gate-delta-ms (default 2). --gate-stall-ms: exit 1 when a churn phase has a main-thread
+phase's p95 by more than --gate-delta-ms (default 2). --task-diagnostics: launch with
+CMUX_NEXT_MAIN_TASK_DIAGNOSTICS=1, so debug.hangs also lists scheduled tasks past their class budget with a
+stack; it wakes the watchdog per task and suspends the main thread per over-budget task, so it perturbs the
+numbers: the report marks the run `perturbed`, and no latency number is quoted from such a run. --gate-stall-ms: exit 1 when a churn phase has a main-thread
 stall (debug.hangs, threshold 8 ms) longer than that (plans/cmux-next/main-thread-budget.md: < 8 ms). Each phase also
-records the main-thread scheduler's budget counters (debug.main_budget) and the tasks that ran past their class budget
-with their stacks (debug.hangs over_budget). Fleet (an owned mini with a console; the step builds the app):
+records the main-thread scheduler's budget counters (debug.main_budget) and, with --task-diagnostics, the tasks that
+ran past their class budget with their stacks (debug.hangs over_budget). Fleet (an owned mini with a console; the step builds the app):
   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/split-spring.sh --ref SHA \
     --artifact artifacts/split-spring/report.json --arg=--suite=sidebar-churn [--arg=--trace] [--arg=--gate-p95-ms=8]
 """
@@ -50,6 +64,14 @@ parser.add_argument("--gate-p95-ms", type=float)
 parser.add_argument("--gate-delta-ms", type=float, default=2.0)
 parser.add_argument("--gate-stall-ms", type=float, help="also exit 1 when a churn phase's longest main-thread stall is over this many ms")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
+parser.add_argument("--input", choices=["debug", "real"], default="debug",
+                    help="real: HID-tap key events through the event queue (needs the input grant); debug: debug.key over the socket")
+parser.add_argument("--session", choices=["light", "stress"], default="light",
+                    help="light: --workspaces empty workspaces and a typing workspace; stress: the STRESS session "
+                         "(perf-stress-session.py), the typed terminal in its measured workspace, the churn over its "
+                         "59 other workspaces")
+parser.add_argument("--task-diagnostics", action="store_true",
+                    help="record over-budget scheduled tasks with stacks (perturbs the numbers; the report says so)")
 opts = parser.parse_args()
 OUT = os.path.abspath(opts.out)
 os.makedirs(os.path.join(OUT, "traces"), exist_ok=True)
@@ -62,7 +84,8 @@ PROBE = os.path.join(OUT, "typing.csv")
 APP_CLI = os.path.join(opts.app, "Contents/Resources/bin/cmux")
 WINDOW = (40, 40, 1200, 900)
 STATUSES = ["todo", "working", "needs-attention", "review", "done"]
-results = {"tag": opts.tag, "host": os.uname().nodename, "opts": vars(opts), "log": [], "phases": []}
+results = {"tag": opts.tag, "host": os.uname().nodename, "opts": vars(opts), "log": [], "phases": [],
+           "input": opts.input, "session": opts.session, "perturbed": bool(opts.task_diagnostics)}
 
 
 def note(text):
@@ -137,6 +160,15 @@ def probe_rows():
             return list(csv.DictReader(handle))
     except OSError:
         return []
+
+
+def load_stress():
+    """scripts/cmux-next/perf-stress-session.py, the shared STRESS builder."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 # ---------------------------------------------------------------- churn
@@ -278,6 +310,37 @@ def sample_main(pid, label):
     note(f"stall sample: {os.path.basename(path)}")
 
 
+# ANSI virtual key codes (Carbon kVK_ANSI_*) for the typed keys.
+KEYCODES = {"a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12, "w": 13,
+            "e": 14, "r": 15, "y": 16, "t": 17, "o": 31, "u": 32, "i": 34, "p": 35, "l": 37, "j": 38, "k": 40, "n": 45,
+            "m": 46, "return": 36}
+_CG = None
+
+
+def post_real_key(key):
+    """One real key press at the HID event tap: the window server queues it for the frontmost app, which
+    dispatches it from its event queue like a person's key (SessionInputPending sees it until then)."""
+    global _CG
+    import ctypes, ctypes.util
+    if _CG is None:
+        _CG = ctypes.cdll.LoadLibrary(ctypes.util.find_library("CoreGraphics"))
+        _CG.CGEventCreateKeyboardEvent.restype = ctypes.c_void_p
+        _CG.CGEventCreateKeyboardEvent.argtypes = [ctypes.c_void_p, ctypes.c_uint16, ctypes.c_bool]
+        _CG.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+        _CG.CFRelease.argtypes = [ctypes.c_void_p]
+    for down in (True, False):
+        event = _CG.CGEventCreateKeyboardEvent(None, KEYCODES[key], down)
+        _CG.CGEventPost(0, event)  # kCGHIDEventTap
+        _CG.CFRelease(event)
+
+
+def bring_front(pid):
+    """Makes the app frontmost (real keys go to the frontmost app's key window)."""
+    subprocess.run(["osascript", "-e",
+                    f'tell application "System Events" to set frontmost of (first process whose unix id is {pid}) to true'],
+                   capture_output=True, timeout=30)
+
+
 def type_keys(count, pid=None, label="warmup"):
     """Types `count` keys; returns the per-key round trips (ms). A key whose RPC takes over 2 s is a stall:
     the first three get a `sample` of the app, and the phase ends after 10 of them or 4x its planned time."""
@@ -287,7 +350,11 @@ def type_keys(count, pid=None, label="warmup"):
     for index in range(count):
         t0 = time.perf_counter()
         key = "return" if index % 50 == 49 else keys[index % len(keys)]
-        reply = rpc("debug.key", {"key": key, "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
+        if opts.input == "real":
+            post_real_key(key)
+            reply = None
+        else:
+            reply = rpc("debug.key", {"key": key, "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)}, timeout=10)
         trip = (time.perf_counter() - t0) * 1000
         trips.append(trip)
         if trip > 2000 or (isinstance(reply, dict) and reply.get("error")):
@@ -371,8 +438,13 @@ def main():
     global SOCKET, CONFIG
     # One launch path for GUI benches (bench_launch.py): the console-session check, the tag's socket in the state
     # folder, and the reason when the app does not come up. The bench's own environment on top of its defaults.
+    env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.input != "debug":
+        env["CMUX_NEXT_NO_ACTIVATE"] = None  # a real key needs the app frontmost; injected keys need no focus
+    if opts.task_diagnostics:
+        env["CMUX_NEXT_MAIN_TASK_DIAGNOSTICS"] = "1"
     bench = BenchApp(opts.app, out=OUT, config={"appearance": {"theme": "Catppuccin Mocha"}}, window=WINDOW, log_name="app.log",
-                     env={"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"})
+                     env=env)
     results["load_at_start"] = os.getloadavg()
     made = []
     groups = []
@@ -384,28 +456,53 @@ def main():
             raise
         app, SOCKET, CONFIG = bench.process, bench.socket, os.path.join(bench.scratch, "cmux.json")
         t0 = time.monotonic()
+        builder = None
+        if opts.session == "stress":
+            builder = load_stress().Stress(rpc, log=note)
+            results["stress_session"] = builder.build()
+            print("STRESS-SESSION " + json.dumps(results["stress_session"]), flush=True)
         for g in range(opts.groups):
             name = f"churn group {g:02d}"
             cli("workspace", "group", "create", "--name", name)
             groups.append(name)
-        for i in range(opts.workspaces):
-            ref = cli("workspace", "create", "--empty", "--name", f"churn {i:04d}").stdout.strip()
-            if ref:
-                made.append(ref)
-        by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
-        ids = [by_name[n] for n in (f"churn {i:04d}" for i in range(opts.workspaces)) if by_name.get(n)]
+        if builder:
+            ids = list(builder.background)  # STRESS's 59 other workspaces are the ones that rearrange
+        else:
+            for i in range(opts.workspaces):
+                ref = cli("workspace", "create", "--empty", "--name", f"churn {i:04d}").stdout.strip()
+                if ref:
+                    made.append(ref)
+            by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
+            ids = [by_name[n] for n in (f"churn {i:04d}" for i in range(opts.workspaces)) if by_name.get(n)]
         for index, ws in enumerate(ids):
             if index % 4 != 3:
                 cli("workspace", "group", groups[index % len(groups)], "add", "--workspace", ws)
-        note(f"made {len(ids)} workspaces in {len(groups)} groups in {time.monotonic() - t0:.1f} s")
-        typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat").stdout.strip()
-        by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
-        typed_id = by_name.get("typing") or typed
-        cli("workspace", typed_id, "focus")
+        note(f"{opts.session}: {len(ids)} churned workspaces in {len(groups)} groups in {time.monotonic() - t0:.1f} s")
+        if builder:
+            # The typed terminal: the selected terminal of the measured workspace's last pane (the busy output runs
+            # in its first 10 panes), turned into `cat` so the tty echoes each key; the grid stays on screen.
+            typed_id = builder.measured
+            pane = builder.panes(builder.workspace(typed_id))[-1]
+            terminal = next((t for t in pane.get("tabs") or [] if t.get("kind") == "terminal" and t.get("selected")), None)
+            if terminal is None:
+                sys.exit(f"STRESS: the measured workspace's last pane {pane.get('id')} shows no terminal")
+            builder.send(terminal["id"], "exec cat\r")
+            builder.show(typed_id)
+            builder.focus_pane(pane["id"])
+        else:
+            typed = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat").stdout.strip()
+            by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
+            typed_id = by_name.get("typing") or typed
+            cli("workspace", typed_id, "focus")
         rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal, not the list
+        if opts.input == "real":
+            bring_front(app.pid)
         time.sleep(4)
         results["setup"] = {"workspaces": len(ids), "groups": len(groups), "typing": typed_id}
+        rows_before_warmup = len(probe_rows())
         type_keys(10)  # warm-up
+        if opts.input == "real" and len(probe_rows()) <= rows_before_warmup:
+            sys.exit("--input real: no key reached the app (not frontmost, or this session has no input grant)")
         for r in range(opts.rounds):
             phase(f"idle-{r}", app.pid, ids, groups, 0, trace=opts.trace and r == 0)
             phase(f"churn-{r}", app.pid, ids, groups, opts.churn_hz, trace=opts.trace and r == 0)

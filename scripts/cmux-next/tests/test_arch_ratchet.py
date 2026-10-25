@@ -491,6 +491,24 @@ class SingletonTests(Repo):
                                      "struct Box {\n    let size = 1\n    static let standard = Box()\n}\n"})
         self.assertEqual(rows, ["stateful_singletons"])
 
+    def test_appkit_responders_and_running_foundation_objects_are_stateful(self):
+        # deep-guardrails review (a08985b7dac): a named static that holds a reference instance with runtime state is a
+        # singleton. A view, view controller or window controller subclass, a menu, a status item, a timer, a
+        # process, a thread or a file handle holds that state in its system superclass, so it counts like NSWindow.
+        for decl, use in (("final class Picker: NSViewController {}\n", "static let shared = Picker()"),
+                          ("final class Badge: NSView {}\n", "static let shared = Badge()"),
+                          ("final class Prefs: NSWindowController {}\n", "static let shared = Prefs()"),
+                          ("", "static let menu = NSMenu()"),
+                          ("", "static let item: NSStatusItem = NSStatusBar.system.statusItem(withLength: 20)"),
+                          ("", "static let tick: Timer = Timer(timeInterval: 1, repeats: true) { _ in }"),
+                          ("", "static let helper = Process()"),
+                          ("", "static let worker = Thread()"),
+                          ("", "static let log: FileHandle = .standardError")):
+            with self.subTest(use=use):
+                self.git("reset", "--quiet", "--hard", self.base)
+                rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Ui.swift": decl + f"enum Ui {{\n    {use}\n}}\n"})
+                self.assertEqual(rows, ["stateful_singletons"], use)
+
     def test_a_protocol_annotation_does_not_hide_a_stateful_initializer(self):
         rows, _ = self.refused_rows({f"{SRC}/CmuxNextDomain/Live.swift":
                                      "protocol Storing: AnyObject {}\nextension Store: Storing {}\n"
@@ -863,6 +881,18 @@ class SignalTests(Repo):
         delta = counts.delta_count(self.repo, base, "HEAD")
         self.assertEqual(delta.by_package("observer_sites"), {"CmuxNextOther": 3})
         self.assert_matches_full(base, "HEAD")
+
+    def test_a_new_blocking_allowance_is_refused(self):
+        text = ("enum Blocking {\n    static func allowBlocking(_ why: String) {}\n}\n"
+                "final class Reader {\n    func read() {\n        let s = \"// blocking-allow: in a string\"\n"
+                "        // blocking-allow: the file is a byte\n        _ = s\n"
+                "        Blocking.allowBlocking(\"sync read\")\n    }\n}\n")
+        sites = counts.analyze(f"{SRC}/CmuxNextDomain/Blocking.swift", text).sites
+        self.assertEqual([s.line for s in sites if s.row == "blocking_allow_escapes"], [7, 9])
+        self.write(f"{SRC}/CmuxNextDomain/Blocking.swift", text)
+        self.commit("a comment and a call allow blocking; a declaration and a string do not")
+        refusals, _ = self.check()
+        self.assertEqual(self.rows(refusals), ["blocking_allow_escapes"])
 
     def test_assume_isolated_in_a_deinit_is_refused_even_with_main_proof(self):
         self.write(f"{SRC}/CmuxNextDomain/Holder.swift",

@@ -79,7 +79,7 @@ public final class HibernatedBrowserTab: BrowserTab {
         guard let snapshotImage else { throw BrowserTabError.snapshotUnavailable }
         return snapshotImage
     }
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         throw BrowserTabError.closed
     }
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }

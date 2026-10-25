@@ -85,17 +85,17 @@ import Testing
             <iframe id="child" srcdoc="\(child.replacingOccurrences(of: "\"", with: "&quot;"))"></iframe>
             """)
         try await rig.until("the child frame loads") {
-            (try? await page.evaluate("!!document.getElementById('child').contentDocument?.getElementById('f')", world: .page)) == .bool(true)
+            (try? await page.evaluate("!!document.getElementById('child').contentDocument?.getElementById('f')", world: .page, gesture: .agent)) == .bool(true)
         }
         rig.window.contentView = page.contentView
         rig.window.makeFirstResponder(page.webView)
-        _ = try await page.evaluate("document.getElementById('child').contentDocument.getElementById('f').focus(); true", world: .page)
+        _ = try await page.evaluate("document.getElementById('child').contentDocument.getElementById('f').focus(); true", world: .page, gesture: .agent)
         let down = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                  windowNumber: rig.window.windowNumber, context: nil,
                                                  characters: "\u{F701}", charactersIgnoringModifiers: "\u{F701}", isARepeat: false, keyCode: 125))
         page.webView.keyDown(with: down)
         try await rig.until("the key reached the child frame") {
-            (try? await page.evaluate("window.pressed === true", world: .page)) == .bool(true)
+            (try? await page.evaluate("window.pressed === true", world: .page, gesture: .agent)) == .bool(true)
         }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -122,7 +122,7 @@ import Testing
             """)
         try await rig.pressDown(page)
         try await rig.until("the audio context runs") {
-            (try? await page.evaluate("window.synth?.state === 'running'", world: .page)) == .bool(true)
+            (try? await page.evaluate("window.synth?.state === 'running'", world: .page, gesture: .cmux)) == .bool(true)
         }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -131,7 +131,7 @@ import Testing
         try await Self.replan(rig, key, times: 2)
         // A frozen page runs no script: as an agent's call, this thaws it.
         rig.hibernation.noteAgentUse(key)
-        #expect(try await page.evaluate("window.unloadRuns", world: .page) == .number(0),
+        #expect(try await page.evaluate("window.unloadRuns", world: .page, gesture: .cmux) == .number(0),
                 "the probe ran the beforeunload handlers of a page Web Audio keeps")
     }
 
@@ -161,7 +161,7 @@ import Testing
         #expect(rig.exemption(key)?.rawValue == "before_unload", "a page that asked was discarded on a later replan")
         #expect(!rig.isHibernated(key))
         rig.hibernation.noteAgentUse(key)
-        #expect(try await page.evaluate("JSON.stringify(window.unloadGestures)", world: .page) == .string("[false]"),
+        #expect(try await page.evaluate("JSON.stringify(window.unloadGestures)", world: .page, gesture: .cmux) == .string("[false]"),
                 "the handlers ran more than once, or inside a user gesture")
     }
 
@@ -193,7 +193,7 @@ import Testing
             """)
         try await rig.pressDown(page)
         try await rig.until("the audio context runs") {
-            (try? await page.evaluate("window.synth?.state === 'running'", world: .page)) == .bool(true)
+            (try? await page.evaluate("window.synth?.state === 'running'", world: .page, gesture: .agent)) == .bool(true)
         }
         rig.window.contentView = nil
         let key = try await rig.hide(page)
@@ -225,7 +225,7 @@ import Testing
             </script>
             """)
         try await rig.until("the peers connect") {
-            (try? await page.evaluate("!!window.peers && window.peers.every((p) => p.connectionState === 'connected')", world: .page)) == .bool(true)
+            (try? await page.evaluate("!!window.peers && window.peers.every((p) => p.connectionState === 'connected')", world: .page, gesture: .agent)) == .bool(true)
         }
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated or was kept") { rig.isHibernated(key) || rig.exemption(key) != nil }

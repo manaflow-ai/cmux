@@ -4,31 +4,19 @@ import Dispatch
 /// The queue of one ``BlockingLane``: which item runs next, on which slot, at which QoS.
 ///
 /// A slot is a serial `DispatchQueue` that runs one item at a time at the item's QoS (`.enforceQoS`);
-/// GCD makes a thread only while a slot has work. `perPriority` lanes (files, system) have one slot per
+/// GCD makes a thread only while a slot has work. A `perPriority` lane (files) has one slot per
 /// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
-/// user-blocking read. A `shared` lane (cpu) has `width` slots for every priority and starts the
+/// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
 /// highest-priority pending item first.
-///
-/// Boost: a pending item moves to its new priority's queue (and slot); a running item's slot gets an
-/// empty item at the new QoS, which makes GCD raise the thread that runs it (async QoS override).
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
         case shared(width: Int)
     }
 
-    private struct Running {
-        var slot: Int
-        var priority: WorkPriority
-    }
-
     private struct State {
         var pending: [[LaneJob]] = Array(repeating: [], count: WorkPriority.allCases.count)
         var busy: [Bool]
-        var running: [UInt64: Running] = [:]
-        /// Boosts that arrived before their item was queued (an escalation racing the submit);
-        /// ``submit(_:at:unless:)`` applies them and ``forget(_:)`` drops a stale one.
-        var early: [UInt64: WorkPriority] = [:]
         var closed = false
     }
 
@@ -54,53 +42,29 @@ final class LaneScheduler: Sendable {
         state = Mutex(State(busy: Array(repeating: false, count: names.count)))
     }
 
-    /// Queues `job` at `priority`. False when `cancelled` holds (read under the lock, so a concurrent
+    /// What ``submit(_:at:unless:)`` did with an item.
+    enum Submitted {
+        /// Not taken: cancelled, or the lane is shut down.
+        case refused
+        /// It started on a free slot at once.
+        case started
+        /// It waits for a slot, at this priority.
+        case queued(WorkPriority)
+    }
+
+    /// Queues `job` at `priority`. Refused when `cancelled` holds (read under the lock, so a concurrent
     /// ``remove(_:)`` either finds the item or makes this refuse it) or the lane is shut down and `job`
     /// may not run any more (only a ``ShutdownBehavior/blockShutdown`` item is still taken).
-    func submit(_ job: LaneJob, at priority: WorkPriority, unless cancelled: () -> Bool) -> Bool {
-        let starts: [Start]? = state.withLock { state in
-            let early = state.early.removeValue(forKey: job.id)
+    func submit(_ job: LaneJob, at priority: WorkPriority, unless cancelled: () -> Bool) -> Submitted {
+        let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
-            state.pending[max(priority, early ?? priority).rawValue].append(job)
-            return pump(&state)
+            let level = priority
+            state.pending[level.rawValue].append(job)
+            return (pump(&state), level)
         }
-        guard let starts else { return false }
-        launch(starts)
-        return true
-    }
-
-    /// Raises item `id` to `priority` when it runs below it: a pending item moves to that priority's
-    /// queue, a running one has its thread raised.
-    func boost(_ id: UInt64, to priority: WorkPriority) {
-        enum Effect { case none, started([Start]), override(Int) }
-        let effect: Effect = state.withLock { state in
-            if var running = state.running[id] {
-                guard running.priority < priority else { return .none }
-                running.priority = priority
-                state.running[id] = running
-                return .override(running.slot)
-            }
-            for level in WorkPriority.allCases where level < priority {
-                guard let index = state.pending[level.rawValue].firstIndex(where: { $0.id == id }) else { continue }
-                let job = state.pending[level.rawValue].remove(at: index)
-                state.pending[priority.rawValue].append(job)
-                return .started(pump(&state))
-            }
-            if !state.pending[priority.rawValue].contains(where: { $0.id == id }) {
-                state.early[id] = max(priority, state.early[id] ?? priority)
-            }
-            return .none
-        }
-        switch effect {
-        case .none: break
-        case .started(let starts): launch(starts)
-        case .override(let slot): slots[slot].async(qos: priority.qos, flags: .enforceQoS) {}
-        }
-    }
-
-    /// Drops a boost of item `id` that never met its item (the caller's wait has ended).
-    func forget(_ id: UInt64) {
-        state.withLock { _ = $0.early.removeValue(forKey: id) }
+        guard let taken else { return .refused }
+        launch(taken.starts)
+        return taken.starts.contains { $0.job.id == job.id } ? .started : .queued(taken.level)
     }
 
     /// Takes item `id` out of the queue when it has not started; returns it so the caller abandons it.
@@ -149,7 +113,6 @@ final class LaneScheduler: Sendable {
         }
         for start in starts {
             state.busy[start.slot] = true
-            state.running[start.job.id] = Running(slot: start.slot, priority: start.priority)
         }
         return starts
     }
@@ -165,7 +128,6 @@ final class LaneScheduler: Sendable {
 
     private func finish(_ id: UInt64, slot: Int) {
         let starts = state.withLock { state in
-            state.running[id] = nil
             state.busy[slot] = false
             return pump(&state)
         }

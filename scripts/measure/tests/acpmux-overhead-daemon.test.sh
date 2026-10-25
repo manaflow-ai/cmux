@@ -4,6 +4,7 @@
 # comparison. Runs the script in a scratch git repo with a stub cargo (no Rust build), so it is safe anywhere;
 # the stub fails the before side the way a ref without tests/perf_ops.rs fails.
 # Run: bash scripts/measure/tests/acpmux-overhead-daemon.test.sh
+# Run by hand on a Freestyle VM, never in CI and never on a laptop: ~/fun/cmuxterm-hq/scripts/freestyle-run.sh --label acpmux-overhead-test --snapshot node --sync . -- bash scripts/measure/tests/acpmux-overhead-daemon.test.sh
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT

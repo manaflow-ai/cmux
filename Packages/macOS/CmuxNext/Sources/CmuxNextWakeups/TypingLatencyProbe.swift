@@ -24,7 +24,8 @@ import CmuxNextSignposts
 /// A sample that has no terminal echo to wait for (``closeAtCommit()``)
 /// is written at that commit.
 ///
-/// Key-press flows (`CMUX_TRACE_FLOWS=<dir>`, scripts/cmux-next/trace.py):
+/// Key-press flows (`CMUX_NEXT_TRACE_FLOWS=<dir>` on the app, passed to the daemon as
+/// `CMUX_TRACE_FLOWS`; scripts/cmux-next/trace.py):
 /// each sample also gets a flow id, and every hop it records, plus the
 /// extra ``hop(_:)`` points and the commit of the frame that shows the echo,
 /// is a `key.flow` signpost event (``Signposter/flowHop(_:flow:ageMicroseconds:)``).
@@ -34,7 +35,7 @@ import CmuxNextSignposts
 /// `CMUX_NEXT_TYPING_PROBE`).
 public final class TypingLatencyProbe: Sendable {
     public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"],
-                                                  flows: !(ProcessInfo.processInfo.environment["CMUX_TRACE_FLOWS"] ?? "").isEmpty)
+                                                  flows: !(ProcessInfo.processInfo.environment["CMUX_NEXT_TRACE_FLOWS"] ?? "").isEmpty)
 
     public static var isEnabled: Bool { shared.output != nil || shared.flows != nil }
 
@@ -105,7 +106,7 @@ public final class TypingLatencyProbe: Sendable {
     }
 
     private let output: FileHandle?
-    /// The `key.flow` signposter while `CMUX_TRACE_FLOWS` is set, else nil.
+    /// The `key.flow` signposter while `CMUX_NEXT_TRACE_FLOWS` is set, else nil.
     private let flows: Signposter?
     private let state = Mutex(State())
     private let writes = DispatchQueue(label: "com.cmuxterm.next.typing-probe", qos: .utility)

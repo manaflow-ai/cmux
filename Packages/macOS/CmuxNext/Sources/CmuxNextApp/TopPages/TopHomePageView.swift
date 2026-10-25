@@ -184,11 +184,13 @@ final class TopHomePageView: NSView {
             var picturedRows: [HomeInboxRequest.Response?]?
             var picturedChiefs: Set<String>?
             // Each Chief's pet character is its avatar when it has none of its own: a new pick redraws the list.
-            for await (all, archived, _, _, _, _, owned, _, _, _, _) in ObservationStream({
+            for await (all, archived, _, _, _, _, owned, _, _, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces,
                  sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot,
                  // The team is read after the page opens: its teammates are rows once it lands.
-                 home.directory.teamMembers)
+                 home.directory.teamMembers,
+                 // A rename of a Chief redraws its tile.
+                 home.chiefNames)
             }) {
                 guard let self else { return }
                 let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })

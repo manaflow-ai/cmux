@@ -225,13 +225,11 @@ final class ShareCmuxMessageTextView: NSTextView {
     /// Tab (false) or Shift-Tab (true).
     var onTab: ((Bool) -> Void)?
 
-    /// Replaces the whole text from code and drops the undo history: typing actions already
-    /// recorded point at the old text's ranges, and Undo would replay them against the new text
-    /// (NSRangeException, issue 24912). The manager is reset whole because AppKit's typing undo is
-    /// not registered against a target this view can name.
+    /// Replaces the whole text from code as one undo step (`replaceAllTextUndoably`): Undo brings
+    /// the previous text back, and no typing action keeps a range into the old text
+    /// (NSRangeException, issue 24912).
     func replaceText(_ text: String) {
-        string = text
-        undoManager?.removeAllActions()
+        replaceAllTextUndoably(text)
     }
 
     override func insertTab(_ sender: Any?) { onTab?(false) }

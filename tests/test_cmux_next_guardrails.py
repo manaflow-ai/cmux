@@ -98,6 +98,10 @@ CASES = {
                     "    registry.bind(\"renamePane\", invoke: { _ in ctx.send(\"rename-pane\") { try await $0.rename() } })\n}\n",
                     "func bind(_ registry: ActionRegistry) {\n"
                     "    registry.bind(\"renamePane\", effect: { _ in daemon.intentEffect(\"rename-pane\", intent) { try await $0.rename() } })\n}\n"),
+    "appkit-index": ("@objc func clicked() {\n    guard let item = browser.item(atRow: browser.clickedRow, inColumn: browser.clickedColumn) else { return }\n}\n",
+                     "@objc func clicked() {\n    guard let item = browser.clickedItemIfValid else { return }\n}\n"),
+    "undo-text-write": ("func build() {\n    textView.allowsUndo = true\n}\n",
+                        "func build() {\n    textView.allowsUndo = true // undo-safe: TextBoxTextView.replaceText\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"
@@ -1890,6 +1894,62 @@ class AppSizeTests(Fixture):
         text, refused = self.report("app-sise: typo", refusals)
         self.assertTrue(refused, text)
         self.assertIn("names no rule app-sise", text)
+
+
+class GhosttyPinTests(Fixture):
+    """The ghostty-next gitlink and the GhosttyNextKit pin name one commit after a push that changes either."""
+
+    OLD, NEW = "7d5fa1573a7202ed7ae508f0aa70d2295712527e", "723c4ab93e70c6be896bd9b6d0ad42f2a5fbfedc"
+
+    def manifest(self, commit):
+        return ('.binaryTarget(\n    name: "GhosttyNextKit",\n    url: "https://github.com/manaflow-ai/ghostty-next/'
+                f'releases/download/xcframework-{commit}-apple-v6/GhosttyNextKit.xcframework.zip",\n'
+                '    checksum: "00"\n)\n')
+
+    def gitlink(self, commit, message):
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{commit},{guardrails.GHOSTTY_NEXT}")
+        self.git("commit", "--quiet", "--no-verify", "-m", message)
+
+    def problem(self):
+        saved = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("GIT_")}
+        try:
+            return guardrails.ghostty_pin_problem(self.repo, self.base, "HEAD")
+        finally:
+            os.environ.update(saved)
+
+    def setUp(self):
+        super().setUp()
+        self.write(guardrails.GHOSTTY_KIT, self.manifest(self.OLD))
+        self.git("add", guardrails.GHOSTTY_KIT)
+        self.gitlink(self.OLD, "pinned and linked at one commit")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+
+    def test_a_gitlink_only_bump_is_refused_and_names_both_commits_and_the_fix(self):
+        self.gitlink(self.NEW, "bump the gitlink only (769ae064b16)")
+        problem = self.problem()
+        self.assertIsNotNone(problem)
+        self.assertIn("[ghostty-pin]", problem)
+        self.assertIn(self.NEW[:12], problem)
+        self.assertIn(self.OLD[:12], problem)
+        self.assertIn("do:", problem)
+
+    def test_a_bump_of_both_passes_and_a_push_that_changes_neither_passes(self):
+        self.write(guardrails.GHOSTTY_KIT, self.manifest(self.NEW))
+        self.git("add", guardrails.GHOSTTY_KIT)
+        self.gitlink(self.NEW, "bump both")
+        self.assertIsNone(self.problem())
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.gitlink(self.OLD, "mismatch landed by someone else")
+        self.base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{KIT}/Unrelated.swift", "struct Unrelated {}\n")
+        self.commit("an unrelated push on a mismatched base")
+        self.assertIsNone(self.problem())
+
+    def test_it_runs_under_a_fifth_of_a_second(self):
+        self.gitlink(self.NEW, "bump the gitlink only")
+        started = time.monotonic()
+        self.problem()
+        self.assertLess(time.monotonic() - started, 0.2)
 
 
 class WarningTests(Fixture):

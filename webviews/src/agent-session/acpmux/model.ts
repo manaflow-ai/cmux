@@ -12,7 +12,7 @@ import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMes
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW, WORKFLOW_CARD } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
@@ -208,6 +208,9 @@ export type AcpmuxRow = {
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
+  /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
+  /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
+  viaCli?: string;
   /// The originating prompt row, so Retry can restore image/PDF attachments.
   retryRowId?: string;
   /// A turn footer's answer row (turns.ts), whose right-click menu the footer's More opens.
@@ -943,6 +946,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
   // subagent, the last with the list's 8px below (subagents/SubagentGroup.tsx).
   if (row.kind === SUBAGENTS) return finish(56);
+  // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
+  if (row.kind === WORKFLOW_CARD) return finish(86);
   if (row.kind === SUBAGENT_ROW) return finish(row.status === "last" || row.status === "only" ? 56 : 48);
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return finish(44);

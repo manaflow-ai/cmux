@@ -327,7 +327,7 @@ extension WebKitTab: WKScriptMessageHandler {
         // Entering hides the chrome: only in answer to the user (a script
         // could otherwise hide the address bar and draw a fake one).
         if on, !((webView as? WebKitWebView)?.hadRecentUserInput() ?? false) {
-            webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+            WebKitGestureFreeEvaluation(webView: webView).run(PaneFullscreenScript.exitScript, in: .page)
             return
         }
         apply(.contentFullscreenChanged(on))

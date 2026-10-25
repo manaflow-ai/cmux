@@ -46,7 +46,7 @@ export default settingsPageEntry({
       base,
       "A current server: Running, its version line, the local socket, the Tailscale address with Pair and Copy.",
     ),
-    restartRecommended: variant(
+    "restart-recommended": variant(
       {
         ...base,
         servers: [
