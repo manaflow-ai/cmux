@@ -35,6 +35,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STEER,
     method::MUX_BRIEFS,
     method::MUX_REPORT,
+    // The broker chooses its configured owner peer explicitly; it must not
+    // bounce through a session prefix or follow a remote chat by accident.
+    method::MUX_GITHUB_ACTION,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,

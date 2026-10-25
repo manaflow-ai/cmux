@@ -1,0 +1,28 @@
+{
+  "enabled": false,
+  "peerId": "gcp-agent-lane-1",
+  "peerSecret": "REPLACE_WITH_LANE_ONLY_RANDOM_SECRET",
+  "peerSecrets": {
+    "gcp-agent-lane-1": "REPLACE_WITH_OWNER_ONLY_RANDOM_SECRET"
+  },
+  "sessions": {
+    "REPLACE_WITH_EXACT_ACPMUX_SESSION_ID": {
+      "peer": "gcp-agent-lane-1",
+      "repos": {
+        "manaflow-ai/cmux": {
+          "actions": [
+            "read",
+            "issue",
+            "comment",
+            "draft_pr",
+            "push"
+          ],
+          "branchPrefixes": [
+            "agent/",
+            "codex/"
+          ]
+        }
+      }
+    }
+  }
+}

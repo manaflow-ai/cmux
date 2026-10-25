@@ -832,6 +832,38 @@ picking one starts the session there. Peers reconnect with backoff, the tunnel i
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
+### Owner-side GitHub broker
+
+The optional `_acpmux/github_action` extension lets a lane ask a configured owner peer to run a
+small fixed set of GitHub actions. The lane sends a session id, repository, action and (when
+needed) a branch; it never receives a GitHub token. The owner runs its local `gh` keyring, checks
+the exact session's policy and branch prefixes, and records a redacted `github_broker_action`
+event. The setting is off by default. `src/bin/gh.rs` is the peer's small `gh` shim; unsupported
+commands, merges, administration, settings and secrets fail closed. Start from
+[`docs/github-broker-policy.example.json`](docs/github-broker-policy.example.json), replace the
+placeholder session id, and set `ownerPeer` on the lane daemon only after the owner has reviewed
+the policy. Grants are exact session ids; the template has no wildcard grant. Forwarded requests
+also carry a per-peer HMAC capability checked against the owner policy file, while the existing
+launch-wide peer token remains the transport channel proof.
+Set the lane's `peerId` and `peerSecret` in its local config, and put the matching `peerSecrets`
+entry only in the owner's mode-0600 policy file. Each request carries a signed `issuedAt`: the
+owner refuses one more than 120 s from its own clock and remembers its `requestId` for twice that,
+so a captured request can be neither replayed nor outlived by the id that would refuse it. The
+current `push` action updates an already
+available GitHub commit ref through the owner; it does not transfer a lane's local git objects, so
+ordinary `git push` remains a follow-up transport and must not be enabled as a credential helper.
+It creates a ref and fails if the branch already exists, so a brokered action can never move a
+branch someone else is working on.
+Each session names the one lane `peerId` that may act for it: a lane's capability secret proves
+which lane sent a request, never which session it may borrow, and a session with no `peer` takes
+no forwarded request at all. The shim builds as `acpmux-gh`, never as `gh`, so nothing on a
+developer's or the owner's `PATH` is shadowed; a lane that wants the drop-in name symlinks it
+(`ln -s acpmux-gh ~/.local/bin/gh`). The owner daemon marks the `gh` it spawns, and the shim
+refuses to start when it sees that mark, so the shim can never be what the owner ends up calling.
+The policy file is read through an `O_NOFOLLOW` descriptor whose uid and mode are checked on the
+descriptor itself; where that check cannot be made the broker refuses the file rather than read it
+unchecked.
+
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment
 (`$SHELL -l -i -c env -0`, no terminal, at most 3 s) and passes on only an allow-list of what its
