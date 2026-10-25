@@ -49,8 +49,8 @@ nonisolated struct AgentPaneReplyPaths {
         var roots: [String]
         /// The folder acpmux reported for the chat's session, when the pane has it.
         var session: String?
-        /// The pane's workspace root (``AgentPaneModel/primaryRoot()``).
-        var primary: String?
+        /// The pane's workspace root, chosen with the rest (``AgentPaneModel/primaryRoot()``).
+        var primary: AgentPanePrimaryRoot
         var home: String
     }
 
@@ -60,7 +60,7 @@ nonisolated struct AgentPaneReplyPaths {
     init(_ scope: Scope) {
         let home = AcpmuxPathPolicy.canonical(NSHomeDirectory()) ?? NSHomeDirectory()
         let session = scope.session.flatMap(AcpmuxPathPolicy.canonical).flatMap { $0 != "/" && $0 != home ? $0 : nil }
-        let base = session ?? scope.primary
+        let base = session ?? scope.primary.resolve()
         guard scope.local else {
             self.init(roots: [], imageRoots: [], home: scope.home, base: nil)
             return

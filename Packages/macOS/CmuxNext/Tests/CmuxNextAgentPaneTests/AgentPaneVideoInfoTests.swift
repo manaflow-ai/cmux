@@ -237,11 +237,13 @@ struct AgentPaneVideoInfoTests {
         for dir in [worktree, home] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         let clip = worktree.appendingPathComponent("demo.mp4")
         try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
-        let model = AgentPaneModel(host: NoHost(), sessionId: "s")
+        let model = AgentPaneModel(host: NoHost())
         model.replyLinks.home = home.path
         model.transport.sessions.observeFolder(["result": ["session": ["sessionId": "s", "cwd": worktree.path]]], replyTo: "_acpmux/attach")
 
-        // The folder acpmux reported is the chat's only when the pane has the session.
+        // The folder acpmux reported is the chat's only once the pane shows that session and has it.
+        #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+        model.adoptSession("s")
         #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
         model.transport.sessions.add("s")
         let scope = model.replyPathScope()
@@ -254,11 +256,18 @@ struct AgentPaneVideoInfoTests {
         #expect(model.replyPaths().roots.contains(canonical))
         #expect(model.replyPaths().base == canonical)
         // Never `/` or the home folder as a root (`sessionRoots`): the workspace's root is the base then.
+        let workspace = AgentPanePrimaryRoot(answered: true, candidates: ["/w"])
         for cwd in ["/", NSHomeDirectory()] {
-            let paths = AgentPaneReplyPaths(.init(local: true, roots: [], session: cwd, primary: "/w", home: home.path))
+            let paths = AgentPaneReplyPaths(.init(local: true, roots: [], session: cwd, primary: workspace, home: home.path))
             #expect(paths.roots.isEmpty && paths.base == "/w", "\(cwd)")
         }
-        #expect(AgentPaneReplyPaths(.init(local: false, roots: [worktree.path], session: worktree.path, primary: "/w", home: home.path)).roots.isEmpty)
+        #expect(AgentPaneReplyPaths(.init(local: false, roots: [worktree.path], session: worktree.path, primary: workspace, home: home.path)).roots.isEmpty)
+        // The workspace root is chosen as `primaryRoot()` chose it: never home or above, nor an agent-home folder.
+        let agentHome = AgentHome(base: folder.appendingPathComponent("agent-home").path)
+        let choice = AgentPanePrimaryRoot(answered: false, candidates: ["/", home.path, agentHome.base + "/w1", worktree.path],
+                                          home: home.path, agentHome: agentHome)
+        #expect(choice.resolve() == worktree.path)
+        #expect(AgentPanePrimaryRoot(answered: true, candidates: []).resolve() == nil)
     }
 
     @Test func theRequestsTakeOnlyTheirSource() {

@@ -123,7 +123,7 @@ extension AgentPaneModel {
         // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
         // roots as a fallback: a same-named local file must not be read or opened here.
         return AgentPaneReplyPaths.Scope(local: !remoteChat, roots: roots() + transport.addedRoots, session: session,
-                                         primary: primaryRoot(), home: replyLinks.home)
+                                         primary: primaryRootChoice(), home: replyLinks.home)
     }
 
     /// The reply for one reply link request.
