@@ -2322,6 +2322,29 @@ export function VirtualTranscript({
     });
   }, [rows]);
   useLayoutEffect(flushDrawn);
+  // Minimal Mode draws another agent's closed message as its line alone (IncomingMessageCard.tsx):
+  // a toggle forgets those rows' drawn heights, so rows offscreen place by the new estimate instead of
+  // their old card's height, and marks them changed so the placement starts from the first of them.
+  // One pass over the rows, on the toggle only; a mounted row reports its new height as usual.
+  const drawnMinimal = useRef(chatLook.minimal);
+  useLayoutEffect(() => {
+    if (drawnMinimal.current === chatLook.minimal) return;
+    drawnMinimal.current = chatLook.minimal;
+    const incoming = new Set<string>();
+    for (const row of rowsRef.current) if (row.incoming?.kind === "message") incoming.add(row.id);
+    if (!incoming.size) return;
+    for (const id of incoming) pendingDrawn.current.delete(id);
+    setDrawn((current) => {
+      let next: Map<string, DrawnHeight> | undefined;
+      for (const id of incoming) {
+        if (!current.has(id)) continue;
+        next ??= new Map(current);
+        next.delete(id);
+        changedDrawn.current.add(id);
+      }
+      return next ?? current;
+    });
+  }, [chatLook.minimal]);
   const didOpenAtLatest = useRef(false);
   /// The open waits, unseen, while older pages bring back `openAt`'s row; expired, it opens at the latest.
   const [seeking, setSeeking] = useState(false);

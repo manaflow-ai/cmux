@@ -134,3 +134,26 @@ test("turning Minimal Mode off draws the closed message's card again", async () 
   expect(host.querySelector(".cv-received__preview")).toBeNull();
   expect(host.querySelector(".cv-received__body")?.textContent).toContain("The retry tests pass.");
 });
+
+test("the line opens with no fade-in, its height alone moving; closing fades out", async () => {
+  const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
+  const motion = { ...foldMotion };
+  const proto = dom.window.HTMLElement.prototype as unknown as { animate?: unknown };
+  const frames: Keyframe[][] = [];
+  proto.animate = (keyframes: Keyframe[]) => {
+    frames.push(keyframes);
+    return { onfinish: null, oncancel: null, cancel() {} };
+  };
+  Object.assign(foldMotion, { duration: () => 180, reducedMotion: () => false });
+  try {
+    setChatDisplay({ [MINIMAL_MODE_KEY]: true });
+    const { toggle } = await line("minimal-3");
+    await act(async () => toggle().click());
+    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 1]);
+    await act(async () => toggle().click());
+    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
+  } finally {
+    delete proto.animate;
+    Object.assign(foldMotion, motion);
+  }
+});

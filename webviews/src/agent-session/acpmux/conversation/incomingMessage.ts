@@ -78,18 +78,106 @@ function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "
   return { sessionId: from.slice(4), msgId: last.msgId, ...threadId };
 }
 
-/// The message's first line of text as it reads, its spaces collapsed and its Markdown marks
-/// (a heading's or quote's or list item's lead, emphasis, code ticks, a link's target) dropped: the
-/// closed line's preview (IncomingMessageCard.tsx in Minimal Mode).
+/// The message's first line of text as it reads: the closed line's preview (IncomingMessageCard.tsx
+/// in Minimal Mode). Its spaces are collapsed and its Markdown marks dropped: a heading's, quote's or
+/// list item's lead, emphasis and code ticks, a link's target and title (inline, with parentheses in
+/// it, or by reference), an image's address. A line of marks alone (a lone `>`) and a reference
+/// link's definition are no text; a code fence's marker line (```ts) is skipped and its first code
+/// line read as written.
 export function messagePreview(text: string): string {
-  const line = text.split("\n").find((part) => part.trim()) ?? "";
-  return line
-    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "")
-    .replace(/!?\[([^\]\n]*)\]\([^)\s]*\)/g, "$1")
-    .replace(/(\*\*|__|`)/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 240);
+  let fenced = false;
+  for (const raw of text.split("\n")) {
+    if (FENCE.test(raw)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) {
+      if (raw.trim()) return clip(raw);
+      continue;
+    }
+    if (LINK_DEFINITION.test(raw)) continue;
+    const line = inlineText(raw.replace(LINE_LEAD, ""));
+    if (line) return clip(line);
+  }
+  return "";
+}
+
+/// A code fence's marker line: three or more backticks or tildes, an info string after them.
+const FENCE = /^\s{0,3}(?:`{3,}|~{3,})/;
+/// A reference link's definition: `[id]: https://… "title"`.
+const LINK_DEFINITION = /^\s{0,3}\[[^\]\n]+\]:\s*\S/;
+/// A line's leading marks, nested: quotes, a heading, a list item (with a task box).
+const LINE_LEAD = /^(?:\s*(?:>\s?|#{1,6}(?:\s+|$)|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+))+/;
+
+/// A line's words without inline Markdown: links and images read as their labels, emphasis and code
+/// ticks dropped.
+function inlineText(line: string): string {
+  return withoutLinks(line)
+    .replace(/<((?:https?|mailto):[^>\s]+)>/g, "$1")
+    .replace(/(\*\*|__|~~|`)/g, "")
+    .trim();
+}
+
+/// `line` with each link and image as its label: `[label](url "title")`, a URL with balanced
+/// parentheses in it, `[label][id]` and `[label][]`.
+function withoutLinks(line: string): string {
+  let out = "";
+  let at = 0;
+  while (at < line.length) {
+    const open = line.indexOf("[", at);
+    if (open < 0) break;
+    const close = labelEnd(line, open);
+    if (close < 0) break;
+    const after = linkEnd(line, close + 1);
+    if (after < 0) {
+      out += line.slice(at, close + 1);
+      at = close + 1;
+      continue;
+    }
+    const image = open > at && line[open - 1] === "!";
+    out += line.slice(at, image ? open - 1 : open) + line.slice(open + 1, close);
+    at = after;
+  }
+  return out + line.slice(at);
+}
+
+/// The index of the `]` that closes the label opened at `open`, nested brackets counted; -1 if none.
+function labelEnd(line: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (char === "[") depth += 1;
+    else if (char === "]" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+/// Where a link's target that starts at `from` ends: past `(url "title")`, its parentheses balanced,
+/// or past `[id]`; -1 when none starts there.
+function linkEnd(line: string, from: number): number {
+  if (line[from] === "[") {
+    const close = line.indexOf("]", from);
+    return close < 0 ? -1 : close + 1;
+  }
+  if (line[from] !== "(") return -1;
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = from; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (quote) {
+      if (char === quote) quote = undefined;
+    } else if (char === '"' && depth === 1) quote = char;
+    else if (char === "(") depth += 1;
+    else if (char === ")" && --depth === 0) return index + 1;
+  }
+  return -1;
+}
+
+/// A preview's spaces collapsed, at most 240 characters.
+function clip(line: string): string {
+  return line.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 /// `text` without a signature naming `name` first (`[coord-deputy] Merged`, `From coord-deputy:

@@ -152,7 +152,8 @@ export function IncomingMessageLine({
   }, [body, minimal]);
   // Minimal Mode: closed, the line alone with the first line of the text; open, today's card.
   // Only Minimal Mode's card folds: the normal card is drawn whatever `open` is.
-  const collapse = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal });
+  // It opens with no fade-in, its height alone moving; closing fades out (fold.ts).
+  const collapse = useAnchoredCollapse({ open, onOpenChange: show, animates: () => minimal, fadeIn: false });
   const { headerRef } = collapse;
   const toggleRef = useCallback(
     (node: HTMLButtonElement | null) => {
@@ -341,7 +342,7 @@ export function IncomingMessageLine({
           {reply === "failed" && <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>}
         </div>
       )}
-      {reply === "sent" && <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>}
+      {!folded && reply === "sent" && <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>}
       {!folded && images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
     </div>
   );
