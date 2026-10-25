@@ -827,6 +827,9 @@ impl Hub {
             params = json!({});
         }
         params["sessionId"] = Value::String(sid);
+        let asked_mode = (m == method::SESSION_SET_MODE)
+            .then(|| params.get("modeId").and_then(Value::as_str).map(str::to_owned))
+            .flatten();
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -847,6 +850,8 @@ impl Hub {
         };
         match m {
             method::SESSION_SET_MODE => {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+                    asked_mode;
                 if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {
                     self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
                 }

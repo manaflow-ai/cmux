@@ -294,6 +294,14 @@ impl Hub {
             } else if let Err(e) = self.set_mode(probe, &mode).await {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
             }
+            // Granted for the parent's full access, which its harness may only have claimed: the
+            // child's mode is cmux's own (`trust_wait.rs`) only when the parent's is, then and now.
+            if !super::trust_wait::full_access_by_cmux(pm)
+                || !super::trust_wait::full_access_by_cmux(&parent.meta())
+            {
+                probe.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
+                self.save_meta(probe);
+            }
         }
         self.hold_subsession(pm, probe).await
     }
