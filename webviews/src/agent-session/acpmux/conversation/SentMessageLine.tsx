@@ -9,15 +9,7 @@
 // target opens its chat beside this one when the session list knows it (by id, or by `name`,
 // `host/name` or `host:name`); otherwise it is plain text. A shell call that also ran other
 // commands says so ("· and 2 more commands"), its whole command behind Raw: no work is hidden.
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  useContext,
-  useId,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { type KeyboardEvent, type ReactNode, useContext, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCall, SendState } from "./acpmuxSends";

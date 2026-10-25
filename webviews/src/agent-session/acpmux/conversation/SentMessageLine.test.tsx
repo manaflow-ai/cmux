@@ -157,7 +157,7 @@ test("a compound command's send says the other work, which stays behind Raw", as
     }),
   );
   const row = container.querySelector<HTMLElement>(".cv-sent")!;
-  expect(row.textContent).toBe("Sent message to coord-deputy · and 2 more commandsRestore base.");
+  expect(row.textContent).toBe("Sent message to coord-deputy · queued · and 2 more commandsRestore base.");
   await act(async () => row.click());
   await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
   expect(container.querySelector(".cv-shell")?.textContent).toContain("git fetch -q");
