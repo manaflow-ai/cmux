@@ -493,3 +493,82 @@ async fn a_lane_that_moves_away_and_back_keeps_its_task() {
     });
     assert_eq!(cards.count(), 0, "{page}");
 }
+
+/// A daemon started on `root` (a file store) with `cfg`'s fake harness; `list_fails` makes its
+/// session list fail ([`ListFails`]).
+fn hub_at(root: &Path, list_fails: bool) -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let store = acpmux::store::open(&cfg.store, root).unwrap();
+    let store: Box<dyn acpmux::store::Store> =
+        if list_fails { Box::new(ListFails(store)) } else { store };
+    Hub::new(cfg, store)
+}
+
+/// The ledger row of task `id` as saved beside the store at `root`.
+fn saved_task(root: &Path, id: &str) -> Value {
+    let rows: Value =
+        serde_json::from_slice(&std::fs::read(root.join("briefs.json")).unwrap()).unwrap();
+    rows[id].clone()
+}
+
+/// A lane that moved away is still not ended after the daemon it left restarts: deleting its
+/// closed copy there orphans nothing (the move is read from the log, not from memory).
+#[tokio::test]
+async fn deleting_a_moved_lanes_copy_after_a_restart_keeps_its_task() {
+    let root = std::env::temp_dir().join(format!("acpmux-orphan-moved-{}", uuid::Uuid::now_v7()));
+    let (here, there) = (hub_at(&root, false), hub());
+    let (mut person, mut other) = (Client::open(&here), Client::open(&there));
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let given = Client::in_session(&here, &coordinator)
+        .await
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Keep going"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    move_chat(&mut person, &mut other, &lane).await;
+
+    let restarted = hub_at(&root, false);
+    Client::open(&restarted).call("session/delete", json!({"sessionId": lane})).await;
+    assert_eq!(saved_task(&root, &id)["status"], "running", "{}", saved_task(&root, &id));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An orphan card a crash left owed waits for its giver: a start that could not list its
+/// sessions keeps it owed, and the next start with the giver loaded sends it.
+#[tokio::test]
+async fn an_owed_orphan_card_waits_for_a_start_that_loads_its_giver() {
+    let root = std::env::temp_dir().join(format!("acpmux-orphan-owed-{}", uuid::Uuid::now_v7()));
+    let first = hub_at(&root, false);
+    let mut person = Client::open(&first);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let given = Client::in_session(&first, &coordinator)
+        .await
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Keep going"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    person.call("session/close", json!({"sessionId": lane})).await;
+    person.prompts(&coordinator, &format!("task-result-{id}"), 1).await;
+    // As a crash between the ledger write and the card leaves it.
+    let path = root.join("briefs.json");
+    let mut rows: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    rows[&id]["result"]["cardOwed"] = json!(true);
+    std::fs::write(&path, serde_json::to_vec(&rows).unwrap()).unwrap();
+
+    let _blind = hub_at(&root, true);
+    let row = saved_task(&root, &id);
+    assert_eq!(row["result"]["cardOwed"], true, "{row}");
+    assert!(row["result"].get("undelivered").is_none(), "{row}");
+
+    // The next start, with the giver loaded, takes the mark and sends the card.
+    let _next = hub_at(&root, false);
+    let row = saved_task(&root, &id);
+    assert!(row["result"].get("cardOwed").is_none(), "{row}");
+    let _ = std::fs::remove_dir_all(&root);
+}
