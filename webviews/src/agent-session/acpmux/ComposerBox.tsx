@@ -45,6 +45,8 @@ export type ComposerBoxProps = {
   /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
   onCancelAttachment?(id: string): void;
   onRetryAttachment?(id: string): void;
+  /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
+  onPasteFile?(file: File): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -94,6 +96,7 @@ export function ComposerBox({
   onRemoveAttachment,
   onCancelAttachment,
   onRetryAttachment,
+  onPasteFile,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -127,7 +130,7 @@ export function ComposerBox({
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt);
+  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);

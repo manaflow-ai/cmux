@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { PASTE_FILE_CHARS } from "./pastedText";
 import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages, withoutMarkdownImages } from "./inlineImages";
@@ -517,7 +518,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               paste: (editorView, event) => {
                 const data = event.clipboardData;
                 if (!data) return false;
-                const lifted = liftInlineImages(data.getData("text/plain"));
+                // Text past what a prompt carries goes to the surface whole, before anything reads
+                // or parses it (ProseMirror would lay out every line of it first): the composer
+                // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
+                const whole = data.getData("text/plain");
+                if (whole.length > PASTE_FILE_CHARS && !data.files.length) {
+                  event.preventDefault();
+                  beforeInput(editorView, whole, true);
+                  return true;
+                }
+                const lifted = liftInlineImages(whole);
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
                 event.preventDefault();
