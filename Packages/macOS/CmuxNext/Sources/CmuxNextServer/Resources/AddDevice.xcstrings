@@ -6420,6 +6420,530 @@
         }
       }
     },
+    "devices.fullAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full access"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وصول كامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puni pristup"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuld adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriff"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acceso total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accesso completo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルアクセス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិទ្ធិចូលពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 접근"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pełny dostęp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acesso total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный доступ"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เข้าถึงเต็มรูปแบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam erişim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повний доступ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toàn quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全访问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整存取"
+          }
+        }
+      }
+    },
+    "devices.fullAccessHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets %@ run chats in Full access: the agent edits files and runs commands on this Mac without asking."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يسمح لـ %@ بتشغيل المحادثات في وضع الوصول الكامل: يعدّل الوكيل الملفات ويشغّل الأوامر على هذا الـ Mac دون أن يسأل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoljava da %@ pokreće razgovore s punim pristupom: agent mijenja datoteke i pokreće naredbe na ovom Macu bez pitanja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lader %@ køre chats med fuld adgang: agenten redigerer filer og kører kommandoer på denne Mac uden at spørge."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt %@, Chats mit Vollzugriff auszuführen: Der Agent bearbeitet Dateien und führt Befehle auf diesem Mac aus, ohne zu fragen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que %@ ejecute chats con acceso total: el agente edita archivos y ejecuta comandos en este Mac sin preguntar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet à %@ de lancer des discussions en accès complet : l’agent modifie des fichiers et exécute des commandes sur ce Mac sans demander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente a %@ di avviare chat con accesso completo: l’agente modifica file ed esegue comandi su questo Mac senza chiedere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がフルアクセスでチャットを実行できるようにします。エージェントは確認せずにこの Mac 上のファイルを編集し、コマンドを実行します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យ %@ ដំណើរការការជជែកដោយសិទ្ធិចូលពេញលេញ៖ ភ្នាក់ងារកែសម្រួលឯកសារ និងដំណើរការពាក្យបញ្ជានៅលើ Mac នេះដោយមិនសួរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 전체 접근으로 채팅을 실행할 수 있게 합니다. 에이전트가 묻지 않고 이 Mac에서 파일을 편집하고 명령을 실행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lar %@ kjøre chatter med full tilgang: agenten redigerer filer og kjører kommandoer på denne Macen uten å spørre."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwala urządzeniu %@ prowadzić czaty z pełnym dostępem: agent edytuje pliki i uruchamia polecenia na tym Macu bez pytania."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que %@ execute chats com acesso total: o agente edita arquivos e executa comandos neste Mac sem perguntar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позволяет %@ запускать чаты с полным доступом: агент редактирует файлы и выполняет команды на этом Mac, не спрашивая."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้ %@ เรียกใช้แชตแบบเข้าถึงเต็มรูปแบบ: เอเจนต์จะแก้ไขไฟล์และเรียกใช้คำสั่งบน Mac เครื่องนี้โดยไม่ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cihazının sohbetleri tam erişimle çalıştırmasına izin verir: ajan bu Mac’te sormadan dosyaları düzenler ve komutları çalıştırır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволяє %@ запускати чати з повним доступом: агент редагує файли й виконує команди на цьому Mac, не питаючи."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép %@ chạy trò chuyện với toàn quyền: tác tử sửa tệp và chạy lệnh trên máy Mac này mà không hỏi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许 %@ 以完全访问运行聊天：代理会在这台 Mac 上编辑文件并运行命令，不再询问。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許 %@ 以完整存取執行聊天：代理會在這台 Mac 上編輯檔案並執行指令，不再詢問。"
+          }
+        }
+      }
+    },
+    "devices.fullAccessOnFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full access is still off. This Mac could not confirm the change came from you."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يزال الوصول الكامل متوقفًا. تعذّر على هذا الـ Mac التأكد من أن التغيير جاء منك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puni pristup je i dalje isključen. Ovaj Mac nije mogao potvrditi da promjena dolazi od vas."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuld adgang er stadig slået fra. Denne Mac kunne ikke bekræfte, at ændringen kom fra dig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriff ist weiterhin aus. Dieser Mac konnte nicht bestätigen, dass die Änderung von dir kam."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El acceso total sigue desactivado. Este Mac no pudo confirmar que el cambio lo hiciste tú."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accès complet reste désactivé. Ce Mac n’a pas pu confirmer que la modification venait de vous."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’accesso completo è ancora disattivato. Questo Mac non ha potuto confermare che la modifica venga da te."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルアクセスはオフのままです。この変更があなたによるものだと、この Mac で確認できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សិទ្ធិចូលពេញលេញនៅតែបិទ។ Mac នេះមិនអាចបញ្ជាក់ថាការផ្លាស់ប្ដូរនេះមកពីអ្នកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 접근이 여전히 꺼져 있습니다. 이 Mac에서 변경을 요청한 사람이 본인인지 확인하지 못했습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full tilgang er fortsatt av. Denne Macen kunne ikke bekrefte at endringen kom fra deg."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pełny dostęp jest nadal wyłączony. Ten Mac nie mógł potwierdzić, że zmiana pochodzi od Ciebie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O acesso total continua desativado. Este Mac não conseguiu confirmar que a alteração veio de você."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Полный доступ всё ещё выключен. Этот Mac не смог подтвердить, что изменение сделали вы."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเข้าถึงเต็มรูปแบบยังปิดอยู่ Mac เครื่องนี้ยืนยันไม่ได้ว่าการเปลี่ยนแปลงมาจากคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam erişim hâlâ kapalı. Bu Mac, değişikliğin sizden geldiğini doğrulayamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Повний доступ досі вимкнено. Цей Mac не зміг підтвердити, що зміну зробили ви."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toàn quyền vẫn đang tắt. Máy Mac này không xác nhận được thay đổi đến từ bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完全访问仍为关闭。这台 Mac 无法确认此更改来自你本人。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整存取仍為關閉。這台 Mac 無法確認此變更來自你本人。"
+          }
+        }
+      }
+    },
+    "devices.fullAccessOffFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full access could not be turned off. Try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إيقاف الوصول الكامل. حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Puni pristup nije moguće isključiti. Pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuld adgang kunne ikke slås fra. Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriff konnte nicht ausgeschaltet werden. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo desactivar el acceso total. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de désactiver l’accès complet. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile disattivare l’accesso completo. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルアクセスをオフにできませんでした。もう一度お試しください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចបិទសិទ្ធិចូលពេញលេញបានទេ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 접근을 끌 수 없습니다. 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full tilgang kunne ikke slås av. Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się wyłączyć pełnego dostępu. Spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível desativar o acesso total. Tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось выключить полный доступ. Попробуйте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดการเข้าถึงเต็มรูปแบบไม่ได้ ลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam erişim kapatılamadı. Yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося вимкнути повний доступ. Спробуйте ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể tắt toàn quyền. Hãy thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法关闭完全访问。请重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法關閉完整存取。請再試一次。"
+          }
+        }
+      }
+    },
     "devices.activity": {
       "extractionState": "manual",
       "localizations": {
