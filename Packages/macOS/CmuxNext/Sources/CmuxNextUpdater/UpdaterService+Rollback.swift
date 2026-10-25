@@ -70,10 +70,11 @@ extension UpdaterService {
     }
 
     /// Sparkle is about to replace the running bundle. The bundle was kept
-    /// when the update staged; only a keep that never ran or failed runs
-    /// here (a quit that installs an update staged before this launch).
+    /// when the update staged; a keep that never ran, failed, or is still
+    /// running (quit's 250 ms drain cut it off) runs here, so the install
+    /// never goes ahead without a kept bundle.
     public func updaterWillInstallUpdate(build: String) {
-        guard keptRunningBuild == nil else { return }
+        guard keptRunningBuild != .kept else { return }
         do {
             try keptVersions.keep(bundle: Bundle.main.bundleURL, build: identity.build, limit: preferences.keepPreviousVersions)
             log.append("kept \(identity.build) for rollback before installing \(build)")

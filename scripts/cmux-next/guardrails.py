@@ -1658,20 +1658,32 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
                          if code_of(line).strip()), "")
         if not re.search(r"\bTask\s*$", previous):
             return False, []  # `.detached` of something else
-    text = "\n".join([code[match.start():]] + [code_of(line) for line in
-                                               version.lines[index + 1:index + TASK_ARGS_MAX_LINES]])
+    text = code[match.start():]
     opened = TASK_OPEN.match(text)
+    following = iter(version.lines[index + 1:index + TASK_ARGS_MAX_LINES])
+    while opened is None and not text[match.end() - match.start():].strip():
+        line = next(following, None)  # the call's `(` or `{` is on a later line
+        if line is None:
+            break
+        text += "\n" + code_of(line)
+        opened = TASK_OPEN.match(text)
     if opened is None:
         return False, []  # a reference (`DispatchQueue.global` passed on), not a call
     if opened.group(1) == "{":
         return True, []  # a trailing closure only: nothing stated
-    depth = 0
-    for i in range(opened.start(1), len(text)):
-        depth += text[i] == "("
-        depth -= text[i] == ")"
-        if depth == 0:
-            args = text[opened.start(1):i + 1]
-            return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
+    depth, start = 0, opened.start(1)
+    while True:
+        for i in range(start, len(text)):
+            depth += text[i] == "("
+            depth -= text[i] == ")"
+            if depth == 0:
+                args = text[opened.start(1):i + 1]
+                return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
+        line = next(following, None)  # read on only while the parenthesis is open
+        if line is None:
+            break
+        start = len(text) + 1
+        text += "\n" + code_of(line)
     args = text[opened.start(1):]
     return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
 
