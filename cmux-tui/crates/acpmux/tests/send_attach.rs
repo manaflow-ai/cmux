@@ -336,7 +336,8 @@ async fn a_queued_message_withdrawn_before_it_runs_keeps_none() {
     let prompt = |id: &str, text: &str, files: Vec<Value>| {
         let mut blocks = vec![json!({"type": "text", "text": text})];
         blocks.extend(files);
-        let p = json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": id}}});
+        let p =
+            json!({"sessionId": session, "prompt": blocks, "_meta": {"acpmux": {"promptId": id}}});
         Message::request(json!(id), method::SESSION_PROMPT, p).to_line()
     };
     c.0.send(prompt("busy", "until-cancel", vec![])).await.unwrap();
@@ -344,7 +345,8 @@ async fn a_queued_message_withdrawn_before_it_runs_keeps_none() {
     c.0.send(prompt("kept", "later", vec![image("kept.png", &kept)])).await.unwrap();
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
-        let page = q.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queued"]})).await;
+        let page =
+            q.call("_acpmux/events", json!({"sessionId": session, "kinds": ["queued"]})).await;
         if page["result"]["events"].as_array().is_some_and(|e| e.len() == 2) {
             break;
         }
