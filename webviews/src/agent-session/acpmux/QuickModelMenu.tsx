@@ -737,7 +737,8 @@ function QuickRowLabel({ label, value }: { label: string; value?: string }) {
 }
 
 /// The Account submenu: the harness's own login (the chat's default binding), then each route
-/// that serves this chat. A chat bound by its workspace or family checks that route, and CLI login
+/// for a direct account serving this chat, plus its current binding when that is a transport or
+/// an older route without a kind. A chat bound by its workspace or family checks that route, and CLI login
 /// is disabled: unbinding the chat would leave it on that route. With no routes it says how to add
 /// one; a switch acpmux refused says so first.
 function AccountRows({
@@ -766,6 +767,11 @@ function AccountRows({
     );
   // "" is the harness login: the chat follows its default binding, or none.
   const value = list.active ?? "";
+  // The session-scoped list has already removed other harness families. Proxies and routers are
+  // transports, not more logins; keep the current binding so the checked row remains truthful.
+  const choices = list.accounts.filter(
+    (choice) => choice.kind === "direct-subscription" || choice.kind === "direct-api-key" || choice.id === list.active,
+  );
   return (
     <>
       {refused}
@@ -779,13 +785,13 @@ function AccountRows({
         >
           <span className="acpmux-menu-label">{t("picker.harnessLogin")}</span>
         </MenuRadioItem>
-        {list.accounts.map((choice) => (
+        {choices.map((choice) => (
           <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
             <span className="acpmux-menu-label">{choice.name}</span>
           </MenuRadioItem>
         ))}
       </MenuRadioGroup>
-      {list.accounts.length === 0 && (
+      {choices.length === 0 && (
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {t("picker.accountHint")}
         </MenuItem>

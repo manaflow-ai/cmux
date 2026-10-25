@@ -359,6 +359,48 @@ test("Account lists the routes that serve this chat and switches to one", async 
   expect(sent).toEqual([{ method: "route", value: "work" }]);
 });
 
+test("Account lists this harness's direct accounts without transport variants", async () => {
+  const { sent } = await mount({
+    routes: [
+      { id: "work", name: "Work Max", kind: "direct-subscription", serves: true },
+      { id: "key", name: "Work API key", kind: "direct-api-key", serves: true },
+      { id: "codex", name: "Codex account", kind: "direct-subscription", serves: false },
+      ...["subrouter", "cliproxyapi", "custom-anthropic", "custom-openai", "local-coderouter", "cmux-router"].map(
+        (kind) => ({ id: kind, name: kind, kind, serves: true }),
+      ),
+      { id: "legacy", name: "Unbound legacy route", serves: true },
+    ],
+    family: "claude",
+  });
+  await open();
+  const account = await openSub("Account");
+  expect(itemsOf(account)).toEqual(["CLI login", "Work Max", "Work API key"]);
+  const key = [...account.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+    (item) => item.textContent?.trim() === "Work API key",
+  )!;
+  await act(async () => key.click());
+  await settle();
+  expect(sent).toEqual([{ method: "route", value: "key" }]);
+});
+
+test("Account preserves the selected legacy route while hiding other unknown routes", async () => {
+  await mount({
+    routes: [
+      { id: "bound", name: "Selected account", serves: true },
+      { id: "other", name: "Other legacy route", serves: true },
+      { id: "proxy", name: "Proxy transport", kind: "subrouter", serves: true },
+    ],
+    active: { routeId: "bound", scope: "chat" },
+  });
+  await open();
+  expect(itemsOf(menu()!)).toContain("AccountSelected account");
+  const account = await openSub("Account");
+  expect(itemsOf(account)).toEqual(["CLI login", "Selected account"]);
+  expect(account.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain(
+    "Selected account",
+  );
+});
+
 test("with no routes, Account offers the CLI login and says how to add one", async () => {
   await mount({ routes: [] });
   await open();
@@ -644,7 +686,7 @@ test("a raw model id is named as people say it, and an unresolved effort draws n
 
 test("a switch acpmux refuses is named on the Account row", async () => {
   const { sent } = await mount(
-    { routes: [{ id: "work", name: "Work Max", serves: true }], family: "claude" },
+    { routes: [{ id: "work", name: "Work Max", kind: "direct-subscription", serves: true }], family: "claude" },
     { refuse: true },
   );
   await open();
