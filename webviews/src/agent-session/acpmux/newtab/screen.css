@@ -552,6 +552,13 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    pane), so the New Tab composer is as wide as the chat composer in the same pane (Leo 2026-10-21). */
 /* The quiet row sits 4 px under the box (the column gap is 6). */
 .nt-foot .acpmux-composer-foot { margin-top: -2px; }
+/* New Tab's quiet row puts the model first and the mode last: the model on the left, the mode on the
+   right (the chat's row has them the other way round, composerLocation.css). */
+.nt-foot .acpmux-composer-foot .acpmux-access {
+  order: 1;
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+}
 /* The stage layout (templates.ts stage; Leo 2026-10-19, Claude Code desktop's new-session screen):
    the composer at the foot of the page, full width of the column; over it the stage, which scrolls
    on its own and centers its cards in the free space, so a list growing or a chat landing never

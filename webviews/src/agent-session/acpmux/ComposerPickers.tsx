@@ -1169,7 +1169,8 @@ function AccessMenu({
         </MenuButton>
         <MenuPopup
           side={newTab ? "bottom" : "top"}
-          align="start"
+          // New Tab's mode chip is the row's last, at its right edge: the menu lines up under it.
+          align={newTab ? "end" : "start"}
           className="acpmux-access-menu"
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
