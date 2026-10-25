@@ -3,6 +3,7 @@
 
 Usage:
   diff.py A_DIR B_DIR [--out divergence.json] [--expected FILE ...] [--case GLOB ...]
+                      [--host-policy same-host|same-arch-any-os]
   diff.py --selftest
 
 A run directory holds the two files the runner writes:
@@ -14,17 +15,27 @@ A run directory holds the two files the runner writes:
                      {"case", "step", "index", "checkpoint": "before|turn|settled",
                       "snapshot": {...}, "sha256"?: "<canonical hash>"}
 
-A is the base (or the old arm), B is the head (or the new arm). The two runs must come from the
-same host and OS (plans/cmux-next/chrome-parity/p15-oracle.md section 3F.1); otherwise the run is
-refused with `host-mismatch` and exit 3, because timing and platform values would differ for
-reasons that are not the change. This is the CQ rule of comparing "(with patch)" and
-"(without patch)" under the same config (chromium/src base/test/launcher/test_launcher.cc and the
-recipe's retry-without-patch step).
+Canonical JSON holds finite numbers only: NaN, Infinity or an overflowing float is bad input, because
+NaN != NaN would report a snapshot as divergent with itself.
 
-For each case the report keeps only the first divergence: the earliest (step, checkpoint) in step
-order, and inside it the first differing JSON pointer of a sorted-key walk, with the A and B values
-there. Later differences are only counted, because they usually follow from the first one (Blink's
-web_tests report the first text-diff hunk the same way). A flaky case is never compared.
+A is the base (or the old arm), B is the head (or the new arm). By default (`same-host`) the two runs
+must come from the same host and OS (plans/cmux-next/chrome-parity/p15-oracle.md section 3F.1);
+otherwise the run is refused with `host-mismatch` and exit 3, because timing and platform values
+would differ for reasons that are not the change. This is the CQ rule of comparing "(with patch)"
+and "(without patch)" under the same config (chromium/src base/test/launcher/test_launcher.cc and
+the recipe's retry-without-patch step). Platform parity (3F.4, task p15-oracle-114) passes
+`--host-policy same-arch-any-os`, which requires only the same arch; divergence.json records the
+policy.
+
+A case is a deterministic step script, so a step is identified by its index: checkpoint (index,
+checkpoint) of A is compared with the same of B, and a different step name at one index (an
+inserted, removed or reordered step) is a divergence at pointer `/step`. A step name may repeat.
+For each case the report keeps only the first divergence: the earliest (index, checkpoint), and
+inside it the first differing JSON pointer of a sorted-key walk, with the A and B values there.
+Later differences are only counted, because they usually follow from the first one (Blink's
+web_tests report the first text-diff hunk the same way). A flaky case is never compared. `Slow` is
+an expectation modifier (5x settleMaxMs, section 3E), so a Slow result compares equal to Pass. When
+one side is Skip, the result change is the only divergence reported.
 
 `--expected FILE` loads expected differences: either a refactor-switch registry file
 (plans/cmux-next/refactor-switches/<name>.json, key `expected_differences`) or a bare JSON list.
@@ -35,19 +46,29 @@ This is the FlagExpectations analog of `run_web_tests.py --flag-specific`
 A difference at or under `pointer` in a matching case and step is labeled explained with its
 reason; it does not count as a divergence.
 
-Exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 host-mismatch.
-Stdlib only; safe under `python3 -I`.
+Exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input (including no cases to
+compare), 3 host-mismatch, 4 internal error. Every exit writes --out with its verdict (pass,
+divergent, host-mismatch, bad-input, internal-error), so a reused out path never holds an older
+run's result. Stdlib only; safe under `python3 -I`.
 """
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fnmatch
+import glob
+import io
 import json
+import math
 import os
+import secrets
+import shlex
 import sys
 import tempfile
+import traceback
 import unittest
+import unittest.mock
 from dataclasses import dataclass, field
 from typing import Any, Iterator
 
@@ -57,11 +78,14 @@ RESULTS = {"Pass", "Failure", "Crash", "Timeout", "Skip", "Slow", "Flaky"}
 HOST_KEYS = ("name", "os", "osVersion", "arch")
 RULE_KEYS = {"pointer", "reason", "case", "step", "checkpoint", "task"}
 EXPLAINED_SAMPLES_PER_RULE = 3
+DEFAULT_HOST_POLICY = "same-host"
+HOST_POLICIES = {"same-host": HOST_KEYS, "same-arch-any-os": ("arch",)}
 
 EXIT_OK = 0
 EXIT_DIVERGENT = 1
 EXIT_BAD_INPUT = 2
 EXIT_HOST_MISMATCH = 3
+EXIT_INTERNAL_ERROR = 4
 
 
 class InputError(Exception):
@@ -93,11 +117,8 @@ class Checkpoint:
     line: int
 
     @property
-    def key(self) -> tuple[str, str]:
-        return (self.step, self.checkpoint)
-
-    @property
-    def order(self) -> tuple[int, int]:
+    def key(self) -> tuple[int, int]:
+        """Identity and order of a checkpoint in its case: (step index, checkpoint order)."""
         return (self.index, CHECKPOINT_ORDER[self.checkpoint])
 
 
@@ -115,14 +136,35 @@ class Run:
         return self.case_hosts.get(case, self.host)
 
 
+def _decode(text: str, where: str) -> Any:
+    """Parse one JSON document; refuse NaN, Infinity and floats that overflow to infinity."""
+
+    def reject_constant(name: str) -> Any:
+        raise InputError(f"{where}: {name} is not canonical JSON (finite numbers only)")
+
+    def finite_float(literal: str) -> float:
+        value = float(literal)
+        if not math.isfinite(value):
+            raise InputError(f"{where}: {literal} is not a finite number")
+        return value
+
+    try:
+        return json.loads(text, parse_constant=reject_constant, parse_float=finite_float)
+    except json.JSONDecodeError as exc:
+        raise InputError(f"{where}: invalid JSON: {exc}") from exc
+    except RecursionError as exc:
+        raise InputError(f"{where}: JSON is nested too deeply") from exc
+
+
 def _load_json(path: str) -> Any:
     try:
         with open(path, encoding="utf-8") as handle:
-            return json.load(handle)
+            text = handle.read()
     except FileNotFoundError as exc:
         raise InputError(f"{path}: not found") from exc
-    except json.JSONDecodeError as exc:
-        raise InputError(f"{path}: invalid JSON: {exc}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputError(f"{path}: cannot read: {exc}") from exc
+    return _decode(text, path)
 
 
 def _check_host(value: Any, where: str) -> dict[str, Any]:
@@ -132,6 +174,8 @@ def _check_host(value: Any, where: str) -> dict[str, Any]:
 
 
 def load_run(path: str) -> Run:
+    if not os.path.isdir(path):
+        raise InputError(f"{path}: not a run directory")
     receipt_path = os.path.join(path, "receipt.json")
     receipt = _load_json(receipt_path)
     if not isinstance(receipt, dict):
@@ -163,28 +207,29 @@ def load_run(path: str) -> Run:
         case_hosts=case_hosts,
     )
     checkpoints_path = os.path.join(path, "checkpoints.jsonl")
+    seen: set[tuple[str, int, str]] = set()
+    step_names: dict[tuple[str, int], str] = {}
     try:
-        handle = open(checkpoints_path, encoding="utf-8")
+        with open(checkpoints_path, encoding="utf-8") as handle:
+            for number, text in enumerate(handle, start=1):
+                if not text.strip():
+                    continue
+                where = f"{checkpoints_path}:{number}"
+                point = _parse_checkpoint(_decode(text, where), where, number)
+                identity = (point.case, point.index, point.checkpoint)
+                if identity in seen:
+                    raise InputError(f"{where}: duplicate checkpoint {point.case} index {point.index} {point.checkpoint}")
+                seen.add(identity)
+                named = step_names.setdefault((point.case, point.index), point.step)
+                if named != point.step:
+                    raise InputError(f"{where}: {point.case} index {point.index} is step {named!r} and {point.step!r}")
+                run.checkpoints.setdefault(point.case, []).append(point)
     except FileNotFoundError as exc:
         raise InputError(f"{checkpoints_path}: not found") from exc
-    seen: set[tuple[str, str, str]] = set()
-    with handle:
-        for number, text in enumerate(handle, start=1):
-            if not text.strip():
-                continue
-            where = f"{checkpoints_path}:{number}"
-            try:
-                row = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise InputError(f"{where}: invalid JSON: {exc}") from exc
-            point = _parse_checkpoint(row, where, number)
-            identity = (point.case, point.step, point.checkpoint)
-            if identity in seen:
-                raise InputError(f"{where}: duplicate checkpoint {point.case} {point.step} {point.checkpoint}")
-            seen.add(identity)
-            run.checkpoints.setdefault(point.case, []).append(point)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputError(f"{checkpoints_path}: cannot read: {exc}") from exc
     for points in run.checkpoints.values():
-        points.sort(key=lambda point: point.order)
+        points.sort(key=lambda point: point.key)
     return run
 
 
@@ -301,31 +346,44 @@ def _kind(value: Any) -> str:
     return type(value).__name__
 
 
+def _object_children(pointer: str, a: dict[str, Any], b: dict[str, Any]) -> Iterator[tuple[str, Any, Any]]:
+    for key in sorted(set(a) | set(b)):
+        yield f"{pointer}/{_escape(key)}", a.get(key, MISSING), b.get(key, MISSING)
+
+
+def _array_children(pointer: str, a: list[Any], b: list[Any]) -> Iterator[tuple[str, Any, Any]]:
+    for position in range(max(len(a), len(b))):
+        left = a[position] if position < len(a) else MISSING
+        right = b[position] if position < len(b) else MISSING
+        yield f"{pointer}/{position}", left, right
+
+
 def iter_differences(a: Any, b: Any, pointer: str = "") -> Iterator[tuple[str, Any, Any]]:
     """Yield (pointer, a, b) for each differing leaf, in sorted-key, index order.
 
     Values are already canonical (normalize.py rounds floats and sorts set-arrays), so equality is
-    exact, except that a bool never equals a number (Python's True == 1).
+    exact, except that a bool never equals a number (Python's True == 1). The walk keeps its own
+    stack, so depth is bounded by memory, not by the interpreter's recursion limit.
     """
-    if a is MISSING or b is MISSING:
-        yield pointer, a, b
-        return
-    kind = _kind(a)
-    if kind != _kind(b):
-        yield pointer, a, b
-        return
-    if kind == "object":
-        for key in sorted(set(a) | set(b)):
-            yield from iter_differences(a.get(key, MISSING), b.get(key, MISSING), f"{pointer}/{_escape(key)}")
-        return
-    if kind == "array":
-        for position in range(max(len(a), len(b))):
-            left = a[position] if position < len(a) else MISSING
-            right = b[position] if position < len(b) else MISSING
-            yield from iter_differences(left, right, f"{pointer}/{position}")
-        return
-    if a != b:
-        yield pointer, a, b
+    stack: list[Iterator[tuple[str, Any, Any]]] = [iter([(pointer, a, b)])]
+    while stack:
+        item = next(stack[-1], None)
+        if item is None:
+            stack.pop()
+            continue
+        path, left, right = item
+        if left is MISSING or right is MISSING:
+            yield path, left, right
+            continue
+        kind = _kind(left)
+        if kind != _kind(right):
+            yield path, left, right
+        elif kind == "object":
+            stack.append(_object_children(path, left, right))
+        elif kind == "array":
+            stack.append(_array_children(path, left, right))
+        elif left != right:
+            yield path, left, right
 
 
 def _json_value(value: Any) -> Any:
@@ -340,12 +398,12 @@ def _difference_kind(a: Any, b: Any) -> str:
     return "value"
 
 
-def host_mismatch(a: dict[str, Any] | None, b: dict[str, Any] | None) -> list[str]:
+def host_mismatch(a: dict[str, Any] | None, b: dict[str, Any] | None, keys: tuple[str, ...] = HOST_KEYS) -> list[str]:
     """Return the host fields that differ or are unknown. Unknown is refused: same host must be proved."""
     if a is None or b is None:
         return ["host (not recorded)"]
     problems = []
-    for key in HOST_KEYS:
+    for key in keys:
         left, right = a.get(key), b.get(key)
         if left is None or right is None:
             problems.append(f"{key} (not recorded)")
@@ -390,17 +448,35 @@ def _note_explained(report: CaseReport, rule: Rule, step: str, checkpoint: str, 
         entry["samples"].append({"step": step, "checkpoint": checkpoint, "pointer": pointer})
 
 
-def _divergence(step: str, index: int, checkpoint: str, pointer: str, a: Any, b: Any, lines: dict[str, int | None]) -> dict[str, Any]:
+def _divergence(step: str, index: int, checkpoint: str | None, pointer: str, kind: str, a: Any, b: Any, lines: dict[str, int | None]) -> dict[str, Any]:
     return {
         "step": step,
         "index": index,
         "checkpoint": checkpoint,
         "pointer": pointer,
-        "kind": _difference_kind(a, b),
+        "kind": kind,
         "a": _json_value(a),
         "b": _json_value(b),
         "lines": lines,
     }
+
+
+def _result_divergence(result_a: str | None, result_b: str | None) -> dict[str, Any]:
+    return {
+        "step": None,
+        "index": None,
+        "checkpoint": None,
+        "pointer": "/result",
+        "kind": "result",
+        "a": result_a,
+        "b": result_b,
+        "lines": {"a": None, "b": None},
+    }
+
+
+def _outcome(result: str | None) -> str | None:
+    """The outcome a result stands for: Slow is an expectation modifier (3E), its outcome is Pass."""
+    return "Pass" if result == "Slow" else result
 
 
 def compare_case(case: str, a: Run, b: Run, rules: list[Rule]) -> CaseReport:
@@ -412,50 +488,61 @@ def compare_case(case: str, a: Run, b: Run, rules: list[Rule]) -> CaseReport:
     if result_a == "Skip" and result_b == "Skip":
         report.status = "skipped"
         return report
+    if "Skip" in (result_a, result_b):
+        # A skipped arm recorded no checkpoints; its missing snapshots only restate the skip.
+        report.status = "divergent"
+        report.divergent_pointers = 1
+        report.first = _result_divergence(result_a, result_b)
+        return report
 
     points_a = {point.key: point for point in a.checkpoints.get(case, [])}
     points_b = {point.key: point for point in b.checkpoints.get(case, [])}
-    ordered = sorted(
-        {**points_b, **points_a}.items(),
-        key=lambda item: item[1].order,
-    )
+    steps_a = {point.index: point.step for point in points_a.values()}
+    steps_b = {point.index: point.step for point in points_b.values()}
     rules = [rule for rule in rules if fnmatch.fnmatchcase(case, rule.case)]
-    for key, anchor in ordered:
+    compared_steps: set[int] = set()
+    for key in sorted(set(points_a) | set(points_b)):
+        index, _ = key
         left, right = points_a.get(key), points_b.get(key)
-        step, checkpoint = key
-        if left is not None and right is not None and left.sha256 and left.sha256 == right.sha256:
-            continue
-        snap_a = left.snapshot if left is not None else MISSING
-        snap_b = right.snapshot if right is not None else MISSING
+        anchor = left or right
+        checkpoint = anchor.checkpoint
         lines = {"a": left.line if left else None, "b": right.line if right else None}
         divergent_here = 0
-        for pointer, value_a, value_b in iter_differences(snap_a, snap_b):
-            rule = next((rule for rule in rules if rule.covers(case, step, checkpoint, pointer)), None)
-            if rule is not None:
-                _note_explained(report, rule, step, checkpoint, pointer)
-                continue
-            divergent_here += 1
-            if report.first is None:
-                report.first = _divergence(step, anchor.index, checkpoint, pointer, value_a, value_b, lines)
+        if index not in compared_steps:
+            compared_steps.add(index)
+            name_a, name_b = steps_a.get(index), steps_b.get(index)
+            if name_a is not None and name_b is not None and name_a != name_b:
+                # An inserted, removed or reordered step: the runs stop being the same script here.
+                divergent_here += 1
+                if report.first is None:
+                    report.first = _divergence(name_b, index, None, "/step", "step", name_a, name_b, lines)
+        if not (left is not None and right is not None and left.sha256 and left.sha256 == right.sha256):
+            names = [point.step for point in (left, right) if point is not None]
+            snap_a = left.snapshot if left is not None else MISSING
+            snap_b = right.snapshot if right is not None else MISSING
+            for pointer, value_a, value_b in iter_differences(snap_a, snap_b):
+                rule = next(
+                    (rule for rule in rules if all(rule.covers(case, name, checkpoint, pointer) for name in names)),
+                    None,
+                )
+                if rule is not None:
+                    _note_explained(report, rule, anchor.step, checkpoint, pointer)
+                    continue
+                divergent_here += 1
+                if report.first is None:
+                    report.first = _divergence(
+                        anchor.step, index, checkpoint, pointer, _difference_kind(value_a, value_b), value_a, value_b, lines
+                    )
         if divergent_here:
             report.divergent_checkpoints += 1
             report.divergent_pointers += divergent_here
 
-    if result_a != result_b:
+    if _outcome(result_a) != _outcome(result_b):
         # Same snapshots but a different outcome (a crash after the last checkpoint, a timeout on
         # a settle that still recorded) is a divergence of its own.
         report.divergent_pointers += 1
         if report.first is None:
-            report.first = {
-                "step": None,
-                "index": None,
-                "checkpoint": None,
-                "pointer": "/result",
-                "kind": "result",
-                "a": result_a,
-                "b": result_b,
-                "lines": {"a": None, "b": None},
-            }
+            report.first = _result_divergence(result_a, result_b)
     if report.first is not None:
         report.status = "divergent"
     elif report.explained:
@@ -463,7 +550,18 @@ def compare_case(case: str, a: Run, b: Run, rules: list[Rule]) -> CaseReport:
     return report
 
 
-def _finding(report: CaseReport, a: Run, b: Run) -> dict[str, Any]:
+def _replay_command(case: str, a: Run, b: Run, rules: list[Rule], host_policy: str) -> str:
+    """The command that reproduces this finding: same runs, same expectations, exactly this case."""
+    parts = ["python3", "-I", "scripts/cmux-next/oracle/diff.py", a.path, b.path]
+    for source in dict.fromkeys(rule.source for rule in rules):
+        parts += ["--expected", source]
+    if host_policy != DEFAULT_HOST_POLICY:
+        parts += ["--host-policy", host_policy]
+    parts += ["--case", glob.escape(case)]
+    return shlex.join(parts)
+
+
+def _finding(report: CaseReport, a: Run, b: Run, replay: str) -> dict[str, Any]:
     """The ui-workflow-corpus review-finding shape (plans/cmux-next/ui-workflow-corpus.md), extended."""
     first = report.first or {}
     evidence = []
@@ -481,7 +579,7 @@ def _finding(report: CaseReport, a: Run, b: Run) -> dict[str, Any]:
         "source": b.sha,
         "environment": b.run_id,
         "evidence": evidence,
-        "replay": f"python3 -I scripts/cmux-next/oracle/diff.py {a.path} {b.path} --case {report.case}",
+        "replay": replay,
         "confidence": "unconfirmed",
         "checkpoint": first.get("checkpoint"),
         "pointer": first.get("pointer"),
@@ -495,28 +593,42 @@ def _run_header(run: Run) -> dict[str, Any]:
     return {"path": run.path, "runId": run.run_id, "sha": run.sha, "host": run.host}
 
 
-def diff_runs(a: Run, b: Run, rules: list[Rule], case_globs: list[str] | None = None) -> tuple[int, dict[str, Any]]:
+def diff_runs(
+    a: Run,
+    b: Run,
+    rules: list[Rule],
+    case_globs: list[str] | None = None,
+    host_policy: str = DEFAULT_HOST_POLICY,
+) -> tuple[int, dict[str, Any]]:
+    """Compare two loaded runs. Raises InputError when nothing is left to compare."""
+    if host_policy not in HOST_POLICIES:
+        raise InputError(f"host policy {host_policy!r} is not one of {sorted(HOST_POLICIES)}")
+    host_keys = HOST_POLICIES[host_policy]
     cases = sorted(set(a.results) | set(a.checkpoints) | set(b.results) | set(b.checkpoints))
     if case_globs:
-        cases = [case for case in cases if any(fnmatch.fnmatchcase(case, glob) for glob in case_globs)]
+        cases = [case for case in cases if any(fnmatch.fnmatchcase(case, pattern) for pattern in case_globs)]
 
     mismatched = {}
     for case in cases:
-        problems = host_mismatch(a.host_for(case), b.host_for(case))
+        problems = host_mismatch(a.host_for(case), b.host_for(case), host_keys)
         if problems:
             mismatched[case] = problems
     if not cases:
-        problems = host_mismatch(a.host, b.host)
+        problems = host_mismatch(a.host, b.host, host_keys)
         if problems:
             mismatched["*"] = problems
     if mismatched:
         return EXIT_HOST_MISMATCH, {
             "schema": SCHEMA,
             "verdict": "host-mismatch",
+            "hostPolicy": host_policy,
             "a": _run_header(a),
             "b": _run_header(b),
             "mismatched": mismatched,
         }
+    if not cases:
+        scope = f" matching --case {' '.join(case_globs)}" if case_globs else ""
+        raise InputError(f"no cases to compare{scope}")
 
     reports = [compare_case(case, a, b, rules) for case in cases]
     summary = {status: 0 for status in ("equal", "explained", "divergent", "flaky", "skipped")}
@@ -526,10 +638,13 @@ def diff_runs(a: Run, b: Run, rules: list[Rule], case_globs: list[str] | None = 
     document = {
         "schema": SCHEMA,
         "verdict": "divergent" if divergent else "pass",
+        "hostPolicy": host_policy,
         "a": _run_header(a),
         "b": _run_header(b),
         "summary": {"cases": len(reports), **summary},
-        "divergences": [_finding(report, a, b) for report in divergent],
+        "divergences": [
+            _finding(report, a, b, _replay_command(report.case, a, b, rules, host_policy)) for report in divergent
+        ],
         "cases": [report.to_json() for report in reports],
     }
     return (EXIT_DIVERGENT if divergent else EXIT_OK), document
@@ -540,20 +655,32 @@ def diff_runs(a: Run, b: Run, rules: list[Rule], case_globs: list[str] | None = 
 
 
 def _write(document: dict[str, Any], out: str | None) -> None:
-    text = json.dumps(document, indent=2, sort_keys=True) + "\n"
+    """Replace `out` atomically. The temp file is created with the umask's mode, as open() would."""
     if out is None:
         return
+    text = json.dumps(document, indent=2, sort_keys=True) + "\n"
     directory = os.path.dirname(os.path.abspath(out))
     os.makedirs(directory, exist_ok=True)
-    handle, temp = tempfile.mkstemp(prefix=".divergence-", dir=directory)
-    with os.fdopen(handle, "w", encoding="utf-8") as stream:
-        stream.write(text)
-    os.replace(temp, out)
+    temp = os.path.join(directory, f".{os.path.basename(out)}.{secrets.token_hex(6)}.tmp")
+    descriptor = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        os.replace(temp, out)
+    except BaseException:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(temp)
+        raise
+
+
+def _failure_document(verdict: str, error: str, a: str | None, b: str | None) -> dict[str, Any]:
+    return {"schema": SCHEMA, "verdict": verdict, "error": error, "a": {"path": a}, "b": {"path": b}}
 
 
 def _print_summary(code: int, document: dict[str, Any]) -> None:
     if code == EXIT_HOST_MISMATCH:
-        print("host-mismatch: the runs must come from the same host and OS", file=sys.stderr)
+        required = ", ".join(HOST_POLICIES[document["hostPolicy"]])
+        print(f"host-mismatch ({document['hostPolicy']}): the runs must share {required}", file=sys.stderr)
         for case, problems in sorted(document["mismatched"].items()):
             print(f"  {case}: {', '.join(problems)}", file=sys.stderr)
         return
@@ -578,6 +705,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", help="write divergence.json here")
     parser.add_argument("--expected", action="append", default=[], help="expected_differences file (repeatable)")
     parser.add_argument("--case", action="append", default=[], help="only cases matching this glob (repeatable)")
+    parser.add_argument(
+        "--host-policy",
+        choices=sorted(HOST_POLICIES),
+        default=DEFAULT_HOST_POLICY,
+        help="host fields both runs must share: same-host (default) or same-arch-any-os (platform parity)",
+    )
     parser.add_argument("--selftest", action="store_true", help="run the synthetic-run self tests")
     args = parser.parse_args(argv)
     if args.selftest:
@@ -588,12 +721,22 @@ def main(argv: list[str] | None = None) -> int:
     try:
         rules = [rule for path in args.expected for rule in load_rules(path)]
         run_a, run_b = load_run(args.a), load_run(args.b)
+        code, document = diff_runs(run_a, run_b, rules, args.case, args.host_policy)
     except InputError as exc:
         print(f"diff.py: {exc}", file=sys.stderr)
+        code, document = EXIT_BAD_INPUT, _failure_document("bad-input", str(exc), args.a, args.b)
+    except Exception as exc:  # A bug here must not exit 1, which callers route to owners as a divergence.
+        traceback.print_exc()
+        code, document = EXIT_INTERNAL_ERROR, _failure_document("internal-error", f"{type(exc).__name__}: {exc}", args.a, args.b)
+    try:
+        _write(document, args.out)
+    except OSError as exc:
+        print(f"diff.py: cannot write {args.out}: {exc}", file=sys.stderr)
+        with contextlib.suppress(OSError):
+            os.unlink(args.out)
         return EXIT_BAD_INPUT
-    code, document = diff_runs(run_a, run_b, rules, args.case)
-    _write(document, args.out)
-    _print_summary(code, document)
+    if code in (EXIT_OK, EXIT_DIVERGENT, EXIT_HOST_MISMATCH):
+        _print_summary(code, document)
     return code
 
 
@@ -624,8 +767,17 @@ class DiffSelfTest(unittest.TestCase):
         self.root = tempfile.TemporaryDirectory(prefix="oracle-diff-")
         self.addCleanup(self.root.cleanup)
 
-    def write_run(self, name: str, cases: dict[str, Any], host: dict[str, Any] | None = HOST, results: dict[str, str] | None = None, case_hosts: dict[str, Any] | None = None) -> str:
-        """cases: case -> list of (step, checkpoint, snapshot); index is the step's order."""
+    def write_run(
+        self,
+        name: str,
+        cases: dict[str, Any],
+        host: dict[str, Any] | None = HOST,
+        results: dict[str, str] | None = None,
+        case_hosts: dict[str, Any] | None = None,
+        reverse_lines: bool = False,
+    ) -> str:
+        """cases: case -> list of (step, checkpoint, snapshot), index = the step's order of first use,
+        or (step, index, checkpoint, snapshot) with an explicit index."""
         path = os.path.join(self.root.name, name)
         os.makedirs(path)
         receipt: dict[str, Any] = {"runId": name, "sha": f"{name}-sha", "cases": {}}
@@ -638,15 +790,29 @@ class DiffSelfTest(unittest.TestCase):
                 entry["host"] = case_hosts[case]
             receipt["cases"][case] = entry
             steps: list[str] = []
-            for step, checkpoint, snapshot in points:
-                if step not in steps:
-                    steps.append(step)
-                lines.append(json.dumps({"case": case, "step": step, "index": steps.index(step), "checkpoint": checkpoint, "snapshot": snapshot}))
+            for point in points:
+                if len(point) == 4:
+                    step, index, checkpoint, snapshot = point
+                else:
+                    step, checkpoint, snapshot = point
+                    if step not in steps:
+                        steps.append(step)
+                    index = steps.index(step)
+                lines.append(json.dumps({"case": case, "step": step, "index": index, "checkpoint": checkpoint, "snapshot": snapshot}))
+        if reverse_lines:
+            lines.reverse()
         with open(os.path.join(path, "receipt.json"), "w", encoding="utf-8") as handle:
             json.dump(receipt, handle)
         with open(os.path.join(path, "checkpoints.jsonl"), "w", encoding="utf-8") as handle:
             handle.write("\n".join(lines) + ("\n" if lines else ""))
         return path
+
+    def out_path(self) -> str:
+        return os.path.join(self.root.name, f"out-{len(os.listdir(self.root.name))}", "divergence.json")
+
+    def run_quiet(self, argv: list[str]) -> int:
+        with contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(io.StringIO()):
+            return main(argv)
 
     def write_rules(self, rules: Any) -> str:
         path = os.path.join(self.root.name, f"rules-{len(os.listdir(self.root.name))}.json")
@@ -654,9 +820,9 @@ class DiffSelfTest(unittest.TestCase):
             json.dump(rules, handle)
         return path
 
-    def run_diff(self, a: str, b: str, *extra: str) -> tuple[int, dict[str, Any] | None]:
-        out = os.path.join(self.root.name, f"out-{len(os.listdir(self.root.name))}", "divergence.json")
-        code = main([a, b, "--out", out, *extra])
+    def run_diff(self, a: str, b: str, *extra: str, out: str | None = None) -> tuple[int, dict[str, Any] | None]:
+        out = out or self.out_path()
+        code = self.run_quiet([a, b, "--out", out, *extra])
         if not os.path.exists(out):
             return code, None
         with open(out, encoding="utf-8") as handle:
@@ -699,7 +865,7 @@ class DiffSelfTest(unittest.TestCase):
         a = self.write_run("a", {"c/x": points})
         changed = self.three_steps(ratio=0.7)
         changed[0] = ("create", "before", _snapshot(focus__pane="pane-2"))
-        b = self.write_run("b", {"c/x": list(reversed(changed))})
+        b = self.write_run("b", {"c/x": changed}, reverse_lines=True)
         _, doc = self.run_diff(a, b)
         [finding] = doc["divergences"]
         self.assertEqual((finding["step"], finding["checkpoint"], finding["pointer"]), ("create", "before", "/focus/pane"))
@@ -837,10 +1003,179 @@ class DiffSelfTest(unittest.TestCase):
         with open(os.path.join(a, "checkpoints.jsonl"), "a", encoding="utf-8") as handle:
             handle.write(json.dumps({"case": "c/x", "step": "s", "index": 0, "checkpoint": "settled", "snapshot": {}}) + "\n")
         b = self.write_run("b", {"c/x": [("s", "settled", {"v": 1})]})
-        self.assertEqual(self.run_diff(a, b), (EXIT_BAD_INPUT, None))
+        code, doc = self.run_diff(a, b)
+        self.assertEqual((code, doc["verdict"]), (EXIT_BAD_INPUT, "bad-input"))
+        self.assertIn("duplicate checkpoint", doc["error"])
         good = self.write_run("good", {"c/x": [("s", "settled", {"v": 1})]})
         for rules in ([{"pointer": "layout", "reason": "r"}], [{"pointer": "/x"}], [{"pointer": "/x", "reason": "r", "extra": 1}], {"name": "s"}):
             self.assertEqual(self.run_diff(good, b, "--expected", self.write_rules(rules))[0], EXIT_BAD_INPUT)
+
+    def test_unreadable_inputs_exit_2_not_1(self) -> None:
+        good = self.write_run("good", {"c/x": [("s", "settled", {"v": 1})]})
+        not_a_dir = os.path.join(good, "receipt.json")
+        code, doc = self.run_diff(not_a_dir, good)
+        self.assertEqual((code, doc["verdict"]), (EXIT_BAD_INPUT, "bad-input"))
+        self.assertIn("not a run directory", doc["error"])
+        for name in ("checkpoints.jsonl", "receipt.json"):
+            broken = self.write_run(f"bytes-{name}", {"c/x": [("s", "settled", {"v": 1})]})
+            with open(os.path.join(broken, name), "wb") as handle:
+                handle.write(b"\xff\xfe{}\n")
+            code, doc = self.run_diff(broken, good)
+            self.assertEqual((code, doc["verdict"]), (EXIT_BAD_INPUT, "bad-input"), name)
+            self.assertIn("cannot read", doc["error"])
+
+    def test_deep_nesting(self) -> None:
+        good = self.write_run("good", {"c/x": [("s", "settled", {"v": 1})]})
+        deep = self.write_run("deep", {})
+        with open(os.path.join(deep, "checkpoints.jsonl"), "w", encoding="utf-8") as handle:
+            nested = "[" * 200_000 + "]" * 200_000
+            handle.write(f'{{"case": "c/x", "step": "s", "index": 0, "checkpoint": "settled", "snapshot": {nested}}}\n')
+        code, doc = self.run_diff(deep, good)
+        self.assertEqual((code, doc["verdict"]), (EXIT_BAD_INPUT, "bad-input"))
+        # A loaded snapshot deeper than the recursion limit still walks: the walk keeps its own stack.
+        left: Any = 1
+        right: Any = 2
+        for _ in range(sys.getrecursionlimit() * 3):
+            left, right = [left], [right]
+        [(pointer, value_a, value_b)] = list(iter_differences(left, right))
+        self.assertEqual((pointer.count("/0"), value_a, value_b), (sys.getrecursionlimit() * 3, 1, 2))
+
+    def test_non_finite_numbers_refused(self) -> None:
+        good = self.write_run("good", {"c/x": [("s", "settled", {"v": 1})]})
+        for literal in ("NaN", "Infinity", "-Infinity", "1e999"):
+            run = self.write_run(f"nf-{literal}", {})
+            with open(os.path.join(run, "checkpoints.jsonl"), "w", encoding="utf-8") as handle:
+                handle.write(f'{{"case": "c/x", "step": "s", "index": 0, "checkpoint": "settled", "snapshot": {{"v": {literal}}}}}\n')
+            code, doc = self.run_diff(run, run)
+            self.assertEqual((code, doc["verdict"]), (EXIT_BAD_INPUT, "bad-input"), literal)
+        receipt = self.write_run("nf-receipt", {"c/x": [("s", "settled", {"v": 1})]})
+        with open(os.path.join(receipt, "receipt.json"), "w", encoding="utf-8") as handle:
+            handle.write('{"host": {"name": "h", "os": "macos", "osVersion": 1, "arch": NaN}, "cases": {}}')
+        self.assertEqual(self.run_diff(receipt, good)[0], EXIT_BAD_INPUT)
+
+    def test_internal_error_exits_4_and_writes_out(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        module = sys.modules[__name__]
+        with unittest.mock.patch.object(module, "compare_case", side_effect=RuntimeError("boom")):
+            code, doc = self.run_diff(a, a)
+        self.assertEqual((code, doc["verdict"]), (EXIT_INTERNAL_ERROR, "internal-error"))
+        self.assertIn("boom", doc["error"])
+
+    def test_failed_run_replaces_stale_out(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        b = self.write_run("b", {"c/x": [("s", "settled", {"v": 2})]})
+        out = self.out_path()
+        self.assertEqual(self.run_diff(a, b, out=out)[1]["verdict"], "divergent")
+        code, doc = self.run_diff(a, os.path.join(self.root.name, "absent"), out=out)
+        self.assertEqual((code, doc["verdict"]), (EXIT_BAD_INPUT, "bad-input"))
+
+    def test_write_failure_leaves_no_temp_file(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        parent = os.path.join(self.root.name, "parent")
+        out = os.path.join(parent, "divergence.json")
+        os.makedirs(os.path.join(out, "occupied"))
+        self.assertEqual(self.run_quiet([a, a, "--out", out]), EXIT_BAD_INPUT)
+        self.assertEqual(os.listdir(parent), ["divergence.json"])
+
+    def test_out_mode_follows_umask(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        out = self.out_path()
+        previous = os.umask(0o022)
+        try:
+            self.assertEqual(self.run_quiet([a, a, "--out", out]), EXIT_OK)
+        finally:
+            os.umask(previous)
+        self.assertEqual(os.stat(out).st_mode & 0o777, 0o644)
+
+    def test_zero_cases_refused(self) -> None:
+        empty_a, empty_b = self.write_run("ea", {}), self.write_run("eb", {})
+        code, doc = self.run_diff(empty_a, empty_b)
+        self.assertEqual((code, doc["error"]), (EXIT_BAD_INPUT, "no cases to compare"))
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        code, doc = self.run_diff(a, a, "--case", "c/typo*")
+        self.assertEqual((code, doc["error"]), (EXIT_BAD_INPUT, "no cases to compare matching --case c/typo*"))
+
+    def test_replay_reproduces_the_finding(self) -> None:
+        tricky = "c/x [1] * it's"
+        cases_a = {tricky: [("s", "settled", {"early": 1, "late": 1})], "c/x 1 a it's": [("s", "settled", {"v": 1})]}
+        cases_b = {tricky: [("s", "settled", {"early": 2, "late": 2})], "c/x 1 a it's": [("s", "settled", {"v": 2})]}
+        a, b = self.write_run("a", cases_a), self.write_run("b", cases_b)
+        rules = self.write_rules([{"pointer": "/early", "reason": "r"}])
+        _, doc = self.run_diff(a, b, "--expected", rules)
+        finding = next(item for item in doc["divergences"] if item["journey"] == tricky)
+        argv = shlex.split(finding["replay"])
+        self.assertEqual(argv[:3], ["python3", "-I", "scripts/cmux-next/oracle/diff.py"])
+        self.assertIn(rules, argv)
+        _, replayed = self.run_diff(*argv[3:])
+        self.assertEqual([item["journey"] for item in replayed["divergences"]], [tricky])
+        self.assertEqual(replayed["divergences"][0]["pointer"], "/late")
+
+    def test_slow_is_pass(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        b = self.write_run("b", {"c/x": [("s", "settled", {"v": 1})]}, results={"c/x": "Slow"})
+        self.assertEqual(self.run_diff(a, b)[0], EXIT_OK)
+        crash = self.write_run("crash", {"c/x": [("s", "settled", {"v": 1})]}, results={"c/x": "Crash"})
+        self.assertEqual(self.run_diff(b, crash)[0], EXIT_DIVERGENT)
+
+    def test_skip_on_one_side_reports_the_result(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", "before", {"v": 1}), ("s", "settled", {"v": 1})]})
+        b = self.write_run("b", {"c/x": []}, results={"c/x": "Skip"})
+        code, doc = self.run_diff(a, b)
+        self.assertEqual(code, EXIT_DIVERGENT)
+        [finding] = doc["divergences"]
+        self.assertEqual((finding["pointer"], finding["a"], finding["b"]), ("/result", "Pass", "Skip"))
+        self.assertEqual(finding["count"], {"checkpoints": 0, "pointers": 1})
+
+    def test_inserted_step(self) -> None:
+        a = self.write_run("a", {"c/x": [("s0", "settled", {"v": 0}), ("s1", "settled", {"v": 0})]})
+        b = self.write_run("b", {"c/x": [("s0", "settled", {"v": 0}), ("new", "settled", {"v": 1}), ("s1", "settled", {"v": 1})]})
+        _, doc = self.run_diff(a, b)
+        [finding] = doc["divergences"]
+        self.assertEqual((finding["step"], finding["pointer"], finding["a"], finding["b"]), ("new", "/step", "s1", "new"))
+        self.assertEqual(doc["cases"][0]["first"]["kind"], "step")
+
+    def test_removed_step(self) -> None:
+        a = self.write_run("a", {"c/x": [("s0", "settled", {"v": 0}), ("gone", "settled", {"v": 0}), ("s2", "settled", {"v": 0})]})
+        b = self.write_run("b", {"c/x": [("s0", "settled", {"v": 0}), ("s2", "settled", {"v": 0})]})
+        _, doc = self.run_diff(a, b)
+        [finding] = doc["divergences"]
+        self.assertEqual((finding["pointer"], finding["a"], finding["b"]), ("/step", "gone", "s2"))
+
+    def test_reordered_step(self) -> None:
+        a = self.write_run("a", {"c/x": [("x", "settled", {"v": 0}), ("y", "settled", {"v": 0})]})
+        b = self.write_run("b", {"c/x": [("y", "settled", {"v": 0}), ("x", "settled", {"v": 0})]})
+        _, doc = self.run_diff(a, b)
+        [finding] = doc["divergences"]
+        self.assertEqual((finding["pointer"], finding["a"], finding["b"]), ("/step", "x", "y"))
+        self.assertEqual(finding["count"], {"checkpoints": 2, "pointers": 2})
+
+    def test_repeated_step_name(self) -> None:
+        a = self.write_run("a", {"c/x": [("split", 0, "settled", {"panes": 2}), ("split", 1, "settled", {"panes": 3})]})
+        b = self.write_run("b", {"c/x": [("split", 0, "settled", {"panes": 2}), ("split", 1, "settled", {"panes": 4})]})
+        code, doc = self.run_diff(a, b)
+        self.assertEqual(code, EXIT_DIVERGENT)
+        [finding] = doc["divergences"]
+        self.assertEqual((finding["step"], finding["pointer"], finding["b"]), ("split", "/panes", 4))
+        self.assertEqual(doc["cases"][0]["first"]["index"], 1)
+
+    def test_one_index_two_step_names_refused(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", 0, "before", {}), ("t", 0, "settled", {})]})
+        code, doc = self.run_diff(a, a)
+        self.assertEqual(code, EXIT_BAD_INPUT)
+        self.assertIn("index 0 is step 's' and 't'", doc["error"])
+
+    def test_host_policy_for_platform_parity(self) -> None:
+        linux = {"name": "cmux-orchestrator-1", "os": "linux", "osVersion": "7.0", "arch": "arm64"}
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        b = self.write_run("b", {"c/x": [("s", "settled", {"v": 1})]}, host=linux)
+        code, doc = self.run_diff(a, b)
+        self.assertEqual((code, doc["hostPolicy"]), (EXIT_HOST_MISMATCH, "same-host"))
+        code, doc = self.run_diff(a, b, "--host-policy", "same-arch-any-os")
+        self.assertEqual((code, doc["hostPolicy"]), (EXIT_OK, "same-arch-any-os"))
+        x86 = self.write_run("x86", {"c/x": [("s", "settled", {"v": 1})]}, host={**linux, "arch": "x86_64"})
+        code, doc = self.run_diff(a, x86, "--host-policy", "same-arch-any-os")
+        self.assertEqual(code, EXIT_HOST_MISMATCH)
+        self.assertEqual(doc["mismatched"], {"c/x": ["arch ('arm64' != 'x86_64')"]})
 
     def test_sha256_shortcut(self) -> None:
         a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
