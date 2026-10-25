@@ -67,6 +67,28 @@ impl TurnActivity {
         }
     }
 
+    /// Notes `update`'s activity and tool calls (`Hub::note_activity`; an adopted host's turn,
+    /// rebuilt from the log, `hosts.rs`).
+    pub(super) fn note(&mut self, update: &Value) {
+        if matches!(
+            update.get("sessionUpdate").and_then(Value::as_str),
+            Some("tool_call" | "tool_call_update")
+        ) {
+            self.note_tool(update);
+        }
+        match activity_of(update).zip(masked_activity_of(update)) {
+            Some((Activity::Tool(title), Activity::Tool(masked))) => {
+                self.activity = Some(title);
+                self.masked_activity = Some(masked);
+            }
+            Some((Activity::PlanStep(step), Activity::PlanStep(masked))) => {
+                self.plan_step = step;
+                self.masked_plan_step = masked;
+            }
+            _ => {}
+        }
+    }
+
     /// Whether a tool call of the turn is in flight.
     pub(super) fn tool_in_flight(&self) -> bool {
         !self.open_tools.is_empty() || self.open_past_cap > 0
@@ -147,33 +169,13 @@ impl Hub {
     /// Notes `update`'s activity and tool calls on the running turn. Nothing while no turn
     /// runs: an update after the turn ended does not outlive it.
     pub(super) fn note_activity(&self, session: &Session, update: &Value) {
-        let tool = matches!(
-            update.get("sessionUpdate").and_then(Value::as_str),
-            Some("tool_call" | "tool_call_update")
-        );
-        let activity = activity_of(update).zip(masked_activity_of(update));
-        if !tool && activity.is_none() {
+        let kind = update.get("sessionUpdate").and_then(Value::as_str);
+        if !matches!(kind, Some("tool_call" | "tool_call_update" | "plan")) {
             return;
         }
         let mut turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(turn) = turn.as_mut() else {
-            return;
-        };
-        let doing = &mut turn.doing;
-        if tool {
-            doing.note_tool(update);
-        }
-        let Some((raw, masked)) = activity else { return };
-        match (raw, masked) {
-            (Activity::Tool(title), Activity::Tool(masked)) => {
-                doing.activity = Some(title);
-                doing.masked_activity = Some(masked);
-            }
-            (Activity::PlanStep(step), Activity::PlanStep(masked)) => {
-                doing.plan_step = step;
-                doing.masked_plan_step = masked;
-            }
-            _ => {}
+        if let Some(turn) = turn.as_mut() {
+            turn.doing.note(update);
         }
     }
 }

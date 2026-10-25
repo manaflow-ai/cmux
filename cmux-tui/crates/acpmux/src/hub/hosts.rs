@@ -49,6 +49,9 @@ pub(super) struct OpenWork {
     /// A remote chain's Claude Code session whose current host has no
     /// passed sandbox canary just before it started (`remote_sandbox.rs`).
     unsandboxed: bool,
+    /// What that turn does, from its logged updates under this incarnation: its tool calls in
+    /// flight, its latest tool and its plan step (`hub/activity.rs`).
+    doing: super::activity::TurnActivity,
 }
 
 impl Hub {
@@ -467,6 +470,7 @@ impl Hub {
                     work.prompt_response = None;
                     work.steers.clear();
                     work.last_host_seq = 0;
+                    work.doing = Default::default();
                 }
                 ("mux", "turn_started") => {
                     let field = |k: &str| {
@@ -483,6 +487,7 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    work.doing = Default::default();
                 }
                 ("mux", "turn_control") => {
                     if let Some(t) = work.turn.as_mut()
@@ -496,6 +501,12 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    work.doing = Default::default();
+                }
+                ("in", "tool_call" | "tool_call_update" | "plan")
+                    if current && work.turn.is_some() =>
+                {
+                    work.doing.note(&e.msg["params"]["update"]);
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -617,7 +628,7 @@ impl Hub {
                         turn_seq,
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
-                        doing: Default::default(),
+                        doing: work.doing.clone(),
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not

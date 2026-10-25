@@ -380,6 +380,51 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
     assert!(alive(harness_pid), "a second agent replaced the adopted one");
 }
 
+/// Goal 8 (`lane.stalledSince`, hub/activity.rs): a tool call still running across a daemon
+/// restart is still in flight once the next daemon adopts its host, so the turn waiting on it
+/// does not read as stalled. The adopting daemon rebuilt the turn with no tool calls in flight.
+#[tokio::test]
+async fn a_tool_call_running_across_a_restart_keeps_its_turn_from_stalling() {
+    let mut daemon = Daemon::new("stall-up", "approve-all");
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "stalledTurnMs": 300}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("work-gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the running tool call", |e| e["kind"] == "tool_call");
+
+    daemon.sigkill();
+    drop(client);
+    daemon.start();
+    until_turn_restored(&daemon, &session).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let all = daemon.rpc().await.call("_acpmux/sessions", json!({})).await;
+    let entry = all["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(entry["lane"]["state"], "working", "{entry}");
+    assert!(entry["lane"]["stalledSince"].is_null(), "its tool call still runs: {entry}");
+    assert_eq!(entry["turn"]["activity"], "Run cargo test", "its tool call, from the log: {entry}");
+
+    std::fs::write(&gate, b"go").unwrap();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
+
 /// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
 /// Code answers a steer "steered" at once and the turn runs on. The adopting daemon must keep
 /// the turn open until the turn's own prompt is answered; it settled the turn on the steer's
