@@ -64,7 +64,7 @@ const listRoom = (node: HTMLElement) =>
     0,
     [...node.children].reduce(
       (sum, child) =>
-        sum + (child.hasAttribute("data-tick") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     ) - Number.parseFloat(node.parentElement?.style.height ?? "0"),
   );

@@ -20,8 +20,11 @@ export function tickRanges(
   keep: ReadonlyArray<number | undefined> = [],
 ): Array<[number, number]> {
   if (count <= 0) return [];
-  const first = Math.max(0, Math.floor(listTop / ROW_PITCH) - TICK_OVERSCAN);
-  const last = Math.min(count, Math.ceil((listTop + Math.max(0, height)) / ROW_PITCH) + TICK_OVERSCAN);
+  // An offset past the list's end (it had more rows: another chat, before its scroll catches up)
+  // reads as the end, so the rows draw.
+  const top = Math.max(0, Math.min(listTop, count * ROW_PITCH - Math.max(0, height)));
+  const first = Math.max(0, Math.floor(top / ROW_PITCH) - TICK_OVERSCAN);
+  const last = Math.min(count, Math.ceil((top + Math.max(0, height)) / ROW_PITCH) + TICK_OVERSCAN);
   const ranges: Array<[number, number]> = [[first, Math.max(first, last)]];
   for (const index of keep)
     if (index !== undefined && index >= 0 && index < count && (index < first || index >= last))

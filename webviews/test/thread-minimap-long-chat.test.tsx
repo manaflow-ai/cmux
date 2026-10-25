@@ -136,7 +136,7 @@ test("a 2,000-turn chat draws a bounded number of ticks, and the keyboard reache
     expect(tick(0)).toBeNull();
     const height = [...list.children].reduce(
       (sum, child) =>
-        sum + (child.hasAttribute("data-tick") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+        sum + (child.querySelector("[data-tick]") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
       0,
     );
     expect(height).toBe(TURNS * 10);
@@ -175,3 +175,106 @@ test("a 2,000-turn chat draws a bounded number of ticks, and the keyboard reache
     await act(async () => root.unmount());
   }
 }, 300_000);
+
+/// Turns `from` to `to - 1` of a long chat, by their own ids, so older ones can arrive above.
+const span = (from: number, to: number) =>
+  Array.from({ length: to - from }, (_, offset) => {
+    const index = from + offset;
+    return [
+      row(`t${index}-user`, "user", `Question ${index}`),
+      row(`t${index}-answer`, "assistant", `Answer ${index}.`),
+      { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
+    ];
+  }).flat();
+
+test("older turns arriving above keep focus on the focused prompt's tick", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  const show = (rows: AcpmuxRow[]) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId="long-prepend"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  try {
+    await show(span(300, 2000));
+    const latest = document.querySelector<HTMLElement>(`[data-tick="${2000 - 300 - 1}"]`)!;
+    await act(async () => latest.focus());
+    await act(async () => {
+      latest.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }));
+    });
+    const first = document.activeElement as HTMLElement;
+    expect(first.getAttribute("aria-label")).toContain("Question 300");
+    // 300 older turns load above: the focused prompt is now row 300, far from the rows drawn before.
+    await show(span(0, 2000));
+    const now = document.activeElement as HTMLElement;
+    expect(now.dataset.tick).toBe("300");
+    expect(now.getAttribute("aria-label")).toContain("Question 300");
+    expect(now).toBe(first);
+  } finally {
+    await act(async () => root.unmount());
+  }
+}, 120_000);
+
+test("a rail scrolled to the end of a long chat shows every tick of a short one it switches to", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  const show = (rows: AcpmuxRow[], sessionId: string) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId={sessionId}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  try {
+    await show(span(0, 2000), "long-switch-a");
+    // It opens at the latest message, the list scrolled to its end.
+    expect(document.querySelector(`[data-tick="1999"]`)).not.toBeNull();
+    expect(document.querySelector<HTMLElement>(".acpmux-minimap__list")!.scrollTop).toBeGreaterThan(1000);
+    await show(span(0, 5), "long-switch-b");
+    const ticks = [...document.querySelectorAll<HTMLElement>("[data-tick]")].map((node) => node.dataset.tick);
+    expect(ticks).toEqual(["0", "1", "2", "3", "4"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+}, 120_000);
+
+test("each drawn tick is a list item that names its place among every prompt", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    /// An element's role, its own or its tag's.
+    const roleOf = (node: Element) =>
+      node.getAttribute("role") ?? ({ OL: "list", UL: "list", LI: "listitem" } as Record<string, string>)[node.tagName];
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    expect(roleOf(list)).toBe("list");
+    const ticks = [...list.querySelectorAll<HTMLElement>("[data-tick]")];
+    expect(ticks.length).toBeGreaterThan(0);
+    for (const tick of ticks) {
+      const item = tick.parentElement!;
+      expect(roleOf(item)).toBe("listitem");
+      expect(item.parentElement).toBe(list);
+      expect(item.getAttribute("aria-posinset")).toBe(String(Number(tick.dataset.tick) + 1));
+      expect(item.getAttribute("aria-setsize")).toBe(String(TURNS));
+    }
+    // The spacers for the rows not drawn are out of the accessibility tree.
+    for (const child of list.children)
+      if (!child.querySelector("[data-tick]")) expect(child.getAttribute("aria-hidden")).toBe("true");
+  } finally {
+    await act(async () => root.unmount());
+  }
+}, 120_000);

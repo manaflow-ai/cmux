@@ -92,6 +92,7 @@ strings.__cmuxPaneStrings = { en: english };
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { tickRanges } = await import("../src/agent-session/acpmux/threadMinimap/tickWindow");
 const { minimapTurns } = await import("../src/agent-session/acpmux/threadMinimap/model");
 const { setBookmarkTransport } = await import("../src/agent-session/acpmux/threadMinimap/bookmarks");
 // No marks in this chat; acpmux answers at once.
@@ -200,16 +201,28 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
   try {
     await render(rows);
     const ticks = () =>
-      new Map([...host.querySelectorAll<HTMLElement>("[data-tick]")].map((node) => [node.dataset.tick, node]));
+      new Map([...host.querySelectorAll<HTMLElement>("[data-tick]")].map((node) => [Number(node.dataset.tick), node]));
+    /// The rows the rail's window draws for its list's offset and height (tickWindow.ts), nothing
+    /// focused or hovered.
+    const window = (count: number) => {
+      const list = host.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      const height = Number.parseFloat(list.parentElement!.style.height);
+      return tickRanges(count, list.scrollTop, height).flatMap(([from, to]) =>
+        Array.from({ length: to - from }, (_, offset) => from + offset),
+      );
+    };
     const before = ticks();
+    expect([...before.keys()]).toEqual(window(PROMPTS));
     await render([...rows, row(`user-${PROMPTS + 1}`, "user", "One more question")]);
     expect(host.querySelector(`[data-tick="${PROMPTS}"]`)?.getAttribute("aria-label")).toContain("One more question");
     expect(host.querySelector(`[data-tick="${PROMPTS}"]`)?.getAttribute("aria-label")).toContain(`${PROMPTS + 1}`);
-    // Every earlier tick still drawn is the same element (the rail draws those in its view, tickWindow.ts).
+    // Exactly the rows of the rail's window are drawn, and every one drawn before the new prompt is
+    // the same element.
     const after = ticks();
-    const kept = [...before].filter(([index]) => after.has(index));
-    expect(kept.length).toBeGreaterThan(0);
-    expect(kept.every(([index, node]) => after.get(index) === node)).toBe(true);
+    expect([...after.keys()]).toEqual(window(PROMPTS + 1));
+    const kept = [...before.keys()].filter((index) => after.has(index));
+    expect(kept).toEqual([...before.keys()].filter((index) => window(PROMPTS + 1).includes(index)));
+    for (const index of kept) expect(after.get(index)).toBe(before.get(index)!);
   } finally {
     await act(async () => root.unmount());
     host.remove();
