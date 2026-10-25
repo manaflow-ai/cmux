@@ -52,8 +52,8 @@ afterEach(async () => {
 // acpmux answers send_now before the agent reads the steer: its row still says waiting then, as on
 // Leo's row (2026-10-24: "after i clicked send now and it worked it should just disappear").
 // Each steer has its own promptId: a Send now that worked is remembered by it for the page's life.
-let steers = 0;
-async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${++steers}` }) {
+const steers = { count: 0 };
+async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${(steers.count += 1)}` }) {
   const container = dom?.window.document.getElementById("root") ?? installDom();
   const unsteer = async () => true;
   await act(async () => {
