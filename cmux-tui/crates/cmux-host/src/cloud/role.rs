@@ -28,6 +28,7 @@ use serde_json::{Value, json};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
+use super::github::{self, TokenAsk};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -493,7 +494,7 @@ impl Worker {
             let Some(client) = self.clients.get_mut(i) else { continue };
             match read_available(&mut client.stream, &mut client.buf) {
                 Ok(open) => {
-                    lines.extend(take_lines(&mut client.buf));
+                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
                     if !open || client.buf.len() > MAX_LINE {
                         closed.push(i);
                     }
@@ -501,10 +502,24 @@ impl Worker {
                 Err(_) => closed.push(i),
             }
         }
+        // A GitHub token ask is answered on its own connection, before a
+        // client that already closed its write half is dropped.
+        let mut session_lines = Vec::new();
+        for (i, line) in lines {
+            match github_ask(&line) {
+                Some(ask) => {
+                    let reply = self.github_token(ask);
+                    if let Some(client) = self.clients.get_mut(i) {
+                        let _ = write_reply(&mut client.stream, &reply);
+                    }
+                }
+                None => session_lines.push(line),
+            }
+        }
         for i in closed.into_iter().rev() {
             self.clients.remove(i);
         }
-        for line in lines {
+        for line in session_lines {
             let now = self.now();
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
@@ -513,6 +528,22 @@ impl Worker {
             }
             self.drive(reqs);
         }
+    }
+
+    /// One GitHub token ask (`github.rs`): minted by the API for this
+    /// machine's `vm` install. The journal gets the repo, permissions and
+    /// outcome only; the token is in the reply and nowhere else.
+    fn github_token(&mut self, ask: Result<TokenAsk, String>) -> Value {
+        let ask = match ask {
+            Ok(ask) => ask,
+            Err(why) => return github::refusal("request.invalid", &why),
+        };
+        let Some(live) = self.live.as_mut() else {
+            return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
+        };
+        let reply = github::reply_for(&live.client.github_token(&ask, wall_ms()));
+        log(&github::note_for(&ask, &reply));
+        reply
     }
 
     fn bind_now(&mut self) {
@@ -740,6 +771,23 @@ impl Worker {
         // Diagnostic only; a failed write is ignored.
         let _ = self.store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644);
     }
+}
+
+/// The ask of a `{"github_token": {...}}` line (checked), or `None` for
+/// every other line (the session's).
+fn github_ask(line: &str) -> Option<Result<TokenAsk, String>> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    let ask = msg.get(github::REQUEST_KEY)?;
+    Some(TokenAsk::from_json(ask))
+}
+
+/// One reply line on a client's (non-blocking) connection, bounded by 2 s.
+fn write_reply(stream: &mut UnixStream, reply: &Value) -> io::Result<()> {
+    stream.set_nonblocking(false)?;
+    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
+    let written = stream.write_all(format!("{reply}\n").as_bytes());
+    stream.set_nonblocking(true)?;
+    written
 }
 
 /// Reads what is available; `Ok(false)` at end of stream.
