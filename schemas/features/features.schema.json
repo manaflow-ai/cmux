@@ -14,7 +14,7 @@
       "pattern": "^[a-z][A-Za-z0-9]{1,63}$"
     },
     "owner": {
-      "description": "An owner from plans/cmux-next/OWNERS.md: an agent, a workstream (PL-*) or a person.",
+      "description": "An owner from plans/cmux-next/OWNERS.md (an agent, a workstream or a person, as written in an Owner cell), or a PL-* workstream from plans/cmux-next/perf-lead.md. gen-features.py checks it.",
       "type": "string",
       "pattern": "^[^\\u0000-\\u001f\"\\\\]{1,80}$"
     },
@@ -72,9 +72,9 @@
       "type": "boolean"
     },
     "teardownTest": {
-      "description": "The test that proves the live teardown path, as Target.Suite/testName (Swift) or crate::path::test (Rust).",
+      "description": "The test that proves the live teardown path, as Target.Suite/testName (Swift: a test method of type Suite in Tests/<Target>/) or crate::module::test (Rust: a #[test] fn in that module of the cmux-tui crate; tests/<file>.rs is crate::<file>).",
       "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_.:/]{2,199}$"
+      "pattern": "^(?:[A-Za-z_][A-Za-z0-9_]{0,79}\\.[A-Za-z_][A-Za-z0-9_]{0,79}/[A-Za-z_][A-Za-z0-9_]{0,79}|[a-z_][a-z0-9_]{0,63}(?:::[A-Za-z_][A-Za-z0-9_]{0,79}){1,8})$"
     },
     "replaces": {
       "description": "Debug tunable keys and env switches this feature took over (gen-features.py --unmigrated stops listing them).",

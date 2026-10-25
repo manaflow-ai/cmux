@@ -9,10 +9,11 @@ against schemas/features/features.schema.json, and generates:
   Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/Features.generated.swift   every feature
   cmux-tui/crates/cmux-features/src/generated.rs                              process daemon and both
 
-    python3 scripts/cmux-next/gen-features.py                      # validate, write both files
+    python3 scripts/cmux-next/gen-features.py                      # validate, write the files whose
+                                                                   #   target exists (091, 095)
     python3 scripts/cmux-next/gen-features.py --check              # exit 1 on drift or an invalid file
-    python3 scripts/cmux-next/gen-features.py --unmigrated         # MQ6: perf-path Bool tunables and env
-                                                                   #   switches not yet a feature
+    python3 scripts/cmux-next/gen-features.py --unmigrated         # MQ6: seed and perf-owned Bool tunables
+                                                                   #   and env switches not yet a feature
     python3 scripts/cmux-next/gen-features.py --unmigrated-params  # MQ16: numeric tunables in perf-owned
                                                                    #   paths not yet a FeatureParam
     add --count to either queue to print only the number.
@@ -24,6 +25,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import fnmatch
+import functools
 import json
 import math
 import os
@@ -38,8 +40,13 @@ SCHEMA = "schemas/features/features.schema.json"
 FEATURES_DIR = "schemas/features/features.d"
 SWIFT_OUT = "Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/Features.generated.swift"
 RUST_OUT = "cmux-tui/crates/cmux-features/src/generated.rs"
+SWIFT_PACKAGE = "Packages/macOS/CmuxNext/Package.swift"
+SWIFT_TARGET = "CmuxNextFeatures"
+RUST_MANIFEST = "cmux-tui/crates/cmux-features/Cargo.toml"
 STORIES_DIR = "scripts/perf-lab/stories.d"
 OWNERS = "plans/cmux-next/OWNERS.md"
+PERF_LEAD = "plans/cmux-next/perf-lead.md"
+INT64_MIN, INT64_MAX = -(2 ** 63), 2 ** 63 - 1  # Swift Int and Rust i64
 SWIFT_ROOT = "Packages/macOS"
 RUST_CRATES = "cmux-tui/crates"
 RUST_EDITION = "2024"
@@ -94,14 +101,22 @@ SKIP_DIRS = frozenset({".build", ".git", "node_modules", "DerivedData", ".swiftp
 # ---------------------------------------------------------------------------------------------
 # Schema: the JSON Schema subset features.schema.json uses, so the script needs no third-party module.
 
+def _finite(value):
+    # json.load reads an overflowing literal such as 1e400 as inf without calling parse_constant.
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # an int too large for a float
+        return False
+
+
 def _is_type(value, name):
     if name == "boolean":
         return isinstance(value, bool)
     if name == "integer":
-        return (isinstance(value, int) and not isinstance(value, bool)) or (
+        return (isinstance(value, int) and not isinstance(value, bool) and _finite(value)) or (
             isinstance(value, float) and math.isfinite(value) and value.is_integer())
     if name == "number":
-        return isinstance(value, (int, float)) and not isinstance(value, bool)
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and _finite(value)
     return isinstance(value, {"string": str, "array": list, "object": dict, "null": type(None)}[name])
 
 
@@ -115,6 +130,29 @@ def _describe_forbidden(schema):
     names = [name for name in schema.get("required", [])]
     names += [name for sub in schema.get("anyOf", []) for name in sub.get("required", [])]
     return " or ".join(repr(name) for name in names) if names else json.dumps(schema)
+
+
+@functools.lru_cache(maxsize=None)
+def _ecma_pattern(pattern):
+    """`pattern` compiled with ECMA-262's `$`, which matches only at the end of the string; Python's `$`
+    also matches before a final newline, and a description ending in one would break the generated
+    single-line string literals."""
+    out, in_class, index = [], False, 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "\\":
+            out.append(pattern[index:index + 2])
+            index += 2
+            continue
+        if in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "$":
+            char = r"\Z"
+        out.append(char)
+        index += 1
+    return re.compile("".join(out))
 
 
 def schema_errors(value, schema, root, path=""):
@@ -136,7 +174,7 @@ def schema_errors(value, schema, root, path=""):
         errors.append("%s: %s is not one of %s" % (where, json.dumps(value), ", ".join(map(json.dumps, schema["enum"]))))
     if "const" in schema and not _same(value, schema["const"]):
         errors.append("%s: expected %s" % (where, json.dumps(schema["const"])))
-    if isinstance(value, str) and "pattern" in schema and not re.search(schema["pattern"], value):
+    if isinstance(value, str) and "pattern" in schema and not _ecma_pattern(schema["pattern"]).search(value):
         errors.append("%s: %s does not match %s" % (where, json.dumps(value), schema["pattern"]))
     if isinstance(value, list):
         if len(value) < schema.get("minItems", 0):
@@ -190,17 +228,126 @@ def _walk(root, top, suffix):
                 yield os.path.relpath(full, root), full
 
 
-def _test_exists(root, name):
-    """A teardownTest names a test function: `func <last>` in Swift tests or `fn <last>` in cmux-tui."""
-    last = re.split(r"[./:]+", name)[-1]
-    swift = re.compile(r"\bfunc\s+%s\s*\(" % re.escape(last))
-    rust = re.compile(r"\bfn\s+%s\s*\(" % re.escape(last))
+# Comments and string or char literals, blanked before brace matching (newlines kept, so offsets hold).
+SOURCE_NOISE = re.compile(r'''//[^\n]*|/\*[\s\S]*?\*/|(?<!\w)r(#*)"[\s\S]*?"\1|(#*)"""[\s\S]*?"""\2|(#+)"[^\n]*?"\3'''
+                          r'''|"(?:\\.|[^"\\\n])*"|'(?:\\[^'\n]{1,10}|[^\\'\n])'(?!\w)''')
+SWIFT_TEST_NAME = re.compile(r"^(\w+)\.(\w+)/(\w+)$")
+RUST_TEST_NAME = re.compile(r"^(\w+)((?:::\w+)+)$")
+
+
+def _code(text):
+    return SOURCE_NOISE.sub(lambda match: re.sub(r"[^\n]", " ", match.group(0)), text)
+
+
+def _body(code, start, end=None):
+    """(first, last) offsets inside the first {...} block at or after `start`, or None."""
+    opening = code.find("{", start, end)
+    if opening < 0:
+        return None
+    depth = 0
+    for index in range(opening, len(code) if end is None else end):
+        if code[index] == "{":
+            depth += 1
+        elif code[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return opening + 1, index
+    return None
+
+
+def _top_level(code, body, position):
+    """`position` is directly in `body`, not in a block nested inside it."""
+    part = code[body[0]:position]
+    return part.count("{") == part.count("}")
+
+
+def _swift_test_exists(root, target, suite, test):
+    """`func test` is a member of a type or extension named `suite` in Tests/<target>/, and is a test:
+    XCTest runs `test*` methods, Swift Testing runs `@Test` functions."""
+    decl = re.compile(r"\b(?:class|struct|enum|actor|extension)\s+%s\b" % re.escape(suite))
+    func = re.compile(r"((?:@\w+(?:\((?:[^()]|\([^()]*\))*\))?\s*)*)(?:(?:public|internal|private|fileprivate|open|"
+                      r"final|nonisolated|override|static|class|mutating)\s+)*func\s+%s\s*\(" % re.escape(test))
     for rel, full in _walk(root, SWIFT_ROOT, ".swift"):
-        if "/Tests/" in "/" + rel and swift.search(_read(full)):
-            return True
-    for _, full in _walk(root, RUST_CRATES, ".rs"):
-        if rust.search(_read(full)):
-            return True
+        if "/Tests/%s/" % target not in "/" + rel:
+            continue
+        code = _code(_read(full))
+        for match in decl.finditer(code):
+            body = _body(code, match.end())
+            for found in func.finditer(code, *body) if body else ():
+                if _top_level(code, body, found.start()) and (
+                        test.startswith("test") or re.search(r"@Test\b", found.group(1))):
+                    return True
+    return False
+
+
+def _rust_crates(root):
+    """{crate name with underscores: crate directory} from cmux-tui/crates/*/Cargo.toml."""
+    base = os.path.join(root, RUST_CRATES)
+    crates = {}
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else ():
+        manifest = os.path.join(base, name, "Cargo.toml")
+        if os.path.isfile(manifest):
+            package = re.search(r'^\[package\][^\[]*?^name\s*=\s*"([^"]+)"', _read(manifest), re.M | re.S)
+            crates[(package.group(1) if package else name).replace("-", "_")] = os.path.join(base, name)
+    return crates
+
+
+def _rust_scope(directory, root_file, modules):
+    """(code, body) of `modules` under the crate root file `root_file`, following inline `mod m {}` blocks and
+    the module files `m.rs` and `m/mod.rs`, or None."""
+    if not os.path.isfile(root_file):
+        return None
+    code = _code(_read(root_file))
+    body, children = (0, len(code)), directory
+    for module in modules:
+        inline = re.compile(r"\bmod\s+%s\s*\{" % re.escape(module))
+        found = next((match for match in inline.finditer(code, *body) if _top_level(code, body, match.start())), None)
+        if found:
+            body = _body(code, found.start(), body[1])
+            if not body:
+                return None
+        else:
+            path = next((path for path in (os.path.join(children, module + ".rs"),
+                                           os.path.join(children, module, "mod.rs")) if os.path.isfile(path)), None)
+            if not path:
+                return None
+            code = _code(_read(path))
+            body = (0, len(code))
+        children = os.path.join(children, module)
+    return code, body
+
+
+def _rust_test_exists(root, crate, modules, test):
+    """`fn test` sits directly in crate::modules (src/, or tests/<first module>.rs for an integration test)
+    under a #[test] or #[tokio::test] attribute."""
+    directory = _rust_crates(root).get(crate)
+    if not directory:
+        return None
+    src = os.path.join(directory, "src")
+    scopes = [_rust_scope(src, os.path.join(src, file_name), modules) for file_name in ("lib.rs", "main.rs")]
+    if modules:
+        tests = os.path.join(directory, "tests")
+        scopes += [_rust_scope(os.path.join(tests, modules[0]), path, modules[1:]) for path in (
+            os.path.join(tests, modules[0] + ".rs"), os.path.join(tests, modules[0], "main.rs"))]
+    func = re.compile(r"((?:#\[[^\]]*\]\s*)*)(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?"
+                      r"fn\s+%s\s*\(" % re.escape(test))
+    for code, body in filter(None, scopes):
+        for found in func.finditer(code, *body):
+            if _top_level(code, body, found.start()) and re.search(r"#\[(?:tokio::)?test\b", found.group(1)):
+                return True
+    return False
+
+
+def _test_exists(root, name):
+    """A teardownTest resolves to a test function: `Target.Suite/testName` in a Swift test target or
+    `crate::module::test` in a cmux-tui crate."""
+    swift = SWIFT_TEST_NAME.match(name)
+    if swift:
+        return _swift_test_exists(root, *swift.groups())
+    rust = RUST_TEST_NAME.match(name)
+    if rust:
+        return bool(_rust_test_exists(root, rust.group(1), rust.group(2).split("::")[1:-1],
+                                      rust.group(2).split("::")[-1]))
     return False
 
 
@@ -215,6 +362,7 @@ def load_features(root, today):
     directory = os.path.join(root, FEATURES_DIR)
     names = sorted(os.listdir(directory)) if os.path.isdir(directory) else []
     features, errors, warnings = [], [], []
+    owners = known_owners(root) if names else None
     for file_name in names:
         rel = FEATURES_DIR + "/" + file_name
         if not file_name.endswith(".json"):
@@ -228,7 +376,7 @@ def load_features(root, today):
             continue
         found = schema_errors(data, schema, schema)
         if not found:
-            found = _registry_errors(root, data, file_name, today, warnings, rel)
+            found = _registry_errors(root, data, file_name, today, warnings, rel, owners)
         if found:
             errors += ["%s: %s" % (rel, error) for error in found]
         else:
@@ -241,10 +389,41 @@ def _reject_constant(token):
     raise ValueError("%s is not a JSON number" % token)
 
 
-def _registry_errors(root, data, file_name, today, warnings, rel):
-    """What the schema cannot say: file name, the 60-day perfPath expiry, param ranges, stories, tests."""
+def _owner_rows(root):
+    """[(paths cell, owner cell)] for every table row of OWNERS.md, or None when the file is missing."""
+    path = os.path.join(root, OWNERS)
+    if not os.path.isfile(path):
+        return None
+    rows = []
+    for line in _read(path).splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if line.lstrip().startswith("|") and len(cells) >= 3 and not re.fullmatch(r"[-: ]*", cells[1]):
+            rows.append((cells[1], cells[2]))
+    return rows
+
+
+def known_owners(root):
+    """The texts an owner must appear in: OWNERS.md's owner cells, and perf-lead.md for PL-* workstreams."""
+    rows = _owner_rows(root)
+    perf_lead = os.path.join(root, PERF_LEAD)
+    return (None if rows is None else [owner for _, owner in rows],
+            _read(perf_lead) if os.path.isfile(perf_lead) else "")
+
+
+def _owner_known(owner, owners):
+    cells, perf_lead = owners
+    word = re.compile(r"(?<![\w-])%s(?![\w-])" % re.escape(owner))
+    return any(word.search(cell) for cell in cells) or (owner.startswith("PL-") and bool(word.search(perf_lead)))
+
+
+def _registry_errors(root, data, file_name, today, warnings, rel, owners):
+    """What the schema cannot say: file name, owner, the 60-day perfPath expiry, param ranges, stories, tests."""
     errors = []
     name = data["name"]
+    if owners[0] is None:
+        errors.append("/owner: %s is missing, so the owner cannot be checked" % OWNERS)
+    elif not _owner_known(data["owner"], owners):
+        errors.append("/owner: %r is not an owner in %s (or a PL-* workstream in %s)" % (data["owner"], OWNERS, PERF_LEAD))
     if file_name != name + ".json":
         errors.append("the file must be named %s.json" % name)
     if name in SWIFT_RESERVED:
@@ -266,6 +445,10 @@ def _registry_errors(root, data, file_name, today, warnings, rel):
     if len(param_names) != len(set(param_names)):
         errors.append("/params: names repeat")
     for number, param in enumerate(params):
+        if param["type"] == "int":
+            for field in ("default", "min", "max"):
+                if not INT64_MIN <= param[field] <= INT64_MAX:
+                    errors.append("/params/%d/%s: %s is outside the 64-bit Int range" % (number, field, param[field]))
         if param["type"] != "bool":
             low, high, value = param["min"], param["max"], param["default"]
             if not (low <= value <= high):
@@ -436,6 +619,17 @@ def outputs(features):
     return {SWIFT_OUT: swift(features), RUST_OUT: rust(features)}
 
 
+def missing_target(root, rel):
+    """Why `rel` has no target to compile it yet (task p12-perf-process-091 adds the Swift target, 095 the
+    crate), or None. A generated file is written and checked only once its target exists."""
+    if rel == SWIFT_OUT:
+        package = os.path.join(root, SWIFT_PACKAGE)
+        declared = os.path.isfile(package) and re.search(
+            r'\.target\(\s*name:\s*"%s"' % SWIFT_TARGET, _read(package))
+        return None if declared else "%s declares no %s target" % (SWIFT_PACKAGE, SWIFT_TARGET)
+    return None if os.path.isfile(os.path.join(root, RUST_MANIFEST)) else "no %s" % RUST_MANIFEST
+
+
 def rustfmt(text, root):
     """`text` as the pre-commit hook would format it (rustfmt with cmux-tui's config), or as is without rustfmt."""
     binary = shutil.which("rustfmt")
@@ -505,25 +699,28 @@ def env_reads(root, names):
 
 
 def unmigrated(root, features):
+    """(rows, stale seeds). Rows: the seed Bool tunables and env switches, and every Bool tunable declared
+    in, or read from, a perf-owned file, that no feature replaces. A stale seed matches nothing declared or
+    replaced (renamed or removed)."""
     replaced = {key for feature in features for key in feature.get("replaces", [])}
-    rows = [(tunable.key, tunable.where) for tunable in tunables(root, {"Bool"})
-            if tunable.key not in replaced
-            and any(fnmatch.fnmatchcase(tunable.key, seed) for seed in UNMIGRATED_BOOL_TUNABLES)]
-    rows += [(name, where) for name, where in env_reads(root, UNMIGRATED_ENV_SWITCHES) if name not in replaced]
-    return sorted(rows)
+    declared = tunables(root, {"Bool"})
+    perf = perf_tunables(root, declared)
+    rows = {(tunable.key, tunable.where) for tunable in declared if tunable.key not in replaced and (
+        tunable in perf or any(fnmatch.fnmatchcase(tunable.key, seed) for seed in UNMIGRATED_BOOL_TUNABLES))}
+    reads = env_reads(root, UNMIGRATED_ENV_SWITCHES)
+    rows |= {(name, where) for name, where in reads if name not in replaced}
+    keys = {tunable.key for tunable in declared} | replaced
+    stale = [seed for seed in UNMIGRATED_BOOL_TUNABLES if not fnmatch.filter(keys, seed)]
+    stale += [name for name in UNMIGRATED_ENV_SWITCHES if name not in replaced and name not in dict(reads)]
+    return sorted(rows), stale
 
 
 def perf_owned_paths(root):
     """Paths of the OWNERS.md rows a Performance Lead workstream owns (owner names PL-* or Performance Lead)."""
-    path = os.path.join(root, OWNERS)
     patterns = []
-    if not os.path.isfile(path):
-        return patterns
-    for line in _read(path).splitlines():
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if len(cells) < 3 or not re.search(r"\bPL-|Performance Lead", cells[2]):
-            continue
-        patterns += re.findall(r"`([^`]+)`", cells[1])
+    for paths, owner in _owner_rows(root) or ():
+        if re.search(r"\bPL-|Performance Lead", owner):
+            patterns += re.findall(r"`([^`]+)`", paths)
     return patterns
 
 
@@ -536,19 +733,20 @@ def _owned(rel, patterns):
     return False
 
 
-def unmigrated_params(root, features):
-    """Numeric tunables declared in, or read (as Type.name) from, a perf-owned file and no param replaces."""
-    replaced = {param["replaces"] for feature in features for param in feature["params"] if "replaces" in param}
+def perf_tunables(root, declared):
+    """The tunables of `declared` that are declared in, or read (as Type.name) from, a perf-owned file."""
     patterns = perf_owned_paths(root)
     owned_text = "\n".join(_read(full) for rel, full in _walk(root, SWIFT_ROOT, ".swift") if _owned(rel, patterns))
-    rows = []
-    for tunable in tunables(root, {"Double", "Int", "Duration", "CGFloat"}):
-        if tunable.key in replaced:
-            continue
-        read = tunable.symbol and re.search(r"\b%s\b" % re.escape(tunable.symbol), owned_text)
-        if _owned(tunable.path, patterns) or read:
-            rows.append((tunable.key, tunable.where))
-    return sorted(rows)
+    return [tunable for tunable in declared if _owned(tunable.path, patterns) or (
+        tunable.symbol and re.search(r"\b%s\b" % re.escape(tunable.symbol), owned_text))]
+
+
+def unmigrated_params(root, features):
+    """Numeric tunables declared in, or read from, a perf-owned file that no param replaces."""
+    replaced = {param["replaces"] for feature in features for param in feature["params"] if "replaces" in param}
+    declared = [tunable for tunable in tunables(root, {"Double", "Int", "Duration", "CGFloat"})
+                if tunable.key not in replaced]
+    return sorted((tunable.key, tunable.where) for tunable in perf_tunables(root, declared))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -576,7 +774,13 @@ def main(argv=None):
         return 1
 
     if args.unmigrated or args.unmigrated_params:
-        rows = unmigrated(args.root, features) if args.unmigrated else unmigrated_params(args.root, features)
+        if args.unmigrated:
+            rows, stale = unmigrated(args.root, features)
+            for seed in stale:
+                print("warning: the MQ6 seed %s matches no declared tunable or env read; update the seed list"
+                      % seed, file=sys.stderr)
+        else:
+            rows = unmigrated_params(args.root, features)
         if args.count:
             print(len(rows))
         else:
@@ -587,6 +791,10 @@ def main(argv=None):
 
     drifted = []
     for rel, text in outputs(features).items():
+        why = missing_target(args.root, rel)
+        if why:
+            print("skipped %s: %s yet" % (rel, why))
+            continue
         full = os.path.join(args.root, rel)
         if os.path.exists(full) and same_output(rel, _read(full), text):
             continue

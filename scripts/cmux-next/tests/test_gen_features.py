@@ -120,10 +120,23 @@ OWNED_READER = '''struct PaneHostView {
     var deadline: Double { BrowserResizeTunables.syncDeadline.value }
 }
 '''
-OWNERS = '''| Area | Paths | Owner | Read first |
+# The owners of the fixture features; their paths are none the queue fixtures use.
+FEATURE_OWNERS = '''| Area | Paths | Owner | Read first |
 |---|---|---|---|
-| Sidebar | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | a590 | x |
+| Chromium hosting | `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFHostView*.swift` | PL-cef-layer (memo: Leo) | x |
+| New Chromium tab path | `Packages/macOS/CmuxNext/Sources/CmuxNextChromiumWarmup/` | PL-cef-tab | x |
+| PTY holder | `cmux-tui/crates/cmux-holder/` | PL-daemon holder (session cmux-4f) | x |
+| Wakeups | `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/` | Performance Lead | x |
+'''
+OWNERS = FEATURE_OWNERS + '''| Sidebar | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | a590 | x |
 | Layout motion | `Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneHostView.swift` | PL-motion-core | x |
+'''
+PACKAGE_SWIFT = '''let package = Package(name: "CmuxNext", targets: [
+    .target(
+        name: "CmuxNextFeatures",
+        dependencies: []
+    ),
+])
 '''
 HOLDER_RS = '''pub fn holder_enabled() -> bool {
     std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
@@ -164,7 +177,7 @@ pub fn count() -> usize { generated::REGISTERED.len() }
 class Repo:
     """A temp repo root: the real schema, features.d and the sources the queues scan."""
 
-    def __init__(self, features=(), files=None):
+    def __init__(self, features=(), files=None, targets=True):
         self.dir = tempfile.TemporaryDirectory()
         self.root = Path(self.dir.name)
         schema = self.root / gen.SCHEMA
@@ -172,10 +185,20 @@ class Repo:
         shutil.copy(REPO / gen.SCHEMA, schema)
         (self.root / "cmux-tui").mkdir()
         shutil.copy(REPO / "cmux-tui/rustfmt.toml", self.root / "cmux-tui/rustfmt.toml")
+        self.write(gen.OWNERS, FEATURE_OWNERS)
+        if targets:
+            self.add_targets()
         for feature in features:
             self.write_feature(feature)
         for rel, text in (files or {}).items():
             self.write(rel, text)
+
+    def add_targets(self, swift=True, rust=True):
+        """The targets the generated files compile in (tasks 091 and 095)."""
+        if swift:
+            self.write(gen.SWIFT_PACKAGE, PACKAGE_SWIFT)
+        if rust:
+            self.write(gen.RUST_MANIFEST, '[package]\nname = "cmux-features"\n')
 
     def write(self, rel, text):
         path = self.root / rel
@@ -261,6 +284,27 @@ class SchemaTests(unittest.TestCase):
         self.assertTrue(self.errors(with_(KILL, description='say "hi" here')))
         self.assertTrue(self.errors(with_(KILL, defaults={"dev": True, "nightly": True})))
 
+    def test_a_trailing_newline_does_not_match_a_pattern(self):
+        """JSON Schema patterns are ECMA-262: `$` is the end of the string, not the spot before a final newline
+        (Python's `$`). A newline would split the generated single-line string literals."""
+        self.assertTrue(self.errors(with_(KILL, description="Does a thing here.\n")))
+        self.assertTrue(self.errors(with_(PERF, params=[{"name": "clip\n", "type": "bool", "default": True,
+                                                         "description": "Clip to the pane."}])))
+        for field, value in (("owner", "PL-cef-tab\n"), ("stories", ["dev-loop\n"]), ("replaces", ["a.b\n"])):
+            self.assertTrue(self.errors(with_(KILL, **{field: value})), field)
+        self.assertTrue(self.errors(with_(CHROMIUM, chromium_feature="BackForwardCache\n")))
+        self.assertTrue(self.errors(with_(KILL, runtimeMutable=True, teardownTest="A.B/testC\n")))
+        self.assertEqual(gen._ecma_pattern("^a[$]b$").pattern, r"^a[$]b\Z")
+        self.assertEqual(gen._ecma_pattern(r"^a\$$").pattern, r"^a\$\Z")
+
+    def test_teardown_test_names_one_of_the_two_forms(self):
+        for name in ("CmuxNextFeaturesTests.FlagsTests/testTeardown", "cmux_holder::ring::tests::drops",
+                     "cmux_holder::drops"):
+            self.assertEqual(self.errors(with_(KILL, runtimeMutable=True, teardownTest=name)), [], name)
+        for name in ("testTeardown", "A.B.C/testD", "A/testD", "cmux_holder", "Crate::x::y", "a::b/c",
+                     "cmux-holder::drops"):
+            self.assertTrue(self.errors(with_(KILL, runtimeMutable=True, teardownTest=name)), name)
+
     @unittest.skipUnless(importlib.util.find_spec("jsonschema"), "jsonschema is not installed")
     def test_the_built_in_validator_agrees_with_jsonschema(self):
         import jsonschema
@@ -274,7 +318,11 @@ class SchemaTests(unittest.TestCase):
                                       "description": "Hosted pages."}]),
                  with_(PERF, params=[{"name": "clip", "type": "bool", "default": True, "max": 1,
                                       "description": "Clip it."}]),
-                 with_(KILL, stories=["a", "a"]), with_(KILL, sticky="yes")]
+                 with_(KILL, stories=["a", "a"]), with_(KILL, sticky="yes"),
+                 # Not the trailing-newline cases: Python's jsonschema matches with re.search, so it shares
+                 # the `$` deviation that test_a_trailing_newline_does_not_match_a_pattern covers.
+                 with_(KILL, runtimeMutable=True, teardownTest="cmux_holder::ring::tests::drops"),
+                 with_(KILL, runtimeMutable=True, teardownTest="A.B.C/testD")]
         for case in cases:
             self.assertEqual(bool(self.errors(case)), not validator.is_valid(case), json.dumps(case))
 
@@ -326,6 +374,98 @@ class RegistryTests(unittest.TestCase):
         repo.run()
         self.assertEqual(repo.run("--check")[0], 0)
 
+    def resolves(self, name, files):
+        repo = Repo(files=files)
+        self.addCleanup(repo.close)
+        return gen._test_exists(str(repo.root), name)
+
+    def test_swift_teardown_test_resolves_target_suite_and_test(self):
+        tests = "Packages/macOS/CmuxNext/Tests/CmuxNextFeaturesTests/"
+        files = {
+            tests + "FlagsTests.swift": '''import XCTest
+final class FlagsTests: XCTestCase {
+    let brace = "{ not a block"
+    // func testInAComment() {}
+    func helper() {}
+    struct Nested { func testNested() {} }
+    func testLiveTeardown() async throws {}
+}
+extension FlagsTests {
+    @MainActor func testFromExtension() {}
+}
+''',
+            tests + "SwiftTesting.swift": '''import Testing
+@Suite("Flags") struct FlagTeardown {
+    @Test("drops the live path", .tags(.teardown))
+    func dropsLivePath() async {}
+    func notATest() {}
+}
+''',
+            "Packages/macOS/CmuxNext/Tests/OtherTests/Other.swift": "final class Other { func testElsewhere() {} }\n",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextFeatures/Lib.swift": "struct FlagsTests { func testInSource() {} }\n",
+        }
+        for name in ("CmuxNextFeaturesTests.FlagsTests/testLiveTeardown",
+                     "CmuxNextFeaturesTests.FlagsTests/testFromExtension",
+                     "CmuxNextFeaturesTests.FlagTeardown/dropsLivePath", "OtherTests.Other/testElsewhere"):
+            self.assertTrue(self.resolves(name, files), name)
+        for name, why in (("CmuxNextFeaturesTests.FlagsTests/helper", "a helper is not a test"),
+                          ("CmuxNextFeaturesTests.FlagTeardown/notATest", "no @Test and no test prefix"),
+                          ("CmuxNextFeaturesTests.FlagsTests/testNested", "a member of a nested type"),
+                          ("CmuxNextFeaturesTests.FlagsTests/testInAComment", "commented out"),
+                          ("CmuxNextFeaturesTests.Wrong/testLiveTeardown", "wrong suite"),
+                          ("OtherTests.FlagsTests/testLiveTeardown", "wrong target"),
+                          ("CmuxNextFeatures.FlagsTests/testInSource", "not a test target"),
+                          ("Nonexistent.Suite/new", "nothing")):
+            self.assertFalse(self.resolves(name, files), why)
+
+    def test_rust_teardown_test_resolves_crate_module_and_test_attribute(self):
+        crate = "cmux-tui/crates/cmux-holder/"
+        files = {
+            crate + "Cargo.toml": '[package]\nname = "cmux-holder"\n',
+            crate + "src/lib.rs": '''pub mod ring;
+pub fn new() {}
+#[test]
+fn at_the_root() {}
+''',
+            crate + "src/ring.rs": '''pub fn drop_ring() { let _ = "}"; let _ = '{'; }
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn teardown_drops() {}
+    #[tokio::test(flavor = "multi_thread")]
+    #[should_panic(expected = "]")]
+    async fn teardown_async() {}
+    fn helper() {}
+    mod deeper { #[test] fn nested_only() {} }
+}
+''',
+            crate + "src/ring/wire.rs": "#[test]\nfn in_a_child_file() {}\n",
+            crate + "tests/attach.rs": "#[test]\nfn integration_teardown() {}\n",
+        }
+        for name in ("cmux_holder::ring::tests::teardown_drops", "cmux_holder::ring::tests::teardown_async",
+                     "cmux_holder::at_the_root",
+                     "cmux_holder::ring::wire::in_a_child_file", "cmux_holder::attach::integration_teardown",
+                     "cmux_holder::ring::tests::deeper::nested_only"):
+            self.assertTrue(self.resolves(name, files), name)
+        for name, why in (("cmux_holder::new", "a plain fn in src is not a test"),
+                          ("crate::x::new", "no such crate"),
+                          ("cmux_holder::ring::tests::helper", "no #[test]"),
+                          ("cmux_holder::ring::drop_ring", "no #[test]"),
+                          ("cmux_holder::ring::tests::nested_only", "the test is in a nested module"),
+                          ("cmux_holder::wire::in_a_child_file", "wrong module path"),
+                          ("cmux_holder::tests::teardown_drops", "wrong module path"),
+                          ("cmux_other::ring::tests::teardown_drops", "wrong crate")):
+            self.assertFalse(self.resolves(name, files), why)
+
+    def test_a_common_non_test_name_does_not_pass_as_a_teardown_test(self):
+        files = {"cmux-tui/crates/cmux-x/Cargo.toml": '[package]\nname = "cmux-x"\n',
+                 "cmux-tui/crates/cmux-x/src/lib.rs": "pub fn new() {}\n",
+                 "Packages/macOS/CmuxNext/Tests/CmuxNextFeaturesTests/Helpers.swift": "func new() {}\n"}
+        for name in ("Nonexistent.Suite/new", "cmux_x::new", "crate::x::new"):
+            _, (code, _, err) = self.check(with_(KILL, runtimeMutable=True, teardownTest=name), files=files)
+            self.assertEqual(code, 1, name)
+            self.assertIn("no test function named", err)
+
     def test_stories_must_exist_once_the_story_catalog_does(self):
         files = {gen.STORIES_DIR + "/dev-loop.json": "{}"}
         _, (code, _, err) = self.check(HOLDER, files=files)
@@ -343,11 +483,47 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("reserved", err)
 
     def test_non_finite_numbers_are_rejected(self):
-        repo = Repo()
+        """json.load reads 1e400 as inf without parse_constant; neither Swift nor Rust has an `inf` literal."""
+        for old, new in (('"default": 0.05', '"default": Infinity'), ('"max": 1,', '"max": 1e400,'),
+                         ('"default": 0.05', '"default": -1e400'), ('"max": 1,', '"max": 1%s,' % ("0" * 400))):
+            repo = Repo()
+            self.addCleanup(repo.close)
+            text = json.dumps(PERF)
+            self.assertIn(old, text)
+            repo.write(gen.FEATURES_DIR + "/cefLayerHosting.json", text.replace(old, new))
+            code, _, err = repo.run()
+            self.assertEqual(code, 1, new)
+            self.assertIn("cefLayerHosting.json", err)
+            self.assertFalse((repo.root / gen.SWIFT_OUT).exists(), new)
+
+    def test_int_params_fit_in_64_bits(self):
+        def pages(**values):
+            return with_(PERF, params=[dict({"name": "maxPages", "type": "int", "default": 4, "min": 1, "max": 32,
+                                              "description": "Hosted pages per window."}, **values)])
+        for values in ({"max": 1e20}, {"default": 2 ** 63, "max": 2 ** 64}, {"min": -(2 ** 63) - 1},
+                       {"max": 1e30, "default": 1e30}):
+            _, (code, _, err) = self.check(pages(**values))
+            self.assertEqual(code, 1, values)
+            self.assertIn("64-bit Int range", err)
+        _, (_, _, err) = self.check(pages(min=-(2 ** 63), max=2 ** 63 - 1))
+        self.assertNotIn("64-bit", err)
+
+    def test_owner_is_in_owners_md(self):
+        _, (code, _, err) = self.check(with_(KILL, owner="Somebody Else"))
+        self.assertEqual(code, 1)
+        self.assertIn("'Somebody Else' is not an owner in %s" % gen.OWNERS, err)
+        _, (_, _, err) = self.check(with_(KILL, owner="PL-cef"))
+        self.assertIn("'PL-cef' is not an owner", err, "a prefix of PL-cef-layer is not an owner")
+        _, (_, _, err) = self.check(with_(KILL, owner="PL-memory"), files={gen.PERF_LEAD: "- **PL-memory**: hidden pages.\n"})
+        self.assertNotIn("not an owner", err, "a PL-* workstream of perf-lead.md")
+        _, (_, _, err) = self.check(with_(KILL, owner="Aziz"), files={gen.PERF_LEAD: "Aziz\n"})
+        self.assertIn("'Aziz' is not an owner", err, "perf-lead.md counts only for PL-* names")
+        repo = Repo([KILL])
         self.addCleanup(repo.close)
-        repo.write(gen.FEATURES_DIR + "/cefLayerHosting.json",
-                   json.dumps(PERF).replace('"default": 0.05', '"default": Infinity'))
-        self.assertEqual(repo.run("--check")[0], 1)
+        (repo.root / gen.OWNERS).unlink()
+        code, _, err = repo.run("--check")
+        self.assertEqual(code, 1)
+        self.assertIn("%s is missing" % gen.OWNERS, err)
 
 
 class GeneratedFileTests(unittest.TestCase):
@@ -425,6 +601,31 @@ class GeneratedFileTests(unittest.TestCase):
         self.assertIn("public static let registered: [Feature] = []", repo.read(gen.SWIFT_OUT))
         self.assertIn("pub static REGISTERED: &[crate::Feature] = &[];", repo.read(gen.RUST_OUT))
 
+    def test_files_are_written_and_checked_only_once_their_target_exists(self):
+        repo = Repo([PERF, HOLDER, KILL, CHROMIUM], targets=False)
+        self.addCleanup(repo.close)
+        code, out, err = repo.run("--check")
+        self.assertEqual((code, err), (0, ""), "--check is green before tasks 091 and 095 add the targets")
+        self.assertIn("skipped %s: %s declares no CmuxNextFeatures target yet" % (gen.SWIFT_OUT, gen.SWIFT_PACKAGE), out)
+        self.assertIn("skipped %s: no %s yet" % (gen.RUST_OUT, gen.RUST_MANIFEST), out)
+        self.assertEqual(repo.run()[0], 0)
+        self.assertFalse((repo.root / gen.SWIFT_OUT).parent.exists(), "no orphan Swift target directory")
+        self.assertFalse((repo.root / gen.RUST_OUT).exists(), "no crate without a Cargo.toml")
+        repo.write(gen.SWIFT_PACKAGE, '.target(name: "CmuxNextFeaturesTests")\n')
+        self.assertIn("skipped " + gen.SWIFT_OUT, repo.run()[1], "a target with a longer name is not the target")
+        repo.add_targets(swift=False)
+        code, out, _ = repo.run("--check")
+        self.assertEqual(code, 1, "the Rust file is checked once its crate exists")
+        self.assertIn("skipped " + gen.SWIFT_OUT, out)
+        self.assertEqual(repo.run()[0], 0)
+        self.assertTrue((repo.root / gen.RUST_OUT).exists())
+        self.assertFalse((repo.root / gen.SWIFT_OUT).exists())
+        self.assertEqual(repo.run("--check")[0], 0)
+        repo.add_targets(rust=False)
+        self.assertEqual(repo.run("--check")[0], 1, "the Swift file is checked once its target exists")
+        self.assertEqual(repo.run()[0], 0)
+        self.assertEqual(repo.run("--check"), (0, "", ""))
+
     @unittest.skipUnless(shutil.which("rustc") and shutil.which("rustfmt"), "no Rust toolchain")
     def test_generated_rust_compiles_and_is_rustfmt_clean(self):
         for features in ([PERF, HOLDER, KILL, CHROMIUM], []):
@@ -475,6 +676,36 @@ class QueueTests(unittest.TestCase):
         code, out, _ = self.repo(PERF, HOLDER).run("--unmigrated", "--count")
         self.assertEqual((code, out), (0, "2\n"))
 
+    def test_unmigrated_lists_bool_tunables_of_perf_owned_files(self):
+        """A Bool tunable added after the seed list still enters MQ6 when a perf-owned file declares or reads it."""
+        repo = self.repo()
+        repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneHostView.swift", OWNED_READER + '''
+extension PaneHostView {
+    static let snapshot = Tunable<Bool>.toggle("motion.pane.snapshot", .springs, "x", help: "", default: true)
+    var other: Bool { DropOverlayTunables.other.value }
+}
+''')
+        code, out, _ = repo.run("--unmigrated")
+        self.assertEqual(code, 0)
+        rows = out.splitlines()
+        self.assertIn("motion.pane.snapshot\tPackages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/PaneHostView.swift:7",
+                      rows)
+        self.assertIn("drop.overlay.unrelated\tPackages/macOS/CmuxNext/Sources/CmuxNextLayout/Views/DropOverlay/"
+                      "DropOverlayTunables.swift:7", rows, "read from a perf-owned file")
+        self.assertEqual(rows[-1], "6 unmigrated")
+        repo.write_feature(with_(KILL, replaces=["motion.pane.snapshot", "drop.overlay.unrelated"]))
+        self.assertEqual(repo.run("--unmigrated", "--count")[1], "4\n")
+
+    def test_unmigrated_warns_about_stale_seeds(self):
+        code, _, err = self.repo().run("--unmigrated")
+        self.assertEqual(code, 0)
+        stale = [line for line in err.splitlines() if "matches no declared tunable" in line]
+        self.assertEqual(stale, ["warning: the MQ6 seed %s matches no declared tunable or env read; update the seed list"
+                                 % seed for seed in ("browserHost.helperPrototype", "hibernation.compressedSnapshots",
+                                                     "hostPressure.enabled", "agent.pageHost", "agent.chromium")])
+        _, _, err = self.repo(PERF, with_(KILL, replaces=["agent.pageHost"])).run("--unmigrated")
+        self.assertNotIn("seed agent.pageHost ", err, "a replaced seed is migrated, not stale")
+
     def test_unmigrated_params_follow_perf_owned_files(self):
         code, out, _ = self.repo().run("--unmigrated-params")
         self.assertEqual(code, 0)
@@ -495,7 +726,9 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(errors, [])
         if any("motion.pane.holdContent" in feature.get("replaces", []) for feature in features):
             self.skipTest("motion.pane.holdContent is a feature now")
-        keys = [key for key, _ in gen.unmigrated(str(REPO), features)]
+        rows, stale = gen.unmigrated(str(REPO), features)
+        self.assertEqual(stale, [], "every MQ6 seed still names a declared tunable or env read")
+        keys = [key for key, _ in rows]
         self.assertIn("motion.pane.holdContent", keys)
         self.assertIn("CMUX_TUI_TERMINAL_HOST_MODEL", keys)
 
