@@ -16,7 +16,10 @@ const css = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/comp
   "",
 );
 const baseStyles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
-const sharedStyles = readFileSync(join(import.meta.dir, "../src/agent-session/acpmux/composerFooterShared.css"), "utf8");
+const sharedStyles = readFileSync(
+  join(import.meta.dir, "../src/agent-session/acpmux/composerFooterShared.css"),
+  "utf8",
+);
 
 /** The declarations of every rule whose selector is exactly `selector`, in source order. */
 function rules(selector: string): string[] {
