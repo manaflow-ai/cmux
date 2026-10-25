@@ -1064,6 +1064,12 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
         }
         section.host_group = host_group;
     }
+    if let Some(opt_out) = patch.host_group_opt_out {
+        if opt_out && section.kind.machine().is_none() {
+            return Err(Refusal::InvalidValue);
+        }
+        section.host_group_opt_out = opt_out;
+    }
     validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
         tx.put_section(section);

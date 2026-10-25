@@ -74,6 +74,7 @@ nonisolated enum SidebarDocWire {
         var maxRows: Int?
         var keepsClosed: Bool?
         var hostGroup: Bool?
+        var hostGroupOptOut: Bool?
 
         enum CodingKeys: String, CodingKey {
             case id, kind, title, region, look, arrangement, columns, align, gap, room
@@ -81,6 +82,7 @@ nonisolated enum SidebarDocWire {
             case maxRows = "max_rows"
             case keepsClosed = "keeps_closed"
             case hostGroup = "host_group"
+            case hostGroupOptOut = "host_group_opt_out"
         }
 
         var record: SidebarDocSection {
@@ -101,6 +103,7 @@ nonisolated enum SidebarDocWire {
                                            region: region ?? (pinned ? .top : .middle), look: look ?? (pinned ? .builtIn : .list),
                                            arrangement: arrangement, room: room, maxRows: maxRows,
                                            keepsClosed: keepsClosed ?? (pinned || kind == .custom))
+            record.hostGroupOptOut = hostGroupOptOut ?? false
             record.hostGroup = (hostGroup ?? false) && record.session != nil
             return record
         }
