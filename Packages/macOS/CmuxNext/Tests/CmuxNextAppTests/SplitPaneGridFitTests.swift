@@ -34,9 +34,11 @@ struct SplitPaneGridFitTests {
             let other = try await services.windows.createWorkspace(WorkspaceSpawn(), into: controller.state.id)
             try await Self.until({ Self.shown(controller, workspace: other).count == 1 && Self.allLive(controller) },
                                  report: { "want \(other) (split \(id)): " + Self.describe(controller) })
-            let tabs = a.orderedIDs.count
+            // The daemon's tab: A's strip is suspended while its workspace is parked (0964d17bd5c) and
+            // maps the new tab once the workspace is shown again.
+            let tabs = a.pane.tabs.count
             #expect(services.registry.perform("newSurface", invocation: Self.at(a)))
-            try await Self.until({ a.orderedIDs.count == tabs + 1 }, report: { Self.describe(controller) })
+            try await Self.until({ a.pane.tabs.count == tabs + 1 }, report: { Self.describe(controller) })
             let window = try #require(controller.window)
             let tall = window.frame
             window.setFrame(NSRect(x: tall.minX, y: tall.minY + 60, width: tall.width, height: tall.height - 60), display: true)
