@@ -16,9 +16,12 @@
 //! answers. Nothing here writes it to disk or prints it anywhere but the
 //! credential protocol's stdout.
 //!
-//! Git does not tell a helper whether it fetches or pushes, so `get` asks
-//! for `contents: write` first and, when the team's policy refuses that
-//! (`policy.denied`), for `contents: read`. The API's policy is the limit.
+//! Git does not tell a helper whether it fetches or pushes, so `get` reads
+//! the nearest `git` ancestor's command line (Linux `/proc`): `push` asks
+//! for `contents: write`, `fetch`/`clone`/`pull`/`ls-remote` for
+//! `contents: read`. Any other operation asks for write first and, when
+//! the team's policy refuses it (`policy.denied`), for read. The API's
+//! policy is the limit.
 //! `CMUX_GITHUB_WORKFLOWS=1` adds `workflows: write` to the first ask, for
 //! pushes that change `.github/workflows`.
 
@@ -37,22 +40,18 @@ const USAGE: &str =
     "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | setup [--unset]";
 const HOST_KEY: &str = "credential.https://github.com.helper";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
-/// The agent mints with one API call (bounded by 20 s) and maybe a bearer
-/// refresh (two more).
-const ASK_TIMEOUT: Duration = Duration::from_secs(70);
+/// The agent's minter answers asks one at a time (each at most a bearer
+/// refresh and one API call, 20 s apiece), with at most 8 waiting.
+const ASK_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// A minted token, held in memory only.
+/// A minted token, held in memory only (Debug redacts it).
 pub struct Minted {
     pub token: String,
-    pub expires_at: String,
 }
 
 impl std::fmt::Debug for Minted {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Minted")
-            .field("token", &"<redacted>")
-            .field("expires_at", &self.expires_at)
-            .finish()
+        f.write_str("Minted(<redacted>)")
     }
 }
 
@@ -96,11 +95,10 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     })?;
     if *reply.field("ok") == true {
         let token = reply.field("token").as_str().unwrap_or("");
-        let expires_at = reply.field("expires_at").as_str().unwrap_or("");
         if token.is_empty() {
             return Err(refused("vm.agent_bad_answer", "no token in the answer"));
         }
-        return Ok(Minted { token: token.to_owned(), expires_at: expires_at.to_owned() });
+        return Ok(Minted { token: token.to_owned() });
     }
     let error = reply.field("error");
     Err(refused(
@@ -113,20 +111,87 @@ fn perms(pairs: &[(&str, &str)]) -> Map<String, Value> {
     pairs.iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect()
 }
 
-/// The asks `credential get` tries in order; each next one only after a
-/// `policy.denied`.
-pub fn credential_asks(repo: &str, workflows: bool) -> Vec<TokenAsk> {
+/// What the git process this helper answers is doing, from its command
+/// line: git does not tell a credential helper.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GitOp {
+    Push,
+    Read,
+    Unknown,
+}
+
+/// The operation of one ancestor's argv, or `None` when it is not `git`
+/// (the shell or `git-remote-https` between git and this helper).
+pub fn git_op_of(argv: &[String]) -> Option<GitOp> {
+    let (program, rest) = argv.split_first()?;
+    if Path::new(program).file_name()? != "git" {
+        return None;
+    }
+    let mut it = rest.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            // Global options that take the next word.
+            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" | "--exec-path"
+            | "--config-env" => {
+                it.next();
+            }
+            a if a.starts_with('-') => {}
+            // `git remote-https …` is the transport between git and this helper.
+            a if a.starts_with("remote-") => return None,
+            "push" | "send-pack" => return Some(GitOp::Push),
+            "fetch" | "clone" | "pull" | "ls-remote" | "fetch-pack" | "submodule" | "remote" => {
+                return Some(GitOp::Read);
+            }
+            _ => return Some(GitOp::Unknown),
+        }
+    }
+    Some(GitOp::Unknown)
+}
+
+/// The nearest `git` ancestor's operation (Linux `/proc`; up to 8 levels).
+fn git_op() -> GitOp {
+    let mut pid = std::os::unix::process::parent_id();
+    for _ in 0..8 {
+        let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) else { break };
+        let argv: Vec<String> = raw
+            .split(|b| *b == 0)
+            .filter(|w| !w.is_empty())
+            .map(|w| String::from_utf8_lossy(w).into_owned())
+            .collect();
+        if let Some(op) = git_op_of(&argv) {
+            return op;
+        }
+        // `pid (comm) state ppid ...`; comm may hold spaces and parens.
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { break };
+        let after = stat.rsplit_once(')').map_or("", |(_, rest)| rest);
+        let Some(Ok(ppid)) = after.split_whitespace().nth(1).map(str::parse::<u32>) else { break };
+        if ppid <= 1 {
+            break;
+        }
+        pid = ppid;
+    }
+    GitOp::Unknown
+}
+
+/// The asks `credential get` tries in order, each next one only after a
+/// `policy.denied`: a fetch asks for read, a push for write (with
+/// `workflows` when set), and an unknown operation for write, then read.
+pub fn credential_asks(repo: &str, op: GitOp, workflows: bool) -> Vec<TokenAsk> {
     let ask = |pairs: &[(&str, &str)]| TokenAsk {
         repo: repo.to_owned(),
         permissions: perms(pairs),
         label: Some("git-credential".to_owned()),
     };
     let mut asks = Vec::new();
-    if workflows {
-        asks.push(ask(&[("contents", "write"), ("workflows", "write")]));
+    if op != GitOp::Read {
+        if workflows {
+            asks.push(ask(&[("contents", "write"), ("workflows", "write")]));
+        }
+        asks.push(ask(&[("contents", "write")]));
     }
-    asks.push(ask(&[("contents", "write")]));
-    asks.push(ask(&[("contents", "read")]));
+    if op != GitOp::Push {
+        asks.push(ask(&[("contents", "read")]));
+    }
     asks
 }
 
@@ -163,42 +228,53 @@ pub fn parse_credential_input(input: &str) -> Map<String, Value> {
     out
 }
 
+/// `github.com`, with any port.
+fn github_host(authority: &str) -> bool {
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let name = match host.split_once(':') {
+        Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => name,
+        Some(_) => return false,
+        None => host,
+    };
+    name.eq_ignore_ascii_case("github.com")
+}
+
 /// `owner/name` from a GitHub path, URL or `HOST/owner/name`; `None` for
 /// anything that is not github.com.
 pub fn repo_from(raw: &str) -> Option<String> {
-    let mut s = raw.trim();
-    for prefix in ["https://", "http://", "ssh://", "git+ssh://"] {
-        if let Some(rest) = s.strip_prefix(prefix) {
-            s = rest;
-            // user@ and :port before the host.
-            s = s.split_once('@').map_or(s, |(_, rest)| rest);
-            s = s.strip_prefix("github.com")?;
-            s = s.strip_prefix(":443").unwrap_or(s);
-            s = s.strip_prefix('/')?;
-            break;
+    let raw = raw.trim();
+    let scheme = ["https://", "http://", "ssh://", "git+ssh://"]
+        .iter()
+        .find_map(|scheme| raw.strip_prefix(scheme));
+    let path = if let Some(rest) = scheme {
+        let (authority, path) = rest.split_once('/')?;
+        if !github_host(authority) {
+            return None;
         }
-    }
-    if let Some(rest) = s.strip_prefix("git@github.com:") {
-        s = rest;
-    }
-    s = s.strip_prefix("github.com/").unwrap_or(s);
+        path
+    } else if let Some(path) = raw.strip_prefix("git@github.com:") {
+        path
+    } else {
+        raw.strip_prefix("github.com/").unwrap_or(raw)
+    };
     // git LFS asks for `owner/name.git/info/lfs`.
-    let s = s.split_once(".git/").map_or(s, |(repo, _)| repo);
-    let s = s.trim_matches('/');
-    let s = s.strip_suffix(".git").unwrap_or(s);
-    valid_repo(s).then(|| s.to_owned())
+    let path = path.split_once(".git/").map_or(path, |(repo, _)| repo);
+    let path = path.trim_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+    valid_repo(path).then(|| path.to_owned())
 }
 
 /// `credential get`: the lines for git's stdout (empty when this helper
 /// has no answer, so git tries its next helper) and a note for stderr.
 pub fn credential_get(
     input: &str,
+    op: GitOp,
     workflows: bool,
     ask: &mut dyn FnMut(&TokenAsk) -> Result<Minted, Refused>,
 ) -> (String, Option<String>) {
     let desc = parse_credential_input(input);
     let field = |k: &str| desc.get(k).and_then(Value::as_str).unwrap_or("");
-    if field("protocol") != "https" || field("host") != "github.com" {
+    if field("protocol") != "https" || !github_host(field("host")) {
         return (String::new(), None);
     }
     let path = field("path");
@@ -209,10 +285,10 @@ pub fn credential_get(
         );
     }
     let Some(repo) = repo_from(path) else {
-        return (String::new(), Some(format!("{path:?} is not an owner/name GitHub repo")));
+        return (String::new(), Some("git's path is not an owner/name GitHub repo".to_owned()));
     };
     let mut last = None;
-    for each in credential_asks(&repo, workflows) {
+    for each in credential_asks(&repo, op, workflows) {
         match ask(&each) {
             Ok(minted) => {
                 return (format!("username=x-access-token\npassword={}\n", minted.token), None);
@@ -261,8 +337,14 @@ pub fn gh_plan(
             named = it.next().cloned();
         } else if let Some(v) = arg.strip_prefix("--repo=") {
             named = Some(v.to_owned());
-        } else if let Some(v) = arg.strip_prefix("-R").filter(|v| !v.is_empty()) {
-            named = Some(v.to_owned());
+        } else if arg == "--hostname" || arg.starts_with("--hostname=") {
+            let host = match arg.strip_prefix("--hostname=") {
+                Some(host) => Some(host.to_owned()),
+                None => it.next().cloned(),
+            };
+            if !host.is_some_and(|h| h.eq_ignore_ascii_case("github.com")) {
+                return Err("the token is for github.com; --hostname must be github.com".to_owned());
+            }
         }
     }
     let (raw, from) = match (named, gh_repo_env.filter(|v| !v.is_empty())) {
@@ -278,8 +360,8 @@ pub fn gh_plan(
             }
         },
     };
-    let repo = repo_from(&raw)
-        .ok_or_else(|| format!("{from} {raw:?} is not a github.com owner/name repo"))?;
+    let repo =
+        repo_from(&raw).ok_or_else(|| format!("{from} is not a github.com owner/name repo"))?;
     Ok(GhPlan { repo, write, args: rest.to_vec() })
 }
 
@@ -386,7 +468,8 @@ fn credential(args: &[String]) -> u8 {
     }
     let workflows = std::env::var("CMUX_GITHUB_WORKFLOWS").is_ok_and(|v| v == "1");
     let socket = Path::new(AGENT_SOCKET);
-    let (out, note) = credential_get(&input, workflows, &mut |ask| ask_agent(socket, ask));
+    let (out, note) =
+        credential_get(&input, git_op(), workflows, &mut |ask| ask_agent(socket, ask));
     if let Some(note) = note {
         eprintln!("cmux github credential: {note}");
     }
@@ -414,7 +497,11 @@ fn gh(args: &[String]) -> u8 {
     let err = std::process::Command::new("gh")
         .args(&plan.args)
         .env("GH_TOKEN", &minted.token)
+        // Only github.com: the token is for it and no other host.
+        .env("GH_HOST", "github.com")
         .env_remove("GITHUB_TOKEN")
+        .env_remove("GH_ENTERPRISE_TOKEN")
+        .env_remove("GITHUB_ENTERPRISE_TOKEN")
         .exec();
     eprintln!("cmux github gh: gh: {err}");
     1
@@ -452,7 +539,7 @@ mod tests {
     }
 
     fn minted() -> Minted {
-        Minted { token: SECRET.to_owned(), expires_at: "2026-10-25T02:00:00Z".to_owned() }
+        Minted { token: SECRET.to_owned() }
     }
 
     #[test]
@@ -470,7 +557,19 @@ mod tests {
         ] {
             assert_eq!(repo_from(raw).as_deref(), Some("manaflow-ai/cmux"), "{raw}");
         }
-        for raw in ["https://gitlab.com/a/b", "git@gitlab.com:a/b.git", "a", "a/b/c", "a/..", ""] {
+        assert_eq!(repo_from("https://github.com:443/o/r").as_deref(), Some("o/r"));
+        assert_eq!(repo_from("ssh://git@github.com:22/o/r.git").as_deref(), Some("o/r"));
+        assert_eq!(repo_from("https://user:pat@github.com/o/r").as_deref(), Some("o/r"));
+        for raw in [
+            "https://github.com.evil.com/a/b",
+            "https://github.com:x/a/b",
+            "https://gitlab.com/a/b",
+            "git@gitlab.com:a/b.git",
+            "a",
+            "a/b/c",
+            "a/..",
+            "",
+        ] {
             assert_eq!(repo_from(raw), None, "{raw}");
         }
     }
@@ -480,6 +579,7 @@ mod tests {
         let mut asked = Vec::new();
         let (out, note) = credential_get(
             "protocol=https\nhost=github.com\npath=manaflow-ai/cmux.git\n\n",
+            GitOp::Unknown,
             false,
             &mut |ask| {
                 asked.push(ask.clone());
@@ -496,15 +596,19 @@ mod tests {
     #[test]
     fn a_policy_refusal_of_write_falls_back_to_read() {
         let mut asked = Vec::new();
-        let (out, _) =
-            credential_get("protocol=https\nhost=github.com\npath=o/r\n", true, &mut |ask| {
+        let (out, _) = credential_get(
+            "protocol=https\nhost=github.com\npath=o/r\n",
+            GitOp::Unknown,
+            true,
+            &mut |ask| {
                 asked.push(Value::Object(ask.permissions.clone()));
                 if ask.permissions.get("contents") == Some(&json!("read")) {
                     Ok(minted())
                 } else {
                     Err(refused("policy.denied", "over the grant"))
                 }
-            });
+            },
+        );
         assert!(out.contains(SECRET));
         assert_eq!(
             asked,
@@ -519,11 +623,15 @@ mod tests {
     #[test]
     fn other_refusals_stop_and_leave_git_no_answer() {
         let mut calls = 0;
-        let (out, note) =
-            credential_get("protocol=https\nhost=github.com\npath=o/r\n", false, &mut |_| {
+        let (out, note) = credential_get(
+            "protocol=https\nhost=github.com\npath=o/r\n",
+            GitOp::Unknown,
+            false,
+            &mut |_| {
                 calls += 1;
                 Err(refused("integration.not_found", "no GitHub connection"))
-            });
+            },
+        );
         assert_eq!(out, "");
         assert_eq!(calls, 1);
         assert_eq!(note.as_deref(), Some("o/r: integration.not_found: no GitHub connection"));
@@ -534,14 +642,25 @@ mod tests {
     fn get_ignores_other_hosts_and_asks_for_a_path() {
         let mut never = |_: &TokenAsk| -> Result<Minted, Refused> { panic!("no ask expected") };
         assert_eq!(
-            credential_get("protocol=https\nhost=gitlab.com\npath=o/r\n", false, &mut never),
+            credential_get(
+                "protocol=https\nhost=gitlab.com\npath=o/r\n",
+                GitOp::Unknown,
+                false,
+                &mut never
+            ),
             (String::new(), None)
         );
         assert_eq!(
-            credential_get("protocol=http\nhost=github.com\npath=o/r\n", false, &mut never),
+            credential_get(
+                "protocol=http\nhost=github.com\npath=o/r\n",
+                GitOp::Unknown,
+                false,
+                &mut never
+            ),
             (String::new(), None)
         );
-        let (out, note) = credential_get("protocol=https\nhost=github.com\n", false, &mut never);
+        let (out, note) =
+            credential_get("protocol=https\nhost=github.com\n", GitOp::Unknown, false, &mut never);
         assert_eq!(out, "");
         assert!(note.unwrap().contains("cmux github setup"));
     }
@@ -564,7 +683,17 @@ mod tests {
             gh_plan(&strings(&["pr", "view", "--repo=o/r2"]), None, &none).unwrap().repo,
             "o/r2"
         );
-        assert_eq!(gh_plan(&strings(&["pr", "view", "-Ro/r3"]), None, &none).unwrap().repo, "o/r3");
+        // Only -R/--repo name the repo; a value that looks like one does not.
+        let titled =
+            gh_plan(&strings(&["issue", "create", "--title", "-Rfoo"]), Some("o/env"), &none);
+        assert_eq!(titled.unwrap().repo, "o/env");
+        assert!(
+            gh_plan(&strings(&["api", "x", "--hostname", "evil.ghe.com"]), Some("o/r"), &none)
+                .is_err()
+        );
+        assert!(
+            gh_plan(&strings(&["api", "x", "--hostname=GitHub.com"]), Some("o/r"), &none).is_ok()
+        );
         let env = gh_plan(&strings(&["--", "pr", "list"]), Some("o/env"), &origin).unwrap();
         assert_eq!(
             (env.repo.as_str(), env.write, env.args),
@@ -606,6 +735,56 @@ mod tests {
                 strings(&["config", "--global", "--unset", PATH_KEY])
             ]
         );
+    }
+
+    #[test]
+    fn the_git_operation_comes_from_the_nearest_git_command_line() {
+        let op = |v: &[&str]| git_op_of(&strings(v));
+        assert_eq!(op(&["git", "push", "origin", "HEAD"]), Some(GitOp::Push));
+        assert_eq!(
+            op(&["/usr/bin/git", "-C", "/w", "-c", "a=b", "--no-pager", "push"]),
+            Some(GitOp::Push)
+        );
+        assert_eq!(op(&["git", "fetch", "origin"]), Some(GitOp::Read));
+        assert_eq!(op(&["git", "clone", "https://github.com/o/r"]), Some(GitOp::Read));
+        assert_eq!(op(&["git", "pull"]), Some(GitOp::Read));
+        assert_eq!(op(&["git", "credential", "fill"]), Some(GitOp::Unknown));
+        assert_eq!(op(&["git", "remote-https", "origin", "https://github.com/o/r"]), None);
+        assert_eq!(op(&["git-remote-https", "origin", "https://github.com/o/r"]), None);
+        assert_eq!(op(&["/bin/sh", "-c", "cmux github credential get"]), None);
+    }
+
+    #[test]
+    fn fetches_ask_for_read_and_pushes_for_write() {
+        let levels = |op, workflows| -> Vec<Value> {
+            credential_asks("o/r", op, workflows)
+                .into_iter()
+                .map(|a| Value::Object(a.permissions))
+                .collect()
+        };
+        assert_eq!(levels(GitOp::Read, true), vec![json!({ "contents": "read" })]);
+        assert_eq!(levels(GitOp::Push, false), vec![json!({ "contents": "write" })]);
+        assert_eq!(
+            levels(GitOp::Push, true),
+            vec![
+                json!({ "contents": "write", "workflows": "write" }),
+                json!({ "contents": "write" })
+            ]
+        );
+        assert_eq!(
+            levels(GitOp::Unknown, false),
+            vec![json!({ "contents": "write" }), json!({ "contents": "read" })]
+        );
+        let (out, _) = credential_get(
+            "protocol=https\nhost=github.com:443\npath=o/r\n",
+            GitOp::Read,
+            false,
+            &mut |ask| {
+                assert_eq!(ask.permissions.get("contents"), Some(&json!("read")));
+                Ok(minted())
+            },
+        );
+        assert!(out.contains(SECRET));
     }
 
     /// A fake Cloud agent: reads one line, answers `reply`, returns the line.
