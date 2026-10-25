@@ -4,7 +4,8 @@ import UniformTypeIdentifiers
 
 /// The host's drag of a real file out of an agent chat (``AgentPaneReplyLinks/startDrag``): the
 /// file URL (and an image's bytes), so Finder, the Desktop and other apps get the file itself.
-/// A copy everywhere; the drag image is the picture or the file's icon.
+/// A copy everywhere; the drag starts at once with the file's icon, and an image's picture replaces
+/// it when the off-main read ends.
 @MainActor
 final class AgentPaneFileDrag: NSObject, NSDraggingSource {
     /// What a drag of a file carries besides its URL, read off the main actor (``contents(of:)``):
@@ -19,28 +20,48 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         .copy
     }
 
-    /// Starts the drag of `file` with its `contents` from `view` at the pointer, while the button
-    /// is held; false without a window. The page cancelled its own drag, so the drag starts from a
-    /// fresh dragged event at the pointer.
+    /// Starts the drag of `file` from `view` at the pointer, while the button is held, in this turn: the
+    /// file URL now, the file's icon as the drag image; false without a window. The page cancelled its
+    /// own drag, so the drag starts from a fresh dragged event at the pointer. An image's bytes and
+    /// picture are read off the main actor after the start (``contents(of:)``): the bytes serve the
+    /// pasteboard's image types (``AgentPaneFileDragPasteboard``), and the picture replaces the icon in
+    /// the running drag.
     @discardableResult
-    func start(_ file: URL, contents: Contents, from view: NSView) -> Bool {
+    func start(_ file: URL, from view: NSView) -> Bool {
         guard let window = view.window,
               let event = NSEvent.mouseEvent(with: .leftMouseDragged, location: window.mouseLocationOutsideOfEventStream,
                                              modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0,
                                              clickCount: 1, pressure: 1) else { return false }
-        let image = contents.picture ?? Self.icon(file)
-        let item = NSDraggingItem(pasteboardWriter: AgentPaneImageCopies.pasteboardItem(file, data: contents.data))
+        let pasteboard = AgentPaneFileDragPasteboard(file: file)
+        let image = Self.icon(file)
+        let item = NSDraggingItem(pasteboardWriter: pasteboard.item())
         let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         item.setDraggingFrame(CGRect(x: point.x - image.size.width / 2, y: point.y - image.size.height / 2,
                                      width: image.size.width, height: image.size.height), contents: image)
-        view.beginDraggingSession(with: [item], event: event, source: self)
+        let session = view.beginDraggingSession(with: [item], event: event, source: self)
+        guard !pasteboard.imageTypes.isEmpty else { return true }
+        // task-owner: the drag's image read; it ends with the read, and a drag that ended meanwhile ignores its result
+        Task { [weak view] in
+            let contents = await Self.contents(of: file)
+            pasteboard.bytes = pasteboard.bytes ?? contents.data
+            guard let picture = contents.picture, let view else { return }
+            Self.show(picture, in: session, from: view)
+        }
         return true
     }
 
+    /// Replaces the running drag's image with `picture`, centered where the icon was.
+    private static func show(_ picture: NSImage, in session: NSDraggingSession, from view: NSView) {
+        session.enumerateDraggingItems(options: [], for: view, classes: [NSPasteboardItem.self], searchOptions: [:]) { item, _, _ in
+            let frame = item.draggingFrame
+            item.setDraggingFrame(CGRect(x: frame.midX - picture.size.width / 2, y: frame.midY - picture.size.height / 2,
+                                         width: picture.size.width, height: picture.size.height), contents: picture)
+        }
+    }
+
     /// Reads what a drag of `file` carries, off the main actor: for an image, its bytes (a mapped
-    /// read of the local copy: the drag's data must be on the pasteboard when it starts) and its
-    /// picture, scaled to at most 160 pt. The caller starts the drag when it returns.
+    /// read of the local copy) and its picture, scaled to at most 160 pt.
     @concurrent nonisolated static func contents(of file: URL) async -> sending Contents {
         guard UTType(filenameExtension: file.pathExtension)?.conforms(to: .image) == true,
               let data = try? Data(blockingContentsOf: file, options: .mappedIfSafe) else { return Contents() }
