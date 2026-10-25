@@ -54,6 +54,7 @@ members = [
     "crates/cmux-remote-protocol",
     "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",
+    "crates/cmux-features",
     "crates/cmux-remote",
     "crates/cmux-terminal-client",
     "crates/cmux-relay",
@@ -120,6 +121,7 @@ default-members = [
     "crates/cmux-process",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
+    "crates/cmux-features",
     "crates/cmux-remote",
     "crates/cmux-relay",
     "crates/chatmux-relay",
@@ -198,6 +200,7 @@ cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
 cmux-process = { path = "crates/cmux-process" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
+cmux-features = { path = "crates/cmux-features" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
