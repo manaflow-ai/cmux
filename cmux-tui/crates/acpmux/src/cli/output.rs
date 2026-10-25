@@ -896,7 +896,7 @@ pub(crate) async fn last_replies(
 }
 
 #[cfg(test)]
-pub(crate) mod prompt_tests {
+mod prompt_tests {
     use super::*;
     use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
     use std::collections::BTreeMap;
@@ -906,8 +906,8 @@ pub(crate) mod prompt_tests {
         daemon_with_env(BTreeMap::new()).await
     }
 
-    /// `daemon` with extra environment for the fake agent; its socket is `d.sock` in the dir.
-    pub(crate) async fn daemon_with_env(
+    /// `daemon` with extra environment for the fake agent.
+    async fn daemon_with_env(
         env: BTreeMap<String, String>,
     ) -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");

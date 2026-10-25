@@ -38,8 +38,6 @@ pub mod session_limits;
 pub mod shutdown;
 pub mod stdio;
 pub(crate) mod steer_reply;
-#[cfg(test)]
-mod steer_reply_tests;
 pub mod task;
 pub mod uniichat_agent;
 pub mod worktree;
