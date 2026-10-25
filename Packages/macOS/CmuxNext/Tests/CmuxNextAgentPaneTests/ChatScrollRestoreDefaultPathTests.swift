@@ -29,7 +29,7 @@ struct ChatScrollRestoreDefaultPathTests {
         return reply["value"]
     }
 
-    @Test func aChatReopensWhereItRestedWithThePageHostOff() throws {
+    @Test func aChatReopensWhereItRestedWithThePageHostOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-bridge-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer {
@@ -39,6 +39,8 @@ struct ChatScrollRestoreDefaultPathTests {
         // This run: the reader scrolls chat s-1 up and it rests on row user-42.
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": "user-42", "offset": 120.5]))
+        // The write runs off the main actor; quit (or the next settled scroll) flushes it.
+        await AgentPaneScrollAnchors.shared?.flush()
 
         // A fresh store — the next run after a crash, or another tab in this one — reads it back,
         // for that chat only.
@@ -50,6 +52,7 @@ struct ChatScrollRestoreDefaultPathTests {
 
         // Back at the latest message: the place is forgotten, so the chat opens following the reply.
         _ = Self.value(Self.call("chat.scrollAnchor", ["sessionId": "s-1", "rowId": NSNull(), "offset": 0]))
+        await AgentPaneScrollAnchors.shared?.flush()
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
         #expect(Self.value(Self.call("chat.scrollAnchor.get", ["sessionId": "s-1"])) is NSNull)
     }

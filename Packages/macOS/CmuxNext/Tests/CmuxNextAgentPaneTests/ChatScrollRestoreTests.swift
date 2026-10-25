@@ -29,6 +29,8 @@ struct ChatScrollRestoreTests {
         // This run: the reader scrolls chat s-1 up and it rests on row user-42.
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
         _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .string("user-42"), "offset": .number(120.5)])
+        // The write runs off the main actor; quit (or the next settled scroll) flushes it.
+        await AgentPaneScrollAnchors.shared?.flush()
 
         // The next run (after kill -9 or a reboot) reads it back from disk for that chat only.
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
@@ -38,6 +40,7 @@ struct ChatScrollRestoreTests {
 
         // Back at the latest message: the place is forgotten, so the chat opens following the reply.
         _ = try await Self.call("chat.scrollAnchor", ["sessionId": .string("s-1"), "rowId": .null, "offset": .number(0)])
+        await AgentPaneScrollAnchors.shared?.flush()
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
         #expect(try await Self.call("chat.scrollAnchor.get", ["sessionId": .string("s-1")]) == .null)
     }

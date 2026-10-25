@@ -42,8 +42,9 @@ import Testing
         anchors.remember(AgentPaneScrollAnchor(rowId: "user-1", offset: 4), for: "s-1")
         anchors.remember(nil, for: "s-1")
         await anchors.flush()
-        #expect(recorder.recorded.count == 2)
+        #expect(!recorder.recorded.isEmpty)
         #expect(recorder.recorded.allSatisfy { !$0.onMain }, "a state file write ran on the main thread")
+        #expect(recorder.recorded.last?.data == nil, "the newest state (no place) is the last one written")
     }
 
     @Test func aSettledEditWritesItsDraftOffTheMainThread() async throws {
@@ -52,8 +53,9 @@ import Testing
         drafts.set("compare the retry policies", for: "tab-1")
         drafts.set("", for: "tab-1")
         await drafts.flush()
-        #expect(recorder.recorded.count == 2)
+        #expect(!recorder.recorded.isEmpty)
         #expect(recorder.recorded.allSatisfy { !$0.onMain }, "a state file write ran on the main thread")
+        #expect(recorder.recorded.last?.data == nil, "the newest state (no draft) is the last one written")
     }
 
     // MARK: Order
@@ -78,6 +80,18 @@ import Testing
         anchors.remember(AgentPaneScrollAnchor(rowId: "user-2", offset: 2), for: "s-1")
         await anchors.flush()
         #expect(AgentPaneScrollAnchors(directory: directory).anchor(for: "s-1") == AgentPaneScrollAnchor(rowId: "user-2", offset: 2))
+    }
+
+    /// The rule under both: a state that reaches the file after a newer one is dropped, so a write
+    /// that lost the race to the actor never puts an older state back on disk.
+    @Test func anOlderStateThatArrivesLaterIsDropped() async throws {
+        let recorder = Recorder()
+        let file = AgentPaneStateFile<[String: String]>(url: try Self.directory().appending(path: "state.json"), writer: recorder)
+        await file.write(["tab-1": "newer"], sequence: 2)
+        await file.write(["tab-1": "older"], sequence: 1)
+        await file.write(["tab-1": "newer"], sequence: 2)
+        let written = try recorder.recorded.map { try JSONDecoder().decode([String: String].self, from: #require($0.data)) }
+        #expect(written == [["tab-1": "newer"]])
     }
 
     // MARK: Flush

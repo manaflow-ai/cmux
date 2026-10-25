@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
@@ -9,7 +10,10 @@ public final class AgentUnsentDrafts {
     static let maximumCharacters = 1_000_000
 
     let file: URL?
-    private let writer: any AgentPaneStateFileWriting
+    /// Writes the file off the main actor, newest state last.
+    private let store: AgentPaneStateFile<[String: String]>?
+    /// The number of the newest state handed to ``store``.
+    private var saved: UInt64 = 0
     private var drafts: [String: String]
 
     public convenience init(file: URL?) {
@@ -19,7 +23,7 @@ public final class AgentUnsentDrafts {
     /// - Parameter writer: where the file's bytes go (tests record them).
     init(file: URL?, writer: any AgentPaneStateFileWriting) {
         self.file = file
-        self.writer = writer
+        store = file.map { AgentPaneStateFile<[String: String]>(url: $0, writer: writer) }
         // concurrency-allow: one read of a small local state file when the tab store is made
         let data = file.flatMap { try? Data(contentsOf: $0) }
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
@@ -67,16 +71,18 @@ public final class AgentUnsentDrafts {
         save()
     }
 
-    /// Returns when every draft kept so far is on disk (quit awaits it).
-    public func flush() async {}
+    /// Returns when the newest drafts are on disk (quit awaits it).
+    public func flush() async {
+        guard let store, saved > 0 else { return }
+        await store.write(drafts.isEmpty ? nil : drafts, sequence: saved)
+    }
 
+    /// Hands the drafts to ``store``, numbered, to be written off the main actor (nil removes
+    /// the file).
     private func save() {
-        guard let file else { return }
-        if drafts.isEmpty {
-            writer.remove(file)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(drafts) else { return }
-        writer.write(data, to: file)
+        guard let store else { return }
+        saved += 1
+        let state = drafts.isEmpty ? nil : drafts, sequence = saved
+        Task(priority: WorkPriority.bestEffort.taskPriority) { await store.write(state, sequence: sequence) }
     }
 }

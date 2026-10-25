@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -169,6 +170,10 @@ final class QuitCoordinator {
                 // Agent chats get their composer's chips, shell command and place back at the next
                 // launch (pages are asked at once, each within a second).
                 await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
+                // Each chat's scroll place and each new chat's unsent draft: their writes run off the
+                // main thread, so the last one is awaited here.
+                await AgentPaneScrollAnchors.shared?.flush()
+                await services.agentTabs.unsentDrafts.flush()
                 // Agent panes on screen draw their last page at the next launch.
                 await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
                 await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()).save(services.cache.terminals.mapValues(\.session))  // and terminals their last frame
@@ -211,6 +216,8 @@ final class QuitCoordinator {
         // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk too;
         // nothing is written when nothing changed.
         await services.home.flushCacheForQuit()
+        await AgentPaneScrollAnchors.shared?.flush()
+        await services.agentTabs.unsentDrafts.flush()
         sender.reply(toApplicationShouldTerminate: true)
     }
 

@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// Where a chat's transcript rests (cx-6bgzj): the row at the top of the view and how far into it.
@@ -23,13 +24,16 @@ public final class AgentPaneScrollAnchors {
     public static var shared: AgentPaneScrollAnchors?
     static let limit = 500
 
-    private struct Entry: Codable, Equatable {
+    nonisolated private struct Entry: Codable, Equatable, Sendable {
         var sessionId: String
         var anchor: AgentPaneScrollAnchor
     }
 
     let file: URL?
-    private let writer: any AgentPaneStateFileWriting
+    /// Writes the file off the main actor, newest state last.
+    private let store: AgentPaneStateFile<[Entry]>?
+    /// The number of the newest state handed to ``store``.
+    private var saved: UInt64 = 0
     /// Oldest first; read from the file on first use.
     private var entries: [Entry]?
 
@@ -40,7 +44,7 @@ public final class AgentPaneScrollAnchors {
     /// - Parameter writer: where the file's bytes go (tests record them).
     init(directory: URL?, writer: any AgentPaneStateFileWriting) {
         file = directory?.appending(path: Self.fileName)
-        self.writer = writer
+        store = file.map { AgentPaneStateFile<[Entry]>(url: $0, writer: writer) }
     }
 
     public func anchor(for sessionId: String) -> AgentPaneScrollAnchor? {
@@ -66,16 +70,22 @@ public final class AgentPaneScrollAnchors {
         return read
     }
 
-    /// Returns when every place kept so far is on disk (quit awaits it).
-    public func flush() async {}
+    /// Returns when the newest place kept is on disk (quit awaits it).
+    public func flush() async {
+        guard let store, saved > 0 else { return }
+        await store.write(state, sequence: saved)
+    }
 
+    /// Hands the places to ``store``, numbered, to be written off the main actor.
     private func save() {
-        guard let file, let entries else { return }
-        if entries.isEmpty {
-            writer.remove(file)
-            return
-        }
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        writer.write(data, to: file)
+        guard let store else { return }
+        saved += 1
+        let state = self.state, sequence = saved
+        Task(priority: WorkPriority.bestEffort.taskPriority) { await store.write(state, sequence: sequence) }
+    }
+
+    /// What the file holds: nil (no file) when no chat has a place.
+    private var state: [Entry]? {
+        entries.flatMap { $0.isEmpty ? nil : $0 }
     }
 }
