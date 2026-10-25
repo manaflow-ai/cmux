@@ -28,6 +28,7 @@
 
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
+#include <objc/runtime.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -73,7 +74,40 @@
   CefScopedSendingEvent sendingEventScoper;
   [super sendEvent:event];
 }
+// The host has cmux's bundle id, so a Quit by bundle id (the Dock, an
+// AppleEvent) can reach it instead of cmux (chromium-host-bench.py ae_quit,
+// cmux20-bench 2026-10-25: the host ended, cmux did not). A quit is cmux's to
+// make: pass it to the app that started this host; the host then reads EOF
+// and ends. With no such app (cmux is gone) the host ends as at EOF.
+- (void)terminate:(id)sender {
+  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+  if (parent && parent.processIdentifier != getpid() && parent.processIdentifier > 1) {
+    [parent terminate];
+    return;
+  }
+  [super terminate:sender];
+}
 @end
+
+namespace {
+// Gives an activation of the host back to the app that started it: a plain
+// [NSApp deactivate] left the host frontmost (cmux20-bench 2026-10-25: frontmost
+// for 10 of 10 clicks after one activation), because macOS picks the next app
+// itself. The host is the active app here, so it may hand activation over.
+void ReturnActivationToParent() {
+  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+  if (!parent || parent.processIdentifier == getpid() || parent.processIdentifier <= 1) {
+    [NSApp deactivate];
+    return;
+  }
+  if (@available(macOS 14.0, *)) {
+    [NSApp yieldActivationToApplication:parent];
+    [parent activateFromApplication:NSRunningApplication.currentApplication options:0];
+  } else {
+    [parent activateWithOptions:0];
+  }
+}
+}  // namespace
 
 // The host's own window (the page window's parent): never key or main, so a
 // click or an accessibility focus on it cannot activate the host. Input comes
@@ -119,8 +153,8 @@ uint64_t g_hop_events = 0;
 int g_refused_frames = 0;
 // Times the host became the active app, and times one of its windows (its
 // own, or Chromium's page window, a child of it) became key. Each one is
-// undone at once ([NSApp deactivate]); both stay 0 when nothing activates the
-// host (kStatsReply t0).
+// undone at once (ReturnActivationToParent); both stay 0 when nothing
+// activates the host (kStatsReply t0).
 uint32_t g_activations = 0;
 uint32_t g_key_windows = 0;
 // The focus cmux last sent (kFocus), applied when the browser exists.
@@ -644,12 +678,16 @@ int main(int argc, char* argv[]) {
     [center addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue
                     usingBlock:^(NSNotification*) {
                       ++g_activations;
-                      [NSApp deactivate];
+                      ReturnActivationToParent();
                     }];
     [center addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue
                     usingBlock:^(NSNotification*) {
                       ++g_key_windows;
-                      [NSApp deactivate];
+                      // Which window: for the host log (cmux's stderr), so the source can be removed.
+                      NSWindow* key = NSApp.keyWindow;
+                      fprintf(stderr, "cmux-chromium-host: a window became key: %s (child of the host window: %d)\n",
+                              key ? object_getClassName(key) : "none", key && key.parentWindow == g_window);
+                      ReturnActivationToParent();
                     }];
   }
   // One thread so far: the framework's allocator and static initializers run
