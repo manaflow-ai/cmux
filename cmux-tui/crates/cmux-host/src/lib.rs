@@ -26,7 +26,7 @@
 //! - [`cloud`]: the Cloud machine agent role (bind, status reports, events).
 //! - [`team_ssh`]: sshd trust files, fail-closed principals and revoked-session reaping.
 //! - [`cli`]: the verbs; also the standalone `cmux-host` binary.
-//! - `github_cli`: `cmux github credential` (git and gh with
+//! - `github_cli`: `cmux github credential|gh|setup` (git and gh with
 //!   tokens the Cloud agent gets for this machine).
 //! - `linux`: the Linux platform (descriptors, spawn, identity, `/proc`).
 //!
