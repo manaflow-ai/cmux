@@ -7,7 +7,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextTabs
-import CmuxNextWakeups
 import Observation
 
 /// The pane views of agent chat tabs (the React acpmux pane, CmuxNextAgentPane).
@@ -197,38 +196,8 @@ final class AgentTabStore {
     var wakeStates: [String: AgentPaneWakeState] = [:]
     /// What the chat pages held at the last quit, for each tab's first page at launch (``AgentPaneRelaunchWake``).
     var relaunchWake = AgentPaneRelaunchWake(file: nil)
-    /// The launch's read of ``relaunchWake`` off the main thread, while it runs (``takeRelaunchWake(on:)``).
-    var wakeArrival: Task<Void, Never>?
-    /// What every chat holds for the next launch (the quit's window step), once the launch's read has ended.
-    func relaunchWakeStates() async -> [String: AgentPaneWakeState] {
-        await wakeArrival?.value
-        return await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab)
-    }
-
-    /// Reads the last quit's states off the main thread (``AgentPaneRelaunchWake/take(on:)``). Each tab's
-    /// first page gets its state with its handshake: a page made before the read ends waits for it
-    /// (``AgentPaneModel/wakeArrival``).
-    func takeRelaunchWake(on work: BackgroundWork) {
-        let relaunchWake = relaunchWake
-        // task-owner: one off-main read at launch; pages and the quit await it; ends with the read.
-        wakeArrival = Task { [weak self] in
-            let states = await relaunchWake.take(on: work)
-            self?.receiveRelaunchWake(states)
-        }
-    }
-
-    /// The last quit's states: to the tab's page when it waits for them, else kept for the page made
-    /// when the tab shows. A state a released page left meanwhile is newer and stays.
-    private func receiveRelaunchWake(_ states: [String: AgentPaneWakeState]) {
-        wakeArrival = nil
-        for (key, state) in states {
-            if let model = views[key]?.model, model.wakeArrival != nil {
-                if model.pendingWake == nil { model.pendingWake = state }
-            } else if wakeStates[key] == nil {
-                wakeStates[key] = state
-            }
-        }
-    }
+    /// What every chat holds for the next launch (the quit's window step).
+    func relaunchWakeStates() async -> [String: AgentPaneWakeState] { await relaunchWake.collect(held: wakeStates, pages: views.map { (resolve($0.key), $0.value) }, live: isAgentTab) }
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
@@ -382,9 +351,8 @@ final class AgentTabStore {
         // when there is one: no cold load and React mount on the open path (cx-ec99).
         // (Its folder rides on the page context, `newTab.cwd`; a first page's seed holds only that.)
         // A page with a kept composer (``wakeStates``) gets its own page: the spare's handshake is past.
-        // So does one made while the launch still reads the last quit's composers (``wakeArrival``).
         if local, kind == .local, sessions[key] == nil, record.session == nil, let newTab = newTabPages[key],
-           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, wakeArrival == nil, let spare = takeSpare?() {
+           seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
             return spare
@@ -399,7 +367,7 @@ final class AgentTabStore {
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
-        model.wakeArrival = wakeArrival
+        relaunchWake.hand(key, to: model)
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {

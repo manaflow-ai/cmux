@@ -239,8 +239,8 @@ struct AgentPaneRelaunchWakeTests {
         #expect(probe.reads == [false], "the saved states were read on the main thread")
     }
 
-    /// The launch reads the states off the main thread while it builds the panes: a page made before the read
-    /// ends still gets its chat's composer with its first handshake, and never adopts the prewarmed spare.
+    /// The launch reads the states off the main thread from its start: a page made before the read ends still
+    /// gets its chat's composer with its first handshake (the handshake waits, never the main thread).
     @Test func aPageMadeBeforeTheReadEndsStillGetsItsComposer() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -253,7 +253,7 @@ struct AgentPaneRelaunchWakeTests {
         let probe = LaunchReadProbe(held: true)
         let tabs = Self.run(file: file, records: records)
         tabs.relaunchWake = AgentPaneRelaunchWake(file: file, reader: probe.reader)
-        tabs.takeRelaunchWake(on: Self.work)
+        tabs.relaunchWake.begin(on: Self.work)
         let started = await probe.waitForStart()
         #expect(started, "the read never started")
         let page = try #require(tabs.view(for: "tab_chat"))
@@ -262,7 +262,7 @@ struct AgentPaneRelaunchWakeTests {
         probe.release()
         #expect(try await ready.value == "make test", "a page made while the read ran lost its composer")
         #expect(probe.reads == [false], "the saved states were read on the main thread")
-        #expect(tabs.wakeStates.isEmpty, "the state stayed in the store, so a later page could bring it back")
+        #expect(!tabs.relaunchWake.mayHold("tab_chat"), "the state stayed in the store, so a later page could bring it back")
     }
 
     /// A chat whose page holds nothing saves nothing, and with nothing held the file goes.

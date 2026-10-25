@@ -7,8 +7,10 @@ public import Foundation
 /// attachments, shell mode with its unrun command, where the transcript rested), by tab, in a JSON
 /// file in the tag's state directory. The quit's window step saves it (`QuitCoordinator`), so every
 /// relaunch that goes through the quit (Restart to Update, SIGTERM's Quit and keep sessions,
-/// Cmd-Q) keeps it; the next launch reads it off the main thread and hands it to each tab's first page
-/// with its handshake, as a woken hibernated page gets it. The draft's text is acpmux's and a new chat's is
+/// Cmd-Q) keeps it; the next launch reads it off the main thread from its start (``begin(on:)``, in the
+/// app's `main` before `NSApplication.run`) and hands it to each tab's first page with its handshake, as a
+/// woken hibernated page gets it: a page whose handshake comes before the read ends waits for it there,
+/// never on the main thread. The draft's text is acpmux's and a new chat's is
 /// ``AgentUnsentDrafts``'.
 ///
 /// An attachment's contents (a pasted screenshot, a PDF, a recording) are copied into
@@ -32,6 +34,10 @@ public final class AgentPaneRelaunchWake {
 
     /// Reads the saved states.
     private let reader: LaunchFileReader
+    /// The launch read of the last quit's states (``begin(on:)``).
+    private var launch: LaunchRead<[String: AgentPaneWakeState]>?
+    /// The tabs whose launch state a page took (each once).
+    private var claimed: Set<String> = []
 
     /// - Parameters:
     ///   - file: The JSON file; nil keeps nothing.
@@ -58,14 +64,51 @@ public final class AgentPaneRelaunchWake {
         var files: [String: String]?
     }
 
+    /// Starts the launch read of the last quit's states (what ``take(on:)`` reads) on `work`'s files lane at
+    /// once; a later call does nothing. Each tab's first page then gets its state through ``hand(_:to:)``.
+    public func begin(on work: BackgroundWork) {
+        guard let file, launch == nil else { return }
+        let (folder, budget, reader) = (attachmentsDirectory, maximumAttachmentBytes, reader)
+        // Quit waits for it (``collect(held:pages:live:limit:)``), so it always runs, even past a quit.
+        launch = LaunchRead(on: work, shutdown: .blockShutdown) {
+            Self.readAndRemove(file, attachments: folder, budget: budget, reader: reader)
+        }
+    }
+
+    /// Whether the last quit may have left tab `key` a state no page took: the launch read runs, or it
+    /// left one.
+    public func mayHold(_ key: String) -> Bool {
+        guard let launch, !claimed.contains(key) else { return false }
+        return launch.value.map { $0[key] != nil } ?? true
+    }
+
+    /// Hands tab `key`'s state from the last quit to `model`, a page with none of its own
+    /// (``AgentPaneModel/pendingWake``): at once when the launch read has ended (never waiting), else
+    /// through ``AgentPaneModel/wakeSource``, which the page's first `ready` awaits.
+    public func hand(_ key: String, to model: AgentPaneModel) {
+        guard model.pendingWake == nil, let launch, !claimed.contains(key) else { return }
+        if let states = launch.value {
+            claimed.insert(key)
+            model.pendingWake = states[key]
+        } else {
+            model.wakeSource = { [weak self] in await self?.state(for: key) }
+        }
+    }
+
+    /// Tab `key`'s state from the last quit, once, after the launch read.
+    private func state(for key: String) async -> AgentPaneWakeState? {
+        guard let launch else { return nil }
+        let states = await launch.finished()
+        return claimed.insert(key).inserted ? states[key] : nil
+    }
+
     /// The last quit's states, by tab, once: the file and the attachments' files go, so a crash
     /// later in this run never brings back chips already sent. The reads (the JSON up to
     /// ``maximumBytes``, the attachments' files up to ``maximumAttachmentBytes``), the decode and the
-    /// removal run on `work`'s files lane, never on the main thread.
+    /// removal run on `work`'s files lane, never on the main thread. The app's launch uses ``begin(on:)``.
     public func take(on work: BackgroundWork) async -> [String: AgentPaneWakeState] {
         guard let file else { return [:] }
         let (folder, budget, reader) = (attachmentsDirectory, maximumAttachmentBytes, reader)
-        // The tabs' first pages wait for it with their handshake.
         return (try? await work.run(.userVisible, mayBlock: .files, { Self.readAndRemove(file, attachments: folder, budget: budget, reader: reader) })) ?? [:]
     }
 
@@ -90,14 +133,15 @@ public final class AgentPaneRelaunchWake {
         }
     }
 
-    /// What every chat holds for the next launch, by tab: `held` (released pages' states, by tab),
-    /// then each page in `pages`. A page that has not taken its state yet (no `ready`, only a
+    /// What every chat holds for the next launch, by tab: the last quit's states no page took (after
+    /// the launch read), `held` (released pages' states, by tab) over them, then each page in `pages`. A page that has not taken its state yet (no `ready`, only a
     /// reconnect) keeps it unasked; every other page is asked at once, each within `limit`, and
     /// one that does not answer keeps the tab's held state or the one its `ready` took. Tabs
     /// `live` refuses (gone from every tree) keep nothing.
     public func collect(held: [String: AgentPaneWakeState], pages: [(key: String, view: AgentPaneView)],
                         live: (String) -> Bool, limit: Duration = .seconds(1)) async -> [String: AgentPaneWakeState] {
-        var states = held
+        let unclaimed = (await launch?.finished() ?? [:]).filter { !claimed.contains($0.key) }
+        var states = unclaimed.merging(held) { _, held in held }
         let read = read
         // task-owner: every ask is awaited below, before the quit goes on.
         let asks = pages.map { page in
