@@ -78,11 +78,14 @@ fn find_option(item: &Value, text: &str) -> Option<usize> {
 
 /// Parses `value` for `item`: the whole value or comma-separated parts, each
 /// an option label or id; what is not an option becomes the Other text
-/// (rejoined with ", ") when the item allows Other.
+/// (rejoined with ", ") when the item allows Other. An item with no options
+/// takes the whole value as its text, never split.
 pub fn parse_choice(item: &Value, value: &str) -> Result<Choice, String> {
     let value = value.trim();
     let mut choice = Choice::default();
-    if let Some(i) = find_option(item, value) {
+    if options(item).is_empty() {
+        choice.other = Some(value).filter(|v| !v.is_empty()).map(str::to_owned);
+    } else if let Some(i) = find_option(item, value) {
         choice.options.push(i);
     } else {
         let mut other = vec![];
