@@ -2192,6 +2192,8 @@ async fn a_peer_resolves_a_sessions_text_masked() {
     assert!(!r.to_string().contains("ghp_"), "{r}");
     assert_eq!(r["session"]["lastPrompt"], format!("push with {mask}"), "{r}");
     assert_eq!(r["matches"][0]["lastMessage"]["text"], format!("echo: push with {mask}"), "{r}");
+}
+
 /// Beads ↔ sessions (`beads.rs`): a bead linked to a peer's session through this daemon (its
 /// `bead:<id>` tag, forwarded to the peer) reaches this daemon's mirror, and resolving the bead
 /// id finds that session with its beads listed; the session's own card lists them too.
