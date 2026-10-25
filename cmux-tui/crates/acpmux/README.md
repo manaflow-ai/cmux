@@ -199,6 +199,11 @@ responding model produces, such as Claude's stream and thinking or Codex's moder
 notice; the agent's own usage and turn notices do not count) for that long after its
 prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
 the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+`stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
+flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
+`turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
+one tool call is in flight, so it never stalls. It is checked when a summary is read, with
+no timer.
 Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.

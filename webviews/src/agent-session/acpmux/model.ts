@@ -1288,10 +1288,17 @@ export function layoutConversation(
     heights.set(previous.layout.heights.subarray(0, start));
   }
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
+  // pass: searching anew for every hidden row makes one run quadratic.
+  let nextDrawn = start;
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
-    const edge = rowEdge(row, nextDrawnRow(rows, index));
+    if (nextDrawn <= index) {
+      nextDrawn = index + 1;
+      while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
+    }
+    const edge = rowEdge(row, rows[nextDrawn]);
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;

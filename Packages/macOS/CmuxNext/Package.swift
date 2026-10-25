@@ -196,12 +196,19 @@ let uiLayerPreviewTargets: [Target] = [
 let packageProducts: [Product] = [
     .library(name: "CmuxNextApp", targets: ["CmuxNextApp"]),
     .library(name: "CmuxNextFavicons", targets: ["CmuxNextFavicons"]),
+    .library(name: "CmuxNextAppCore", targets: ["CmuxNextAppCore"]),
 ] + uiLayerPreviewProducts
 
 let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
+            name: "CmuxNextAppCore",
+            dependencies: ["CmuxNextActions", "CmuxNextAgentPane", "CmuxNextBridge", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextSidebar"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .target(
             name: "CmuxNextApp",
             dependencies: [
+                "CmuxNextAppCore",
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
                 "CmuxNextFavicons",

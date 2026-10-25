@@ -134,6 +134,12 @@
       "title" : "Show Dictation Button",
       "type" : "boolean"
     },
+    "agentPane.spellChecking" : {
+      "default" : false,
+      "description" : "Underlines misspellings and offers system suggestions in the composer.",
+      "title" : "Check Spelling While Typing",
+      "type" : "boolean"
+    },
     "agentPane.zoom" : {
       "default" : 1,
       "description" : "The display size for agent chat. Cmd-0 resets it.",
@@ -1708,9 +1714,9 @@
       "default" : "auto",
       "description" : "diff.layout",
       "enum" : [
+        "auto",
         "split",
-        "unified",
-        "auto"
+        "unified"
       ],
       "title" : "Layout",
       "type" : "string"
@@ -1725,6 +1731,12 @@
       "default" : true,
       "description" : "diff.showBackgrounds",
       "title" : "Change Backgrounds",
+      "type" : "boolean"
+    },
+    "diff.showBulkActions" : {
+      "default" : true,
+      "description" : "diff.showBulkActions",
+      "title" : "Stage All and Revert All Bar",
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
@@ -2528,6 +2540,16 @@
       "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
       "title" : "Scroll Areas",
       "type" : "boolean"
+    },
+    "layout.scrollModifier" : {
+      "default" : "command",
+      "description" : "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.",
+      "enum" : [
+        "command",
+        "none"
+      ],
+      "title" : "Scroll Columns and Rows With",
+      "type" : "string"
     },
     "layout.splitSizing" : {
       "default" : "even",

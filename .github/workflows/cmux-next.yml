@@ -188,7 +188,6 @@ on:
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
-      - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -418,7 +417,6 @@ on:
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
-      - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -1475,6 +1473,7 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/base-autofix-changed.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
+            bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
             bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
@@ -1619,7 +1618,6 @@ jobs:
           python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
-          python3 tests/test_cmux_next_dev_release_import_out.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
@@ -4347,11 +4345,6 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
-          # Apple notarizes cmux-next only with the browser-data import compiled
-          # out (cx-f58x; nightly.yml NIGHTLY_NEXT_BROWSER_DATA_IMPORT). The DEV
-          # app is published as the tip app (Leo, 2026-10-24), so it builds the
-          # same way. Only this Release compile; Debug and PR compiles keep it.
-          CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
@@ -4363,10 +4356,6 @@ jobs:
           app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
           test -d "$app"
           scripts/cmux-next/check-app-personalities.sh "$app"
-          # Prove it as nightly.yml proves every nightly-next build.
-          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
-          scripts/ci/check-password-import-readers.sh "$app/Contents/MacOS/$executable"
-          scripts/ci/check-browser-data-import-absent.sh "$app"
           archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
           /usr/bin/ditto -c -k --keepParent "$app" "$archive"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
