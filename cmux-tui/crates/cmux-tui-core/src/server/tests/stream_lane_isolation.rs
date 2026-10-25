@@ -12,7 +12,7 @@ fn a_view_request_never_waits_behind_a_blocked_control_request_on_the_shared_con
     let mux = test_mux();
     let view = mux.new_workspace(None, Some((80, 24))).unwrap();
     let other = mux.new_workspace(None, Some((80, 24))).unwrap();
-    let socket = TestSocket::new("stream-lane-isolation");
+    let socket = TestSocket::new("lane-iso");
     let listener = transport::listen(&socket.path).unwrap();
     let mut client = transport::connect(&socket.path).unwrap();
     let server = listener.accept().unwrap();
