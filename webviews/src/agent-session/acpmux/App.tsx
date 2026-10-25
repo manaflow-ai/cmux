@@ -222,6 +222,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
+import { heightFoldInFlight } from "./conversation/fold";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -2376,12 +2377,14 @@ export function VirtualTranscript({
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
-            // The observer reports a target at the same depth once a frame, so the new size can
-            // arrive a frame late. Queue the changed drawn heights through React's normal batch;
-            // the layout effect after that render measures again before the next paint. A forced
-            // sync commit here made every streaming resize block the main thread.
-            if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
-            else pendingDrawn.current = new Map();
+            // A disclosure's height animation already changed this frame's layout. Place the
+            // rows below that one before paint too, or their old tops overlap its growing body.
+            // Only a row whose disclosure is moving gets this synchronous path; token
+            // resizes keep React's normal batch instead of forcing a commit for every chunk.
+            if (changesDrawn(drawnRef.current, pendingDrawn.current)) {
+              if (targets.some(heightFoldInFlight)) flushSync(flushDrawn);
+              else flushDrawn();
+            } else pendingDrawn.current = new Map();
           }),
     [reportDrawn, flushDrawn],
   );
