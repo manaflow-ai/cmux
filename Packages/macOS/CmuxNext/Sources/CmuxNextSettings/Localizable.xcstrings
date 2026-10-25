@@ -154685,10 +154685,130 @@
       "comment": "Settings > Appearance > Agent Chat: the machine and folder Session Info chip's placement below the tab row",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريحة معلومات الجلسة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Čip s informacijama o sesiji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip med sessionsinfo"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsinfo-Chip"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Session Info Chip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip de información de la sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastille d’infos de la session"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip info sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション情報チップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទះព័ត៌មានវគ្គ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 정보 칩"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Øktinfo-brikke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip informacji o sesji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip de informações da sessão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чип сведений о сеансе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ชิปข้อมูลเซสชัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum bilgileri çipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чип відомостей про сеанс"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chip thông tin phiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话信息标签"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段資訊標籤"
           }
         }
       }
@@ -154697,10 +154817,130 @@
       "comment": "Settings > Appearance > Agent Chat > Session Info Chip: help for the Left / Right / Off choice",
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مكان شريحة الجهاز والمجلد أسفل صف علامات التبويب. يُبقيها اليسار أعلى اليسار؛ ينقلها اليمين إلى أعلى اليمين؛ ويخفيها إيقاف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mjesto čipa s mašinom i mapom ispod reda kartica. Lijevo ga drži gore lijevo; Desno ga pomjera gore desno; Isključeno ga skriva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor chippen med maskine og mappe sidder under fanerækken. Venstre holder den øverst til venstre; Højre flytter den øverst til højre; Fra skjuler den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo der Chip für Rechner und Ordner unter der Tabzeile sitzt. Links bleibt er oben links; Rechts verschiebt ihn nach oben rechts; Aus blendet ihn aus."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se encuentra el chip de máquina y carpeta bajo la fila de pestañas. Izquierda lo mantiene arriba a la izquierda; Derecha lo mueve arriba a la derecha; Desactivado lo oculta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où se trouve la pastille de machine et de dossier sous la rangée d’onglets. Gauche la garde en haut à gauche ; Droite la déplace en haut à droite ; Désactivé la masque."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove si trova il chip di macchina e cartella sotto la riga delle schede. Sinistra lo mantiene in alto a sinistra; Destra lo sposta in alto a destra; Disattivato lo nasconde."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブ行の下にあるマシンとフォルダのチップの位置です。左は左上、右は右上に置き、オフは非表示にします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទីតាំងបន្ទះម៉ាស៊ីន និងថតនៅខាងក្រោមជួរផ្ទាំង។ ឆ្វេងរក្សាទុកនៅកំពូលឆ្វេង; ស្ដាំផ្លាស់ទីទៅកំពូលស្ដាំ; បិទលាក់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 행 아래에서 머신 및 폴더 칩의 위치를 정합니다. 왼쪽은 왼쪽 위에 두고, 오른쪽은 오른쪽 위로 옮기며, 끄기는 숨깁니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvor maskin- og mappebrikken ligger under faneraden. Venstre holder den øverst til venstre; Høyre flytter den øverst til høyre; Av skjuler den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Położenie chipa komputera i folderu pod rzędem kart. Lewo zostawia go u góry po lewej; Prawo przenosi go u góry po prawej; Wyłącz ukrywa go."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde o chip de máquina e pasta fica abaixo da linha de abas. Esquerda o mantém no canto superior esquerdo; Direita o move para o canto superior direito; Desativado o oculta."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расположение чипа компьютера и папки под рядом вкладок. Слева он остаётся вверху слева; Справа перемещается вверх вправо; Выкл. скрывает его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งชิปเครื่องและโฟลเดอร์ใต้แถวแท็บ ซ้ายจะวางไว้ด้านซ้ายบน ขวาจะย้ายไปด้านขวาบน และปิดจะซ่อนไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme satırının altındaki makine ve klasör çipinin konumu. Sol üst solda tutar; Sağ üst sağa taşır; Kapalı gizler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування чипа комп’ютера й теки під рядком вкладок. Ліворуч залишає його вгорі ліворуч; Праворуч переміщує вгору праворуч; Вимкнено приховує його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vị trí chip máy và thư mục bên dưới hàng tab. Trái giữ ở góc trên bên trái; Phải chuyển sang góc trên bên phải; Tắt sẽ ẩn chip."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "机器和文件夹标签在标签栏下方的位置。左侧放在左上角；右侧移到右上角；关闭则隐藏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "機器與資料夾標籤在標籤列下方的位置。左側放在左上角；右側移到右上角；關閉則隱藏。"
           }
         }
       }
