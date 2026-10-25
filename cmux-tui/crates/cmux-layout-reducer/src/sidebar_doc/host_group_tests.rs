@@ -21,6 +21,17 @@ fn update(id: &str, host_group: bool) -> Op {
     }
 }
 
+fn update_with_opt_out(id: &str, host_group: bool, host_group_opt_out: bool) -> Op {
+    Op::SectionUpdate {
+        id: id.into(),
+        patch: SectionPatch {
+            host_group: Some(host_group),
+            host_group_opt_out: Some(host_group_opt_out),
+            ..SectionPatch::default()
+        },
+    }
+}
+
 fn apply(doc: &mut Doc, ops: &[Op]) -> Result<(), Refusal> {
     apply_in_place(doc, ops, &mut || "itm_x".to_string()).map(|_| ())
 }
@@ -32,9 +43,11 @@ fn a_machine_section_becomes_a_remote_group_and_back() {
     assert!(!doc.section(&id).unwrap().host_group, "not a remote group by default");
     apply(&mut doc, &[update(&id, true)]).unwrap();
     assert!(doc.section(&id).unwrap().host_group);
+    assert!(!doc.section(&id).unwrap().host_group_opt_out);
     check(&doc).unwrap();
     apply(&mut doc, &[update(&id, false)]).unwrap();
     assert!(!doc.section(&id).unwrap().host_group);
+    assert!(doc.section(&id).unwrap().host_group_opt_out);
 }
 
 #[test]
@@ -53,4 +66,44 @@ fn host_group_is_on_the_wire_only_when_set() {
     assert_eq!(wire["host_group"], serde_json::Value::Bool(true));
     let back: Section = serde_json::from_value(wire).unwrap();
     assert!(back.host_group);
+}
+
+#[test]
+fn host_group_opt_out_survives_false_host_group() {
+    let mut doc = doc();
+    let id = machine_section_id("mini");
+    apply(&mut doc, &[update_with_opt_out(&id, false, true)]).unwrap();
+    let section = doc.section(&id).unwrap();
+    assert!(!section.host_group);
+    assert!(section.host_group_opt_out);
+
+    let wire = serde_json::to_value(section).unwrap();
+    assert_eq!(wire["host_group_opt_out"], serde_json::Value::Bool(true));
+    let back: Section = serde_json::from_value(wire).unwrap();
+    assert!(!back.host_group);
+    assert!(back.host_group_opt_out);
+
+    // New Remote Group explicitly clears a prior Remove choice.
+    apply(&mut doc, &[update_with_opt_out(&id, true, false)]).unwrap();
+    let section = doc.section(&id).unwrap();
+    assert!(section.host_group);
+    assert!(!section.host_group_opt_out);
+}
+
+#[test]
+fn host_group_opt_out_is_machine_only() {
+    let mut doc = doc();
+    assert_eq!(
+        apply(
+            &mut doc,
+            &[Op::SectionUpdate {
+                id: "sec_custom".into(),
+                patch: SectionPatch {
+                    host_group_opt_out: Some(true),
+                    ..SectionPatch::default()
+                },
+            }],
+        ),
+        Err(Refusal::InvalidValue)
+    );
 }
