@@ -681,8 +681,8 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertNotIn(stale, text)
         guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
         # The session-only jobs read `(session_runner || gui_runner)`, the rest one output
-        # (the fast tier two: fast_runner, then runner).
-        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 10)
+        # (the fast tier's fast_runner is attempt 1 only, so not counted here).
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
@@ -1839,7 +1839,7 @@ FAST_TIER_FORK_CLAUSE = (
 )
 FAST_LANE_CLAUSE = (
     "needs.macos-placement.outputs.fast_runner != '' && "
-    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.fast_runner || "
+    "github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || "
 )
 # The fast tier's runs-on without its fast-lane clause: with no idle fast runner it must route exactly so.
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
@@ -1934,6 +1934,10 @@ class ReservedLaneLabels(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
                                                    retry_runner="blacksmith-6vcpu-macos-26")),
                          "blacksmith-6vcpu-macos-26")
+        # A person's re-run reuses attempt 1's placement; its idle reading is stale, so it takes the
+        # side route, never the reserved label (review of #25158).
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, context(fast, attempt=4)), "glaeda-side-std-xcode-26.6")
 
 
 # A free owned GUI/session Mac that macos-placement found (7242a82b4a8, #24763: the queue rescue's re-run takes it
