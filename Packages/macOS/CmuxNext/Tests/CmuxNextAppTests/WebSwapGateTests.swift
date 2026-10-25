@@ -52,3 +52,14 @@ struct WebSwapGateTests {
         #expect(WebUpdater.delay(after: 900, interval: .seconds(600)) == .zero)
     }
 }
+
+/// The quiet note after a swap names the update by its short commit.
+struct WebUpdateNoteTests {
+    @Test func theNoteNamesTheShortCommit() {
+        let pointer = WebUpdatePointer(channel: "every-merge", key: String(repeating: "d", count: 64),
+                                       archive: "web-bundles-x.tar.gz", sha256: "x", size: 1, outputs: "y", abi: 2,
+                                       commit: "1a2b3c4d5e6f7a8b9c0d", committedAt: 0, publishedAt: 60)
+        #expect(pointer.updatedNote.hasSuffix("1a2b3c4"))
+        #expect(!pointer.updatedNote.contains("1a2b3c4d"))
+    }
+}
