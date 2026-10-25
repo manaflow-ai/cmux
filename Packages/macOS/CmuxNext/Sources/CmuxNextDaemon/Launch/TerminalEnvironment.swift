@@ -98,6 +98,7 @@ public struct TerminalEnvironment: Sendable {
     /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default.
     public static func hasInstalledGhosttyTerminfo(
         home: String = NSHomeDirectory(),
+        // blocking-allow: stat of a few terminfo paths at terminal launch; the daemon target does not link CmuxNextCompat.
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> Bool {
         let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
@@ -108,6 +109,7 @@ public struct TerminalEnvironment: Sendable {
     public func ghostty(
         resourcesDirectory: String?,
         version: String?,
+        // blocking-allow: stat of a few terminfo paths at terminal launch; the daemon target does not link CmuxNextCompat.
         fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) -> [String: String] {
         var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
