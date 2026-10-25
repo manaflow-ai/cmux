@@ -80,7 +80,8 @@ fn sources() -> Sources {
                 {"id": "dv_sandbox", "name": "sandbox", "role": "daemon",
                  "created_at": "2026-10-22T06:01:00Z", "ticket_id": "tk_used", "revoked_at": null, "connections": 1},
                 {"id": "dv_leo", "name": "leo-mbp", "role": "client",
-                 "created_at": "2026-10-20T06:01:00Z", "ticket_id": null, "revoked_at": null, "connections": 0},
+                 "created_at": "2026-10-20T06:01:00Z", "ticket_id": null, "revoked_at": null, "connections": 0,
+                 "full_access": true},
                 {"id": "dv_watch", "name": "wall-tv", "role": "read-only",
                  "created_at": "2026-10-20T06:01:00Z", "ticket_id": null, "revoked_at": null, "connections": 2},
                 {"id": "dv_old", "name": "old-box", "role": "client",
@@ -159,6 +160,14 @@ fn client_and_read_only_pairings_are_devices_that_use_or_watch_this_one() {
     let tv = device(&listing, "paired:dv_watch");
     assert_eq!(tv.roles, vec![Role::WatchOnly]);
     assert_eq!(tv.state, State::Connected, "it has open connections");
+    // Only a client machine has the Full-access setting.
+    assert_eq!(leo.full_access, Some(true));
+    assert_eq!(tv.full_access, None);
+    assert_eq!(device(&listing, "peer:mini-7").full_access, None);
+    let mut src = sources();
+    src.pairing["devices"][1].as_object_mut().unwrap().remove("full_access");
+    let older = model::merge(&src, tailscale_up(), &nodes());
+    assert_eq!(device(&older, "paired:dv_leo").full_access, Some(false), "absent reads as off");
 }
 
 #[test]
