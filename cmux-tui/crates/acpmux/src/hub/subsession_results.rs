@@ -102,19 +102,22 @@ impl Hub {
     }
 }
 
-/// A turn's agent text (`SessionMeta::preview`, its last [`PREVIEW_BYTES`]) as a result's reply:
-/// masked, null when empty. A preview at the cap may start inside a secret, whose cut head the
-/// scanner would not know: its first word goes.
+/// A turn's agent text (`SessionMeta::preview`) as a result's reply: masked, null when the turn
+/// said nothing. A preview the session cut to its last [`PREVIEW_BYTES`] keeps 1997 to 2000 of
+/// them (the cut moves to a character boundary), so one that long may start inside a word, maybe
+/// a secret whose cut head the scanner would not know: that word goes, and the reply starts with
+/// `…`. One cut word and nothing else is only `…`. A preview of that length that was not cut
+/// loses its first word too, which costs a word and hides nothing.
 fn reply_text(preview: &str) -> Option<String> {
-    let mut text = preview.trim();
-    if preview.len() >= PREVIEW_BYTES {
-        text = text.split_once(char::is_whitespace).map_or("", |(_, rest)| rest.trim_start());
-    }
+    let text = preview.trim();
     if text.is_empty() {
         return None;
     }
-    let masked = crate::secret_scan::mask(text);
-    Some(if preview.len() >= PREVIEW_BYTES { format!("…{masked}") } else { masked })
+    if preview.len() + 3 < PREVIEW_BYTES {
+        return Some(crate::secret_scan::mask(text));
+    }
+    let rest = text.split_once(char::is_whitespace).map_or("", |(_, rest)| rest.trim_start());
+    Some(format!("…{}", crate::secret_scan::mask(rest)))
 }
 
 #[cfg(test)]
@@ -125,9 +128,16 @@ mod tests {
     fn a_reply_is_the_turns_text_without_a_cut_head() {
         assert_eq!(reply_text("  done.  "), Some("done.".to_owned()));
         assert_eq!(reply_text(" "), None);
-        let long = format!("tail-of-a-cut-word {}", "x".repeat(PREVIEW_BYTES));
-        let reply = reply_text(&long).unwrap();
-        assert!(reply.starts_with('…') && !reply.contains("tail-of"), "{reply}");
+        // A cut preview (1997 to 2000 bytes) loses its first, maybe cut, word.
+        let cut = format!("tail-of-a-cut-word {}", "x".repeat(PREVIEW_BYTES - 22));
+        assert_eq!(cut.len(), PREVIEW_BYTES - 3);
+        let reply = reply_text(&cut).unwrap();
+        assert!(reply.starts_with("…x") && !reply.contains("tail-of"), "{reply}");
+        // One cut word: only that something was said.
+        assert_eq!(reply_text(&"é".repeat(PREVIEW_BYTES / 2)).as_deref(), Some("…"));
+        // Below the cut: whole.
+        let short = format!("a {}", "é".repeat(900));
+        assert_eq!(reply_text(&short).as_deref(), Some(short.as_str()));
     }
 
     #[test]

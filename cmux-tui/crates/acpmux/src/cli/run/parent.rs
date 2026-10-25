@@ -83,12 +83,7 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
     // Masked as the sub-session tools mask what they hand another session's agent; whole, not cut.
     let reply = last_replies(&client, &id, 1).await?.pop().map(|r| crate::secret_scan::mask(&r));
     let last = &row["lastTurn"];
-    let error = last["errorText"].as_str().map(crate::secret_scan::mask);
-    let state = match last["status"].as_str() {
-        Some("completed") => "done",
-        Some("cancelled") => "cancelled",
-        _ => "failed",
-    };
+    let (state, error) = turn_end(last);
     if json_out {
         print_json(&json!({
             "sessionId": id, "name": name, "parent": parent, "harness": started["harness"],
@@ -110,6 +105,17 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
         format!("{name}'s turn {state}: {why}"),
     );
     Err(e.with_session(&id).into())
+}
+
+/// A child's `lastTurn` as its state (`done`, `failed`, `cancelled`) and its error, masked.
+fn turn_end(last: &Value) -> (&'static str, Option<String>) {
+    let state = match last["status"].as_str() {
+        Some("completed") => "done",
+        Some("cancelled") => "cancelled",
+        _ => "failed",
+    };
+    let error = last["errorText"].as_str().or_else(|| last["error"].as_str());
+    (state, error.map(crate::secret_scan::mask))
 }
 
 /// The child's summary once its turn ended (`_acpmux/wait` until ready): a question or
@@ -154,6 +160,19 @@ mod tests {
             json!({"parent": "lead", "prompt": "fix it", "harness": "codex", "model": "gpt-5.5",
                    "effort": "high", "name": "t"})
         );
+    }
+
+    #[test]
+    fn a_turn_end_reads_as_its_state_and_error() {
+        let ok = json!({"status": "completed", "stopReason": "end_turn"});
+        assert_eq!(turn_end(&ok), ("done", None));
+        let failed = json!({"status": "failed", "errorText": "no credit"});
+        assert_eq!(turn_end(&failed), ("failed", Some("no credit".to_owned())));
+        // A turn that never started (`fail_unstarted_turn`) before it said `errorText`.
+        let unstarted = json!({"status": "failed", "error": "agent gone"});
+        assert_eq!(turn_end(&unstarted), ("failed", Some("agent gone".to_owned())));
+        assert_eq!(turn_end(&json!({"status": "cancelled"})).0, "cancelled");
+        assert_eq!(turn_end(&Value::Null).0, "failed");
     }
 
     #[test]
