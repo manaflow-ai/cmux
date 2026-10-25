@@ -4,7 +4,7 @@
  *
  * Usage (from web/):
  *   bun ../images/cmux-vm/bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>]
- *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm]
+ *       [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]
  *
  * - L0: refuses a base whose fingerprint (kernel release, sha256 of the sorted
  *   dpkg list) differs from the lock, unless --update-lock rewrites it (a base
@@ -30,6 +30,10 @@
  *   and computer-use units (on demand) and the tool dir acpmux reads, so agent sessions on the
  *   machine get the cmux browser and computer-use tools (agent-tools.ts).
  *
+ * - --dev-tree (dev snapshots only): the public cmux checkout at this commit, bindgen's libclang,
+ *   the checkout's Rust and Zig toolchains and the caches its first build leaves (dev-tree.ts), so
+ *   a developer's first build is a fetch and an incremental build (first-build.ts measures both).
+ *
  * - --team-vm (TEAM_VM_SNAPSHOT images, bead cx-cemg): the team files root /srv/team
  *   (root:cmux-ssh 2750, teamVmDirsCommand).
  * - The full daemon handshake (identify.ts) goes into the result as daemonIdentify.
@@ -54,8 +58,10 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxSnapshotClockCommand,
+  devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
+import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
 import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines } from "./agent-tools";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
@@ -98,6 +104,8 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const GUEST_DIR = path.resolve(HERE, "../../../images/cmux-vm/guest");
+/** Cloud VM shell defaults shared with the Chief VM bake (cmux-shell.sh: TERM fallback, UTF-8, truecolor). */
+export const SHELL_DIR = path.resolve(HERE, "../../services/vms/images/shell");
 const DPKG_LIST = "dpkg-query -W -f='${Package}\\t${Version}\\t${Architecture}\\n' | LC_ALL=C sort";
 const PGDG_KEY = "/usr/share/keyrings/cmux-pgdg.asc";
 const DAEMON_UNIT = HOST_UNIT;
@@ -117,6 +125,8 @@ export type BakeOptions = {
   agentTools?: boolean;
   /** Team VM image (TEAM_VM_SNAPSHOT): adds the team files root /srv/team (teamVmDirsCommand). */
   teamVm?: boolean;
+  /** Bake the cmux dev tree (dev-tree.ts); off by default. */
+  devTree?: boolean;
 };
 
 /** The team files root (team-vm-plan.md section 2; backend team-vm-export.ts EXPORT_ROOT). */
@@ -359,8 +369,9 @@ async function installApt(ctx: Ctx): Promise<void> {
   await L.step(vm, "pgdg-key", `mkdir -p /etc/postgresql-common/createcluster.d && printf 'create_main_cluster = false\\n' > /etc/postgresql-common/createcluster.d/00-cmux.conf && curl -fsSL --retry 3 -o ${PGDG_KEY} ${sq(pgdg.keyUrl)} && printf '%s  %s\\n' ${pgdg.keySha256} ${PGDG_KEY} | sha256sum -c --quiet -`);
   await writeGuestFile(vm, "/etc/apt/sources.list.d/pgdg.sources", pgdgSourcesFile(pgdg, PGDG_KEY), 0o644);
   await L.step(vm, "apt-install-pgdg", `apt-get update -q >/tmp/apt-update.log 2>&1 || { tail -30 /tmp/apt-update.log; exit 1; }; apt-get install -y --no-install-recommends ${aptPinArgs(pgdg.packages)} >/tmp/apt-pg.log 2>&1 || { tail -40 /tmp/apt-pg.log; exit 1; }; ${DPKG_LIST} > /root/after-dpkg.tsv`);
-  const added = dpkgChanges(parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv")), parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
-  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added);
+  const baseDpkg = parseDpkgList(await readGuestText(vm, "/root/base-dpkg.tsv"));
+  const added = dpkgChanges(baseDpkg, parseDpkgList(await readGuestText(vm, "/root/after-dpkg.tsv")));
+  const problems = aptClosureProblems({ ...ubuntu.packages, ...pgdg.packages }, added, baseDpkg);
   if (problems.length > 0) throw new Error(`apt closure differs from the lock:\n${problems.join("\n")}`);
   ctx.result.aptInstalled = added.size;
   await L.step(vm, "postgres-binaries-only", [
@@ -416,6 +427,25 @@ async function configureSystem(ctx: Ctx): Promise<void> {
     "systemctl list-timers --all --no-legend | awk '{print $NF}' | tr '\\n' ' '",
   ].join(" && "));
   await writeGuestFile(vm, "/etc/tmpfiles.d/cmux-snapshot-resume.conf", "# Clones resume with a monotonic clock jump; do not report a workqueue lockup.\nw- /sys/module/workqueue/parameters/watchdog_thresh - - - - 0\n", 0o644);
+  // Shell defaults (web/services/vms/images/shell): the devbox terminfo overlay
+  // so TERM=xterm-ghostty works in htop/vim/tmux/less, the TERM fallback and
+  // truecolor profile, and no provider banner (Freestyle's static /etc/motd,
+  // the stock Ubuntu motd scripts).
+  await writeGuestFile(vm, "/etc/cmux/terminfo.src", devboxFileBytes("cmux-terminfo.src"), 0o644);
+  await writeGuestFile(vm, "/etc/profile.d/cmux-terminfo.sh", devboxFileBytes("cmux-terminfo.sh"), 0o644);
+  await writeGuestFile(vm, "/etc/profile.d/cmux-shell.sh", readFileSync(path.join(SHELL_DIR, "cmux-shell.sh")), 0o644);
+  await writeGuestFile(vm, "/etc/cmux/nvm-lazy.sh", readFileSync(path.join(SHELL_DIR, "nvm-lazy.sh")), 0o644);
+  await L.step(vm, "terminfo", devboxTerminfoInstallCommand);
+  await L.step(vm, "shell-env", [
+    "grep -qxF '[ -f /etc/profile.d/cmux-shell.sh ] && . /etc/profile.d/cmux-shell.sh' /etc/bash.bashrc || echo '[ -f /etc/profile.d/cmux-shell.sh ] && . /etc/profile.d/cmux-shell.sh' >> /etc/bash.bashrc",
+    ": > /etc/motd",
+    // The provider's eager nvm loader costs ~300 ms per login shell; node stays on PATH.
+    "if [ -f /etc/profile.d/nvm.sh ] && grep -q 'nvm\\.sh\"' /etc/profile.d/nvm.sh; then cp /etc/profile.d/nvm.sh /etc/cmux/nvm.sh.orig && cp /etc/cmux/nvm-lazy.sh /etc/profile.d/nvm.sh; fi",
+    "env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'command -v node' >/dev/null",
+    "for f in /etc/update-motd.d/*; do [ -f \"$f\" ] && chmod -x \"$f\"; done; true",
+    "[ \"$(env -i HOME=/root TERM=bogus-term sh -c '. /etc/profile.d/cmux-shell.sh; echo $TERM $COLORTERM')\" = 'xterm-256color truecolor' ]",
+    "echo shell-env-ok",
+  ].join(" && "));
   await L.step(vm, "snapshot-resume-quiet", "{ [ ! -e /sys/module/workqueue/parameters/watchdog_thresh ] || echo 0 > /sys/module/workqueue/parameters/watchdog_thresh; } && echo ok");
 }
 
@@ -516,6 +546,29 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
 }
 
+/**
+ * --dev-tree: the lock's libclang closure from the dated snapshot (exactly, as installApt), then the
+ * checkout at this commit (GITHUB_SHA; the branch head in a local run), Zig, Rust and the first build.
+ */
+async function installDevTree(ctx: Ctx): Promise<void> {
+  const { vm, L } = ctx;
+  const tree = devTreeLock(ctx.lock);
+  const sizes = parseAptSizes(await L.step(vm, "dev-tree-apt-sizes", aptSizesCommand(tree.apt)));
+  const batches = aptDownloadBatches(tree.apt, sizes);
+  for (const [i, batch] of batches.entries()) await L.step(vm, `dev-tree-apt-download-${i + 1}-of-${batches.length}`, aptDownloadBatchCommand(batch.pins));
+  await L.step(vm, "dev-tree-apt-install", `${DPKG_LIST} > /root/dev-tree-before.tsv && { apt-get install -y --no-install-recommends --no-download ${aptPinArgs(tree.apt)} >/tmp/apt-dev-tree.log 2>&1 || { tail -40 /tmp/apt-dev-tree.log; exit 1; }; } && ${DPKG_LIST} > /root/dev-tree-after.tsv`);
+  const before = parseDpkgList(await readGuestText(vm, "/root/dev-tree-before.tsv"));
+  const problems = aptClosureProblems(tree.apt, dpkgChanges(before, parseDpkgList(await readGuestText(vm, "/root/dev-tree-after.tsv"))), before);
+  if (problems.length > 0) throw new Error(`dev tree apt closure differs from devTree.apt:\n${problems.join("\n")}`);
+  await uploadDevTreeScript(vm);
+  const phases: Record<string, number> = {};
+  const head = await setUpDevTree(vm, tree, process.env.GITHUB_SHA ?? "", phases, (line) => L.log(line));
+  await L.step(vm, "dev-tree-no-credentials", devTreeCredentialCheckCommand(tree));
+  const bytes = await devTreeSizes(vm, tree);
+  await L.step(vm, "dev-tree-done", `rm -f ${DEV_TREE_SCRIPT} /root/dev-tree-before.tsv /root/dev-tree-after.tsv /tmp/apt-dev-tree.log`);
+  ctx.result.devTree = { head, dir: tree.dir, firstBuild: FIRST_BUILD.join(" "), phasesMs: phases, bytes };
+}
+
 async function startDaemon(ctx: Ctx): Promise<void> {
   const { vm, L } = ctx;
   await writeGuestFile(vm, `/etc/systemd/system/${DAEMON_UNIT}`, daemonUnit(ctx.options.agentTools ? agentToolsDaemonEnv(ctx.lock) : {}), 0o644);
@@ -548,14 +601,16 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   const syft = lock.tools.syft;
   await L.step(vm, "out-dir", "mkdir -p /tmp/cmux-out");
   await writeGuestFile(vm, "/tmp/cmux-out/manifest.py", readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
-  result.manifest = (await L.step(vm, "file-manifest", "python3 /tmp/cmux-out/manifest.py /tmp/cmux-out/manifest.tsv && gzip -9 /tmp/cmux-out/manifest.tsv")).trim();
+  // The dev tree is the recorded commit, public crates and toolchains (result.devTree), not hashed or catalogued file by file.
+  const skip = options.devTree ? devTreeUserPaths(devTreeLock(lock)) : [];
+  result.manifest = (await L.step(vm, "file-manifest", `python3 /tmp/cmux-out/manifest.py /tmp/cmux-out/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9 /tmp/cmux-out/manifest.tsv`)).trim();
   result.syft = (await L.step(vm, "sbom", [
     `mkdir -p /tmp/cmux-syft && curl -fsSL --retry 3 -o /tmp/cmux-syft/syft.tgz ${sq(syft.url)}`,
     `printf '%s  %s\\n' ${syft.sha256} /tmp/cmux-syft/syft.tgz | sha256sum -c --quiet -`,
     `test "$(stat -c %s /tmp/cmux-syft/syft.tgz)" = ${syft.size}`,
     "tar -xzf /tmp/cmux-syft/syft.tgz -C /tmp/cmux-syft syft",
     "t=$(date +%s)",
-    "cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=/tmp/cmux-syft timeout 280 /tmp/cmux-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' -o cyclonedx-json=/tmp/cmux-out/sbom.cdx.json -q",
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=/tmp/cmux-syft timeout 280 /tmp/cmux-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=/tmp/cmux-out/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
     "gzip -9 /tmp/cmux-out/sbom.cdx.json",
   ].join(" && "))).trim();
@@ -604,6 +659,7 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
     if (options.teamVm) ctx.result.teamFilesRoot = (await L.step(ctx.vm, "team-files-root", teamVmDirsCommand())).trim();
     await configureRoles(ctx);
     if (options.agentTools) await installAgentTools(ctx);
+    if (options.devTree) await installDevTree(ctx);
     await installHostConfig(ctx);
     await startDaemon(ctx);
     await writeModelPlane(ctx);
@@ -630,8 +686,9 @@ export async function bake(options: BakeOptions): Promise<BakeResult> {
 
 export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
   const tag = argValue("--tag", argv);
-  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm]");
+  if (!tag) throw new Error("usage: bake.ts --tag <tag> [--out-dir <dir>] [--lock <path>] [--update-lock] [--keep-builder] [--promotion] [--agent-tools] [--team-vm] [--dev-tree]");
   if (hasFlag("--agent-tools", argv) && hasFlag("--promotion", argv)) throw new Error("--agent-tools is for dev snapshots only; it cannot be combined with --promotion");
+  if (hasFlag("--dev-tree", argv) && hasFlag("--promotion", argv)) throw new Error("--dev-tree is for dev snapshots only; it cannot be combined with --promotion");
   return {
     tag,
     outDir: path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`),
@@ -641,6 +698,7 @@ export function bakeOptionsFromArgv(argv = process.argv): BakeOptions {
     promotion: hasFlag("--promotion", argv),
     agentTools: hasFlag("--agent-tools", argv),
     teamVm: hasFlag("--team-vm", argv),
+    devTree: hasFlag("--dev-tree", argv),
   };
 }
 

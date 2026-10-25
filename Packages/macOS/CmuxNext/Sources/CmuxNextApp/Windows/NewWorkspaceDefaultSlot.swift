@@ -101,7 +101,7 @@ enum NewWorkspacePlacements {
     /// `windowID` (nil: the window that lists it): now when it is mirrored,
     /// else once the daemon reports it. `then` runs after, with the sidebar.
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
-                       then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil, windows: WindowManager) {
+                       then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
         if let anchor = anchor(slot: slot, byDefault: byDefault, home: home(windows.services.machines)) { anchors[id] = anchor }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
@@ -119,7 +119,7 @@ enum NewWorkspacePlacements {
     static func sending(_ rule: NewWorkspaceDefaultSlot?, key: WorkspaceKey, on connection: DaemonConnection) async -> NewWorkspaceDefaultSlot? {
         guard let rule else { return nil }
         // Read before the create goes out: the window places the workspace only once the daemon lists it.
-        guard await connection.identity?.supports(DaemonCapabilities.shared.workspaceCreateCurrent) == true else { return nil }
+        guard await connection.identity?.supports(DaemonCapability.workspaceCreateCurrent.rawValue) == true else { return nil }
         placedByDaemon.insert(key.rawValue)
         return rule
     }

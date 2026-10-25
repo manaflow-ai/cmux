@@ -70,8 +70,13 @@ fn split_attempt(prompt_id: &str) -> (&str, usize) {
 /// The text the agent gets.
 fn continue_text(error: &str) -> String {
     let error: String = error.chars().take(MAX_ERROR_CHARS).collect();
+    let cause = if error.starts_with("agent process closed") {
+        "an agent process exit"
+    } else {
+        "a connection error"
+    };
     format!(
-        "Your previous turn was cut off by a connection error ({error}). Check what already \
+        "Your previous turn was cut off by {cause} ({error}). Check what already \
          finished (files, commands, messages), then continue from where it stopped. Do not \
          redo work that completed."
     )
@@ -223,7 +228,7 @@ impl Hub {
     }
 
     /// Settles whether the ended turn `turn_id` is continued: it is when `cut` is a transport
-    /// error and no Stop or close came since it began. Nothing for any other failure, or once
+    /// error or agent death and no Stop or close came since it began. Nothing for any other failure, or once
     /// the configured attempts are used.
     pub(super) fn schedule_auto_resume(
         self: &Arc<Self>,
@@ -237,9 +242,9 @@ impl Hub {
             Some(Mark::Stopped(t)) if t == turn_id => Some(false),
             _ => None,
         };
-        let Some(cut) =
-            cut.filter(|c| ending == Some(true) && super::turn_errors::is_transport_error(c.error))
-        else {
+        let Some(cut) = cut.filter(|c| {
+            ending == Some(true) && super::turn_errors::resume_cause(c.error, c.error).is_some()
+        }) else {
             if ending.is_some() {
                 pending.remove(&session.id);
             }
@@ -276,6 +281,15 @@ impl Hub {
                 CutTurn { prompt_id: &root, turn_id: &turn_id, control, trust_gate, error: &error };
             hub.auto_resume(&session, cut, attempt).await;
         });
+    }
+
+    /// Whether a continuation may still answer for the chat's cut turn: it releases what that
+    /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
+    pub(super) fn continuation_pending(&self, session: &Session) -> bool {
+        matches!(
+            self.auto_resumes.lock().get(&session.id),
+            Some(Mark::Waiting(_) | Mark::Firing(_) | Mark::Ending(_))
+        )
     }
 
     /// Stop or close: the chat's waiting continuation does not fire, and the turn running or

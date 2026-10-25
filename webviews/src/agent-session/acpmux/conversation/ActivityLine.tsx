@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
+import { BackgroundHint } from "./BackgroundHint";
 import { formatDuration } from "./turns";
 import { workingLabel } from "./WorkingFor";
 
@@ -26,6 +27,8 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
       ) : (
         <span className="cv-activity__label">{workingLabel(t, row.at, time)}</span>
       )}
+      {/* A running command's ⌃B hint (BackgroundHint.tsx), keyed by the command. */}
+      {row.doingCommand && <BackgroundHint key={row.text} />}
     </div>
   );
 }

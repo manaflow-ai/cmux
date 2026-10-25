@@ -25,6 +25,12 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+At most `maxRunning` of your sub-sessions run at once (16 unless the user
+changed it); a start past it is queued and starts by itself when one finishes.
+`list_sessions` (under `self`) or `acpmux session limits @` shows your limits
+and how many run and wait; only the user or your parent session raises them.
+A sub-session runs on this machine; `host: "auto"` first checks it has room
+(the engine `acpmux new --host auto` uses) and refuses the start when not.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
@@ -51,6 +57,19 @@ default) may you answer one marked `answerable` yourself with
 refused (`subsessions.answers_off`, `subsessions.not_a_question`). A
 permission request or a plan approval is never a question: only the user
 allows it, in cmux NEXT, so tell the user which sub-session waits.
+
+Your own questions follow the same split. The user allows tools through the
+chat's mode and the harness's permission prompts, and a chat in Full access
+(Claude Code `bypassPermissions`, Codex full access) has already allowed
+every tool call its harness would ask about. Never ask the user to allow,
+confirm or approve a step, with AskUserQuestion or in text ("allow this?",
+"should I go ahead?"): decide, say why in one line, and go on. Deciding never
+widens the task: a step a cmux skill keeps for the user's own request
+(computer use, importing a browser's cookies, deleting their data) waits for
+that request, and a cmux consent panel is theirs to answer; leave such a step
+out and say so. Ask only about product taste you cannot settle from the
+request or the code (how something should look, read or behave), and ask it
+as that choice, never as a permission.
 
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
@@ -98,6 +117,7 @@ acpmux send NAME "next step"                       # stream the reply; -q for th
 acpmux send NAME --no-wait "…"                     # a message: steers into the running turn when the harness steers (read at its next tool boundary; never stops it), else queues; returns at once
 acpmux send NAME --no-wait --no-steer "…"          # queue behind the running turn instead
 acpmux send NAME --steer "…"                       # steer a send that waits for its reply (it queues by default)
+acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
@@ -106,6 +126,7 @@ acpmux session set NAME model=… | effort=… | mode=… | policy=…
 acpmux session fork NAME [--name NEW]              # new session sharing the history so far
 acpmux session cancel NAME                         # stop the running turn; the session stays
 acpmux session restart NAME                        # restart its agent process after the turn, same conversation
+acpmux session resume NAME                         # run the prompts a failed turn held (no person needed)
 acpmux session kill --purge NAME                   # delete (only sessions you created)
 ```
 
@@ -117,6 +138,14 @@ one command; running it again reuses the session and worktree and sends nothing:
 
 ```bash
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
+```
+
+A child of another harness under your own chat (a Codex child of a Claude chat): it lists
+under your chat, and your sub-session tools read, message and stop it.
+
+```bash
+acpmux run --parent "$ACPMUX_SESSION_ID" -m codex -e high "PROMPT"   # prints its reply
+acpmux new --parent "$ACPMUX_SESSION_ID" -m opencode -n tests -d "PROMPT"
 ```
 
 Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
@@ -153,10 +182,27 @@ acpmux run --on-permission deny|fail …       # never hang a script on a prompt
 open ask instead of restating it; cmux draws it as a chip that opens the ask in
 its Needs you list.
 
+Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
+a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an
+https image address (a PR's `pr-media` link) as a thumbnail that opens full
+size on click. Two images in one paragraph, such as
+`![Before](/tmp/a.png) ![After](/tmp/b.png)` or `Before: /tmp/a.png` and
+`After: /tmp/b.png` on two lines, sit side by side. `#N`, `owner/repo#N`,
+`hq#N`, commit SHAs and `path/to/file.ts:42` become links.
+
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
+
+A session you start from inside your own session (`acpmux new|run`, a local
+`dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
+pass neither: your policy, and your mode (or, on another harness family, the
+same level: full access, asking, or its own mode). It never runs wider than
+you: a wider `--mode` is refused. A start from a plain shell with no session
+gets the defaults. Some requests still ask in full access, because the harness
+raises them itself (Claude Code's guard on an `rm` whose target it cannot
+resolve): your policy answers those, and `ask` sends them to a person.
 
 ## 6. Other machines
 
@@ -167,7 +213,19 @@ acpmux host ls                                   # peers, connected or offline, 
 acpmux run -m claude --host HOST "…"             # start there; --cwd is a remote path
 acpmux ensure NAME -m codex --host HOST
 acpmux wait                                      # covers remote sessions too
+acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
+                                                 # the session a PR footer's link (or an id, host/name, name) names, here or on a peer: host, ids, model, cwd, lane, PRs, last turn
+acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works on; `bead ls cx-cus7j.230` finds NAME, `bead ls --session NAME` lists its beads
 ```
+
+A remote start runs under the peer's rules. `--cwd` must sit inside the peer's
+`webRoots` (a missing folder there is made); with no `--cwd` the session gets a
+scratch folder. `--mode` is refused, and the session starts in the harness's
+asking mode. `--policy approve-all` passes only when the peer serves this machine
+as a peer (`servedAs` in `acpmux --json host ls`); otherwise start it on that
+machine itself, `ssh HOST 'acpmux new … --policy approve-all -d'`, and drive it
+from here as `HOST/NAME`. Every such refusal ends with the command that works
+(`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
 current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not

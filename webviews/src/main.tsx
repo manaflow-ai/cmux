@@ -3,6 +3,7 @@
 // layer's CSS inline, ahead of its own styles.
 import "./pages/shared/desktop";
 import desktopStyles from "./pages/shared/desktop.css?inline";
+import glassStyles from "./ui/glass/glass.css?inline";
 import { installWebviewStyles } from "./surfaces/installWebviewStyles";
 
 const rootElement = document.getElementById("root");
@@ -13,6 +14,7 @@ if (!rootElement) {
 // The diff viewer loads as its own chunk (it pulls in `@pierre/diffs`). The agent session that
 // main.mjs also booted is retired: the agent pane (agent-session/acpmux) replaced it.
 installWebviewStyles("desktop", desktopStyles);
+installWebviewStyles("glass", glassStyles);
 void import("./surfaces/diffSurface").then((surface) => {
   void surface.mountDiffSurface(rootElement);
 });

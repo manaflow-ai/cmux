@@ -41,6 +41,11 @@ public protocol PageChromiumPage: AnyObject {
     /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
     /// before the first ``load(_:)``.
     var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
+    /// Rects in ``contentView``'s coordinates where native UI of the host window shows over the
+    /// page. A Chromium page is a child window above the whole host window, so the page window
+    /// leaves these rects uncovered: the native view under them shows there and takes the mouse
+    /// (a chat's pane tabs while the chat shares the tab row, ``PageWebView/nativeRects``).
+    var occlusionRects: [CGRect] { get set }
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
@@ -59,6 +64,10 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Makes the page see-through (true) or gives it its opaque page color back: where the document
+    /// draws no background of its own, the view under the page shows, as under a WebKit page that
+    /// draws no background.
+    func setSeeThrough(_ seeThrough: Bool)
     /// Tears the page down. Idempotent.
     func close()
 }

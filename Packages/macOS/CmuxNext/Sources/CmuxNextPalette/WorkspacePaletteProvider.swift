@@ -26,8 +26,9 @@ public final class WorkspacePaletteProvider: PaletteProvider {
         let source = source
         return source.workspaces.map { workspace in
             let id = workspace.id
-            // The parent group first, then the folder: rows of the same name tell apart.
-            let parents = [workspace.groupName, workspace.directory.map(abbreviatePath)].compactMap { $0?.isEmpty == false ? $0 : nil }
+            // The subagent id, the machine, the parent group, then the folder: rows of the same name tell apart.
+            let parents = [workspace.agentID, workspace.machineName, workspace.groupName, workspace.directory.map(abbreviatePath)]
+                .compactMap { $0?.isEmpty == false ? $0 : nil }
             var item = PaletteItem(
                 id: "workspace:\(id)",
                 title: workspace.title,
@@ -36,7 +37,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                     : (workspace.unreadCount > 0 ? PaletteStrings.unreadCount(workspace.unreadCount) : nil),
                 symbol: "rectangle.stack",
                 section: Self.section,
-                keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName].compactMap { $0 },
+                keywords: [PaletteStrings.workspaceKeyword] + [workspace.groupName, workspace.machineName].compactMap { $0 },
                 primary: PaletteCommand(id: "select", title: PaletteStrings.switchToWorkspace, symbol: "return", effect: .perform {
                     source.selectWorkspace(id: id)
                 }),
@@ -60,6 +61,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 frecencyKey: "workspace:\(id)",
                 rankBias: workspace.isSelected ? -5 : 0
             )
+            if let agentID = workspace.agentID, !agentID.isEmpty { item.handles = [agentID] }
             item.actionRefs = [PaletteActionRef("goToWorkspace", arguments: ["workspace": .target(ActionTargetRef(kind: .workspace, id: id))],
                                                 title: PaletteStrings.switchToWorkspace)]
             return item

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3754c36ce52011289e7881a29238e84ccbee966165de2e530249f968e8857209.
+// cmux-tui mux protocol 12, IR 38bfa750899a4bbcf9020c7b41ac7cddafe62c8c350c2364635c692f69356e71.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1829,6 +1829,13 @@ pub struct GetFrontendProjectionRequest {
 pub type GetFrontendProjectionResult = T::FrontendProjection;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct GetHostSizePolicyRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub surface: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetSizeStateRequest {
     pub surface: T::Id,
@@ -2598,9 +2605,13 @@ pub struct NewRowRequest {
     pub keep: Option<bool>,
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub pane_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub shell_args: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub tab_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3204,9 +3215,15 @@ pub struct SendRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub bytes: Optional<T::Base64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub expect_agent: Optional<T::SendExpectAgent>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub expect_foreground: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub flow: Optional<u64>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub paste: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub submit: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3267,6 +3284,8 @@ pub struct SetClientInfoRequest {
     pub kind: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub remote: Optional<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub user_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3347,6 +3366,12 @@ pub struct SetFrontendBrowserHistoryRequest {
 
 #[rustfmt::skip]
 pub type SetFrontendBrowserHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetHostSizePolicyRequest {
+    pub policy: T::HostSizePolicyRequest,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -3728,6 +3753,12 @@ pub type TerminalHistoryResult = T::TerminalHistoryPagesResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalPortsRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalReadRangeRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub format: Optional<String>,
@@ -3870,6 +3901,8 @@ pub struct UpdateBrowserProfileRequest {
     pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub proxy: Optional<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -4680,6 +4713,10 @@ impl CmuxClient {
         self.execute(&GET_FRONTEND_PROJECTION_METADATA, &request)
     }
 
+    pub fn get_host_size_policy(&mut self, request: GetHostSizePolicyRequest) -> Result<T::GetHostSizePolicyResult> {
+        self.execute(&GET_HOST_SIZE_POLICY_METADATA, &request)
+    }
+
     pub fn get_size_state(&mut self, request: GetSizeStateRequest) -> Result<T::GetSizeStateResult> {
         self.execute(&GET_SIZE_STATE_METADATA, &request)
     }
@@ -5018,6 +5055,12 @@ impl CmuxClient {
     }
 
     pub fn new_row(&mut self, request: NewRowRequest) -> Result<T::NewRowResult> {
+        if !request.pane_id.is_missing() {
+            self.require_capability_field("new-row", "row-client-keys-v1")?;
+        }
+        if !request.tab_id.is_missing() {
+            self.require_capability_field("new-row", "row-client-keys-v1")?;
+        }
         self.execute(&NEW_ROW_METADATA, &request)
     }
 
@@ -5284,11 +5327,17 @@ impl CmuxClient {
     }
 
     pub fn send(&mut self, request: SendRequest) -> Result<SendResult> {
+        if !request.expect_agent.is_missing() {
+            self.require_capability_field("send", "send-expect-agent-v1")?;
+        }
         if !request.expect_foreground.is_missing() {
             self.require_capability_field("send", "send-expect-foreground-v1")?;
         }
         if request.paste.is_some() {
             self.require_protocol_field("send", 7)?;
+        }
+        if request.submit.is_some() {
+            self.require_capability_field("send", "send-expect-agent-v1")?;
         }
         if !request.terminal_id.is_missing() {
             self.require_capability_field("send", "terminal-input-while-creating-v1")?;
@@ -5330,6 +5379,10 @@ impl CmuxClient {
         }
         if !request.install.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
+        }
+        if !request.remote.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+            self.require_capability_field("set-client-info", "host-size-policy-v1")?;
         }
         if !request.user_id.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
@@ -5384,6 +5437,10 @@ impl CmuxClient {
 
     pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
         self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
+    }
+
+    pub fn set_host_size_policy(&mut self, request: SetHostSizePolicyRequest) -> Result<T::SetHostSizePolicyResult> {
+        self.execute(&SET_HOST_SIZE_POLICY_METADATA, &request)
     }
 
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {
@@ -5579,6 +5636,10 @@ impl CmuxClient {
 
     pub fn terminal_history(&mut self, request: TerminalHistoryRequest) -> Result<TerminalHistoryResult> {
         self.execute(&TERMINAL_HISTORY_METADATA, &request)
+    }
+
+    pub fn terminal_ports(&mut self, request: TerminalPortsRequest) -> Result<T::TerminalPortsResult> {
+        self.execute(&TERMINAL_PORTS_METADATA, &request)
     }
 
     pub fn terminal_read_range(&mut self, request: TerminalReadRangeRequest) -> Result<T::TerminalReadRangeResult> {

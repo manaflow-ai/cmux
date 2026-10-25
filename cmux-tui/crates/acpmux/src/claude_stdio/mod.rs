@@ -13,6 +13,7 @@
 //! Nothing outside this file knows the Claude wire format.
 
 use crate::config::HarnessProfile;
+use crate::no_panic::JsonExt;
 use crate::rpc::{Id, Message, RpcError, method};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -31,21 +32,23 @@ pub fn steers_by_info(info: Option<&Value>) -> bool {
     info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
 }
 
-/// Claude mode ids, offered as ACP session modes.
-/// Claude's own modes. acceptEdits is not offered: acpmux's policy answers
-/// permission prompts itself, so `perms approve-edits` covers it for every
-/// harness. Plan and auto change what Claude does, so they stay.
-/// bypassPermissions ("Full access") is the mode a new chat starts in
+/// Claude Code's own permission modes, offered as ACP session modes: id
+/// (Claude Code's `--permission-mode` value), label and one-line description,
+/// in the order Claude Code's mode menu lists them. acpmux names none of its
+/// own: the menu reads these as they come. Auto is the one Claude Code
+/// recommends.
+/// bypassPermissions is the mode a new chat starts in
 /// (`hub/start_mode.rs`, cx-wx93i): Claude Code itself skips every
 /// permission check, so nothing asks. Claude Code accepts it only from a
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-pub(crate) const MODES: [(&str, &str); 4] = [
-    ("default", "Normal"),
-    ("plan", "Plan"),
-    ("auto", "Auto"),
-    ("bypassPermissions", "Full access"),
+pub(crate) const MODES: [(&str, &str, &str); 5] = [
+    ("auto", "Auto", "Claude handles permission decisions"),
+    ("default", "Manual", "Always ask before making changes"),
+    ("acceptEdits", "Accept edits", "Automatically accept all file edits"),
+    ("plan", "Plan", "Create a plan before making changes"),
+    ("bypassPermissions", "Bypass permissions", "Accepts all permissions"),
 ];
 
 /// The launch flag that lets a running Claude Code switch to
@@ -175,11 +178,48 @@ fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     (!settings.is_empty()).then_some(Value::Object(settings))
 }
 
+/// The most items a workflow snapshot can hold and still be logged whole
+/// (`logged_line`): a small run's snapshots stay as Claude sent them.
+const LOGGED_SNAPSHOT_ITEMS: usize = 16;
+
+/// A raw Claude stdout line as the session's event log keeps it, under its
+/// own kind (`claude.<type>[.<subtype>]`). A workflow's `task_progress`
+/// snapshot (`workflow_progress`) repeats every agent of the run so far,
+/// about 1 KB each, and comes with every agent's start and end, so one run
+/// of several hundred agents would log hundreds of megabytes. A snapshot of
+/// more than `LOGGED_SNAPSHOT_ITEMS` items is logged as how many it held
+/// (`_acpmux.workflowProgressItems`); the translated `subagent_progress`
+/// keeps what changed (`workflows.rs`).
+pub fn logged_line(raw: &Value) -> Message {
+    let kind = format!(
+        "claude.{}{}",
+        raw.get("type").and_then(Value::as_str).unwrap_or("?"),
+        raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
+    );
+    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
+    let line = match (raw.as_object(), snapshot) {
+        (Some(fields), Some(items)) if items.len() > LOGGED_SNAPSHOT_ITEMS => {
+            let mut kept: serde_json::Map<String, Value> = fields
+                .iter()
+                .filter(|(key, _)| *key != "workflow_progress")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
+            Value::Object(kept)
+        }
+        _ => raw.clone(),
+    };
+    Message::notification(&kind, line)
+}
+
 /// The model choices offered in pickers before Claude Code's own list answers.
 pub fn models() -> &'static [(String, String)] {
     &MODELS
 }
 
+pub(crate) mod agent_transcript;
+#[cfg(test)]
+mod agent_transcript_tests;
 #[cfg(test)]
 mod background_output_tests;
 mod early_calls;
@@ -191,6 +231,9 @@ mod inbound;
 mod outbound;
 #[cfg(test)]
 mod steer_now_tests;
+mod steer_withdraw;
+#[cfg(test)]
+mod steer_withdraw_tests;
 mod subagent_route;
 #[cfg(test)]
 mod subagent_tests;
@@ -217,6 +260,10 @@ pub const BACKGROUND_TASKS: &str = "_acpmux/claude/background_tasks";
 /// The refusal of a steered prompt when no turn is running (the turn ended
 /// between the hub's check and the adapter).
 pub const STEER_NO_TURN: &str = "steer: no turn is running";
+
+/// The answer of a steered prompt taken back before Claude Code read it
+/// (`MUX_STEER_WITHDRAW`, `steer_withdraw.rs`).
+pub const STEER_WITHDRAWN: &str = "steer: withdrawn before the agent read it";
 
 /// What the hub's request becomes: lines for claude's stdin, or an
 /// immediate ACP reply when claude need not be asked.
@@ -285,7 +332,7 @@ pub fn spawn_plan(
         args.push("--model".into());
         args.push(m.into());
     }
-    // Lets the chat switch to bypassPermissions ("Full access") later; a
+    // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
     let bypass = bypass_allowed(profile);
     if bypass {
@@ -343,6 +390,9 @@ pub struct Translator {
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
     /// answered at its echo.
     steers: Mutex<std::collections::VecDeque<(String, String)>>,
+    /// Each steer's line uuid by the hub's promptId (`_meta.promptId`), so a
+    /// withdraw names the line to drop (`steer_withdraw.rs`).
+    steer_lines: Mutex<HashMap<String, String>>,
     /// Text streamed so far in the current turn, to build the prompt result.
     pub cancelled: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
@@ -364,9 +414,9 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
-    /// Running Workflow tool calls (`workflows.rs`), each with its run's
-    /// transcript dir once its launch named it.
-    workflows: Mutex<HashMap<String, Option<std::path::PathBuf>>>,
+    /// Running Workflow tool calls (`workflows.rs`): each run's transcript
+    /// dir once its launch named it, and what was last sent of its agents.
+    workflows: Mutex<HashMap<String, workflows::WorkflowRun>>,
     /// The chat model's context window as Claude Code last reported it (a
     /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
     context_window: AtomicU64,
@@ -383,6 +433,11 @@ pub struct Translator {
     /// Agent tool call of a subagent's stream ("" for the chat's): its text
     /// chunks' `messageId`, so a steer's answer starts its own row (cx-f51kv).
     message_ids: Mutex<HashMap<String, String>>,
+    /// The subagents (by Agent tool call) whose text or thinking came as
+    /// stream events. Claude Code sends a subagent's output as whole
+    /// `assistant` lines only, so for every other subagent those lines carry
+    /// its text and thinking; one that streams is not sent them twice.
+    streamed_subagents: Mutex<HashSet<String>>,
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
@@ -430,6 +485,8 @@ enum Pending {
     /// `end_background_asks` unmarks them when nothing moved, at that
     /// deadline, or when the turn ends.
     Background(Vec<String>, Option<std::time::Instant>),
+    /// A steer's take-back (`MUX_STEER_WITHDRAW`), answered when claude takes it.
+    Withdraw,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -459,6 +516,7 @@ impl Translator {
             prompt_echo: Mutex::new(None),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
+            steer_lines: Mutex::new(HashMap::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(Vec::new()),
@@ -474,6 +532,7 @@ impl Translator {
             awaiting_summary: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
+            streamed_subagents: Mutex::new(HashSet::new()),
             edits: Mutex::new(HashMap::new()),
             announced: Mutex::new(HashMap::new()),
         })
@@ -484,8 +543,16 @@ impl Translator {
     /// are dropped: used when Claude's answer cannot be carried (a line over
     /// the agent host's frame limit), so no turn waits forever.
     pub async fn fail_pending(&self, message: &str) -> Vec<Message> {
+        // Drain pending replies before taking the steers lock. A withdrawal reply removes its
+        // pending entry before it inspects the steers, so holding steers while awaiting pending
+        // would invert the lock order used by the withdrawal path.
         let mut ids: Vec<String> = self.pending.lock().await.drain().map(|(id, _)| id).collect();
-        ids.extend(self.steers.lock().await.drain(..).map(|(_, id)| id));
+        // Hold steers while clearing its prompt-id index: an outbound steer either keeps both
+        // records or waits until the stale index has been cleared.
+        let mut steers = self.steers.lock().await;
+        ids.extend(steers.drain(..).map(|(_, id)| id));
+        self.steer_lines.lock().await.clear();
+        drop(steers);
         ids.into_iter()
             .map(|id| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
@@ -497,10 +564,12 @@ impl Translator {
     /// Error answers for the steered prompts Claude Code never echoed: the
     /// turn ended without reading them (no echo support).
     async fn fail_steers(&self) -> Vec<Message> {
-        self.steers
-            .lock()
-            .await
-            .drain(..)
+        let mut steers = self.steers.lock().await;
+        let failed: Vec<_> = steers.drain(..).collect();
+        self.steer_lines.lock().await.clear();
+        drop(steers);
+        failed
+            .into_iter()
             .map(|(_, id)| {
                 let id: Id = serde_json::from_str(&id).unwrap_or(Value::String(id));
                 Message::err(
@@ -572,7 +641,7 @@ impl Translator {
                 if !name.is_empty()
                     && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
                 {
-                    entry["_meta"] = json!({"kind": "skill"});
+                    entry.set("_meta", json!({"kind": "skill"}));
                 }
                 entry
             })
@@ -592,7 +661,7 @@ impl Translator {
     pub async fn modes_value(&self) -> Value {
         json!({
             "currentModeId": *self.mode.lock().await,
-            "availableModes": MODES.iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
+            "availableModes": MODES.iter().map(|(id, name, description)| json!({"id": id, "name": name, "description": description})).collect::<Vec<_>>(),
         })
     }
 
@@ -602,7 +671,7 @@ impl Translator {
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
              "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
-             "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
+             "options": MODES.iter().map(|(v, n, d)| json!({"value": v, "name": n, "description": d})).collect::<Vec<_>>()},
             {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": shown_level(&effort),
              "options": EFFORTS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": ULTRACODE_OPTION, "name": "Ultracode", "type": "select", "category": "model_config",
@@ -638,9 +707,9 @@ pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
 /// Adds a file edit's diff and location to its ACP tool call.
 fn with_edit(call: &mut Value, name: &str, input: &Value) {
     if let Some(diffs) = edit_diffs(name, input) {
-        call["content"] = diffs;
+        call.set("content", diffs);
         if let Some(locations) = tool_locations(input) {
-            call["locations"] = locations;
+            call.set("locations", locations);
         }
     }
 }
@@ -676,7 +745,7 @@ fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
             .collect(),
         "Write" => {
             let mut write = diff(None, input.get("content"));
-            write["_meta"] = json!({"acpmux": {"fragment": true}});
+            write.set("_meta", json!({"acpmux": {"fragment": true}}));
             vec![write]
         }
         _ => return None,
@@ -716,7 +785,7 @@ pub(crate) fn settle_write(mut diffs: Value, text: &str, result: Option<&Value>)
             continue;
         }
         if let Some(original) = original.filter(|_| !created) {
-            diff["oldText"] = json!(original);
+            diff.set("oldText", json!(original));
         }
         if let Some(fields) = diff.as_object_mut() {
             fields.remove("_meta");
@@ -772,7 +841,7 @@ pub(super) fn session_rules(suggestions: &Value) -> Option<Value> {
         })
         .map(|s| {
             let mut s = s.clone();
-            s["destination"] = json!("session");
+            s.set("destination", json!("session"));
             s
         })
         .collect();

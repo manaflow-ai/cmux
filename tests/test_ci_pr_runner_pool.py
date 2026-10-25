@@ -2442,10 +2442,11 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_runs_routing(self):
         changes = self.workflow("ci.yml")["jobs"]["changes"]
         ids = [step.get("id") for step in changes["steps"]]
-        for step_id in ("detect", "standalone", "suite"):
+        for step_id in ("detect", "standalone", "suite", "next-route"):
             self.assertLess(ids.index(step_id), ids.index("macos-pool"), step_id)
         env = changes["steps"][ids.index("macos-pool")]["env"]
-        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.suite.outputs.full_suite }}")
+        # A feat-cmux-next pull request's routing (next-route) wins, as in the job's outputs.
+        self.assertEqual(env["RUN_FULL_SUITE"], "${{ steps.next-route.outputs.full_suite || steps.suite.outputs.full_suite }}")
         self.assertNotIn("RUN_CLI", env)
         self.assertNotIn("RUN_CLAUDE_WRAPPER", env)
         self.assertNotIn("OWNED_JOBS_PER_RUN", env)
@@ -2687,8 +2688,10 @@ class Wiring(unittest.TestCase):
     def test_the_picker_reads_the_package_lane_routing(self):
         env = next(step for step in self.workflow("ci.yml")["jobs"]["changes"]["steps"]
                    if step.get("id") == "macos-pool")["env"]
-        self.assertEqual(env["RUN_SWIFT_PACKAGES"], "${{ steps.detect.outputs.swift_packages }}")
-        self.assertEqual(env["RUN_RELEASE_BUILD"], "${{ steps.detect.outputs.release_build }}")
+        self.assertEqual(env["RUN_SWIFT_PACKAGES"],
+                         "${{ steps.next-route.outputs.swift_packages || steps.detect.outputs.swift_packages }}")
+        self.assertEqual(env["RUN_RELEASE_BUILD"],
+                         "${{ steps.next-route.outputs.release_build || steps.detect.outputs.release_build }}")
 
 
 IOS_SIM = "glaeda-ios-sim"

@@ -451,7 +451,8 @@ impl Hub {
                 m.title = Some(short_text(first.trim(), 80));
             }
             if let Some(last) = turns.last() {
-                m.last_prompt = Some(short_text(&last.prompt, 200));
+                let line = super::prompt_line::prompt_line(&last.prompt, "adopt", None);
+                m.last_prompt = Some(short_text(&line, 200));
             }
             m.turn_count += turns.len() as u64;
         }

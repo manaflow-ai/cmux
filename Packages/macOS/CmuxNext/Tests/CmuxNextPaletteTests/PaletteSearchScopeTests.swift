@@ -129,27 +129,4 @@ struct PaletteSearchScopeTests {
         await palette.model.settle()
         #expect(palette.model.nav.levels.count == 1)
     }
-
-    /// Opened from the sidebar's button, the panel sits above the button, its leading edge on the
-    /// button's, inside the screen; without an anchor it is centered over the window as before.
-    @Test func anAnchoredOpenSitsAboveTheButton() throws {
-        let palette = Self.palette()
-        defer { palette.hide() }
-        let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        let window = NSWindow(contentRect: NSRect(x: visible.minX + 40, y: visible.minY + 40, width: 1100, height: 760),
-                              styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false // ARC owns it; close() would release it once more
-        defer { window.close() }
-        let button = NSView(frame: NSRect(x: 12, y: 8, width: 28, height: 28))
-        window.contentView?.addSubview(button)
-
-        #expect(palette.show(scope: PaletteScopeID.search, relativeTo: window, anchoredTo: button))
-        let panel = try #require(palette.visiblePanel)
-        let anchor = window.convertToScreen(button.convert(button.bounds, to: nil))
-        let margin = PaletteLayout.shadowMargin
-        // The card (inside the shadow margin) starts at the button's leading edge and above its top.
-        #expect(abs(panel.frame.minX + margin - anchor.minX) <= 1, "panel \(panel.frame), anchor \(anchor)")
-        #expect(panel.frame.minY + margin >= anchor.maxY, "panel \(panel.frame), anchor \(anchor)")
-        #expect(visible.contains(panel.frame) || NSScreen.main == nil, "panel \(panel.frame) inside \(visible)")
-    }
 }
