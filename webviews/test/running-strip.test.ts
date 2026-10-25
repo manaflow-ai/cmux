@@ -119,7 +119,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   });
 
   // Leo 2026-10-25: the collapse at the top "disappears for some reason at the top ... sometimes".
-  for (const height of [400, 120, 40]) {
+  // 120px squeezes the list to under three lines; the tray never goes below its two pinned rows.
+  for (const height of [400, 120, 64]) {
     test(`with 118 agents the header stays in view while the list scrolls (dock ${height}px)`, async () => {
       const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
       try {
