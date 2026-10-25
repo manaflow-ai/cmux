@@ -3,11 +3,12 @@ public import CmuxNextCompat
 /// One declared feature: Chromium's `base::Feature` (base/feature_list.h).
 ///
 /// The declarations come from `schemas/features/features.d/<name>.json`, one
-/// file per feature, which `scripts/cmux-next/gen-features.py` (task 090)
-/// turns into a ``FeatureRegistry`` and one handle per feature. A handle
+/// file per feature, which `scripts/cmux-next/gen-features.py` turns into one
+/// handle per feature and ``Feature/registered`` (Features.generated.swift;
+/// the interface is in schemas/features/README.md). A handle
 /// carries its slot in the registry, so ``FeatureList/isEnabled(_:)`` is one
 /// array load, as Chrome caches a feature's state on the `base::Feature`.
-public nonisolated struct Feature: Sendable, Hashable, CustomStringConvertible {
+public nonisolated struct Feature: Sendable, Hashable {
     /// The build channel a default is chosen for.
     public enum Channel: String, Sendable, CaseIterable {
         case dev
@@ -77,32 +78,6 @@ public nonisolated struct Feature: Sendable, Hashable, CustomStringConvertible {
         }
     }
 
-    /// The default value per channel.
-    public struct Defaults: Sendable, Hashable {
-        public let dev: Bool
-        public let nightly: Bool
-        public let release: Bool
-
-        public init(dev: Bool, nightly: Bool, release: Bool) {
-            self.dev = dev
-            self.nightly = nightly
-            self.release = release
-        }
-
-        /// The same default on every channel.
-        public init(all value: Bool) {
-            self.init(dev: value, nightly: value, release: value)
-        }
-
-        public func value(for channel: Channel) -> Bool {
-            switch channel {
-            case .dev: dev
-            case .nightly: nightly
-            case .release: release
-            }
-        }
-    }
-
     /// A resolved value and the input that decided it.
     public struct Resolution: Sendable, Hashable, CustomStringConvertible {
         public let isEnabled: Bool
@@ -122,39 +97,118 @@ public nonisolated struct Feature: Sendable, Hashable, CustomStringConvertible {
     /// The registry name (`features.d/<name>.json`), as written in the
     /// environment lists, the policy and the remote document.
     public let name: String
-    public let defaults: Defaults
+    /// The owner in plans/cmux-next/OWNERS.md or a `PL-*` workstream.
+    public let owner: String
+    /// One sentence: what turning the feature on changes (Labs page, reports).
+    public let description: String
     public let kind: Kind
     public let process: Process
+    /// The Chromium `base::Feature` passed to CEF, for process `chromium` only.
+    public let chromiumFeature: String?
+    public let defaults: FeatureDefaults
+    /// `YYYY-MM-DD` for a perfPath feature, else nil.
+    public let expires: String?
+    /// The typed params (`base::FeatureParam`).
+    public let params: [FeatureParamSpec]
+    /// The lab stories that bench both arms.
+    public let stories: [String]
     /// A remote off stays off in safe mode.
-    public let isSticky: Bool
-    /// The feature has a tested live-teardown path; false until it does.
-    public let isRuntimeMutable: Bool
+    public let sticky: Bool
+    /// The feature has a tested live-teardown path.
+    public let runtimeMutable: Bool
 
+    /// The generated registry (`Features.generated.swift`) calls this with
+    /// every label, in this order (schemas/features/README.md).
     public init(
         index: Int,
         name: String,
-        defaults: Defaults,
+        owner: String,
+        description: String,
         kind: Kind,
-        process: Process = .app,
-        isSticky: Bool = false,
-        isRuntimeMutable: Bool = false
+        process: Process,
+        chromiumFeature: String?,
+        defaults: FeatureDefaults,
+        expires: String?,
+        params: [FeatureParamSpec],
+        stories: [String],
+        sticky: Bool,
+        runtimeMutable: Bool
     ) {
         self.index = index
         self.name = name
-        self.defaults = defaults
+        self.owner = owner
+        self.description = description
         self.kind = kind
         self.process = process
-        self.isSticky = isSticky
-        self.isRuntimeMutable = isRuntimeMutable
+        self.chromiumFeature = chromiumFeature
+        self.defaults = defaults
+        self.expires = expires
+        self.params = params
+        self.stories = stories
+        self.sticky = sticky
+        self.runtimeMutable = runtimeMutable
+    }
+}
+
+/// The default value per channel, the last step of the resolution order.
+public nonisolated struct FeatureDefaults: Sendable, Hashable {
+    public let dev: Bool
+    public let nightly: Bool
+    public let release: Bool
+
+    public init(dev: Bool, nightly: Bool, release: Bool) {
+        self.dev = dev
+        self.nightly = nightly
+        self.release = release
     }
 
-    public var description: String { name }
+    /// The same default on every channel.
+    public init(all value: Bool) {
+        self.init(dev: value, nightly: value, release: value)
+    }
+
+    public func value(for channel: Feature.Channel) -> Bool {
+        switch channel {
+        case .dev: dev
+        case .nightly: nightly
+        case .release: release
+        }
+    }
+}
+
+/// One typed param of a feature: Chromium's `base::FeatureParam`
+/// (base/metrics/field_trial_params.h).
+public nonisolated struct FeatureParamSpec: Sendable, Hashable {
+    public let name: String
+    public let description: String
+    public let value: FeatureParamValue
+
+    public init(name: String, description: String, value: FeatureParamValue) {
+        self.name = name
+        self.description = description
+        self.value = value
+    }
+}
+
+/// A param's type, default and bounds. The generator checks that numbers
+/// are finite and that each default is inside its bounds.
+public nonisolated enum FeatureParamValue: Sendable, Hashable {
+    case int(default: Int, min: Int, max: Int)
+    case double(default: Double, min: Double, max: Double)
+    /// Seconds.
+    case duration(default: Double, min: Double, max: Double)
+    case bool(default: Bool)
 }
 
 /// Every declared feature, in slot order (the generated registry, or a test's).
 public nonisolated struct FeatureRegistry: Sendable {
     public let features: [Feature]
     private let indexByName: [String: Int]
+
+    /// The generated registry: every feature in schemas/features/features.d.
+    public init() {
+        self.init(Feature.registered)
+    }
 
     /// `features[i].index` must be `i` and names must be unique: the
     /// generator guarantees both (test_gen_features.py), so a violation is a

@@ -60,12 +60,14 @@ public nonisolated struct FeatureOverrides: Sendable, Equatable {
         )
     }
 
-    /// The names of a comma-separated list (`a, b,,c`): trimmed, empties dropped.
+    /// The names of a comma-separated list (`a, b,,c`): trimmed of spaces
+    /// and newlines, empties dropped, as Chrome's `SplitFeatureListString`
+    /// (base/feature_list.cc, `TRIM_WHITESPACE`).
     public static func names(in list: String?) -> Set<String> {
         guard let list else { return [] }
         var names: Set<String> = []
         for part in list.split(separator: ",") {
-            let name = part.trimmingCharacters(in: .whitespaces)
+            let name = part.trimmingCharacters(in: .whitespacesAndNewlines)
             if !name.isEmpty { names.insert(name) }
         }
         return names

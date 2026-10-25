@@ -2,15 +2,41 @@ import Atomics
 import CmuxNextCompat
 import CmuxNextFeatures
 import Darwin
+import Foundation
 import Testing
 
 /// The FeatureList resolution ladder (p12-perf-process.md section 3.9), the
 /// sources it reports, early-read recording and the cost of a lookup.
 struct FeatureListTests {
-    private static let perf = Feature(index: 0, name: "perfThing", defaults: Feature.Defaults(dev: true, nightly: false, release: false), kind: .perfPath)
-    private static let kill = Feature(index: 1, name: "killThing", defaults: Feature.Defaults(all: true), kind: .killSwitch, isSticky: true)
-    private static let labs = Feature(index: 2, name: "labsThing", defaults: Feature.Defaults(all: false), kind: .labs)
+    private static let perf = feature(0, "perfThing", FeatureDefaults(dev: true, nightly: false, release: false), .perfPath)
+    private static let kill = feature(1, "killThing", FeatureDefaults(all: true), .killSwitch, sticky: true)
+    private static let labs = feature(2, "labsThing", FeatureDefaults(all: false), .labs)
     private static let registry = FeatureRegistry([perf, kill, labs])
+
+    /// A test declaration: the fields the list does not read take neutral values.
+    private static func feature(
+        _ index: Int,
+        _ name: String,
+        _ defaults: FeatureDefaults,
+        _ kind: Feature.Kind,
+        sticky: Bool = false
+    ) -> Feature {
+        Feature(
+            index: index,
+            name: name,
+            owner: "PL-test",
+            description: "A test feature.",
+            kind: kind,
+            process: .app,
+            chromiumFeature: nil,
+            defaults: defaults,
+            expires: nil,
+            params: [],
+            stories: [],
+            sticky: sticky,
+            runtimeMutable: false
+        )
+    }
 
     // MARK: Ladder
 
@@ -60,9 +86,9 @@ struct FeatureListTests {
     }
 
     @Test func eachValueReportsTheInputThatDecidedIt() {
-        let perf2 = Feature(index: 3, name: "remoteThing", defaults: Feature.Defaults(all: true), kind: .perfPath)
-        let trial = Feature(index: 4, name: "trialThing", defaults: Feature.Defaults(all: false), kind: .perfPath)
-        let quiet = Feature(index: 5, name: "quietThing", defaults: Feature.Defaults(dev: false, nightly: true, release: false), kind: .perfPath)
+        let perf2 = Self.feature(3, "remoteThing", FeatureDefaults(all: true), .perfPath)
+        let trial = Self.feature(4, "trialThing", FeatureDefaults(all: false), .perfPath)
+        let quiet = Self.feature(5, "quietThing", FeatureDefaults(dev: false, nightly: true, release: false), .perfPath)
         let registry = FeatureRegistry([Self.perf, Self.kill, Self.labs, perf2, trial, quiet])
         let overrides = FeatureOverrides(
             policyDisabled: ["perfThing"],
@@ -71,7 +97,7 @@ struct FeatureListTests {
             fieldTrial: ["trialThing": true]
         )
         let list = FeatureList(registry: registry, channel: .nightly, overrides: overrides, local: RecordingLocalOverrides(["labsThing": true]))
-        let described = list.entries.map { "\($0.feature) \($0.resolution)" }
+        let described = list.entries.map { "\($0.feature.name) \($0.resolution)" }
         #expect(described == [
             "perfThing off source=policy",
             "killThing off source=env",
@@ -112,6 +138,7 @@ struct FeatureListTests {
         #expect(FeatureOverrides.names(in: " a ,\tb,,c ,") == ["a", "b", "c"])
         #expect(FeatureOverrides.names(in: nil).isEmpty)
         #expect(FeatureOverrides.names(in: " , ").isEmpty)
+        #expect(FeatureOverrides.names(in: "a,\nb\r\n, c\n") == ["a", "b", "c"])
     }
 
     @Test func buildKindsMapToChannels() {
@@ -127,7 +154,41 @@ struct FeatureListTests {
         #expect(Self.registry.feature(named: "killThing") == Self.kill)
         #expect(Self.registry.feature(named: "nope") == nil)
         #expect(Self.registry.contains(Self.labs))
-        #expect(!Self.registry.contains(Feature(index: 2, name: "other", defaults: Feature.Defaults(all: false), kind: .labs)))
+        #expect(!Self.registry.contains(Self.feature(2, "other", FeatureDefaults(all: false), .labs)))
+    }
+
+    /// The literal shape gen-features.py writes (schemas/features/README.md,
+    /// "Generated interface"), so a generated registry compiles against Feature.
+    @Test func aGeneratorShapedDeclarationCompilesAndRegisters() {
+        let generated = Feature(
+            index: 0,
+            name: "cefLayerHosting",
+            owner: "PL-cef-layer",
+            description: "Host Chromium pages in the window's layers.",
+            kind: .perfPath,
+            process: .chromium,
+            chromiumFeature: "CefLayerHosting",
+            defaults: FeatureDefaults(dev: true, nightly: true, release: false),
+            expires: "2026-12-20",
+            params: [
+                FeatureParamSpec(
+                    name: "syncDeadline",
+                    description: "Longest wait for the page's resized frame.",
+                    value: .duration(default: 0.05, min: 0.0, max: 1.0)
+                ),
+                FeatureParamSpec(name: "retries", description: "Retries.", value: .int(default: 2, min: 0, max: 8)),
+                FeatureParamSpec(name: "scale", description: "Scale.", value: .double(default: 1.5, min: 1.0, max: 2.0)),
+                FeatureParamSpec(name: "eager", description: "Eager.", value: .bool(default: false)),
+            ],
+            stories: ["browse-heavy"],
+            sticky: false,
+            runtimeMutable: false
+        )
+        let registry = FeatureRegistry([generated])
+        #expect(registry.feature(named: "cefLayerHosting")?.description == "Host Chromium pages in the window's layers.")
+        #expect(registry.feature(named: "cefLayerHosting")?.params.first?.value == FeatureParamValue.duration(default: 0.05, min: 0, max: 1))
+        #expect(FeatureList(registry: registry, channel: .release).resolution(of: generated) == Feature.Resolution(isEnabled: false, source: .channelDefault))
+        #expect(FeatureRegistry().features == Feature.registered)
     }
 
     // MARK: Early reads
@@ -154,8 +215,45 @@ struct FeatureListTests {
         #expect(!slot.isEnabled(Self.perf))
     }
 
-    @Test func testBuildsRecordEarlyReadsByDefault() {
-        #expect(FeatureList.Slot.recordsEarlyReadsInThisBuild)
+    /// Readers on other threads race install: when a reader answered the
+    /// default and the installed list says otherwise, install reports that
+    /// feature (the handshake in Slot.isEnabled and Slot.install).
+    @Test func anEarlyReadThatRacesInstallIsReported() async {
+        let readers = 4
+        let installed = FeatureList(
+            registry: Self.registry,
+            channel: .release,
+            overrides: FeatureOverrides(environmentEnabled: ["labsThing"])
+        )
+        for round in 0..<300 {
+            let slot = FeatureList.Slot(registry: Self.registry, channel: .release, recordsEarlyReads: true)
+            let started = ManagedAtomic<Int>(0)
+            let finished = ManagedAtomic<Int>(0)
+            let go = ManagedAtomic<Bool>(false)
+            let sawDefault = ManagedAtomic<Bool>(false)
+            var reported: [Feature] = []
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                for _ in 0..<readers {
+                    Thread.detachNewThread {
+                        started.wrappingIncrement(ordering: .relaxed)
+                        while !go.load(ordering: .acquiring) {}
+                        for _ in 0..<64 where !slot.isEnabled(Self.labs) {
+                            sawDefault.store(true, ordering: .relaxed)
+                        }
+                        if finished.wrappingIncrementThenLoad(ordering: .acquiringAndReleasing) == readers {
+                            continuation.resume()
+                        }
+                    }
+                }
+                while started.load(ordering: .relaxed) < readers {}
+                go.store(true, ordering: .releasing)
+                reported = slot.install(installed)
+            }
+            if sawDefault.load(ordering: .relaxed) {
+                #expect(reported == [Self.labs], "round \(round): a reader answered the default, install reported \(reported.map(\.name))")
+            }
+            #expect(slot.isEnabled(Self.labs))
+        }
     }
 
     // MARK: Cost

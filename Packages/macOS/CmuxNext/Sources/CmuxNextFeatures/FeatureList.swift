@@ -114,9 +114,20 @@ extension FeatureList {
 
         /// Whether `feature` is on: the installed list's value, else the
         /// channel default (and the read is recorded).
+        ///
+        /// Reads may race ``install(_:)`` on any thread. The flag store, a
+        /// sequentially consistent fence and a second load here pair with the
+        /// fence in ``install(_:)`` (Dekker): either this read sees the list,
+        /// or install sees the flag. So a read that answered the default is
+        /// always reported; a read that raced install and then saw the list
+        /// may be reported too.
         public func isEnabled(_ feature: Feature) -> Bool {
             if let list = installed.load() { return list.isEnabled(feature) }
-            if !earlyReadFlags.isEmpty { earlyReadFlags[feature.index].store(true, ordering: .relaxed) }
+            if !earlyReadFlags.isEmpty {
+                earlyReadFlags[feature.index].store(true, ordering: .relaxed)
+                atomicMemoryFence(ordering: .sequentiallyConsistent)
+                if let list = installed.load() { return list.isEnabled(feature) }
+            }
             return defaults.isEnabled(feature)
         }
 
@@ -142,6 +153,9 @@ extension FeatureList {
                 assertionFailure("a FeatureList is installed twice")
                 return []
             }
+            // Pairs with the fence in isEnabled(_:): every flag a reader set
+            // before it missed the list is visible from here.
+            atomicMemoryFence(ordering: .sequentiallyConsistent)
             return earlyReads.filter { list.isEnabled($0) != defaults.isEnabled($0) }
         }
     }

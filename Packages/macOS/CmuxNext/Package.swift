@@ -312,7 +312,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
                 "CmuxNextAgentCursorVisibility",
                 "CmuxNextWorkspaceNaming",
-                "CmuxNextFeatures",
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
