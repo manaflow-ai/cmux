@@ -73,7 +73,7 @@ public nonisolated struct BrowserEngineResolver: Sendable {
 extension CmuxNextDaemon.BrowserEngine {
     /// The engine a request names (`cef`, `chromium`, `chrome`, `webkit`,
     /// `safari`, any case), nil when it names none.
-    public init?(requested: String?) {
+    public nonisolated init?(requested: String?) {
         switch requested?.lowercased() {
         case "cef", "chromium", "chrome": self = .cef
         case "webkit", "safari": self = .webkit
@@ -85,7 +85,7 @@ extension CmuxNextDaemon.BrowserEngine {
 extension BrowserEngineKind {
     /// The daemon tag for a live page's engine (page popups keep their
     /// opener's engine: `window.opener` and cookies live in one engine).
-    public var daemonEngine: CmuxNextDaemon.BrowserEngine {
+    public nonisolated var daemonEngine: CmuxNextDaemon.BrowserEngine {
         self == .cef ? .cef : .webkit
     }
 }
