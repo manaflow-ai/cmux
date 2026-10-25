@@ -135,8 +135,13 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
     });
   };
 
-  const publishSnapshot = async (page: Page, cwd: string) =>
-    page.evaluate((cwd) => {
+  const publishSnapshot = async (page: Page, cwd: string) => {
+    // App.saveSnapshot coalesces writes for 250 ms; wait on the storage state instead of racing
+    // that debounce after the fixture has painted its last turn.
+    await page.waitForFunction(() => Boolean(sessionStorage.getItem("cmux.acpmux.snapshot")), undefined, {
+      timeout: 20_000,
+    });
+    return page.evaluate((cwd) => {
       const raw = sessionStorage.getItem("cmux.acpmux.snapshot");
       if (!raw) throw new Error("started chat did not persist an Acpmux snapshot");
       const current = JSON.parse(raw) as Record<string, any>;
@@ -146,6 +151,7 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
       if (!bridge?.receive) throw new Error("Acpmux bridge receive is unavailable");
       bridge.receive(next);
     }, cwd);
+  };
 
   const runPlacement = async (placement: "left" | "right") => {
     const page = await pane!.open({ width: 980, height: 720 });
