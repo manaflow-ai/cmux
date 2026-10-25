@@ -6,9 +6,47 @@ import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextPhoneAccess
+import CmuxNextRemoteLocalhost
+import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteView
+import CmuxNextRemoteViewSessions
+import Foundation
 import Observation
 
 extension AppServices {
+    /// The loopback port of a Cloud machine's `cmux-rd` desktop host (`--port`).
+    static let cloudDesktopRdPort: UInt16 = 4103
+
+    /// Open Desktop's `cmux-rd` viewer: Cloud machine `machine`'s desktop host on its own
+    /// loopback, reached over the machine's daemon link (`loopback-forward-v1`, inside the Cloud
+    /// tunnel), with the session token Open Desktop fetched. Nil without the machine or token.
+    func cloudDesktopRdTransport(machine: String) -> (@MainActor () -> RemoteRdStreamTransport?)? {
+        let key = machine.lowercased()
+        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == key })?.machineID,
+              let token = cloud.desktopRdTokens[key] else { return nil }
+        let remote = remoteLocalhost
+        return {
+            let hello = RemoteRdHello(user: "cmux", install: "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: token)
+            return RemoteRdStreamTransport(carrier: remote.browserCarrier(machine: id, port: Self.cloudDesktopRdPort), hello: hello,
+                                           startKey: UUID().uuidString, control: true)
+        }
+    }
+
+    /// Open Desktop's native viewer: Cloud machine `machine`'s websockify port (6901, next to its
+    /// noVNC) over this Mac's own Cloud tunnel, with the hub's client token; no port opens on this
+    /// Mac. Nil when the tunnel cannot reach it (signed out, the machine without an address).
+    func cloudDesktopTransport(machine: String) -> (@Sendable () async throws -> RemoteViewPageSession.CloudDesktopStream)? {
+        guard let hub = remoteLocalhost.cloudTunnelSocket, let address = machines.cloudTunnelAddress(machine: machine),
+              let opener = HubLoopbackOpener(hub: hub, address: address) else { return nil }
+        return {
+            let tunnel = try await opener.openTunnel(host: "localhost", port: 6901)
+            let reader = LoopbackTunnelReader(tunnel)
+            return RemoteViewPageSession.CloudDesktopStream(read: { try await reader.read() },
+                                                            write: { try await tunnel.write($0) },
+                                                            close: { tunnel.close() })
+        }
+    }
+
     /// The daemon handlers command: while an action runs, the machine that
     /// owns its explicit target (`ActionRouting`); otherwise the active
     /// window's machine (the local daemon, or its Cloud machine).
