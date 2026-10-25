@@ -3531,6 +3531,20 @@
             "integer",
             "null"
           ]
+        },
+        "peer": {
+          "description": "Only the sessions this acpmux peer owns (its name, e.g. `huge-blue`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Only the sessions in this status (`running`, `ready`, `idle`, `waiting`, `closed`).",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"

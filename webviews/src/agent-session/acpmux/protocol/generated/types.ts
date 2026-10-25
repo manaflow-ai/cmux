@@ -745,6 +745,10 @@ export interface SessionsParams {
   cursor?: (string | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /** Only the sessions this acpmux peer owns (its name, e.g. `huge-blue`). */
+  peer?: (string | null);
+  /** Only the sessions in this status (`running`, `ready`, `idle`, `waiting`, `closed`). */
+  status?: (string | null);
 }
 
 export type SessionsResult = {

@@ -365,6 +365,12 @@ pub struct SessionsParams {
     /// A previous reply's `nextCursor`: the page starts after that session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// Only the sessions this acpmux peer owns (its name, e.g. `huge-blue`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    /// Only the sessions in this status (`running`, `ready`, `idle`, `waiting`, `closed`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
