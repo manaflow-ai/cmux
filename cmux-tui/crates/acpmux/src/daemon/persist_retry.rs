@@ -36,9 +36,16 @@ where
     Some(tokio::spawn(async move {
         let mut delay = RETRY_FIRST;
         let mut failures: u64 = 1;
+        // A slow disk blocks this worker alone: the others take its tasks.
+        // Synchronous within the task, so an abort (at the sleep) never
+        // leaves a write running after the caller's join.
+        let multi_thread = tokio::runtime::Handle::current().runtime_flavor()
+            == tokio::runtime::RuntimeFlavor::MultiThread;
         loop {
             tokio::time::sleep(delay).await;
-            match write() {
+            let written =
+                if multi_thread { tokio::task::block_in_place(&mut write) } else { write() };
+            match written {
                 Ok(()) => {
                     tracing::info!("wrote {what} after {failures} failed write(s)");
                     return;

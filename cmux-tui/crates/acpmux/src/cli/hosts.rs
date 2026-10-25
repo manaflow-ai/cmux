@@ -434,7 +434,8 @@ then
 if ! systemctl --user daemon-reload >/dev/null 2>&1; then mv -f "$acpmux_unit.acpmux-old" "$acpmux_unit"; systemctl --user daemon-reload >/dev/null 2>&1; echo "systemd did not reload the new acpmux.service; it keeps the old one" >&2; fi
 else echo "could not write the new acpmux.service; it keeps the old one" >&2; fi
 rm -f "$acpmux_unit.acpmux-new" "$acpmux_unit.acpmux-old"
-elif [ "$(systemctl --user show acpmux.service -p NeedDaemonReload --value 2>/dev/null)" = yes ]; then systemctl --user daemon-reload >/dev/null 2>&1 || {{ echo "systemd did not reload acpmux.service, so its daemon is not restarted under settings it has not read" >&2; exit 1; }}
+else acpmux_nr=$(systemctl --user show acpmux.service -p NeedDaemonReload --value 2>/dev/null) || {{ echo "could not ask systemd whether it has read acpmux.service, so its daemon is not restarted" >&2; exit 1; }}
+if [ "$acpmux_nr" = yes ]; then systemctl --user daemon-reload >/dev/null 2>&1 || {{ echo "systemd did not reload acpmux.service, so its daemon is not restarted under settings it has not read" >&2; exit 1; }}; fi
 fi; fi
 "#
     )
@@ -486,7 +487,7 @@ const STILL_RUNNING_CHECK: &str = r#"if ~/.local/bin/acpmux --json daemon status
 fn linux_restart(install: bool, json: bool) -> String {
     let unit = if install {
         format!(
-            "mkdir -p ~/.config/systemd/user && cat > ~/.config/systemd/user/acpmux.service <<'ACPMUX_UNIT' && systemctl --user daemon-reload &&\n{SYSTEMD_UNIT}ACPMUX_UNIT\n"
+            "mkdir -p ~/.config/systemd/user && {{ cat > ~/.config/systemd/user/acpmux.service.acpmux-new <<'ACPMUX_UNIT' && mv -f ~/.config/systemd/user/acpmux.service.acpmux-new ~/.config/systemd/user/acpmux.service || {{ rm -f ~/.config/systemd/user/acpmux.service.acpmux-new; false; }}; }} && systemctl --user daemon-reload &&\n{SYSTEMD_UNIT}ACPMUX_UNIT\n"
         )
     } else {
         String::new()
@@ -994,6 +995,7 @@ mod tests {
     fn linux_setup_installs_the_unit_and_hands_a_detached_daemon_to_it() {
         let run = linux_restart_run("setup", true, LINGERING);
         assert_eq!(run.unit, SYSTEMD_UNIT);
+        assert_eq!(run.units, ["acpmux.service"], "written beside and renamed, nothing left");
         assert!(run.unit.contains("KillMode=process"), "a restart must keep the agent hosts");
         assert_never_gives_up(&run.unit);
         let steps: Vec<&str> = run
