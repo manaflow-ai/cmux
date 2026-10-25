@@ -419,7 +419,7 @@ fn peer_executable(
     #[cfg(target_os = "linux")]
     {
         let _ = peer_token;
-        crate::platform::peer_executable(peer_key?)
+        platform::peer_executable(peer_key?)
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
