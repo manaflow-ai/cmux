@@ -4,7 +4,7 @@
 // message as "→ tests: <first line>", which opens to all of it. Each card reads its state live from
 // the session list (subagents/subsessions.ts). The call's JSON stays behind "Raw".
 import type { ReactNode } from "react";
-import { useContext, useId, useMemo, useState } from "react";
+import { useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { type Translate, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
@@ -106,21 +106,36 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
 }
 
 /// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
-/// prompt's "Show prompt"). The cut is the source's (its lines and length): nothing measures the page.
+/// prompt's "Show prompt"). Whether there is more is measured: the pane's width decides the wrap,
+/// so a resize can bring the toggle in or take it away (one observer per cut, gone with it).
 function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
   const id = useId();
-  const long = useMemo(
-    () => text.length > CUT_CHARS || text.split("\n").filter((line) => line.trim()).length > 3,
-    [text],
-  );
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || open) return;
+    const measure = () => setLong(node.scrollHeight - node.clientHeight > 1);
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text, open]);
   return (
     <div className="cv-subsession__cut">
-      <div id={id} className="cv-subsession__markdown selectable" data-cut={long && !open ? true : undefined}>
+      <div
+        ref={ref}
+        id={id}
+        className="cv-subsession__markdown selectable"
+        data-cut={open ? undefined : true}
+        data-more={long && !open ? true : undefined}
+      >
         <Markdown commits="quiet">{text}</Markdown>
       </div>
-      {long && (
+      {(long || open) && (
         <button
           type="button"
           className="cv-subsession__toggle"
@@ -134,8 +149,6 @@ function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
     </div>
   );
 }
-
-const CUT_CHARS = 240; // about three lines at the card's narrowest common width
 
 /// The call's request and response as the generic MCP row shows them, behind "Raw".
 function Raw({ tool }: { tool: Tool }) {
@@ -181,6 +194,8 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
         : t("subsession.delivery.queuedBare");
     case "started":
       return t("subsession.delivery.started");
+    case "slot":
+      return t("subsession.delivery.waitingForSlot");
   }
 }
 

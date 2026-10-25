@@ -33,6 +33,9 @@
 .cv-subsession__markdown[data-cut] {
   max-height: calc(var(--text-detail--line-height) * 3);
   overflow: hidden;
+}
+/* Only a cut that hides lines fades its last one. */
+.cv-subsession__markdown[data-more] {
   -webkit-mask-image: linear-gradient(
     to bottom,
     currentColor calc(100% - var(--text-detail--line-height)),

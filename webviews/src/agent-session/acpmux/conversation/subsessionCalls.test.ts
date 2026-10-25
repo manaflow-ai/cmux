@@ -124,6 +124,10 @@ test("send_message says how the message was delivered", () => {
       { kind: "queued", position: 2 },
     ],
     ["Sent: it started a turn with it.", { kind: "started" }],
+    [
+      "Queued: it starts a turn with it once a run slot frees (its parent already runs as many sub-sessions as maxRunning allows).",
+      { kind: "slot" },
+    ],
   ];
   for (const [said, delivery] of cases)
     expect(subsessionCall(claude("send_message", args, said))).toEqual({
@@ -137,6 +141,9 @@ test("send_message says how the message was delivered", () => {
   expect(subsessionCall(codex("send_message", args, structured))).toMatchObject({
     delivery: { kind: "queued", position: 3 },
   });
+  expect(
+    subsessionCall(codex("send_message", args, { sessionId: "child-1", delivery: "waiting_for_slot" })),
+  ).toMatchObject({ delivery: { kind: "slot" } });
   expect(subsessionCall(claude("send_message", args, undefined, "pending"))).toMatchObject({
     tool: "send",
     running: true,

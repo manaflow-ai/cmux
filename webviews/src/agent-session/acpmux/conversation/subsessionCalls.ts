@@ -16,7 +16,13 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 /// When the receiver reads a message (subsession_mcp.rs `sent_text`): in its running turn at its
 /// next tool step, queued behind that turn at `position`, or at once in a turn of its own.
-export type SubsessionDelivery = { kind: "next_step" } | { kind: "queued"; position?: number } | { kind: "started" };
+export type SubsessionDelivery =
+  | { kind: "next_step" }
+  | { kind: "queued"; position?: number }
+  | { kind: "started" }
+  /// Its parent already runs as many sub-sessions as `maxRunning` allows: it starts a turn with
+  /// the message once a run slot frees.
+  | { kind: "slot" };
 
 /// One sub-session `wait_for_sessions` read: its state then, and its last reply once it finished.
 export type SubsessionReply = {
@@ -146,6 +152,8 @@ function deliveryOf(result: { value?: Record<string, unknown>; text: string }): 
       return { kind: "queued", ...(position !== undefined && { position }) };
     case "started":
       return { kind: "started" };
+    case "waiting_for_slot":
+      return { kind: "slot" };
   }
   // The text alone (subsession_mcp.rs `sent_text`).
   const said = result.text.trim();
@@ -153,6 +161,7 @@ function deliveryOf(result: { value?: Record<string, unknown>; text: string }): 
   const queued = /^Queued behind its running turn \(position (\d+)/.exec(said);
   if (queued) return { kind: "queued", position: Number(queued[1]) };
   if (said.startsWith("Sent: it started a turn")) return { kind: "started" };
+  if (said.startsWith("Queued: it starts a turn with it once a run slot frees")) return { kind: "slot" };
   return undefined;
 }
 
