@@ -73,7 +73,7 @@ public nonisolated protocol TerminalIO: Sendable {
     /// The name the typing probe gives this IO's terminal (``TypingLatencyProbe/Source``): the same one
     /// the attachment that sends its keys uses, so an echo counts only for the terminal that typed.
     /// Nil (the default): the probe takes no echo hop from this IO while a press is tied to a terminal.
-    var typingProbeSource: TypingLatencyProbe.Source? { get }
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { get }
 }
 
 public extension TerminalIO {
@@ -84,7 +84,7 @@ public extension TerminalIO {
     func takeOverSize(setLatest: Bool) async {}
     func reconnectRequested() async {}
     func resyncRequested() async {}
-    var typingProbeSource: TypingLatencyProbe.Source? { nil }
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { nil }
 }
 
 /// One event from a ``TerminalIO``.
