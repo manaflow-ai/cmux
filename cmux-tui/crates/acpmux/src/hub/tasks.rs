@@ -242,7 +242,10 @@ impl Hub {
             let gone = match self.resolve(lane) {
                 Ok(s) if s.status() == super::SessionStatus::Closed => "closed",
                 Ok(_) => continue,
-                Err(_) => "is gone",
+                // Not loaded is not gone: only the store says a session was deleted (a start
+                // whose session list failed loads none).
+                Err(_) if matches!(self.store.load(lane), Ok(None)) => "is gone",
+                Err(_) => continue,
             };
             let lane_name = row.get("to").and_then(Value::as_str).unwrap_or(lane).to_owned();
             let result = json!({
