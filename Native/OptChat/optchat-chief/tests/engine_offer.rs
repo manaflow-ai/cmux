@@ -81,6 +81,10 @@ fn harnesses() -> Value {
                      "family": "unii", "displayName": "UniiChat",
                      "description": "UniiChat: one chat that never ends (uniichat.com)",
                      "capabilities": {"resume": true}},
+            // The name `claude` and `claude-sr` get when they keep apart by
+            // their ids, so the second pass has something to resolve.
+            "claude-vm": {"kind": "claude-stdio", "argv": ["claude"], "family": "claude",
+                          "displayName": "Claude Code (claude)"},
             "aider": {"kind": "terminal", "argv": ["aider"], "family": "aider"},
         },
         "catalog": {"harnesses": [
@@ -341,6 +345,7 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
             "claude",
             "claude-acp",
             "claude-sr",
+            "claude-vm",
             "codex",
             "opencode",
             "unii"
@@ -362,10 +367,13 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
         json!(["minimal", "low", "medium", "high", "xhigh", "max"])
     );
 
-    // Two profiles of one catalog harness keep apart by their ids.
+    // Two profiles of one catalog harness keep apart by their ids. `claude`
+    // would become "Claude Code (claude)", which claude-vm already is, so
+    // both of those fall back to their ids and no two rows share a name.
     let sr = by_id("claude-sr");
     assert_eq!(sr["displayName"], "Claude Code (claude-sr)", "{sr:#}");
-    assert_eq!(by_id("claude")["displayName"], "Claude Code (claude)");
+    assert_eq!(by_id("claude")["displayName"], "claude", "{answer:#}");
+    assert_eq!(by_id("claude-vm")["displayName"], "claude-vm", "{answer:#}");
     assert_eq!(sr["chiefFamily"], "claude");
     assert_eq!(sr["capabilities"]["speeds"], json!(["default"]));
     assert_eq!(sr["unavailable"], false);
@@ -416,16 +424,20 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
 
 /// Every offered row is one a set would take: a harness acpmux gained after
 /// this Chief started is listed unavailable, with how to get it, rather than
-/// offered for a set that answers `unknown_harness`; and a declared effort a
-/// set refuses is left out rather than offered for an `invalid_effort`.
+/// offered for a set that answers `unknown_harness`; a declared effort a set
+/// refuses is left out rather than offered for an `invalid_effort`; and the
+/// speeds are the start-up family's, which is the family a set checks, not
+/// the family acpmux reports now.
 #[test]
-fn an_offer_never_names_a_harness_or_effort_a_set_would_refuse() {
+fn an_offer_never_names_a_harness_effort_or_speed_a_set_would_refuse() {
     use optchat_chief::acpmux::Family;
     let dir = tempfile::tempdir().unwrap();
-    // The brain read only these at its start; acpmux lists unii and the rest now.
+    // The brain read only these at its start; acpmux lists unii and the rest
+    // now, and it calls codex a Codex harness, which this brain did not read
+    // it as.
     let mut brain = brain(
         dir.path(),
-        &[("claude-sr", Family::Claude), ("codex", Family::Codex)],
+        &[("claude-sr", Family::Claude), ("codex", Family::Other)],
     );
     let answer = engine(&mut brain, EngineRequest::Show);
     let offered = answer["offered"]["harnesses"].as_array().unwrap();
@@ -440,24 +452,54 @@ fn an_offer_never_names_a_harness_or_effort_a_set_would_refuse() {
             .is_some_and(|r| r.contains("after this Chief started")),
         "{unii:#}"
     );
-    assert_eq!(by_id("codex")["unavailable"], false, "{answer:#}");
+    // acpmux calls codex a Codex harness, whose Fast a set takes; this brain
+    // read it as Other, which is what a set checks, so the row offers no Fast.
+    let codex = by_id("codex");
+    assert_eq!(codex["unavailable"], false, "{codex:#}");
+    assert_eq!(
+        codex["capabilities"]["speeds"],
+        json!(["default"]),
+        "{codex:#}"
+    );
 
-    let set = |harness: Option<&str>, effort: Option<&str>| EngineRequest::Set {
-        harness: harness.map(str::to_owned),
-        model: None,
-        effort: effort.map(str::to_owned),
-        speed: None,
-        compactor_speed: None,
-        compactor_harness: None,
-        compactor_model: None,
-        reactions: Default::default(),
-    };
-    // The reason the row gives is the refusal the set would answer.
-    let refused = engine(&mut brain, set(Some("unii"), None));
+    let set =
+        |harness: Option<&str>, effort: Option<&str>, speed: Option<&str>| EngineRequest::Set {
+            harness: harness.map(str::to_owned),
+            model: None,
+            effort: effort.map(str::to_owned),
+            speed: speed.map(str::to_owned),
+            compactor_speed: None,
+            compactor_harness: None,
+            compactor_model: None,
+            reactions: Default::default(),
+        };
+    // The reason each row gives is the refusal the set would answer.
+    let refused = engine(&mut brain, set(Some("unii"), None, None));
     assert_eq!(refused["error"]["code"], "unknown_harness", "{refused:#}");
-    // And the effort the offer dropped is the one the set refuses.
-    let invalid = engine(&mut brain, set(None, Some("none")));
+    let invalid = engine(&mut brain, set(None, Some("none"), None));
     assert_eq!(invalid["error"]["code"], "invalid_effort", "{invalid:#}");
+    let slow = engine(&mut brain, set(Some("codex"), None, Some("fast")));
+    assert_eq!(slow["error"]["code"], "invalid_speed", "{slow:#}");
+}
+
+/// Two profiles under one name keep apart by their ids, and a third profile
+/// already called `Claude Code (claude)` does not leave two rows with that
+/// name: the ones that would still share it fall back to their ids.
+#[test]
+fn no_two_rows_leave_the_picker_with_the_same_name() {
+    use optchat_chief::acpmux::Family;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(dir.path(), &[("claude-sr", Family::Claude)]);
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let offered = answer["offered"]["harnesses"].as_array().unwrap();
+    let mut names: Vec<&str> = offered
+        .iter()
+        .filter_map(|h| h["displayName"].as_str())
+        .collect();
+    let seen = names.len();
+    names.sort_unstable();
+    names.dedup();
+    assert_eq!(names.len(), seen, "duplicate picker names: {answer:#}");
 }
 
 /// The reaction classifier's fields (a416): a set saves them in engine.json,

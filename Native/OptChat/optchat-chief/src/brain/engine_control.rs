@@ -209,7 +209,11 @@ impl Brain {
         let harnesses = self
             .agents
             .harness_catalog()
-            .map(|answer| super::harness_offer::offered_harnesses(&answer, &self.settings.families))
+            .map(|answer| {
+                super::harness_offer::offered_harnesses(&answer, &self.settings.families, |h| {
+                    self.family_of(h)
+                })
+            })
             .unwrap_or_else(|e| {
                 (self.log)(&format!("engine answer: acpmux harnesses: {e}"));
                 Vec::new()

@@ -23,12 +23,17 @@ use serde_json::{Map, Value, json};
 
 use crate::acpmux::Family;
 
-/// The rows for an `_acpmux/harnesses` answer. `started_with` is the families
-/// the brain read at its start (``Settings::families``), which is what a set
-/// checks a harness against; empty means the set checks nothing.
+/// The rows for an `_acpmux/harnesses` answer.
+///
+/// - `started_with`: the families the brain read at its start
+///   (``Settings::families``), which is what a set checks a harness against;
+///   empty means the set checks no harness.
+/// - `set_family`: the family a set would check a harness's speed against
+///   (``Brain::family_of``), which is the start-up family, not the live one.
 pub(super) fn offered_harnesses(
     answer: &Value,
     started_with: &BTreeMap<String, Family>,
+    set_family: impl Fn(&str) -> Family,
 ) -> Vec<Value> {
     let Some(profiles) = answer.get("harnesses").and_then(Value::as_object) else {
         return Vec::new();
@@ -66,25 +71,42 @@ pub(super) fn offered_harnesses(
                 p,
                 catalog_names.get(id.as_str()).copied(),
                 started_with,
+                &set_family,
             )
         })
         .collect();
     rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
-    // Two profiles under one name keep apart by their ids.
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    for r in &rows {
-        *counts
-            .entry(r["displayName"].as_str().unwrap_or_default().to_owned())
-            .or_default() += 1;
-    }
-    for r in &mut rows {
-        let name = r["displayName"].as_str().unwrap_or_default().to_owned();
-        let id = r["id"].as_str().unwrap_or_default().to_owned();
-        if counts.get(&name).copied().unwrap_or(0) > 1 && name != id {
+    disambiguate(&mut rows);
+    rows
+}
+
+/// Two profiles under one name keep apart by their ids, and no two rows leave
+/// with the same name: `X (a)` is taken when a third profile is already called
+/// that, so a name that is still shared after the first pass becomes the id,
+/// which is unique (it keys acpmux's map).
+fn disambiguate(rows: &mut [Value]) {
+    let name_of = |r: &Value| r["displayName"].as_str().unwrap_or_default().to_owned();
+    let id_of = |r: &Value| r["id"].as_str().unwrap_or_default().to_owned();
+    let counts = |rows: &[Value]| {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for r in rows {
+            *counts.entry(name_of(r)).or_default() += 1;
+        }
+        counts
+    };
+    let shared = counts(rows);
+    for r in rows.iter_mut() {
+        let (name, id) = (name_of(r), id_of(r));
+        if shared.get(&name).copied().unwrap_or(0) > 1 && name != id {
             r["displayName"] = json!(format!("{name} ({id})"));
         }
     }
-    rows
+    let shared = counts(rows);
+    for r in rows.iter_mut() {
+        if shared.get(&name_of(r)).copied().unwrap_or(0) > 1 {
+            r["displayName"] = json!(id_of(r));
+        }
+    }
 }
 
 fn row(
@@ -93,6 +115,7 @@ fn row(
     profile: &Value,
     catalog_name: Option<&str>,
     started_with: &BTreeMap<String, Family>,
+    set_family: &impl Fn(&str) -> Family,
 ) -> Value {
     let str_of = |key: &str| {
         profile
@@ -146,10 +169,13 @@ fn row(
         efforts
     };
     capabilities.insert("efforts".into(), Value::Array(efforts));
+    // The speeds a set would take, so the row never offers one it refuses: a
+    // set checks against the start-up family (`Brain::family_of`), which a
+    // harness whose family changed since no longer matches live.
     let speeds: Vec<&str> = crate::engine::SPEEDS
         .iter()
         .copied()
-        .filter(|speed| crate::engine::check_speed(speed, chief_family).is_ok())
+        .filter(|speed| crate::engine::check_speed(speed, set_family(id)).is_ok())
         .collect();
     capabilities.insert("speeds".into(), json!(speeds));
 
