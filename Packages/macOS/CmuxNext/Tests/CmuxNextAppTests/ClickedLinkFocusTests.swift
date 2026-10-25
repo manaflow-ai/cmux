@@ -115,7 +115,7 @@ struct ClickedLinkFocusTests {
             try await PinnedPageTests.until({ content.focusedPane === pane && right.stripModel.selectedID?.rawValue == otherID })
 
             let before = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
-            #expect(services.linkOpener.openWeb(Self.link, from: pane, background: false))
+            #expect(services.linkOpener.openWeb(Self.link, from: pane, background: false, reusesTab: true))
             try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == opened },
                                             report: { Self.describe(content, opened) })
             let after = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))

@@ -44,7 +44,7 @@ struct AgentTabContent {
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
-            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false) }
+            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
