@@ -82,8 +82,8 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
       const harness = text(result?.value?.harness) ?? text(args.harness);
       if (running)
         return { tool: "start", running, ...(askedName && { name: askedName }), ...asked, ...(harness && { harness }) };
-      // "Started sub-session tests (sessionId 0199…, depth 1). …"
-      const said = /^Started sub-session (.*?) \(sessionId ([^,\s)]+)/.exec(result?.text ?? "");
+      // "Started sub-session tests (sessionId 0199…, depth 1). …", or "Created …" when it waits for a run slot.
+      const said = /^(?:Started|Created) sub-session (.*?) \(sessionId ([^,\s)]+)/.exec(result?.text ?? "");
       const sessionId = text(result?.value?.sessionId) ?? said?.[2];
       if (!sessionId) return undefined;
       const name = text(result?.value?.shortName) ?? text(result?.value?.name) ?? text(said?.[1]) ?? askedName;

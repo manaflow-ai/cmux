@@ -756,12 +756,12 @@ function activityStepHeight(item: AcpmuxActivity): number {
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
     if (!subsession) return 26;
-    // A card (subagents/AgentCard.css) is about 60px with its doing line, a reply's three cut lines
-    // and toggle (SubsessionCallCard.css) add about 56, and the call's Raw toggle is one row.
+    // A card (subagents/AgentCard.css) is about 60px with its doing line; a finished one's reply,
+    // three cut lines and a toggle (SubsessionCallCard.css), adds about 56; the Raw toggle is one row.
     if ((subsession.tool === "wait" || subsession.tool === "list") && !subsession.running)
       return Math.max(
         40,
-        subsession.sessions.reduce((sum, session) => sum + 60 + (session.reply ? 56 : 0), 0) + TOOL_ROW_HEIGHT,
+        subsession.sessions.reduce((sum, session) => sum + 60 + (session.reply && session.state !== "working" ? 56 : 0), 0) + TOOL_ROW_HEIGHT,
       );
     if (subsession.tool === "start" && subsession.prompt) return 120;
     return 40;

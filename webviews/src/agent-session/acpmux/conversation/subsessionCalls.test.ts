@@ -53,6 +53,14 @@ test("start_session names the sub-session it started, from its text or its struc
     name: "lint",
     prompt: "Lint",
   });
+  // Queued for a run slot, the text alone.
+  const queued =
+    "Created sub-session docs (sessionId 0199c-child, depth 1). It is queued: you already run as many sub-sessions as your maxRunning limit allows.";
+  expect(subsessionCall(claude("start_session", { prompt: "Docs" }, queued))).toMatchObject({
+    tool: "start",
+    sessionId: "0199c-child",
+    name: "docs",
+  });
   // Still running: the name it asked for, if any.
   expect(subsessionCall(claude("start_session", { prompt: "x", name: "docs" }, undefined, "in_progress"))).toEqual({
     tool: "start",
