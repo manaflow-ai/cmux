@@ -58,7 +58,8 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
         if (!answer) return Promise.resolve({ ok: true, value: null });
         state.calls.push(method);
         if (answer === "hang") return new Promise(() => {});
-        if (answer === "fail") return Promise.resolve({ ok: false, error: { code: "io", userMessage: "The disk is full." } });
+        if (answer === "fail")
+          return Promise.resolve({ ok: false, error: { code: "io", userMessage: "The disk is full." } });
         const value =
           method === "chat.upload.begin"
             ? { token: "t", size: params.size, chunkSize: 512 * 1024 }
@@ -143,9 +144,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     });
 
   const promptText = (page: Page) =>
-    page
-      .locator(".acpmux-composer-prompt [contenteditable]")
-      .evaluate((node) => node.textContent?.replace(/ /g, " "));
+    page.locator(".acpmux-composer-prompt [contenteditable]").evaluate((node) => node.textContent?.replace(/ /g, " "));
 
   test("pasting three large Retina screenshots never blocks typing", async () => {
     const page = await newChat();
@@ -162,7 +161,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     });
     const attached = Date.now() - started;
     const stall = await longestStall(page);
-    console.log(`three ${sizes.map((size) => (size / 1048576).toFixed(1)).join("/")} MB screenshots: chips in ${attached} ms, longest main-thread stall ${stall.toFixed(0)} ms`);
+    console.log(
+      `three ${sizes.map((size) => (size / 1048576).toFixed(1)).join("/")} MB screenshots: chips in ${attached} ms, longest main-thread stall ${stall.toFixed(0)} ms`,
+    );
     expect(await promptText(page)).toBe(" these screenshots attach while I type");
     expect(stall).toBeLessThan(MAX_STALL_MS);
     await page.close();
@@ -178,7 +179,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
       const bytes = new Uint8Array(5.2 * 1024 * 1024);
       for (let at = 0; at < bytes.length; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536));
       bytes.set([0, 0, 0, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63], 0);
-      (window as unknown as { screenshots: File[] }).screenshots = [new File([bytes], "IMG_0412.HEIC", { type: "image/heic" })];
+      (window as unknown as { screenshots: File[] }).screenshots = [
+        new File([bytes], "IMG_0412.HEIC", { type: "image/heic" }),
+      ];
     });
     await pasteScreenshots(page);
     // Its tile is there at once.

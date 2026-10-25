@@ -93,7 +93,9 @@ export async function drawThumb(bitmap: ImageBitmap, height = 160): Promise<Thum
   if (!bitmap.width || !bitmap.height) return undefined;
   const ratio = Math.min(2, Math.max(0.7, bitmap.width / bitmap.height));
   const [sourceWidth, sourceHeight] =
-    bitmap.width / bitmap.height > ratio ? [bitmap.height * ratio, bitmap.height] : [bitmap.width, bitmap.width / ratio];
+    bitmap.width / bitmap.height > ratio
+      ? [bitmap.height * ratio, bitmap.height]
+      : [bitmap.width, bitmap.width / ratio];
   const canvas = new OffscreenCanvas(Math.round(height * ratio), height);
   const context = canvas.getContext("2d");
   if (!context) return undefined;

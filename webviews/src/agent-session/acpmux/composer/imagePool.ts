@@ -25,7 +25,10 @@ let worker: Worker | null | undefined;
 let nextId = 1;
 /// Each job the worker holds, with the worker it went to: a late event of a worker already
 /// replaced never touches its successor's jobs.
-const waiting = new Map<number, { worker: Worker; settle(value: PreparedImage | Thumb | undefined, onPage?: boolean): void }>();
+const waiting = new Map<
+  number,
+  { worker: Worker; settle(value: PreparedImage | Thumb | undefined, onPage?: boolean): void }
+>();
 
 function startWorker(): Worker | null {
   if (worker !== undefined) return worker;

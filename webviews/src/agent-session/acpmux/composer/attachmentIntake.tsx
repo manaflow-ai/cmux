@@ -396,7 +396,7 @@ function AttachmentChip({
     return () => {
       live = false;
     };
-  }, [attachment.data, attachment.mimeType, image]);
+  }, [attachment.data, attachment.id, attachment.mimeType, image]);
   const remove = (
     <button
       type="button"
