@@ -8,7 +8,8 @@
 //! - a connection holds at most [`MAX_HANDLES`] of them, counting the opens still waiting on the
 //!   peer and only the handles used within [`IDLE`] (the peer closes the others), so one client
 //!   cannot fill the link's table, even with many opens at once;
-//! - a handle's entry goes with its final range or a refused one (the peer closed it too), and
+//! - a handle's entry goes with its final range, or with a refused one once it is closed on the
+//!   peer too (a refusal may come from the peer's guard, before its reader closed it), and
 //!   when the connection ends every handle still held is closed on the peer: a range of length
 //!   0, which the peer refuses and so closes.
 
@@ -60,12 +61,16 @@ fn no_handle() -> RpcError {
     refused("media.handle", "no such media handle on this connection; open the file again")
 }
 
-/// Closes `handle` on `peer`: the peer closes a handle whose range it refuses.
+/// Closes `handle` on `peer`: the peer closes a handle whose range it refuses. A handle the peer
+/// already closed is refused the same way, so this is safe to send twice.
+async fn close_on(peer: &Peer, session: &str, handle: &str) {
+    let close = json!({"sessionId": session, "handle": handle, "offset": 0, "length": 0});
+    let _ = peer.request(method::MUX_MEDIA_RANGE, close).await;
+}
+
+/// [`close_on`] in the background, for a table that is going away.
 fn release(peer: Arc<Peer>, session: String, handle: String) {
-    tokio::spawn(async move {
-        let close = json!({"sessionId": session, "handle": handle, "offset": 0, "length": 0});
-        let _ = peer.request(method::MUX_MEDIA_RANGE, close).await;
-    });
+    tokio::spawn(async move { close_on(&peer, &session, &handle).await });
 }
 
 /// The bytes the base64 `data` decodes to.
@@ -89,7 +94,17 @@ impl RemoteMedia {
 
     async fn open(&self, peer: &Arc<Peer>, session: &str, p: Value) -> Result<Value, RpcError> {
         let room = self.with(|table| {
-            table.held.retain(|_, remote| remote.used.elapsed() < IDLE);
+            // An idle handle is the peer's to sweep; it is closed there now too, so it never
+            // outlives its place here.
+            let idle: Vec<String> = table
+                .held
+                .iter()
+                .filter(|(_, remote)| remote.used.elapsed() >= IDLE)
+                .map(|(mine, _)| mine.clone())
+                .collect();
+            for remote in idle.iter().filter_map(|mine| table.held.remove(mine)) {
+                release(remote.peer, remote.session, remote.handle);
+            }
             let room = table.held.len() + table.opening < MAX_HANDLES;
             table.opening += usize::from(room);
             room
@@ -137,9 +152,14 @@ impl RemoteMedia {
         });
         let (peer, theirs) = found.flatten().ok_or_else(no_handle)?;
         if let Some(object) = p.as_object_mut() {
-            object.insert("handle".into(), Value::String(theirs));
+            object.insert("handle".into(), Value::String(theirs.clone()));
         }
         let result = peer.request(method::MUX_MEDIA_RANGE, p).await;
+        // A refused range may never have reached the peer's reader (its guard refused it first),
+        // so the handle is closed there before its place here is given back.
+        if result.is_err() {
+            close_on(&peer, session, &theirs).await;
+        }
         let done = result.as_ref().map_or(true, |reply| {
             let at = |key: &str| reply.get(key).and_then(Value::as_u64).unwrap_or(0);
             let data = reply.get("data").and_then(Value::as_str).unwrap_or_default();

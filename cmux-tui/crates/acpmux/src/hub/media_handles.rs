@@ -9,7 +9,7 @@
 //!   that daemon's clients, which it caps one by one (`server/media_forward.rs`), so its table
 //!   is capped only by [`MAX_OPEN`] ([`Handles::for_peer_link`]).
 //! - A handle whose session is gone counts toward no cap: the insert and the sweeper drop it, and
-//!   [`Handles::forget`] closes one named by a range for a chat that no longer resolves.
+//!   [`Handles::forget_orphan`] closes one named by a range for a chat that no longer resolves.
 //! - A handle unused for [`IDLE`] is closed by the table's sweeper: one task per table, spawned
 //!   by the insert that finds none, sleeping until the earliest handle's deadline. It stops when
 //!   the table is empty, when the table is dropped, or at [`Handles::close_all`], which aborts it.
@@ -158,9 +158,13 @@ impl<O: Send + Sync + 'static> Handles<O> {
         }
     }
 
-    /// Closes `handle` whoever opened it: its chat is gone, so nothing reads it again.
-    pub fn forget(&self, handle: &str) {
-        lock(&self.state).entries.remove(handle);
+    /// Closes `handle` when the chat that opened it no longer exists, so nothing reads it again;
+    /// a live chat's handle stays.
+    pub fn forget_orphan(&self, handle: &str) {
+        let mut state = lock(&self.state);
+        if state.entries.get(handle).is_some_and(|entry| entry.owner.strong_count() == 0) {
+            state.entries.remove(handle);
+        }
     }
 
     /// The connection ended: every handle closes, the sweeper stops, and no handle opens again.

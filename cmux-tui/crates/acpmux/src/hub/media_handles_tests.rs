@@ -113,7 +113,8 @@ async fn handles_are_capped_per_connection_and_per_daemon() {
     assert_eq!(OPEN.load(Ordering::SeqCst), 0);
 }
 
-/// A chat that went away leaves its handles counting toward no cap, and `forget` closes one.
+/// A chat that went away leaves its handles counting toward no cap. `forget_orphan` closes a
+/// handle only once its own chat is gone: a live chat's handle stays, whoever names it.
 #[tokio::test]
 async fn a_gone_chats_handles_give_their_places_back() {
     let _turn = SERIAL.lock().await;
@@ -126,9 +127,14 @@ async fn a_gone_chats_handles_give_their_places_back() {
     let other = Arc::new(Chat(1));
     let kept = handles.insert(&other, folder.open()).unwrap();
     assert_eq!(OPEN.load(Ordering::SeqCst), 1);
-    handles.forget(&kept);
+    handles.forget_orphan(&kept);
+    assert!(handles.get(&other, &kept).is_ok(), "a live chat's handle was closed");
+    assert_eq!(OPEN.load(Ordering::SeqCst), 1);
+    let gone = Arc::downgrade(&other);
+    drop(other);
+    assert!(gone.upgrade().is_none());
+    handles.forget_orphan(&kept);
     assert_eq!(OPEN.load(Ordering::SeqCst), 0);
-    assert_eq!(reason(handles.get(&other, &kept).unwrap_err()), "media.handle");
     handles.close_all();
 }
 
