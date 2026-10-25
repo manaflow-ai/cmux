@@ -566,9 +566,104 @@ async fn an_owed_orphan_card_waits_for_a_start_that_loads_its_giver() {
     assert_eq!(row["result"]["cardOwed"], true, "{row}");
     assert!(row["result"].get("undelivered").is_none(), "{row}");
 
-    // The next start, with the giver loaded, takes the mark and sends the card.
-    let _next = hub_at(&root, false);
+    // The next start, with the giver loaded, sends it again: the giver already has it, so the
+    // send is a duplicate (one card), and the mark goes.
+    let next = hub_at(&root, false);
+    for _ in 0..300 {
+        if saved_task(&root, &id)["result"].get("cardOwed").is_none() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let row = saved_task(&root, &id);
     assert!(row["result"].get("cardOwed").is_none(), "{row}");
+    let cards = Client::open(&next).prompts(&coordinator, &format!("task-result-{id}"), 1).await;
+    assert_eq!(cards.len(), 1, "{cards:?}");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A lane closed while its move is still in flight ends here: the move never committed, so its
+/// task is orphaned and the giver hears, rather than the task waiting on a lane that is gone.
+#[tokio::test]
+async fn a_lane_closed_mid_move_orphans_its_task() {
+    let hub = hub();
+    let mut person = Client::open(&hub);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let given = Client::in_session(&hub, &coordinator)
+        .await
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Keep going"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    person.call("_acpmux/transfer_begin", json!({"sessionId": lane, "interrupt": true})).await;
+    person.call("session/close", json!({"sessionId": lane})).await;
+    let card = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await.remove(0);
+    assert_eq!(card.pointer("/_meta/provenance/state"), Some(&json!("orphaned")), "{card}");
+}
+
+/// A store whose logs cannot be scanned by kind (`scan_kinds` fails); everything else goes
+/// to `0`.
+struct ScanFails(Box<dyn acpmux::store::Store>);
+
+impl acpmux::store::Store for ScanFails {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        self.0.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn scan_kinds(
+        &self,
+        _id: &str,
+        _kinds: &[&str],
+        _visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("the log could not be read")
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+}
+
+/// A closing lane whose moves cannot be read may have moved on: its task is not orphaned on a
+/// guess (it stays open, and `task ls` shows the lane closed).
+#[tokio::test]
+async fn a_lane_whose_moves_cannot_be_read_is_not_orphaned_on_a_guess() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, Box::new(ScanFails(store)));
+    let mut person = Client::open(&hub);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let mut from_coordinator = Client::in_session(&hub, &coordinator).await;
+    let given = from_coordinator
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Keep going"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+    person.call("session/close", json!({"sessionId": lane})).await;
+    let listed = from_coordinator.call("_acpmux/tasks", json!({})).await;
+    let task = listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str());
+    let task = task.unwrap_or_else(|| panic!("{listed}"));
+    assert_eq!(task["status"], "running", "{task}");
+    assert_eq!(task["sessionStatus"], "closed", "{task}");
 }
