@@ -680,6 +680,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/task_new",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tasks",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/media_open",
       "params": true,
       "result": true
@@ -1167,6 +1179,24 @@
     {
       "kind": "request",
       "name": "_acpmux/peers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/peer_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place",
       "params": true,
       "result": true
     },

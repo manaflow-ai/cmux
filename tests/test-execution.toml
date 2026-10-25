@@ -1054,6 +1054,11 @@ lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. arch-layers.py is a report for the refactor lane, not a gate; run python3 tests/test_cmux_next_arch_layers.py yourself after changing it or architecture-layers.json (under 1 s, no build)."
 
 [[test]]
+path = "tests/test_cmux_next_guardrails_blocking.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. guardrails.py's main-blocking, raw-blocking and thread-doc rules run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails_blocking.py yourself (about 12 s, git only, no build)."
+
+[[test]]
 path = "tests/test_cmux_next_guardrails.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. The guardrails run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails.py yourself (about 40 s, git only, no build)."
@@ -1344,6 +1349,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_generated_catch_up.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_generated_fold.py"
 lane = "linux-guard"
 
 [[test]]

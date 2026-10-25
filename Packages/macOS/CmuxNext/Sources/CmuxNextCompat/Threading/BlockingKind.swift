@@ -18,6 +18,10 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     case ipcReply = "ipc-reply"
     /// A wait for a child process to exit.
     case processWait = "process-wait"
+    /// Starting a child process (`Process.run`, `posix_spawn`, `fork`): it copies or maps the parent's
+    /// address space and waits for the kernel, which took 807 ms on the main thread (screen.close,
+    /// 2026-10-24).
+    case processSpawn = "process-spawn"
     /// A ``Mutex`` wait on the main thread that took longer than
     /// ``BlockingKind/lockWaitLimitNanos`` (a contended lock: the priority-inversion case).
     case lockWait = "lock-wait"

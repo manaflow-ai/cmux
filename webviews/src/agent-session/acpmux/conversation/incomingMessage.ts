@@ -13,7 +13,8 @@
 // `start_session`, and a child's report to its parent) names its sender as the receiver's chat
 // knows it, its short name, and who it is to this chat.
 // Any other session's prompt to this one (kind `session_message`, prompt_provenance.rs: `acpmux
-// send` run inside that session) names that session the same way, without a relation.
+// send` run inside that session) names that session the same way, without a relation. So does a
+// task's result (kind `task_result`, acpmux hub/tasks.rs `acpmux task done`): the lane's card.
 // `acpmux send` run at a shell records no provenance (client `acpmux-cli#…`, or `acpmux-peer#…`
 // relayed from another machine), so an agent sending from one puts its name first by convention:
 // `[coord-deputy] Merged #23727`. That prompt is the named agent's message. No chat id comes with
@@ -114,7 +115,10 @@ export function incomingPrompt(
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
-  const fromSession = provenance?.kind === "subsession_message" || provenance?.kind === "session_message";
+  const fromSession =
+    provenance?.kind === "subsession_message" ||
+    provenance?.kind === "session_message" ||
+    provenance?.kind === "task_result";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
     // sub-session itself, reads better than its full name (`claude-sr2/coordinator`).

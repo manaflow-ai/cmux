@@ -270,6 +270,7 @@
         "CmuxNextDevices",
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
+        "CmuxNextFavicons",
         "CmuxNextFeed",
         "CmuxNextFiles",
         "CmuxNextFilesUI",
@@ -583,7 +584,8 @@
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextRemoteFetch"
+        "CmuxNextRemoteFetch",
+        "CmuxNextWakeups"
       ],
       "packages": [],
       "reads": [
@@ -954,6 +956,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextFavicons": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextTabs"
+      ],
+      "packages": []
     },
     "CmuxNextFeed": {
       "kind": "regular",
@@ -1766,6 +1777,24 @@
       "path": "Packages/macOS/CmuxNext/Tests/Support/CmuxNextTestExitTrace",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextUiLayerPreview": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextIcons"
+      ],
+      "packages": []
+    },
+    "CmuxNextUiLayerPreviewTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextUiLayerPreviewTests",
+      "targets": [
+        "CmuxNextUiLayerPreview"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextUpdater": {
       "kind": "regular",

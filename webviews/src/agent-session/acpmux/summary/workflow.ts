@@ -12,6 +12,11 @@ export type WorkflowAgent = {
   doing?: string;
   tokens?: number;
   transcriptRowId?: string;
+  /// The model it runs on, as the harness names it (`claude-opus-5-5`, `opus`).
+  model?: string;
+  /// How long it ran, once it ended; while it runs, from `startedAt`.
+  elapsedMs?: number;
+  startedAt?: number;
 };
 
 export type WorkflowPhase = {
@@ -24,6 +29,8 @@ export type WorkflowPhase = {
 export type WorkflowSummary = {
   id: string;
   title: string;
+  /// What the workflow does, in a line (its launch's summary).
+  description?: string;
   state: WorkflowAgent["state"];
   sessionId?: string;
   runId?: string;

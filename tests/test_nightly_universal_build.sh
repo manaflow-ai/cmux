@@ -107,10 +107,10 @@ fi
 if ! awk '
   /^  decide:/ { in_decide=1; next }
   in_decide && /^  [a-zA-Z0-9_-]+:/ { in_decide=0 }
-  in_decide && /^    runs-on: ubuntu-24\.04$/ { saw_runner_override=1 }
+  in_decide && /^    runs-on: .*vars\.LINUX_RUNNER.*blacksmith-4vcpu-ubuntu-2404/ { saw_runner_override=1 }
   END { exit !saw_runner_override }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: the short nightly decide gate must run on GitHub-hosted ubuntu-24.04, never Blacksmith"
+  echo "FAIL: the short nightly decide gate must use the pooled Linux route with a Blacksmith fallback"
   exit 1
 fi
 
@@ -1281,7 +1281,7 @@ publish_job="$(legacy_job_text publish-nightly-identity-legacy)"
 legacy_job="$sign_job$verify_job$publish_job"
 target_job="$(awk '/^  legacy-identity-target:/{on=1} on && /^  [a-z0-9-]+:$/ && !/legacy-identity-target/{exit} on' "$WORKFLOW_FILE")"
 for expected in \
-  "needs: [decide, legacy-identity-target]" \
+  "needs: [decide, build-nightly-app, legacy-identity-target]" \
   "needs.legacy-identity-target.outputs.build != ''" \
   "NIGHTLY_BUILD: \${{ needs.legacy-identity-target.outputs.build }}" \
   "LEGACY_ACTION: \${{ needs.legacy-identity-target.outputs.action }}" \
@@ -1315,6 +1315,9 @@ done
 for expected in \
   "scripts/ci/nightly-next-legacy-target.py next.xml old.xml" \
   "--max-pending-hours 6 --max-same-build-hours 48" \
+  "CURRENT_BUILD_SHA: \${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}" \
+  "source_sha=\$source_sha" \
+  'accepted build $pending_build is not on the live cmux NEXT Nightly feed' \
   '.workflow_run.head_branch == "nightly-next" and .workflow_run.head_repository_id == .workflow_run.repository_id' \
   "for candidate in" \
   "--failure-log failures.txt --max-failures 2" \
@@ -1338,27 +1341,39 @@ for expected in \
   "name: cmux-nightly-identity-signed" \
   "dmg_sha256: \${{ steps.handoff.outputs.dmg_sha256 }}" \
   "signed_ok: \${{ steps.attempt.outputs.signed_ok }}" \
-  "runs-on: macos-26"; do
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}"; do
   grep -Fq -- "$expected" <<<"$sign_job" || { echo "FAIL: sign-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
 for expected in \
+  "NEXT_BUNDLE_ID: \${{ needs.decide.outputs.bundle_id }}" \
+  "NEXT_COMMIT_SHORT: \${{ needs.legacy-identity-target.outputs.source_sha }}" \
+  "PlistBuddy -c \"Add :SUPublicEDKey string \${NIGHTLY_NEXT_SPARKLE_PUBLIC_KEY}\"" \
+  'name: cmux-nightly-remote-daemon' \
+  'python3 scripts/verify_remote_daemon_release.py' \
+  'python3 scripts/ci/nightly-next-guard.py feed-url "$feed_url"'; do
+  grep -Fq -- "$expected" <<<"$publish_job$sign_job" || { echo "FAIL: parallel NEXT identity preparation must contain: $expected"; exit 1; }
+done
+for expected in \
   "needs: [legacy-identity-target, sign-nightly-identity-legacy]" \
-  "runs-on: macos-26" \
+  "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}" \
   'stapled_flag=(--require-stapled-app)' \
   './scripts/ci/verify-dmg-artifact.sh "$dmg" nightly --expect-sha256 "$SIGNED_SHA256" "${stapled_flag[@]}"' \
   "tested_sha256: \${{ steps.verify.outputs.tested_sha256 }}"; do
   grep -Fq -- "$expected" <<<"$verify_job" || { echo "FAIL: verify-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
-if grep -Eq 'environment:|secrets\.|vars\.[A-Z_]*RUNNER' <<<"$verify_job"; then
-  echo "FAIL: verify-nightly-identity-legacy must hold no environment or secret and use a literal runner label"
+if grep -Eq 'environment:|secrets\.' <<<"$verify_job" || ! grep -Fq 'vars.MACOS_RUNNER_26' <<<"$verify_job"; then
+  echo "FAIL: verify-nightly-identity-legacy must hold no environment or secret and use the trusted macOS pool fallback"
   exit 1
 fi
 for expected in \
-  "needs: [decide, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]" \
+  "needs: [decide, publish-nightly, legacy-identity-target, sign-nightly-identity-legacy, verify-nightly-identity-legacy]" \
   "TESTED_SHA256: \${{ needs.verify-nightly-identity-legacy.outputs.tested_sha256 }}" \
   './scripts/ci/nightly-next-legacy-tested-digest.sh' \
   "group: nightly-next-legacy-identity-publish" \
   "needs.sign-nightly-identity-legacy.result != 'cancelled'" \
+  "needs.publish-nightly.outputs.refused != 'true'" \
+  "needs.publish-nightly.outputs.build == needs.legacy-identity-target.outputs.build" \
+  "needs.publish-nightly.result == 'skipped' && needs.legacy-identity-target.outputs.action == 'continue'" \
   "scripts/ci/nightly-next-legacy-attempt.py --sign-result"; do
   grep -Fq -- "$expected" <<<"$publish_job" || { echo "FAIL: publish-nightly-identity-legacy must contain: $expected"; exit 1; }
 done
@@ -1382,7 +1397,7 @@ if grep -Eq 'smoke-dmg\.sh|smoke-launch|signing-keychain\.sh create' <<<"$publis
 fi
 bash "$ROOT_DIR/tests/test_nightly_next_legacy_tested_digest.sh"
 
-if grep -Fq "publish-nightly.result == 'success'" <<<"$legacy_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
+if grep -Fq "publish-nightly.result == 'success'" <<<"$sign_job$verify_job$target_job" || grep -Fq "should_publish == 'true'" <<<"$target_job"; then
   echo "FAIL: the cmux NIGHTLY-identity jobs must not require a publication in the same run (recovered builds publish later)"
   exit 1
 fi

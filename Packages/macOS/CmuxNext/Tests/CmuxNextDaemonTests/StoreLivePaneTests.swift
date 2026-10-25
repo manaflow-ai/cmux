@@ -52,6 +52,39 @@ import Testing
             workspace: WorkspaceHandle(rawValue: 3), screen: ScreenID(rawValue: 2), pane: movingID, index: nil,
             entity: PaneSnapshot(id: movingID, resourceID: resource, tabs: []), clientTransactionID: nil)))])
         #expect(store.liveTreeLists(pane: id) == true, "the moved pane's id was dropped with its old record")
+        // Its last record goes: no longer listed.
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 4, event: .paneClosed(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 103), screen: ScreenID(rawValue: 102), pane: PaneID(rawValue: 9002), index: nil,
+            entity: PaneSnapshot(id: PaneID(rawValue: 9002), resourceID: resource, tabs: []), clientTransactionID: nil)))])
+        #expect(store.liveTreeLists(pane: id) == false, "a pane whose last record went is still listed")
+    }
+
+    /// Both records of a moving pane go in one publish (one batch): the watched revision still
+    /// changes, so a watcher of panes learns that the pane is gone.
+    @Test func bothRecordsOfAMovingPaneGoingInOneBatchChangeTheWatchedRevision() throws {
+        let store = loadedStore()
+        let resource = ResourceID(rawValue: "pane_twice")
+        let first = PaneID(rawValue: 9101), second = PaneID(rawValue: 9102)
+        _ = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+                workspace: WorkspaceHandle(rawValue: 3), screen: ScreenID(rawValue: 2), pane: first, index: 1,
+                entity: PaneSnapshot(id: first, resourceID: resource, tabs: []), clientTransactionID: nil))),
+            DaemonEventEnvelope(sequence: 2, event: .paneAdded(PaneDelta(
+                workspace: WorkspaceHandle(rawValue: 103), screen: ScreenID(rawValue: 102), pane: second, index: 1,
+                entity: PaneSnapshot(id: second, resourceID: resource, tabs: []), clientTransactionID: nil))),
+        ])
+        let id = try #require(store.pane(first)?.id)
+        let before = store.liveTabListRevision
+        _ = store.apply(batch: [
+            DaemonEventEnvelope(sequence: 3, event: .paneClosed(PaneDelta(
+                workspace: WorkspaceHandle(rawValue: 3), screen: ScreenID(rawValue: 2), pane: first, index: nil,
+                entity: PaneSnapshot(id: first, resourceID: resource, tabs: []), clientTransactionID: nil))),
+            DaemonEventEnvelope(sequence: 4, event: .paneClosed(PaneDelta(
+                workspace: WorkspaceHandle(rawValue: 103), screen: ScreenID(rawValue: 102), pane: second, index: nil,
+                entity: PaneSnapshot(id: second, resourceID: resource, tabs: []), clientTransactionID: nil))),
+        ])
+        #expect(store.liveTreeLists(pane: id) == false)
+        #expect(store.liveTabListRevision != before, "the two records cancelled in the list digest: no watcher woke")
     }
 
     @Test func aPaneWithNoTabsThatGoesChangesTheWatchedRevision() throws {
