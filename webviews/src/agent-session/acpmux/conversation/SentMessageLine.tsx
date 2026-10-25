@@ -83,7 +83,7 @@ export function SentMessageLine({
     shape === "arrow" && state !== "failed" && preview
       ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: target, text: preview })
       : t(state === "sending" ? "send.sending" : state === "failed" ? "send.failed" : "send.sent", { target });
-  const icon = state === "sending" ? <Spinner size={16} /> : state === "failed" ? <AlertCircle /> : <Envelope />;
+  const icon = state === "sending" ? <Spinner size={16} loading /> : state === "failed" ? <AlertCircle /> : <Envelope />;
   return (
     <>
       <button
