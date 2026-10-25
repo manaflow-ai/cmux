@@ -1,18 +1,22 @@
 // A shell call that does nothing but send another agent a message with `acpmux send` (or `cmux acp
-// send`), read from its command line: who it went to and what it said, so the transcript draws it
-// as "Sent message to <target>" with the message's first line (SentMessageLine.tsx) instead of a
-// raw command row. The line is read as a shell reads it (`shellCommands`): quotes, `$'…'`,
-// backslashes, here-documents and here-strings, `$(…)` and backticks kept whole, comments, and the
-// operators between commands. A wrapper that runs the command it is given is looked through:
-// `reach HOST '…'` (the target then lives on HOST), `bash -c '…'`, `timeout N`, `env X=Y`,
-// `perl -e 'alarm N; exec @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command in command
-// position counts: `echo "acpmux send x y"` prints words. A line that also does other work (`git
-// push && acpmux send …`) stays a command row, so that work stays in sight; `cd`, `export`, an echo
-// and filters on the send's output (`| tail -1`) do none. Options are read per `acpmux send
-// --help`; `--status ID` (a delivery's state) and `--help` send nothing. The text is unknown when
-// the prompt comes from stdin that is not in the line (`-`, or no prompt) or holds an expansion
-// (`"$(cat note.md)"`): the row then names only the target. No list of session names is involved:
-// the target is the word the command gives (`name`, `host/name`, `host:name`, `reports:person`).
+// send`), read from its command line: who it went to and what it said, so the pane names it
+// "Sending message to <target>" or "Sent message to <target>" (the live line, Background tasks,
+// the transcript's row) instead of its raw command line.
+//
+// The line is read as a shell reads it (`shellCommands`): quotes, `$'…'`, backslashes,
+// here-documents and here-strings, `$(…)` and backticks kept whole, comments, and the operators
+// between commands. A wrapper that runs the command it is given is looked through: `reach HOST '…'`
+// (the target then lives on HOST), `bash -c '…'`, `timeout N`, `env X=Y`, `perl -e 'alarm N; exec
+// @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command in command position counts: `echo
+// "acpmux send x y"` prints words. A line that also does other work (`git push && acpmux send …`)
+// stays a command row, so that work stays in sight; `cd`, `export`, an echo and filters on the
+// send's output (`| tail -1`) do none.
+//
+// Options are read per `acpmux send --help`; `--status ID` (a delivery's state) and `--help` send
+// nothing. The text is unknown when the prompt comes from stdin that is not in the line (`-`, or no
+// prompt) or holds an expansion (`"$(cat note.md)"`): the row then names only the target. No list
+// of session names is involved: the target is the word the command gives (`name`, `host/name`,
+// `host:name`, `reports:person`).
 import type { AcpmuxActivity } from "../model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
