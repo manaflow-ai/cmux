@@ -334,8 +334,11 @@ describe("acpmuxSendCall", () => {
     const skipped = "git push && acpmux send lane done; git status";
     expect(acpmuxSendCall(bash(skipped, { exitCode: 0, output: "nothing to commit" }))?.state).toBe("ended");
     expect(acpmuxSendCall(bash("test -d / || acpmux send lane hi", { exitCode: 0 }))?.state).toBe("ended");
+    // A --no-wait send that printed how the daemon took it went.
+    const taken = "git push && acpmux send --no-wait lane done; git status";
+    expect(acpmuxSendCall(bash(taken, { exitCode: 0, output: "queued\nnothing to commit" }))?.state).toBe("sent");
     // With --json, acpmux's error object says it failed.
-    const json = 'acpmux send --json lane hi | jq .';
+    const json = "acpmux send --json lane hi | jq .";
     const refused = '{"error":{"code":"no_session","message":"no session matches lane"}}';
     expect(acpmuxSendCall(bash(json, { exitCode: 0, output: refused }))?.state).toBe("failed");
   });
