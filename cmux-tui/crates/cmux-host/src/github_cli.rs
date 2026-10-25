@@ -3,9 +3,9 @@
 //!
 //! - `credential get|store|erase`: a git credential helper. `get` asks the
 //!   machine's Cloud agent (its socket, `cloud/github.rs`) for a token for
-//!   the repo git names and answers `username=x-access-token`,
-//!   `password=<token>` and `password_expiry_utc`; `store` and `erase` do
-//!   nothing.
+//!   the repo git names and answers `username=x-access-token` and
+//!   `password=<token>`; `store` and `erase` do nothing (no helper keeps
+//!   it, so the token lives as long as the git process).
 //! - `gh [--write] ARGS…`: runs `gh` with `GH_TOKEN` set for that one
 //!   process, for the repo named by `-R/--repo`, else `GH_REPO`, else the
 //!   current checkout's `origin`.
@@ -189,29 +189,6 @@ pub fn repo_from(raw: &str) -> Option<String> {
     valid_repo(s).then(|| s.to_owned())
 }
 
-/// Seconds since the epoch of an RFC 3339 UTC time (`…Z` or `+00:00`).
-pub fn unix_seconds(rfc3339: &str) -> Option<i64> {
-    let s = rfc3339.strip_suffix('Z').or_else(|| rfc3339.strip_suffix("+00:00"))?;
-    let (date, time) = s.split_once('T')?;
-    let time = time.split_once('.').map_or(time, |(whole, _)| whole);
-    let num = |t: &str| t.parse::<i64>().ok();
-    let d: Vec<i64> = date.split('-').map(num).collect::<Option<_>>()?;
-    let t: Vec<i64> = time.split(':').map(num).collect::<Option<_>>()?;
-    let ([y, m, day], [hh, mm, ss]) = (d.as_slice(), t.as_slice()) else { return None };
-    if !(1..=12).contains(m) || !(1..=31).contains(day) || *hh > 23 || *mm > 59 || *ss > 60 {
-        return None;
-    }
-    // Days from civil (H. Hinnant).
-    let y = if *m <= 2 { y - 1 } else { *y };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (m + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    Some(days * 86_400 + hh * 3_600 + mm * 60 + ss)
-}
-
 /// `credential get`: the lines for git's stdout (empty when this helper
 /// has no answer, so git tries its next helper) and a note for stderr.
 pub fn credential_get(
@@ -238,11 +215,7 @@ pub fn credential_get(
     for each in credential_asks(&repo, workflows) {
         match ask(&each) {
             Ok(minted) => {
-                let mut out = format!("username=x-access-token\npassword={}\n", minted.token);
-                if let Some(at) = unix_seconds(&minted.expires_at) {
-                    out.push_str(&format!("password_expiry_utc={at}\n"));
-                }
-                return (out, None);
+                return (format!("username=x-access-token\npassword={}\n", minted.token), None);
             }
             Err(e) if e.code == "policy.denied" => last = Some(e),
             Err(e) => return (String::new(), Some(format!("{repo}: {e}"))),
@@ -267,12 +240,16 @@ pub fn gh_plan(
 ) -> Result<GhPlan, String> {
     let mut rest = args;
     let mut write = false;
-    if rest.first().is_some_and(|a| a == "--write") {
+    if let Some((first, after)) = rest.split_first()
+        && first == "--write"
+    {
         write = true;
-        rest = &rest[1..];
+        rest = after;
     }
-    if rest.first().is_some_and(|a| a == "--") {
-        rest = &rest[1..];
+    if let Some((first, after)) = rest.split_first()
+        && first == "--"
+    {
+        rest = after;
     }
     let mut named = None;
     let mut it = rest.iter();
@@ -294,8 +271,10 @@ pub fn gh_plan(
         (None, None) => match origin() {
             Some(url) => (url, "the origin remote"),
             None => {
-                return Err("no repo: pass -R owner/name, set GH_REPO, or run in a GitHub checkout"
-                    .to_owned());
+                return Err(
+                    "no repo: pass -R owner/name, set GH_REPO, or run in a GitHub checkout"
+                        .to_owned(),
+                );
             }
         },
     };
@@ -497,15 +476,6 @@ mod tests {
     }
 
     #[test]
-    fn expiry_reads_as_unix_seconds() {
-        assert_eq!(unix_seconds("2026-10-25T02:00:00Z"), Some(1_792_893_600));
-        assert_eq!(unix_seconds("2026-10-25T02:00:00.123+00:00"), Some(1_792_893_600));
-        assert_eq!(unix_seconds("2000-02-29T23:59:59Z"), Some(951_868_799));
-        assert_eq!(unix_seconds("2026-10-25T02:00:00-07:00"), None);
-        assert_eq!(unix_seconds("tomorrow"), None);
-    }
-
-    #[test]
     fn get_answers_github_https_with_a_write_token_first() {
         let mut asked = Vec::new();
         let (out, note) = credential_get(
@@ -516,17 +486,11 @@ mod tests {
                 Ok(minted())
             },
         );
-        assert_eq!(
-            out,
-            format!("username=x-access-token\npassword={SECRET}\npassword_expiry_utc=1792893600\n")
-        );
+        assert_eq!(out, format!("username=x-access-token\npassword={SECRET}\n"));
         assert_eq!(note, None);
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].repo, "manaflow-ai/cmux");
-        assert_eq!(
-            Value::Object(asked[0].permissions.clone()),
-            json!({ "contents": "write" })
-        );
+        assert_eq!(Value::Object(asked[0].permissions.clone()), json!({ "contents": "write" }));
     }
 
     #[test]
