@@ -2,6 +2,16 @@ import type { AcpmuxRow } from "../model";
 import { childRows, type ChildEntry } from "./childRows";
 import { hiddenCall, isPlumbingName } from "../hiddenTools";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
+import {
+  agentRun,
+  agentRunOf,
+  backgroundOutputPath,
+  harnessFamily,
+  harnessLabel,
+  promptTitle,
+  runModel,
+  runReply,
+} from "./agentRuns";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -59,6 +69,17 @@ export type Subagent = {
   isolated?: boolean;
   cwd?: string;
   worktree?: { path: string; branch?: string };
+  /// A shell call that started an agent of another family (`codex exec`, `acpmux run`;
+  /// agentRuns.ts) is that agent: its harness (its mark), its model and effort ("gpt-6-astra
+  /// xhigh"), the command as the call ran it, the acpmux session it made and the other machine it
+  /// runs on, and what it finally said (``runReply``) once it ended. `kind` is "Codex · gpt-6-astra
+  /// xhigh". It has no `prompt`: Restart and Stop are a Claude subagent's.
+  harness?: string;
+  model?: string;
+  command?: string;
+  session?: string;
+  host?: string;
+  result?: string;
 };
 
 /// Why a subagent was stopped: the person stopped it (Stop on the turn, or on the subagent), or a
@@ -104,6 +125,19 @@ export class SubagentFold {
   chat: string | undefined;
   /// Every id a record named as a subagent, a parent or an owner (``names``).
   private readonly named = new Set<string>();
+  /// The chat's harness (`claude`, `codex`, a profile such as `claude-sr2`), when the pane knows
+  /// it: a shell call starting an agent of its own family stays a command.
+  harness: string | undefined;
+  /// The agent each starting shell call is (``reduceRun``), by call id; the calls that start none.
+  private readonly runs = new Map<string, string>();
+  private readonly notRuns = new Set<string>();
+  /// A background run's output file (Claude Code's "Output is being written to"), and the calls
+  /// that read one: what such a read shows is the run's reply.
+  private readonly runOutputs = new Map<string, string>();
+  private readonly outputReads = new Map<string, string>();
+  /// A call started another family's agent while the chat's harness was not known: once it is,
+  /// the pane folds the records again (direct.ts ``learnChatThread``).
+  deferredRun = false;
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
@@ -155,6 +189,7 @@ export class SubagentFold {
     }
     const kind = update?.sessionUpdate;
     if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
+    if (this.reduceRun(event, update)) return true;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) {
       this.readSpawnCall(call, update);
@@ -169,6 +204,143 @@ export class SubagentFold {
       return true;
     }
     return events.length > 0;
+  }
+
+  /// Whether shell call `call` started an agent, which draws as that agent and not as the call.
+  isRun(call: string): boolean {
+    return this.runs.has(call);
+  }
+
+  /// A shell call of the chat's own that starts an agent of another family (agentRuns.ts), as that
+  /// agent: its start, its output (its reply, or that it went to the background) and how a
+  /// background one ended. True when the update was the agent's and draws no row. Its updates are
+  /// its own view, so opening it shows the command and all it printed.
+  private reduceRun(event: Event, update: any): boolean {
+    const kind = update?.sessionUpdate;
+    const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    if (!call) return false;
+    const known = this.runs.get(call);
+    if (kind === "background_task_update") {
+      const agent = known ? this.agents.get(known) : undefined;
+      if (!agent) return false;
+      const state = update.state;
+      const failed = state === "failed" || (Number.isInteger(update.exitCode) && update.exitCode !== 0);
+      if (state === "completed" || state === "failed" || state === "stopped")
+        this.endRun(agent, failed ? "failed" : state === "stopped" ? "cancelled" : "completed", event.at);
+      return true;
+    }
+    if (kind !== "tool_call" && kind !== "tool_call_update") return false;
+    // Only a call that names its input, or one already known to read a run's output: never a scan
+    // per streamed update.
+    const reads = this.outputReads.has(call) || (this.runOutputs.size > 0 && update?.rawInput);
+    if (reads) this.readOutput(call, update);
+    if (known) {
+      this.updateRun(this.agents.get(known)!, event, update);
+      return true;
+    }
+    if (this.notRuns.has(call)) return false;
+    const command = update?.rawInput?.command;
+    // A call whose command has not come yet may still be one.
+    if (typeof command !== "string" && !Array.isArray(command)) return false;
+    const run = typeof command === "string" ? agentRun(command) : agentRunOf(command.map(String));
+    // Only another family's: both harnesses known and different (a chat whose harness is not known
+    // yet keeps its calls).
+    if (!run?.harness || !this.harness || harnessFamily(run.harness) === harnessFamily(this.harness)) {
+      // The pane folds again once it knows the chat's harness (direct.ts ``learnChatThread``).
+      if (run?.harness && !this.harness) this.deferredRun = true;
+      this.notRuns.add(call);
+      return false;
+    }
+    const description = text(update.rawInput.description);
+    const model = runModel(run);
+    const label = run.harness ? harnessLabel(run.harness) : undefined;
+    const agent: Subagent = {
+      id: `run:${call}`,
+      parent: null,
+      name: promptTitle(run.prompt) ?? description ?? label ?? "acpmux",
+      ...(description && { task: description }),
+      ...((label || model) && { kind: [label, model].filter(Boolean).join(" · ") }),
+      state: "running",
+      startedAt: event.at,
+      command: typeof command === "string" ? command : command.join(" "),
+      ...(run.harness && { harness: run.harness }),
+      ...(model && { model }),
+      ...(run.session && { session: run.session }),
+      ...(run.host && { host: run.host }),
+      ...(update.rawInput.run_in_background === true && { background: true }),
+    };
+    this.runs.set(call, agent.id);
+    this.agents.set(agent.id, agent);
+    this.named.add(agent.id);
+    this.turn.add(agent.id);
+    // A foreground run ends with its call; the turn's end ends one whose end never came.
+    if (!agent.background) this.called.add(agent.id);
+    // Its own card in the transcript, where it started: never a batch with Claude's subagents.
+    const group: Group = { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [agent.id] };
+    this.groupOf.set(agent.id, group);
+    this.open = undefined;
+    this.updateRun(agent, event, update);
+    return true;
+  }
+
+  private updateRun(agent: Subagent, event: Event, update: any): void {
+    this.record(agent.id, { event, update });
+    const status = update?.status;
+    if (agent.state === "running" && (status === "completed" || status === "failed")) {
+      const output = outputOf(update);
+      const file = status === "completed" ? backgroundOutputPath(output) : undefined;
+      // Moved to the background (by the call, or by Claude Code while it ran): it runs on.
+      if (file || (status === "completed" && agent.background)) {
+        agent.background = true;
+        if (file) this.runOutputs.set(file, agent.id);
+      } else {
+        const reply = runReply(output);
+        if (reply) agent.result = reply;
+        this.endRun(agent, status === "failed" ? "failed" : "completed", event.at);
+        return;
+      }
+    }
+    this.touch(agent);
+  }
+
+  private endRun(agent: Subagent, state: string, at: number): void {
+    if (agent.state !== "running") return;
+    agent.state = state;
+    agent.endedAt = at;
+    this.ended.add(agent.id);
+    // Its file was read while it ran: a read after its end says what that one said, and is drawn.
+    if (agent.result) this.forgetOutput(agent.id);
+    this.touch(agent);
+  }
+
+  private forgetOutput(id: string): void {
+    for (const [file, owner] of this.runOutputs) if (owner === id) this.runOutputs.delete(file);
+  }
+
+  /// A call that reads a background run's output file (a Read of it, a `cat` or a `tail`): once it
+  /// returns, what it read is the run's reply.
+  private readOutput(call: string, update: any): void {
+    let id = this.outputReads.get(call);
+    if (!id) {
+      const input = update?.rawInput;
+      const path = text(input?.file_path) ?? text(input?.path);
+      const command = typeof input?.command === "string" ? input.command : undefined;
+      for (const [file, agent] of this.runOutputs)
+        if (path === file || command?.includes(file)) {
+          id = agent;
+          this.outputReads.set(call, agent);
+        }
+    }
+    const agent = id ? this.agents.get(id) : undefined;
+    if (!agent || update?.status !== "completed") return;
+    this.outputReads.delete(call);
+    const reply = runReply(withoutLineNumbers(outputOf(update)));
+    if (reply && reply !== agent.result) {
+      agent.result = reply;
+      this.touch(agent);
+    }
+    // Read once the run ended, its file says nothing more.
+    if (agent.state !== "running") this.forgetOutput(agent.id);
   }
 
   /// A turn starts: its stop ends the subagents spawned from here on.
@@ -188,6 +360,8 @@ export class SubagentFold {
       if (left.state === "completed" && !this.called.has(agent.id)) continue;
       agent.state = left.state;
       agent.endedAt = at;
+      // A run's output file says nothing more once it ended.
+      if (agent.command) this.forgetOutput(agent.id);
       this.settleReason(agent);
       this.touch(agent);
       changed = true;
@@ -444,6 +618,30 @@ export function stopReasonOf(
   if (stops.requested.has(agent.id)) return "user";
   if (cause && !agent.background) return cause;
   return stops.reasons.get(agent.id);
+}
+
+/// A tool call's output: its content's text (Claude Code), else its raw output's.
+function outputOf(update: any): string | undefined {
+  const parts = Array.isArray(update?.content) ? update.content : [];
+  const said = parts
+    .map((part: any) =>
+      typeof part?.content?.text === "string" ? part.content.text : typeof part?.text === "string" ? part.text : "",
+    )
+    .join("");
+  if (said) return said;
+  const raw = update?.rawOutput;
+  if (typeof raw === "string") return raw;
+  return typeof raw?.output === "string" ? raw.output : typeof raw?.stdout === "string" ? raw.stdout : undefined;
+}
+
+/// A file Claude Code's Read returned, without the line numbers it puts before each line.
+function withoutLineNumbers(output: string | undefined): string | undefined {
+  if (!output) return output;
+  const lines = output.split("\n");
+  const numbered = /^\s*\d+(?:\t|→)/;
+  return lines.every((line) => !line.trim() || numbered.test(line))
+    ? lines.map((line) => line.replace(numbered, "")).join("\n")
+    : output;
 }
 
 const HARNESS_GONE = new Set(["exited", "stopped", "reopened", "resumed", "host_started", "host_ended"]);

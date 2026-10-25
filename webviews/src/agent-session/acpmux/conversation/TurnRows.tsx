@@ -115,7 +115,7 @@ function groupNode(
     case "dispatch":
       return <DispatchCard key={group.item.tool!.id || index} item={group.item} call={group.call} />;
     case "subsession":
-      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} />;
+      return <SubsessionCallCard key={group.item.tool!.id || index} call={group.call} tool={group.item.tool!} />;
     case "item":
       // A short interim note folded into the run (turns.ts mergeShortNotes).
       if (group.item.kind === "note")

@@ -41,6 +41,7 @@ import {
   needsYouCards,
   recentChatCards,
   screenRows,
+  inStrip,
   shellEntry,
   shortHost,
   stepSelection,
@@ -85,6 +86,7 @@ import { SlashMenu } from "../SlashMenu";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand } from "../slashCommands";
 import { useHarnessesListed } from "../catalog";
 import { NewTabExtras } from "./NewTabExtras";
+import type { SuggestionOrder } from "./suggestionOrder";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = {
@@ -196,6 +198,8 @@ type Props = NewTabScreenActions & {
   /// true: `tabs.newTabWidgets.greeting` is set to false (not the default): with the headline off,
   /// Minimal keeps no room for it, so the composer sits where it sat with the greeting off.
   headlineOff?: boolean;
+  /// How the rows under the field rank (screenModel.ts SuggestionOrder); unset is the default.
+  suggestionOrder?: SuggestionOrder;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the recent chats show where
   /// the template would list All chats.
   allChats?: boolean;
@@ -461,13 +465,22 @@ export function NewTabScreen(props: Props) {
   const suggested = useMemo(
     () =>
       touched && !shell && commandQuery === undefined
-        ? screenRows(text, { omnibar, home, create: creates, ...(ask ? { ask } : {}) })
+        ? screenRows(text, {
+            omnibar,
+            home,
+            create: creates,
+            ...(ask ? { ask } : {}),
+            createNames: { terminal: nt("create.terminal"), browser: nt("create.browser"), chat: nt("create.chat") },
+            ...(props.suggestionOrder ? { order: props.suggestionOrder } : {}),
+          })
         : [],
-    [touched, shell, text, omnibar, home, ask, creates, commandQuery],
+    [touched, shell, text, omnibar, home, ask, creates, commandQuery, props.suggestionOrder, nt],
   );
   const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
-  const current = selected === undefined ? defaultSelection(rows) : rows.findIndex((row) => rowKey(row) === selected);
+  // A highlighted row that went away (its tab closed) hands Return back to the top row.
+  const kept = selected === undefined ? -1 : rows.findIndex((row) => rowKey(row) === selected);
+  const current = selected === undefined || (kept < 0 && selected !== NO_ROW) ? defaultSelection(rows) : kept;
   const pick = (index: number) => {
     const row = rows[index];
     setSelected(row ? rowKey(row) : NO_ROW);
@@ -1444,39 +1457,73 @@ export function NewTabScreen(props: Props) {
           >
             {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
             <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
-              {rows.map((row, index) => (
-                <div
-                  key={rowKey(row)}
-                  id={`nt-row-${index}`}
-                  ref={index === current ? keepInView : undefined}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === current}
-                  data-type={row.type}
-                  className={index === current ? "nt-row is-selected" : "nt-row"}
-                  onMouseMove={() => {
-                    if (index === current) return;
-                    pick(index);
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    activate(row);
-                  }}
-                >
-                  {rowFavicon(row) ? (
-                    <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-                  ) : (
-                    <RowGlyph kind={rowGlyph(row)} />
+              {rows.map((row, index) =>
+                inStrip(row) ? null : (
+                  <div
+                    key={rowKey(row)}
+                    id={`nt-row-${index}`}
+                    ref={index === current ? keepInView : undefined}
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === current}
+                    data-type={row.type}
+                    className={index === current ? "nt-row is-selected" : "nt-row"}
+                    onMouseMove={() => {
+                      if (index === current) return;
+                      pick(index);
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      activate(row);
+                    }}
+                  >
+                    {rowFavicon(row) ? (
+                      <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+                    ) : (
+                      <RowGlyph kind={rowGlyph(row)} />
+                    )}
+                    <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
+                    {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                    <span className="nt-row-action" data-popup-skip>
+                      {rowAction(t, nt, row)}
+                      {index === current && <kbd>↵</kbd>}
+                    </span>
+                  </div>
+                ),
+              )}
+              {rows.some(inStrip) && (
+                // The create actions the rows don't list (screenModel.ts): options still, so the arrow
+                // keys and the native popup reach them, drawn as one quiet line.
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                <div className="nt-create-strip" role="group" aria-label={nt("create.label")}>
+                  {rows.map((row, index) =>
+                    inStrip(row) ? (
+                      <div
+                        key={rowKey(row)}
+                        id={`nt-row-${index}`}
+                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={index === current}
+                        data-type={row.type}
+                        className={index === current ? "nt-create-strip-item is-selected" : "nt-create-strip-item"}
+                        onMouseMove={() => {
+                          if (index === current) return;
+                          pick(index);
+                        }}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          activate(row);
+                        }}
+                      >
+                        <RowGlyph kind={rowGlyph(row)} />
+                        <span className="nt-row-title">{rowTitle(nt, row)}</span>
+                      </div>
+                    ) : null,
                   )}
-                  <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
-                  {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                  <span className="nt-row-action" data-popup-skip>
-                    {rowAction(t, nt, row)}
-                    {index === current && <kbd>↵</kbd>}
-                  </span>
                 </div>
-              ))}
+              )}
             </div>
           </Popover>
         )}

@@ -32,7 +32,7 @@ struct FeedView: View {
             switch layout {
             case .list: FeedListView(model: model)
             case .inbox: FeedInboxView(model: model)
-            case .reportsBasket: ReportsBasketView(model: model, onReply: onReportsReply)
+            case .reportsBasket: ReportsBasketHost(model: model, onReply: onReportsReply)
             }
         }
         .background(colors.background)

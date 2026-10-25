@@ -29,6 +29,8 @@ At most `maxRunning` of your sub-sessions run at once (16 unless the user
 changed it); a start past it is queued and starts by itself when one finishes.
 `list_sessions` (under `self`) or `acpmux session limits @` shows your limits
 and how many run and wait; only the user or your parent session raises them.
+A sub-session runs on this machine; `host: "auto"` first checks it has room
+(the engine `acpmux new --host auto` uses) and refuses the start when not.
 A lane is different: an agent with its own worktree and brief that reports
 back to you and outlives you. Start it with the one launcher command in
 section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
@@ -138,6 +140,14 @@ one command; running it again reuses the session and worktree and sends nothing:
 acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
 ```
 
+A child of another harness under your own chat (a Codex child of a Claude chat): it lists
+under your chat, and your sub-session tools read, message and stop it.
+
+```bash
+acpmux run --parent "$ACPMUX_SESSION_ID" -m codex -e high "PROMPT"   # prints its reply
+acpmux new --parent "$ACPMUX_SESSION_ID" -m opencode -n tests -d "PROMPT"
+```
+
 Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
 surface for what (CLI, `cmux-subsessions` MCP, cmux MCP): `cmux-tui/crates/acpmux/docs/agent-surfaces.md`
 in the cmux repository.
@@ -194,7 +204,18 @@ acpmux host ls                                   # peers, connected or offline, 
 acpmux run -m claude --host HOST "…"             # start there; --cwd is a remote path
 acpmux ensure NAME -m codex --host HOST
 acpmux wait                                      # covers remote sessions too
+acpmux resolve 'https://cmux.com/deeplink/agent?harness=claude&session=…&host=…'
+                                                 # the session a PR footer's link (or an id, host/name, name) names, here or on a peer: host, ids, model, cwd, lane, PRs, last turn
 ```
+
+A remote start runs under the peer's rules. `--cwd` must sit inside the peer's
+`webRoots` (a missing folder there is made); with no `--cwd` the session gets a
+scratch folder. `--mode` is refused, and the session starts in the harness's
+asking mode. `--policy approve-all` passes only when the peer serves this machine
+as a peer (`servedAs` in `acpmux --json host ls`); otherwise start it on that
+machine itself, `ssh HOST 'acpmux new … --policy approve-all -d'`, and drive it
+from here as `HOST/NAME`. Every such refusal ends with the command that works
+(`--json`: `error.data.try`, with `error.data.reason`): run that, do not guess.
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
 current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not

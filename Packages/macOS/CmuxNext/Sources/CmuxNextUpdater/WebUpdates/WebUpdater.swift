@@ -55,6 +55,16 @@ public final class WebUpdater {
         }
     }
 
+    /// Whether a bundle takes web updates: NIGHTLY (`com.cmuxterm.app.nightly[.<tag>]`) and the tip
+    /// app (cmux NEXT DEV stamped with the tip feed, ``UpdateBuildIdentity/isTipBuild``), which both
+    /// follow feat-cmux-next. Other Debug and DEV builds keep a developer's own web, and Release and
+    /// RC builds the web they were built with.
+    public nonisolated static func takesUpdates(_ identity: UpdateBuildIdentity) -> Bool {
+        if identity.isTipBuild { return true }
+        guard let bundle = identity.bundleIdentifier else { return false }
+        return bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.")
+    }
+
     public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
     public typealias Download = @Sendable (URLRequest) async throws -> URL
 

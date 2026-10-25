@@ -21,6 +21,11 @@ extension DaemonStore {
     /// carrying `transaction`, then calls `noteSettled` after the reply or
     /// `rejectIntent` when it failed.
     public func intend(_ intent: Intent, transaction: ClientTransactionID) {
+        // A script batch's intent waits for its stage to commit (DaemonStore+Stage.swift).
+        if let stage, stage.holds(intent, transaction: transaction, in: self) {
+            _ = intentLog.append(intent, transaction: transaction, held: true)
+            return
+        }
         if overlayLifted {
             // Applied with the rest when the lift ends.
             _ = intentLog.append(intent, transaction: transaction)
@@ -209,7 +214,7 @@ extension DaemonStore {
 
     /// Applies every pending intent in order, recording each inverse.
     private func restoreOverlay() {
-        for (index, entry) in intentLog.entries.enumerated() { // IntentOverlay never writes the log
+        for (index, entry) in intentLog.entries.enumerated() where !entry.held { // IntentOverlay never writes the log
             if !intentLog.setUndo(IntentOverlay.restore(entry, to: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }
