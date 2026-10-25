@@ -1694,7 +1694,7 @@ pub struct RemoteSession {
 }
 
 impl RemoteSession {
-    pub(super) fn install_api_revision(&self, revision: Option<api_revision::RemoteApiRevision>) {
+    fn install_api_revision(&self, revision: Option<api_revision::RemoteApiRevision>) {
         *self.api_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = revision;
     }
 
