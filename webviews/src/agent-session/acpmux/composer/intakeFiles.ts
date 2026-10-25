@@ -130,11 +130,9 @@ export async function intakeFiles(
     for (let at = waiting.length - 1; at >= 0; at--) if (options.cancelled?.(waiting[at]!.index)) waiting.splice(at, 1);
   }
   if (waiting.length) {
-    const sent = await options
-      .upload?.(waiting.map(({ file }) => file))
-      .catch((failure: unknown): UploadResult => ({
-        error: failure instanceof Error ? failure.message : String(failure),
-      }));
+    const sent = await options.upload?.(waiting.map(({ file }) => file)).catch((failure: unknown): UploadResult => ({
+      error: failure instanceof Error ? failure.message : String(failure),
+    }));
     for (const [at, { index, file, image }] of waiting.entries()) {
       const path = sent && "paths" in sent && sent.paths.length === waiting.length ? sent.paths[at] : undefined;
       if (path && image) {

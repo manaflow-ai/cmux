@@ -198,7 +198,9 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     expect(await loading.locator(".acpmux-attachment-spinner").count()).toBe(1);
     await loading.locator(".acpmux-attachment-remove").click();
     expect(await loading.count()).toBe(0);
-    // Its read ending later brings nothing back.
+    // Its read ending later brings nothing back: nothing on the page says when a cancelled read
+    // ends, so the test gives it the time a read of this screenshot takes here.
+    // fixed-wait: a cancelled read has no observable end; the assertion is that nothing appears.
     await page.waitForTimeout(3000);
     expect(await page.locator(".acpmux-attachment").count()).toBe(0);
     await page.close();

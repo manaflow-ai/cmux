@@ -33,14 +33,20 @@ const never = <T>() => new Promise<T>(() => {});
 test("an image is its chip at once while its original's upload never ends", async () => {
   imageEngine();
   const ready: [number, ComposerAttachment][] = [];
+  let bothReady = () => {};
+  const both = new Promise<void>((resolve) => (bothReady = resolve));
   void intakeFiles(
     [png("a.png"), png("b.png")],
     { allowImages: true, upload: never },
     {
-      ready: (index, chip) => ready.push([index, chip]),
+      ready: (index, chip) => {
+        ready.push([index, chip]);
+        if (ready.length === 2) bothReady();
+      },
     },
   );
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  // Both chips come while the upload still hangs (intakeFiles itself never returns here).
+  await both;
   expect(ready.map(([index, chip]) => [index, chip.kind])).toEqual([
     [0, "image"],
     [1, "image"],
