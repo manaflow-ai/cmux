@@ -11,10 +11,11 @@ use hmac::{Hmac, Mac};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
 
 type HmacSha256 = Hmac<sha2::Sha256>;
@@ -22,8 +23,16 @@ type HmacSha256 = Hmac<sha2::Sha256>;
 const REPO_MAX: usize = 140;
 const TEXT_MAX: usize = 64 * 1024;
 const OUTPUT_MAX: usize = 64 * 1024;
+/// How far `issuedAt` may be from the owner's clock. The signed timestamp is
+/// what makes the replay guard both bounded and safe: a captured request is
+/// refused once it leaves this window, so a spent id older than the window can
+/// be dropped without reopening the replay it was recorded to stop.
+const REQUEST_FRESHNESS_SECS: u64 = 120;
+/// Spent ids are kept for twice the freshness window, so an id is always still
+/// on record for as long as its request could be accepted on either clock.
 const SPENT_REQUESTS_MAX: usize = 8192;
-static SPENT_REQUESTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+/// requestId -> its signed `issuedAt`.
+static SPENT_REQUESTS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -60,6 +69,10 @@ pub struct GithubActionParams {
     /// One-time action id. It prevents a captured peer request from being
     /// replayed against the owner's identity.
     pub request_id: String,
+    /// Unix seconds when the caller built this request. It is covered by the
+    /// peer proof, so a captured request expires (`REQUEST_FRESHNESS_SECS`)
+    /// instead of staying replayable for as long as the daemon runs.
+    pub issued_at: u64,
     pub action: GithubAction,
     pub repo: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -336,24 +349,45 @@ fn verify_peer_capability(
     Ok(())
 }
 
-fn consume_request_id(request_id: &str) -> Result<(), RpcError> {
+fn unix_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or_default()
+}
+
+/// Spend one request id. The id is recorded only after `issuedAt` proves the
+/// request is current, so the owner can forget ids the freshness window has
+/// already made unusable and the guard stays bounded without ever letting an
+/// evicted id through a second time.
+fn consume_request(request_id: &str, issued_at: u64, now: u64) -> Result<(), RpcError> {
+    let spent = SPENT_REQUESTS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut spent = spent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    spend(&mut spent, request_id, issued_at, now)
+}
+
+fn spend(
+    spent: &mut HashMap<String, u64>,
+    request_id: &str,
+    issued_at: u64,
+    now: u64,
+) -> Result<(), RpcError> {
     if request_id.is_empty()
         || request_id.len() > 128
         || !request_id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
         return Err(invalid("requestId must be 1..128 ASCII identifier characters"));
     }
-    let spent = SPENT_REQUESTS.get_or_init(|| Mutex::new(HashSet::new()));
-    let mut spent = spent.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !spent.insert(request_id.to_owned()) {
-        return Err(denied("GitHub broker request has already been used"));
+    if issued_at.abs_diff(now) > REQUEST_FRESHNESS_SECS {
+        return Err(denied(format!(
+            "GitHub broker request is outside the {REQUEST_FRESHNESS_SECS}s freshness window"
+        )));
     }
-    if spent.len() > SPENT_REQUESTS_MAX {
-        let remove = spent.len() - SPENT_REQUESTS_MAX;
-        let old: Vec<String> = spent.iter().take(remove).cloned().collect();
-        for id in old {
-            spent.remove(&id);
-        }
+    spent.retain(|_, seen| now.saturating_sub(*seen) <= REQUEST_FRESHNESS_SECS * 2);
+    if spent.len() >= SPENT_REQUESTS_MAX {
+        // Only a flood inside one window reaches this: fail closed rather than
+        // evict an id that a captured request could still be replayed with.
+        return Err(RpcError::internal("GitHub broker replay guard is saturated"));
+    }
+    if spent.insert(request_id.to_owned(), issued_at).is_some() {
+        return Err(denied("GitHub broker request has already been used"));
     }
     Ok(())
 }
@@ -435,10 +469,7 @@ pub fn load_policy(config: &GithubBrokerConfig) -> Result<GithubBrokerConfig, Rp
         validate_peer_secrets(&config.peer_secrets)?;
         return Ok(config.clone());
     };
-    validate_policy_path(path)?;
-    let text = std::fs::read_to_string(path).map_err(|e| {
-        RpcError::internal(format!("read GitHub broker policy {}: {e}", path.display()))
-    })?;
+    let text = read_policy_file(path)?;
     let mut from_file: GithubBrokerConfig = serde_json::from_str(&text).map_err(|e| {
         RpcError::invalid_params(format!("parse GitHub broker policy {}: {e}", path.display()))
     })?;
@@ -451,25 +482,42 @@ pub fn load_policy(config: &GithubBrokerConfig) -> Result<GithubBrokerConfig, Rp
     Ok(from_file)
 }
 
-fn validate_policy_path(path: &Path) -> Result<(), RpcError> {
-    #[cfg(unix)]
+fn unreadable_policy(path: &Path, cause: impl std::fmt::Display) -> RpcError {
+    RpcError::internal(format!("read GitHub broker policy {}: {cause}", path.display()))
+}
+
+/// Read the owner-only policy. The ownership and mode are checked on the open
+/// file descriptor, not on the path, so the file that was vetted is the file
+/// that is read; `O_NOFOLLOW` keeps a symlink from standing in for it.
+#[cfg(unix)]
+fn read_policy_file(path: &Path) -> Result<String, RpcError> {
+    use std::fs::OpenOptions;
+    use std::io::Read;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| unreadable_policy(path, e))?;
+    let metadata = file.metadata().map_err(|e| unreadable_policy(path, e))?;
+    if !metadata.file_type().is_file()
+        || metadata.uid() != unsafe { libc::getuid() }
+        || metadata.permissions().mode() & 0o077 != 0
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let metadata = std::fs::symlink_metadata(path).map_err(|e| {
-            RpcError::internal(format!("stat GitHub broker policy {}: {e}", path.display()))
-        })?;
-        if metadata.file_type().is_symlink()
-            || !metadata.file_type().is_file()
-            || metadata.uid() != unsafe { libc::getuid() }
-            || metadata.permissions().mode() & 0o077 != 0
-        {
-            return Err(RpcError::invalid_params(format!(
-                "GitHub broker policy {} must be an owner-only regular file",
-                path.display()
-            )));
-        }
+        return Err(RpcError::invalid_params(format!(
+            "GitHub broker policy {} must be an owner-only regular file",
+            path.display()
+        )));
     }
-    Ok(())
+    let mut text = String::new();
+    file.read_to_string(&mut text).map_err(|e| unreadable_policy(path, e))?;
+    Ok(text)
+}
+
+#[cfg(not(unix))]
+fn read_policy_file(path: &Path) -> Result<String, RpcError> {
+    std::fs::read_to_string(path).map_err(|e| unreadable_policy(path, e))
 }
 
 /// Handle the peer-facing RPC. A lane daemon with `ownerPeer` set forwards
@@ -514,8 +562,16 @@ pub async fn handle(
         if conn.origin != crate::server::Origin::Peer {
             return Err(invalid("forwarded GitHub broker requests require a peer connection"));
         }
-        verify_peer_capability(&request, &config.peer_secrets)?;
-        consume_request_id(&request.request_id)?;
+        if let Err(error) = verify_peer_capability(&request, &config.peer_secrets) {
+            let _ =
+                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
+            return Err(error);
+        }
+        if let Err(error) = consume_request(&request.request_id, request.issued_at, unix_now()) {
+            let _ =
+                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
+            return Err(error);
+        }
     } else if let Some(owner) = config.owner_peer.as_deref() {
         if conn.origin != crate::server::Origin::Local {
             return Err(invalid("a lane broker request must enter through its local socket"));
@@ -570,7 +626,7 @@ pub async fn handle(
     }
 
     if !request.forwarded {
-        consume_request_id(&request.request_id)?;
+        consume_request(&request.request_id, request.issued_at, unix_now())?;
     }
 
     let authorized = match AuthorizedGithubAction::authorize(&config, request.clone()) {
@@ -603,6 +659,10 @@ mod tests {
     use crate::config::github_broker::{GithubRepoPolicy, GithubSessionPolicy};
     use std::collections::{BTreeMap, BTreeSet};
 
+    /// `sign_request` refuses anything under 32 bytes, so the fixtures use a
+    /// secret of the shape a real policy file would hold.
+    const TEST_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
     fn config(action: &str, prefixes: &[&str]) -> GithubBrokerConfig {
         let mut actions = BTreeSet::new();
         actions.insert(action.into());
@@ -629,6 +689,7 @@ mod tests {
         let request = GithubActionParams {
             session_id: "session-1".into(),
             request_id: "test-1".into(),
+            issued_at: 1_700_000_000,
             action: GithubAction::Comment,
             repo: "manaflow-ai/cmux".into(),
             issue: Some(1),
@@ -653,6 +714,7 @@ mod tests {
         let request = GithubActionParams {
             session_id: "session-1".into(),
             request_id: "test-2".into(),
+            issued_at: 1_700_000_000,
             action: GithubAction::DraftPr,
             repo: "manaflow-ai/cmux".into(),
             branch: Some("agent/42".into()),
@@ -675,6 +737,7 @@ mod tests {
         let request = GithubActionParams {
             session_id: "session-1".into(),
             request_id: "test-3".into(),
+            issued_at: 1_700_000_000,
             action: GithubAction::DraftPr,
             repo: "manaflow-ai/cmux".into(),
             branch: Some("agent/42".into()),
@@ -704,6 +767,7 @@ mod tests {
         let mut request = GithubActionParams {
             session_id: "session-1".into(),
             request_id: "test-4".into(),
+            issued_at: 1_700_000_000,
             action: GithubAction::Read,
             repo: "manaflow-ai/cmux".into(),
             branch: None,
@@ -716,17 +780,69 @@ mod tests {
             peer_id: Some("lane-1".into()),
             peer_proof: None,
         };
-        let proof = sign_request(&request, "test-secret").unwrap();
+        let proof = sign_request(&request, TEST_SECRET).unwrap();
         request.peer_proof = Some(proof);
-        let secrets = std::collections::BTreeMap::from([(
-            String::from("lane-1"),
-            String::from("test-secret"),
-        )]);
+        let secrets =
+            std::collections::BTreeMap::from([(String::from("lane-1"), String::from(TEST_SECRET))]);
         assert!(verify_peer_capability(&request, &secrets).is_ok());
         request.session_id = "other-session".into();
         assert!(verify_peer_capability(&request, &secrets).is_err());
         request.session_id = "session-1".into();
-        assert!(consume_request_id(&request.request_id).is_ok());
-        assert!(consume_request_id(&request.request_id).is_err());
+        let now = request.issued_at;
+        assert!(consume_request(&request.request_id, request.issued_at, now).is_ok());
+        assert!(consume_request(&request.request_id, request.issued_at, now).is_err());
+    }
+
+    #[test]
+    fn a_short_peer_secret_cannot_sign_a_request() {
+        let mut request = GithubActionParams {
+            session_id: "session-1".into(),
+            request_id: "test-5".into(),
+            issued_at: 1_700_000_000,
+            action: GithubAction::Read,
+            repo: "manaflow-ai/cmux".into(),
+            branch: None,
+            base: None,
+            head_sha: None,
+            issue: None,
+            title: None,
+            body: None,
+            forwarded: true,
+            peer_id: Some("lane-1".into()),
+            peer_proof: None,
+        };
+        assert!(sign_request(&request, "too-short").is_err());
+        request.peer_proof = Some(sign_request(&request, TEST_SECRET).unwrap());
+        let secrets = BTreeMap::from([(String::from("lane-1"), String::from("too-short-secret"))]);
+        assert!(verify_peer_capability(&request, &secrets).is_err());
+    }
+
+    #[test]
+    fn a_stale_or_future_request_is_refused_before_it_is_recorded() {
+        let mut spent = HashMap::new();
+        let now = 1_700_000_000u64;
+        let stale = now - REQUEST_FRESHNESS_SECS - 1;
+        assert!(spend(&mut spent, "stale-1", stale, now).is_err());
+        let ahead = now + REQUEST_FRESHNESS_SECS + 1;
+        assert!(spend(&mut spent, "ahead-1", ahead, now).is_err());
+        // A refusal must not spend the id, so an honest retry still works.
+        assert!(spent.is_empty());
+        assert!(spend(&mut spent, "stale-1", now, now).is_ok());
+        assert!(spend(&mut spent, "ahead-1", now, now).is_ok());
+    }
+
+    #[test]
+    fn a_spent_id_is_forgotten_only_after_it_can_no_longer_be_replayed() {
+        let mut spent = HashMap::new();
+        let at = 1_700_000_000u64;
+        assert!(spend(&mut spent, "window-1", at, at).is_ok());
+        // Still inside the window a replay is refused, and the pass that bounds
+        // the guard must not drop the id that refuses it.
+        assert!(spend(&mut spent, "window-1", at, at + REQUEST_FRESHNESS_SECS).is_err());
+        assert!(spent.contains_key("window-1"));
+        // Past the window the request itself is refused, so forgetting its id
+        // cannot let it through, and the guard stays bounded.
+        assert!(spend(&mut spent, "window-1", at, at + REQUEST_FRESHNESS_SECS * 2 + 1).is_err());
+        assert!(spent.is_empty());
     }
 }

@@ -12,7 +12,7 @@ use anyhow::{Result, anyhow};
 use serde_json::Value;
 
 fn flag(args: &mut Vec<String>, name: &str) -> Option<String> {
-    let Some(i) = args.iter().position(|arg| arg == name) else { return None };
+    let i = args.iter().position(|arg| arg == name)?;
     if i + 1 >= args.len() {
         return None;
     }
@@ -72,6 +72,10 @@ fn parse(mut args: Vec<String>) -> Result<GithubActionParams> {
     Ok(GithubActionParams {
         session_id,
         request_id: uuid::Uuid::now_v7().to_string(),
+        issued_at: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or_default(),
         action,
         repo,
         branch,

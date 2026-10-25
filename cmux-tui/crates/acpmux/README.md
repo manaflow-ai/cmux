@@ -832,7 +832,10 @@ the policy. Grants are exact session ids; the template has no wildcard grant. Fo
 also carry a per-peer HMAC capability checked against the owner policy file, while the existing
 launch-wide peer token remains the transport channel proof.
 Set the lane's `peerId` and `peerSecret` in its local config, and put the matching `peerSecrets`
-entry only in the owner's mode-0600 policy file. The current `push` action updates an already
+entry only in the owner's mode-0600 policy file. Each request carries a signed `issuedAt`: the
+owner refuses one more than 120 s from its own clock and remembers its `requestId` for twice that,
+so a captured request can be neither replayed nor outlived by the id that would refuse it. The
+current `push` action updates an already
 available GitHub commit ref through the owner; it does not transfer a lane's local git objects, so
 ordinary `git push` remains a follow-up transport and must not be enabled as a credential helper.
 
