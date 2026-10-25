@@ -4345,6 +4345,14 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
+          # The DEV app's warm state is the runner's own content-addressed Xcode
+          # compilation cache (no kept build products, no remote store:
+          # scripts/cmux-next/lib/compilation-cache.sh), built per file with -O
+          # (singlefile, Xcode's "Incremental") so a one-file change replays
+          # every other file. Repo variables switch each back:
+          # CMUX_NEXT_DEV_COMPILATION_CACHE=0, CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE=wholemodule.
+          CMUX_NEXT_COMPILATION_CACHE: ${{ vars.CMUX_NEXT_DEV_COMPILATION_CACHE || '1' }}
+          CMUX_NEXT_SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
           CMUX_BUILD_METRICS_DIR: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
@@ -4352,6 +4360,8 @@ jobs:
         run: |
           set -euo pipefail
           release_derived_data="$(scripts/cmux-next/release-derived-data-path.sh dev-daily-release Release)"
+          # Only a mini keeps the cache between jobs; a fresh VM would pay to fill it.
+          [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_COMPILATION_CACHE=0
           scripts/cmux-next/check-cmux-scheme-compile.sh "$release_derived_data"
           app="$(find "$release_derived_data/Build/Products/Release" -maxdepth 1 -type d -name 'cmux NEXT DEV.app' -print -quit)"
           test -d "$app"
