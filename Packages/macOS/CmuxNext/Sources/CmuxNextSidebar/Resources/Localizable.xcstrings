@@ -25556,6 +25556,242 @@
           }
         }
       }
+    },
+    "sidebar.pullRequestBadges.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, quiet unless their checks fail, even with the session tree off."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Arbeitsbereichszeile zeigt ein Abzeichen für die Pull Requests, die ihre Agent-Chats geöffnet haben oder auf deren Branch liegen. Es bleibt ruhig, solange keine Prüfungen fehlschlagen, auch ohne Sitzungsbaum."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une ligne d’espace de travail affiche un badge pour les pull requests ouvertes par ses discussions d’agent ou présentes sur sa branche. Il reste discret tant qu’aucune vérification n’échoue, même sans l’arbre des sessions."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض صف مساحة العمل شارة لطلبات السحب التي فتحتها محادثات الوكيل أو الموجودة على فرع مجلدها، وتبقى هادئة ما لم تفشل الفحوصات، حتى مع إيقاف شجرة الجلسات."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una fila de espacio de trabajo muestra una marca para las pull requests que abrieron sus chats de agente o que están en la rama de su carpeta; permanece discreta salvo que fallen las comprobaciones, incluso sin el árbol de sesiones."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作區列會顯示其代理聊天開啟或資料夾分支上的提取請求標記；除非檢查失敗，否則即使關閉工作階段樹也會保持安靜。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作区行会显示其代理聊天打开或文件夹分支上的拉取请求标记；除非检查失败，否则即使关闭会话树也保持安静。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "워크스페이스 행은 에이전트 채팅이 열었거나 폴더 브랜치에 있는 풀 리퀘스트의 배지를 표시하며, 세션 트리가 꺼져 있어도 검사가 실패할 때만 눈에 띕니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースの行には、エージェントチャットが開いたプルリクエストやフォルダのブランチにあるプルリクエストのバッジを表示します。セッションツリーがオフでも、チェックに失敗したときだけ目立ちます。"
+          }
+        }
+      }
+    },
+    "sidebar.pullRequestBadges.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rows show their pull requests"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeilen zeigen ihre Pull Requests"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les lignes affichent leurs pull requests"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُظهر الصفوف طلبات السحب الخاصة بها"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las filas muestran sus pull requests"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "列顯示其提取請求"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行显示其拉取请求"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행에 풀 리퀘스트 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行にプルリクエストを表示"
+          }
+        }
+      }
+    },
+    "sidebar.pullRequestFixture.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gives every workspace row sample pull requests (failing, merged, open, draft or none) instead of reading GitHub, to see the pull request marks without real ones."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Arbeitsbereichszeile erhält Beispiel-Pull-Requests (fehlgeschlagen, zusammengeführt, offen, Entwurf oder keine), statt GitHub zu lesen, damit die Pull-Request-Markierungen ohne echte Daten sichtbar werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque ligne d’espace de travail reçoit des pull requests d’exemple (échec, fusionnée, ouverte, brouillon ou aucune) au lieu de lire GitHub, afin d’afficher les marqueurs sans données réelles."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمنح كل صف في مساحة العمل طلبات سحب نموذجية (فاشلة أو مدمجة أو مفتوحة أو مسودة أو بلا طلبات) بدلاً من قراءة GitHub، لرؤية العلامات من دون طلبات حقيقية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da a cada fila de espacio de trabajo pull requests de ejemplo (fallida, combinada, abierta, borrador o ninguna) en lugar de leer GitHub, para ver las marcas sin datos reales."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "為每個工作區列提供提取請求範例（失敗、已合併、開啟、草稿或無），不讀取 GitHub，以便在沒有真實請求時查看標記。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为每个工作区行提供拉取请求示例（失败、已合并、打开、草稿或无），而不是读取 GitHub，以便在没有真实请求时查看标记。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub을 읽는 대신 모든 워크스페이스 행에 예시 풀 리퀘스트(실패, 병합됨, 열림, 초안 또는 없음)를 제공하여 실제 요청 없이 표시를 확인합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHubを読み取る代わりに、すべてのワークスペース行へ例示用プルリクエスト（失敗、マージ済み、オープン、ドラフト、なし）を表示し、実際のリクエストなしでマークを確認できます。"
+          }
+        }
+      }
+    },
+    "sidebar.pullRequestFixture.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sample pull requests on rows"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beispiel-Pull-Requests in Zeilen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exemples de pull requests dans les lignes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات سحب نموذجية في الصفوف"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull requests de ejemplo en las filas"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在列中顯示提取請求範例"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在行中显示拉取请求示例"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "행에 풀 리퀘스트 예시 표시"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行にプルリクエストの例を表示"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

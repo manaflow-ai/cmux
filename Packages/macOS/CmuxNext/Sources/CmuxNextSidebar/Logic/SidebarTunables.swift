@@ -171,16 +171,18 @@ public nonisolated enum SidebarTunables {
     /// Sample pull requests on every row (`SidebarPullRequestFixture`), for captures on a slot with
     /// no GitHub. Rows still draw them only with `sidebar.workspaceRow.pullRequest` on.
     public static let pullRequestFixture = Tunable<Bool>.toggle(
-        "sidebar.pullRequestFixture", .sidebar, "Sample pull requests on rows",
-        help: "Gives every workspace row sample pull requests (failing, merged, open, draft or none) instead of reading GitHub, to see the pull request marks without real ones.",
+        "sidebar.pullRequestFixture", .sidebar,
+        String(localized: "sidebar.pullRequestFixture.label", defaultValue: "Sample pull requests on rows", bundle: .module),
+        help: String(localized: "sidebar.pullRequestFixture.help", defaultValue: "Gives every workspace row sample pull requests (failing, merged, open, draft or none) instead of reading GitHub, to see the pull request marks without real ones.", bundle: .module),
         default: false, code: "SidebarTunables.pullRequestFixture")
 
     /// Every row carries its pull requests' badge, with or without the session tree
     /// (`SidebarSessionTreeFeed`), while the row's Pull Request element is on
     /// (`sidebar.workspaceRow.pullRequest`, off by default). On by default; the tree's nesting and keycaps stay opt-in.
     public static let pullRequestBadges = Tunable<Bool>.toggle(
-        "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
-        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, quiet unless their checks fail, even with the session tree off.",
+        "sidebar.pullRequestBadges", .sidebar,
+        String(localized: "sidebar.pullRequestBadges.label", defaultValue: "Rows show their pull requests", bundle: .module),
+        help: String(localized: "sidebar.pullRequestBadges.help", defaultValue: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, quiet unless their checks fail, even with the session tree off.", bundle: .module),
         default: true, code: "SidebarTunables.pullRequestBadges")
 
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
