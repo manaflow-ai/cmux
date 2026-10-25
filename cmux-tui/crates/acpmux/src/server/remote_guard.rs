@@ -22,6 +22,11 @@
 //!   `_acpmux/subagent_stop`, which only stops a task the agent already runs
 //!   (`forwards`).
 //!
+//! - A chat's own narrower policy holds its mode for every client (`hub/policy_mode.rs`), so
+//!   a chat a remote connection started (policy `ask`, below) never leaves the asking modes,
+//!   unless a paired machine the person let run chats in Full access sends the switch
+//!   (`full_access_device`); deny-all still holds it then, and a chat started on this machine
+//!   keeps its policy's mode whoever asks.
 //! - Web only (ACP-REMOTE-GUARD), allow lists: only the `ask` and `deny-all`
 //!   policies, rules that cannot auto-approve, the cited asking modes
 //!   (`ASKING_MODES`) and the listed config options; every other value,
@@ -106,6 +111,25 @@ pub(super) fn control_of(
         }
         super::Origin::Peer => Control::Peer,
     }
+}
+
+/// The paired machine whose Full-access setting covers this request
+/// (`crate::pairing` module docs), or None: the connection presented that
+/// machine's own `client` credential (`ConnAuth::Device`; never the shared
+/// dashboard token, a peer token, LocalApp or a read-only machine), the
+/// request is held to the Web's rules (it forwards for that machine's Web
+/// client, `via: web`), and the setting is on now, read from the pairing
+/// store for this request. Which machine it is comes from the handshake
+/// (`Conn::device`), never from the request.
+pub(super) fn full_access_device(
+    hub: &crate::hub::Hub,
+    conn: &super::Conn,
+    params: &Value,
+) -> Option<String> {
+    let id = conn.device.as_deref().filter(|_| conn.auth == super::ConnAuth::Device)?;
+    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web
+        && hub.pairing.full_access(id))
+    .then(|| id.to_owned())
 }
 
 /// A request forwarded to a peer, which serves this daemon as Peer: one
