@@ -54,7 +54,7 @@ if [[ "${1:-}" == --archs ]]; then
   esac
   shift 2
 fi
-swift_other_flags='OTHER_SWIFT_FLAGS=$(inherited)'
+swift_other_flags='$(inherited)'
 bench_label=''
 if [[ "${1:-}" == --bench-hooks ]]; then
   # The same flag reload.sh --config bench passes (SWIFT_OTHER_FLAGS).
