@@ -25,6 +25,11 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// A ``Mutex`` wait on the main thread that took longer than
     /// ``BlockingKind/lockWaitLimitNanos`` (a contended lock: the priority-inversion case).
     case lockWait = "lock-wait"
+    /// A synchronous system framework call that waits for a daemon, another app, the window server or
+    /// the network (Security, Accessibility, host resolution, window lists, LaunchServices).
+    case systemCall = "system-call"
+    /// A sleep (`usleep`, `Thread.sleep`): the thread waits on purpose.
+    case sleep
 
     /// The longest contended ``Mutex`` wait the main thread may do before the detector records
     /// it (2 ms, lead decision 2026-10-24: a short critical section is allowed, as Chrome allows

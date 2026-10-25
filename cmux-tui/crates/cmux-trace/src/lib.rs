@@ -1,0 +1,333 @@
+//! Release trace ring v1 for cmux's Rust processes. The format, the write and decode protocols and
+//! the sizes by role are specified in plans/cmux-next/trace.md, "Release trace ring v1" (task 002);
+//! the Swift ring (task 003) and the C writer (task 094) write the same bytes, and the golden file
+//! they share pins them (`tests/ring.rs`).
+//!
+//! Every process writes 32-byte records on one clock ([`clock`]) into per-thread chunks of its
+//! active ring. A thread owns one chunk at a time and publishes each record with a seqlock; a
+//! chunk still owned by another thread is skipped, never shared. The ring overwrites its oldest
+//! chunks, so the black box always holds the latest records, and it lives in a reserved
+//! `MAP_SHARED` file, so a crash leaves it on disk. This is Chrome's `TraceLog` over Perfetto's
+//! shared memory buffer (`base/trace_event/trace_log.h`, `src/tracing/core/shared_memory_abi.h`),
+//! cut to what a black box needs.
+//!
+//! - [`init_blackbox`]: the first call in `main`. The heap ring is active at once; a one-shot
+//!   thread (`cmux-trace-open`) maps the file, copies the heap ring into it and swaps. No writer
+//!   thread exists, ever.
+//! - [`start_recording`] / [`stop`]: the recording ring for `cmux trace`. Its file is mapped once
+//!   and never unmapped or cleared; each start moves its cursor a lap past the last recording.
+//! - [`write`]: off, one relaxed load and a branch; on, no lock, allocation or system call.
+//!
+//! std and libc only: the holder links it.
+
+pub mod clock;
+mod copy;
+mod decode;
+mod identity;
+mod layout;
+mod map;
+mod ring;
+mod tracer;
+
+use std::cell::RefCell;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+pub use decode::{DecodeError, Decoded, DecodedRecord, Header, NameEntry, ThreadEntry, decode};
+pub use identity::{ProcessIdentity, ThreadIdentity, build_uuid, build_version};
+pub use layout::{
+    CHUNK_BYTES, CatalogName, FLAG_ESTIMATE, FLAG_ID, HEADER_BYTES, NameKind, PAGE_BYTES, Phase,
+    RECORDS_PER_CHUNK, RingKind, RingLayout, RingSizes, THREAD_NONE,
+};
+pub use map::{Reserve, reserve_blocks};
+pub use ring::Record;
+pub use tracer::{InternedName, StartClocks, Tracer, TracerConfig, Writer};
+
+/// Which process wrote a ring (header `role`, u16 at 20).
+#[repr(u16)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Role {
+    App = 1,
+    Daemon = 2,
+    Holder = 3,
+    TerminalHost = 4,
+    Acpmux = 5,
+    ChromiumHost = 6,
+    Cli = 7,
+}
+
+impl Role {
+    pub fn from_raw(raw: u16) -> Option<Role> {
+        Some(match raw {
+            1 => Role::App,
+            2 => Role::Daemon,
+            3 => Role::Holder,
+            4 => Role::TerminalHost,
+            5 => Role::Acpmux,
+            6 => Role::ChromiumHost,
+            7 => Role::Cli,
+            _ => return None,
+        })
+    }
+
+    /// The file-name stem of this role's rings.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::App => "app",
+            Role::Daemon => "daemon",
+            Role::Holder => "holder",
+            Role::TerminalHost => "terminal-host",
+            Role::Acpmux => "acpmux",
+            Role::ChromiumHost => "chromium-host",
+            Role::Cli => "cli",
+        }
+    }
+
+    /// (name capacity, thread capacity, black-box chunks, recording chunks) from "Sizes by role".
+    /// The CLI has no row there; it takes the holder's (a short-lived process with few threads).
+    fn size_row(self) -> (u32, u32, u32, u32) {
+        match self {
+            Role::App | Role::Daemon => (4096, 2048, 512, 32768),
+            Role::ChromiumHost => (4096, 2048, 512, 8192),
+            Role::Holder | Role::Acpmux | Role::Cli => (2048, 512, 256, 8192),
+            Role::TerminalHost => (1024, 256, 64, 512),
+        }
+    }
+
+    pub fn blackbox_sizes(self) -> RingSizes {
+        let (name_capacity, thread_capacity, chunk_count, _) = self.size_row();
+        RingSizes { name_capacity, thread_capacity, chunk_count }
+    }
+
+    pub fn recording_sizes(self) -> RingSizes {
+        let (name_capacity, thread_capacity, _, chunk_count) = self.size_row();
+        RingSizes { name_capacity, thread_capacity, chunk_count }
+    }
+}
+
+/// Trace categories: one bit each in the process's category set ([`enabled`]).
+pub mod category {
+    pub const ACTION: u64 = 1 << 0;
+    pub const KEY: u64 = 1 << 1;
+    pub const SWITCH: u64 = 1 << 2;
+    pub const CREATE: u64 = 1 << 3;
+    pub const CEF: u64 = 1 << 4;
+    pub const LAUNCH: u64 = 1 << 5;
+    pub const DAEMON: u64 = 1 << 6;
+    pub const HANG: u64 = 1 << 7;
+    pub const CRASH: u64 = 1 << 8;
+    pub const MOTION: u64 = 1 << 9;
+    pub const FRAME: u64 = 1 << 10;
+    pub const STALL: u64 = 1 << 11;
+    pub const TASK: u64 = 1 << 12;
+    pub const BURST: u64 = 1 << 13;
+    pub const INPUT: u64 = 1 << 14;
+    pub const WEBVIEW: u64 = 1 << 15;
+    pub const REMOTE: u64 = 1 << 16;
+
+    /// What the black box records while no recording runs.
+    pub const BLACKBOX: u64 = ACTION | KEY | SWITCH | CREATE | CEF | LAUNCH | DAEMON | HANG | CRASH;
+    /// What a recording adds.
+    pub const RECORDING: u64 = MOTION | FRAME | STALL | TASK | BURST | INPUT | WEBVIEW | REMOTE;
+    pub const ALL: u64 = BLACKBOX | RECORDING;
+}
+
+/// The black-box ring file of `role` in process `pid`.
+pub fn blackbox_file_name(role: Role, pid: u32) -> String {
+    format!("{}-{pid}.blackbox.cmxtrace", role.as_str())
+}
+
+/// The recording ring file of `role` in process `pid`.
+pub fn recording_file_name(role: Role, pid: u32) -> String {
+    format!("{}-{pid}.recording.cmxtrace", role.as_str())
+}
+
+/// Why a control call did nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraceError {
+    /// [`init_blackbox`] has not run in this process.
+    NotInitialized,
+    /// A recording runs (or another start or stop is changing state).
+    AlreadyRecording,
+    /// No recording runs.
+    NotRecording,
+}
+
+impl std::fmt::Display for TraceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            TraceError::NotInitialized => "tracing is not initialised in this process",
+            TraceError::AlreadyRecording => "a trace recording is already running",
+            TraceError::NotRecording => "no trace recording is running",
+        })
+    }
+}
+
+impl std::error::Error for TraceError {}
+
+/// What `trace.status` reports for one process.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Status {
+    pub role: Role,
+    pub categories: u64,
+    pub recording: bool,
+    pub blackbox_path: Option<PathBuf>,
+    pub recording_path: Option<PathBuf>,
+    /// Bytes of the recording ring (0 before the first start).
+    pub recording_bytes: u64,
+    pub recording_file_backed: bool,
+    /// The active ring's `chunks_overwritten`, `chunks_skipped` and `records_dropped`.
+    pub chunks_overwritten: u64,
+    pub chunks_skipped: u64,
+    pub records_dropped: u64,
+    /// The black-box file's `heap_chunks_lost`.
+    pub heap_chunks_lost: u64,
+    /// Ring files that could not be reserved or mapped (that ring stayed on the heap).
+    pub map_failures: u32,
+}
+
+/// The process-wide category set: what [`enabled`] reads in one relaxed load.
+static CATEGORIES: AtomicU64 = AtomicU64::new(0);
+/// The process's tracer: the one process-wide trace state, like Chrome's `TraceLog`
+/// (arch-ratchet's reviewed `TraceRuntime` exception). Everything it does is on [`Tracer`].
+static PROCESS: OnceLock<Tracer> = OnceLock::new();
+
+/// A thread's writer state, with the TLS destructor of "Register a thread": at exit it completes
+/// the thread's chunk and frees its thread entries.
+struct ThreadWriter(RefCell<tracer::WriterState>);
+
+impl Drop for ThreadWriter {
+    fn drop(&mut self) {
+        if let Some(tracer) = PROCESS.get() {
+            tracer.exit(self.0.get_mut());
+        }
+    }
+}
+
+thread_local! {
+    static WRITER: ThreadWriter =
+        const { ThreadWriter(RefCell::new(tracer::WriterState::NEW)) };
+}
+
+/// The ring-open thread of [`init_blackbox`].
+pub struct BlackboxOpen(Option<std::thread::JoinHandle<io::Result<PathBuf>>>);
+
+impl BlackboxOpen {
+    /// Waits for the ring file (tests and tools; a `main` drops this and never waits). The path of
+    /// the file, or why the black box stays on the heap.
+    pub fn wait(self) -> io::Result<PathBuf> {
+        match self.0 {
+            Some(handle) => {
+                handle.join().unwrap_or_else(|_| Err(io::Error::other("ring-open thread panicked")))
+            }
+            None => Err(io::Error::other("ring-open thread did not start")),
+        }
+    }
+}
+
+/// Starts this process's black box as `role`, with `catalog` in every ring's name table: the heap
+/// ring takes records from now on, and the one-shot `cmux-trace-open` thread moves it into
+/// `<dir>/<role>-<pid>.blackbox.cmxtrace`. Call it first in `main`; it opens no file itself. None
+/// when the black box was already started.
+pub fn init_blackbox(
+    dir: impl AsRef<Path>,
+    role: Role,
+    catalog: &'static [CatalogName],
+) -> Option<BlackboxOpen> {
+    init_process(TracerConfig::for_process(dir.as_ref(), role, catalog))
+}
+
+/// [`init_blackbox`] with every input given.
+pub fn init_process(config: TracerConfig) -> Option<BlackboxOpen> {
+    let mut fresh = false;
+    let tracer = PROCESS.get_or_init(|| {
+        fresh = true;
+        Tracer::with_mirror(config, Some(&CATEGORIES))
+    });
+    if !fresh {
+        return None;
+    }
+    let handle =
+        std::thread::Builder::new().name("cmux-trace-open".into()).spawn(|| tracer.adopt_file());
+    Some(BlackboxOpen(handle.ok()))
+}
+
+/// Whether trace points of `category` record now: one relaxed load and a branch.
+#[inline(always)]
+pub fn enabled(category: u64) -> bool {
+    CATEGORIES.load(Ordering::Relaxed) & category != 0
+}
+
+/// Records catalog name `name` with `phase` now, if `category` is on.
+#[inline]
+pub fn write(category: u64, name: u16, phase: Phase, flags: u8, arg0: u64, arg1: u64) {
+    if enabled(category) {
+        write_process(Record { t_ns: clock::now_ns(), name, phase, flags, arg0, arg1 }, None);
+    }
+}
+
+/// [`write`] with a time the caller measured on the trace clock (an event's own timestamp).
+#[inline]
+pub fn write_at(
+    category: u64,
+    t_ns: u64,
+    name: u16,
+    phase: Phase,
+    flags: u8,
+    arg0: u64,
+    arg1: u64,
+) {
+    if enabled(category) {
+        write_process(Record { t_ns, name, phase, flags, arg0, arg1 }, None);
+    }
+}
+
+/// [`write`] under a name interned at run time (one id per ring, interned at its first record
+/// there).
+#[inline]
+pub fn write_interned(
+    category: u64,
+    name: &'static InternedName,
+    phase: Phase,
+    flags: u8,
+    arg0: u64,
+    arg1: u64,
+) {
+    if enabled(category) {
+        let record = Record { t_ns: clock::now_ns(), name: 0, phase, flags, arg0, arg1 };
+        write_process(record, Some(name));
+    }
+}
+
+#[inline(never)]
+fn write_process(record: Record, interned: Option<&InternedName>) {
+    let Some(tracer) = PROCESS.get() else { return };
+    let _ = WRITER.try_with(|writer| {
+        if let Ok(mut state) = writer.0.try_borrow_mut() {
+            tracer.write(&mut state, record, interned);
+        }
+    });
+}
+
+/// `trace.start` in this process ([`Tracer::start_recording`]).
+pub fn start_recording(categories: u64) -> Result<Status, TraceError> {
+    PROCESS.get().ok_or(TraceError::NotInitialized)?.start_recording(categories)
+}
+
+/// `trace.stop` in this process ([`Tracer::stop`]).
+pub fn stop() -> Result<Status, TraceError> {
+    PROCESS.get().ok_or(TraceError::NotInitialized)?.stop()
+}
+
+/// This process's trace state; None before [`init_blackbox`].
+pub fn status() -> Option<Status> {
+    PROCESS.get().map(Tracer::status)
+}
+
+/// A consistent copy of the active ring: the crash and hang reports read the black-box tail from
+/// it. None before [`init_blackbox`].
+pub fn snapshot_active() -> Option<Vec<u8>> {
+    PROCESS.get().map(Tracer::snapshot_active)
+}

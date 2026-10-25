@@ -28,6 +28,8 @@ import PackageDescription
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
+//   CmuxNextFeatures -> Compat, swift-atomics (base::FeatureList: the feature registry and the immutable
+//     resolved snapshot the App builds once; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -1352,6 +1354,25 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
             ],
             swiftSettings: uiSwiftSettings
+        ),
+        // base::FeatureList: feature declarations and the resolved snapshot (policy, env, local,
+        // remote, trial, default), read off the main actor as one array load.
+        .target(
+            name: "CmuxNextFeatures",
+            dependencies: [
+                "CmuxNextCompat",
+                .product(name: "Atomics", package: "swift-atomics"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextFeaturesTests",
+            dependencies: [
+                "CmuxNextCompat",
+                "CmuxNextFeatures",
+                .product(name: "Atomics", package: "swift-atomics"),
+            ],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextDesign",
