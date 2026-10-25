@@ -56,14 +56,22 @@ public actor LocalHostPressureSource: HostPressureSource {
 /// Watches the host's pressure off the main thread and tells the main actor
 /// only when the level changes (`HostPressureTracker`).
 ///
-/// Memory pressure comes from `DispatchSource.makeMemoryPressureSource`
-/// (event-driven). Load and swap, and acpmux's verdict, are read on one
-/// timer every `interval` (15 s), never per frame. Stop condition: `stop()`,
-/// which the app calls when its last window closes or it quits; cleanup:
-/// it cancels the dispatch source, the timer and any read in flight, and ends
-/// the run, so a hop or a level change already queued from it is dropped.
+/// Memory pressure comes from the app's one shared pressure feed
+/// (`memoryPressure`, event-driven). The monitor has no kernel source of its
+/// own: Chrome's `MemoryPressureListener`s share one monitor the same way
+/// (base/memory/memory_pressure_listener.cc). Load and swap, and acpmux's
+/// verdict, are read on one timer every `interval` (15 s), never per frame.
+/// Stop condition: `stop()`, which the app calls when its last window closes
+/// or it quits; cleanup: it ends the pressure subscription, cancels the timer
+/// and any read in flight, and ends the run, so a hop or a level change
+/// already queued from it is dropped.
 public actor HostPressureMonitor {
     public typealias Change = @MainActor @Sendable (HostPressureLevel, HostBudgetVerdict) -> Void
+    /// Subscribes a handler to the shared memory pressure feed and returns the call that ends
+    /// the subscription. The app passes its one `MemoryPressureEvents.hostPressureSubscription`;
+    /// a test passes a feed it drives.
+    public typealias MemoryPressureSubscription =
+        @Sendable (@escaping @Sendable (HostMemoryPressure) -> Void) -> @Sendable () -> Void
     /// How a level change reaches the main actor: a hop by default; tests hold it to run later.
     public typealias Delivery = @Sendable (@escaping @MainActor @Sendable () -> Void) -> Void
     public static let mainActorHop: Delivery = { work in
@@ -72,11 +80,12 @@ public actor HostPressureMonitor {
     }
 
     private let source: any HostPressureSource
+    private let memoryPressure: MemoryPressureSubscription
     private let interval: Duration
     private let deliver: Delivery
     private let queue = DispatchQueue(label: "com.cmux.host-pressure", qos: .utility)
     private var tracker: HostPressureTracker
-    private var memorySource: (any DispatchSourceMemoryPressure)?
+    private var endMemoryPressure: (@Sendable () -> Void)?
     private var timer: (any DispatchSourceTimer)?
     private var eventPressure: HostMemoryPressure?
     private var reading: Task<HostBudgetVerdict, Never>?
@@ -86,12 +95,13 @@ public actor HostPressureMonitor {
     /// hop or a main-actor delivery from an earlier run sees a newer number
     /// and does nothing (read from the main actor too, hence the lock).
     private let run = OSAllocatedUnfairLock(initialState: 0)
-    /// Off in tests, which drive `read()` and `memoryPressureChanged(_:)` themselves.
+    /// Off in tests, which drive `read()` themselves; the pressure subscription runs either way.
     private let ticks: Bool
 
-    public init(source: any HostPressureSource, interval: Duration = .seconds(15), calmSamples: Int = 2, ticks: Bool = true,
-                deliver: @escaping Delivery = HostPressureMonitor.mainActorHop) {
+    public init(source: any HostPressureSource, memoryPressure: @escaping MemoryPressureSubscription, interval: Duration = .seconds(15),
+                calmSamples: Int = 2, ticks: Bool = true, deliver: @escaping Delivery = HostPressureMonitor.mainActorHop) {
         self.source = source
+        self.memoryPressure = memoryPressure
         self.interval = interval
         self.deliver = deliver
         self.ticks = ticks
@@ -103,9 +113,9 @@ public actor HostPressureMonitor {
     /// The newest verdict (the popover's numbers).
     public var verdict: HostBudgetVerdict? { tracker.verdict }
 
-    /// Starts the source and the timer (idempotent); the first read runs now. `isCurrent` is
-    /// checked on the actor before anything starts: a caller whose stop overtook this start
-    /// returns false, and nothing starts.
+    /// Subscribes to the memory pressure feed and starts the timer (idempotent); the first read
+    /// runs now. `isCurrent` is checked on the actor before anything starts: a caller whose stop
+    /// overtook this start returns false, and nothing starts.
     public func start(while isCurrent: @Sendable () -> Bool = { true }, onChange: @escaping Change) {
         guard isCurrent() else { return }
         self.onChange = onChange
@@ -115,26 +125,22 @@ public actor HostPressureMonitor {
             state += 1
             return state
         }
+        endMemoryPressure = memoryPressure { [weak self] pressure in
+            guard let self else { return }
+            // task-owner: one hop per pressure change into the monitor; it ends when the change is applied
+            Task { await self.memoryPressureChanged(pressure, generation: generation) }
+        }
         guard ticks else { return }
-        (memorySource, timer) = Self.makeSources(for: self, generation: generation, queue: queue, interval: interval)
+        timer = Self.makeTimer(for: self, generation: generation, queue: queue, interval: interval)
     }
 
     /// The live run's number (tests drive the hops with it).
     var generation: Int { run.withLock { $0 } }
 
-    /// The memory pressure source and the timer, built outside the actor:
-    /// their handlers run on `queue` and only hop into the monitor.
-    private nonisolated static func makeSources(for monitor: HostPressureMonitor, generation: Int, queue: DispatchQueue,
-                                                interval: Duration)
-        -> (any DispatchSourceMemoryPressure, any DispatchSourceTimer) {
-        let memory = DispatchSource.makeMemoryPressureSource(eventMask: [.normal, .warning, .critical], queue: queue)
-        memory.setEventHandler { [weak monitor, weak memory] in
-            guard let monitor, let event = memory?.data else { return }
-            let pressure: HostMemoryPressure = event.contains(.critical) ? .critical : event.contains(.warning) ? .warn : .normal
-            // task-owner: one hop per kernel event into the monitor; it ends when the event is applied
-            Task { await monitor.memoryPressureChanged(pressure, generation: generation) }
-        }
-        memory.activate()
+    /// The load and swap timer, built outside the actor: its handler runs on `queue` and only
+    /// hops into the monitor.
+    private nonisolated static func makeTimer(for monitor: HostPressureMonitor, generation: Int, queue: DispatchQueue,
+                                              interval: Duration) -> any DispatchSourceTimer {
         // wakeup-allow: load and swap have no event; one 15 s read with 2 s leeway, cancelled by stop()
         let tick = DispatchSource.makeTimerSource(queue: queue)
         let seconds = Double(interval.components.seconds) + Double(interval.components.attoseconds) / 1e18
@@ -145,15 +151,15 @@ public actor HostPressureMonitor {
             Task { await monitor.read(generation: generation) }
         }
         tick.activate()
-        return (memory, tick)
+        return tick
     }
 
-    /// Cancels the dispatch source, the timer and a read in flight.
+    /// Ends the memory pressure subscription; cancels the timer and a read in flight.
     public func stop() {
         running = false
         run.withLock { $0 += 1 }
-        memorySource?.cancel()
-        memorySource = nil
+        endMemoryPressure?()
+        endMemoryPressure = nil
         timer?.cancel()
         timer = nil
         reading?.cancel()
@@ -183,7 +189,7 @@ public actor HostPressureMonitor {
         // A stop() and start() during the read may have begun a newer one.
         if reading == task { reading = nil }
         guard isLive(generation), !task.isCancelled else { return }
-        // The event source's level is newer than a sampled one until the next event.
+        // The feed's level is newer than a sampled one until its next change.
         apply(eventPressure.map { verdict.with(pressure: $0) } ?? verdict)
     }
 

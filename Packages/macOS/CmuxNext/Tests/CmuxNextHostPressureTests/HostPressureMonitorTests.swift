@@ -22,6 +22,28 @@ private actor ScriptedSource: HostPressureSource {
     }
 }
 
+/// The app's shared memory pressure feed as the test drives it: `send(_:)` calls every subscriber.
+private final class Feed: Sendable {
+    private let handlers = OSAllocatedUnfairLock<[UUID: @Sendable (HostMemoryPressure) -> Void]>(initialState: [:])
+
+    var subscription: HostPressureMonitor.MemoryPressureSubscription {
+        { [handlers] handler in
+            let id = UUID()
+            handlers.withLock { $0[id] = handler }
+            return { handlers.withLock { $0[id] = nil } }
+        }
+    }
+
+    var subscribers: Int { handlers.withLock { $0.count } }
+
+    func send(_ pressure: HostMemoryPressure) {
+        for handler in handlers.withLock({ Array($0.values) }) { handler(pressure) }
+    }
+}
+
+/// A feed that never changes, for tests that drive `memoryPressureChanged(_:)` themselves.
+private let noFeed: HostPressureMonitor.MemoryPressureSubscription = { _ in {} }
+
 @MainActor private final class Delivered {
     var levels: [HostPressureLevel] = []
 }
@@ -43,7 +65,7 @@ struct HostPressureMonitorTests {
 
     @Test func itEscalatesAndCalmsDown() async {
         let source = ScriptedSource()
-        let monitor = HostPressureMonitor(source: source, calmSamples: 2, ticks: false)
+        let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, calmSamples: 2, ticks: false)
         let (stream, onChange) = changes()
         var levels = stream.makeAsyncIterator()
         await monitor.start(onChange: onChange)
@@ -67,7 +89,7 @@ struct HostPressureMonitorTests {
 
     /// A start whose caller already stopped wanting it (checked on the actor) starts nothing.
     @Test func aStartNoLongerWantedStartsNothing() async {
-        let monitor = HostPressureMonitor(source: ScriptedSource())
+        let monitor = HostPressureMonitor(source: ScriptedSource(), memoryPressure: noFeed)
         await monitor.start(while: { false }) { _, _ in }
         #expect(await !monitor.isRunning)
         await monitor.start(while: { true }) { _, _ in }
@@ -79,7 +101,7 @@ struct HostPressureMonitorTests {
     @Test func acpmuxsVerdictWinsOverTheLocalOne() async {
         let source = ScriptedSource()
         await source.set(shared: ScriptedSource.verdict(load: 13, swap: 100))
-        let monitor = HostPressureMonitor(source: source, ticks: false)
+        let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false)
         await monitor.start { _, _ in }
         await monitor.read()
         #expect(await monitor.level == .critical)
@@ -89,7 +111,7 @@ struct HostPressureMonitorTests {
 
     @Test func theEventPressureBeatsTheSampledOne() async {
         let source = ScriptedSource()
-        let monitor = HostPressureMonitor(source: source, ticks: false)
+        let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false)
         await monitor.start { _, _ in }
         await monitor.memoryPressureChanged(.warn)
         await monitor.read()
@@ -101,7 +123,7 @@ struct HostPressureMonitorTests {
     @Test func aStoppedMonitorAppliesNothing() async {
         let source = ScriptedSource()
         await source.set(local: ScriptedSource.verdict(pressure: .critical))
-        let monitor = HostPressureMonitor(source: source, ticks: false)
+        let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false)
         await monitor.start { _, _ in }
         await monitor.stop()
         await monitor.read()
@@ -116,7 +138,7 @@ struct HostPressureMonitorTests {
         let source = ScriptedSource()
         await source.set(local: ScriptedSource.verdict(pressure: .critical))
         let held = Held()
-        let monitor = HostPressureMonitor(source: source, ticks: false) { held.add($0) }
+        let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false) { held.add($0) }
         let delivered = Delivered()
         await monitor.start { level, _ in delivered.levels.append(level) }
         await monitor.read()
@@ -131,7 +153,7 @@ struct HostPressureMonitorTests {
     /// A hop from a run that stop() ended applies nothing to the next run.
     @Test func aHopFromAnEndedRunIsIgnored() async {
         let source = ScriptedSource()
-        let monitor = HostPressureMonitor(source: source, ticks: false)
+        let monitor = HostPressureMonitor(source: source, memoryPressure: noFeed, ticks: false)
         await monitor.start { _, _ in }
         let ended = await monitor.generation
         await monitor.stop()
@@ -146,11 +168,55 @@ struct HostPressureMonitorTests {
         await monitor.stop()
     }
 
-    @Test func theRealSourcesStartAndStop() async {
-        let monitor = HostPressureMonitor(source: ScriptedSource(), interval: .seconds(3600))
+    /// The monitor reads memory pressure from the shared feed (no kernel source of its own):
+    /// one subscription per run, a change reaches the level, and stop() ends the subscription.
+    @Test func theSharedFeedDrivesThePressureUntilStop() async {
+        let feed = Feed()
+        let monitor = HostPressureMonitor(source: ScriptedSource(), memoryPressure: feed.subscription, ticks: false)
+        let (stream, onChange) = changes()
+        var levels = stream.makeAsyncIterator()
+        #expect(feed.subscribers == 0)
+        await monitor.start(onChange: onChange)
+        await monitor.start(onChange: onChange)
+        #expect(feed.subscribers == 1)
+
+        await monitor.read()
+        feed.send(.critical)
+        #expect(await levels.next() == .critical)
+        #expect(await monitor.verdict?.pressure == .critical)
+
+        await monitor.stop()
+        #expect(feed.subscribers == 0)
+        feed.send(.warn)
+        #expect(await monitor.level == .normal)
+    }
+
+    /// A restarted monitor subscribes again and applies the new run's changes.
+    @Test func aRestartSubscribesAgain() async {
+        let feed = Feed()
+        let monitor = HostPressureMonitor(source: ScriptedSource(), memoryPressure: feed.subscription, ticks: false)
+        let (stream, onChange) = changes()
+        var levels = stream.makeAsyncIterator()
+        await monitor.start { _, _ in }
+        await monitor.stop()
+        #expect(feed.subscribers == 0)
+        await monitor.start(onChange: onChange)
+        #expect(feed.subscribers == 1)
+        await monitor.read()
+        feed.send(.warn)
+        #expect(await levels.next() == .warning)
+        await monitor.stop()
+        #expect(feed.subscribers == 0)
+    }
+
+    @Test func theTimerAndTheFeedStartAndStop() async {
+        let feed = Feed()
+        let monitor = HostPressureMonitor(source: ScriptedSource(), memoryPressure: feed.subscription, interval: .seconds(3600))
         await monitor.start { _, _ in }
         #expect(await monitor.isRunning)
+        #expect(feed.subscribers == 1)
         await monitor.stop()
         #expect(await !monitor.isRunning)
+        #expect(feed.subscribers == 0)
     }
 }
