@@ -32,9 +32,33 @@ Usage:
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
+  bench_memory.py --app BUNDLE --hidden-workspaces 100 [--grace 960] [--mix terminal]
+  bench_memory.py --app BUNDLE --pressure warning|critical [--pressure-window 10]
+
+Phases (plans/cmux-next/chrome-parity/p07-memory.md, DC6 and DC10):
+  --hidden-workspaces N [--grace S]
+          opens N workspaces of --mix, shows the first workspace again so all
+          N are hidden, and samples after --settle and again S seconds after
+          they went hidden (960 is past the 15 min parked idle timeout). It
+          prints, per process kind, the processes added and the footprint
+          each hidden workspace adds at both points, and debug.memory's
+          workspace states (mounted, parked, unmounted). DC6 runs with
+          CMUX_TUI_TERMINAL_HOST_MODEL=holder in the environment; the table
+          names the model.
+  --pressure warning|critical [--pressure-window S]
+          runs last. It sets the debug pressure override
+          (debug.hibernation.pressure, DEBUG and bench-hook builds), follows
+          the app's footprint for S seconds, and prints released_mb (app
+          footprint before minus its lowest), release_s (time to 90 % of that
+          drop) and the footprint of the managed memory consumers before
+          (stateful and supporting a limit, from debug.memory; volatile bytes
+          left out). It sets the override back to normal at the end.
+  On a build without debug.memory both phases report process footprint only;
+  a build without the override skips the pressure phase and says so.
 
 Prints a table per measurement (top processes by footprint, totals per
-kind) and writes every sample to --out.
+kind) and writes every sample to --out. It records no budgets and gates
+nothing.
 """
 from __future__ import annotations
 
@@ -53,15 +77,6 @@ import tempfile
 import time
 import uuid
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-_libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
-try:
-    _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
-    _responsible.restype = ctypes.c_int
-    _responsible.argtypes = [ctypes.c_int]
-except AttributeError:  # an OS without the call: WebKit processes are not attributed
-    _responsible = None
-
 MB = 1048576.0
 
 
@@ -70,7 +85,18 @@ class _Timebase(ctypes.Structure):
 
 
 _timebase = _Timebase()
-_libsystem.mach_timebase_info(ctypes.byref(_timebase))
+_responsible = None
+# macOS only; elsewhere the module still loads, so --help works and main() refuses to run.
+if sys.platform == "darwin":
+    _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
+    _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    try:
+        _responsible = _libsystem.responsibility_get_pid_responsible_for_pid
+        _responsible.restype = ctypes.c_int
+        _responsible.argtypes = [ctypes.c_int]
+    except AttributeError:  # an OS without the call: WebKit processes are not attributed
+        _responsible = None
+    _libsystem.mach_timebase_info(ctypes.byref(_timebase))
 
 
 def usage(pid: int):
@@ -160,8 +186,8 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         if got is None:
             continue
         row = {"pid": pid, "kind": kind, "rss_mb": round(got[0] / MB, 1),
-               "footprint_mb": round(got[1] / MB, 1), "max_footprint_mb": round(got[2] / MB, 1),
-               "command": cmd[:160]}
+               "footprint_mb": round(got[1] / MB, 1), "footprint_bytes": got[1],
+               "max_footprint_mb": round(got[2] / MB, 1), "command": cmd[:160]}
         if pid in start:
             row["cpu_pct"] = round(100 * (got[3] - start[pid][3]) / 1e9 / measure, 3)
             row["wakeups_per_s"] = round((got[4] - start[pid][4]) / measure, 2)
@@ -169,8 +195,9 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     rows.sort(key=lambda row: -row["footprint_mb"])
     kinds = {}
     for row in rows:
-        entry = kinds.setdefault(row["kind"], {"count": 0, "rss_mb": 0.0, "footprint_mb": 0.0})
+        entry = kinds.setdefault(row["kind"], {"count": 0, "rss_mb": 0.0, "footprint_mb": 0.0, "footprint_bytes": 0})
         entry["count"] += 1
+        entry["footprint_bytes"] += row["footprint_bytes"]
         entry["rss_mb"] = round(entry["rss_mb"] + row["rss_mb"], 1)
         entry["footprint_mb"] = round(entry["footprint_mb"] + row["footprint_mb"], 1)
         if "cpu_pct" in row:
@@ -229,24 +256,31 @@ class App:
                   "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
         if focus:
             params["focus"] = True
+        return self.call("action.run", params, label=action)
+
+    def call(self, method: str, params: dict | None = None, label: str | None = None, timeout: float = 120) -> dict:
+        """One control-socket request; its result, or {"error": ...} (an unknown method, a refusal, a timeout)."""
         reply = b""
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
-                stream.settimeout(120)
+                stream.settimeout(timeout)
                 stream.connect(self.socket)
-                stream.sendall((json.dumps({"id": 1, "method": "action.run", "params": params}) + "\n").encode())
+                stream.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
                 while not reply.endswith(b"\n"):
-                    chunk = stream.recv(65536)
+                    chunk = stream.recv(1 << 20)
                     if not chunk:
                         break
                     reply += chunk
-        except OSError as error:  # includes a timeout: this workspace is skipped, the run goes on
-            return {"error": f"{action}: {error}"}
+        except OSError as error:  # includes a timeout: this step is skipped, the run goes on
+            return {"error": f"{label or method}: {error}"}
         try:
             answer = json.loads(reply or b"{}")
         except ValueError:
             return {"error": reply.decode(errors="replace")[:300]}
-        return {"error": json.dumps(answer["error"])[:300]} if answer.get("error") else answer.get("result") or {}
+        if answer.get("error"):
+            return {"error": json.dumps(answer["error"])[:300]}
+        result = answer.get("result")
+        return result if isinstance(result, dict) else {"value": result}
 
     def identify(self) -> dict:
         try:
@@ -579,6 +613,221 @@ def open_browser_tab(app: App, url: str) -> bool:
     return True
 
 
+def field(obj, name: str):
+    """`name` (snake_case) of a debug.memory object, or its camelCase spelling (a Codable report)."""
+    if not isinstance(obj, dict):
+        return None
+    if name in obj:
+        return obj[name]
+    head, *rest = name.split("_")
+    return obj.get(head + "".join(part.title() for part in rest))
+
+
+def truthy(value) -> bool:
+    """A trait value: a bool, or Chrome's kYes / kNo spelled as a string."""
+    if isinstance(value, str):
+        return value.lower().removeprefix("k") in ("yes", "true")
+    return bool(value)
+
+
+class MemoryReport:
+    """The app's own memory accounting through `debug.memory` (p07-memory-010). `read` gives None on a
+    build without it, and every phase then reports process footprint only."""
+
+    def __init__(self, raw: dict):
+        self.raw = raw
+
+    @staticmethod
+    def read(app: App) -> MemoryReport | None:
+        answer = app.call("debug.memory", timeout=30)
+        return None if "error" in answer or "consumers" not in answer else MemoryReport(answer)
+
+    def consumers(self) -> list[dict]:
+        return [consumer for consumer in self.raw.get("consumers") or [] if isinstance(consumer, dict)]
+
+    @staticmethod
+    def is_managed(consumer: dict) -> bool:
+        """Chrome's ShouldManageConsumer (memory_saver_memory_coordinator_policy.h): stateful and
+        supporting a limit."""
+        managed = field(consumer, "managed")
+        if managed is not None:
+            return truthy(managed)
+        traits = field(consumer, "traits") or {}
+        return truthy(field(traits, "is_stateful")) and truthy(field(traits, "supports_memory_limit"))
+
+    def managed(self) -> dict[str, int | None]:
+        """{consumer name: footprint bytes} of the managed consumers; None is unknown, never 0."""
+        rows = {}
+        for index, consumer in enumerate(self.consumers()):
+            if self.is_managed(consumer):
+                footprint = field(consumer, "footprint_bytes")
+                rows[str(field(consumer, "name") or f"consumer-{index}")] = (
+                    footprint if isinstance(footprint, int) else None)
+        return rows
+
+    def managed_bytes(self) -> tuple[int, int]:
+        """(known footprint bytes of the managed consumers, how many have unknown bytes). Volatile bytes
+        are left out: the kernel takes them without the app (DC10)."""
+        rows = self.managed().values()
+        return sum(b for b in rows if b is not None), sum(1 for b in rows if b is None)
+
+    def level(self) -> str | None:
+        pressure = self.raw.get("pressure")
+        return field(pressure, "level") if isinstance(pressure, dict) else pressure
+
+    def workspaces(self) -> dict:
+        """{state: {"count", "attributed_mb"}} over the workspace rows (mounted, parked, unmounted)."""
+        states: dict = {}
+        for row in self.raw.get("workspaces") or []:
+            if not isinstance(row, dict):
+                continue
+            entry = states.setdefault(str(field(row, "state") or "unknown"), {"count": 0, "attributed_mb": 0.0})
+            entry["count"] += 1
+            attributed = field(row, "attributed_bytes")
+            if isinstance(attributed, int):
+                entry["attributed_mb"] = round(entry["attributed_mb"] + attributed / MB, 2)
+        return states
+
+
+def kind_deltas(base: dict, after: dict, per: int) -> dict:
+    """{kind: {"processes_added", "mb_each"}}: footprint from `base` to `after` divided by `per`, plus a
+    "total" row."""
+    out = {}
+    for kind in set(base["kinds"]) | set(after["kinds"]):
+        first, last = base["kinds"].get(kind, {}), after["kinds"].get(kind, {})
+        out[kind] = {"processes_added": last.get("count", 0) - first.get("count", 0),
+                     "mb_each": round((last.get("footprint_bytes", 0) - first.get("footprint_bytes", 0))
+                                      / MB / max(per, 1), 3)}
+    grown = (sum(entry.get("footprint_bytes", 0) for entry in after["kinds"].values())
+             - sum(entry.get("footprint_bytes", 0) for entry in base["kinds"].values()))
+    out["total"] = {"processes_added": len(after["processes"]) - len(base["processes"]),
+                    "mb_each": round(grown / MB / max(per, 1), 3)}
+    return dict(sorted(out.items(), key=lambda item: -item[1]["mb_each"]))
+
+
+def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[str], url: str, opened: list,
+                            chats, settle_and_sample) -> dict:
+    """DC6. Opens `count` workspaces of the mix, shows the first workspace again so all of them are hidden,
+    samples after --settle and again `grace` seconds after they went hidden (past the parked idle timeout),
+    and prints what one hidden workspace costs per process kind."""
+    app.run("workspace.selectFirst")
+    base = settle_and_sample("hidden-base")
+    made = 0
+    while made < count:
+        workspace = open_workspace(app, recipes[made % len(recipes)], url, 2000 + made, chats)
+        if workspace is None:
+            break
+        opened.append(workspace)
+        made += 1
+    app.run("workspace.selectFirst")
+    hidden_at = time.monotonic()
+    phase = {"requested": count, "hidden": made, "grace_s": grace, "mix": recipes,
+             "terminal_host_model": os.environ.get("CMUX_TUI_TERMINAL_HOST_MODEL") or "default"}
+    settled = settle_and_sample(f"hidden-{made}-settled")
+    phase["settled"] = kind_deltas(base, settled, made)
+    report = MemoryReport.read(app)
+    if report is not None:
+        phase["debug_memory_settled"] = report.workspaces()
+    after = settled
+    if grace > 0:
+        time.sleep(max(0.0, grace - (time.monotonic() - hidden_at)))  # test script: the hidden workspaces' grace
+        after = settle_and_sample(f"hidden-{made}-grace")
+        report = MemoryReport.read(app)
+        if report is not None:
+            phase["debug_memory_after_grace"] = report.workspaces()
+    phase["after_grace"] = kind_deltas(base, after, made)
+    print(f"== hidden workspaces: {made} of {count} hidden (mix {','.join(recipes)}), grace {grace:.0f} s, "
+          f"terminal host model {phase['terminal_host_model']}")
+    print(f"   {'kind':<22}{'added':>7}{'MB/ws settled':>15}{'MB/ws after grace':>19}")
+    for kind, entry in phase["after_grace"].items():
+        early = phase["settled"].get(kind, {"mb_each": 0.0})
+        print(f"   {kind:<22}{entry['processes_added']:>+7}{early['mb_each']:>15.3f}{entry['mb_each']:>19.3f}")
+    states = phase.get("debug_memory_after_grace", phase.get("debug_memory_settled"))
+    if states is None:
+        print("   debug.memory: not in this build; process footprint only")
+    else:
+        for state, entry in sorted(states.items()):
+            print(f"   debug.memory workspaces {state:<10}{entry['count']:>5}  attributed {entry['attributed_mb']:.2f} MB")
+    sys.stdout.flush()
+    return phase
+
+
+def set_pressure(app: App, level: str) -> bool:
+    """The debug pressure override (DEBUG and bench-hook builds), which the memory coordinator and browser
+    hibernation both take (p07-memory-004). False when this build has none."""
+    return app.call("debug.hibernation.pressure", {"level": level}, timeout=30).get("pressure") == level
+
+
+def pressure_phase(app: App, app_pid: int, level: str, window: float, interval: float, settle_and_sample) -> dict:
+    """DC10. Sets the pressure override to `level` and follows the app's footprint for `window` seconds
+    through proc_pid_rusage (no request to the app while it releases). released_mb is the app footprint
+    before minus the lowest in the window, release_s the time to 90 % of that drop, and the managed
+    consumers' footprint before is what the drop should reach 80 % of."""
+    before = settle_and_sample(f"pressure-{level}-before")
+    phase: dict = {"level": level, "window_s": window}
+    report = MemoryReport.read(app)
+    if report is not None:
+        managed, unknown = report.managed_bytes()
+        phase.update({"managed_before_mb": round(managed / MB, 1), "managed_unknown": unknown,
+                      "managed_consumers_before": report.managed(), "level_before": report.level()})
+    start = usage(app_pid)
+    if start is None:
+        raise SystemExit("bench-memory: the app exited before the pressure phase")
+    if not set_pressure(app, level):
+        print(f"== pressure {level}: skipped, this build has no debug.hibernation.pressure override "
+              "(DEBUG and bench-hook builds have it)")
+        phase["skipped"] = "no pressure override"
+        return phase
+    began = time.monotonic()
+    timeline = [(0.0, start[1])]
+    try:
+        while time.monotonic() - began < window:
+            time.sleep(interval)  # test script: footprint samples while the app releases
+            got = usage(app_pid)
+            if got is None:
+                break
+            timeline.append((round(time.monotonic() - began, 3), got[1]))
+        lowest = min(footprint for _, footprint in timeline)
+        released = start[1] - lowest
+        release_s = (next(t for t, footprint in timeline if start[1] - footprint >= 0.9 * released)
+                     if released >= MB else None)
+        phase.update({"app_before_mb": round(start[1] / MB, 1), "app_lowest_mb": round(lowest / MB, 1),
+                      "released_mb": round(released / MB, 1), "release_s": release_s,
+                      "timeline": [(t, round(footprint / MB, 1)) for t, footprint in timeline]})
+        after = settle_and_sample(f"pressure-{level}-after")
+        phase["kinds_delta_mb"] = {kind: entry["mb_each"] for kind, entry in kind_deltas(before, after, 1).items()}
+        report = MemoryReport.read(app)
+        if report is not None:
+            managed, _ = report.managed_bytes()
+            phase.update({"managed_after_mb": round(managed / MB, 1),
+                          "managed_consumers_after": report.managed(), "level_after": report.level()})
+    finally:
+        set_pressure(app, "normal")
+    if phase.get("managed_before_mb"):
+        phase["released_pct_of_managed"] = round(100 * phase["released_mb"] / phase["managed_before_mb"], 1)
+    release = f"{phase['release_s']:.2f}" if phase["release_s"] is not None else "n/a (under 1 MB)"
+    print(f"== pressure {level} (override): released_mb {phase['released_mb']:.1f}, release_s {release}, "
+          f"app {phase['app_before_mb']:.1f} -> lowest {phase['app_lowest_mb']:.1f} MB in {window:.0f} s")
+    if "managed_before_mb" not in phase:
+        print("   managed footprint before: unknown (no debug.memory in this build; process footprint only)")
+    else:
+        share = phase.get("released_pct_of_managed")
+        print(f"   managed footprint before {phase['managed_before_mb']:.1f} MB "
+              f"({phase['managed_unknown']} consumers unknown), after {phase.get('managed_after_mb', 'n/a')} MB, "
+              f"released {f'{share:.0f} %' if share is not None else 'n/a'} of managed")
+        later = phase.get("managed_consumers_after", {})
+        rows = sorted(((name, first or 0, later.get(name) or 0)
+                       for name, first in phase["managed_consumers_before"].items()),
+                      key=lambda row: row[2] - row[1])
+        for name, first, last in rows[:10]:
+            print(f"   {first / MB:>8.1f} -> {last / MB:>8.1f} MB  {name}")
+    print("   footprint change per kind (after - before):")
+    for kind, delta in phase["kinds_delta_mb"].items():
+        print(f"   {kind:<22}{delta:>+10.1f} MB")
+    sys.stdout.flush()
+    return phase
+
+
 def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
@@ -588,7 +837,7 @@ def main():
     parser.add_argument("--app", required=True, help="the .app bundle")
     parser.add_argument("--socket", help="attach: the running app's control socket")
     parser.add_argument("--app-pid", type=int, help="attach: the running app's pid")
-    parser.add_argument("--workspaces", default="1,10,30")
+    parser.add_argument("--workspaces", help="workspace counts to sample (default 1,10,30; 1 with --hidden-workspaces)")
     parser.add_argument("--mix", default="terminal+chat,terminal+browser,terminal")
     parser.add_argument("--settle", type=float, default=30)
     parser.add_argument("--measure", type=float, default=0,
@@ -606,8 +855,24 @@ def main():
     parser.add_argument("--fake-agent", metavar="SCRIPT",
                         help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
                              "its turns end, as a chat's do after its reply")
+    parser.add_argument("--hidden-workspaces", type=int, metavar="N",
+                        help="hidden-workspace phase: open N workspaces of --mix, show the first one again, and "
+                             "print the footprint each hidden workspace adds per process kind, after --settle and "
+                             "after --grace")
+    parser.add_argument("--grace", type=float, default=0, metavar="S",
+                        help="--hidden-workspaces: seconds after the workspaces went hidden for the second sample "
+                             "(960 is past the 15 min parked idle timeout)")
+    parser.add_argument("--pressure", choices=("warning", "critical"),
+                        help="pressure phase, last: set the debug pressure override (DEBUG and bench-hook builds) "
+                             "and print released_mb, release_s and the managed consumers' footprint before")
+    parser.add_argument("--pressure-window", type=float, default=10, metavar="S",
+                        help="--pressure: seconds of footprint samples after the override")
     parser.add_argument("--out")
     args = parser.parse_args()
+    if args.grace and args.hidden_workspaces is None:
+        parser.error("--grace needs --hidden-workspaces")
+    if args.hidden_workspaces is not None and args.tabs:
+        parser.error("--hidden-workspaces and --tabs are separate runs")
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
@@ -626,7 +891,8 @@ def main():
     app = App(bundle, socket_path)
     chats = None
     recipes = args.mix.split(",")
-    counts = sorted(int(n) for n in args.workspaces.split(",") if n)
+    workspaces = args.workspaces or ("1" if args.hidden_workspaces is not None else "1,10,30")
+    counts = sorted(int(n) for n in workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None}
     opened = []
@@ -662,6 +928,12 @@ def main():
                     break
                 opened.append(workspace)
             settle_and_sample(f"idle-{count}")
+        report["debug_memory"] = MemoryReport.read(app) is not None
+        if not report["debug_memory"] and (args.hidden_workspaces is not None or args.pressure):
+            print("bench-memory: this build has no debug.memory; the phases report process footprint only")
+        if args.hidden_workspaces is not None:
+            report["hidden_workspaces"] = hidden_workspaces_phase(app, args.hidden_workspaces, args.grace, recipes,
+                                                                  args.url, opened, chats, settle_and_sample)
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
@@ -688,6 +960,10 @@ def main():
                 print(f"== churn: {cycles} open/close cycles; footprint growth at {base['workspaces']} workspaces:")
                 for kind, delta in report["churn_growth_mb"].items():
                     print(f"   {kind:<22}{delta:>+10.1f} MB")
+        if args.pressure:
+            # Last: a lossy release (discarded pages, torn-down workspaces) changes what any later phase measures.
+            report["pressure"] = pressure_phase(app, app_pid, args.pressure, args.pressure_window, 0.1,
+                                                settle_and_sample)
     finally:
         for workspace in opened:
             close_workspace(app, workspace)
