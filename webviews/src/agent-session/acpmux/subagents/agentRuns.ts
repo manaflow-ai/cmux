@@ -158,9 +158,10 @@ function unwrap(
       return again(skipFlags(rest, []));
     }
     case "nohup":
-    case "time":
     case "sr":
       return again(skipFlags(rest, []));
+    case "time":
+      return again(skipFlags(rest, ["-o", "-f", "--output", "--format"]));
     case "exec":
       return again(skipFlags(rest, ["-a"]));
     case "nice":
@@ -184,7 +185,9 @@ function unwrap(
         const word = rest[at]!;
         at += 1;
         if (word === "--") break;
-        if (word === "-e" || word === "-E") script = rest[at++];
+        // `-e SCRIPT`, `-eSCRIPT`, and after switches that take no value (`-we SCRIPT`).
+        const bundle = /^-[wnpaTtWXsUSc]*[eE](.*)$/s.exec(word);
+        if (bundle) script = bundle[1] ? bundle[1] : rest[at++];
       }
       // Only a script that is the timeout itself: an alarm, then exec of the words after it.
       if (script === undefined || !PERL_TIMEOUT.test(script)) return undefined;
@@ -369,12 +372,27 @@ export function simpleCommands(src: string): Simple[] {
   for (let at = 0; at < tokens.length; at += 1) {
     const token = tokens[at]!;
     if ("word" in token) {
+      // `function f { … }` defines one too.
+      if (current.argv.length === 0 && token.word === "function" && tokens[at + 1] && "word" in tokens[at + 1]!) {
+        const paren = tokens[at + 2];
+        const close = tokens[at + 3];
+        const parens = paren && "op" in paren && paren.op === "(" && close && "op" in close && close.op === ")";
+        at = bodyEnd(tokens, at + (parens ? 4 : 2));
+        continue;
+      }
       // Reserved words that open or close a compound command start no command of their own.
       if (current.argv.length === 0 && RESERVED.has(token.word)) continue;
       current.argv.push(token.word);
       continue;
     }
     const op = token.op;
+    // `f() { … }` defines a function: its body runs only when it is called, which this does not follow.
+    const next = tokens[at + 1];
+    if (op === "(" && current.argv.length === 1 && next && "op" in next && next.op === ")") {
+      current = { argv: [] };
+      at = bodyEnd(tokens, at + 2);
+      continue;
+    }
     if (op === "<" || op === "<<<" || op.startsWith("<<")) {
       if (op === "<" || op === "<<<") {
         const target = tokens[at + 1];
@@ -397,6 +415,26 @@ export function simpleCommands(src: string): Simple[] {
   }
   end();
   return out;
+}
+
+/// The last token of the compound command that starts at or after `from` (past newlines): a
+/// `{ … }` group or a `( … )` subshell, each to its matching close.
+function bodyEnd(tokens: readonly Token[], from: number): number {
+  let at = from;
+  while (at < tokens.length && "op" in tokens[at]! && (tokens[at] as { op: string }).op === ";") at += 1;
+  const first = tokens[at];
+  if (!first) return tokens.length;
+  const group = "word" in first && first.word === "{";
+  if (!group && !("op" in first && first.op === "(")) return at - 1;
+  let depth = 0;
+  for (; at < tokens.length; at += 1) {
+    const token = tokens[at]!;
+    const opens = group ? "word" in token && token.word === "{" : "op" in token && token.op === "(";
+    const closes = group ? "word" in token && token.word === "}" : "op" in token && token.op === ")";
+    if (opens) depth += 1;
+    else if (closes && --depth === 0) return at;
+  }
+  return tokens.length;
 }
 
 const RESERVED = new Set(spaced("{ } ! if then else elif fi do done while until esac"));
