@@ -12,6 +12,7 @@ public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
     private var warmed = false
+    private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
     private var appliedPalette = -1
 
@@ -81,6 +82,10 @@ public final class MessagesLabHomeView: NSView {
     public override func layout() {
         super.layout()
         if controller.host.frame != bounds { controller.host.frame = bounds }
+        if let compose = controller.demo?.compose, appliedComposerSpellChecking != composerSpellCheckingEnabled {
+            compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
+            appliedComposerSpellChecking = composerSpellCheckingEnabled
+        }
         if !warmed, window != nil, controller.demo != nil {
             warmed = true
             // MessagesLab warms the first send's one-time costs at idle after
@@ -115,6 +120,15 @@ public final class MessagesLabHomeView: NSView {
     public var isSendEnabled: Bool {
         get { projection.isSendEnabled }
         set { projection.isSendEnabled = newValue }
+    }
+
+    /// Whether the native composer opts into the system spell checker. The host owns this
+    /// preference; the default is off so opening Home never changes the user's typing behavior.
+    public var composerSpellCheckingEnabled = false {
+        didSet {
+            guard composerSpellCheckingEnabled != oldValue else { return }
+            controller.demo?.compose.textView.view.setSpellCheckingEnabled(composerSpellCheckingEnabled)
+        }
     }
 
     /// How the Chief's running indicator reads (``HomeTurnProgressStyle``), asked at each of its ticks:
@@ -167,7 +181,7 @@ public final class MessagesLabHomeView: NSView {
             // cmux: the window background is per view too; a view made after the
             // process-wide theme was set would keep the one it was made with.
             controller.demo?.backgroundColor = Fixture.background
-            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText)
+            controller.host.fieldChrome.applyTheme(light: theme.active.isLight, symbol: theme.active.incomingText, edge: theme.active.fieldEdge)
             controller.host.paneHeader.light = theme.active.isLight
         }
         // Link cards follow a light theme (MessagesLab 02519e9: Messages' light card, #E9E9EB).
@@ -194,6 +208,13 @@ public final class MessagesLabHomeView: NSView {
     public var onPointerMoved: ((CGPoint?) -> Void)? {
         get { controller.onPointerMoved }
         set { controller.onPointerMoved = newValue }
+    }
+
+    /// cmux: the field's height changed, so ``fieldTop`` moved without a size change (a long
+    /// draft, an attachment, a send). The host lays out what it keeps above the field.
+    public var onFieldTopChange: (() -> Void)? {
+        get { controller.onFieldTopChange }
+        set { controller.onFieldTopChange = newValue }
     }
 
     /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
@@ -240,6 +261,18 @@ public final class MessagesLabHomeView: NSView {
     public var namePill: NSView { controller.host.paneHeader.pill }
     /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
     public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
+
+    /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
+    /// They get their own clicks; the header's empty space still drags the window. Sized by its
+    /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
+    public var headerTrailingAccessory: NSView? {
+        get { controller.host.paneHeader.trailingAccessory }
+        set {
+            controller.host.paneHeader.trailingAccessory = newValue
+            // With no header the rows' top follows the accessory (`HostView.bareRowsTop`).
+            controller.host.needsLayout = true
+        }
+    }
 
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
@@ -413,6 +446,12 @@ public final class MessagesLabHomeView: NSView {
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
+    }
+    /// The words a paste the intake took carries beside its attachments (nil: none): the
+    /// field inserts them at the caret.
+    public var attachmentPasteText: (NSPasteboard) -> String? {
+        get { projection.onAttachmentPasteText }
+        set { projection.onAttachmentPasteText = newValue }
     }
     /// Whether a paste would be taken (types only).
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
@@ -681,8 +720,9 @@ public final class MessagesLabHomeView: NSView {
     /// Returns when every bubble picture asked for so far is ready (tests).
     public func mediaSettled() async { await projection.media.settled() }
 
-    /// The top of the area under the header (the first-run panel's top).
-    public var headerHeight: CGFloat { Fixture.headerHeight }
+    /// The top of the area under the header (the first-run panel's top); with no header
+    /// (``setBareTop()``), the rows' top.
+    public var headerHeight: CGFloat { controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight }
     /// The field's top in this view (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo?.fieldTop ?? bounds.height }
 

@@ -14,6 +14,7 @@ mod btw;
 mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
+pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
 mod cancel;
 mod catalog_reload;
@@ -21,6 +22,7 @@ mod complete;
 pub mod composers;
 mod cursor_ext;
 mod digest;
+pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
@@ -34,7 +36,14 @@ mod idle;
 mod launch_roots;
 mod launchers;
 mod live_models;
+mod locate;
+pub mod media_handles;
+pub mod media_read;
+pub(crate) mod subagent_transcript;
+pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
+pub use media_read::FEATURE as MEDIA_READ_FEATURE;
+pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
@@ -49,14 +58,13 @@ mod paging;
 mod personal_stats;
 mod policy_mode;
 mod pool;
-mod prompt_images;
+pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
 mod queue;
 mod queue_edit;
-pub use digest::declared_sender;
-pub use queue::QueuedPrompt;
-pub use queue::supersede::key as supersede_key;
+pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
+pub use queue::{QueuedPrompt, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
@@ -72,6 +80,8 @@ mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
+mod stalled_turn;
+pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
 mod shutdown;
@@ -85,6 +95,7 @@ mod stream;
 mod tags;
 mod tap;
 mod titles;
+mod tool_paths;
 mod tools;
 mod watch;
 pub use new_request::{
@@ -93,6 +104,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod own_host;
 mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
@@ -105,18 +117,22 @@ mod permissions;
 pub mod person;
 mod processes;
 mod pull_requests;
-mod questions;
+pub(crate) mod questions;
 mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
+mod subsession_results;
+mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
 mod drafts;
+pub(crate) mod outbox;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -146,6 +162,21 @@ use crate::session_identity::{LOCAL_HOST_ID, SessionReceipt};
 use crate::store::{EventRecord, META_SCHEMA, SessionMeta, SessionStatus, Store, now_ms};
 use anyhow::Result;
 use serde_json::{Value, json};
+
+/// True when a permission request is an agent's question (`questions.rs`): what tells the
+/// person about it says the agent asks, never that it needs a permission.
+pub(crate) fn is_question(request: &Value) -> bool {
+    questions::needs_person(request)
+}
+
+/// The first prompt of an agent's question: the normalized copy, else Claude Code's own input.
+pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
+    questions::question(request)
+        .and_then(|q| q.pointer("/items/0/prompt"))
+        .or_else(|| request.pointer("/toolCall/rawInput/questions/0/question"))
+        .and_then(Value::as_str)
+        .filter(|p| !p.is_empty())
+}
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -256,6 +287,13 @@ pub struct PromptOptions {
     /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
     /// this key leave the queue, replaced by this one.
     pub supersede: Option<String>,
+    /// Validated display-only metadata from the app's ordered composer. It is persisted in the
+    /// mux record and never forwarded to the agent's ACP prompt.
+    pub display_parts: Option<Value>,
+    /// The paired machine whose Full-access setting covered the request that sent it
+    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
+    /// (`Hub::full_access_hold`).
+    pub full_access_device: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -390,6 +428,8 @@ pub struct Hub {
     pub(super) offers: offers::Offers,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
+    pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
@@ -398,10 +438,18 @@ pub struct Hub {
     pub(super) secrets: secrets::Secrets,
     /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
     pub(super) trust_waits: trust_wait::Waits,
+    /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
+    /// acceptance (`outbox.rs`).
+    pub(crate) outbox: outbox::Outbox,
+    pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
     pub pairing: Arc<crate::pairing::Pairing>,
+    /// Brief identities shared by dispatch, report and MCP clients.
+    pub(crate) briefs: dispatch::Briefs,
+    /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
+    pub(crate) workflow_index: workflow_index::WorkflowIndex,
 }
 
 impl Hub {
@@ -425,6 +473,7 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
@@ -477,16 +526,21 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             subsessions: Default::default(),
+            subsession_runs: Default::default(),
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             trust_waits: Default::default(),
+            outbox: Default::default(),
+            peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
+            briefs,
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -500,6 +554,7 @@ impl Hub {
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
             hub.watch_titles();
+            hub.watch_orphans();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -737,6 +792,12 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            heard_at: std::sync::atomic::AtomicI64::new(0),
+            stalled_recheck: AtomicU64::new(0),
+            open_tools: StdMutex::new(Default::default()),
+            stalled_counted: StdMutex::new(None),
+            stalled_gen: AtomicU64::new(0),
+            last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
@@ -755,8 +816,7 @@ impl Hub {
         newest_first(v)
     }
 
-    /// Resolve by id, exact name, or unique prefix of either.
-    pub fn resolve(&self, key: &str) -> Result<Arc<Session>, RpcError> {
+    fn resolve_here(&self, key: &str) -> Result<Arc<Session>, RpcError> {
         let sessions = self.sessions.lock().unwrap();
         // A qualified id is authoritative for new routing. The old bare id,
         // name and prefix forms below remain compatible.
@@ -837,10 +897,12 @@ impl Hub {
         session: &Session,
         dir: &str,
         kind: &str,
-        msg: Value,
+        mut msg: Value,
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
+        // Off the append lock: it reads the disk.
+        tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
@@ -862,6 +924,11 @@ impl Hub {
                 false
             }
         };
+        // A closed session's log is not held open: its last records (`status`,
+        // then the agent's `stopped`) each close it again (`store.rs` Writers).
+        if session.status() == SessionStatus::Closed {
+            self.store.close_log(&session.id);
+        }
         {
             let mut m = session.meta.lock().unwrap();
             m.last_seq = seq;

@@ -90,7 +90,15 @@ type Sent = { method: "model" | "effort" | "route"; value: string | null };
 /// chat bound to `active`.
 async function mount(
   listed: unknown,
-  options: { fast?: boolean; refuse?: boolean; turnCount?: number; model?: string; effort?: string } = {},
+  options: {
+    fast?: boolean;
+    refuse?: boolean;
+    turnCount?: number;
+    model?: string;
+    effort?: string;
+    folderProfile?: boolean;
+    currentFolder?: boolean;
+  } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -99,12 +107,24 @@ async function mount(
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   const { ChatAccountsContext, readChatAccounts } = await import("../src/agent-session/acpmux/chatAccounts");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
-  const acpmux: Snapshot["catalog"] = BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
-    id: harness.id,
-    name: harness.name,
-    family: harness.families[0],
-    models: harness.models.map((model) => ({ id: model.id, name: model.name })),
-  })) as Snapshot["catalog"];
+  const acpmux: Snapshot["catalog"] = [
+    ...BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
+      id: harness.id,
+      name: harness.name,
+      family: harness.families[0],
+      models: harness.models.map((model) => ({ id: model.id, name: model.name })),
+    })),
+    ...(options.folderProfile
+      ? [
+          {
+            id: "machine-profile",
+            name: "Build machine",
+            folder: { folder: "/Users/me/app", state: "enabled" as const },
+            models: [{ id: "machine-model", name: "Machine model" }],
+          },
+        ]
+      : []),
+  ] as Snapshot["catalog"];
   const sent: Sent[] = [];
   const asked: string[] = [];
   const added: string[] = [];
@@ -119,10 +139,13 @@ async function mount(
     },
   };
   function Host() {
+    const initialHarness = options.currentFolder ? "machine-profile" : "claude";
+    const initialModel = options.currentFolder ? "machine-model" : "claude-opus-5-5";
     const [state, setState] = useState({
-      model: options.model ?? "claude-opus-5-5",
+      model: options.model ?? initialModel,
       effort: options.effort ?? "medium",
       fast: "off",
+      harness: initialHarness,
     });
     const snapshot: Snapshot = {
       type: "snapshot",
@@ -136,7 +159,7 @@ async function mount(
       catalog: acpmux,
       summary: {
         sessionId: "s1",
-        harness: "claude",
+        harness: state.harness,
         model: state.model,
         turnCount: options.turnCount ?? 0,
         configOptions: [
@@ -166,7 +189,7 @@ async function mount(
         ],
       },
     } as Snapshot;
-    const picker = usePickerCatalog(snapshot.catalog, { harness: "claude" }, snapshot.sessions);
+    const picker = usePickerCatalog(snapshot.catalog, { harness: state.harness }, snapshot.sessions);
     return (
       <ComposerPickers
         snapshot={snapshot}
@@ -314,7 +337,9 @@ test("with no routes, Account offers the CLI login and says how to add one", asy
   await mount({ routes: [] });
   await open();
   const account = await openSub("Account");
-  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts with cmux route add"]);
+  // `cmux route` is gone (Leo, 2026-10-21): an account is a route file, so the note names its folder.
+  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts as route files in ~/.config/cmux/routes"]);
+  expect(account.textContent).not.toContain("cmux route");
 });
 
 test("the rail lists Starred, then each harness; a harness's tab lists its models in place", async () => {
@@ -345,6 +370,22 @@ test("without a starred model the rail starts at the harnesses", async () => {
   await mount({ routes: [] });
   await open();
   expect(railTabs()[0]?.getAttribute("aria-label")).toBe("Claude Code");
+});
+
+test("machine profiles stay out of the harness rail", async () => {
+  await mount({ routes: [] }, { folderProfile: true });
+  await open();
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(labels).toContain("Claude Code");
+  expect(labels).toContain("Codex");
+  expect(labels).not.toContain("Build machine");
+});
+
+test("the current machine profile keeps its compact model list without a rail", async () => {
+  await mount({ routes: [] }, { folderProfile: true, currentFolder: true });
+  await open();
+  expect(menu()!.querySelector(".acpmux-quick-rail")).toBeNull();
+  expect(modelNames(menu()!)).toContain("Machine model");
 });
 
 test("More models is a submenu: the harness's other models, then Add harness…", async () => {
@@ -454,7 +495,10 @@ test("while filtering, the rows show no number keys", async () => {
   await open();
   for (const letter of "o") await key(letter);
   await settle();
-  const rows = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-item")];
+  // The real rows, not the unseen ones that hold the menu's size.
+  const rows = [...menu()!.querySelectorAll<HTMLElement>(".acpmux-quick-item")].filter(
+    (row) => !row.closest(".acpmux-quick-spacer"),
+  );
   expect(rows.length).toBeGreaterThan(0);
   expect(rows.filter((row) => row.querySelector(".ui-menu-shortcut"))).toHaveLength(0);
 });
@@ -477,7 +521,8 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   expect(host.querySelector(".acpmux-fast")).toBeNull();
   await open();
   const rows = itemsOf(menu()!);
-  expect(rows.at(-1)).toBe("Fast mode");
+  // The row names its state, as Effort and Account name theirs (Leo 2026-10-21).
+  expect(rows.at(-1)).toBe("Fast modeOff");
   expect(rows.findIndex((row) => row?.startsWith("Account"))).toBeLessThan(rows.length - 1);
   const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
@@ -491,6 +536,7 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   // The session confirms it: the row is checked, and the button still names no Fast.
   if (!menu()) await open();
   expect(fast().getAttribute("aria-checked")).toBe("true");
+  expect(fast().querySelector(".acpmux-quick-value")?.textContent).toBe("On");
   expect(chipButton().textContent).not.toMatch(/fast/i);
   await act(async () => fast().click());
   await settle();
@@ -567,4 +613,65 @@ test("a started chat's compact menu has no harness rail and no Add harness…", 
   expect(full.querySelector(".acpmux-mp-rail-scroll")).toBeNull();
   expect(full.querySelector(".acpmux-mp-add-harness")).toBeNull();
   expect(added).toEqual([]);
+});
+
+// Lucas 2026-10-22: the menu opens above its chip, so a provider tab with more or fewer rows than
+// the last one moved the menu's top edge, and the rail tabs moved out from under the pointer. The
+// list holds the tallest tab's rows and separators unseen for the whole opening: every tab fits in
+// that space, the tallest fills it, and it does not change as tabs change. The width holds the same
+// way: every tab's rows sit at no height in the same cell, so it is as wide as the widest tab.
+test("every rail tab fits in the same list height and width, the tallest and widest tab's, for the whole opening", async () => {
+  await mount({ routes: [] }, { fast: true });
+  await open();
+  const body = () => menu()!.querySelector<HTMLElement>(".acpmux-quick-body")!;
+  const spacer = () => {
+    const node = body().querySelector<HTMLElement>(".acpmux-quick-spacer");
+    expect(node, "the list holds the tallest tab's height").not.toBeNull();
+    expect(node!.getAttribute("aria-hidden")).toBe("true");
+    return {
+      rows: node!.querySelectorAll(":scope > .acpmux-quick-item").length,
+      separators: node!.querySelectorAll(":scope > .ui-separator").length,
+    };
+  };
+  const shown = () => ({
+    rows: body().querySelectorAll('[role^="menuitem"]').length,
+    separators: body().querySelectorAll('[role="separator"]').length,
+  });
+  const held = spacer();
+  const probeLabels = () =>
+    [...body().querySelectorAll(".acpmux-quick-probe .acpmux-menu-label")].map((node) => node.textContent ?? "");
+  const heldWidths = probeLabels();
+  const tabs = railTabs().map((tab) => tab.getAttribute("aria-label")!);
+  expect(tabs.length).toBeGreaterThan(1);
+  const extents: { rows: number; separators: number }[] = [];
+  for (const name of tabs) {
+    const tab = railTabs().find((each) => each.getAttribute("aria-label") === name)!;
+    await act(async () => tab.click());
+    await settle();
+    expect(spacer(), `the held height on ${name}`).toEqual(held);
+    // The held width: every tab's rows are in the probe, the same rows on every tab.
+    const probe = probeLabels();
+    expect(probe, `the held width on ${name}`).toEqual(heldWidths);
+    for (const label of modelNames(menu()!)) expect(probe, `${name}'s ${label}`).toContain(label);
+    const extent = shown();
+    expect(extent.rows, `${name}'s rows`).toBeLessThanOrEqual(held.rows);
+    expect(extent.separators, `${name}'s separators`).toBeLessThanOrEqual(held.separators);
+    extents.push(extent);
+  }
+  // No two of its separators touch: back to back, their margins would collapse.
+  const parts = [...body().querySelector(".acpmux-quick-spacer")!.children].map((node) => node.className);
+  expect(parts.some((name, index) => name === "ui-separator" && parts[index + 1] === "ui-separator")).toBe(false);
+  // The chat's own tab (Effort, Account, Fast mode) is taller than another harness's.
+  expect(new Set(extents.map((each) => each.rows)).size).toBeGreaterThan(1);
+  // Typing keeps the same height too, and a filter starts at its top.
+  body().scrollTop = 40;
+  await key("o");
+  expect(spacer()).toEqual(held);
+  expect(body().scrollTop).toBe(0);
+  const filtered = shown();
+  expect(filtered.rows).toBeLessThanOrEqual(held.rows);
+  extents.push(filtered);
+  // The space is the tallest tab's or the longest filter's (at most nine rows), not more.
+  expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
+  expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
 });

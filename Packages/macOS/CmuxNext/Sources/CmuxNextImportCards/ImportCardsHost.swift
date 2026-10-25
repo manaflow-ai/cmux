@@ -14,12 +14,19 @@ public struct ImportCardsHost {
     public var importedProfiles: () async -> Set<String>
     /// Opens Settings at a page route (`#/settings/import`).
     public var openSettings: (String) -> Void
+    /// Runs Import Workspaces from Classic cmux, the same run as the `workspace.importClassic`
+    /// action: its own preview and confirmation, the migration ledger (so nothing comes over
+    /// twice) and its toast. Reports the share of classic workspaces handled, 0...1, on the main
+    /// actor. Returns how many workspaces this run opened, nil when the person declined the preview.
+    public var importClassic: (@escaping @MainActor (Double) -> Void) async throws -> Int?
 
     public init(runImport: @escaping (ImportPlan, any SafeStorageKeyProviding, @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary,
                 importedProfiles: @escaping () async -> Set<String>,
-                openSettings: @escaping (String) -> Void) {
+                openSettings: @escaping (String) -> Void,
+                importClassic: @escaping (@escaping @MainActor (Double) -> Void) async throws -> Int?) {
         self.runImport = runImport
         self.importedProfiles = importedProfiles
         self.openSettings = openSettings
+        self.importClassic = importClassic
     }
 }

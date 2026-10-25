@@ -5,11 +5,11 @@ import CmuxNextFloating
 /// The Chief pet's nine characters side by side in the Chief Settings popover (Leo 2026-10-21:
 /// "the nine avatars, we need to be able to just swap them out, just how ChatGPT does"): each
 /// character's picture, its name as the tooltip and VoiceOver label, the current one checked.
-/// One click picks a character; `onPick` writes it.
+/// One click picks a character; `onPick` keeps it as the popover's Chief's.
 @MainActor
 final class ChiefPetMascotGrid: NSStackView {
     static let columns = 5
-    /// What a click on a character runs, with the character's id (`home.chiefPetMascot`).
+    /// What a click on a character runs, with the character's id (a `ChiefPetMascot` raw value).
     var onPick: ((String) -> Void)?
     private(set) var cells: [ChiefPetMascotCell] = []
 

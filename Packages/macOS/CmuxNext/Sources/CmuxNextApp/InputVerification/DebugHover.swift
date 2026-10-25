@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 
 /// `debug.mouse` `hover` (DEBUG builds): hover without the user's pointer.

@@ -84,6 +84,22 @@ test("Send now on a waiting steer asks queue_edit send_now for its promptId, and
     const [sendNow, ...others] = sendNowButtons();
     expect(sendNow).toBeDefined();
     expect(others).toEqual([]);
+    // Send now leads the prompt's action row under the bubble (Leo, 2026-10-24): no clock, no
+    // underline and nothing in the bubble's left gutter.
+    const pending = sendNow!.closest(".cv-user__pending")!;
+    expect(pending.classList.contains("cv-user__pending--beside")).toBe(false);
+    expect(pending.querySelector("svg")).toBeNull();
+    const actions = pending.parentElement!;
+    expect(actions.classList.contains("cv-user__actions")).toBe(true);
+    const bubble = actions.previousElementSibling!;
+    expect(bubble.classList.contains("cv-user__bubble")).toBe(true);
+    expect(bubble.textContent).toContain("Also keep the old flag working");
+    expect(actions.firstElementChild).toBe(pending);
+    const message = bubble.closest(".cv-user")!;
+    expect([...message.children].map((child) => child.className)).toEqual([
+      "ui-glass cv-user__bubble selectable",
+      "cv-user__actions",
+    ]);
     await act(async () => {
       sendNow!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 0));

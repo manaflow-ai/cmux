@@ -7,11 +7,12 @@
     "postinstall": "bun scripts/pages/gen-strings.mjs --best-effort",
     "build": "node scripts/pages/gen-strings.mjs && bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "bun run check:browser-lanes && bun run check:fixed-waits && bun run check:layers && bun run check:type-scale && bun run check:motion-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && bun run check:dialog-keys && bun run check:switch-fetches && bun run check:catalog-keys && vp check && bun run acpmux-protocol:check",
+    "check": "bun run check:browser-lanes && bun run check:fixed-waits && bun run check:design-tokens && bun run check:layers && bun run check:type-scale && bun run check:motion-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && bun run check:dialog-keys && bun run check:switch-fetches && bun run check:catalog-keys && vp fmt --check && vp lint && vp check --no-fmt --no-lint && bun run acpmux-protocol:check",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
     "check:type-scale": "python3 ../scripts/cmux-next/gen-type-scale.py --check && python3 ../scripts/cmux-next/check-type-scale.py",
     "check:motion-scale": "python3 ../scripts/cmux-next/gen-motion-scale.py --check",
     "check:status-glyphs": "python3 ../scripts/cmux-next/gen-status-glyphs.py --check",
+    "check:ui-rulings": "bun scripts/check-ui-rulings.ts",
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",
     "check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py",
     "check:dialog-keys": "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py ..",
@@ -19,6 +20,7 @@
     "check:catalog-keys": "python3 -I ../scripts/cmux-next/check-xcstrings-keys.py --root ..",
     "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fixed-waits": "bun scripts/check-fixed-waits.ts",
+    "check:design-tokens": "bun scripts/check-design-tokens.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
@@ -62,15 +64,15 @@
     "marked": "17.0.5",
     "monaco-editor": "0.57.0",
     "prosemirror-commands": "^1.7.1",
-    "prosemirror-model": "^1.25.7",
+    "prosemirror-model": "1.25.11",
     "prosemirror-state": "^1.4.4",
-    "prosemirror-view": "^1.41.8",
+    "prosemirror-view": "1.42.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "shiki": "3.23.0",
-    "solid-js": "^1.9.13",
-    "vega-interpreter": "1.0.5",
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
+    "solid-js": "^1.9.17",
+    "vega-interpreter": "1.2.1",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.29.0",
@@ -92,10 +94,20 @@
     "react-doctor": "^0.2.4",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3",
-    "vite-plus": "1.0.0"
+    "vite-plus": "1.3.0"
   },
   "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.0.0"
+    "baseline-browser-mapping": "^2.11.0",
+    "brace-expansion": "^5.0.12",
+    "browserslist": "^4.28.7",
+    "dompurify": "3.4.17",
+    "fast-uri": "^3.1.8",
+    "seroval": "^1.6.9",
+    "seroval-plugins": "^1.6.9",
+    "source-map-js": "^1.2.2",
+    "toml": "^4.2.0",
+    "undici": "^7.29.1",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0"
   },
   "devEngines": {
     "packageManager": {

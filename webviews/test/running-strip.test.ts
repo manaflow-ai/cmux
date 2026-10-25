@@ -1,0 +1,133 @@
+// The tray line of a running command above the composer is quiet at rest and one box (Leo
+// 2026-10-21, on a strip whose line was a filled pill inside the tray's bordered glass, with uneven
+// insets: ""padding" this one tho i think is mostly a matter of like... well why is that even
+// highlighted in the first place? you can click on it to go somewhere? is that a command or a
+// subagent?").
+// - At rest nothing inside the tray has a fill of its own. (The pill in the screenshot was the
+//   line's hover: summary.css's opaque --acpmux-menu-hover at a 7px radius, inside the tray's 2px
+//   padding.)
+// - Hovering a line that opens something fills the whole line, its stop button included, out to
+//   the tray's own edges (one inset, never a pill inside the strip), with the hand cursor; the
+//   line's button draws no second fill.
+// - A line with nothing to open has no hover at all.
+//
+// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+import { warmViteServer } from "./support/warmDevServer";
+
+await requireBrowserLane("running-strip.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("running-strip: skipping (run `bunx playwright install chromium`)");
+    describe.skip("running strip", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  beforeAll(async () => {
+    vite = await createServer({
+      root: webviews,
+      configFile: path.join(webviews, "vite.config.ts"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false, watch: { ignored: () => true } },
+      logLevel: "error",
+    });
+    await vite.listen();
+    await warmViteServer(vite, "/test/browser/running-strip.html");
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+  });
+
+  async function open(clickable: boolean): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width: 760, height: 200 } });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+    await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+    await page.evaluate(
+      (value) => (window as unknown as { __showTray: (c: boolean) => void }).__showTray(value),
+      clickable,
+    );
+    await page.waitForSelector(".acpmux-running-tray .acpmux-agent-line");
+    // The tray rises in as it joins the stack (bottomStack.css ui-enter): measure where it lands.
+    await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
+    return page;
+  }
+
+  /** The tray's descendants that paint a background of their own, by class. */
+  const filled = (page: Page) =>
+    page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray *")]
+        .filter((element) => {
+          const color = getComputedStyle(element).backgroundColor;
+          return color !== "rgba(0, 0, 0, 0)" && color !== "transparent";
+        })
+        .map((element) => element.className.toString() || element.tagName),
+    );
+
+  test("at rest nothing inside the tray has a fill", async () => {
+    const page = await open(true);
+    try {
+      expect(await filled(page)).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("hover fills the whole line to the tray's edges, its stop button inside, with the hand", async () => {
+    const page = await open(true);
+    try {
+      await page.hover(".acpmux-agent-line__button");
+      // One fill, on the line: its button draws none of its own (no box in a box).
+      expect(await filled(page)).toEqual(["acpmux-agent-line"]);
+      const geometry = await page.evaluate(() => {
+        const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const line = document.querySelector<HTMLElement>(".acpmux-agent-line")!;
+        const stop = line.querySelector<HTMLElement>(".acpmux-chat-inspector-stop")!;
+        const box = tray.getBoundingClientRect();
+        const inner = {
+          left: box.left + tray.clientLeft,
+          right: box.left + tray.clientLeft + tray.clientWidth,
+        };
+        const rect = line.getBoundingClientRect();
+        const stopRect = stop.getBoundingClientRect();
+        return {
+          left: rect.left - inner.left,
+          right: inner.right - rect.right,
+          stopInside: stopRect.left >= rect.left && stopRect.right <= rect.right,
+          cursor: getComputedStyle(line.querySelector(".acpmux-agent-line__button")!).cursor,
+        };
+      });
+      expect(geometry.left).toBeCloseTo(0, 1);
+      expect(geometry.right).toBeCloseTo(0, 1);
+      expect(geometry.stopInside).toBe(true);
+      expect(geometry.cursor).toBe("pointer");
+      // On the stop button the line keeps its one fill; the button only brightens.
+      await page.hover(".acpmux-chat-inspector-stop");
+      expect(await filled(page)).toEqual(["acpmux-agent-line"]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a line with nothing to open has no hover and no hand", async () => {
+    const page = await open(false);
+    try {
+      await page.hover(".acpmux-agent-line__button", { force: true });
+      expect(await filled(page)).toEqual([]);
+      expect(await page.$eval(".acpmux-agent-line__button", (button) => getComputedStyle(button).cursor)).not.toBe(
+        "pointer",
+      );
+    } finally {
+      await page.close();
+    }
+  });
+});

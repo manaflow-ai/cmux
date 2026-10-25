@@ -40,8 +40,17 @@ extension SidebarViewComponents {
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
         var workspacesAsTabs: Bool
+        /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
+        var groupsByStatus: Bool
         /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
         var foldsDone: Bool
+        /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
+        var rowLimit: Int
+        /// Where group lines sit (`sidebar.groupLineLayout`): headers reach and lines move, so the list lays out again.
+        var groupLineLayout: SidebarGroupLineLayout
+        /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
+        /// or starts after the cut: its frame moves, so the list lays out again.
+        var groupLineJoinsBar: Bool
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -62,11 +71,15 @@ extension SidebarViewComponents {
             fontSize = Typography.body.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
-            tree = SidebarSessionTree.shared.state
+            tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            groupsByStatus = SidebarTunables.groupByStatus.value
             foldsDone = SidebarTunables.doneFold.value
+            rowLimit = SidebarTunables.rowLimit
+            groupLineLayout = SidebarGroupLineLayout.tunable.value
+            groupLineJoinsBar = SidebarGroupLine.joinsBar
         }
     }
     func observe() {
@@ -99,12 +112,17 @@ extension SidebarViewComponents {
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
-            || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
             || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.groupsByStatus != state.groupsByStatus
+            || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
+            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
         let listChanged = rowsChanged || selectionChanged
+        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
+        if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
+        model.groupByStatus(state.groupsByStatus)
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
             setChromeRevealed(isChromeRevealed)
@@ -135,6 +153,13 @@ extension SidebarViewComponents {
                 }
             }
             lastSections = model.sections
+        }
+        // A badge change (a pull request read landed) patches the rows whose badge changed, as a status does; the list
+        // is laid out again only when one's height changes (it laid out all 500 rows per answer: sidebar-lag-DESIGN.md).
+        if let last = lastState, last.pullRequests != state.pullRequests, !listChanged {
+            let ids = Set(last.pullRequests.keys).union(state.pullRequests.keys).filter { last.pullRequests[$0] != state.pullRequests[$0] }
+            let rows = ids.compactMap { list.workspaces[$0] }
+            if !rows.isEmpty { list.patchRows(rows) }
         }
         if lastState?.onScreen != state.onScreen { list.syncRowStates() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }

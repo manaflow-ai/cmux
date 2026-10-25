@@ -35,6 +35,20 @@ pub struct EngineChoice {
     pub speed: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_speed: Option<String>,
+    /// The reaction classifier's harness (reaction_wake.rs); None: the
+    /// user's `chief.reactionClassifier.harness`, else the host's Claude route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_harness: Option<String>,
+    /// The reaction classifier's model; None: the user's, else Claude Haiku.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_model: Option<String>,
+    /// The reaction classifier's prompt; None: the user's, else the built-in one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_prompt: Option<String>,
+    /// Whether a user's reaction on a Chief message may wake this Chief;
+    /// None: the user's `chief.reactionsCanWake`, else on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reactions_can_wake: Option<bool>,
 }
 
 /// The speeds a Chief engine takes: `default` (the harness's) and `fast`
@@ -237,8 +251,10 @@ pub fn resolve(
 }
 
 /// `engine set` flags over the current choice: `--harness`, `--model`,
-/// `--effort`, `--compactor-harness`, `--compactor-model`; the value
-/// `default` clears a field.
+/// `--effort`, `--compactor-harness`, `--compactor-model`, `--speed`,
+/// `--compactor-speed`, and the reaction classifier's
+/// `--reactions-can-wake`, `--classifier-harness`, `--classifier-model`,
+/// `--classifier-prompt`; the value `default` clears a field.
 pub fn apply_flags(
     mut choice: EngineChoice,
     flags: &crate::cli::Flags,
@@ -252,6 +268,9 @@ pub fn apply_flags(
         ("compactor-model", &mut choice.compactor_model),
         ("speed", &mut choice.speed),
         ("compactor-speed", &mut choice.compactor_speed),
+        ("classifier-harness", &mut choice.classifier_harness),
+        ("classifier-model", &mut choice.classifier_model),
+        ("classifier-prompt", &mut choice.classifier_prompt),
     ] {
         if let Some(value) = flags.value(key) {
             changed = true;
@@ -261,6 +280,19 @@ pub fn apply_flags(
             };
         }
     }
+    if let Some(value) = flags.value("reactions-can-wake") {
+        changed = true;
+        choice.reactions_can_wake = match value.trim() {
+            "" | "default" => None,
+            "true" | "on" => Some(true),
+            "false" | "off" => Some(false),
+            other => {
+                return Err(format!(
+                    "--reactions-can-wake is true, false or default, not {other:?}"
+                ));
+            }
+        };
+    }
     if !changed {
         return Err(USAGE.into());
     }
@@ -268,7 +300,7 @@ pub fn apply_flags(
 }
 
 pub const USAGE: &str = "chief engine show
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction)";
 
 /// `engine show|set`; Ok carries what to print.
 pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {

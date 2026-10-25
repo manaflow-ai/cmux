@@ -39,9 +39,9 @@ extension SidebarLayout {
     /// group, or an expanded header's own group.
     private func groupOpening(below row: SidebarRow) -> GroupID? {
         switch row.key {
-        case .workspace, .doneFold: row.group
+        case .workspace, .doneFold, .showMore, .emptyGroup: row.group
         case .group(let group): row.isCollapsed ? nil : group
-        case .tab, .section, .emptySection, .folder, .item, .block: nil
+        case .tab, .section, .emptySection, .folder, .status, .item, .block: nil
         }
     }
 }

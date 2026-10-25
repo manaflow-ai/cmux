@@ -1,11 +1,14 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
+use std::sync::Arc;
 
 pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
-        Command::Wait { .. }
+        Command::Dispatch(..)
+            | Command::Briefs(..)
+            | Command::Wait { .. }
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
@@ -23,6 +26,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Ls { .. }
             | Command::New(..)
             | Command::Send { .. }
+            | Command::Deliver { .. }
             | Command::Chats(..)
             | Command::Process(..)
             | Command::Worktree(..)
@@ -34,6 +38,8 @@ pub(super) fn handles(cmd: &Command) -> bool {
 
 pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
             timeout,
@@ -288,14 +294,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
+        Command::New(args) if args.parent.is_some() => super::parent::run(args, json_out).await,
         Command::New(args) => {
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
-            let cwd = match &launch.worktree {
-                Some((_, repo)) => repo.clone(),
-                None => new_session_cwd(args.host.as_deref(), args.cwd.clone())?,
-            };
             let client = connect(true).await?;
+            let host = match crate::cli::place::auto_work(args.host.as_deref()) {
+                Some(work) => {
+                    crate::cli::place::resolve(&client, work, launch.name.as_deref(), launch.reuse)
+                        .await?
+                }
+                None => args.host.clone(),
+            };
+            let cwd = match &launch.worktree {
+                Some((_, repo)) => Some(repo.clone()),
+                None => new_session_cwd(host.as_deref(), args.cwd.clone())?,
+            };
             let mut meta = json!({});
             if let Some(spec) = &args.model {
                 let (h, m) = orchestrate::split_target(spec);
@@ -307,7 +321,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(p) = &args.preset {
                 meta["preset"] = json!(p);
             }
-            if let Some(h) = &args.host {
+            if let Some(h) = &host {
                 meta["peer"] = json!(h);
             }
             if let Some(n) = &launch.name {
@@ -353,7 +367,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
             // launcher with the same name.
-            let key = launch.name.as_ref().map(|n| match &args.host {
+            let key = launch.name.as_ref().map(|n| match &host {
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
@@ -366,7 +380,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 reused = launch::existing(&client, key).await?;
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            p["cwd"] = json!(cwd);
+            if let Some(cwd) = &cwd {
+                p["cwd"] = json!(cwd);
+            }
             let v = match reused.clone() {
                 Some(info) => info,
                 None => match if ephemeral || probe {
@@ -417,7 +433,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
-                    queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    let accepted = queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    if !json_out {
+                        warn_host_pressure(&accepted);
+                    }
                 }
                 show();
                 if json_out {
@@ -485,7 +504,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if args.detach {
                     // The prompt is queued before the sidebar step, so a
                     // session never runs without its instructions.
-                    queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    let accepted = queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    if !json_out {
+                        warn_host_pressure(&accepted);
+                    }
                     show();
                     return Ok(());
                 }
@@ -527,16 +549,34 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             stall,
             prompt_id,
             from,
+            status,
             supersede,
         } => {
+            let client = connect(true).await?;
+            if let Some(delivery) = status {
+                return super::send_async::status(&client, &delivery, json_out).await;
+            }
+            let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
-            prompt_id.from_agent = from;
+            prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
+            prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
-            let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
+            if no_wait {
+                return super::send_async::queue(
+                    &client,
+                    &session,
+                    &text,
+                    steer,
+                    &prompt_id,
+                    superseding,
+                    json_out,
+                )
+                .await;
+            }
             let id = resolve_id(&client, &session).await?;
             let on_permission = OnPermission::parse(&on_permission)?;
             // Never refuse: report what the prompt queues behind.
@@ -566,26 +606,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 eprintln!("queued behind {}", parts.join(" and "));
             }
-            if no_wait {
-                // Return once the daemon recorded the prompt, not after a guess.
-                let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
-                let steered = accepted.get("steer") == Some(&json!(true));
-                if json_out {
-                    let mut out = json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted});
-                    if superseding {
-                        // null when the daemon did not report it (one that predates the key).
-                        out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
-                        out["replacedPromptIds"] =
-                            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
-                    }
-                    print_json(&out);
-                } else {
-                    for line in sent_lines(&accepted, superseding) {
-                        println!("{line}");
-                    }
-                }
-                return Ok(());
-            }
             let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
             if quiet || json_out {
                 let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
@@ -610,6 +630,49 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 &prompt_id,
             )
             .await
+        }
+        Command::Deliver { target, prompt, id, audience } => {
+            if !target.starts_with("reports:") {
+                return Err(anyhow!("--target must start with reports:"));
+            }
+            if !matches!(audience.as_str(), "leo" | "coordinator" | "silent") {
+                return Err(anyhow!("--audience must be leo, coordinator, or silent"));
+            }
+            let text = arg_or_stdin(&prompt)?;
+            let sender = std::env::var("ACPMUX_SESSION_ID")
+                .map_err(|_| anyhow!("acpmux deliver must run from an attached agent session"))?;
+            let id = id.unwrap_or_else(|| format!("report-{}", uuid::Uuid::now_v7()));
+            let client = connect(true).await?;
+            // The daemon only accepts a sender identity that is bound to this
+            // connection. `deliver` is a session-local CLI, so attach before
+            // the quiet write. Keep the view hidden so attaching does not mark
+            // the agent seen or publish a visible status event.
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": sender, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let value = client
+                .request(
+                    method::MUX_MAIL_SEND,
+                    json!({
+                        "id": id,
+                        "sender": sender,
+                        "target": target,
+                        "body": text,
+                        "metadata": {"audience": audience, "kind": "report"},
+                    }),
+                )
+                .await?;
+            if json_out {
+                print_json(&value);
+            } else {
+                let message_id =
+                    value.pointer("/message/id").and_then(Value::as_str).unwrap_or("?");
+                println!("delivered {message_id} to reports basket (woke=false)");
+            }
+            Ok(())
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
@@ -701,6 +764,100 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
     }
+}
+
+async fn dispatch(client: Arc<Client>, args: DispatchArgs, json_out: bool) -> Result<()> {
+    let brief = if args.brief.as_os_str() == "-" {
+        arg_or_stdin(&[])?
+    } else {
+        std::fs::read_to_string(&args.brief)?
+    };
+    let mut obj = serde_json::Map::from_iter([
+        ("brief".into(), json!(brief)),
+        ("host".into(), json!(args.host)),
+    ]);
+    for (key, value) in [
+        ("title", args.title),
+        ("to", args.to),
+        ("stopCondition", args.stop_condition),
+        ("model", args.model),
+        ("preset", args.preset),
+        ("policy", args.policy),
+    ] {
+        if let Some(value) = value {
+            obj.insert(key.into(), json!(value));
+        }
+    }
+    if let Some(cwd) = args.cwd {
+        obj.insert("cwd".into(), json!(cwd));
+    }
+    let v = client.request(crate::rpc::method::MUX_DISPATCH, Value::Object(obj)).await?;
+    if json_out {
+        print_json(&v);
+    } else {
+        if let Some(warning) = v.get("warning").and_then(Value::as_str) {
+            eprintln!("warning: {warning}");
+        }
+        if let Some(host) = v.get("suggestedHost").and_then(Value::as_str) {
+            eprintln!("suggestion: dispatch the next brief to {host}");
+        }
+        let b = v.get("brief").unwrap_or(&v);
+        println!(
+            "sent brief {:?} → {} on {}",
+            b.get("title").and_then(Value::as_str).unwrap_or("brief"),
+            b.get("to").and_then(Value::as_str).unwrap_or("agent"),
+            b.get("host").and_then(Value::as_str).unwrap_or("local")
+        );
+    }
+    Ok(())
+}
+
+async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<()> {
+    let v =
+        match cmd {
+            BriefsCmd::Ls { status, limit } => {
+                client
+                    .request(crate::rpc::method::MUX_BRIEFS, json!({"status":status,"limit":limit}))
+                    .await?
+            }
+            BriefsCmd::Steer { brief_id, text } => {
+                client
+                    .request(
+                        crate::rpc::method::MUX_STEER,
+                        json!({"briefId":brief_id,"text":arg_or_stdin(&text)?}),
+                    )
+                    .await?
+            }
+            BriefsCmd::Report { brief_id, summary, status } => client
+                .request(
+                    crate::rpc::method::MUX_REPORT,
+                    json!({"briefId":brief_id,"summary":arg_or_stdin(&summary)?,"status":status}),
+                )
+                .await?,
+        };
+    if json_out {
+        print_json(&v);
+        return Ok(());
+    }
+    if let Some(rows) = v.get("briefs").and_then(Value::as_array) {
+        for b in rows {
+            println!(
+                "{:<24} {:<9} {}",
+                b.get("briefId").and_then(Value::as_str).unwrap_or("?"),
+                b.get("status").and_then(Value::as_str).unwrap_or("?"),
+                b.get("title").and_then(Value::as_str).unwrap_or("")
+            );
+        }
+    } else {
+        println!(
+            "{}",
+            v.get("brief")
+                .and_then(|b| b.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("updated")
+        );
+    }
+    Ok(())
 }
 
 /// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent

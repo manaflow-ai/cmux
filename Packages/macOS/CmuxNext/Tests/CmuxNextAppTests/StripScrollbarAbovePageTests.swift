@@ -4,6 +4,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The strip scrollbar stays above a browser page (cx-6so.44, dock-column.md Known gaps). It draws
 /// along the bottom of the strip, over the panes there, but a Chromium page is a child window above

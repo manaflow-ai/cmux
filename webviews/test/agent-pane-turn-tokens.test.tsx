@@ -12,6 +12,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { ContextCardBody } from "../src/agent-session/acpmux/ContextCard";
 import {
   WorkingCountsContext,
   WorkingFor,
@@ -384,6 +385,53 @@ for (const [harness, family] of [
     }
   });
 
+// The composer tooltip stays compact for harnesses without a category breakdown. The usage record
+// still carries the setup value for the context summary, but it is intentionally not guessed into
+// the small Codex-style hover surface.
+const compactCard = (usage: { used: number; size: number; setup?: number }) =>
+  renderToStaticMarkup(<ContextCardBody {...usage} working={false} />).includes("acpmux-context-card-compact-content");
+
+test("a usage record's reported setup reaches the context summary while the tooltip stays compact", async () => {
+  const withSetup: Step = [
+    "in",
+    "usage_update",
+    update({ sessionUpdate: "usage_update", used: 111_000, size: 475_000, _meta: { acpmux: { setup: 20_000 } } }),
+  ];
+  const daemon = fakeDaemon(record([prompt("fix the build"), started, withSetup]));
+  const { client, snapshot } = await connect(daemon);
+  try {
+    await until(() => snapshot().summary?.usage !== undefined, "the usage");
+    expect(snapshot().summary.usage).toEqual({ used: 111_000, size: 475_000, setup: 20_000 });
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
+    // A later record with no setup keeps the same compact tooltip.
+    daemon.push(record([held(120_000, 475_000)], 4));
+    await until(() => snapshot().summary.usage.used === 120_000, "the next usage");
+    expect(snapshot().summary.usage).toEqual({ used: 120_000, size: 475_000 });
+    expect(compactCard(snapshot().summary.usage)).toBe(true);
+    daemon.push(
+      record(
+        [
+          [
+            "in",
+            "usage_update",
+            update({
+              sessionUpdate: "usage_update",
+              used: 10_000,
+              size: 475_000,
+              _meta: { acpmux: { setup: 30_000 } },
+            }),
+          ],
+        ],
+        5,
+      ),
+    );
+    await until(() => snapshot().summary.usage.used === 10_000, "the odd usage");
+    expect(snapshot().summary.usage.setup).toBeUndefined();
+  } finally {
+    client.close();
+  }
+});
+
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
@@ -411,7 +459,9 @@ test("the line reads the time, then the turn's tokens, after the working dots", 
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
   // The background counts follow the tokens.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2.1M tokens · 2 agents");
+  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe(
+    "Working for 5m 54s · 2.1M tokens · 2 subagents",
+  );
 });
 
 test("tokens are compact in the pane's language", () => {
