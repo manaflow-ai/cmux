@@ -91,6 +91,8 @@ fn harnesses() -> Value {
                            "displayName": "claude"},
             // An empty catalog name is no name: this row falls back to its id.
             "nameless": {"kind": "acp", "argv": ["nameless"], "family": "other"},
+            // A profile acpmux calls `default`, the word a set reads as clearing the choice.
+            "default": {"kind": "acp", "argv": ["default-acp"], "family": "codex"},
             "aider": {"kind": "terminal", "argv": ["aider"], "family": "aider"},
         },
         "catalog": {"harnesses": [
@@ -352,6 +354,7 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
             ("claude-sr", Family::Claude),
             ("claude-vm", Family::Claude),
             ("codex", Family::Codex),
+            ("default", Family::Codex),
             ("nameless", Family::Other),
             ("opencode", Family::Other),
             ("unii", Family::Other),
@@ -371,6 +374,7 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
             "claude-sr",
             "claude-vm",
             "codex",
+            "default",
             "nameless",
             "opencode",
             "unii"
@@ -462,7 +466,11 @@ fn an_offer_never_names_a_harness_effort_or_speed_a_set_would_refuse() {
     // it as.
     let mut brain = brain(
         dir.path(),
-        &[("claude-sr", Family::Claude), ("codex", Family::Other)],
+        &[
+            ("claude-sr", Family::Claude),
+            ("codex", Family::Other),
+            ("default", Family::Codex),
+        ],
     );
     let answer = engine(&mut brain, EngineRequest::Show);
     let offered = answer["offered"]["harnesses"].as_array().unwrap();
@@ -505,6 +513,28 @@ fn an_offer_never_names_a_harness_effort_or_speed_a_set_would_refuse() {
     assert_eq!(invalid["error"]["code"], "invalid_effort", "{invalid:#}");
     let slow = engine(&mut brain, set(Some("codex"), None, Some("fast")));
     assert_eq!(slow["error"]["code"], "invalid_speed", "{slow:#}");
+
+    // A profile acpmux calls `default`: a set reads that value as clearing the
+    // choice, so it never switches to the profile and keeps the harness the
+    // Chief already runs. The row says so instead of offering a dead choice.
+    let sentinel = by_id("default");
+    assert_eq!(sentinel["unavailable"], true, "{sentinel:#}");
+    assert!(
+        sentinel["unavailableReason"]
+            .as_str()
+            .is_some_and(|r| r.contains("clearing the choice")),
+        "{sentinel:#}"
+    );
+    // The set's answer is the dead choice the row warns about: no refusal, and
+    // the harness it ran on before is still the one it runs on.
+    let before = engine(&mut brain, EngineRequest::Show)["engine"]["harness"].clone();
+    let cleared = engine(&mut brain, set(Some("default"), None, None));
+    assert_eq!(cleared.get("error"), None, "{cleared:#}");
+    assert_eq!(
+        engine(&mut brain, EngineRequest::Show)["engine"]["harness"],
+        before,
+        "a set of the `default` profile switched nothing: {cleared:#}"
+    );
 }
 
 /// Two profiles under one name keep apart by their ids, and a third profile

@@ -125,6 +125,22 @@ fn disambiguate(rows: &mut [Value]) {
     }
 }
 
+/// Why a set could not name this harness at all: `chief.engine.set` reads an
+/// empty value, or the literal `default`, as "clear the choice" (its `set`
+/// closure in ``engine_control``), so a profile acpmux calls either one can
+/// never be switched to. The row says so rather than offer a choice that
+/// silently keeps the harness the Chief already runs.
+fn unnameable(id: &str) -> Option<String> {
+    let trimmed = id.trim();
+    (trimmed.is_empty() || trimmed == "default").then(|| {
+        format!(
+            "this Chief cannot be switched to a harness acpmux calls {:?}: a set reads that as \
+             clearing the choice. Rename the profile in acpmux.",
+            id
+        )
+    })
+}
+
 fn row(
     answer: &Value,
     id: &str,
@@ -147,11 +163,17 @@ fn row(
     // start, so a harness acpmux gained since would be refused with
     // `unknown_harness`. Say that here instead of offering a row the picker
     // cannot switch to.
-    let reason = plan.admitted.err().or_else(|| {
-        (!started_with.is_empty() && !started_with.contains_key(id)).then(|| {
-            format!("acpmux gained {id} after this Chief started; restart the Chief to run on it")
+    let reason = plan
+        .admitted
+        .err()
+        .or_else(|| {
+            (!started_with.is_empty() && !started_with.contains_key(id)).then(|| {
+                format!(
+                    "acpmux gained {id} after this Chief started; restart the Chief to run on it"
+                )
+            })
         })
-    });
+        .or_else(|| unnameable(id));
     let family = str_of("family").unwrap_or(family_name(chief_family));
     let display = str_of("displayName").or(catalog_name).unwrap_or(id);
 
