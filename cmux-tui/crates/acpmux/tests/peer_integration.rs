@@ -2088,3 +2088,108 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `_acpmux/resolve` (`acpmux resolve`): an agent link, as a PR footer carries it, finds its
+/// session by the harness's session id, on this daemon or on a peer, with its metadata; a name
+/// finds a peer's session too; a link no daemon knows says where it looked.
+#[tokio::test]
+async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "resolve").await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far-one"}}});
+    let far =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let far_info = cb.call(method::MUX_INFO, json!({"session": far})).await.unwrap();
+    let far_agent = far_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "near-one"}}});
+    let near =
+        ca.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let near_info = ca.call(method::MUX_INFO, json!({"session": near})).await.unwrap();
+    let near_agent = near_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+    let family = near_info["family"].as_str().unwrap_or("fake").to_owned();
+
+    // A local session, from a whole PR footer line.
+    let footer = format!(
+        "Agent session: [here](https://cmux.com/deeplink/agent?harness={family}&session={near_agent})"
+    );
+    let r = ca.call("_acpmux/resolve", json!({"query": footer})).await.unwrap();
+    let s = &r["session"];
+    assert_eq!(s["sessionId"], near, "{r}");
+    assert_eq!(s["name"], "near-one", "{r}");
+    assert_eq!(s["peer"], Value::Null, "{r}");
+    assert_eq!(s["agentSessionId"], near_agent.as_str(), "{r}");
+    assert_eq!(s["cwd"], near_info["cwd"], "{r}");
+    assert!(s["status"].is_string() && s["lane"]["state"].is_string(), "{r}");
+    assert!(s["pullRequests"].is_array(), "{r}");
+    assert!(s["link"].as_str().unwrap().contains(&format!("session={near_agent}")), "{r}");
+    // The stand-in agent numbers its sessions, so B's first has the same harness session id:
+    // both match, this daemon's first when the link names no host.
+    let hosts: Vec<&Value> = r["matches"].as_array().unwrap().iter().map(|m| &m["peer"]).collect();
+    assert_eq!(hosts, [&Value::Null, &json!("b")], "{r}");
+    assert_eq!(far_agent, near_agent, "the stand-in's ids changed; this test assumes they repeat");
+
+    // A peer's session, from the native link the app opens: the host it names ranks first.
+    let native = format!("cmux://agent/{family}/{far_agent}?host=b");
+    let r = ca.call("_acpmux/resolve", json!({"query": native})).await.unwrap();
+    let s = &r["session"];
+    assert_eq!(s["host"], "b", "{r}");
+    assert_eq!(s["peer"], "b", "{r}");
+    assert_eq!(s["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(s["name"], "b/far-one", "{r}");
+    assert_eq!(s["agentSessionId"], far_agent.as_str(), "{r}");
+
+    // By its bare name, from the daemon that only mirrors it.
+    let r = ca.call("_acpmux/resolve", json!({"query": "far-one"})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+
+    // A link no daemon here knows, naming a host that is neither this one nor a peer.
+    let unknown =
+        format!("https://cmux.com/deeplink/agent?harness={family}&session=nope-1&host=elsewhere");
+    let e = ca.call("_acpmux/resolve", json!({"query": unknown})).await.unwrap_err();
+    assert!(e.contains("nope-1") && e.contains("peers (b)") && e.contains("elsewhere"), "{e}");
+    // A link that names no session is refused as a link.
+    let e = ca
+        .call("_acpmux/resolve", json!({"query": "https://cmux.com/deeplink/agent?harness=claude"}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("no session"), "{e}");
+}
+
+/// hq#2509 for `_acpmux/resolve`: a peer's connection reads a resolved session's own words
+/// masked, as it reads them in a session list; the owning daemon's client reads them raw.
+#[tokio::test]
+async fn a_peer_resolves_a_sessions_text_masked() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "secret-resolve"}}});
+    let id =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let text = format!("push with {}", github_token());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    cb.call(method::SESSION_PROMPT, prompt).await.unwrap();
+    let query = json!({"query": "secret-resolve"});
+    let raw = cb.call("_acpmux/resolve", query.clone()).await.unwrap();
+    assert_eq!(raw["session"]["lastPrompt"], text.as_str(), "{raw}");
+
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        b.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Peer,
+    ));
+    let mut peer = C { tx: in_tx, rx: out_rx, next: 0 };
+    let r = peer.call("_acpmux/resolve", query).await.unwrap();
+    let mask = "[GitHub Personal Access Token]";
+    assert!(!r.to_string().contains("ghp_"), "{r}");
+    assert_eq!(r["session"]["lastPrompt"], format!("push with {mask}"), "{r}");
+    assert_eq!(r["matches"][0]["lastMessage"]["text"], format!("echo: push with {mask}"), "{r}");
+}
