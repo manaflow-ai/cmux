@@ -90,6 +90,18 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine, CatalogArgument.directionChoice.optional, CatalogArgument.cwdString.optional],
                 targets: [.pane], cliName: "remote open-terminal-here", startsTerminal: true
             ),
+            // `cmux open-remote <host>`: one idempotent verb (manaflow-ai/cmux#25092).
+            ActionDescriptor(
+                id: "remote.openRemote",
+                title: String(localized: "action.remote.openRemote", defaultValue: "Open Remote Terminal", table: "RemoteActions", bundle: .module),
+                keywords: ["ssh", "remote", "machine", "host", "open-remote", "split", "attach", "terminal"], category: .remote, symbol: "terminal",
+                surfaces: [.palette], arguments: [
+                    CatalogArgument.openRemoteHost, CatalogArgument.openRemoteSplit, CatalogArgument.cwdString.optional,
+                    CatalogArgument.openRemoteCmd, CatalogArgument.nameString.optional, CatalogArgument.openRemoteLabel,
+                    CatalogArgument.openRemoteAttach, CatalogArgument.openRemoteRatio, CatalogArgument.focusBool.optional,
+                ],
+                targets: [.pane], cliName: "open-remote", startsTerminal: true
+            ),
             ActionDescriptor(
                 id: "remote.reconnect",
                 title: String(localized: "action.remote.reconnect", defaultValue: "Reconnect Machine", table: "RemoteActions", bundle: .module),

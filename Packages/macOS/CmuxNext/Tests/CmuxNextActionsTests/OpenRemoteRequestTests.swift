@@ -77,3 +77,14 @@ import Testing
         #expect(OpenRemoteMachine.match("nope", in: machines) == nil)
     }
 }
+
+@MainActor @Suite struct OpenRemoteIdempotencyTests {
+    @Test func aSecondRunFindsTheTabTheFirstMade() throws {
+        let plain = try OpenRemoteRequest(ActionInvocation(arguments: ["host": .string("h")]))
+        #expect(plain.matchesTab(name: nil, title: "Terminal on h", defaultTitle: "Terminal on h"))
+        #expect(!plain.matchesTab(name: "logs", title: "Terminal on h", defaultTitle: "Terminal on h"))
+        let named = try OpenRemoteRequest(ActionInvocation(arguments: ["host": .string("h"), "name": .string("Logs")]))
+        #expect(named.matchesTab(name: "logs", title: "x", defaultTitle: "Terminal on h"))
+        #expect(!named.matchesTab(name: nil, title: "Terminal on h", defaultTitle: "Terminal on h"))
+    }
+}
