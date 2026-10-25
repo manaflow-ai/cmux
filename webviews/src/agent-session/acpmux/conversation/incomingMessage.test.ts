@@ -543,9 +543,7 @@ test("a message's closed line previews its first line of text, its spaces collap
   // A reference whose id (or, for `[label][]`, label) the message does not define stays as written.
   expect(messagePreview("Opened [PR 12][nope] and [notes][]")).toBe("Opened [PR 12][nope] and [notes][]");
   // A definition inside fenced code defines nothing.
-  expect(messagePreview("Read [docs] first\n\n```md\n[docs]: https://example.com/docs\n```")).toBe(
-    "Read [docs] first",
-  );
+  expect(messagePreview("Read [docs] first\n\n```md\n[docs]: https://example.com/docs\n```")).toBe("Read [docs] first");
   expect(messagePreview("Read [docs] first\n\n~~~\n[docs]: x\n~~~\n[docs]: https://example.com/docs")).toBe(
     "Read docs first",
   );
@@ -558,7 +556,9 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("Logs at <https://example.com/log>")).toBe("Logs at https://example.com/log");
   // A fence closes only on its own marker, at least as long, alone on its line.
   expect(messagePreview("```\n```not-a-close\n```")).toBe("```not-a-close");
-  expect(messagePreview("````\n```\nstill code\n````")).toBe("still code");
+  // A shorter marker inside a longer fence is a line of its code, not its close.
+  expect(messagePreview("````\n```\nstill code\n````")).toBe("```");
+  expect(messagePreview("````\n\n````\nAfter the fence")).toBe("After the fence");
   expect(messagePreview("~~~\n```\n~~~\nAfter")).toBe("```");
   expect(messagePreview("```\n```   \nAfter the fence")).toBe("After the fence");
   // Single emphasis drops; a snake_case word keeps its underscores.
