@@ -288,10 +288,10 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
 }
 
 /// The holder child's environment: the daemon's own, then the terminal
-/// identity, then the launch's injected values. `TERM_PROGRAM_VERSION` is
-/// dropped last, inherited values included, because cmux forwards TUI mouse
-/// reports instead of providing Ghostty's native selection path: a child that
-/// sees a Ghostty version turns its own copy-on-select fallback off.
+/// identity, then the launch's injected values, less
+/// [`crate::shell_integration::UNSET_IN_TERMINAL_CHILDREN`]. The holder gets
+/// the whole environment spelled out, so the removal happens here rather than
+/// through `PtyCommand::env_remove` as on the other two child paths.
 fn holder_environment(
     launch: &crate::shell_integration::ShellLaunch,
     opts: &SurfaceOptions,
@@ -305,7 +305,9 @@ fn holder_environment(
             env.insert(key.into(), value.into());
         }
     }
-    env.remove(OsStr::new("TERM_PROGRAM_VERSION"));
+    for key in crate::shell_integration::UNSET_IN_TERMINAL_CHILDREN {
+        env.remove(OsStr::new(key));
+    }
     env
 }
 

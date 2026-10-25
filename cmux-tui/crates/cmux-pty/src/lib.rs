@@ -19,7 +19,7 @@
     )
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 #[cfg(unix)]
 use std::fs::File;
@@ -122,6 +122,9 @@ pub struct PtyCommand {
     #[cfg(unix)]
     cwd_descriptor: Option<Arc<File>>,
     environment: BTreeMap<String, String>,
+    /// Keys the child must not have, applied after `environment`, so an
+    /// inherited value is dropped as well as a set one.
+    removed_environment: BTreeSet<String>,
     clean_environment: bool,
 }
 
@@ -134,6 +137,7 @@ impl PtyCommand {
             #[cfg(unix)]
             cwd_descriptor: None,
             environment: BTreeMap::new(),
+            removed_environment: BTreeSet::new(),
             clean_environment: false,
         }
     }
@@ -161,7 +165,18 @@ impl PtyCommand {
     }
 
     pub fn env(&mut self, key: impl Into<String>, value: impl Into<String>) {
-        self.environment.insert(key.into(), value.into());
+        let key = key.into();
+        self.removed_environment.remove(&key);
+        self.environment.insert(key, value.into());
+    }
+
+    /// The child must not see `key`, whether this command set it or the
+    /// parent would pass it down. Wins over an earlier [`Self::env`] of the
+    /// same key; a later `env` wins over this.
+    pub fn env_remove(&mut self, key: impl Into<String>) {
+        let key = key.into();
+        self.environment.remove(&key);
+        self.removed_environment.insert(key);
     }
 
     pub fn env_clear(&mut self) {
@@ -271,6 +286,9 @@ mod platform {
         }
         for (key, value) in command.environment {
             builder.env(key, value);
+        }
+        for key in command.removed_environment {
+            builder.env_remove(key);
         }
         let child = slave.0.spawn_command(builder)?;
         Ok(Box::new(super::windows_jobs::JobChild::new(child)))
@@ -385,6 +403,44 @@ mod tests {
         let reset = reset.into_iter().fold(0, |mask, signal| mask | bit(signal));
         assert_eq!(ignored & reset, 0, "child ignores {line}");
         assert_eq!(blocked, 0, "child blocks signals: {line}");
+        Ok(())
+    }
+
+    /// `env_remove` keeps a key from the child even when this process has it,
+    /// so a terminal child never inherits what the daemon carries (cmux#22585:
+    /// `TERM_PROGRAM_VERSION`). The child prints its own value, so this
+    /// measures the spawned environment rather than the builder's state.
+    #[test]
+    fn env_remove_drops_an_inherited_value_from_the_child() -> anyhow::Result<()> {
+        const KEY: &str = "CMUX_PTY_ENV_REMOVE_PROBE";
+        // SAFETY: single-threaded test process; the value is read back only
+        // through the child's own environment.
+        unsafe { std::env::set_var(KEY, "inherited") };
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c".to_string(), format!("printf 'probe:[%s]' \"${{{KEY}:-}}\"")]);
+        command.env(KEY, "set-then-removed");
+        command.env_remove(KEY);
+
+        let mut spawned = pair.spawn(command)?;
+        let mut reader = spawned.master.try_clone_reader()?;
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 1024];
+        while let Ok(count) = io::Read::read(&mut reader, &mut buffer) {
+            if count == 0 {
+                break;
+            }
+            output.extend_from_slice(&buffer[..count]);
+            if output.windows(7).any(|window| window == b"probe:[") && output.ends_with(b"]") {
+                break;
+            }
+        }
+        let _ = spawned.child.wait();
+        // SAFETY: as above.
+        unsafe { std::env::remove_var(KEY) };
+
+        let text = String::from_utf8_lossy(&output);
+        assert!(text.contains("probe:[]"), "the child kept the removed key: {text}");
         Ok(())
     }
 
