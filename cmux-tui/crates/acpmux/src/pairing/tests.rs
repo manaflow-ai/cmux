@@ -177,7 +177,7 @@ fn only_tls_or_loopback_carries_a_ticket() {
 fn the_read_only_gate_allows_reads_and_nothing_else() {
     use crate::rpc::method::*;
     for m in
-        [INITIALIZE, SESSION_LIST, MUX_SESSIONS, MUX_WATCH, MUX_ATTACH, MUX_EVENTS, MUX_HISTORY]
+        [INITIALIZE, SESSION_LIST, MUX_SESSIONS, MUX_WATCH, MUX_ATTACH, MUX_EVENTS, MUX_HISTORY, MUX_RESOLVE]
     {
         assert!(read_only_allows(m), "{m}");
     }
