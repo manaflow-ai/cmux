@@ -94,6 +94,9 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
 - A column's only pane (the strip loses a column) still leaves with the daemon's tree: the strip
   camera and the fit-screen widths move with it, and showing that locally needs the column widths
   too. Next step if the round trip shows there.
+- The window's fade sets alpha on its whole child-window tree too (pages, popups, the overlay
+  and catcher panels): AppKit does not pass a parent's alpha to children, so the pages stayed
+  opaque through the fade and vanished at its end.
 - The window's fade is alpha only: AppKit gives no public way to scale a window, and its content
   cannot be snapshotted with its Metal and page layers.
 - The grid hold is app-wide (every window's terminals) for the ~0.4 s of a close, not per pane.

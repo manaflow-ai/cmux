@@ -12,12 +12,21 @@ import CmuxNextWakeups
 /// for its surfaces. A second close while it fades closes it at once. A window the registry closes
 /// (its workspace moved or ended, `WindowManager.closeProgrammatically`) never fades, and Reduce
 /// Motion or the animation speed "off" closes at once.
+///
+/// The fade covers the window's child windows too. AppKit does not apply a parent's `alphaValue`
+/// to its children, and a Chromium page, a remote browser popup and the overlay and mouse-catcher
+/// panels above them are child windows: faded on the parent alone, the pages stayed opaque on an
+/// empty frame for the whole fade and went only at its end.
 @MainActor final class WindowCloseMotion {
     let window: NSWindow
     private var alpha = SpringValue(1)
     private let parameters: SpringParameters
     private let close: () -> Void
     private var finished = false
+    /// Each child window the fade has dimmed, with the alpha it had: it fades from there and gets
+    /// it back when the fade ends. A child added during the fade (the fork re-adds a page window
+    /// that becomes visible) joins in the next frame.
+    private var children: [ObjectIdentifier: (window: NSWindow, alpha: CGFloat)] = [:]
     private lazy var frames = FrameClient(owner: "WindowCloseMotion.fade", on: .app) { [weak self] tick in
         self?.step(tick.elapsed) ?? false
     }
@@ -54,7 +63,7 @@ import CmuxNextWakeups
     func step(_ dt: Double) -> Bool {
         guard !finished else { return false }
         let moving = alpha.advance(dt, parameters: parameters, epsilon: 0.01)
-        window.alphaValue = max(0, alpha.value)
+        apply(max(0, alpha.value))
         if !moving { finish() }
         return moving
     }
@@ -68,5 +77,20 @@ import CmuxNextWakeups
         // A closed window may show again (reopen): it shows whole.
         window.alphaValue = 1
         window.ignoresMouseEvents = false
+        for child in children.values { child.window.alphaValue = child.alpha }
+        children = [:]
+    }
+
+    /// Sets the fade's alpha on the window and on every window below it in the child tree.
+    private func apply(_ value: CGFloat) {
+        window.alphaValue = value
+        var pending = window.childWindows ?? []
+        while let child = pending.popLast() {
+            pending += child.childWindows ?? []
+            let id = ObjectIdentifier(child)
+            let base = children[id]?.alpha ?? child.alphaValue
+            children[id] = (child, base)
+            child.alphaValue = base * value
+        }
     }
 }
