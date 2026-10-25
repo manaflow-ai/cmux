@@ -125,6 +125,19 @@ export async function papercutPane(
         return null;
     }
   };
+  /// Every `session/prompt` the page sent, with its params (`_meta.acpmux.promptId`).
+  const prompts: Record<string, any>[] = [];
+  let socket: { send(data: string): void } | undefined;
+  let seq = events.length;
+  /// An acpmux record sent to the attached page now, at the log's next seq.
+  const record = (kind: string, msg: Record<string, unknown>, dir = "mux") =>
+    socket?.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: { sessionId: PAPERCUT_CHAT, seq: ++seq, at: Date.now(), dir, kind, msg },
+      }),
+    );
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -133,8 +146,10 @@ export async function papercutPane(
     },
     websocket: {
       message(ws, raw) {
-        const message = JSON.parse(String(raw)) as { id?: number; method: string };
+        const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
         methods.push(message.method);
+        socket = ws;
+        if (message.method === "session/prompt") prompts.push(message.params ?? {});
         if (message.id !== undefined)
           ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
       },
@@ -187,7 +202,7 @@ export async function papercutPane(
     await vite.close();
     await daemon.stop(true);
   };
-  return { open, close, methods };
+  return { open, close, methods, prompts, record };
 }
 
 /// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`

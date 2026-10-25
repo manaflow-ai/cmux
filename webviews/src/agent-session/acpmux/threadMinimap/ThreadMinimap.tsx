@@ -745,9 +745,12 @@ const TickList = memo(function TickList({
 }) {
   const t = useT();
   const marks = usePromptMarks(sessionId);
+  // A send's key is its promptId (model.ts turnKey): a failed row the echo of a timed-out send
+  // left beside it shares one, so a repeat keys on its row id instead.
+  const keys = new Set<string>();
   return ticks.map((tick, index) => (
     <Tick
-      key={tick.key}
+      key={keys.has(tick.key) ? `${tick.key}#${tick.id}` : (keys.add(tick.key), tick.key)}
       index={index}
       last={ticks.length - 1}
       progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}

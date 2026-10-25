@@ -278,7 +278,7 @@ export function minimapTurns(
       const turn: MinimapTurn = {
         index: userIndex,
         id: user.id,
-        key: `${sessionId}#${user.id}#${hash(user.text ?? "")}`,
+        key: turnKey(sessionId, user),
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
         reply: reply?.text ? replyPreview(reply.text) : [],
       };
@@ -331,6 +331,16 @@ export function minimapTurns(
     ticks: sameTicks ? oldTicks! : ticksOf(list, oldTicks),
     spare: old as MinimapTurn[],
   };
+}
+
+/// A turn's key. A prompt this pane sent keys on its send (`delivery.promptId`), which its row keeps
+/// from the moment it is sent (`local-<promptId>`) through acpmux's echo (`user-<seq>`): its tick
+/// shows in the frame of the send, at the bottom, and stays the same tick when the echo replaces the
+/// row, rather than going and coming back (Leo 2026-10-25: "my latest prompt that I sent in ...
+/// should be able to go in at the bottom as well").
+function turnKey(sessionId: string, user: AcpmuxRow): string {
+  const sent = user.delivery?.promptId;
+  return `${sessionId}#${sent ? `sent-${sent}` : user.id}#${hash(user.text ?? "")}`;
 }
 
 /// Whether two reply previews are the same blocks and spans.
