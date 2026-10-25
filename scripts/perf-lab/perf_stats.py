@@ -7,7 +7,8 @@
 - MannWhitneyU(), KolmogorovSmirnov(): catapult Pinpoint's tests, ported line by line (normal
   approximation and asymptotic distribution only; there is no exact-distribution path).
 - compare(): catapult Pinpoint's Compare, returning both of its verdicts (see compare()).
-- magnitude_from(): Pinpoint's comparison magnitude in multiples of the IQR.
+- magnitude_from(): Pinpoint's comparison magnitude in multiples of the IQR, with catapult's own
+  C = 1/2 IQR (math_utils.Iqr), not pct(), so a Pinpoint threshold row matches catapult's.
 - HighThreshold(), LowThreshold(): from pinpoint_thresholds.py (catapult's thresholds.py).
 
 Load it by file path (spec_from_file_location); it needs only the standard library and
@@ -75,20 +76,6 @@ def summary(values):
     }
 
 
-def magnitude_from(delta, values_a, values_b):
-    """Pinpoint's comparison magnitude: |delta| / max(IQR_a, IQR_b, 0.001), or 1.0 with no delta.
-
-    catapult job_state.py _Compare:
-      https://github.com/catapult-project/catapult/blob/0e8f52413a40b5c868739293e784428041275f81/dashboard/dashboard/pinpoint/models/job_state.py#L381-L387
-    catapult takes the IQR from math_utils.Percentile (C = 1/2 interpolation); this uses the lab's one
-    percentile definition, pct().
-    """
-    if not delta:
-        return 1.0
-    max_iqr = max(iqr(values_a) or 0.0, iqr(values_b) or 0.0, 0.001)
-    return abs(delta / max_iqr)
-
-
 # ---------- catapult Pinpoint statistics ----------
 #
 # Copyright 2016 and 2018 The Chromium Authors. All rights reserved.
@@ -100,11 +87,56 @@ def magnitude_from(delta, values_a, values_b):
 #   https://github.com/catapult-project/catapult/blob/0e8f52413a40b5c868739293e784428041275f81/dashboard/dashboard/pinpoint/models/compare/mann_whitney_u.py
 #   https://github.com/catapult-project/catapult/blob/0e8f52413a40b5c868739293e784428041275f81/dashboard/dashboard/pinpoint/models/compare/kolmogorov_smirnov.py
 #   https://github.com/catapult-project/catapult/blob/0e8f52413a40b5c868739293e784428041275f81/dashboard/dashboard/pinpoint/models/compare/compare.py
+#   https://github.com/catapult-project/catapult/blob/0e8f52413a40b5c868739293e784428041275f81/dashboard/dashboard/common/math_utils.py
+#   https://github.com/catapult-project/catapult/blob/0e8f52413a40b5c868739293e784428041275f81/dashboard/dashboard/pinpoint/models/job_state.py
 # The two tests are adapted there from SciPy (BSD-style license):
 #   https://github.com/scipy/scipy/blob/master/scipy/stats/stats.py
 # There is also a JavaScript version in Catapult:
 #   https://github.com/catapult-project/catapult/blob/master/tracing/third_party/mannwhitneyu/mannwhitneyu.js
 # Changes from catapult: 4-space indent, and the samples are copied to lists so tuples and lists mix.
+
+
+# --- math_utils.py (Iqr, Percentile) and job_state.py (_Compare's magnitude) ---
+
+
+def _PinpointIqr(values):
+    """Returns the interquartile range of an iterable of values.
+
+    The quartiles used correspond to "Method 3" in:
+      https://en.wikipedia.org/wiki/Quartile
+    """
+    return _PinpointPercentile(values, 0.75) - _PinpointPercentile(values, 0.25)
+
+
+def _PinpointPercentile(values, percentile):
+    """Returns a percentile of an iterable of values. C = 1/2
+
+    The closest ranks are interpolated as in "C = 1/2" in:
+      https://en.wikipedia.org/wiki/Percentile
+    """
+    values = sorted(values)
+    index = float(len(values)) * percentile - 0.5
+    floor = max(math.floor(index), 0)
+    ceil = min(math.ceil(index), len(values) - 1)
+    if floor == ceil:
+        return values[int(index)]
+    low = values[int(floor)] * (ceil - index)
+    high = values[int(ceil)] * (index - floor)
+    return low + high
+
+
+def magnitude_from(delta, values_a, values_b):
+    """Pinpoint's comparison magnitude: |delta| / max(Iqr(a), Iqr(b), 0.001), or 1.0 with no delta.
+
+    job_state.py _Compare computes it only when both samples are non-empty; an empty sample counts
+    as IQR 0 here.
+    """
+    if not delta:
+        return 1.0
+    max_iqr = max(
+        max(_PinpointIqr(values_a) if values_a else 0.0, _PinpointIqr(values_b) if values_b else 0.0),
+        0.001)
+    return abs(delta / max_iqr)
 
 
 # --- mann_whitney_u.py ---

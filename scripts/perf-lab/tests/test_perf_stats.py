@@ -149,10 +149,13 @@ class CompareTest(unittest.TestCase):
     def test_functional(self):
         c = ps.compare([0] * 10, [1] * 10, 10, 'functional', 0.5)
         self.assertEqual(c.original.result, ps.DIFFERENT)
+        self.assertLessEqual(c.p_value, c.original.low_threshold)
         c = ps.compare([0] * 10, [0] * 9 + [1], 10, 'functional', 0.5)
         self.assertEqual(c.original.result, ps.UNKNOWN)
+        self.assertLessEqual(c.p_value, c.original.high_threshold)
         c = ps.compare([0] * 10, [0] * 10, 10, 'functional', 0.5)
         self.assertEqual(c.original.result, ps.SAME)
+        self.assertGreater(c.p_value, c.original.high_threshold)
 
     def test_performance(self):
         c = ps.compare(list(range(10)), list(range(7, 17)), 10, 'performance', 1)
@@ -217,8 +220,14 @@ class PercentileTest(unittest.TestCase):
         self.assertEqual(ps.summary([]), {"n": 0, "p50": None, "p95": None, "p99": None, "max": None, "iqr": None})
 
     def test_magnitude_from(self):
-        self.assertEqual(ps.magnitude_from(3.0, [1, 2, 3, 4, 5], [1, 1, 1, 1]), 1.5)  # IQR 2 vs 0
-        self.assertEqual(ps.magnitude_from(-3.0, [1, 2, 3, 4, 5], [1, 1, 1, 1]), 1.5)
+        # catapult math_utils.Iqr (C = 1/2): [1..5] has IQR 4.25 - 1.75 = 2.5; pct() (C = 1) gives 2.
+        self.assertAlmostEqual(ps.magnitude_from(3.0, [1, 2, 3, 4, 5], [1, 1, 1, 1]), 1.2)
+        self.assertAlmostEqual(ps.magnitude_from(-3.0, [1, 2, 3, 4, 5], [1, 1, 1, 1]), 1.2)
+        self.assertEqual(ps.iqr([1, 2, 3, 4, 5]), 2.0)
+        # [1, 2, 10, 20]: C = 1/2 gives 15 - 1.5 = 13.5, C = 1 gives 12.5 - 1.75 = 10.75.
+        self.assertAlmostEqual(ps.magnitude_from(13.5, [1, 2, 10, 20], [0]), 1.0)
+        self.assertEqual(ps.iqr([1, 2, 10, 20]), 10.75)
+        self.assertEqual(ps.magnitude_from(5.0, [7], [3, 3]), 5000.0)  # one value: Percentile edge
         self.assertAlmostEqual(ps.magnitude_from(0.01, [1, 1], [2, 2]), 10.0)  # IQR floor 0.001
         self.assertEqual(ps.magnitude_from(None, [1], [2]), 1.0)
         self.assertEqual(ps.magnitude_from(0, [1], [2]), 1.0)
