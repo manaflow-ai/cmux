@@ -28,6 +28,8 @@ use serde_json::{Value, json};
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
+use super::github::{self, TokenAsk};
+use super::github_minter::Minter;
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -304,6 +306,8 @@ struct Worker {
     clients: Vec<Client>,
     activity: Activity,
     live: Option<Live>,
+    /// GitHub token asks, off the poll loop (`github_minter.rs`).
+    github: Option<Minter<PosterHttp>>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -342,6 +346,9 @@ impl Worker {
                 unsupported: false,
             },
             live: None,
+            github: Minter::spawn(wall_ms, log)
+                .map_err(|e| log(&format!("github minter: {e}")))
+                .ok(),
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -493,7 +500,7 @@ impl Worker {
             let Some(client) = self.clients.get_mut(i) else { continue };
             match read_available(&mut client.stream, &mut client.buf) {
                 Ok(open) => {
-                    lines.extend(take_lines(&mut client.buf));
+                    lines.extend(take_lines(&mut client.buf).into_iter().map(|line| (i, line)));
                     if !open || client.buf.len() > MAX_LINE {
                         closed.push(i);
                     }
@@ -501,10 +508,42 @@ impl Worker {
                 Err(_) => closed.push(i),
             }
         }
-        for i in closed.into_iter().rev() {
-            self.clients.remove(i);
+        // A GitHub token ask takes its connection to the minter, which
+        // answers it with one line and closes it: one ask per connection,
+        // and the poll loop never waits on a mint.
+        let mut session_lines = Vec::new();
+        let mut asks: Vec<(usize, Result<TokenAsk, String>)> = Vec::new();
+        for (i, line) in lines {
+            // One ask per connection, and none from a client already gone:
+            // nobody would read the token.
+            if asks.iter().any(|(asker, _)| *asker == i) {
+                continue;
+            }
+            if closed.contains(&i) && github_ask(&line).is_some() {
+                continue;
+            }
+            match github_ask(&line) {
+                Some(ask) => asks.push((i, ask)),
+                None => session_lines.push(line),
+            }
         }
-        for line in lines {
+        closed.extend(asks.iter().map(|(i, _)| *i));
+        closed.sort_unstable();
+        closed.dedup();
+        let mut taken = Vec::new();
+        for i in closed.into_iter().rev() {
+            if i < self.clients.len() {
+                taken.push((i, self.clients.remove(i).stream));
+            }
+        }
+        for (i, ask) in asks {
+            if let (Some(minter), Some(pos)) =
+                (self.github.as_ref(), taken.iter().position(|(at, _)| *at == i))
+            {
+                minter.ask(ask, taken.swap_remove(pos).1);
+            }
+        }
+        for line in session_lines {
             let now = self.now();
             let Some(live) = self.live.as_mut() else { continue };
             let (reqs, note) = live.session.line(&line, now);
@@ -587,6 +626,12 @@ impl Worker {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
             log(&format!("heartbeat test override: {heartbeat} ms (dev only)"));
+        }
+        if let Some(minter) = self.github.as_ref() {
+            match github_client(&bound, &key) {
+                Ok(client) => minter.bound(client),
+                Err(e) => log(&format!("github minter: {e}")),
+            }
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -740,6 +785,21 @@ impl Worker {
         // Diagnostic only; a failed write is ignored.
         let _ = self.store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644);
     }
+}
+
+/// The minter's own client for the bound machine: the same install key,
+/// its own HTTPS poster and bearer cache.
+fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
+    let key = InstallKey::from_pkcs8(key.pkcs8(), &SystemRandom::new())?;
+    Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
+}
+
+/// The ask of a `{"github_token": {...}}` line (checked), or `None` for
+/// every other line (the session's).
+fn github_ask(line: &str) -> Option<Result<TokenAsk, String>> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    let ask = msg.get(github::REQUEST_KEY)?;
+    Some(TokenAsk::from_json(ask))
 }
 
 /// Reads what is available; `Ok(false)` at end of stream.
