@@ -54,7 +54,7 @@ const linkGitHub = async (session: string, team: string) => {
 
 describe("GitHub token endpoint", { timeout: 60_000 }, () => {
   it("mints a token narrowed to one repository and the asked permissions, reuses it per principal, never across principals", async () => {
-    const a = await signedInWithInstall("gh-token-1", "daemon")
+    const a = await signedInWithInstall("gh-token-1", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
     const ask = { team: a.team, repo: "acme/web", permissions: { pull_requests: "write", contents: "write" }, label: "lane-1" }
     const first = await token(a.installToken, ask)
@@ -86,7 +86,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
       audit = ((await read(a.session, "team.audit.list", {})).body.value?.entries ?? []).filter((e: any) => e.op === "team.github.token_minted")
     }
     expect(audit).toHaveLength(3)
-    expect(audit.find((e) => e.detail.token_id === first.body.token_id).detail).toMatchObject({ principal_kind: "daemon", install: a.install, label: "lane-1", repo: "acme/web" })
+    expect(audit.find((e) => e.detail.token_id === first.body.token_id).detail).toMatchObject({ principal_kind: "cli", install: a.install, label: "lane-1", repo: "acme/web" })
     expect(JSON.stringify(audit)).not.toContain("ghs_secret")
 
     // Status: configured, the connection and its repositories.
@@ -120,7 +120,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
   })
 
   it("an uninstalled App answers needs_reauth and marks the connection; GitHub's rate limit answers 429 with retry_after", async () => {
-    const a = await signedInWithInstall("gh-token-3", "daemon")
+    const a = await signedInWithInstall("gh-token-3", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
     gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => new Response(JSON.stringify({ message: "API rate limit exceeded" }), { status: 403, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(Math.floor(Date.now() / 1000) + 30) } })
     const limited = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
@@ -133,7 +133,7 @@ describe("GitHub token endpoint", { timeout: 60_000 }, () => {
   })
 
   it("revoke deletes each ledger token at GitHub; an install revoke does too; another install's tokens need a team admin", async () => {
-    const a = await signedInWithInstall("gh-token-4", "daemon")
+    const a = await signedInWithInstall("gh-token-4", "cli")
     const { gh } = await linkGitHub(a.session, a.team)
     for (const repo of ["acme/web", "acme/api"]) expect((await token(a.installToken, { team: a.team, repo, permissions: { contents: "write" } })).status).toBe(200)
     expect((await post("/v1/integrations/github/token/revoke", a.installToken, { team: a.team })).body).toEqual({ revoked: 2 })

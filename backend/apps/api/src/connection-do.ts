@@ -206,7 +206,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** POST /v1/integrations/github/token: the Worker authenticated the principal and checked its team (and a vm install's machine). */
   async githubToken(entity: string, principal: Principal, ask: ghTokens.TokenAsk): Promise<ghTokens.TokenReply> {
     if (principal.team !== entity) return { ok: false, status: 403, code: "auth.forbidden", message: "not this team's connections" }
-    return ghTokens.githubToken(this.ledgerHost(entity), this.bind(entity).currentState, principal, ask, Date.now()).finally(() => this.scheduleAlarm())
+    const engine = this.bind(entity)
+    return ghTokens.githubToken({ ...this.ledgerHost(entity), state: () => engine.currentState }, principal, ask, Date.now()).finally(() => this.scheduleAlarm())
   }
 
   /** POST /v1/integrations/github/token/revoke (the Worker checked who may revoke whose tokens): how many live tokens were revoked. */
@@ -228,7 +229,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   private readonly ghBuckets = new Map<string, { tokens: number; at: number }>()
   private readonly ghInflight = new Map<string, Promise<ghTokens.TokenReply>>()
   private ledger = () => ({ sql: this.ctx.storage.sql, env: this.env, http: this.http })
-  private ledgerHost(team: string): ghTokens.LedgerHost {
+  private ledgerHost(team: string): Omit<ghTokens.LedgerHost, "state"> {
     type Users = { registerSocket(e: string, install: string, grant: string | undefined, cls: string, name: string, expiresAt: number): Promise<boolean> }
     return {
       sql: this.ctx.storage.sql, env: this.env, http: this.http, team, buckets: this.ghBuckets, inflight: this.ghInflight,

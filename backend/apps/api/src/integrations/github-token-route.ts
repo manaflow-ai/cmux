@@ -95,9 +95,8 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
     const who = await caller(request, env, body.team)
     if (isFail(who)) return failed(who)
-    // A person's install acts within its grant: read for a read-only token, mutate-shared for any write (the VM's vm-self grant is its machine's).
-    const need = Object.values(body.permissions).includes("write") ? "mutate-shared" : "read"
-    if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes(need)) return failed(no(403, "auth.forbidden", `this install's grant does not cover ${need}`))
+    // A person's install needs at least the read class (paired daemons hold read and mutate-own); the VM's vm-self grant is its machine's.
+    if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
     const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(who.machine ? { machine: who.machine } : {}) }
     const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
     if (r === null) return failed(unreachable("the team's GitHub connection"))
