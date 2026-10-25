@@ -602,6 +602,7 @@
   }
   .cv-user__actions:focus-within,
   .cv-received-actions:focus-within,
+  .acpmux-row:focus-within .cv-received-actions,
   .acpmux-turnSummary:focus-visible .cv-turn-actions,
   .acpmux-turnSummary .cv-turn-actions:focus-within {
     transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
@@ -618,9 +619,11 @@
   height: var(--cv-meta-row);
 }
 /* At the end of another agent's message line (MessageActions.tsx ReceivedActions): the same row,
-   on hover or focus only, no box. */
+   on hover or keyboard focus alike, no box. It never shrinks: the line's preview, then the sender's
+   chip, give way first. Hidden, it keeps its place, so pointing at the line moves nothing. */
 .cv-received-actions {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 0;
   margin-inline-start: 8px;
@@ -628,6 +631,7 @@
   opacity: 0;
 }
 .cv-received:hover .cv-received-actions,
+.acpmux-row:focus-within .cv-received-actions,
 .cv-received-actions:focus-within {
   opacity: 1;
 }
@@ -1751,6 +1755,11 @@ pre.cv-math-source {
 .acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
   right: 24px;
 }
+/* Another agent's message keeps the row's Copy in the 28 px its line leaves at its end
+   (.cv-received__line): the tool rows' slot before the chevron put it over the line's last action. */
+.acpmux-row[data-floating-copy="true"]:has(> .cv-incoming) > .acpmux-row__copy {
+  right: 0;
+}
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
    fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:
@@ -2221,7 +2230,7 @@ pre.cv-math-source {
   -webkit-font-smoothing: antialiased;
 }
 /* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
-   hidden), so a long name ends in an ellipsis before it instead of under it. */
+   hidden), so the line's own actions (ReceivedActions) end before it instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
@@ -2247,9 +2256,11 @@ pre.cv-math-source {
   cursor: pointer;
 }
 /* The sender as a chip: the theme's text at a low strength over glass, the accent's ring on
-   hover and focus (Leo 2026-10-20: glass, never a solid fill). */
+   hover and focus (Leo 2026-10-20: glass, never a solid fill). It gives way after the preview,
+   down to a few letters, so a long name never pushes the line's actions out. */
 .cv-received__name {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 4ch;
   max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2277,7 +2288,8 @@ button.cv-received__name:focus-visible {
   flex: 1;
   align-items: center;
   gap: 4px;
-  min-width: 0;
+  /* Its 12px chevron stays whole when the preview is cut to nothing; the chip gives way instead. */
+  min-width: 12px;
   height: 26px;
 }
 .cv-received__toggle > .cv-rotor {
@@ -3973,7 +3985,8 @@ article.acpmux-row:empty {
   opacity: 0;
 }
 .cv-received:hover .cv-received__reply,
-.cv-received:focus-within .cv-received__reply {
+.cv-received:focus-within .cv-received__reply,
+.acpmux-row:focus-within .cv-received__reply {
   opacity: 1;
 }
 .cv-received__reply:hover,
