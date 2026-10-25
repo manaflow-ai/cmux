@@ -16,6 +16,12 @@ import CmuxNextWakeups
 /// `NSView.layout()` calls and window layout passes in it (`LayoutPassGuard`'s
 /// counters), for the app gesture bench (scripts/cmux-next/app-perf.py).
 /// `raw: true` adds the per-frame arrays to the reply.
+///
+/// `start` with `render: true` also arms ``RenderStats`` (DEBUG and bench
+/// builds; a counting pass, never a timed one: its hooks cost time) and
+/// replies once its hooks count (their first class scan runs off the main
+/// thread); the frames start then. Every reply adds the render keys
+/// (``RenderFrameLog/report(raw:)``), which stay readable after `stop`.
 @MainActor
 final class DebugFrameProbe {
     static let maximumRun: Duration = .seconds(600)
@@ -37,21 +43,33 @@ final class DebugFrameProbe {
     private var awake: CFTimeInterval = 0
     private var layoutMark = (view: 0, window: 0)
     private var observers: [CFRunLoopObserver] = []
+    private let render: RenderFrameLog
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
+    /// - Parameter render: per-frame counts of the app's one ``RenderStats`` (AppControl owns it).
+    init(render: RenderFrameLog) { self.render = render }
+
+    func handle(_ params: [String: JSONValue]) -> ControlReply {
         let raw = params["raw"]?.boolValue == true
         switch params["action"]?.stringValue ?? "read" {
         case "start":
+            if params["render"]?.boolValue == true { return .followUp { [self] in await startCounting(raw: raw) } }
+            render.disarm()
             start()
         case "stop":
             let stats = stats(raw: raw)
             stop()
-            return stats
+            return .value(stats)
         case "reset":
             clear()
         default:
             break
         }
+        return .value(stats(raw: raw))
+    }
+
+    /// `start` with `render: true`: the frames start once the render hooks count (not after a `stop` that came first).
+    private func startCounting(raw: Bool) async -> JSONValue {
+        if await render.arm() { start() }
         return stats(raw: raw)
     }
 
@@ -67,6 +85,7 @@ final class DebugFrameProbe {
         expiry.cancel()
         for observer in observers { CFRunLoopObserverInvalidate(observer) }
         observers.removeAll()
+        render.disarm()
     }
 
     private func clear() {
@@ -78,6 +97,7 @@ final class DebugFrameProbe {
         awake = 0
         awakeSince = CACurrentMediaTime()
         layoutMark = (LayoutPassGuard.shared.viewLayoutCalls, LayoutPassGuard.shared.windowLayoutPasses)
+        render.clear()
     }
 
     /// Two observers of the main run loop: one when it wakes (first of the
@@ -116,6 +136,7 @@ final class DebugFrameProbe {
             awakeSince = now
         }
         let guardian = LayoutPassGuard.shared
+        render.tick(record: last > 0 && intervals.count < Self.capacity)
         if last > 0, intervals.count < Self.capacity {
             intervals.append((tick.timestamp - last) * 1_000)
             busy.append(awake * 1_000)
@@ -174,6 +195,7 @@ final class DebugFrameProbe {
             stats["view_layouts_per_frame"] = .array(viewLayouts.map { JSONValue($0) })
             stats["window_layouts_per_frame"] = .array(windowLayouts.map { JSONValue($0) })
         }
+        for (key, value) in render.report(raw: raw) { stats[key] = JSONValue(foundation: value) }
         return .object(stats)
     }
 }
