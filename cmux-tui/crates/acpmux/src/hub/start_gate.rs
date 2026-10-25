@@ -327,15 +327,20 @@ impl Hub {
     /// than the default one (`hub/start_mode.rs`): it names its own
     /// (`StartMode`, set after the start), or a caller session that is not
     /// the person runs in a mode that asks, so a chat it starts is never
-    /// wider than it ((a)).
+    /// wider than it ((a)). A caller that is the chat's `starter` instead
+    /// gives it its own level (`start_mode.rs`, "Inherit").
     pub(crate) async fn keeps_harness_mode(
         &self,
         person: bool,
         caller: Option<&str>,
+        starter: bool,
         params: &Value,
     ) -> bool {
         if StartMode::of(params, &*self.config.read().await).is_some() {
             return true;
+        }
+        if starter {
+            return false;
         }
         let caller = caller.filter(|_| !person).and_then(|id| self.resolve(id).ok());
         caller.is_some_and(|s| {
@@ -347,6 +352,20 @@ impl Hub {
                 crate::web_modes::mode_of(&m).as_deref(),
             )
         })
+    }
+
+    /// The caller session a `session/new` inherits from (`start_mode.rs`, "Inherit"): the one
+    /// `caller` proved, unless the connection is the person or `web` (a remote one, which has
+    /// none), or the session is one a remote connection started.
+    pub(crate) fn starter_of(
+        &self,
+        person: bool,
+        web: bool,
+        caller: Option<&str>,
+    ) -> Option<String> {
+        let id = caller.filter(|_| !person && !web)?;
+        let s = self.resolve(id).ok().filter(|s| s.id == id)?;
+        (!s.meta().remote_origin).then(|| s.id.clone())
     }
 
     /// A `_acpmux/presets` write without the person (module docs, (b)): no
