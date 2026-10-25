@@ -224,11 +224,10 @@ export default agentPaneEntry({
         if (dock && reserve && reserve.getBoundingClientRect().bottom > dock.getBoundingClientRect().top + 1)
           throw new Error("after-latest tray must remain above the full dock");
         await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__button")?.getAttribute("aria-expanded") ===
-            "true",
-        );
+        await ctx.waitFor(() => {
+          const row = ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__button");
+          return row?.getAttribute("aria-expanded") === "true";
+        });
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
