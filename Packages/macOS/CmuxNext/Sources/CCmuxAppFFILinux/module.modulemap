@@ -1,0 +1,13 @@
+// The Linux stand-in for the CCmuxAppFFI binary target, mapped in by the
+// Linux mode of Package.swift (p15-oracle-002) as a C target with
+// publicHeadersPath ".". The four module names stay those of the xcframework,
+// so no Swift import changes. `scripts/cmux-next/build-app-ffi.sh --linux`
+// writes the module maps named here, with the crates' headers and the link
+// lines for .build-linux/ffi/lib/libcmux_app_ffi.a and its system libraries.
+module CCmuxAppFFILinux {
+    export *
+}
+extern module CCmuxRdFFI "../../.build-linux/ffi/headers/CCmuxRdFFI/module.modulemap"
+extern module CCmuxLayoutReducerFFI "../../.build-linux/ffi/headers/CCmuxLayoutReducerFFI/module.modulemap"
+extern module CCmuxMotionFFI "../../.build-linux/ffi/headers/CCmuxMotionFFI/module.modulemap"
+extern module CCmuxPaletteRankerFFI "../../.build-linux/ffi/headers/CCmuxPaletteRankerFFI/module.modulemap"
