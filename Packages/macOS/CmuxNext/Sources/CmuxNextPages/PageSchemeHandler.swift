@@ -1,3 +1,4 @@
+import CmuxNextSignposts
 import Foundation
 import UniformTypeIdentifiers
 import WebKit
@@ -70,12 +71,16 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        Signposter.begin(.webuiScheme, arg0: 0)
+        var failed: UInt64 = 0
+        defer { Signposter.end(.webuiScheme, arg0: failed) }
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
               let url = request.url, let served = served(url),
               Self.route(for: url, page: served.page, root: served.root) != nil
         else {
+            failed = 1
             task.didFailWithError(URLError(.fileDoesNotExist))
             return
         }
@@ -87,13 +92,16 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             guard let self else { return }
             let reply = await self.reply(to: url)
             guard self.active.remove(id) != nil else { return }
+            Signposter.begin(.webuiScheme, arg0: 1)
             guard let reply else {
                 task.didFailWithError(URLError(.fileDoesNotExist))
+                Signposter.end(.webuiScheme, arg0: 1)
                 return
             }
             task.didReceive(reply.response)
             if !reply.body.isEmpty { task.didReceive(reply.body) }
             task.didFinish()
+            Signposter.end(.webuiScheme, arg0: 0, arg1: UInt64(reply.body.count))
         }
     }
 

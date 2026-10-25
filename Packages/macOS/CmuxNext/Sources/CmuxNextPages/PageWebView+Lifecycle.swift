@@ -10,6 +10,7 @@ extension PageWebView {
         endChromium()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
+        traceOpenEnd(closedBeforePaint: true)
     }
 
     /// Waits for the current document to finish loading or fail, and for a pending claim to be

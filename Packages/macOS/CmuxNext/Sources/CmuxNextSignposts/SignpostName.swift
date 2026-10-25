@@ -13,7 +13,7 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask`` and ``stallOverBudget`` have an emitter today. The other cases are
+/// ``stallMainTask``, ``stallOverBudget``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
 /// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -281,6 +281,22 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 111, PL-motion-core). One live window resize tick to the commit that shows it. Ring: AB/AE.
     case resizeFrame = 68
 
+    // MARK: webui (p13-webui; the page trace id is the `PageWebView`'s address, so the four tracks join per page)
+    /// Reserved (task 022, p13-webui). A page's lifecycle change (`PageLifecycle`). Ring: instant; arg0 the page
+    /// trace id, arg1 the new state (0 active, 1 hidden, 2 frozen, 3 discarded).
+    case webuiLifecycle = 69
+    /// A page's open: its load start to the first painted frame (`PagePaintProbe`, either engine). Ring: AB/AE
+    /// keyed by the page trace id; begin arg0 the engine (0 WebKit, 1 Chromium), end arg0 the outcome (0 painted,
+    /// 1 closed before its first paint).
+    case webuiOpen = 70
+    /// Reserved (task 043, p13-webui). A preload slot move (`PagePreloadSlot`). Ring: instant; arg0 the page trace
+    /// id, arg1 the move (0 park, 1 claim, 2 drop).
+    case webuiPreload = 71
+    /// One main-thread turn of a WebKit `cmux-page://` scheme task (`PageSchemeHandler`): its start or its answer.
+    /// Ring: B/E; begin arg0 the part (0 start, 1 answer); end arg0 the outcome (0 ok, 1 failed), arg1 the body
+    /// bytes. Starts inside a ``webuiOpen`` slice are that open's requests; the slices sum its main-thread time.
+    case webuiScheme = 72
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -352,6 +368,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .controlRequest: "control.request"
         case .ghosttyRender: "ghostty.render"
         case .resizeFrame: "resize.frame"
+        case .webuiLifecycle: "webui.lifecycle"
+        case .webuiOpen: "webui.open"
+        case .webuiPreload: "webui.preload"
+        case .webuiScheme: "webui.scheme"
         }
     }
 
@@ -387,6 +407,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .controlRequest: .control
         case .ghosttyRender: .ghostty
         case .resizeFrame: .resize
+        case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme: .webui
         }
     }
 

@@ -338,6 +338,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
         guard load else { return }
+        traceOpenBegin()
         if engineDecision.engine == .cef, let hosting = chromium {
             startChromium(hosting: hosting)
         } else {
@@ -354,6 +355,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         traceMark(.pagePainted)
         #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime
+        traceOpenEnd()
         let waiters = paintWaiters
         paintWaiters = []
         waiters.forEach { $0() }
@@ -486,6 +488,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var hasPainted: Bool { paintedUptime != nil }
     /// Callbacks for the current document's first frame (`whenPainted`).
     var paintWaiters: [() -> Void] = []
+    /// A ``SignpostName/webuiOpen`` slice is open until the first paint (`traceOpenEnd`).
+    var openTracePending = false
     /// A claimed spare painted while parked at its window's full size: it counts as painted again
     /// only once it drew at its own size (``claimDocument(documentAttributes:)``, ``layout()``).
     var repaintsAtNextLayout = false
