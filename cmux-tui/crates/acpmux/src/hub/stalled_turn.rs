@@ -72,8 +72,19 @@ impl Hub {
         let was_open = !open.is_empty();
         track_tool(&mut open, update);
         if was_open && open.is_empty() {
+            drop(open);
+            // A tool call's end is a sign of work: stamped (again) before the reaper looks, so
+            // the nearer deadline counts from now, whatever order the tap ran in.
+            self.heard_now(session);
             self.idle_wake.notify_one();
         }
+    }
+
+    /// `session`'s model showed a sign of work now (`tap.rs`): its count starts again, and a
+    /// stalled end decided before it is not carried out (`stalled_gen`).
+    pub(super) fn heard_now(&self, session: &Session) {
+        session.heard_at.store(self.clock_now() as i64, Ordering::Relaxed);
+        session.stalled_gen.fetch_add(1, Ordering::SeqCst);
     }
 
     /// A new turn, or a new agent for it, whose prompt is not written yet: no count runs and no

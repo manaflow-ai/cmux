@@ -238,6 +238,10 @@ async fn a_tool_call_that_ends_brings_the_stalled_deadline_back() {
     // The tool call ends (1.5 s after it began, real time): one period from now, not four.
     until_event(&hub, &id, |e| e.msg.pointer("/params/update/status") == Some(&json!("completed")))
         .await;
+    // Past its old one-period deadline (the model's word before the tool), yet counted from the
+    // tool's end: not ended when the reaper wakes for it.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(results(&hub, &id).is_empty(), "counted from before the tool call ended");
     clock.advance(Duration::from_secs(61));
     let ended = until_results(&hub, &id, 1).await;
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");

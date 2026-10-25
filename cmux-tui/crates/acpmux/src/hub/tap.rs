@@ -80,17 +80,18 @@ impl Hub {
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            // The sign of work is published before a tool call's end can bring the stalled
+            // deadline nearer and wake the reaper (`stalled_turn.rs`).
+            if matches!(dir, Direction::In) && from_the_model(msg) {
+                tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_hub.heard_now(&tap_session);
+                tap_hub.heard_after_silence(&tap_session);
+            }
             if matches!(dir, Direction::In)
                 && let Message::Notification { method, params: Some(p) } = msg
                 && method == crate::rpc::method::SESSION_UPDATE
             {
                 tap_hub.note_tool_update(&tap_session, &p["update"]);
-            }
-            if matches!(dir, Direction::In) && from_the_model(msg) {
-                tap_session.heard.fetch_add(1, Ordering::SeqCst);
-                tap_session.heard_at.store(tap_hub.clock_now() as i64, Ordering::Relaxed);
-                tap_session.stalled_gen.fetch_add(1, Ordering::SeqCst);
-                tap_hub.heard_after_silence(&tap_session);
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
