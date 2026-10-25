@@ -29,8 +29,11 @@ git_fixture_env = _load_git_fixture_env()
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 GATE = "scripts/cmux-next/prepush-gate.py"
+# The fixture is a developer's own push: GITHUB_ACTIONS (set on CI) would turn the guardrails off in the hook
+# (prepush-gate.py runs them locally only), and the tests that expect a guardrails line would fail only on CI.
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
-              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_NEXT_CHECKS_SKIP_REASON")
+              "CODEX_SANDBOX", "CMUX_WEB_LINT_SKIP_REASON", "CMUX_NEXT_CHECKS_SKIP_REASON",
+              "CMUX_GUARDRAILS_SKIP_REASON", "GITHUB_ACTIONS")
 PKG = "Packages/macOS/CmuxNext"
 # The pinned tools are downloaded once per machine; the fixture HOME must not hide that cache.
 if os.uname().sysname == "Darwin":
@@ -73,10 +76,20 @@ final class Fresh {
     init(owner: Owner) { self.owner = owner }
 }
 """
+# A try! and nothing else: no blocking read for the guardrails (main-blocking) to refuse on their own.
+NEW_WITH_TRY_ONLY = """import Foundation
+struct Fresh {
+    func pattern() -> NSRegularExpression {
+        try! NSRegularExpression(pattern: "a+")
+    }
+}
+"""
+# Clean for the scanners and the guardrails: the read goes through the checked seam (CmuxNextCompat/Threading)
+# off the main thread.
 NEW_CLEAN = """import Foundation
 struct Fresh {
     func load(_ url: URL) async throws -> Data {
-        try await Task.detached(priority: .utility) { try Data(contentsOf: url) }.value
+        try await Task.detached(priority: .utility) { try Data(blockingContentsOf: url) }.value
     }
 }
 """
@@ -748,7 +761,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertEqual(self.git("diff", "--cached", "--name-only").stdout, "")
 
     def test_skip_reason_lets_the_push_through_and_says_so(self):
-        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY)
+        self.write(f"{PKG}/Sources/CmuxNextKit/Fresh.swift", NEW_WITH_TRY_ONLY)
         self.commit("adds a try!")
 
         result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="fixture: the try! is in a file this push does not touch")
