@@ -1249,6 +1249,10 @@ path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_dev_release_import_out.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_route.py"
 lane = "linux-guard"
 
