@@ -186,9 +186,10 @@ exit 0
         let output = self.run(args);
         assert!(
             output.status.success(),
-            "{args:?} exited {:?}: {}",
+            "{args:?} exited {:?}: {} {}",
             output.status.code(),
-            String::from_utf8_lossy(&output.stderr)
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
         );
         serde_json::from_slice(&output.stdout).unwrap_or_else(|error| {
             panic!("{args:?}: {error}: {}", String::from_utf8_lossy(&output.stdout))
@@ -931,7 +932,8 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
             &json!("computer_use"),
             &json!("cloud_machine"),
             &json!("notifications"),
-            &json!("browser_import")
+            &json!("browser_import"),
+            &json!("tailnet")
         ],
         "{status}"
     );
