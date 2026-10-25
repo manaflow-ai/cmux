@@ -51,7 +51,7 @@ export function PendingSteer({
   }, [leaving]);
   const promptId = row.steerPromptId;
   // Sent now before this row was last drawn (the transcript drops rows scrolled away): no controls.
-  if (!shown || leaving === "gone" || (leaving === undefined && promptId && sentNowIds.has(promptId))) return null;
+  if (!shown || leaving === "gone" || (!sentNow && promptId && sentNowIds.has(promptId))) return null;
   const busy = sending || leaving !== undefined;
   return (
     <div
