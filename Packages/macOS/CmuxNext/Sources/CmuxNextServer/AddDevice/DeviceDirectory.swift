@@ -20,8 +20,8 @@ public final class DeviceDirectory {
     /// Forgets a phone paired with this Mac (`IPhoneHostService.revokePhone`).
     @ObservationIgnored private let removePhone: (String) async -> Void
     /// Sets a paired client machine's Full-access setting (acpmux `_acpmux/pair_set`, by pairing
-    /// id); true when acpmux took it.
-    @ObservationIgnored private let pairSet: (String, Bool) async -> Bool
+    /// id); true when acpmux took it. Nil (tests that never set it): every set fails.
+    @ObservationIgnored private let pairSet: ((String, Bool) async -> Bool)?
     @ObservationIgnored private var reading = false
 
     /// - Parameters:
@@ -29,7 +29,7 @@ public final class DeviceDirectory {
     ///   - removePhone: The Mac's phone pairing's remove.
     ///   - setFullAccess: acpmux's `pair_set` over a connection proven as the person.
     public init(run: @escaping ([String]) async -> Data?, removePhone: @escaping (String) async -> Void,
-                setFullAccess: @escaping (String, Bool) async -> Bool = { _, _ in false }) {
+                setFullAccess: ((String, Bool) async -> Bool)? = nil) {
         self.run = run
         self.removePhone = removePhone
         pairSet = setFullAccess
@@ -79,7 +79,7 @@ public final class DeviceDirectory {
     @discardableResult
     public func setFullAccess(id: String, on: Bool) async -> String? {
         guard id.hasPrefix(Self.pairedPrefix) else { return nil }
-        let ok = await pairSet(String(id.dropFirst(Self.pairedPrefix.count)), on)
+        let ok = await pairSet?(String(id.dropFirst(Self.pairedPrefix.count)), on) ?? false
         lastError = ok ? nil : on ? AddDeviceStrings.fullAccessOnFailed : AddDeviceStrings.fullAccessOffFailed
         await refresh()
         return lastError
