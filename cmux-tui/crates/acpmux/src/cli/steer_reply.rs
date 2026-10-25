@@ -10,10 +10,11 @@
 //! prompt's does.
 //!
 //! The end may not come as an event: the turn ended before the send attached (a resend of the
-//! same `--prompt-id` answered with the first run's `steered`), or the daemon dropped events for
-//! a slow reader (`_acpmux/lagged`). So right after the `steered` answer, and on each lagged
-//! notice, the send asks the daemon whether that turn still runs, and reads its end from the log
-//! if not (`settled`).
+//! same `--prompt-id` answered with the first run's `steered`), the daemon dropped events for a
+//! slow reader (`_acpmux/lagged`), or a peer went away. So beside the events the send asks the
+//! daemon itself (`wait_end`): it reads the turn's end from the log if the turn no longer runs,
+//! else blocks in `_acpmux/wait` (server side, never dropped) until the session is ready or
+//! closed, and reads it then. An error of either is the send's error.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -22,8 +23,8 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// The daemon dropped events for this connection (`server/fanout.rs`).
-pub(crate) const LAGGED: &str = "_acpmux/lagged";
+/// A send's wait for the end of the turn it steered into (`wait_end`); dropping it stops it.
+pub(crate) type EndWait = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send>>;
 
 /// What a waiting send heard of its steer.
 #[derive(Default)]
@@ -100,29 +101,46 @@ impl SteerReply {
         self.into.as_deref()
     }
 
-    /// The end of the turn it waits for when that turn no longer runs, read from the session
-    /// `id`'s log; `None` while it runs, or while its end is still being written (its event
-    /// comes then). A failed read is `None` too: the wait goes on, and a closed connection ends
-    /// it as any send's.
-    pub(crate) async fn settled(&self, client: &Arc<Client>, id: &str) -> Option<Result<Value>> {
-        let turn = self.into.as_deref()?;
-        let info = json!({"sessionId": id, "waitLogs": false});
-        let info = client.request(method::MUX_INFO, info).await.ok()?;
-        if info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn) {
-            return None;
-        }
-        let query = json!({"sessionId": id, "limit": 2000, "kinds": ["turn_result"]});
-        let events = crate::cli::output::with_older(client, query).await.ok()?;
-        let of_turn = |e: &Value| turn_end(method::MUX_EVENT, e).filter(|(t, _)| t == turn);
-        events.iter().rev().find_map(of_turn).map(|(_, end)| end)
-    }
-
     /// Its prompt may have gone into another prompt's running turn: a timeout leaves that turn
     /// running. A steer counts as one until a record shows it runs a turn of its own, since its
     /// steer record may still be on its way when the timeout passes.
     pub(crate) fn in_another_turn(&self) -> bool {
         self.into.is_some() || (self.asked && !self.own_turn)
     }
+}
+
+/// The end of turn `turn` of session `id`, from the daemon rather than the events: at once when
+/// the turn no longer runs, else once `_acpmux/wait` says the session is ready or closed. A
+/// session that is ready or closed with no end of that turn in its log is an error, as is a
+/// failed request: the send never waits on a turn nobody can see end.
+pub(crate) async fn wait_end(client: Arc<Client>, id: String, turn: String) -> Result<Value> {
+    if let Some(end) = settled(&client, &id, &turn).await? {
+        return end;
+    }
+    let wait = json!({"sessions": [id], "until": ["ready", "closed"]});
+    let resolved = client.request(method::MUX_WAIT, wait).await?;
+    if let Some(end) = settled(&client, &id, &turn).await? {
+        return end;
+    }
+    let status = resolved.pointer("/resolved/0/status").and_then(Value::as_str);
+    Err(anyhow!(
+        "the session is {} and its log has no end of the turn the message steered into (acpmux last {id})",
+        status.unwrap_or("ready")
+    ))
+}
+
+/// The end of turn `turn` of session `id` when it no longer runs, read from the session's log;
+/// `None` while it runs, or while its end is still being written.
+async fn settled(client: &Arc<Client>, id: &str, turn: &str) -> Result<Option<Result<Value>>> {
+    let info = json!({"sessionId": id, "waitLogs": false});
+    let info = client.request(method::MUX_INFO, info).await?;
+    if info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn) {
+        return Ok(None);
+    }
+    let query = json!({"sessionId": id, "limit": 2000, "kinds": ["turn_result"]});
+    let events = crate::cli::output::with_older(client, query).await?;
+    let of_turn = |e: &Value| turn_end(method::MUX_EVENT, e).filter(|(t, _)| t == turn);
+    Ok(events.iter().rev().find_map(of_turn).map(|(_, end)| end))
 }
 
 /// The turn an answer says its steer went into while that turn runs on.

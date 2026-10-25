@@ -299,6 +299,7 @@ pub(crate) async fn stream_prompt(
     let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
+    let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
     let mut t = Transcript::default();
     let mut printed_assistant = 0usize;
     let mut last_tool = String::new();
@@ -332,11 +333,15 @@ pub(crate) async fn stream_prompt(
         tokio::select! {
             r = &mut turn, if !steered.waiting() => match steered.answered(r?) {
                 Some(answer) => break answer,
-                None => match steered.settled(&client, id).await {
-                    Some(answer) => break answer,
-                    None => continue,
-                },
+                None => {
+                    let turn = steered.turn().unwrap_or_default().to_owned();
+                    let end = crate::cli::steer_reply::wait_end(client.clone(), id.to_owned(), turn);
+                    end_wait = Some(Box::pin(end));
+                    continue;
+                }
             },
+            // The turn it steered into ended, as the daemon tells it (`steer_reply.rs`).
+            end = async { end_wait.as_mut().expect("armed").await }, if end_wait.is_some() => break end,
             _ = tick => {
                 if let Some(d) = deadline
                     && tokio::time::Instant::now() >= d {
@@ -350,8 +355,6 @@ pub(crate) async fn stream_prompt(
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
-                // Events were dropped: the end of the turn it steered into may be among them.
-                if m == crate::cli::steer_reply::LAGGED && let Some(answer) = steered.settled(&client, id).await { break answer; }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
@@ -632,6 +635,7 @@ async fn collect_once(
     let params = prompt.params(id, text, opts.steer, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
     let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, opts.steer);
+    let mut end_wait: Option<crate::cli::steer_reply::EndWait> = None;
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
     let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
@@ -656,11 +660,15 @@ async fn collect_once(
         tokio::select! {
             r = &mut turn, if !steered.waiting() => match steered.answered(r?) {
                 Some(answer) => break answer,
-                None => match steered.settled(&client, id).await {
-                    Some(answer) => break answer,
-                    None => continue,
-                },
+                None => {
+                    let turn = steered.turn().unwrap_or_default().to_owned();
+                    let end = crate::cli::steer_reply::wait_end(client.clone(), id.to_owned(), turn);
+                    end_wait = Some(Box::pin(end));
+                    continue;
+                }
             },
+            // The turn it steered into ended, as the daemon tells it (`steer_reply.rs`).
+            end = async { end_wait.as_mut().expect("armed").await }, if end_wait.is_some() => break end,
             _ = tick => {
                 if let Some(d) = deadline
                     && tokio::time::Instant::now() >= d {
@@ -674,8 +682,6 @@ async fn collect_once(
                 let Some(m) = n else { return Err(prompt.closed(&client, id, "streaming the session")) };
                 let Message::Notification { method: m, params } = m else { continue };
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
-                // Events were dropped: the end of the turn it steered into may be among them.
-                if m == crate::cli::steer_reply::LAGGED && let Some(answer) = steered.settled(&client, id).await { break answer; }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
                 if let Some(answer) = steered.heard(&m, &p) { break answer; }
