@@ -65,7 +65,7 @@ struct AgentNotificationReconcilerTests {
 
     /// A Stop held for running subagents notifies at once under Always; releasing it
     /// when the subagents finish is the same notification, not a second one.
-    @Test func subagentHeldCompletionReleasesAsTheSameNotificationUnderAlways() throws {
+    @Test func subagentHeldCompletionReleasesAsTheSameNotificationUnderAlways() {
         var always = AgentNotificationReconciler()
         _ = always.apply(event(1, .turnStarted, source: "claude", notify: false), deliversPendingCompletions: true)
         _ = always.apply(event(2, .childSpawned, source: "claude", request: "child", notify: false),
@@ -74,7 +74,7 @@ struct AgentNotificationReconcilerTests {
         #expect(stop.disposition == .accepted)
         let released = always.apply(event(4, .childCompleted, source: "claude", request: "child", notify: false),
                                     deliversPendingCompletions: true)
-        #expect(try #require(released.identity) == stop.identity)
+        #expect(released.identity == stop.identity)
     }
 
     /// Claude's hooks carry no turn id, and a prompt sent while the session is still
