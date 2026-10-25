@@ -65,6 +65,22 @@ function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {
   return found;
 }
 
+/// A transaction turning each token in `state`'s text into its node; undefined where the editor has
+/// no such node.
+function tokensToNodes(state: EditorState): Transaction | undefined {
+  const type = state.schema.nodes[INLINE_NODE];
+  if (!type) return undefined;
+  const tr = state.tr;
+  const tokens: { from: number; to: number; id: string }[] = [];
+  state.doc.descendants((node, pos, parent) => {
+    if (!node.isText || !node.text!.includes(INLINE_ATTACHMENT_MARK) || parent?.type.spec.code) return;
+    for (const match of node.text!.matchAll(INLINE_TOKEN))
+      tokens.push({ from: pos + match.index, to: pos + match.index + match[0].length, id: match[1]! });
+  });
+  for (const token of tokens.reverse()) tr.replaceWith(token.from, token.to, type.create({ id: token.id }));
+  return tr;
+}
+
 /// After an edit that brought in placed attachments (a value set from outside, a paste, an undo):
 /// each token in the text becomes its node, and a second node of an id already in the prompt (a
 /// copy pasted beside its original) gets a copy's id, the original keeping its own.
@@ -76,16 +92,8 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
     }),
   );
   if (!brought) return null;
-  const type = state.schema.nodes[INLINE_NODE];
-  if (!type) return null;
-  const tr = state.tr;
-  const tokens: { from: number; to: number; id: string }[] = [];
-  state.doc.descendants((node, pos, parent) => {
-    if (!node.isText || !node.text!.includes(INLINE_ATTACHMENT_MARK) || parent?.type.spec.code) return;
-    for (const match of node.text!.matchAll(INLINE_TOKEN))
-      tokens.push({ from: pos + match.index, to: pos + match.index + match[0].length, id: match[1]! });
-  });
-  for (const token of tokens.reverse()) tr.replaceWith(token.from, token.to, type.create({ id: token.id }));
+  const tr = tokensToNodes(state);
+  if (!tr) return null;
   // Where each id held before the edit is now: that node keeps it.
   const kept = new Map<string, number>();
   const mapped = (pos: number) => {
@@ -131,6 +139,16 @@ export function inlinePlugin(views: InlineViews) {
       new Plugin({
         props: { nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) } },
         appendTransaction: (transactions, previous, state) => normalize(transactions, previous, state),
+        // The editor's first content (a draft read back: a chat reopened, a relaunch) comes in with no
+        // transaction: its tokens become their nodes once the view is up, outside undo's history.
+        view: (editorView) => {
+          queueMicrotask(() => {
+            if (editorView.isDestroyed) return;
+            const tr = tokensToNodes(editorView.state);
+            if (tr?.docChanged) editorView.dispatch(tr.setMeta("addToHistory", false));
+          });
+          return {};
+        },
       }),
   );
 }
