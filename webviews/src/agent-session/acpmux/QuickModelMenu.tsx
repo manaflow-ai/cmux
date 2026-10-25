@@ -107,18 +107,13 @@ export type TabExtent = { rows: number; separators: number };
 /// Mirrors the unfiltered `list` in QuickModelMenu row for row: keep the two in step.
 export function tabExtent(
   family: QuickFamily,
-  menu: Pick<QuickMenu, "account" | "fast" | "update"> & {
-    families: QuickFamilies;
-    levels: number;
-    /// New Tab: More models is a row in the list and draws no separator after it with no Account row.
-    inlineMore?: boolean;
-  },
+  menu: Pick<QuickMenu, "account" | "fast" | "update"> & { families: QuickFamilies; levels: number },
 ): TabExtent {
   const chat = family.id === menu.families.current;
   const models = Math.min(family.models.length, FILTER_ROWS);
   const accountRow = (chat && menu.account) || (menu.families.onAccount && (family.accounts?.length ?? 0) > 1);
   let rows = models || 1;
-  let separators = menu.inlineMore && !accountRow ? 0 : 1;
+  let separators = 1;
   if (family.note && family.logIn) rows += 1;
   if (chat && menu.levels > 1) {
     rows += 1;
@@ -149,16 +144,12 @@ function QuickMenuSpacer({
   rows,
   separators,
   widths,
-  heading = true,
-  more = 0,
-  addRow = false,
+  holdHeight = true,
 }: TabExtent & {
   widths: ProbeRow[];
-  /// The group heading's row (New Tab draws none).
-  heading?: boolean;
-  /// New Tab's shown More models rows, in their capped scroll area, and the Add harness row after them.
-  more?: number;
-  addRow?: boolean;
+  /// False holds the width alone: New Tab's menu opens down, so its top and rail stay put as its
+  /// height follows the rows, and it never shows empty rows under them.
+  holdHeight?: boolean;
 }) {
   return (
     <div className="acpmux-quick-spacer" aria-hidden="true" inert>
@@ -173,17 +164,9 @@ function QuickMenuSpacer({
           </div>
         ))}
       </div>
-      {heading && <div className="ui-menu-group-label">{"\u00a0"}</div>}
-      {more > 0 && (
-        <div className="acpmux-quick-more-list">
-          {Array.from({ length: Math.min(more, 7) }, (_, index) => (
-            <div key={index} className="ui-menu-item acpmux-quick-item" />
-          ))}
-        </div>
-      )}
-      {addRow && <div className="ui-menu-item acpmux-quick-item" />}
+      {holdHeight && <div className="ui-menu-group-label">{"\u00a0"}</div>}
       {/* A separator after each of the first rows: back to back, their margins would collapse. */}
-      {Array.from({ length: rows }, (_, index) => (
+      {Array.from({ length: holdHeight ? rows : 0 }, (_, index) => (
         <Fragment key={index}>
           <div className="ui-menu-item acpmux-quick-item" />
           {index < separators && <div className="ui-separator" />}
@@ -277,9 +260,6 @@ export function QuickModelMenu({
   const forkTab = !query && shown?.fork ? shown : undefined;
   const inlineMore = newTab && families !== undefined;
   const moreShown = inlineMore && !query && moreFor !== undefined && moreFor === tab;
-  // The tab whose More models show: the list keeps their height for the rest of the opening.
-  const moreFamily =
-    inlineMore && moreFor !== undefined ? families.list.find((family) => family.id === moreFor) : undefined;
   const profiles = families?.onAccount && (shown?.accounts?.length ?? 0) > 1 ? shown?.accounts : undefined;
   const profile = shown?.account ?? shown?.id;
   // What the list draws: the typed filter's matches, else the tab's top models.
@@ -348,7 +328,6 @@ export function QuickModelMenu({
         account,
         fast,
         update: menu.update,
-        inlineMore,
       });
       return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
     },
@@ -677,13 +656,7 @@ export function QuickModelMenu({
             </fieldset>
             <div className="acpmux-quick-body" ref={body}>
               <div className="acpmux-quick-list">{list}</div>
-              <QuickMenuSpacer
-                {...tallest}
-                widths={widths}
-                heading={!newTab}
-                more={moreFamily?.more.length ?? 0}
-                addRow={Boolean(moreFamily?.more.length && families.onAddHarness)}
-              />
+              <QuickMenuSpacer {...tallest} widths={widths} holdHeight={!newTab} />
             </div>
           </div>
         ) : (

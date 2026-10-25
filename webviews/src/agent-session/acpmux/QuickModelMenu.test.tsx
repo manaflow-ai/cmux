@@ -160,3 +160,17 @@ test("a rail switch from a shown More models row keeps keyboard focus in the men
   expect(labels(list())).toContain("Codex a");
   expect(popup.contains(document.activeElement)).toBe(true);
 });
+
+test("on New Tab the menu holds no empty rows under its own (it opens down, so its top stays put)", async () => {
+  await openMenu(true);
+  const spacer = document.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
+  expect(
+    spacer.querySelectorAll(":scope > .ui-menu-item, :scope > .ui-separator, :scope > .ui-menu-group-label").length,
+  ).toBe(0);
+});
+
+test("a chat's menu still holds the tallest tab's height (it opens up, so the rail stays under the pointer)", async () => {
+  await openMenu(false);
+  const spacer = document.querySelector<HTMLElement>(".acpmux-quick-spacer")!;
+  expect(spacer.querySelectorAll(":scope > .ui-menu-item").length).toBeGreaterThan(0);
+});
