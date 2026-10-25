@@ -43,30 +43,13 @@ beforeAll(() => {
     pretendToBeVisual: true,
     url: "https://cmux.test/",
   });
-  Object.assign(scope, {
-    window: dom.window,
-    document: dom.window.document,
-    navigator: dom.window.navigator,
-    IS_REACT_ACT_ENVIRONMENT: true,
-    HTMLElement: dom.window.HTMLElement,
-    Element: dom.window.Element,
-    Node: dom.window.Node,
-    ShadowRoot: dom.window.ShadowRoot,
-    MouseEvent: dom.window.MouseEvent,
-    KeyboardEvent: dom.window.KeyboardEvent,
-    Event: dom.window.Event,
-    CustomEvent: dom.window.CustomEvent,
-    customElements: dom.window.customElements,
-    MutationObserver: dom.window.MutationObserver,
-    CSSStyleSheet: dom.window.CSSStyleSheet,
-    DocumentFragment: dom.window.DocumentFragment,
-    SVGElement: dom.window.SVGElement,
-    HTMLTemplateElement: dom.window.HTMLTemplateElement,
-    localStorage: dom.window.localStorage,
-    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
-    requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
-    cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
-  });
+  // Each key from the window; its functions (getComputedStyle, requestAnimationFrame) bound to it.
+  const win = dom.window as unknown as Record<string, unknown>;
+  for (const key of keys) {
+    const value = win[key];
+    scope[key] = typeof value === "function" && /^[a-z]/.test(key) ? value.bind(dom.window) : value;
+  }
+  scope.IS_REACT_ACT_ENVIRONMENT = true;
   host = dom.window.document.getElementById("root")!;
 });
 

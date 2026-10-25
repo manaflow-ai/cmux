@@ -1037,10 +1037,7 @@ function useAccountList(open: boolean, account: QuickMenu["account"]) {
     const forSession = sessionId;
     setList((old) =>
       old
-        ? {
-            ...old,
-            ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }),
-          }
+        ? { ...old, ...(routeId ? { active: routeId, scope: "chat" } : { active: undefined, scope: undefined }) }
         : old,
     );
     accounts.set(sessionId, routeId).then(

@@ -81,16 +81,48 @@ type ModelChoice = {
   tag?: string;
 };
 
+/// The compact model menu keeps the top picks and the running model readable; everything else is
+/// behind More models (Leo 2026-10-21: "why are there so many models!?"), while typed search still
+/// exposes the wider filtered list.
+const QUICK_ROWS = 4;
+
+const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.includes(" · ");
+
+/// A model several providers serve is one row (modelVariants.ts): it lands the running provider's,
+/// else the first listed, and `offers` holds every provider's.
+function quickSections(
+  entry: HarnessChoice | undefined,
+  model: string | undefined,
+  usable: (choice: ModelChoice) => boolean = () => true,
+): { shown: ModelChoice[]; more: ModelChoice[] } {
+  const { latest, older } = sectionsFor(entry);
+  const latestIds = new Set(latest.map((choice) => choice.id));
+  const all = groupVariants([...latest, ...older].filter(usable), model).map(
+    ({ model: choice, name, tag, offers }): ModelChoice => ({
+      ...choice,
+      name,
+      ...(tag ? { tag } : {}),
+      ...(offers.find((offer) => offer.model === choice)?.provider
+        ? { provider: offers.find((offer) => offer.model === choice)!.provider }
+        : {}),
+      ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+    }),
+  );
+  // A model is a top one when any provider's row of it is.
+  const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
+  const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
+  const runs = all.find((choice) => choice.id === model);
+  const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
+  return { shown: all.filter((choice) => chosen.has(choice)), more: all.filter((choice) => !chosen.has(choice)) };
+}
+
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
 /// then every other model (`older`, folded under More models). The agent-owned default sentinel is not a
 /// user-selectable model row. A catalog model names
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
-function sectionsFor(entry: HarnessChoice | undefined): {
-  latest: ModelChoice[];
-  older: ModelChoice[];
-} {
+function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
   if (!entry) return { latest: [], older: [] };
   const cached = choiceCache.get(entry);
   if (cached) return cached;
@@ -125,52 +157,7 @@ function shownSections(
   const sections = sectionsFor(entry);
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
-  return {
-    latest: [...sections.latest, runs],
-    older: sections.older.filter((choice) => choice !== runs),
-  };
-}
-
-/// How many models the compact menu lists at once (Leo 2026-10-21: "why are there so many models!?
-/// it should be truncating and then showing more models"): the top picks and the running model,
-/// numbered 1 to 4. Every other model is under More models.
-const QUICK_ROWS = 4;
-
-/// A variant of a model ("Fable 5.1 · 1M context", `opus[1m]`, "Opus plan · Sonnet execute"): listed
-/// in the compact menu only after every plain model, so the four rows are four models.
-const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.includes(" · ");
-
-/// The compact menu's rows: up to QUICK_ROWS of the harness's top models, plain models before
-/// variants, and the model the chat runs (`model`) always among them, in the list's order; `more` is
-/// every other model, in order. A model several providers serve is one row (modelVariants.ts): it
-/// lands the running provider's, else the first listed, and `offers` holds every provider's.
-function quickSections(
-  entry: HarnessChoice | undefined,
-  model: string | undefined,
-  usable: (choice: ModelChoice) => boolean = () => true,
-): { shown: ModelChoice[]; more: ModelChoice[] } {
-  const { latest, older } = sectionsFor(entry);
-  const latestIds = new Set(latest.map((choice) => choice.id));
-  const all = groupVariants([...latest, ...older].filter(usable), model).map(
-    ({ model: choice, name, tag, offers }): ModelChoice => ({
-      ...choice,
-      name,
-      ...(tag ? { tag } : {}),
-      ...(offers.find((offer) => offer.model === choice)?.provider
-        ? { provider: offers.find((offer) => offer.model === choice)!.provider }
-        : {}),
-      ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
-    }),
-  );
-  // A model is a top one when any provider's row of it is.
-  const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
-  const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
-  const runs = all.find((choice) => choice.id === model);
-  const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
-  return {
-    shown: all.filter((choice) => chosen.has(choice)),
-    more: all.filter((choice) => !chosen.has(choice)),
-  };
+  return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
 }
 
 /// Every model of a harness, newest first, older versions included.
