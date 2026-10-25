@@ -498,10 +498,14 @@ async fn a_paired_phone_is_refused_full_access_without_its_setting_and_allowed_w
     let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
     let r = web.call("session/prompt", prompt(&mac)).await;
     assert_eq!(r["result"]["stopReason"], "end_turn", "the shared token, unmarked: {r}");
+    // A brief steer (the mobile host cannot see its chat's mode, so it always marks one).
+    let steer = json!({"briefId": "b-none", "text": "go"});
     for (who, c) in [("the shared token", &mut web), ("setting off", &mut phone)] {
         let r = c.call("session/prompt", marked(prompt(&mac))).await;
         assert_eq!(r["error"]["data"]["reason"], "remote.full_access_required", "{who}: {r}");
         let r = c.call("session/set_mode", marked(full_access(&s))).await;
+        assert_eq!(r["error"]["data"]["reason"], "remote.full_access_required", "{who}: {r}");
+        let r = c.call("_acpmux/steer", marked(steer.clone())).await;
         assert_eq!(r["error"]["data"]["reason"], "remote.full_access_required", "{who}: {r}");
     }
     assert!(set_full_access(&mut person, &id, true).await.get("error").is_none());
@@ -514,6 +518,8 @@ async fn a_paired_phone_is_refused_full_access_without_its_setting_and_allowed_w
         let r = phone.call("session/prompt", marked(prompt(chat))).await;
         assert_eq!(r["result"]["stopReason"], "end_turn", "setting on, {chat}: {r}");
     }
+    let r = phone.call("_acpmux/steer", marked(steer.clone())).await;
+    assert!(err(&r).contains("no brief"), "setting on, the steer passes the gate: {r}");
     // The other phone, without the setting, is still refused.
     let theirs = bridge_chat(&mut other, &d).await;
     let r = other.call("session/set_mode", full_access(&theirs)).await;

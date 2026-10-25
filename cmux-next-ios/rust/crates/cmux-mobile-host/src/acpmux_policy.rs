@@ -47,12 +47,20 @@ pub fn refusal(message: &str) -> Option<String> {
 /// option (one that could carry an approval or sandbox setting) is refused.
 pub const FREE_CONFIG_IDS: &[&str] = &["model", "effort", "reasoning_effort", "thought_level", "thinking"];
 
+/// Methods that prompt a chat named only indirectly, so this filter cannot read its mode:
+/// `_acpmux/steer` names a brief, and acpmux turns it into a `session/prompt` to the brief's
+/// chat (`server/requests/briefs.rs`). The iPhone app never sends one; it is held to the
+/// Full-access rule (refused here, or marked on a phone's own credential).
+pub const INDIRECT_PROMPT_METHODS: &[&str] = &["_acpmux/steer"];
+
 /// Whether one request keeps its agent asking: a mode set names a phone mode, a
-/// config set names a free option or the mode.
+/// config set names a free option or the mode, and no request prompts a chat this
+/// filter cannot check.
 fn asks(request: &Value) -> bool {
     let params = request.get("params");
     let field = |k: &str| params.and_then(|p| p.get(k));
     match request.get("method").and_then(Value::as_str) {
+        Some(m) if INDIRECT_PROMPT_METHODS.contains(&m) => false,
         Some("session/set_mode") => mode_ok(field("modeId")),
         Some("session/set_config_option") => match field("configId").and_then(Value::as_str) {
             Some("mode") => mode_ok(field("value")),
@@ -248,6 +256,11 @@ mod tests {
             assert_eq!(request["params"]["_meta"]["acpmux"]["requireFullAccess"], true, "{request}");
         }
         assert_eq!(marked_batch[0]["params"]["_meta"]["acpmux"]["via"], "x", "the rest of _meta stays");
+        // A brief steer prompts a chat the filter cannot check: refused, or marked.
+        let steer = json!({"jsonrpc": "2.0", "id": 5, "method": "_acpmux/steer", "params": {"briefId": "b", "text": "go"}});
+        assert!(refusal(&steer.to_string()).is_some(), "refused on the dashboard token");
+        let marked_steer: Value = serde_json::from_str(&marked(&steer.to_string()).unwrap()).unwrap();
+        assert_eq!(marked_steer["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
         // No params object to mark: not forwarded.
         let bare = json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_mode"});
         assert_eq!(marked(&bare.to_string()), None);
