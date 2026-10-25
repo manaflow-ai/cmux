@@ -56,17 +56,24 @@ struct AgentTabContent {
     }
 
     /// The tab's page from the last quit, under the pane until `view`'s
-    /// live page paints (`PaneContentView.drawLastPage`): a relaunch never
-    /// shows an empty agent pane. The saved page is read off the main thread:
-    /// until it comes, the pane shows what it shows with none.
+    /// live page paints (`AgentPaneLaunchImages`): a relaunch never shows
+    /// an empty agent pane. The image is the pane's first frame, so the
+    /// pane's own loading state stays off above it until the image goes.
     private func drawLastPage(_ key: String, until view: AgentPaneView?) {
         let paneView = pane.view
-        let tabs = pane.services.agentTabs
+        let images = pane.services.agentTabs.launchImages
         // A New Tab page with no saved image of its own draws the last New Tab frame (cx-ec99), unless
         // it shows in Chromium: that page draws over the frame as it comes in, both seen at once.
         let newTabFrame = { view?.model.newTab == nil || view?.pageDrawsOverCovers == true ? nil : AgentPaneNewTabFrame.shared.image(size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) }
-        paneView.drawLastPage(key, from: tabs.launchImages, on: pane.services.work, until: view, newTabFrame: newTabFrame,
-                              showing: { [weak pane] in pane?.currentTabKey == key }, page: { [weak tabs] in tabs?.views[key] })
+        let image = { images.take(key, size: paneView.contentHost.bounds.size, appearance: Self.appearance(of: paneView)) ?? newTabFrame() }
+        if paneView.launchImageView == nil, let image = image() { paneView.showLaunchImage(image) }
+        guard paneView.launchImageView != nil, let view else { return }
+        view.showsLoadingState = false
+        paneView.onLaunchImageCleared = { [weak view] in
+            if let view, view.model.newTab == nil { view.showsLoadingState = true }
+        }
+        // Once the page has faded in over it (`AgentPaneLoadingView.leave`).
+        view.loadingView.whenRevealed { [weak paneView] in paneView?.clearLaunchImage() }
     }
 
     /// A parked spare taken into this pane draws nothing until WebKit renders it in its new place
