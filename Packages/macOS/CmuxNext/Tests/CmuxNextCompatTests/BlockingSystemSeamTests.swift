@@ -140,14 +140,14 @@ private nonisolated func callEachSystemSeam() throws -> [BlockingSite] {
     return expected
 }
 
-/// A clock that moves ``tick`` nanoseconds per timed call (two reads).
+/// A clock that moves ``tick`` nanoseconds per read, so each timed call (two reads) measures ``tick``.
 private nonisolated final class TickClock: Sendable {
     static let tick: UInt64 = 1_000
     private let now = Mutex(UInt64(0))
 
     func read() -> UInt64 {
         now.withLock { now in
-            now += Self.tick / 2
+            now += Self.tick
             return now
         }
     }

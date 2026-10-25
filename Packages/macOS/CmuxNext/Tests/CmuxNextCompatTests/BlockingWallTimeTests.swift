@@ -81,7 +81,9 @@ struct BlockingWallTimeTests {
         let clock = StepClock(durations: [5_000_000])
         let table = BlockingViolationTable(mode: .record, uptimeNanos: { clock.read() })
         BlockingViolationTable.$scoped.withValue(table) {
-            blockingCall(.syncWait) { blockingCall(.fileIO) {} }
+            blockingCall(.syncWait) {
+                blockingCall(.fileIO) {}  // its own line: a site is a file and line
+            }
             blockingCall(.fileIO) {}  // outside: timed again
         }
         await table.flush()
@@ -135,9 +137,11 @@ struct BlockingWallTimeTests {
             }
             await table.flush()
             let sites = BlockingDetector(table: table).sites
-            let right = sites.map(\.kind) == [.processWait, .fileIO] && sites.map(\.count) == [1, 1]
-                && sites[0].totalNanos > 0 && sites[1].totalNanos == 0
-            exit(right ? 0 : 3)
+            // 0: right; 3: wrong kinds; 4: wrong counts; 5: the wait has no time; 6: the nested call has time.
+            guard sites.map(\.kind) == [.processWait, .fileIO] else { exit(3) }
+            guard sites.map(\.count) == [1, 1] else { exit(4) }
+            guard sites[0].totalNanos > 0 else { exit(5) }
+            exit(sites[1].totalNanos == 0 ? 0 : 6)
         }
     }
 
