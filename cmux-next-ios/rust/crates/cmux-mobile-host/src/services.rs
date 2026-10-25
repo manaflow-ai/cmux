@@ -81,6 +81,7 @@ pub async fn serve(
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "browser" => crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await,
+        "surface" => crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await,
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
     };
     match result {
@@ -127,6 +128,9 @@ pub const BROWSER_STREAM: &str = "browser-stream-v1";
 /// With [`BROWSER_STREAM`]: `browser {"video": "track"}` carries the page's
 /// video on the link's media lane when the link has one.
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
+/// Added when this Mac streams its phone tabs' simulators (`surface`), with
+/// `video: "track"` as for browser tabs.
+pub const SURFACE_STREAM: &str = "surface-stream-v1";
 
 /// What this host does that a phone may rely on.
 pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
@@ -134,6 +138,9 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     if config.browser.available() {
         out.push(BROWSER_STREAM);
         out.push(BROWSER_VIDEO_TRACK);
+    }
+    if config.surface.available() {
+        out.push(SURFACE_STREAM);
     }
     out
 }
@@ -972,6 +979,24 @@ impl crate::browser_policy::MacPages for ServiceConfig {
     }
 }
 
+/// A phone tab is one this Mac's daemon lists now (`list-workspaces`); no
+/// answer streams nothing.
+impl crate::surface::SurfaceTabs for ServiceConfig {
+    fn is_phone_tab(&self, surface: u64) -> futures_util::future::BoxFuture<'_, bool> {
+        Box::pin(async move {
+            // Page tabs read as their record (`conversation.page`) only for a client
+            // that negotiated `page-tabs-v1`; without it every page tab reads `browser`.
+            daemon_query(
+                &self.daemon_socket(),
+                b"{\"cmd\":\"set-client-info\",\"id\":\"cmux-mobile-surface-hello\",\"name\":\"cmux-mobile-host\",\"kind\":\"cli\",\"capabilities\":[\"conversation-tabs-v1\",\"page-tabs-v1\"]}\n{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-surface\"}\n",
+                "cmux-mobile-surface",
+            )
+            .await
+            .is_ok_and(|reply| crate::surface::phone_tab_in(&reply, surface))
+        })
+    }
+}
+
 /// The daemon at `path`'s `list-workspaces` reply (at most 5 s).
 async fn list_workspaces(path: &Path) -> Result<Value, Refusal> {
     daemon_query(path, b"{\"cmd\":\"list-workspaces\",\"id\":\"cmux-mobile-upload\"}\n", "cmux-mobile-upload")
@@ -1288,6 +1313,7 @@ mod tests {
             upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
+            surface: Default::default(),
         };
         let view = config.view().await;
         assert!(view.browser_urls.is_empty());
@@ -1379,6 +1405,7 @@ mod tests {
             upload_max_bytes: 1,
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
+            surface: Default::default(),
         };
         assert_eq!(capabilities(&config), ["removal-v1"]);
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {

@@ -233,6 +233,65 @@ impl Hub {
         self.note_unenforced_policy(session, default);
     }
 
+    /// A paired machine's Full-access setting ended (turned off, or the machine revoked;
+    /// `crate::pairing`): every chat a remote connection started whose mode its narrower policy
+    /// does not hold (which only that setting lets happen) moves back to its policy's mode, as
+    /// `follow_policy` moves it, and the turn it runs then stops, before the change is answered.
+    /// Every such chat, whichever machine moved it; another machine that still has the setting
+    /// may move its chat again. Also once at daemon start (`daemon.rs`), after the agent hosts
+    /// are adopted: which machine moved a chat is not kept, so a restart puts every such chat
+    /// back (fail closed). Returns how many chats it put back.
+    pub(crate) async fn hold_policies_again(self: &Arc<Self>) -> usize {
+        let default = self.config.read().await.permission_policy;
+        let table = self.web_modes();
+        let held: Vec<Arc<Session>> = self
+            .sessions()
+            .into_iter()
+            .filter(|s| out_of_policy(&s.meta(), default, &table))
+            .collect();
+        for s in &held {
+            tracing::warn!(session = %s.id, "a machine's Full access ended: the chat goes back to its policy's mode");
+            self.append(s, "mux", "full_access_ended", json!({}));
+            // First: a Web turn past its dispatch check sends no prompt now (`remote_floor_breach`),
+            // and one whose prompt went out is cancelled.
+            if s.turn().is_some_and(|t| t.control == Control::Web) {
+                self.remote_floor_cancel(s, "remote.full_access_ended");
+            }
+        }
+        futures::future::join_all(held.iter().map(|s| self.follow_policy(s))).await;
+        // After the move: a turn that began before it ran in the wider mode.
+        for s in &held {
+            if s.turn().is_some()
+                && let Err(e) = self.cancel(s).await
+            {
+                tracing::warn!(session = %s.id, "the turn was not cancelled: {}", e.message);
+            }
+        }
+        held.len()
+    }
+
+    /// `session/set_mode` or `session/set_config_option` from a paired machine whose Full-access
+    /// setting covers it (`server/remote_guard.rs` `full_access_device`): the policy of a chat a
+    /// remote connection started holds the mode only when it is deny-all
+    /// (`refuse_wider_mode_as`). The setting is read again once the switch is done:
+    /// turned off in between, the chat is put back at once and the request fails.
+    pub(crate) async fn set_for_full_access_device(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        device: &str,
+        set: SetRequest,
+    ) -> Result<Value, RpcError> {
+        let r = match set {
+            SetRequest::Mode(mode) => self.set_mode_as(session, &mode, true).await?,
+            SetRequest::Config(id, value) => self.set_config_as(session, &id, value, true).await?,
+        };
+        if self.pairing.full_access(device) {
+            return Ok(r);
+        }
+        self.hold_policies_again().await;
+        Err(full_access_ended())
+    }
+
     /// An OpenCode chat whose policy became narrower than approve-all while its agent runs without
     /// OpenCode asked to ask (module docs): the agent restarts and resumes the conversation, as a
     /// route switch does (`route_switch.rs`), now when the chat is idle, else when its turn ends
@@ -320,6 +379,8 @@ impl Hub {
             .await
         {
             Ok(_) => {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+                    Some(wanted.clone());
                 let mut writes = vec![ModeWrite::CurrentMode(json!(wanted))];
                 if let Some(options) = with_mode_option(&session.meta(), &wanted) {
                     writes.push(ModeWrite::ConfigOptions(options));
@@ -343,6 +404,21 @@ impl Hub {
         m: &str,
         params: &Value,
     ) -> Result<(), RpcError> {
+        self.refuse_wider_mode_as(session, m, params, false).await
+    }
+
+    /// `refuse_wider_mode`; `granted`: a paired machine's Full-access setting
+    /// covers the request (`crate::pairing`), so the policy of a chat a remote
+    /// connection started (the `ask` the remote guard gives it) no longer
+    /// holds its mode, unless it is deny-all (its own or the default's
+    /// lockdown). A chat started on this machine keeps its policy's mode.
+    pub(super) async fn refuse_wider_mode_as(
+        &self,
+        session: &Session,
+        m: &str,
+        params: &Value,
+        granted: bool,
+    ) -> Result<(), RpcError> {
         let mode = match m {
             method::SESSION_SET_MODE => params.get("modeId"),
             method::SESSION_SET_CONFIG_OPTION
@@ -356,6 +432,9 @@ impl Hub {
         let default = self.config.read().await.permission_policy;
         let meta = session.meta();
         let Some(policy) = narrow_policy(&meta, default) else { return Ok(()) };
+        if granted && meta.remote_origin && policy != PermissionPolicy::DenyAll {
+            return Ok(());
+        }
         let family = crate::web_modes::family_of(&meta);
         let offered = super::start_mode::offered_ids(&meta);
         let table = self.web_modes();
@@ -369,6 +448,38 @@ impl Hub {
         ))
         .with_data(json!({"reason": "policy_mode", "policy": policy.to_string()})))
     }
+}
+
+/// Whether a chat a remote connection started runs in a mode its narrower policy does not hold:
+/// what `refuse_wider_mode` refuses (a mode that does not ask, under a policy whose harness has
+/// a mode that keeps it), so only a paired machine's Full-access setting moves a chat there.
+pub(super) fn out_of_policy(
+    meta: &SessionMeta,
+    default: PermissionPolicy,
+    table: &crate::web_modes::WebModeTable,
+) -> bool {
+    if !meta.remote_origin {
+        return false;
+    }
+    let family = crate::web_modes::family_of(meta);
+    let offered = super::start_mode::offered_ids(meta);
+    narrow_policy(meta, default)
+        .is_some_and(|policy| policy_mode(policy, &family, &offered).is_some())
+        && crate::web_modes::mode_of(meta)
+            .is_some_and(|mode| !super::start_mode::asks_in(&mode, &family, table.modes(&family)))
+}
+
+/// What `Hub::set_for_full_access_device` sets.
+pub(crate) enum SetRequest {
+    Mode(String),
+    Config(String, Value),
+}
+
+fn full_access_ended() -> RpcError {
+    RpcError::invalid_params(
+        "this machine's Full access was turned off on the Mac: the chat is back in its policy's mode",
+    )
+    .with_data(json!({"reason": "full_access_ended"}))
 }
 
 #[cfg(test)]

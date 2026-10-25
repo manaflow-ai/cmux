@@ -47,6 +47,8 @@ import bench_launch as bl  # noqa: E402
 
 # No test changes the host's sound output: osascript answers nothing unless a test gives its own fake.
 os.environ["BENCH_LAUNCH_OSASCRIPT"] = "/usr/bin/false"
+# No test moves a real tag's saved state (bench_launch.start_fresh): every tag root is under a temporary base.
+os.environ["BENCH_LAUNCH_STATE_BASE"] = tempfile.mkdtemp(prefix="bench-launch-state-")
 
 
 def fake_bundle(folder: str, tag: str) -> str:
@@ -586,6 +588,53 @@ class CrashReportWaitTests(unittest.TestCase):
         self.assertEqual(wait["watched"], [], "a folder below a file counted as watched")
         self.assertEqual(sorted(wait["unwatched"]), sorted([mine, system]),
                          "the report does not say which folders the wait could not watch")
+
+
+class FreshStateTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = os.path.realpath(tempfile.mkdtemp(prefix="bench-launch-fresh-"))
+        self.saved_env = dict(os.environ)
+        os.environ.update(BENCH_LAUNCH_ANY_SESSION="1", BENCH_LAUNCH_PMSET="/usr/bin/false",
+                          BENCH_LAUNCH_LPM_MARKER=os.path.join(self.folder, "lpm.json"),
+                          BENCH_LAUNCH_STATE_BASE=os.path.join(self.folder, "appsupport-cmux"))
+        os.environ.pop("BENCH_LAUNCH_KEEP_STATE", None)
+        self.tag = f"bl-fresh-{os.getpid()}"
+        app = os.path.join(self.folder, f"cmux DEV {self.tag}.app")
+        os.makedirs(os.path.join(app, "Contents/MacOS"))
+        main = os.path.join(app, "Contents/MacOS/cmux DEV")
+        with open(main, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(main, 0o755)
+        self.app = app
+        self.root = os.path.join(self.folder, "appsupport-cmux", "tags", self.tag)
+        os.makedirs(os.path.join(self.root, "tui"))
+        with open(os.path.join(self.root, "tui", "session.json"), "w") as f:
+            f.write('{"workspaces": 60}')
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self.saved_env)
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def launch(self, **kwargs):
+        with self.assertRaises(bl.LaunchError):
+            bl.BenchApp(self.app, out=os.path.join(self.folder, "out"), teardown=False, session=lambda: OK_SESSION,
+                        **kwargs).launch(timeout=5)
+
+    def test_a_launch_starts_from_an_empty_saved_session(self):
+        self.launch()
+        self.assertFalse(os.path.exists(self.root), "the tag's earlier state is still where the app reads it")
+        self.assertTrue(os.path.exists(os.path.join(self.root + ".bench-prev", "tui", "session.json")))
+        os.makedirs(self.root)  # a second run: the newer state replaces the one kept before
+        with open(os.path.join(self.root, "marker"), "w") as f:
+            f.write("2")
+        self.launch()
+        self.assertTrue(os.path.exists(os.path.join(self.root + ".bench-prev", "marker")))
+
+    def test_keep_state_leaves_it(self):
+        os.environ["BENCH_LAUNCH_KEEP_STATE"] = "1"
+        self.launch()
+        self.assertTrue(os.path.exists(os.path.join(self.root, "tui", "session.json")))
 
 
 if __name__ == "__main__":

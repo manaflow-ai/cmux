@@ -100,6 +100,10 @@ pub struct Device {
     pub ticket: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked_ms: Option<u64>,
+    /// The person let this machine run chats in Full access (`super::full_access`).
+    /// Off unless set: a record saved before the setting existed reads as off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub full_access: bool,
 }
 
 impl Device {
@@ -111,7 +115,14 @@ impl Device {
             "created_at": crate::server::iso(self.created_ms),
             "ticket_id": self.ticket,
             "revoked_at": self.revoked_ms.map(crate::server::iso),
+            "full_access": self.full_access,
         })
+    }
+
+    /// Whether the setting covers this record now: a live `client` machine
+    /// with it on. A read-only or daemon-role record never drives chats here.
+    pub fn grants_full_access(&self) -> bool {
+        self.full_access && self.revoked_ms.is_none() && self.role == Role::Client
     }
 }
 
@@ -274,6 +285,7 @@ impl Store {
             created_ms: now_ms,
             ticket,
             revoked_ms: None,
+            full_access: false,
         };
         self.devices.push(device.clone());
         Ok(device)
@@ -292,6 +304,32 @@ impl Store {
             }
         }
         found.filter(|d| d.revoked_ms.is_none())
+    }
+
+    /// Turn the Full-access setting of the live device with id or name `key`
+    /// on or off. Only a `client` machine drives chats here, so only one can
+    /// have it on; turning it off is always accepted.
+    pub fn set_full_access(&mut self, key: &str, on: bool) -> Result<Device, RpcError> {
+        let at = self
+            .devices
+            .iter()
+            .position(|d| d.id == key && d.revoked_ms.is_none())
+            .or_else(|| self.devices.iter().position(|d| d.name == key && d.revoked_ms.is_none()))
+            .ok_or_else(|| {
+                RpcError::not_found(format!("no paired machine {key:?}; see `cmux host ticket ls`"))
+                    .with_data(json!({"reason": "not_found"}))
+            })?;
+        let d = &mut self.devices[at];
+        if on && d.role != Role::Client {
+            return Err(RpcError::invalid_params(format!(
+                "{} is paired {}: only a client machine drives chats here, so only one can run them in Full access",
+                d.name,
+                d.role.as_str()
+            ))
+            .with_data(json!({"reason": "full_access_role"})));
+        }
+        d.full_access = on;
+        Ok(d.clone())
     }
 
     /// Revoke the ticket or device with id `key`, or the live device named

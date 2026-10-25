@@ -132,6 +132,8 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.revealTurn?.(String(event.value));
     case "command":
       return bridge?.command?.(String(event.value));
+    case "stopTurn":
+      return bridge?.command?.("stopTurn", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;

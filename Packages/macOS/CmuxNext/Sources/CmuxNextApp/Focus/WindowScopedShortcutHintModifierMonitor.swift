@@ -87,7 +87,7 @@ final class WindowScopedShortcutHintModifierMonitor {
         if !keepsHints { hide() }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     func debugHold(_ flags: NSEvent.ModifierFlags, window: NSWindow) async -> Bool {
         guard eligible, let event = debugEvent(flags, window: window) else { return false }
         if flags.isEmpty {

@@ -84,7 +84,7 @@ final class CEFLayerHosting {
     /// Calls into the fork so far.
     private(set) var forkCalls = 0
     /// A browser of the page window (any tab of it names the same window).
-    private var browser: Int32?
+    private(set) var browser: Int32?
     private var fork: Fork?
     private var pending = Pending.none
     private let isEnabled: () -> Bool

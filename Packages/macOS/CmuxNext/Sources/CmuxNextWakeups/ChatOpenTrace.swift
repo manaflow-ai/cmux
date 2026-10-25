@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 
 /// DEBUG builds: one agent chat open, from the action to the chat's content on screen, stage by

@@ -35,6 +35,7 @@ final class HomeHostView: NSView {
     private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
+    private var spellCheckingWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
     /// (`home.chiefPetMascot`; Leo 2026-10-20: one of the nine characters, never a plain circle),
     /// else 🫡 if its picture is missing from the bundle.
@@ -57,6 +58,7 @@ final class HomeHostView: NSView {
         let id = ConversationID(conversation)
         transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
                                               diagrams: service.diagrams, openPanel: services.openPanel)
+        transcript.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
@@ -219,6 +221,11 @@ final class HomeHostView: NSView {
         }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
+        spellCheckingWatch = Task { [weak self, weak services] in
+            for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
+                self?.transcript.composerSpellCheckingEnabled = enabled
+            }
+        }
         // The first-run rows run the same registry actions as the sidebar's
         // New Terminal Tab and New Agent Chat, and show their shortcuts.
         transcript.onFirstRunAction = { action in
@@ -310,18 +317,19 @@ final class HomeHostView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181): the observation
+    // Tasks are Sendable and end here. Two stops are main-actor work with no Sendable handle, so they run on the
+    // main actor: the settings popover's window, and the transcript's stop, which releases its dictation claim in
+    // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
+    // returned off main skipped all of it.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            availability?.cancel()
-            engineWatch?.cancel()
-            avatarsWatch?.cancel()
-            hostWatch?.cancel()
-            agentsWatch?.cancel()
-            shortcutsWatch?.cancel()
-            headerPanelsWatch?.cancel()
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage] {
+            task?.cancel()
+        }
+        let settings = settings, transcript = transcript
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
             settings.close()
-            firstPage?.cancel()
             transcript.stop()
         }
     }
@@ -430,7 +438,7 @@ final class HomeHostView: NSView {
         }
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.drive` engine_set: one pick in this view's Chief settings panel, as its popup does.
     func debugPickEngine(_ key: String, _ value: String?) { settingsView.pick(key, value) }
     /// `debug.home.drive` chief_control: the named Chief this view's controls name (nil: the default).

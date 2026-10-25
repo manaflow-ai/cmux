@@ -6,6 +6,7 @@ import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
+import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
@@ -33,6 +34,7 @@ import { type StringKey, type Translate, translate, useT } from "./i18n";
 import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseWeather, type NewTabWeather } from "./newtab/ambient";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
+import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
 import { isStartableProject, rememberedStartedProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { useNoEntryMotion } from "./newtab/noEntryMotion";
@@ -136,6 +138,8 @@ export type NewTabHost = {
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
   /// only, never All chats. Unset lists All chats where the template does.
   allChats?: false;
+  /// How the rows under the field rank (newtab/screenModel.ts SuggestionOrder); unset is the default.
+  suggestionOrder?: SuggestionOrder;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -161,6 +165,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const template = parseNewTabTemplate(object.template);
   const pageWidgets = parsePageWidgets(object.pageWidgets);
   const weather = parseWeather(object.weather);
+  const order = suggestionOrder(object.suggestionOrder);
   return {
     hotkeys,
     initialKind,
@@ -192,6 +197,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.headlineOff === true ? { headlineOff: true as const } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
+    ...(order ? { suggestionOrder: order } : {}),
   };
 }
 
@@ -337,6 +343,7 @@ export function NewTabPage({
   onInputReady,
 }: Props) {
   const t = useT();
+  const { spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
   useNoEntryMotion();
@@ -621,7 +628,7 @@ export function NewTabPage({
               value={text}
               aria-controls="acpmux-omni"
               aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
-              spellCheck={kind === "agent"}
+              spellCheck={spellChecking && kind === "agent"}
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(event) => edit(event.target.value)}

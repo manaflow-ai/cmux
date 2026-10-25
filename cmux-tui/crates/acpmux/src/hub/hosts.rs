@@ -49,6 +49,9 @@ pub(super) struct OpenWork {
     /// A remote chain's Claude Code session whose current host has no
     /// passed sandbox canary just before it started (`remote_sandbox.rs`).
     unsandboxed: bool,
+    /// What that turn does, from its logged updates under this incarnation: its tool calls in
+    /// flight, its latest tool and its plan step (`hub/activity.rs`).
+    doing: super::activity::TurnActivity,
 }
 
 impl Hub {
@@ -407,7 +410,14 @@ impl Hub {
         let remote_claude = self.remote_claude(session);
         work.unsandboxed = remote_claude;
         let mut canary_passed = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Which logged updates are a subagent's, as the tap tells them live: by the subagents
+        // the log itself started, never by an update's own `_meta`.
+        let mut subagents = crate::subagents::SubagentTree::default();
+        subagents.set_own(session.meta().agent_session_id.as_deref());
+        let _ = self.store.scan(&session.id, 0, &mut |mut e: EventRecord| {
+            let subagents_own = e.dir == "in"
+                && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+                && e.msg.get_mut("params").is_some_and(|p| subagents.annotate(p).is_some());
             if e.dir == "mux" {
                 let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
                 match e.kind.as_str() {
@@ -467,6 +477,7 @@ impl Hub {
                     work.prompt_response = None;
                     work.steers.clear();
                     work.last_host_seq = 0;
+                    work.doing = Default::default();
                 }
                 ("mux", "turn_started") => {
                     let field = |k: &str| {
@@ -483,6 +494,7 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    work.doing = Default::default();
                 }
                 ("mux", "turn_control") => {
                     if let Some(t) = work.turn.as_mut()
@@ -496,6 +508,13 @@ impl Hub {
                     work.prompt_request = None;
                     work.prompt_response = None;
                     work.steers.clear();
+                    work.doing = Default::default();
+                }
+                // A subagent's updates are not the turn's own (`permissions.rs` `on_update`).
+                ("in", "tool_call" | "tool_call_update" | "plan")
+                    if current && work.turn.is_some() && !subagents_own =>
+                {
+                    work.doing.note(&e.msg["params"]["update"]);
                 }
                 ("mux", "permission_request") if current => {
                     if let (Some(pid), Some(aid)) = (
@@ -617,13 +636,18 @@ impl Hub {
                         turn_seq,
                         // Who prompted (`turn_started`); an older record without it is Web.
                         control,
-                        doing: Default::default(),
+                        doing: work.doing.clone(),
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
                     // start does not go on (tools that do not ask).
                     if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
                         self.remote_floor_cancel(session, "remote.unsandboxed_agent");
+                    }
+                    // Nor one in a mode only a machine's Full-access setting allows: which
+                    // machine sent it is not kept across a restart (`full_access_hold`).
+                    if self.full_access_hold(&session.meta(), control, None).is_err() {
+                        self.remote_floor_cancel(session, "remote.full_access_ended");
                     }
                     self.set_status(session, SessionStatus::Running);
                     // The answer is either logged already, or still to come

@@ -53,9 +53,8 @@ import Testing
         let chosen = [folder.appendingPathComponent("first.txt"), folder.appendingPathComponent("second.txt")]
         for file in chosen { try Data("cmux".utf8).write(to: file) }
 
-        let engine = WebKitEngine()  // the tab holds its engine weakly
         let answerer = Answerer(answer: chosen)
-        engine.fileInput = answerer
+        let engine = WebKitEngine(fileInput: answerer, stores: .inMemory())  // the tab holds its engine weakly
         let page = engine.makeWebKitTab()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
                               backing: .buffered, defer: false)
@@ -77,7 +76,7 @@ import Testing
             input.click();
             await changed;
             return Array.from(input.files, (file) => file.name);
-            """, world: .page)
+            """, world: .page, gesture: .agent)
 
         let ask = try #require(answerer.asks.first, "the tab's file input did not go through the engine's shared path")
         #expect(answerer.asks.count == 1, "one click asked the picker \(answerer.asks.count) times")

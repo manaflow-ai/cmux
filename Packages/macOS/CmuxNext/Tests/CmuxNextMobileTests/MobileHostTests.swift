@@ -161,6 +161,18 @@ import Testing
         #expect(gone == #"{"tab":"s4","type":"browser_gone"}"# + "\n")
     }
 
+    @Test func parsesSurfaceRequestsAndWritesTheAnswers() throws {
+        #expect(MobileHostEvent(line: #"{"type":"need_surface","request":8,"tab":"s12"}"#) == .needSurface(request: 8, tab: "s12"))
+        #expect(MobileHostEvent(line: #"{"type":"surface_stop","tab":"s12"}"#) == .surfaceStop(tab: "s12"))
+        #expect(MobileHostEvent(line: #"{"type":"need_surface","request":8}"#) == nil)
+        let answer = try #require(String(data: MobileHostLaunch.surfaceLine(request: 8, port: 4567, secret: "ab"), encoding: .utf8))
+        #expect(answer == #"{"addr":"127.0.0.1:4567","request":8,"secret":"ab","type":"surface"}"# + "\n")
+        let failed = try #require(String(data: MobileHostLaunch.surfaceFailedLine(request: 8, reason: "no"), encoding: .utf8))
+        #expect(failed == #"{"reason":"no","request":8,"type":"surface_failed"}"# + "\n")
+        let gone = try #require(String(data: MobileHostLaunch.surfaceGoneLine(tab: "s12"), encoding: .utf8))
+        #expect(gone == #"{"tab":"s12","type":"surface_gone"}"# + "\n")
+    }
+
     /// Records what the supervisor asks of the app's browser hosts.
     final class FakeBrowserHosts: MobileHostBrowserHosting, @unchecked Sendable {
         let lock = NSLock()

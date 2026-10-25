@@ -10,27 +10,30 @@ import Darwin
 ///
 /// - `ledger`: every sanctioned primitive's wakeups per owner and reason,
 ///   with a rate over the last 10 complete seconds.
-/// - `frame_schedulers`: each window's display link and its active clients.
+/// - `frame_schedulers`: each window's display link, its active clients and the links it made, and the app's
+///   budgeted scheduler (``MainWorkScheduler``: the control queue, the daemon store drain).
 /// - `processes`: cumulative CPU time and wakeups per process (diff two
 ///   calls for rates; `scripts/cmux-next/bench-idle.py` does), sampled off
 ///   the main actor.
 enum DebugWakeups {
-    static func report(_ params: [String: JSONValue]) async -> JSONValue {
-        var object = await MainActor.run { mainActorPart(params) }
+    static func report(_ params: [String: JSONValue], budgeted: FrameScheduler) async -> JSONValue {
+        var object = await MainActor.run { mainActorPart(params, budgeted: budgeted) }
         object["processes"] = .array(AppProcesses.sample().map(\.json))
         return .object(object)
     }
 
     @MainActor
-    private static func mainActorPart(_ params: [String: JSONValue]) -> [String: JSONValue] {
+    private static func mainActorPart(_ params: [String: JSONValue], budgeted: FrameScheduler) -> [String: JSONValue] {
         if params["reset"]?.boolValue == true { WakeupLedger.shared.reset() }
         let ledger = WakeupLedger.shared.snapshot()
-        let schedulers = FrameScheduler.all.map { scheduler -> JSONValue in
+        let all = FrameScheduler.all + [budgeted]
+        let schedulers = all.map { scheduler -> JSONValue in
             [
                 "name": .string(scheduler.name),
                 "running": .bool(scheduler.isRunning),
                 "has_link": .bool(scheduler.hasLink),
                 "frames": JSONValue(Int(truncatingIfNeeded: scheduler.frames)),
+                "links_made": JSONValue(Int(truncatingIfNeeded: scheduler.linksMade)),
                 "active_clients": .array(scheduler.activeClients.map { .string($0) }),
             ]
         }
@@ -46,7 +49,7 @@ enum DebugWakeups {
                 ]
             }),
             "frame_schedulers": .array(schedulers),
-            "active_frame_clients": .array(FrameScheduler.all.flatMap(\.activeClients).map { .string($0) }),
+            "active_frame_clients": .array(all.flatMap(\.activeClients).map { .string($0) }),
         ]
     }
 }

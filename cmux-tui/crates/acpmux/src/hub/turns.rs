@@ -258,6 +258,7 @@ impl Hub {
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             supersede: supersede.as_deref(),
+            full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
@@ -280,13 +281,23 @@ impl Hub {
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let device = run.full_access_device.clone();
         let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
         let text = prompt_text(&blocks);
-        if let Err(e) =
-            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
+        if let Err(e) = self
+            .check_dispatch(
+                session,
+                control,
+                trust_gate,
+                device.as_deref(),
+                &prompt_id,
+                &turn_id,
+                client,
+            )
+            .await
         {
             drop(guard);
             return Err(e);
@@ -375,8 +386,17 @@ impl Hub {
         let control = session.turn().map_or(control, |t| t.control);
         // Starting the agent may have changed its mode (a spawn, a resume, a
         // pool claim, a replayed config): checked again before the prompt.
-        if let Err(e) =
-            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
+        if let Err(e) = self
+            .check_dispatch(
+                session,
+                control,
+                trust_gate,
+                device.as_deref(),
+                &prompt_id,
+                &turn_id,
+                client,
+            )
+            .await
         {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
@@ -417,8 +437,14 @@ impl Hub {
         // The remote floor fired before the prompt went out (a mode write
         // in the gap): the prompt is not sent. After this point the floor's
         // cancel reaches the agent after the prompt (`remote_floor.rs`).
+        // A machine's Full access that ended since the dispatch check (`full_access_hold`).
+        let full_access_ended = || {
+            self.full_access_hold(&session.meta(), control, device.as_deref())
+                .err()
+                .map(|_| "remote.full_access_device")
+        };
         if control == Control::Web
-            && let Some(reason) = self.remote_floor_breach(session)
+            && let Some(reason) = self.remote_floor_breach(session).or_else(full_access_ended)
         {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));
@@ -467,7 +493,15 @@ impl Hub {
                 let fallback = self.child_for(session).await;
                 let refusal = match &fallback {
                     Ok(_) => self
-                        .check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client)
+                        .check_dispatch(
+                            session,
+                            control,
+                            trust_gate,
+                            device.as_deref(),
+                            &prompt_id,
+                            &turn_id,
+                            client,
+                        )
                         .await
                         .err(),
                     Err(_) => None,
@@ -753,7 +787,9 @@ impl Hub {
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
         self.pause_queue(session, turn_id);
-        let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
+        // `turn_ended` say why.
+        let msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
@@ -789,6 +825,8 @@ impl Hub {
         }
         last.insert("endedAt".into(), json!(now_ms()));
         session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+        // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
+        self.subsession_turn_ended(session, turn_result);
     }
 
     /// The profile to fall over to, when the current one names one that exists.
@@ -807,7 +845,19 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         m: &str,
+        params: Value,
+    ) -> Result<Value, RpcError> {
+        self.forward_as(session, m, params, false).await
+    }
+
+    /// `forward`; `granted`: a paired machine's Full-access setting covers the
+    /// request (`crate::pairing`), so only a deny-all policy holds the mode.
+    pub(crate) async fn forward_as(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        m: &str,
         mut params: Value,
+        granted: bool,
     ) -> Result<Value, RpcError> {
         // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
         // script), passes here: refused while `sessions.allowFullAccess` is off.
@@ -817,7 +867,7 @@ impl Hub {
             return Err(super::start_mode::full_access_off());
         }
         // Nor does a switch out of the mode a narrower policy needs (`policy_mode.rs`).
-        self.refuse_wider_mode(session, m, &params).await?;
+        self.refuse_wider_mode_as(session, m, &params, granted).await?;
         let child = self.child_for(session).await?;
         let sid = session
             .meta()
@@ -827,6 +877,9 @@ impl Hub {
             params = json!({});
         }
         params["sessionId"] = Value::String(sid);
+        let asked_mode = (m == method::SESSION_SET_MODE)
+            .then(|| params.get("modeId").and_then(Value::as_str).map(str::to_owned))
+            .flatten();
         let res = match child.request(m, params).await {
             Ok(v) => v,
             Err(mut e) => {
@@ -847,6 +900,8 @@ impl Hub {
         };
         match m {
             method::SESSION_SET_MODE => {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+                    asked_mode;
                 if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {
                     self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
                 }
@@ -872,7 +927,19 @@ impl Hub {
         session: &Arc<Session>,
         mode_id: &str,
     ) -> Result<Value, RpcError> {
-        let r = self.forward(session, method::SESSION_SET_MODE, json!({"modeId": mode_id})).await?;
+        self.set_mode_as(session, mode_id, false).await
+    }
+
+    /// `set_mode`; `granted` as in `forward_as`.
+    pub(crate) async fn set_mode_as(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mode_id: &str,
+        granted: bool,
+    ) -> Result<Value, RpcError> {
+        let r = self
+            .forward_as(session, method::SESSION_SET_MODE, json!({"modeId": mode_id}), granted)
+            .await?;
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
         self.append(session, "mux", "mode", json!({"modeId": mode_id}));
         self.save_meta(session);
@@ -885,16 +952,28 @@ impl Hub {
         config_id: &str,
         value: Value,
     ) -> Result<Value, RpcError> {
+        self.set_config_as(session, config_id, value, false).await
+    }
+
+    /// `set_config`; `granted` as in `forward_as`.
+    pub(crate) async fn set_config_as(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        config_id: &str,
+        value: Value,
+        granted: bool,
+    ) -> Result<Value, RpcError> {
         // Make sure the child is up so its option list is known, then map
         // portable names (effort) onto the harness's own id.
         let _ = self.child_for(session).await?;
         let config_id = resolve_config_id(&session.meta(), config_id);
         let config_id = config_id.as_str();
         let r = self
-            .forward(
+            .forward_as(
                 session,
                 method::SESSION_SET_CONFIG_OPTION,
                 json!({"configId": config_id, "value": value}),
+                granted,
             )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));

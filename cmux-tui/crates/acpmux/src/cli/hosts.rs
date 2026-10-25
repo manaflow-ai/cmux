@@ -311,6 +311,24 @@ fn launchd_status(r: &dyn Remote, json: bool) -> Result<String> {
 /// callback, so a launchd host is given this long before its status is read.
 const LAUNCHD_START_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// (Re)start the launchd daemon from its plist: `bootout`, wait for the old
+/// process to exit, then `bootstrap`. Never `kickstart -k`: on macOS 27, once
+/// the binary at the plist's path is a new ad-hoc signed build (a new code
+/// identifier), launchd kills the restarted process at once
+/// (`OS_REASON_CODESIGNING`), while a fresh bootstrap runs it. A job that is
+/// not loaded fails `bootout` harmlessly and is bootstrapped all the same.
+/// `bootout` sends SIGTERM (the daemon leaves its agent hosts running for the
+/// next one to adopt) and may return before the process has exited; a daemon
+/// started then would find `daemon.lock` held and exit. So the old pid, read
+/// from `launchctl print`, is waited on for at most 30 s (launchd SIGKILLs a
+/// job after its 20 s `ExitTimeOut`); the bootstrap runs after the deadline
+/// in any case. Fails when the bootstrap fails.
+const LAUNCHD_RELOAD: &str = r#"acpmux_job=gui/$(id -u)/com.acpmux.daemon
+acpmux_old=$(launchctl print "$acpmux_job" 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p' | head -n 1)
+launchctl bootout "$acpmux_job" 2>/dev/null || true
+if [ -n "$acpmux_old" ]; then acpmux_i=0; while ps -p "$acpmux_old" >/dev/null 2>&1 && [ "$acpmux_i" -lt 150 ]; do sleep 0.2; acpmux_i=$((acpmux_i+1)); done; fi
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"#;
+
 /// The user systemd unit a Linux host runs its daemon under: one daemon per
 /// user, at `~/.acpmux` (cmuxterm-hq plans/cmux-next/acpmux-one-daemon.md).
 /// `KillMode=process`: a stop or restart signals the daemon alone, whose
@@ -564,7 +582,7 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
     run(
         r,
         &format!(
-            "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\nlaunchctl bootout gui/$(id -u)/com.acpmux.daemon 2>/dev/null || true; launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist"
+            "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\n{LAUNCHD_RELOAD}"
         ),
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);
