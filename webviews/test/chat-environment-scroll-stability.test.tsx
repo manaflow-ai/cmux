@@ -79,14 +79,28 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
               "export function EnvironmentLine(",
             )
             .replace("}, sameEnvironmentLine);", "}");
+        // Vite may revisit a pre-transformed module while warming the graph; an injected source is
+        // already instrumented and must remain idempotent across that second pass.
+        if (next.includes("globalThis.__cmuxEnvProbe.renders += 1")) return { code: next, map: null };
         next = next.replace('import { memo } from "react";', 'import { memo, useEffect } from "react"');
-        const marker = "}: EnvironmentLineProps) {";
-        const occurrences = next.split(marker).length - 1;
-        if (occurrences !== 1) throw new Error(`EnvironmentLine probe marker count ${occurrences}`);
-        next = next.replace(
-          marker,
-          `${marker}\n  globalThis.__cmuxEnvProbe.renders += 1;\n  useEffect(() => { globalThis.__cmuxEnvProbe.mounts += 1; return () => { globalThis.__cmuxEnvProbe.unmounts += 1; }; }, []);`,
-        );
+        const functionStart = next.indexOf("function EnvironmentLine(");
+        if (functionStart < 0)
+          throw new Error(`EnvironmentLine probe missed function; source=${next.slice(0, 260).replace(/\s+/g, " ")}`);
+        const paramsOpen = next.indexOf("(", functionStart);
+        let depth = 0;
+        let paramsClose = -1;
+        for (let index = paramsOpen; index < next.length; index += 1) {
+          if (next[index] === "(") depth += 1;
+          else if (next[index] === ")" && --depth === 0) {
+            paramsClose = index;
+            break;
+          }
+        }
+        const bodyOpen = paramsClose < 0 ? -1 : next.indexOf("{", paramsClose);
+        if (bodyOpen < 0)
+          throw new Error(`EnvironmentLine probe missed body; source=${next.slice(functionStart, functionStart + 320).replace(/\s+/g, " ")}`);
+        const probe = `\n  globalThis.__cmuxEnvProbe.renders += 1;\n  useEffect(() => { globalThis.__cmuxEnvProbe.mounts += 1; return () => { globalThis.__cmuxEnvProbe.unmounts += 1; }; }, []);`;
+        next = `${next.slice(0, bodyOpen + 1)}${probe}${next.slice(bodyOpen + 1)}`;
         return { code: next, map: null };
       },
     };
