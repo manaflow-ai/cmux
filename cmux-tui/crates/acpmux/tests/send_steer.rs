@@ -55,7 +55,8 @@ async fn busy(steering: bool) -> Busy {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    let tag = format!("{}-{}", std::process::id(), &uuid::Uuid::now_v7().simple().to_string()[20..]);
+    let tag =
+        format!("{}-{}", std::process::id(), &uuid::Uuid::now_v7().simple().to_string()[20..]);
     // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
     let socket = PathBuf::from("/tmp").join(format!("acpmux-steer-{tag}.sock"));
     let listener = acpmux::server::bind_unix(&socket).await.unwrap();
@@ -102,7 +103,8 @@ impl Busy {
     async fn record(&self, kind: &str, prompt_id: &str) -> Value {
         for _ in 0..200 {
             let events = self.hub.events(&self.id, 0, 1000).unwrap();
-            if let Some(e) = events.iter().find(|e| e.kind == kind && e.msg["promptId"] == prompt_id)
+            if let Some(e) =
+                events.iter().find(|e| e.kind == kind && e.msg["promptId"] == prompt_id)
             {
                 return e.msg.clone();
             }
@@ -216,7 +218,8 @@ async fn to_an_agent_that_does_not_steer_an_agents_send_queues_named() {
 async fn a_no_steer_send_and_the_persons_waiting_send_queue() {
     let b = busy(true).await;
     let pid = prompt_id();
-    let args = ["send", "--from", "lane-a", "--no-steer", "--prompt-id", &pid, &b.id, "rebase first"];
+    let args =
+        ["send", "--from", "lane-a", "--no-steer", "--prompt-id", &pid, &b.id, "rebase first"];
     let mut cmd = b.send(&args);
     let send = tokio::spawn(async move { cmd.output().await });
     assert_eq!(b.record("queued", &pid).await["fromAgent"], "lane-a");
@@ -248,7 +251,8 @@ async fn a_steered_sends_timeout_leaves_the_turn_it_went_into_running() {
         .await
         .unwrap()
         .unwrap();
-    let all = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let all =
+        format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
     assert_eq!(out.status.code(), Some(3), "a timeout: {all}");
     assert!(all.contains("runs on"), "{all}");
     let turn = b.hub.resolve(&b.id).unwrap().turn().expect("the person's turn still runs");
