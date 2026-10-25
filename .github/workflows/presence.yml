@@ -48,7 +48,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # Wrangler requires Node >= 22; the Blacksmith ubuntu-2404 image ships
       # Node 20, so pin it explicitly instead of relying on the runner's
@@ -91,7 +91,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # Wrangler requires Node >= 22; Blacksmith ubuntu-2404 ships Node 20.
       - name: Setup Node
