@@ -29,3 +29,17 @@ test("switching the attachment view round-trips and keeps the other settings", (
   }
   expect(seen).toEqual(["strip", "inline", "strip", "inline"]);
 });
+
+test("the page's attachment view choice applies at once and asks the host to keep it", async () => {
+  const settings = await import("../src/agent-session/acpmux/composerSettings");
+  const writes: string[] = [];
+  settings.registerAttachmentViewHost((view) => writes.push(view));
+  try {
+    settings.setAttachmentView("strip");
+    settings.setAttachmentView("inline");
+    expect(writes).toEqual(["strip", "inline"]);
+  } finally {
+    settings.registerAttachmentViewHost(undefined);
+    settings.setComposerSettings(DEFAULT_COMPOSER);
+  }
+});
