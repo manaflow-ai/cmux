@@ -44,7 +44,9 @@ import Testing
     }
 
     private func updateChrome(_ host: PaneHostView) {
-        host.setChrome(showsRing: true, dim: 0, focusRing: FocusRingSettings(),
+        var ring = FocusRingSettings()
+        ring.enabled = true
+        host.setChrome(showsRing: true, dim: 0, focusRing: ring,
                        border: PaneOverlayView.Border(shows: true), attention: nil,
                        attentionSettings: AttentionSettings(), focused: true, animated: false)
     }
