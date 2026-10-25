@@ -404,9 +404,7 @@ export function AttachmentStrip({
     const chip = live.current.find((attachment) => attachment.id === id);
     reorderTo.current?.(id, index);
     if (chip)
-      setAnnounced(
-        t(ATTACHMENT_LABELS.moved, { name: chip.name, position: index + 1, count: live.current.length }),
-      );
+      setAnnounced(t(ATTACHMENT_LABELS.moved, { name: chip.name, position: index + 1, count: live.current.length }));
   });
   const reorderTo = useRef(onReorder);
   reorderTo.current = onReorder;
@@ -415,12 +413,13 @@ export function AttachmentStrip({
     onReorder ? move : undefined,
   );
   const hint = useId();
+  const reorderRef = reorder.ref;
   const stripRef = useCallback(
     (node: HTMLElement | null) => {
       edges(node);
-      reorder.ref(node);
+      reorderRef(node);
     },
-    [edges, reorder.ref],
+    [edges, reorderRef],
   );
   // The drop overlay says what a drag does (composer/DropOverlay.tsx); a note here would grow the
   // composer mid-drag.

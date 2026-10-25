@@ -171,9 +171,7 @@ export function ComposerBox({
           onRemove={onRemoveAttachment}
           {...(onCancelAttachment ? { onCancel: onCancelAttachment } : {})}
           {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
-          onReorder={
-            onReorderAttachment ?? ((id, index) => setAttachments((current) => reordered(current, id, index)))
-          }
+          onReorder={onReorderAttachment ?? ((id, index) => setAttachments((current) => reordered(current, id, index)))}
           onExpand={pastedChips.expand}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
