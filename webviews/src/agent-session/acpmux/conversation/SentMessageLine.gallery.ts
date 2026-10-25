@@ -146,15 +146,8 @@ export default agentPaneEntry({
         await openFirst(ctx);
       },
     },
-    running: {
-      note: 'A send that waits for the reply, in flight: the live line reads "Sending message to coord-deputy", never the raw command.',
-      snapshot: chat([user("Report the merge and wait for the deputy's answer.", 1), activity([running], 0.8)], {
-        title: "net-retries",
-        isWorking: true,
-      }),
-    },
     "running-row": {
-      note: "The same with the Codex-style runs off: the row itself, with the working spinner.",
+      note: "A send that waits for the reply, in flight, with the Codex-style runs off: its own row, with the working spinner (with them on, the live line names it: agent-pane.sending-line).",
       theme: { codexToolRuns: false },
       snapshot: chat(
         [user("Report the merge and wait for the deputy's answer.", 1), activity([reported, running], 0.8)],

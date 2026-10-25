@@ -4,7 +4,8 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSend, acpmuxSendCall, shellCommands } from "./acpmuxSends";
-import { toolGroups } from "./toolGroups";
+import { sendLabel } from "../inspector/processes";
+import type { Translate } from "../i18n";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -173,14 +174,13 @@ describe("acpmuxSendCall", () => {
     // Not a shell call.
     expect(acpmuxSendCall({ ...bash(line), kind: "other" })).toBeUndefined();
   });
+});
 
-  test("toolGroups draws it as its own send entry, between the commands around it", () => {
-    const item = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
-    const groups = toolGroups([
-      item(bash("git status", { id: "a" })),
-      item(bash("acpmux send lane 'status?'", { id: "b" })),
-      item(bash("git log -1", { id: "c" })),
-    ]);
-    expect(groups.map((group) => group.type)).toEqual(["item", "send", "item"]);
-  });
+test("Background tasks and the tray name a background send as its row does", () => {
+  const t = ((key: string, values: { target: string }) => `${key}:${values.target}`) as unknown as Translate;
+  const command = "timeout 100 acpmux send --no-wait huge-blue/lane 'hi'";
+  expect(sendLabel(t, { command, state: "running" })).toBe("send.sending:huge-blue/lane");
+  expect(sendLabel(t, { command, state: "completed" })).toBe("send.sent:huge-blue/lane");
+  expect(sendLabel(t, { command, state: "failed" })).toBe("send.failed:huge-blue/lane");
+  expect(sendLabel(t, { command: "bun test", state: "running" })).toBeUndefined();
 });

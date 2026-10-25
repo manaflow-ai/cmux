@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
+import { toolGroups } from "./toolGroups";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
 
@@ -126,4 +127,14 @@ test("a failed send says it could not send and opens to its output", async () =>
   expect(row.dataset.sendState).toBe("failed");
   await act(async () => row.click());
   expect(container.querySelector(".cv-shell")?.textContent).toContain("no_session");
+});
+
+test("toolGroups draws a send as its own entry, between the commands around it", () => {
+  const item = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
+  const groups = toolGroups([
+    item(bash("git status", { id: "a" })),
+    item(bash("acpmux send lane 'status?'", { id: "b" })),
+    item(bash("git log -1", { id: "c" })),
+  ]);
+  expect(groups.map((group) => group.type)).toEqual(["item", "send", "item"]);
 });
