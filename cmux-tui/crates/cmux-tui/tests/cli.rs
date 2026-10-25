@@ -1227,29 +1227,39 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
 #[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
-        let stream = accept_with_timeout(&listener, Duration::from_secs(5)).unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut writer = stream;
+        // Answers one identify on a new connection; returns its reader and writer.
+        let identify = |listener: &UnixListener| {
+            let stream = accept_with_timeout(listener, Duration::from_secs(5)).unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut request = String::new();
+            reader.read_line(&mut request).unwrap();
+            let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
+            assert_eq!(identify_request["cmd"], "identify");
+            writeln!(
+                writer,
+                "{}",
+                serde_json::json!({
+                    "id": identify_request["id"],
+                    "ok": true,
+                    "data": {
+                        "app": "cmux-tui",
+                        "session": identified_session,
+                        "pid": 4242,
+                        "generation": "generation-a",
+                        "capabilities": ["daemon-handoff-force-v1"]
+                    }
+                })
+            )
+            .unwrap();
+            (reader, writer)
+        };
+        // `server stop` first waits for a restoring owner on a connection of its own
+        // (e64eb4d6735: an identify it closes once the owner is ready), then runs the
+        // lifecycle exchange on a second one.
+        drop(identify(&listener));
+        let (mut reader, mut writer) = identify(&listener);
         let mut request = String::new();
-        reader.read_line(&mut request).unwrap();
-        let identify_request: serde_json::Value = serde_json::from_str(&request).unwrap();
-        assert_eq!(identify_request["cmd"], "identify");
-        writeln!(
-            writer,
-            "{}",
-            serde_json::json!({
-                "id": identify_request["id"],
-                "ok": true,
-                "data": {
-                    "app": "cmux-tui",
-                    "session": identified_session,
-                    "pid": 4242,
-                    "generation": "generation-a",
-                    "capabilities": ["daemon-handoff-force-v1"]
-                }
-            })
-        )
-        .unwrap();
         if !expect_stop {
             return;
         }

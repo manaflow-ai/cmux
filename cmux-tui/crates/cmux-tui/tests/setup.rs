@@ -86,6 +86,17 @@ case "$host" in *unreachable*)
   echo "ssh: connect to host $host port 22: Connection refused" >&2
   exit 255;;
 esac
+# An install or update holds the host's update lease for its length (41f11ee0253,
+# host_lock.rs): the holder says it took the lease and runs until its stdin closes.
+case "$script" in *"echo ACPMUX_UPDATE_LOCKED"*)
+  echo ACPMUX_UPDATE_LOCKED
+  cat >/dev/null
+  exit 0;;
+esac
+# Every step of it is fenced for that lease: answer the script inside the fence.
+case "$script" in *"} 8>&- 9>&-")
+  script=$(printf '%s\n' "$script" | awk 'f && $0 != "} 8>&- 9>&-" {print} /exit 75; }$/ {getline; f=1}');;
+esac
 case "$script" in
   # `acp host update`'s probe (c9e045f2e48): this machine's own `uname -sm`,
   # so the update pushes this binary, then a daemon on an older build.
