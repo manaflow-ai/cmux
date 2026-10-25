@@ -28052,6 +28052,34 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-blocking-calls-reset",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.blockingCalls.reset",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reset Main-Thread Blocking Counts",
+      "title_key" : "action.debug.blockingCalls.reset",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "settings customize-appearance",
       "context_menu" : "noObject",
