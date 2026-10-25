@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// Owns the native save panel for one agent pane: the inspector's log and side panel documents.
 @MainActor
@@ -27,7 +28,13 @@ final class AgentPaneSavePanel {
             response = panel.runModal()
         }
         guard response == .OK, let url = panel.url else { return false }
-        try Data(save.text.utf8).write(to: url, options: .atomic)
+        try await Self.write(save.text, to: url)
         return true
+    }
+
+    /// Writes the chosen file atomically, off the main actor (the user can pick a slow or network
+    /// volume); a failure throws back to the caller, as before.
+    @concurrent nonisolated private static func write(_ text: String, to url: URL) async throws {
+        try Data(text.utf8).blockingWrite(to: url, options: .atomic)
     }
 }

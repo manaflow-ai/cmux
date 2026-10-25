@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The chat menu's Add Files to Project (cx-ncc.67, Claude desktop's project knowledge):
@@ -12,7 +13,7 @@ import Foundation
 /// (``AgentPaneProjectCopy``) never follow a link put there meanwhile.
 enum AgentPaneProjectFiles {
     /// Where the copies go, relative to the chat folder.
-    static let directory = ".cmux/context"
+    nonisolated static let directory = ".cmux/context"
     static let copyFailedMessage = "The files could not be added to the project."
 
     /// The requests that open a system picker after a click: the chat menu's Edit CLAUDE.md and Add
@@ -36,7 +37,7 @@ enum AgentPaneProjectFiles {
         case .failure(let refusal): return AgentPaneModel.transportFailure(refusal)
         }
         let instructions = URL(fileURLWithPath: folder).appendingPathComponent(request.name)
-        if let refusal = contextRefusal(folder) ?? (exists(instructions.path) ? check(instructions, folder).refusal : nil) {
+        if let refusal = await preflightRefusal(folder, instructions: instructions) {
             return AgentPaneModel.transportFailure(refusal)
         }
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
@@ -47,9 +48,8 @@ enum AgentPaneProjectFiles {
         guard !sources.isEmpty else { return AgentPaneReply.failure(code: "copy_failed", message: copyFailedMessage) }
         // The file to name them in first, so a refusal leaves no copies behind. Exclusive create: a
         // file (or link) already there is kept, then checked as it resolves.
-        _ = try? Data().write(to: instructions, options: .withoutOverwriting)
         let url: URL
-        switch check(instructions, folder) {
+        switch await create(instructions, in: folder) {
         case .success(let resolved): url = resolved
         case .failure(let refusal): return AgentPaneModel.transportFailure(refusal)
         }
@@ -72,13 +72,26 @@ enum AgentPaneProjectFiles {
         return AgentPaneReply.success(["added": added, "path": url.path])
     }
 
+    /// A refusal, off the main actor, when `.cmux` or `.cmux/context` links out of `folder` or an
+    /// instructions file already there is not the folder's own (``check(_:_:)``).
+    @concurrent nonisolated private static func preflightRefusal(_ folder: String, instructions: URL) async -> AgentPaneTransportError? {
+        contextRefusal(folder) ?? (exists(instructions.path) ? check(instructions, folder).refusal : nil)
+    }
+
+    /// Creates the instructions file empty, off the main actor, when nothing (a file or a link) is
+    /// there, then checks it as it resolves (``check(_:_:)``).
+    @concurrent nonisolated private static func create(_ instructions: URL, in folder: String) async -> Result<URL, AgentPaneTransportError> {
+        _ = try? Data().blockingWrite(to: instructions, options: .withoutOverwriting)
+        return check(instructions, folder)
+    }
+
     /// Whether anything (a link too) is at `path`.
-    private static func exists(_ path: String) -> Bool {
-        (try? FileManager.default.attributesOfItem(atPath: path)) != nil
+    nonisolated private static func exists(_ path: String) -> Bool {
+        (try? FileManager.checked.attributesOfItem(atPath: path)) != nil
     }
 
     /// A refusal when `.cmux` or `.cmux/context` exists but is not a folder inside `folder` (a link out).
-    private static func contextRefusal(_ folder: String) -> AgentPaneTransportError? {
+    nonisolated private static func contextRefusal(_ folder: String) -> AgentPaneTransportError? {
         for relative in [".cmux", directory] {
             let path = folder + "/" + relative
             guard exists(path) else { return nil }
@@ -93,7 +106,7 @@ enum AgentPaneProjectFiles {
     /// The instructions file as it resolves: a regular file directly in the chat folder (not a
     /// subfolder or another of the pane's folders: the added paths are relative to the chat folder)
     /// named CLAUDE.md or AGENTS.md, so a file that links to the other one gets the lines.
-    private static func check(_ file: URL, _ folder: String) -> Result<URL, AgentPaneTransportError> {
+    nonisolated private static func check(_ file: URL, _ folder: String) -> Result<URL, AgentPaneTransportError> {
         AgentPaneFileOpen.resolve(file.path, roots: [folder]).flatMap { url in
             AgentPaneProjectInstructions.names.contains(url.lastPathComponent)
                 && url.deletingLastPathComponent().path == AcpmuxPathPolicy.canonical(folder)
@@ -104,7 +117,7 @@ enum AgentPaneProjectFiles {
 
 private extension Result {
     /// The failure, nil on success.
-    var refusal: Failure? {
+    nonisolated var refusal: Failure? {
         if case .failure(let error) = self { return error }
         return nil
     }

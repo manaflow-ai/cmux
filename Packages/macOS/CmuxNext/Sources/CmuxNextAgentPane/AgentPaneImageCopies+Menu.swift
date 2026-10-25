@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextCompat
+import CmuxNextWakeups
 import UniformTypeIdentifiers
 
 /// The context menu's Copy Image, Save Image As… and Quick Look on an image in an agent chat (the
@@ -57,8 +59,9 @@ extension AgentPaneImageCopies {
     }
 
     /// Save Image As…: the system save panel under `name`, then a copy of `file` where the person
-    /// chose (an older file there is replaced: the panel asked); a failed write beeps (the panel
-    /// only offers folders the person can write, so this is a full disk or a vanished volume).
+    /// chose (an older file there is replaced: the panel asked), written off the main actor; a
+    /// failed write beeps once it ends (the panel only offers folders the person can write, so this
+    /// is a full disk or a vanished volume).
     @MainActor static func askToSave(_ file: URL, name: String) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = name
@@ -66,24 +69,33 @@ extension AgentPaneImageCopies {
         panel.isExtensionHidden = false
         panel.begin { response in
             guard response == .OK, let destination = panel.url else { return }
-            do {
-                let files = FileManager.default
-                if files.fileExists(atPath: destination.path) {
-                    _ = try files.replaceItemAt(destination, withItemAt: try stagedCopy(of: file, beside: destination))
-                } else {
-                    try files.copyItem(at: file, to: destination)
-                }
-            } catch {
-                NSSound.beep()
+            Task(priority: WorkPriority.userBlocking.taskPriority) { @MainActor in
+                if !(await save(file, to: destination)) { NSSound.beep() }
             }
         }
     }
 
+    /// Copies `file` to `destination`, off the main actor: an older file there is replaced
+    /// atomically by a staged copy. False when the copy failed.
+    @concurrent nonisolated private static func save(_ file: URL, to destination: URL) async -> Bool {
+        do {
+            let files = FileManager.checked
+            if files.fileExists(atPath: destination.path) {
+                _ = try files.replaceItemAt(destination, withItemAt: try stagedCopy(of: file, beside: destination))
+            } else {
+                try files.copyItem(at: file, to: destination)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /// A copy of `file` in `destination`'s folder, for an atomic replace.
-    private static func stagedCopy(of file: URL, beside destination: URL) throws -> URL {
+    nonisolated private static func stagedCopy(of file: URL, beside destination: URL) throws -> URL {
         let staged = destination.deletingLastPathComponent()
             .appendingPathComponent(".\(destination.lastPathComponent).\(UUID().uuidString).part")
-        try FileManager.default.copyItem(at: file, to: staged)
+        try FileManager.checked.copyItem(at: file, to: staged)
         return staged
     }
 }

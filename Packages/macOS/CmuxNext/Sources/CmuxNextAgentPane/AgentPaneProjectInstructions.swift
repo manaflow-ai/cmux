@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The chat menu's Edit CLAUDE.md / Edit AGENTS.md (cx-ncc.65, Claude desktop's project
@@ -35,33 +36,42 @@ public nonisolated struct AgentPaneProjectInstructions: Equatable, Sendable {
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         let file = URL(fileURLWithPath: folder).appendingPathComponent(request.name)
         // Exclusive create: a file (or link) already there is kept as it is.
-        let created = (try? Data().write(to: file, options: .withoutOverwriting)) != nil
+        let created = await Self.createEmpty(file)
         // The file, made canonical, must still be a regular file under a root (a link out is refused)
         // named CLAUDE.md or AGENTS.md: a committed CLAUDE.md that links to a page (x.html) never opens it.
-        // A refusal or a tab that can't open takes back the empty file it made, only while it is
-        // still that: an empty regular file (`attributesOfItem` reads a link, not its target).
-        let undo = {
-            guard created, let item = try? FileManager.default.attributesOfItem(atPath: file.path),
-                  item[.type] as? FileAttributeType == .typeRegular, (item[.size] as? NSNumber)?.intValue == 0 else { return }
-            try? FileManager.default.removeItem(at: file)
-        }
+        // A refusal or a tab that can't open takes back the empty file it made (``takeBack(_:)``).
+        let undo = { if created { await Self.takeBack(file) } }
         let url: URL
         switch AgentPaneFileOpen.resolve(file.path, roots: roots) {
         case .success(let resolved): url = resolved
         case .failure(let refusal):
-            undo()
+            await undo()
             return AgentPaneModel.transportFailure(refusal)
         }
         // Either instructions name: a CLAUDE.md that links to the folder's AGENTS.md opens that.
         guard names.contains(url.lastPathComponent) else {
-            undo()
+            await undo()
             return AgentPaneModel.transportFailure(.pathInvalid)
         }
         guard let onOpenFile = model.onOpenFile, await onOpenFile(url, .tab) else {
-            undo()
+            await undo()
             return AgentPaneReply.failure(code: "open_failed", message: AgentPaneModel.openFileFailedMessage)
         }
         return AgentPaneReply.success(["path": url.path, "created": created])
+    }
+
+    /// Creates `file` empty, off the main actor, unless anything (a file or a link) is there; true
+    /// when it made it.
+    @concurrent static func createEmpty(_ file: URL) async -> Bool {
+        (try? Data().blockingWrite(to: file, options: .withoutOverwriting)) != nil
+    }
+
+    /// Removes the file ``createEmpty(_:)`` made, off the main actor, only while it is still that:
+    /// an empty regular file (`attributesOfItem` reads a link, not its target).
+    @concurrent static func takeBack(_ file: URL) async {
+        guard let item = try? FileManager.checked.attributesOfItem(atPath: file.path),
+              item[.type] as? FileAttributeType == .typeRegular, (item[.size] as? NSNumber)?.intValue == 0 else { return }
+        try? FileManager.checked.removeItem(at: file)
     }
 
     /// The chat's folder made canonical: an existing folder inside one of `roots`.
