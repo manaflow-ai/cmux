@@ -264,7 +264,7 @@ public final class MenuSwatchStrip: NSView {
     private func setHovered(_ index: Int?) {
         guard index != hovered else { return }
         hovered = index
-        toolTip = index == 0 && clearChoice != nil ? Self.noColorTitle : nil
+        themedToolTip = index == 0 && clearChoice != nil ? Self.noColorTitle : nil
         needsDisplay = true
     }
 

@@ -53,7 +53,7 @@ enum BrowserProfileLinkMenu {
         let size = NSSize(width: 16, height: 16)
         switch IconValue(wire: icon) {
         case .symbol(let name) where NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil:
-            return NSImage.menuSymbol(name) ?? NSImage(size: size)
+            return NSImage.menuSymbol(name, centeredIn: size) ?? NSImage(size: size)
         case .emoji(let emoji):
             return NSImage(size: size, flipped: false) { rect in
                 // 12 pt: a color emoji's glyph runs past its point size.

@@ -14,8 +14,11 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         /// False while captured stdout can still deliver bytes; a run ends
         /// only after both the exit and the end of its output.
         var outputClosed = true
+        /// The same for stderr, in a captured run (`run`): its result carries all of it. A started
+        /// command (`start`) does not wait for stderr, which a child it leaves behind may hold open.
+        var errorClosed = true
 
-        var finished: Int32? { outputClosed ? status : nil }
+        var finished: Int32? { outputClosed && errorClosed ? status : nil }
     }
 
     private let process: Process
@@ -38,7 +41,11 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         errPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
             let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
+            if data.isEmpty {
+                handle.readabilityHandler = nil
+                self?.settle { $0.errorClosed = true }
+                return
+            }
             self?.state.withLock { state in
                 state.stderr.append(data)
                 if state.stderr.count > 16_384 { state.stderr.removeFirst(state.stderr.count - 16_384) }
@@ -60,7 +67,10 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
                 }
                 self?.state.withLock { $0.stdout.append(data) }
             }
-            state.withLock { $0.outputClosed = false }
+            state.withLock {
+                $0.outputClosed = false
+                $0.errorClosed = false
+            }
         } else {
             process.standardOutput = FileHandle.nullDevice
         }
