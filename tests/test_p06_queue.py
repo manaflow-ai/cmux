@@ -2,8 +2,12 @@
 """scripts/cmux-next/p06_queue.py: the p06 scheduler sweep's queues, file groups, recipes, owners and --check.
 
 Acceptance of task p06-scheduler-216: a file three queues hit is in one group with three recipes, no file is
-in two groups, and a file's owner is the OWNERS.md row guardrails.py picks. The end-to-end tests commit a
-small Sources tree, OWNERS.md and WORK.tsv into a throwaway repository and run main() on it.
+in two groups, and a file's owner is the OWNERS.md row guardrails.py picks. Also: an escape counts in the
+hook's whole escape window, a site the recipe leaves in place is settled (--check is 0 after the migration),
+membership is a function of the path (a hit moved to a new file in the group's folder still fails --check,
+a Q1b predicate change moves no file), a file no row covers is residual, and a planned row over 70 hits is
+reported. The end-to-end tests commit a small Sources tree, OWNERS.md and WORK.tsv into a throwaway repository
+and run main() on it; RealCutTests reads the spec's cut when this clone has it.
 
 Not on CI (Lawrence 2026-10-23: no new CI tests): python3 -m pytest tests/test_p06_queue.py (portable, git only).
 """
@@ -107,6 +111,25 @@ class QueueTests(unittest.TestCase):
         plain = "struct Loader {\n    func go() { Task { await load() } }\n}\n"
         self.assertEqual(self.hits(f"{S}A/L.swift", plain), [])
 
+    def test_the_hops_nonisolated_task_is_not_main_inherited(self):
+        off_main = ("@MainActor\nfinal class M {\n    func go() {\n        Task { @concurrent in await load() }\n"
+                    "        Task.detached(priority: .utility) { await load() }\n    }\n}\n")
+        self.assertEqual(self.hits(f"{S}A/M.swift", off_main), [])
+
+    def test_q1b_reads_arch_counts_main_inherited_tasks_once_task_015_adds_it(self):
+        def site(row, line):
+            return type("Site", (), {"row": row, "line": line})()
+
+        facts = type("Facts", (), {"sites": [site("observer_sites", 1), site("main_inherited_tasks", 2)]})()
+        arch = type("Arch", (), {"ROW_IDS": ("observer_sites", "main_inherited_tasks"),
+                                 "analyze": staticmethod(lambda path, text: facts)})
+        lines, name = q.main_inherited_predicate(arch)
+        self.assertEqual(name, "arch_counts main_inherited_tasks")
+        hits = q.scan({f"{S}A/F.swift": "struct S {\n    func go() { Task { await x() } }\n}\n"}, lines)
+        self.assertEqual([(h.queue, h.line) for h in hits], [("Q1b", 2)])
+        without = type("Arch", (), {"ROW_IDS": ("observer_sites",)})
+        self.assertIs(q.main_inherited_predicate(without)[0], q.heuristic_main_inherited)
+
     def test_an_explicit_main_actor_task_is_q1_not_q1b(self):
         text = "@MainActor final class M {\n    func go() { Task { @MainActor in work() } }\n}\n"
         self.assertEqual([h.queue for h in self.hits(f"{S}A/M.swift", text)], ["Q1"])
@@ -118,11 +141,84 @@ class QueueTests(unittest.TestCase):
         no_reason = self.hits(f"{S}A/F.swift", "await MainActor.run { x() } // main-hop-allow:\n")
         self.assertEqual([h.escaped for h in same + above + wrong_rule + no_reason], [True, True, False, False])
 
+    def test_an_escape_counts_anywhere_in_the_hooks_escape_window(self):
+        wrapped = self.hits(f"{S}A/F.swift", "// main-hop-allow: AppKit posts this off main and the order\n"
+                                             "// needs the next turn.\nawait MainActor.run { x() }\n")
+        attribute = self.hits(f"{S}A/F.swift", "struct V {\n"
+                                               "    // timer-class-allow: the race's own deadline\n"
+                                               "    @discardableResult\n"
+                                               "    func f() async { try? await Task.sleep(for: .seconds(1)) }\n}\n")
+        trailing = self.hits(f"{S}A/F.swift", "let a = 1 // raw-observer-allow: KVO on WebKit, the tab node owns it\n"
+                                              "center.addObserver(self, selector: s, name: n, object: nil)\n")
+        too_far = self.hits(f"{S}A/F.swift", "// main-hop-allow: the C callback needs it\nlet a = 1\n"
+                                             "await MainActor.run { x() }\n")
+        self.assertEqual([(h.queue, h.escaped) for h in wrapped + attribute + trailing + too_far],
+                         [("Q7", True), ("Q6", True), ("Q4", True), ("Q7", False)])
+
+    def test_every_queue_escapes_with_a_rule_of_the_spec(self):
+        spec_rules = {"main-hop", "view-observation", "raw-observer", "visibility-walk", "timer-class", "local-monitor"}
+        self.assertEqual({queue.rule for queue in q.QUEUES}, spec_rules)
+
     def test_union_weight_counts_a_line_two_queues_hit_once(self):
         text = "let s = ObservationStream(store) { $0.workspaces.count }\n"
         hits = self.hits(f"{S}A/F.swift", text)
         self.assertEqual({h.queue for h in hits}, {"Q2", "Q11"})
         self.assertEqual(q.file_weights(hits), {f"{S}A/F.swift": 1})
+
+
+class SettledTests(unittest.TestCase):
+    """A site the recipe keeps is settled once its body does only what the recipe allows."""
+
+    def states(self, text):
+        return [(h.queue, h.recipe, h.settled) for h in q.scan({f"{S}A/V.swift": text}, q.heuristic_main_inherited)]
+
+    def view(self, *body):
+        return "@MainActor\nfinal class V: NSView {\n" + "\n".join(body) + "\n}\n"
+
+    def test_a_main_delivery_with_a_class_is_the_delivery_recipe_target(self):
+        self.assertEqual(self.states('let d = MainDelivery(class: .userVisible, owner: "x")\n'),
+                         [("Q1c", "R-delivery", True)])
+        self.assertEqual(self.states('let d = MainDelivery(\n    class: .userVisible, owner: "x")\n'),
+                         [("Q1c", "R-delivery", True)])
+        self.assertEqual(self.states('let d = MainDelivery(owner: "x")\n'), [("Q1c", "R-delivery", False)])
+        self.assertEqual(self.states("CFRunLoopPerformBlock(loop, mode) { }\n"), [("Q1c", "R-delivery", False)])
+
+    def test_hide_and_unhide_that_forward_to_the_node_are_settled(self):
+        forward = self.view("    override func viewDidHide() {", "        super.viewDidHide()",
+                            "        visibilityNode.setHidden(true)", "    }",
+                            "    override func viewDidUnhide() {", "        super.viewDidUnhide()",
+                            "        deferUntilVisible { self.refresh() }", "    }")
+        self.assertEqual([s for s in self.states(forward) if s[0] == "Q5"],
+                         [("Q5", "R-hide", True), ("Q5", "R-hide", True)])
+        gating = self.view("    override func viewDidHide() {", "        super.viewDidHide()", "        ticker.cancel()",
+                           "    }")
+        self.assertEqual([s for s in self.states(gating) if s[0] == "Q5"], [("Q5", "R-hide", False)])
+
+    def test_input_overrides_that_forward_or_coalesce_are_settled(self):
+        forward = self.view("    override func mouseMoved(with event: NSEvent) {",
+                            "        frameInput.hover(event, in: self)", "        super.mouseMoved(with: event)", "    }",
+                            "    override func scrollWheel(with event: NSEvent) { nextResponder?.scrollWheel(with: event) }")
+        self.assertEqual([s for s in self.states(forward) if s[0] == "Q8"],
+                         [("Q8", "R-input", True), ("Q8", "R-input", True)])
+        direct = self.view("    override func mouseDragged(with event: NSEvent) {", "        updateDropTarget(event)",
+                           "    }")
+        self.assertEqual([s for s in self.states(direct) if s[0] == "Q8"], [("Q8", "R-input", False)])
+
+    def test_appearance_that_sets_layer_colors_or_defers_is_settled(self):
+        colors = self.view("    override func viewDidChangeEffectiveAppearance() {",
+                           "        super.viewDidChangeEffectiveAppearance()", "        applyColors()", "    }",
+                           "    private func applyColors() {",
+                           "        layer?.backgroundColor = performWithTheme { Palette.fill.cgColor }",
+                           "        separator.layer?.borderColor = NSColor.separatorColor.cgColor", "    }")
+        deferred = self.view("    override func viewDidChangeEffectiveAppearance() {",
+                             "        super.viewDidChangeEffectiveAppearance()",
+                             "        deferUntilVisible { [weak self] in self?.render() }", "    }")
+        relayout = self.view("    override func viewDidChangeEffectiveAppearance() {",
+                             "        super.viewDidChangeEffectiveAppearance()", "        applyColors()", "    }",
+                             "    private func applyColors() {", "        layer?.backgroundColor = .clear",
+                             "        needsLayout = true", "    }")
+        self.assertEqual([self.states(t) for t in (colors, deferred, relayout)],
+                         [[("QA", "R-appear", True)], [("QA", "R-appear", True)], [("QA", "R-appear", False)]])
 
 
 class PlanTests(unittest.TestCase):
@@ -136,18 +232,53 @@ class PlanTests(unittest.TestCase):
             (327, (f"{S}CmuxNextSidebar/Views/",)),
         ])
 
+    def test_root_files_and_named_folders_in_the_prose_are_paths(self):
+        tsv = WORK_HEADER + work_row(330, "first", f"{S}CmuxNextAgentPane/ (root files, first half by name)") + \
+            work_row(331, "second", f"{S}CmuxNextAgentPane/ (root files second half, FreeTier/, Approvals/)")
+        self.assertEqual([r.specs for r in q.parse_plan(tsv)], [
+            (f"{S}CmuxNextAgentPane/*.swift",),
+            (f"{S}CmuxNextAgentPane/*.swift", f"{S}CmuxNextAgentPane/FreeTier/", f"{S}CmuxNextAgentPane/Approvals/"),
+        ])
+
     def test_a_root_file_glob_matches_root_files_in_its_range_only(self):
         spec = f"{S}CmuxNextApp/[B-M]*.swift"
         self.assertTrue(q.spec_match(f"{S}CmuxNextApp/Browser.swift", spec))
         self.assertFalse(q.spec_match(f"{S}CmuxNextApp/Pane.swift", spec))
         self.assertFalse(q.spec_match(f"{S}CmuxNextApp/Cloud/Move.swift", spec))
 
-    def test_rows_naming_the_same_folder_split_it_by_path_into_balanced_halves(self):
-        files = {f"{S}CmuxNextSidebar/Views/{c}.swift": 10 for c in "ABCDEFGH"}
-        rows = [q.PlanRow(327, "first", (f"{S}CmuxNextSidebar/Views/",)),
-                q.PlanRow(328, "second", (f"{S}CmuxNextSidebar/Views/",))]
-        groups = {g.id: [Path(f).stem for f in g.files] for g in q.cut(files, {f: () for f in files}, rows)}
-        self.assertEqual(groups, {327: list("ABCD"), 328: list("EFGH")})
+    def test_rows_naming_the_same_folder_split_it_by_name_and_a_later_file_joins_its_run(self):
+        views = f"{S}CmuxNextSidebar/Views/"
+        rows = [q.PlanRow(327, "first", (views,)), q.PlanRow(328, "second", (views,))]
+        cut = q.PlannedCut(rows, {f"{views}{c}.swift": 10 for c in "ABCDEFGH"})
+        self.assertEqual({c: cut.group_of(f"{views}{c}.swift") for c in "ABCDEFGH"},
+                         dict(zip("ABCDEFGH", [327] * 4 + [328] * 4)))
+        self.assertEqual([cut.group_of(f"{views}{n}.swift") for n in ("Aa", "Da", "Ea", "Zz")], [327, 327, 328, 328])
+
+    def test_a_file_between_name_ranges_goes_to_the_range_before_it(self):
+        handlers = f"{S}CmuxNextApp/Handlers/"
+        rows = [q.PlanRow(304, "A-B", (f"{handlers}[A-B]*.swift",)),
+                q.PlanRow(305, "C-H", (f"{handlers}[C-H]*.swift",)),
+                q.PlanRow(306, "K-W", (f"{handlers}[K-W]*.swift",))]
+        cut = q.PlannedCut(rows, {})
+        self.assertEqual([cut.group_of(f"{handlers}{n}.swift") for n in ("Bar", "IconMenu", "Jump", "Kill", "Zoom")],
+                         [304, 305, 305, 306, 306])
+        self.assertIsNone(cut.group_of(f"{handlers}Sub/Deep.swift"))
+        self.assertIsNone(cut.group_of(f"{S}CmuxNextApp/Notifications/Center.swift"))
+
+    def test_membership_does_not_move_when_the_q1b_predicate_changes(self):
+        views = f"{S}CmuxNextSidebar/Views/"
+        rows = [q.PlanRow(327, "first", (views,)), q.PlanRow(328, "second", (views,))]
+        tree = {f"{views}{c}.swift": "@MainActor\nfinal class V: NSView {\n"
+                + "    func f() { Task { await x() } }\n" * tasks
+                + "    func g() async { try? await Task.sleep(for: .seconds(1)) }\n}\n"
+                for c, tasks in zip("ABCDEF", (9, 0, 0, 0, 0, 0))}
+        heuristic = q.file_weights(q.scan(tree, q.heuristic_main_inherited))
+        none = q.file_weights(q.scan(tree, lambda path, text: []))
+        # With Q1b weights, A alone would be half the folder; the split reads the regex queues only.
+        self.assertEqual(q.split_balanced(sorted(tree), heuristic, 2)[1][0], f"{views}B.swift")
+        self.assertNotEqual(heuristic, none)
+        cut = q.PlannedCut(rows, q.frozen_weights(q.scan(tree, q.heuristic_main_inherited)))
+        self.assertEqual([cut.group_of(f"{views}{c}.swift") for c in "ABCDEF"], [327] * 3 + [328] * 3)
 
 
 class PackTests(unittest.TestCase):
@@ -177,13 +308,13 @@ class PackTests(unittest.TestCase):
             for g in groups:
                 self.assertLessEqual(sum(weight[f] for f in g), q.HIGH)
 
-    def test_unplanned_files_get_groups_after_the_planned_ones(self):
-        weight = {f"{S}Planned/A.swift": 3, f"{S}Loose/B.swift": 4}
-        rows = [q.PlanRow(300, "planned", (f"{S}Planned/",))]
-        groups = q.cut(weight, {f: () for f in weight}, rows)
-        self.assertEqual([(g.id, g.planned, g.files) for g in groups],
-                         [(300, True, [f"{S}Planned/A.swift"]), (350, False, [f"{S}Loose/B.swift"])])
-        self.assertEqual([g.id for g in q.cut(weight, {f: () for f in weight}, None)], [300])
+    def test_repack_holds_a_later_file_with_its_name_neighbor(self):
+        weight = {f"{S}A/One.swift": 50, f"{S}A/Two.swift": 50, f"{S}B/Three.swift": 10}
+        cut = q.PackedCut(weight, {f: () for f in weight})
+        self.assertEqual([g.id for g in cut.groups], [300, 301])
+        self.assertEqual(cut.group_of(f"{S}A/Ones.swift"), cut.group_of(f"{S}A/One.swift"))
+        self.assertEqual(cut.group_of(f"{S}A/Zed.swift"), cut.group_of(f"{S}A/Two.swift"))
+        self.assertIsNone(cut.group_of(f"{S}C/New.swift"))
 
 
 class OwnerTests(unittest.TestCase):
@@ -226,7 +357,7 @@ class EndToEndTests(unittest.TestCase):
             "}", ""]))
         self.write(f"{S}CmuxNextSidebar/Views/Avatar.swift", "func a() async { try? await Task.sleep(for: .seconds(1)) }\n")
         self.write(f"{S}CmuxNextTerminal/Surface.swift", "func s() async { await MainActor.run { draw() } }\n")
-        self.write(f"{S}CmuxNextOther/Loose.swift", "override func viewDidChangeEffectiveAppearance() {}\n")
+        self.write(f"{S}CmuxNextOther/Loose.swift", "override func viewDidChangeEffectiveAppearance() { relayout() }\n")
         self.commit("cut")
 
     def git(self, *args):
@@ -242,10 +373,10 @@ class EndToEndTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", message)
 
-    def run_main(self, *args):
+    def run_main(self, *args, cut="HEAD"):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stderr(err):
-            code = q.main(["--repo", str(self.repo), "--cut", "HEAD", *args], out=out)
+            code = q.main(["--repo", str(self.repo), "--cut", cut, *args], out=out)
         return code, out.getvalue(), err.getvalue()
 
     def groups(self):
@@ -261,10 +392,16 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(row["recipes"], ["R-obs", "R-notif", "R-appear"])
         self.assertEqual(row["queues"], {"Q2": 1, "Q4": 1, "QA": 1})
 
-    def test_no_file_is_in_two_groups(self):
+    def test_no_file_is_in_two_groups_and_a_file_no_row_covers_is_residual(self):
         paths = [f["path"] for g in self.groups() for f in g["files"]]
         self.assertEqual(len(paths), len(set(paths)))
-        self.assertEqual(len(paths), 4)
+        self.assertEqual(len(paths), 3)
+        code, out, _ = self.run_main("--residual")
+        self.assertEqual((code, out), (0, f"{S}CmuxNextOther/Loose.swift:1: [QA R-appear] "
+                                          "override func viewDidChangeEffectiveAppearance() { relayout() }\n"))
+        code, out, err = self.run_main()
+        self.assertIn("plan problem: 1 hits in 1 files at the cut are in no WORK.tsv row", err)
+        self.assertIn(f"no row (1 hits at the cut, residual for task 347):\n  {S}CmuxNextOther/Loose.swift", out)
 
     def test_groups_name_the_owners_from_owners_md(self):
         by_id = {g["id"]: g for g in self.groups()}
@@ -272,14 +409,13 @@ class EndToEndTests(unittest.TestCase):
         sidebar = [g for g in by_id.values() if any("/CmuxNextSidebar/" in f["path"] for f in g["files"])]
         self.assertEqual({o for g in sidebar for o in g["owners_to_tell"]}, {"PL-rows", "a590 (sidebar-owner agent)"})
         self.assertEqual({g["id"] for g in sidebar}, {327, 328})
-        loose = [g for g in by_id.values() if not g["planned"]]
-        self.assertEqual([(g["id"], g["owners_to_tell"]) for g in loose], [(350, [])])
+        self.assertTrue(all(g["planned"] for g in by_id.values()))
 
     def test_the_text_report_prints_recipes_owner_and_check_command(self):
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)
         self.assertIn("group 334 [p06-scheduler-334]: CmuxNextTerminal", out)
-        self.assertIn("check: python3 scripts/cmux-next/p06_queue.py --check 334", out)
+        self.assertIn("check: python3 scripts/cmux-next/p06_queue.py --cut HEAD --check 334", out)
         self.assertIn("RowCell.swift: 3 hits, R-obs, R-notif, R-appear (Q2 1, Q4 1, QA 1); owner PL-rows", out)
 
     def test_check_fails_until_the_hits_are_gone_or_escaped(self):
@@ -291,36 +427,119 @@ class EndToEndTests(unittest.TestCase):
                    "func s() async { await MainActor.run { draw() } }\n")
         code, out, _ = self.run_main("--check", "334")
         self.assertEqual(code, 0, out)
-        self.assertIn("group 334: 0 hits at working tree, 1 escaped", out)
+        self.assertIn("group 334: 0 open hits at working tree, 1 escaped, 0 settled", out)
         self.write(f"{S}CmuxNextTerminal/Surface.swift", "func s() { draw() }\n")
         self.assertEqual(self.run_main("--check", "334")[0], 0)
 
-    def test_membership_is_frozen_at_the_cut_and_new_hits_are_residual(self):
+    def test_a_hit_moved_to_a_new_file_in_the_groups_folder_still_fails_the_check(self):
         cut = self.git("rev-parse", "HEAD").strip()
-        self.write(f"{S}CmuxNextTerminal/New.swift", "func n() async { await MainActor.run { } }\n")
-        self.commit("new code after the cut")
-        out = io.StringIO()
-        self.assertEqual(q.main(["--repo", str(self.repo), "--cut", cut, "--check", "334"], out=out), 1)
-        self.assertNotIn("New.swift", out.getvalue())
-        out = io.StringIO()
-        self.assertEqual(q.main(["--repo", str(self.repo), "--cut", cut, "--residual"], out=out), 0)
-        self.assertIn("CmuxNextTerminal/New.swift:1: [Q7 R-hop]", out.getvalue())
+        self.write(f"{S}CmuxNextTerminal/Surface.swift", "func s() { draw() }\n")
+        self.write(f"{S}CmuxNextTerminal/Split/SurfaceDraw.swift", "func s() async { await MainActor.run { draw() } }\n")
+        self.commit("split the file and keep its hit")
+        code, out, _ = self.run_main("--check", "334", cut=cut)
+        self.assertEqual(code, 1)
+        self.assertIn("CmuxNextTerminal/Split/SurfaceDraw.swift:1: [Q7 R-hop]", out)
+
+    def test_a_hit_moved_out_of_every_row_is_residual_and_the_check_says_so(self):
+        cut = self.git("rev-parse", "HEAD").strip()
+        self.write(f"{S}CmuxNextTerminal/Surface.swift", "func s() { draw() }\n")
+        self.write(f"{S}CmuxNextNew/Surface.swift", "func s() async { await MainActor.run { draw() } }\n")
+        self.commit("move the hit to a target no row covers")
+        code, out, _ = self.run_main("--check", "334", cut=cut)
+        self.assertEqual(code, 0)
+        self.assertIn("note: 1 files that had no hits at the cut have hits now and are in no group (--residual): "
+                      f"{S}CmuxNextNew/Surface.swift", out)
+        code, out, _ = self.run_main("--residual", cut=cut)
+        self.assertEqual(code, 0)
+        self.assertIn("CmuxNextNew/Surface.swift:1: [Q7 R-hop]", out)
+
+    def test_the_check_is_0_once_every_recipe_is_applied(self):
+        self.write(f"{S}CmuxNextSidebar/Views/RowCell.swift", "\n".join([
+            "final class RowCell: NSView {",
+            "    let titles = VisibleObservation(model, owner: .sidebarRows) { $0.title }",
+            "    func start() { events.window.didResize.subscribe(node: node) { [weak self] in self?.s() } }",
+            "    override func viewDidChangeEffectiveAppearance() {",
+            "        super.viewDidChangeEffectiveAppearance()",
+            "        layer?.backgroundColor = Palette.row.cgColor",
+            "    }",
+            "    override func viewDidHide() { super.viewDidHide(); node.setHidden(true) }",
+            "    override func mouseMoved(with event: NSEvent) { inputCoalescer.hover(event) }",
+            '    let delivery = MainDelivery(class: .visible, owner: "rows")',
+            "}", ""]))
+        self.write(f"{S}CmuxNextSidebar/Views/Avatar.swift",
+                   "func a() { deadline.arm(after: .seconds(1), class: .idle, alignment: .flexible) }\n")
+        for group in (327, 328):
+            with self.subTest(group):
+                code, out, _ = self.run_main("--check", str(group))
+                self.assertEqual(code, 0, out)
+        listed = self.run_main("--group", "327")[1] + self.run_main("--group", "328")[1]
+        for line, state in ((4, "QA R-appear"), (8, "Q5 R-hide"), (9, "Q8 R-input"), (10, "Q1c R-delivery")):
+            self.assertIn(f"RowCell.swift:{line}: [{state} settled]", listed)
+
+    def test_a_planned_row_over_the_limit_is_a_plan_problem(self):
+        self.write(f"{S}CmuxNextTerminal/Big.swift", "".join(f"func f{n}() async {{ await MainActor.run {{ }} }}\n"
+                                                             for n in range(q.HIGH)))
+        self.commit("a heavy terminal")
+        code, out, err = self.run_main()
+        self.assertEqual(code, 0)
+        self.assertIn(f"plan problem: row 334 has {q.HIGH + 1} hits at the cut, over {q.HIGH}: split it in WORK.tsv", err)
+        self.assertIn(f"{q.HIGH + 1} hits at the cut (over {q.HIGH}: split the row in WORK.tsv)", out)
+        self.assertNotIn("--repack", out)
+        self.assertTrue({g["id"]: g for g in self.groups()}[334]["over_limit"])
 
     def test_an_unknown_group_or_cut_exits_2(self):
         self.assertEqual(self.run_main("--check", "999")[0], 2)
-        with contextlib.redirect_stderr(io.StringIO()) as err:
-            code = q.main(["--repo", str(self.repo), "--cut", "no-such-rev"], out=io.StringIO())
+        code, _, err = self.run_main(cut="no-such-rev")
         self.assertEqual(code, 2)
-        self.assertIn("is --cut no-such-rev in this clone?", err.getvalue())
+        self.assertIn("is --cut no-such-rev in this clone?", err)
 
-    def test_repack_ignores_the_plan(self):
+    def test_repack_ignores_the_plan_and_its_check_says_repack(self):
         code, out, _ = self.run_main("--repack", "--json")
         self.assertEqual(code, 0)
         groups = json.loads(out)["groups"]
         self.assertEqual(sorted(f["path"] for g in groups for f in g["files"]),
-                         sorted(f["path"] for g in self.groups() for f in g["files"]))
+                         sorted([f["path"] for g in self.groups() for f in g["files"]] + [f"{S}CmuxNextOther/Loose.swift"]))
         self.assertTrue(all(not g["planned"] for g in groups))
         self.assertEqual(groups[0]["id"], 300)
+        self.assertEqual({g["check"] for g in groups},
+                         {f"python3 scripts/cmux-next/p06_queue.py --cut HEAD --repack --check {g['id']}" for g in groups})
+
+    def test_the_printed_check_names_a_plan_given_on_the_command_line(self):
+        plan = self.repo / "other.tsv"
+        plan.write_text((self.repo / q.PLAN).read_text())
+        self.assertIn(f"check: python3 scripts/cmux-next/p06_queue.py --cut HEAD --plan {plan} --check 334",
+                      self.run_main("--plan", str(plan))[1])
+
+
+@unittest.skipUnless(subprocess.run(["git", "-C", str(SOURCE), "cat-file", "-e", f"{q.CUT_REV}^{{commit}}"],
+                                    capture_output=True).returncode == 0, f"{q.CUT_REV} is not in this clone")
+class RealCutTests(unittest.TestCase):
+    """The spec's cut: every file with hits is in one planned group or in --residual, and the plan's gaps show."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = q.build(SOURCE, q.CUT_REV, q.CUT_REV, SOURCE / q.PLAN)
+
+    def test_every_file_with_hits_is_in_one_planned_group_or_residual(self):
+        report = self.report
+        hit_files = {f for f, hs in report.cut_hits.items() if q.open_lines(hs)}
+        grouped = [f for g in report.groups for f in report.files(g.id) if f in hit_files]
+        residual = {h.path for h in report.residual()}
+        self.assertEqual(len(grouped), len(set(grouped)))
+        self.assertEqual(set(grouped) | residual, hit_files)
+        self.assertFalse(set(grouped) & residual)
+        self.assertEqual(residual, set(report.unplanned_at_cut()))
+        self.assertEqual([g.id for g in report.groups], list(range(300, 347)))
+        self.assertTrue(all(report.files(g.id) for g in report.groups))
+
+    def test_handlers_between_the_ranges_stay_with_handlers(self):
+        self.assertEqual(self.report.group_of(f"{S}CmuxNextApp/Handlers/IconMenuVisibility.swift"), 305)
+
+    def test_the_halves_keep_their_split_point_under_another_q1b_predicate(self):
+        other = q.build(SOURCE, q.CUT_REV, q.CUT_REV, SOURCE / q.PLAN, predicate=(lambda path, text: [], "none"))
+        paths = [f for f in self.report.cut_hits if "/CmuxNextSidebar/Views/" in f or "/CmuxNextAgentPane/" in f]
+        self.assertTrue(paths)
+        self.assertEqual({p: self.report.group_of(p) for p in paths}, {p: other.group_of(p) for p in paths})
 
 
 if __name__ == "__main__":
