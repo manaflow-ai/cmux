@@ -275,7 +275,9 @@ export function commandLabel(command: BackgroundCommand): string {
 /// tests". Nil for every other command.
 export function sendLabel(t: Translate, command: Pick<BackgroundCommand, "command" | "state">): string | undefined {
   const send = acpmuxSend(command.command);
-  if (!send) return undefined;
+  // Stopped or lost: whether it went is not known, so the command stays as typed.
+  if (!send || (command.state !== "running" && command.state !== "failed" && command.state !== "completed"))
+    return undefined;
   const key = command.state === "running" ? "send.sending" : command.state === "failed" ? "send.failed" : "send.sent";
   return t(key, { target: send.target });
 }
