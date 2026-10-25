@@ -442,7 +442,6 @@ export function QuickModelMenu({
                   fallback={levels.find((choice) => choice.recommended)?.id}
                   sliderStyle={effort.sliderStyle}
                   onPick={effort.onPick}
-                  onEscape={() => onOpenChange(false)}
                   autoFocus
                 />
               </div>
