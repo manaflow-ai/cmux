@@ -309,6 +309,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subagent_transcript",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/workflows",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/app_reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/stats",
       "params": true,
       "result": true
@@ -346,6 +364,12 @@
     {
       "kind": "request",
       "name": "_acpmux/step_now",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/steer_withdraw",
       "params": true,
       "result": true
     },
@@ -445,6 +469,12 @@
     {
       "kind": "request",
       "name": "_acpmux/info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/session_files",
       "params": true,
       "result": true
     },
@@ -597,6 +627,78 @@
     {
       "kind": "request",
       "name": "_acpmux/file_put",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_chunk",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_finish",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put_cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/dispatch",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/steer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/briefs",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/report",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/task_new",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tasks",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/media_range",
       "params": true,
       "result": true
     },
@@ -1077,6 +1179,24 @@
     {
       "kind": "request",
       "name": "_acpmux/peers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/peer_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/place",
       "params": true,
       "result": true
     },
@@ -1888,16 +2008,26 @@
           ]
         },
         "recipient": {
-          "type": "string"
+          "description": "Session recipient for ordinary mail. Omit when `target` is supplied.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sender": {
           "type": "string"
+        },
+        "target": {
+          "description": "Quiet reports alias (`reports:<person>`). Omit for session mail.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "id",
         "sender",
-        "recipient",
         "body"
       ],
       "type": "object"
@@ -3267,6 +3397,13 @@
           "type": "object"
         },
         "title": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "titleSource": {
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
           "type": [
             "string",
             "null"

@@ -467,7 +467,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func exitContentFullscreen() {
         guard state.isContentFullscreen else { return }
-        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()"); withExtendedLifetime(runtime) {} }
+        Task { [runtime] in _ = try? await evaluate("document.exitFullscreen && document.exitFullscreen()", world: .page, gesture: .cmux); withExtendedLifetime(runtime) {} }
     }
 
     public func showDevTools() { performDevTools(.show) }

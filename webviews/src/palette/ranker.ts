@@ -31,6 +31,11 @@ export interface PaletteRankEntry {
   demoted?: boolean;
   /** The row has a keyboard shortcut: a core command, first among equal matches. */
   hasShortcut?: boolean;
+  /**
+   * Short ids the row is known by (a Chief subagent's workspace: `a612`). A query that is one of
+   * them, or its digits (`612`), ranks the row first, above every text match.
+   */
+  handles?: string[] | null;
 }
 
 export interface PaletteFrecencyEntry {
@@ -398,6 +403,8 @@ function fieldsForEntries(
  * never over a clearly better match.
  */
 export const matchTier = {
+  /** The query is one of the row's handles (`a612`, or its digits `612`). */
+  handle: 13,
   /** The whole title is the query. */
   wholeTitle: 12,
   /** A scope row whose keyword is the whole query ("settings" for the settings scope). */
@@ -668,6 +675,23 @@ function matchQuality(query: Query, fields: readonly Field[]): number {
   return Math.max(0, Math.min(maximumQuality, quality));
 }
 
+/**
+ * Whether `query` (trimmed, lowercased, one word) names one of `handles`: the whole handle
+ * (`a612`), or, for an all-digit query, the handle's digits after its letters (`612`).
+ */
+function namesHandle(handles: readonly string[] | null | undefined, query: string): boolean {
+  if (!handles?.length || !query || /\s/u.test(query)) return false;
+  const digits = /^[0-9]+$/u.test(query);
+  return handles.some((raw) => {
+    const handle = raw.trim().toLowerCase();
+    if (!handle) return false;
+    if (handle === query) return true;
+    if (!digits) return false;
+    const number = handle.replace(/^\p{L}+/u, "");
+    return number.length < handle.length && number === query;
+  });
+}
+
 function scoreEntry(
   entry: PaletteRankEntry,
   id: readonly string[] | null,
@@ -868,18 +892,30 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     shortcut: boolean;
     lifted: boolean;
     aliased: boolean;
+    /** The query is one of the row's handles: first of all enabled rows. */
+    handle: boolean;
     highlights: number[];
   }> = [];
+  const handleQuery = query.raw.trim().toLowerCase();
   const aliased = aliasedActions(request.aliases, query.raw);
   const rank = (allowsTypo: boolean) => {
     let strong = 0;
     entries.forEach((entry, index) => {
       if (gated && entry.hidesWhenTyping) return;
       if (gated && entry.queryPrefix != null && !query.raw.startsWith(entry.queryPrefix)) return;
-      const match = scoreEntry(entry, prepared.ids[index], query, prepared.fields[index], allowsTypo);
+      const handle = namesHandle(entry.handles, handleQuery);
+      const text = scoreEntry(entry, prepared.ids[index], query, prepared.fields[index], allowsTypo);
+      const match = handle
+        ? {
+            score: matchTier.handle * tierScale + maximumQuality,
+            tier: matchTier.handle,
+            highlights: text?.highlights ?? [],
+          }
+        : text;
       if (!match) return;
       // A hidden row shows only for a query that is its whole title (so it can be shown again).
-      if (entry.frecencyKey && hidden.has(entry.frecencyKey) && !titleIsQuery(entry.title, query.raw)) return;
+      if (entry.frecencyKey && hidden.has(entry.frecencyKey) && !handle && !titleIsQuery(entry.title, query.raw))
+        return;
       if (match.tier >= matchTier.substring) strong++;
       let score = match.score + (entry.rankBias ?? 0) + frecencyBoost(store, entry.frecencyKey, now);
       if (entry.isEnabled === false) score -= disabledPenalty;
@@ -893,6 +929,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
         shortcut: entry.hasShortcut === true,
         lifted: false,
         aliased: entry.isEnabled !== false && entry.actionID != null && aliased.has(entry.actionID),
+        handle: entry.isEnabled !== false && handle,
         highlights: match.highlights,
       });
     });
@@ -940,6 +977,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
         shortcut: entry.hasShortcut === true,
         lifted: false,
         aliased: true,
+        handle: false,
         highlights: [],
       });
     });
@@ -959,6 +997,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     scored.sort((left, right) => {
       const leftStarts = starts.has(left.index);
       const rightStarts = starts.has(right.index);
+      if (left.handle !== right.handle) return left.handle ? -1 : 1;
       if (left.aliased !== right.aliased) return left.aliased ? -1 : 1;
       if (leftStarts !== rightStarts) return leftStarts ? -1 : 1;
       if (leftStarts) return left.index - right.index;
@@ -972,6 +1011,7 @@ export function rankPalette(request: Omit<PaletteRankRequest, "operation">): Pal
     scored.sort(
       (left, right) =>
         Number(right.enabled) - Number(left.enabled) ||
+        Number(right.handle) - Number(left.handle) ||
         Number(right.aliased) - Number(left.aliased) ||
         Number(right.lifted) - Number(left.lifted) ||
         right.tier - left.tier ||

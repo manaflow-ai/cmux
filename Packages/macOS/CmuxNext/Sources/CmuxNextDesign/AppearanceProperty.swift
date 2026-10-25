@@ -1,4 +1,5 @@
 import Foundation
+public import CmuxNextDesignTokens
 
 /// One customizable appearance property (plans/cmux-next/appearance-scopes-DESIGN.md), with the
 /// levels where it means something and the values it takes.

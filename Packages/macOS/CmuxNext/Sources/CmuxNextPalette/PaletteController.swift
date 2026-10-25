@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// Which page the palette opens on.
@@ -22,6 +23,8 @@ public final class PaletteController {
     public let registry: ActionRegistry
     public let model: PaletteModel
     public var sources: PaletteSources
+    /// Additional rows the app hides from the registry page based on live Labs/debug state.
+    public var hiddenActionIDs: (() -> Set<ActionID>)?
 
     public private(set) var isVisible = false
     /// Called synchronously when the panel opens (true) or closes (false),
@@ -298,7 +301,7 @@ public final class PaletteController {
         contentView?.animateIn()
         if let onPresented {
             let presented = ContinuousClock.now
-            CATransaction.setCompletionBlock {
+            CATransaction.setMainCompletion {
                 let committed = ContinuousClock.now
                 onPresented(PaletteOpenTiming(
                     input: input, model: started.duration(to: modelDone), panel: modelDone.duration(to: panelDone),
@@ -381,7 +384,8 @@ public final class PaletteController {
         }
         content.onRecorderOption = { [weak self] option in self?.shortcutRecorder.choose(option) }
         panel.contentView = content
-        panel.keyHandler = { [weak self] event in self?.handleKeyDown(event) ?? false }
+        panel.keyHandler = { [weak self, weak panel] event in self?.handleKeyDown(event, in: panel) ?? false }
+        panel.onBecomeKey = { [weak self] in self?.contentView?.focusField() }
         panel.capturesKeyEquivalents = { [weak self] in self?.model.shortcutRecorder != nil }
         panel.capturesKeyEquivalent = { [weak self] event in
             guard let model = self?.model else { return false }
@@ -432,18 +436,22 @@ public final class PaletteController {
 
     /// Maps a key-down in the panel to a palette command. Returns true when
     /// the event was consumed (so the text field never sees it).
-    func handleKeyDown(_ event: NSEvent) -> Bool {
+    /// `window`: the panel the key went to (the event's own window when nil).
+    func handleKeyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
+        let window = window ?? event.window
         if model.shortcutRecorder != nil {
             return shortcutRecorder.handle(PaletteShortcutRecorder.shortcut(for: event), keyCode: event.keyCode, event: event)
         }
+        if Self.inputMethodOwns(event, in: window) { return false }
+        let caret = Self.caret(in: window)
         guard let command = PaletteKeyMap.command(
             for: event,
             actionsMenuOpen: model.actionsMenu != nil,
             queryIsEmpty: model.query.isEmpty,
             registry: registry,
             hierarchical: model.currentPageIsHierarchical,
-            caretAtEnd: Self.caret(in: event.window).atEnd,
-            caretAtStart: Self.caret(in: event.window).atStart,
+            caretAtEnd: caret.atEnd,
+            caretAtStart: caret.atStart,
             selectedTogglesInPlace: model.selectedItem?.primary.togglesInPlace == true
         ) else { return false }
         return model.handle(command)

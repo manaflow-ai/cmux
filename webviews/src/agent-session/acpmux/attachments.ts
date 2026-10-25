@@ -1,8 +1,6 @@
-/// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
-/// the agent as ACP content blocks. A text file is written into the prompt's text. Any other file (a
-/// binary, a large text file) or folder goes as a link: in a chat on this Mac to where it is (the
-/// host knows a dropped or pasted file's path, `chat.attach.dropped`; the page does not), else to
-/// the copy the chat's host saves (`chat.upload`).
+/// Dropped files go to session storage and are linked from the prompt (composer/intakeFiles.ts).
+/// Images get a metadata-free preview as an ACP image block plus their original session path.
+/// Existing document/text chips remain readable for persisted drafts from older versions.
 import { liftInlineImages } from "./inlineImages";
 import { pastedTextBlocks } from "./pastedText";
 
@@ -27,9 +25,15 @@ export type ComposerAttachment = {
   path?: string;
   /** A file the composer could not attach that the chat's host saved for the agent: its chip says it goes as a path. */
   saved?: boolean;
+  /** The original image on the session's machine; the inline bytes are a metadata-free preview. */
+  originalPath?: string;
+  originalName?: string;
 };
 
-export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
+export type AttachmentError = {
+  name: string;
+  reason: "tooLarge" | "unsupported" | "imagesUnsupported";
+};
 /// A refusal with the file it refuses, so a caller can send that file another way (a chat's upload).
 export type RefusedFile = AttachmentError & { file: File; unreadable?: boolean };
 
@@ -42,10 +46,9 @@ export type PromptBlock =
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-/** The longest side an attached image keeps: the models scale anything larger down to about this
- * anyway, so more pixels only grow the prompt (a six-screenshot prompt passed acpmux's 16 MiB frame
- * limit and reset the chat's connection, 2026-10-20). */
-export const MAX_IMAGE_SIDE = 2000;
+/** Conservative shared preview size; original files stay available through session tools.
+ * https://platform.claude.com/docs/en/build-with-claude/vision */
+export const MAX_IMAGE_SIDE = 1568;
 /** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
 export const IMAGE_BUDGET_BYTES = 1536 * 1024;
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
@@ -55,7 +58,6 @@ export const IMAGE_BUDGET_BYTES = 1536 * 1024;
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
 export const MAX_TEXT_BYTES = 256 * 1024;
-export const MAX_ATTACHMENTS = 10;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 /// Pictures the models do not take as they are (an iPhone's HEIC, TIFF, BMP, AVIF) but the engine
 /// can decode: they go as PNG or JPEG. One it cannot decode goes as a file instead.
@@ -74,19 +76,14 @@ function isPdf(file: File): boolean {
   return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
 }
 
-/// Reads `files` for a composer that already holds `held` attachments.
+/// Reads every file in a batch for the composer; per-file size and type rules still apply.
 export async function readAttachments(
   files: File[],
-  held: number,
   allowImages: boolean,
 ): Promise<{ attachments: ComposerAttachment[]; errors: RefusedFile[] }> {
   const attachments: ComposerAttachment[] = [];
   const errors: RefusedFile[] = [];
   for (const file of files) {
-    if (held + attachments.length >= MAX_ATTACHMENTS) {
-      errors.push({ name: file.name, reason: "tooMany", file });
-      continue;
-    }
     // A dropped folder arrives as a File whose bytes cannot be read.
     const result = await readAttachment(file, allowImages).catch((): RefusedFile => ({
       name: file.name,
@@ -119,16 +116,6 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     const fitted = await fitImage(file);
-    // An image the engine cannot decode or scale goes as it is when the API takes it.
-    if (fitted === "fits" || (fitted === undefined && file.size <= MAX_IMAGE_BYTES))
-      return {
-        id,
-        kind: "image",
-        name,
-        mimeType: file.type,
-        size: file.size,
-        data: base64(new Uint8Array(await file.arrayBuffer())),
-      };
     if (!fitted) return { name, reason: "tooLarge" };
     return {
       id,
@@ -141,8 +128,8 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   }
   if (CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(name))) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    const converted = await fitImage(file, true);
-    if (!converted || converted === "fits") return { name, reason: "unsupported" };
+    const converted = await fitImage(file);
+    if (!converted) return { name, reason: "unsupported" };
     return {
       id,
       kind: "image",
@@ -164,27 +151,20 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
 const FIT_STEPS = [
   { side: MAX_IMAGE_SIDE, quality: 0.9 },
   { side: MAX_IMAGE_SIDE, quality: 0.8 },
-  { side: 1600, quality: 0.8 },
   { side: 1200, quality: 0.75 },
   { side: 800, quality: 0.7 },
 ] as const;
 
-/// An image whose longest side is over MAX_IMAGE_SIDE or whose bytes are over IMAGE_BUDGET_BYTES,
-/// scaled and re-encoded by FIT_STEPS until it is under the budget: as PNG when that fits, else as
-/// JPEG (on white, which has no alpha). A JPEG source skips the PNG tries; an animated GIF or WebP
-/// keeps its first frame. "fits" for an image that is already within both bounds (an animated GIF
-/// stays animated), unless `convert` (a type the models do not take) re-encodes it anyway;
-/// undefined when the engine cannot decode or scale it.
-async function fitImage(
-  file: Blob,
-  convert = false,
-): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | "fits" | undefined> {
+/// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
+/// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
+/// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
+/// remains accessible by session path. Undefined when the engine cannot safely normalize it.
+async function fitImage(file: Blob): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   let bitmap: ImageBitmap | undefined;
   try {
     bitmap = await createImageBitmap(file);
     const longest = Math.max(bitmap.width, bitmap.height, 1);
-    if (!convert && longest <= MAX_IMAGE_SIDE && file.size <= IMAGE_BUDGET_BYTES) return "fits";
     let last: Blob | undefined;
     let triedPng = 0;
     for (const step of FIT_STEPS) {
@@ -275,7 +255,10 @@ export async function thumbnail(
     const natural = { width: bitmap.width, height: bitmap.height };
     bitmap.close();
     const blob = await canvas.convertToBlob({ type: "image/png" });
-    return { url: `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`, ...natural };
+    return {
+      url: `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`,
+      ...natural,
+    };
   } catch {
     return undefined;
   }
@@ -296,7 +279,13 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
       const fence = "`".repeat(Math.max(3, longestBacktickRun(body) + 1));
       return `${attachment.name}\n${fence}${fenceLanguage(attachment.name)}\n${body}${body.endsWith("\n") ? "" : "\n"}${fence}`;
     });
-  return [text, ...files].filter(Boolean).join("\n\n");
+  const notes = attachments
+    .filter((attachment) => attachment.kind === "link" && attachment.mimeType)
+    .map(
+      (attachment) =>
+        `Attached file: ${attachment.name} (${attachment.mimeType}, ${attachment.size} bytes). Read the linked file with your tools.`,
+    );
+  return [text, ...files, ...notes].filter(Boolean).join("\n\n");
 }
 
 /// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
@@ -308,15 +297,32 @@ export function promptBlocks(input: string, chips: ComposerAttachment[]): Prompt
   const body = promptText(text, attachments);
   if (body) blocks.push({ type: "text", text: body });
   blocks.push(...pastedTextBlocks(attachments));
-  for (const attachment of attachments)
+  for (const attachment of attachments) {
     if (attachment.kind === "image" && attachment.data)
-      blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
+      blocks.push({
+        type: "image",
+        mimeType: attachment.mimeType,
+        data: attachment.data,
+        name: attachment.name,
+      });
     else if (attachment.kind === "document" && attachment.data)
-      blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+      blocks.push({
+        type: "document",
+        mimeType: "application/pdf",
+        data: attachment.data,
+        name: attachment.name,
+      });
     else if (attachment.kind === "link" && attachment.path)
       blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
     else if (attachment.kind === "audio" && attachment.data)
       blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
+    if (attachment.kind === "image" && attachment.originalPath)
+      blocks.push({
+        type: "resource_link",
+        uri: fileUri(attachment.originalPath),
+        name: attachment.originalName ?? attachment.name,
+      });
+  }
   return blocks;
 }
 
@@ -505,7 +511,9 @@ function imageFile(mimeType: string, data: string, minimum = MIN_HTML_IMAGE_BYTE
     const binary = atob(data.replace(/\s+/g, ""));
     if (binary.length < minimum) return undefined;
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    return new File([bytes], `image.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`, { type: mimeType });
+    return new File([bytes], `image.${mimeType === "image/jpeg" ? "jpg" : mimeType.slice(6)}`, {
+      type: mimeType,
+    });
   } catch {
     // Not base64 after all: nothing to attach.
     return undefined;

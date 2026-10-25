@@ -3,6 +3,8 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+pub use crate::cli::task::BriefsCmd;
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -18,6 +20,14 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Send a local brief to another harness on a peer (or the least-loaded
+    /// allowed host with `--host auto`) and record its identity.
+    Dispatch(DispatchArgs),
+    #[command(subcommand)]
+    Briefs(BriefsCmd),
+    /// Give a session here a task, end one with its result in one call, list a chat's tasks.
+    #[command(subcommand)]
+    Task(crate::cli::task::TaskCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
@@ -175,13 +185,28 @@ pub enum Command {
         prompt_id: Option<String>,
         /// Send it as this agent's message: messages from agents that wait for a busy session go
         /// in together as one turn, after the person's own. An agent running in acpmux is
-        /// named without it.
+        /// named without it; elsewhere `ACPMUX_FROM` names it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
         /// Replace your prompt still queued under KEY: a correction is never read after the
         /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
         #[arg(long, value_name = "KEY")]
         supersede: Option<String>,
+    },
+    /// Append a report to a human basket without waking any agent session.
+    /// The target must be `reports:<person>`; the sender is the attached local
+    /// ACP session (or `--from` when the daemon can bind that session).
+    Deliver {
+        #[arg(long, value_name = "TARGET")]
+        target: String,
+        /// Report text. Reads stdin when omitted or "-".
+        prompt: Vec<String>,
+        /// Stable id for retries; generated when omitted.
+        #[arg(long)]
+        id: Option<String>,
+        /// Audience metadata (`leo`, `coordinator`, or `silent`).
+        #[arg(long, default_value = "leo")]
+        audience: String,
     },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]
@@ -278,10 +303,6 @@ pub enum Command {
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
-    /// How harnesses reach their model provider: list, add, edit, test and
-    /// use routes (~/.config/cmux/routes/<id>.toml). Also `cmux route …`.
-    #[command(subcommand)]
-    Route(crate::cli::route::RouteCmd),
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
@@ -469,6 +490,30 @@ pub enum Command {
         #[arg(long)]
         dev: bool,
     },
+}
+
+#[derive(Args)]
+pub struct DispatchArgs {
+    /// Local Markdown/text brief file (use `-` for stdin).
+    pub brief: PathBuf,
+    /// Host name, `auto` for least-loaded placement, or `local`.
+    #[arg(long, alias = "target", default_value = "auto")]
+    pub host: String,
+    #[arg(long)]
+    pub title: Option<String>,
+    #[arg(long)]
+    pub to: Option<String>,
+    #[arg(long)]
+    pub stop_condition: Option<String>,
+    /// HARNESS[/MODEL] or profile; any ACP harness is accepted.
+    #[arg(long, short)]
+    pub model: Option<String>,
+    #[arg(long)]
+    pub preset: Option<String>,
+    #[arg(long)]
+    pub policy: Option<String>,
+    #[arg(long)]
+    pub cwd: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -823,6 +868,22 @@ pub enum PeerCmd {
     },
     /// List peers and their connection state.
     Ls,
+    /// Each peer's health, asked live: reachable, round trip, disk free,
+    /// load, live sessions and build, this machine first. Run it before
+    /// remote work and after a peer request fails, instead of retrying blind.
+    Status {
+        /// Only this peer.
+        name: Option<String>,
+    },
+    /// Where new work should go: this machine and each peer weighed by its
+    /// room (RAM, cores less load, disk, lane cap) and its role in
+    /// fleet-registry.json, from the readings the links already keep. The
+    /// pick `new --host auto` and `dispatch --host auto` make, with why.
+    Place {
+        /// For a build or test suite: only build hosts.
+        #[arg(long)]
+        build: bool,
+    },
     /// Remove a peer.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`
@@ -951,6 +1012,7 @@ pub struct NewArgs {
     #[arg(long, short)]
     pub preset: Option<String>,
     /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
+    /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
     #[arg(long)]
     pub host: Option<String>,
     /// Session name. Generated when omitted. With a launcher flag it is lowercased

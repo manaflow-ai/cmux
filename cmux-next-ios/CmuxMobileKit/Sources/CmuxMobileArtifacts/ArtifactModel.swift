@@ -6,6 +6,10 @@ import Foundation
 public struct TerminalArtifact: Identifiable, Hashable, Sendable {
     public enum Kind: String, Hashable, Sendable, CaseIterable {
         case directory, image, video, html, markdown, code, text, pdf, binary, link
+        /// Audio Quick Look plays (m4a, mp3, wav, ...).
+        case audio
+        /// A document Quick Look renders (Office, iWork, RTF, ...).
+        case document
     }
 
     /// The reference as written, without a `:line:col` suffix.
@@ -50,19 +54,25 @@ public struct TerminalArtifact: Identifiable, Hashable, Sendable {
         case .pdf: "doc.fill"
         case .binary: "gearshape.2"
         case .link: "link"
+        case .audio: "waveform"
+        case .document: "doc.richtext.fill"
         }
     }
 
     public static func kind(forExtension ext: String) -> Kind? {
         switch ext.lowercased() {
-        case "png", "jpg", "jpeg", "gif", "heic", "webp": .image
-        case "mp4", "mov", "m4v", "webm": .video
+        case "png", "jpg", "jpeg", "gif", "heic", "heif", "webp", "tif", "tiff", "bmp", "ico": .image
+        case "mp4", "mov", "m4v", "webm", "3gp": .video
+        case "m4a", "mp3", "wav", "aac", "aif", "aiff", "caf", "flac", "opus": .audio
+        case "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pages", "numbers", "keynote", "rtf", "rtfd", "usdz", "epub": .document
         // SVG is markup: UIImage can't decode it, the web preview draws it (scripts off).
         case "html", "htm", "svg": .html
         case "md", "markdown": .markdown
         case "swift", "rs", "zig", "c", "h", "m", "go", "py", "js", "ts", "tsx", "jsx", "sh", "toml", "json", "yml",
-             "yaml", "css", "sql", "rb", "java", "kt": .code
-        case "txt", "log", "lock", "csv": .text
+             "yaml", "css", "sql", "rb", "java", "kt", "kts", "cpp", "hpp", "mm", "php", "lua",
+             "scala", "dart", "ex", "exs", "hs", "vue", "svelte", "scss", "less", "xml", "plist", "ini", "conf", "cfg",
+             "gradle", "zsh", "bash", "fish", "mjs", "cjs", "proto", "graphql", "tf", "nix": .code
+        case "txt", "log", "lock", "csv", "tsv", "diff", "patch": .text
         case "pdf": .pdf
         default: nil
         }
@@ -95,6 +105,9 @@ public enum ArtifactContent: Sendable {
     case directory([TerminalArtifact])
     case pdf(Data)
     case binary(description: String)
+    /// A local copy for Quick Look (audio, Office and iWork documents, and
+    /// anything else it can show); a share sheet when it can't.
+    case quickLook(URL)
 }
 
 extension ArtifactContent {

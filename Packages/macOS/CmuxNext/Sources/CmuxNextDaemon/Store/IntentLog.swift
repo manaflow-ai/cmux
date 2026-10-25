@@ -7,6 +7,11 @@ enum IntentUndo: Equatable {
     case moveTab(surface: SurfaceID, fromPane: PaneID, fromIndex: Int, toPane: PaneID)
     case tabName(surface: SurfaceID, name: String?)
     case tabPinned(surface: SurfaceID, pinned: Bool)
+    case paneName(pane: PaneID, name: String?)
+    case screenName(screen: ScreenID, name: String?)
+    case screenColor(screen: ScreenID, color: String?)
+    case screenIcon(screen: ScreenID, icon: String?)
+    case screenPinned(screen: ScreenID, pinned: Bool)
     case workspaceName(key: WorkspaceKey, name: String)
     /// The workspace's daemon-order index and group before the apply.
     case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)

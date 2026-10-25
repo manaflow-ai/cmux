@@ -50,13 +50,13 @@ import Testing
         try body()
     }
 
-    /// Off by default (Lawrence 2026-10-21): no row reads a lane's step unless the toggle is on.
-    @Test func noRowSaysItsStepByDefault() throws {
+    /// Off by default since Lawrence 2026-10-21 (minimal rows).
+    @Test func offByDefault() throws {
         let fixture = try Fixture()
-        Self.withNowLine(nil) { #expect(fixture.rows()["working"]?.agentStep == nil) }
+        Self.withNowLine(nil) { #expect(fixture.rows().values.allSatisfy { $0.agentStep == nil }) }
     }
 
-    @Test func aWorkingRowKnowsWhatItsAgentDoes() throws {
+    @Test func aWorkingRowKnowsWhatItsAgentDoesWhenOn() throws {
         let fixture = try Fixture()
         try Self.withNowLine(true) {
             let rows = fixture.rows()

@@ -13,6 +13,7 @@ use super::CREATION_RECEIPTS_CAPABILITY;
 use super::CREATION_SELECTOR_FALLBACKS_CAPABILITY;
 use super::ClientIdentityWire;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
+use super::HOST_GRID_VIEW_CAPABILITY;
 use super::LOOPBACK_FORWARD_CAPABILITY;
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
@@ -322,6 +323,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Size leases of connections with `size-lease-v1` (size_lease.rs).
+    pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
     #[cfg(unix)]
     pub(super) agent_sessions: agent_session_attach::AgentSessions,
@@ -386,6 +389,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
             snapshot_viewers: Default::default(),
@@ -428,6 +432,7 @@ impl ClientRegistry {
                 name: None,
                 kind: None,
                 identity: ClientIdentityWire::default(),
+                remote_device: false,
                 capabilities: HashSet::new(),
                 browser_pointer_owner: None,
                 attached: BTreeMap::new(),
@@ -646,6 +651,8 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
                     || capability == SIZING_VIEW_DETACH_CAPABILITY
+                    || capability == super::SIZE_LEASE_CAPABILITY
+                    || capability == HOST_GRID_VIEW_CAPABILITY
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
@@ -703,6 +710,14 @@ impl ClientRegistry {
         }
     }
 
+    /// Marks the connection as a remote device's lane (`host-size-policy-v1`).
+    pub(super) fn mark_remote_device(&self, client: u64) {
+        let mut state = self.state.lock().recover_poison();
+        if let Some(record) = state.clients.get_mut(&client) {
+            record.remote_device = true;
+        }
+    }
+
     /// The connection's identity for shared sizing. Without explicit
     /// fields it falls back to `name` and a device kind parsed from `kind`.
     pub(crate) fn sizing_identity(&self, client: u64) -> Option<ClientSizingIdentity> {
@@ -715,7 +730,8 @@ impl ClientRegistry {
         if identity.device_kind.is_none() {
             identity.device_kind.clone_from(&record.kind);
         }
-        Some(identity.into_identity())
+        let remote = record.remote_device;
+        Some(ClientSizingIdentity { remote, ..identity.into_identity() })
     }
 
     /// Deliver a `size-state` event on every attach stream of `surface`.
@@ -880,7 +896,7 @@ impl ClientRegistry {
         })
     }
 
-    pub(super) fn supports_capability(&self, client: u64, capability: &str) -> bool {
+    pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
             .recover_poison()

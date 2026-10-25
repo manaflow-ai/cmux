@@ -216,8 +216,11 @@ export interface MailSendParams {
   body: string;
   id: string;
   metadata?: (Record<string, unknown> | null);
-  recipient: string;
+  /** Session recipient for ordinary mail. Omit when `target` is supplied. */
+  recipient?: (string | null);
   sender: string;
+  /** Quiet reports alias (`reports:<person>`). Omit for session mail. */
+  target?: (string | null);
 }
 
 export type MailSendResult = {
@@ -698,6 +701,12 @@ export type SessionSummary = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /**
+   * Who supplied `title`: `prompt` is the first-prompt fallback, while
+   * `harness`, `generated` and `adopted` are real chat titles. Older peers
+   * may omit this field.
+   */
+  titleSource?: (string | null);
   /** The chat's tools (`hub/tools.rs`). */
   tools: ToolSummary[];
   /** `_acpmux/set_tools` can change them. */

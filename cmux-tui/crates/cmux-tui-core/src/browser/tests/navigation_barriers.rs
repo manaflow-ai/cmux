@@ -1036,3 +1036,48 @@ fn response_level_navigation_failure_clears_frame_epoch_reservation() {
     runtime.shutdown();
     server.join().unwrap();
 }
+
+/// tab-attention-v1: the frame and same-document setters move the URL
+/// before any target-info event, so each check asks about the page the tab
+/// is on now; the thread's first check asks even when the URL already moved
+/// (the mark, not the thread, knows which page it was set on).
+#[test]
+fn every_navigation_setter_counts_as_a_page_change_for_the_attention_mark() {
+    let surface = test_surface();
+    let browser = surface.as_browser().expect("browser surface");
+    let mut seen = None;
+    let mut asked: Vec<String> = Vec::new();
+
+    clear_attention_if_page_changed(&mut seen, browser, |url| asked.push(url.to_string()));
+    assert_eq!(seen.as_deref(), Some("https://example.test"), "the first event asks");
+
+    let epoch = browser.frame_epoch.advance_navigation();
+    handle_frame_navigated(browser, json!({"frame": {"url": "https://login.test"}}), epoch);
+    clear_attention_if_page_changed(&mut seen, browser, |url| asked.push(url.to_string()));
+    assert_eq!(seen.as_deref(), Some("https://login.test"), "a frame navigation is a page change");
+
+    let _ = handle_same_document_navigated(
+        browser,
+        &json!({"frameId": "main-frame", "url": "https://login.test/#done"}),
+        browser.frame_epoch.advance_same_document(),
+    );
+    clear_attention_if_page_changed(&mut seen, browser, |url| asked.push(url.to_string()));
+    assert_eq!(
+        seen.as_deref(),
+        Some("https://login.test/#done"),
+        "a same-document navigation is a page change"
+    );
+
+    let _ = browser.set_title("Signed in".to_string());
+    clear_attention_if_page_changed(&mut seen, browser, |url| asked.push(url.to_string()));
+    assert_eq!(
+        seen.as_deref(),
+        Some("https://login.test/#done"),
+        "a title change is not a page change"
+    );
+    assert_eq!(
+        asked,
+        ["https://example.test", "https://login.test", "https://login.test/#done"],
+        "the worker asks the mux to clear once per page, never on a title change"
+    );
+}

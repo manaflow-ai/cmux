@@ -124,7 +124,6 @@ ${tooltips}
     ),
     body: `<div class="acpmux-shell">
 <div class="ui-popup ui-glass acpmux-menu" id="cascade">Model</div>
-<div class="ui-popup ui-glass ui-popover acpmux-context-pop" id="context-pop">Context</div>
 <div class="ui-popup ui-glass acpmux-slash-menu" id="slash">/compact</div>
 <div class="acpmux-composer"><div class="ui-popup ui-glass acpmux-slash-menu acpmux-mention-menu" id="composer-menu">@file</div></div>
 <div class="ui-popup ui-glass ui-picker-popup acpmux-mp" id="model-picker">Models</div>
@@ -144,7 +143,6 @@ ${tooltips}
 ${tooltips}`,
     glass: [
       "cascade",
-      "context-pop",
       "slash",
       // The slash, mention and access menus open inside the composer: never its solid card tint.
       "composer-menu",
@@ -164,7 +162,6 @@ ${tooltips}`,
     ],
     surfaces: [
       "cascade",
-      "context-pop",
       "slash",
       "composer-menu",
       "model-picker",

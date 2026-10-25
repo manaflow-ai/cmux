@@ -196,6 +196,13 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onPointerMoved = newValue }
     }
 
+    /// cmux: the field's height changed, so ``fieldTop`` moved without a size change (a long
+    /// draft, an attachment, a send). The host lays out what it keeps above the field.
+    public var onFieldTopChange: (() -> Void)? {
+        get { controller.onFieldTopChange }
+        set { controller.onFieldTopChange = newValue }
+    }
+
     /// cmux: the link chip under `screenPoint` with its pill's frame on screen, or nil (no chip
     /// there, or the transcript is not in a window). The same hit test as a click.
     public func linkChip(atScreenPoint screenPoint: CGPoint) -> HomeLinkChipHit? {
@@ -425,6 +432,12 @@ public final class MessagesLabHomeView: NSView {
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
+    }
+    /// The words a paste the intake took carries beside its attachments (nil: none): the
+    /// field inserts them at the caret.
+    public var attachmentPasteText: (NSPasteboard) -> String? {
+        get { projection.onAttachmentPasteText }
+        set { projection.onAttachmentPasteText = newValue }
     }
     /// Whether a paste would be taken (types only).
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {

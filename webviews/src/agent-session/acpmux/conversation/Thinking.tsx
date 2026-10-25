@@ -8,7 +8,7 @@
 // output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
-import { useContext, useEffect, useState } from "react";
+import { useContext, useLayoutEffect, useState } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
 import { ShimmerText } from "./ShimmerText";
@@ -22,7 +22,10 @@ export const QUIET_MS = 1200;
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
   const [quiet, setQuiet] = useState(key === undefined);
-  useEffect(() => {
+  // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
+  // Hide the live line before that commit paints; an effect would leave one frame of "Thinking"
+  // underneath the first token. The timer remains an ordinary effect so it never blocks layout.
+  useLayoutEffect(() => {
     if (key === undefined) {
       setQuiet(true);
       return;

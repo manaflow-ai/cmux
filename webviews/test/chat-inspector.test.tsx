@@ -5,10 +5,12 @@
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) across chat panes, floats in the chat's right gutter so it never
-// reflows the chat, pushes the chat aside when the gutter has no room (Settings Push always), so it
-// never lies over the transcript's text, hides a section with nothing in it, and shows five pull
+// default, stays open (or closed) across chat panes, floats outside the chat's layout so it never
+// reflows the chat (the chat's column moves left only when both fit that way; Settings Push always
+// takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
+import { readFileSync } from "node:fs";
+
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -19,6 +21,7 @@ import { ChatHeaderTools } from "../src/agent-session/acpmux/header/ChatHeaderTo
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import {
   ChatInspector,
+  inspectorChatShift,
   pushedWidth,
   pushes,
   useChatInspector,
@@ -165,7 +168,7 @@ async function render(container: HTMLElement, snapshot: AcpmuxSnapshot, opened: 
 }
 
 const toggle = (container: HTMLElement) =>
-  container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Inspector"]');
+  container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Session Info"]');
 const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-chat-inspector");
 const section = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLElement>(`section.acpmux-chat-inspector-section[data-section="${id}"]`);
@@ -183,6 +186,9 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   const opened = await render(container, localChat);
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
   expect(panel(container)).not.toBeNull();
+  expect(panel(container)?.querySelector(".acpmux-chat-inspector__head")).toBeNull();
+  // No x and no band over the first row: the toggle and Esc close it (Leo, 2026-10-24).
+  expect(panel(container)?.querySelector(".acpmux-chat-inspector__close")).toBeNull();
   // The sections in order; ones with nothing to show (no MCP servers, pull requests, processes or
   // subagents) are left out.
   expect(sectionIds(container)).toEqual(["environment", "context", "outputs"]);
@@ -293,19 +299,10 @@ test("the running line's counts open a closed Inspector with Subagents or Backgr
   expect(inspectorState().sections.subagents).toBe(true);
 });
 
-test("it floats in the gutter beside the transcript when there is room and pushes the chat when there is not", async () => {
-  // A 1600px pane: the 800px column leaves a 400px gutter, room for 320px and its two 8px margins.
-  expect(pushes("overlay", 1600, 320)).toBe(false);
-  expect(pushes("overlay", 1600, 384)).toBe(false);
-  expect(pushes("overlay", 1600, 385)).toBe(true);
-  // 1200px: a 225px gutter; 600px: the page edge alone. Unmeasured, it pushes.
-  expect(pushes("overlay", 1200, 320)).toBe(true);
-  expect(pushes("overlay", 600, 320)).toBe(true);
-  expect(pushes("overlay", 0, 320)).toBe(true);
-  // A wider column (the user's Text Width) leaves less gutter.
-  expect(pushes("overlay", 1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(true);
-  // Settings Push always pushes.
-  expect(pushes("push", 1600, 320)).toBe(true);
+test("it floats outside the chat's layout in every pane, and pushes only with Settings Push always", async () => {
+  // Leo, 2026-10-24: "it was never supposed to be a sidebar; y'all kept doing sidebars".
+  expect(pushes("overlay")).toBe(false);
+  expect(pushes("push")).toBe(true);
   // Pushed, it narrows to keep a readable chat and its 8px margin, down to its own narrowest width.
   expect(pushedWidth(1200, 320)).toBe(320);
   expect(pushedWidth(720, 320)).toBe(272);
@@ -315,22 +312,18 @@ test("it floats in the gutter beside the transcript when there is room and pushe
   const container = installDom(true);
   paneWidth = 1600;
   await render(container, localChat);
-  // The default in a wide pane: floating in the gutter, so opening it never reflows the chat.
+  // A wide pane: floating in the gutter, so opening it never reflows the chat.
   expect(panel(container)?.dataset.placement).toBe("overlay");
   expect(panel(container)?.style.width).toBe("320px");
-  // A narrower pane: no room in the gutter, so it pushes the chat aside instead of covering it.
-  await act(async () => {
-    paneWidth = 1200;
-    for (const observer of observers) observer();
-  });
-  expect(panel(container)?.dataset.placement).toBe("push");
-  expect(panel(container)?.style.width).toBe("320px");
-  await act(async () => {
-    paneWidth = 720;
-    for (const observer of observers) observer();
-  });
-  expect(panel(container)?.dataset.placement).toBe("push");
-  expect(panel(container)?.style.width).toBe("272px");
+  // Narrower panes, where it used to take a column: it still floats, at its own width.
+  for (const width of [1200, 720]) {
+    await act(async () => {
+      paneWidth = width;
+      for (const observer of observers) observer();
+    });
+    expect(panel(container)?.dataset.placement).toBe("overlay");
+    expect(panel(container)?.style.width).toBe("320px");
+  }
   // Settings > Agent Chat > Inspector: Push, even in a wide pane.
   await act(async () => {
     paneWidth = 1600;
@@ -342,6 +335,31 @@ test("it floats in the gutter beside the transcript when there is room and pushe
   await act(async () => setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "overlay" }));
   expect(panel(container)?.dataset.placement).toBe("overlay");
   paneWidth = 0;
+});
+
+test("the chat shifts left only when the chat and the panel both fit that way", () => {
+  // Leo, 2026-10-24: "except in the case when both would fit if only the agent pane shifted left".
+  // A 1600px pane's 400px gutter holds 320px and its two 8px margins: nothing moves.
+  expect(inspectorChatShift(1600, 320)).toBe(0);
+  // 1200px: a 225px gutter lacks 111px, which the left gutter has: the column moves left by 111px.
+  expect(inspectorChatShift(1200, 320)).toBe(111);
+  // Where the two gutters together cannot hold it, nothing moves and the panel floats over the chat.
+  expect(inspectorChatShift(720, 320)).toBe(0);
+  expect(inspectorChatShift(0, 320)).toBe(0);
+  // A wider column (the user's Text Width) leaves a 250px gutter: it moves left by the 86px it lacks.
+  expect(inspectorChatShift(1600, 320, { min: 720, max: 1100, share: 1, prose: Infinity })).toBe(86);
+  // A handoff review's 760px form: the shift is measured against the form, so the panel lies over
+  // neither the form nor its fields (1200px: a 220px gutter lacks 116px).
+  expect(inspectorChatShift(1200, 320, undefined, true)).toBe(116);
+  expect(inspectorChatShift(1600, 320, undefined, true)).toBe(0);
+  expect(inspectorChatShift(720, 320, undefined, true)).toBe(0);
+});
+
+test("the overlay handoff honors the app's reduced-motion policy", () => {
+  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  expect(css).toContain("var(--agent-motion-move, var(--cmux-motion-quick, 80ms))");
+  expect(css).toContain(':root[data-cmux-motion="reduced"]');
+  expect(css).toContain(':root[data-cmux-motion="off"]');
 });
 
 test("an output whose diff split leaves no room to push the chat closes the Inspector until the toggle", async () => {
@@ -365,6 +383,25 @@ test("an output whose diff split leaves no room to push the chat closes the Insp
   expect(inspectorState().open).toBe(true);
   await click(toggle(container)!);
   expect(panel(container)).not.toBeNull();
+  paneWidth = 0;
+});
+
+test("floating, an output's diff split beside the chat leaves the Inspector open", async () => {
+  setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "overlay" });
+  const container = installDom(true);
+  paneWidth = 1200;
+  await render(container, localChat);
+  const files = [
+    ...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-row"),
+  ];
+  await click(files[0]!);
+  // The diff opens beside the chat and halves the pane: the floating panel takes no room, so it stays.
+  await act(async () => {
+    paneWidth = 600;
+    for (const observer of observers) observer();
+  });
+  expect(panel(container)?.dataset.placement).toBe("overlay");
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("true");
   paneWidth = 0;
 });
 
@@ -723,7 +760,8 @@ test("with only started chats Subagents is still drawn, and the running line's c
     root = createRoot(container);
     root.render(<Pane snapshot={localChat} onOpenOutput={noop} sessions={sessions} />);
   });
-  expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "outputs"]);
+  // What it made (Outputs) comes before what it runs (Subagents): ChatInspector.tsx RAIL_LAYOUT.
+  expect(sectionIds(container)).toEqual(["environment", "context", "outputs", "subagents"]);
   expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));

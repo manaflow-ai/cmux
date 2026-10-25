@@ -140,7 +140,7 @@ enum WorkspaceVerbHandlers {
             do {
                 let id = try await windows.createWorkspace(spawn, on: daemon, into: target)
                 // The store lists it (its `ws_` id and name) once it applied the create's events.
-                if let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+                if let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "new workspace on machine") }
                 return .success(createdFields(id, on: daemon, services: services))
             } catch {
                 daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")

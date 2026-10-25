@@ -22,13 +22,10 @@ final class CEFVerificationBridge {
     /// The tab's browser exists (`CEFAgentRelay.browserAttached`).
     func attach(_ browser: Int32) {
         guard let tab else { return }
-        let channel = VerificationPageScripts.channel
-        let detector = VerificationPageScripts.detectorScript(post: "\(channel)(JSON.stringify(report))", ready: "typeof \(channel) === 'function'")
-        run([
-            ("Page.enable", [:]),
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": detector, "worldName": VerificationPageScripts.world, "runImmediately": true]),
-            Self.binding,
-        ], browser, tab: tab)
+        let scripts = CEFDocumentScripts(post: .binding).verification.map { script -> (String, [String: Any]) in
+            ("Page.addScriptToEvaluateOnNewDocument", ["source": script.source, "worldName": script.world, "runImmediately": true])
+        }
+        run([("Page.enable", [:])] + scripts + [Self.binding], browser, tab: tab)
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
 
@@ -64,9 +61,12 @@ final class CEFVerificationBridge {
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == VerificationPageScripts.channel
         else { return false }
-        if let payload = params["payload"] as? String, VerificationPageScripts.isWaitingReport(payload) {
-            tab?.emit(.verificationPageWaiting)
-        }
+        if let payload = params["payload"] as? String { report(payload) }
         return true
+    }
+
+    /// The detector's report (a binding payload or a page channel post), untrusted.
+    func report(_ payload: String) {
+        if VerificationPageScripts.isWaitingReport(payload) { tab?.emit(.verificationPageWaiting) }
     }
 }
