@@ -624,6 +624,11 @@ import Testing
         environment["HOME"] = root.path
         environment["CODEX_HOME"] = codexHome.path
         environment["PATH"] = "\(root.path):/usr/bin:/bin"
+        // The assertions read the English catalog value; pin the locale.
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US_POSIX"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "C"
 
         let result = runProcess(
             executablePath: cliPath,
@@ -1155,6 +1160,11 @@ import Testing
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_SURFACE_ID"] = UUID().uuidString
+        // The assertions read the English catalog value; pin the locale.
+        environment["AppleLanguages"] = "(en)"
+        environment["AppleLocale"] = "en_US_POSIX"
+        environment["LANG"] = "en_US.UTF-8"
+        environment["LC_ALL"] = "C"
 
         let result = runProcess(
             executablePath: cliPath,
