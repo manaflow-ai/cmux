@@ -45,6 +45,13 @@ Use from a bench:
     finally:
         app.stop()                        # debug.quit, then the tag's daemons (tag_teardown.py)
 
+A bench writes each measured series as one `cmux-perf-result/v1` file through ``BenchApp.record`` (the build,
+host, display Hz, and the launch's resolved features and safe mode filled in; scripts/perf-lab/perf_result.py loaded
+by file path). It may record after ``stop()``: the features are the snapshot ``launch()`` read.
+
+    app.record("tab-switch", "key_to_frame_ms", "ms", samples, better="lower", engine="chromium",
+               target_ref="tab-switch-p95")
+
 Check a host by hand or from a fleet step (exit 0 when the socket answered and a window is up; one
 `BENCH-LAUNCH {json}` line either way):
 
@@ -62,25 +69,35 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+PERF_LAB = os.path.join(ROOT, "scripts", "perf-lab")
 
-# Variables a bench launch always gets. SHELL: the daemon starts terminals with it (a step has none).
-# CMUX_DEV_BACKEND_MODE: local backend for a DEV build (no dev web server on a fleet host).
-# CMUX_NEXT_AGENT_PANE_MOCK: the agent pane needs no agent login. NO_ACTIVATE: never take focus.
-# SOCKET_MODE automation: a process of the same account (this script) may connect.
-# CHIEF_ISOLATED: the launch never touches the account's Chief state. ACPMUX_AGENT_LAUNCH deny: no real agent.
-BASE_ENV = {
-    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-    "SHELL": "/bin/zsh",
-    "CMUX_DEV_BACKEND_MODE": "local",
-    "CMUX_NEXT_AGENT_PANE_MOCK": "1",
-    "CMUX_NEXT_NO_ACTIVATE": "1",
-    "CMUX_NEXT_SOCKET_MODE": "automation",
-    "CMUX_NEXT_CHIEF_ISOLATED": "1",
-    "ACPMUX_AGENT_LAUNCH": "deny",
-}
+
+def load_by_path(name, path):
+    """The module at `path`, imported as `name` once per process. A bench runs under `python3 -I`, which puts no
+    script folder on sys.path, so the perf-lab modules are loaded by file path."""
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None:
+        raise ImportError(f"bench-launch: no module at {path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module  # before exec: a dataclass resolves its module through sys.modules
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules[name]
+        raise
+    return module
+
+
+# Every switch the bench app gets, with the Swift line that reads it: scripts/perf-lab/bench_env.py. PATH is the
+# process's search path, not a switch.
+bench_env = load_by_path("bench_env", os.path.join(PERF_LAB, "bench_env.py"))
+BASE_ENV = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", **bench_env.fixed_env()}
 # Never passed to the app: NX_REMOTE makes it act as an nx-remote job; the rest name another cmux.
 DROPPED_ENV = ("NX_REMOTE", "CMUX_SOCKET_PATH", "CMUX_SOCKET", "CMUX_TAG", "CMUX_BUNDLE_ID", "CMUX_WORKSPACE_ID",
                "CMUX_SURFACE_ID", "CMUX_PANEL_ID", "CMUX_TAB_ID")
@@ -202,12 +219,152 @@ def tag_of(app):
 def bundle_id(app):
     """The app's own bundle id (Info.plist): `scripts/reload.sh --tag split-spring` makes
     `com.cmuxterm.app.debug.split.spring`, not `...debug.split-spring`, so a script never builds it from the tag."""
+    return info_plist(app).get("CFBundleIdentifier")
+
+
+def info_plist(app):
+    """The app's Info.plist as a dict; {} when it is missing or unreadable."""
     import plistlib
     try:
         with open(os.path.join(os.path.realpath(app), "Contents/Info.plist"), "rb") as f:
-            return plistlib.load(f).get("CFBundleIdentifier")
+            info = plistlib.load(f)
     except (OSError, ValueError):
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+# The text check-no-bench-hooks.sh finds in a bench build's main executable (BenchHooksMarker.swift).
+BENCH_HOOKS_MARKER = b"CMUX_BENCH_HOOKS_BUILD"
+# result-v1's build.measure_version (schemas/perf/result-v1.schema.json): bump it when what BenchApp.record measures,
+# or how, changes, so a step in a series can be told from a harness change. An edit that measures the same is no bump.
+PERF_LAB_MEASURE_VERSION = 1
+# The configs each kind of bundle can be. A bench-hooks executable is `bench` or `bench-checks` (bench plus
+# CMUX_BLOCKING_CHECKS, task 147), and nothing in it tells the two apart.
+BUNDLE_CONFIGS = {"debug": ("debug",), "bench-hooks": ("bench", "bench-checks"), "release": ("release",)}
+
+
+class RecordError(RuntimeError):
+    """``BenchApp.record`` cannot describe a result truthfully (no build sha, an ambiguous config, a host it cannot
+    read, no features snapshot of the launch), so it writes nothing."""
+
+
+def bundle_kind(app, binary):
+    """`debug` when Xcode's `<name>.debug.dylib` is beside the main executable (a Debug build keeps its code there),
+    `bench-hooks` when the executable carries the bench-hooks marker, else `release`."""
+    if glob.glob(os.path.join(app, "Contents/MacOS/*.debug.dylib")):
+        return "debug"
+    import mmap
+    with open(binary, "rb") as f:
+        if os.fstat(f.fileno()).st_size == 0:
+            return "release"
+        with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            return "bench-hooks" if data.find(BENCH_HOOKS_MARKER) >= 0 else "release"
+
+
+def build_config(app, binary, stated=None):
+    """result-v1's build config of the bundle. `stated` (the caller's, for example the story runner's) must be one
+    the bundle can be; a bench-hooks bundle needs it, since `bench` and `bench-checks` results never share a series."""
+    kind = bundle_kind(app, binary)
+    allowed = BUNDLE_CONFIGS[kind]
+    if stated is None and len(allowed) == 1:
+        return allowed[0]
+    if stated is None:
+        raise RecordError(f"bench-launch: {app} is a bench-hooks build: pass build_config='bench' or 'bench-checks'")
+    if stated not in allowed:
+        raise RecordError(f"bench-launch: build_config={stated!r}, but {app} is a {kind} bundle "
+                          f"({' or '.join(allowed)})")
+    return stated
+
+
+def build_sha(app, environ=None):
+    """The full commit the app was built from: its Info.plist `CMUXCommit` (the daily DEV, nightly and release builds
+    stamp it; a short one is resolved in this checkout), else the fleet step's `CMUX_CI_SHA` (the step builds the
+    ref it measures). Never this checkout's HEAD: a bundle built from another commit would land on the wrong point of
+    its series. Raises RecordError when neither names a commit."""
+    environ = os.environ if environ is None else environ
+    sha = str(info_plist(app).get("CMUXCommit") or environ.get("CMUX_CI_SHA") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{40}", sha):
+        return sha
+    if re.fullmatch(r"[0-9a-f]{7,39}", sha):
+        try:
+            full = subprocess.run(["git", "-C", ROOT, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"],
+                                  capture_output=True, text=True, timeout=30).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            full = ""
+        if re.fullmatch(r"[0-9a-f]{40}", full):
+            return full
+        raise RecordError(f"bench-launch: build sha {sha} of {app} is not one commit of {ROOT}")
+    raise RecordError(f"bench-launch: no build sha: {app} has no CMUXCommit and CMUX_CI_SHA is "
+                      + (f"{sha!r}, not a commit" if sha else "unset"))
+
+
+def main_display_hz():
+    """The main display's refresh rate in Hz (CoreGraphics), or None when CoreGraphics does not answer."""
+    try:
+        import ctypes
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+    except OSError:
         return None
+    cg.CGMainDisplayID.restype = ctypes.c_uint32
+    cg.CGDisplayCopyDisplayMode.restype = ctypes.c_void_p
+    cg.CGDisplayCopyDisplayMode.argtypes = [ctypes.c_uint32]
+    cg.CGDisplayModeGetRefreshRate.restype = ctypes.c_double
+    cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
+    cg.CGDisplayModeRelease.argtypes = [ctypes.c_void_p]
+    mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
+    if not mode:
+        return None
+    hz = cg.CGDisplayModeGetRefreshRate(mode)
+    cg.CGDisplayModeRelease(mode)
+    return round(hz) if hz > 0 else None
+
+
+def host_record(chip, memory_bytes, macos, macos_build, display_hz):
+    """result-v1's host block: the fingerprint is the schema's sha256 of (chip, macOS build, Hz, memory), and the class
+    is the store's series-key host part (store.host_class: chip + memory + Hz, no macOS build, so an OS update is a
+    step inside one series). Raises RecordError (env-invalid) when chip, memory or Hz is unknown: zeros would make a
+    series of their own."""
+    missing = [name for name, value in (("chip", chip), ("memory", memory_bytes), ("display Hz", display_hz))
+               if not value]
+    if missing:
+        raise RecordError(f"bench-launch: env-invalid: this host's {', '.join(missing)} could not be read")
+    store = load_by_path("perf_lab_store", os.path.join(PERF_LAB, "store.py"))
+    hz = int(round(display_hz))
+    fingerprint = hashlib.sha256("\0".join(str(v) for v in (chip, macos_build, hz, memory_bytes)).encode())
+    return {"fingerprint": fingerprint.hexdigest(),
+            "class": store.host_class(chip=chip, memory_gb=round(memory_bytes / 2**30), display_hz=hz),
+            "chip": chip, "macos": macos, "macos_build": macos_build, "display_hz": hz}
+
+
+def read_host():
+    """This Mac's host block (``host_record``) from sysctl, sw_vers and CoreGraphics."""
+    def out(*cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+    memory = out("/usr/sbin/sysctl", "-n", "hw.memsize")
+    return host_record(out("/usr/sbin/sysctl", "-n", "machdep.cpu.brand_string") or None,
+                       int(memory) if memory.isdigit() else None,
+                       out("/usr/bin/sw_vers", "-productVersion") or None,
+                       out("/usr/bin/sw_vers", "-buildVersion") or None, main_display_hz())
+
+
+def features_snapshot(reply):
+    """result-v1's (features, features_hash, safe_mode) from the app's `features.list` reply ({"features": [{name,
+    state, source}], "features_hash", "safe_mode"}), each as the app reports it. A build without the method (before
+    p12-perf-process-096) has no feature registry: ({}, None, None). None for any other answer (no socket, an
+    error): the snapshot is unknown."""
+    if not isinstance(reply, dict):
+        return None
+    error = reply.get("error")
+    if isinstance(error, dict) and error.get("code") == "method_not_found":
+        return {}, None, None
+    if error or not isinstance(reply.get("features"), list):
+        return None
+    features = {f["name"]: {"state": f.get("state"), "source": f.get("source")}
+                for f in reply["features"] if isinstance(f, dict) and f.get("name")}
+    return features, reply.get("features_hash"), reply.get("safe_mode")
 
 
 def socket_candidates(tag):
@@ -676,11 +833,21 @@ class BenchApp:
     tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
     and the window list: its failure reports carry `socket_only` and `gui_session`, and its crash or exit is
     reported as such, not as no-gui-session. A bench that measures frames never passes it.
+    For ``record``: `perf_session` is result-v1's session (light, stress or corpus:<id>), `host` reads the host block
+    (default ``read_host``; tests pass their own), `build_config` states the config of a bench-hooks bundle (`bench`
+    or `bench-checks`, checked against the bundle) and `run` is the perf_result.Run every result of this BenchApp
+    names (default a new one at the first record; a controller attempt passes its own id).
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
-                 fresh_state=True):
+                 fresh_state=True, perf_session="light", host=None, build_config=None, run=None):
+        self.perf_session = perf_session
+        self.read_host = host or read_host
+        self.build_config = build_config
+        self.run = run
+        self._build = self._host = None
+        self.features = None  # the last launch's features.list snapshot (features_snapshot), read once it answered
         self.low_power_mode_ok = low_power_mode_ok
         self.fresh_state = fresh_state
         self.app = os.path.realpath(app).rstrip("/")
@@ -740,7 +907,7 @@ class BenchApp:
     def environment(self):
         config_path = os.path.join(self.scratch, "cmux.json")
         with open(config_path, "w") as f:
-            json.dump(self.config, f)
+            json.dump(bench_env.with_config_defaults(self.config), f)  # the bench's own keys win
         ghostty = os.path.join(self.scratch, "ghostty")
         open(ghostty, "a").close()
         env = {"HOME": os.environ.get("HOME", account_home()), "USER": pwd.getpwuid(os.getuid()).pw_name,
@@ -758,6 +925,49 @@ class BenchApp:
 
     def rpc(self, method, params=None, timeout=60):
         return rpc_at(self.socket, method, params, timeout)
+
+    def record(self, story, metric, unit, samples, better, engine, target_ref=None):
+        """Writes one `cmux-perf-result/v1` file (perf_result.write_ndjson) into the out folder; returns its path.
+
+        The build (sha, config, PERF_LAB_MEASURE_VERSION), the host block with its display Hz, and the last launch's
+        resolved features and safe-mode state are filled in here, so no bench reads them on its own. `target_ref` is a
+        targets.json id or a perf_result.TargetRef. Raises RecordError when this BenchApp has no features snapshot
+        (record before launch, or the app did not answer features.list) or no build or host it can name, and
+        perf_result.ResultError on an invalid result (empty samples, an unknown unit or engine); either way nothing
+        is written."""
+        writer = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+        if self.features is None:
+            raise RecordError(f"bench-launch: {self.tag} has no features.list snapshot: record() needs a launch() whose "
+                              "app answered it, and writes no result without its features")
+        if self._build is None:
+            self._build = writer.Build(sha=build_sha(self.app), config=build_config(self.app, self.binary,
+                                                                                    self.build_config),
+                                       measure_version=PERF_LAB_MEASURE_VERSION)
+        if self._host is None:
+            self._host = writer.Host.from_dict(self.read_host())
+        if self.run is None:
+            self.run = writer.Run.start()
+        if isinstance(target_ref, str):
+            target_ref = writer.TargetRef(target=target_ref)
+        features, features_hash, safe_mode = self.features
+        result = writer.Result(story=story, metric=metric, unit=unit, better=better, samples=list(samples),
+                               build=self._build, host=self._host, engine=engine, session=self.perf_session,
+                               run=self.run, target_ref=target_ref,
+                               features={name: writer.Feature(**value) for name, value in features.items()},
+                               features_hash=features_hash, safe_mode=safe_mode)
+        return writer.write_ndjson(self.out, [result], repo_root=ROOT)  # validates first; writes nothing if invalid
+
+    def read_features(self):
+        """The launched app's features.list snapshot (``features_snapshot``), or None with a warning when it gave no
+        usable answer. The snapshot is immutable after launch, so one read stands for the whole process."""
+        reply = self.rpc("features.list", timeout=10)
+        snapshot = features_snapshot(reply)
+        if snapshot is None:
+            note(f"bench-launch: WARNING: {self.tag} gave no features.list snapshot ({json.dumps(reply)[:300]}); "
+                 "record() refuses until a launch reads one")
+        elif snapshot == ({}, None, None):
+            note(f"bench-launch: {self.tag} has no feature registry (no features.list): results record no features")
+        return snapshot
 
     def state_root(self):
         """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
@@ -784,7 +994,9 @@ class BenchApp:
 
         `on_start(process)` runs right after the spawn (a script's own PID list for its cleanup). On a
         failure the report is printed to stdout (a fleet step log is stdout only), then LaunchError is raised.
+        Once `ready` answers, the app's features.list snapshot is read into ``features`` (for ``record``).
         """
+        self.features = None  # an earlier launch's snapshot never describes this process
         session = self.gui_session = self.session()
         if not session["ok"] and not self.socket_only:
             # Without the console session the display does not tick (frame numbers mean nothing); say so now
@@ -846,6 +1058,7 @@ class BenchApp:
                 if isinstance(last, dict) and not last.get("error") and (ready != "debug.windows" or last.get("windows")):
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
+                    self.features = self.read_features()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()

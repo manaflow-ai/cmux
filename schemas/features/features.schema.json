@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/features/features.schema.json",
+  "title": "cmux feature",
+  "description": "One cmux feature: schemas/features/features.d/<name>.json. scripts/cmux-next/gen-features.py validates every file against this schema and writes the Swift (CmuxNextFeatures) and Rust (cmux-features) registries. Modeled on Chromium's base/feature_list.h (BASE_FEATURE), base/metrics/field_trial_params.h (FeatureParam) and the flag expiry of chrome/browser/flag-metadata.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "owner", "description", "defaults", "kind", "process", "params", "stories", "sticky", "runtimeMutable"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": {
+      "description": "lowerCamelCase feature name; the file is features.d/<name>.json. The name is the wire key in flags.json, CMUX_ENABLE_FEATURES and CMUX_DISABLE_FEATURES.",
+      "type": "string",
+      "pattern": "^[a-z][A-Za-z0-9]{1,63}$"
+    },
+    "owner": {
+      "description": "An owner from plans/cmux-next/OWNERS.md (an agent, a workstream or a person, as written in an Owner cell), or a PL-* workstream from plans/cmux-next/perf-lead.md. gen-features.py checks it.",
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001f\"\\\\]{1,80}$"
+    },
+    "description": {
+      "description": "One sentence: what turning the feature on changes for the person.",
+      "type": "string",
+      "pattern": "^[^\\u0000-\\u001f\"\\\\]{8,300}$"
+    },
+    "defaults": {
+      "description": "The channel default (the last step of the resolution order) per build channel.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dev", "nightly", "release"],
+      "properties": {
+        "dev": { "type": "boolean" },
+        "nightly": { "type": "boolean" },
+        "release": { "type": "boolean" }
+      }
+    },
+    "kind": {
+      "description": "perfPath: a performance path that ships behind the feature until it is the default everywhere (needs an expiry and lab stories). killSwitch: a guard that a remote document can turn off. labs: a person-facing experiment on the Labs page.",
+      "enum": ["perfPath", "killSwitch", "labs"]
+    },
+    "expires": {
+      "description": "YYYY-MM-DD. After this day the feature is removed or made permanent. A perfPath feature expires at most 60 days after the day the generator runs.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "process": {
+      "description": "Which process reads the feature. both: the app and the daemon, and the daemon keeps its own value for the session when they differ. chromium: a Chromium base::Feature passed to CEF through --enable-features/--disable-features (disable wins).",
+      "enum": ["app", "daemon", "both", "chromium"]
+    },
+    "chromium_feature": {
+      "description": "The Chromium base::Feature name (for example BackForwardCache). Only with process chromium.",
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]{1,79}$"
+    },
+    "params": {
+      "description": "Typed parameters under the feature (Chromium's base::FeatureParam).",
+      "type": "array",
+      "items": { "$ref": "#/$defs/param" }
+    },
+    "stories": {
+      "description": "Lab stories (scripts/perf-lab/stories.d/<id>.json) that bench both arms of the feature.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" }
+    },
+    "sticky": {
+      "description": "A remote off stays off in safe mode, even when the remote document is dropped.",
+      "type": "boolean"
+    },
+    "runtimeMutable": {
+      "description": "The feature can change while the process runs. True only with teardownTest.",
+      "type": "boolean"
+    },
+    "teardownTest": {
+      "description": "The test that proves the live teardown path, as Target.Suite/testName (Swift: a test method of type Suite in Tests/<Target>/) or crate::module::test (Rust: a #[test] fn in that module of the cmux-tui crate; tests/<file>.rs is crate::<file>).",
+      "type": "string",
+      "pattern": "^(?:[A-Za-z_][A-Za-z0-9_]{0,79}\\.[A-Za-z_][A-Za-z0-9_]{0,79}/[A-Za-z_][A-Za-z0-9_]{0,79}|[a-z_][a-z0-9_]{0,63}(?:::[A-Za-z_][A-Za-z0-9_]{0,79}){1,8})$"
+    },
+    "replaces": {
+      "description": "Debug tunable keys and env switches this feature took over (gen-features.py --unmigrated stops listing them).",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.]{1,99}$" }
+    }
+  },
+  "allOf": [
+    {
+      "description": "a perfPath feature needs an expiry and at least one lab story",
+      "if": { "required": ["kind"], "properties": { "kind": { "const": "perfPath" } } },
+      "then": { "required": ["expires", "stories"], "properties": { "stories": { "minItems": 1 } } }
+    },
+    {
+      "description": "a runtimeMutable feature needs the test of its live teardown path",
+      "if": { "required": ["runtimeMutable"], "properties": { "runtimeMutable": { "const": true } } },
+      "then": { "required": ["teardownTest"] }
+    },
+    {
+      "description": "chromium_feature goes with process chromium, and only there",
+      "if": { "required": ["process"], "properties": { "process": { "const": "chromium" } } },
+      "then": { "required": ["chromium_feature"] },
+      "else": { "not": { "required": ["chromium_feature"] } }
+    }
+  ],
+  "$defs": {
+    "param": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "default", "description"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]{1,63}$" },
+        "type": {
+          "description": "int, double, duration (seconds) or bool.",
+          "enum": ["int", "double", "duration", "bool"]
+        },
+        "default": { "type": ["number", "boolean"] },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "description": { "type": "string", "pattern": "^[^\\u0000-\\u001f\"\\\\]{4,300}$" },
+        "replaces": {
+          "description": "The numeric Debug tunable key this param took over (gen-features.py --unmigrated-params stops listing it).",
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.]{1,99}$"
+        }
+      },
+      "allOf": [
+        {
+          "description": "a bool param has a boolean default and no range",
+          "if": { "required": ["type"], "properties": { "type": { "const": "bool" } } },
+          "then": {
+            "properties": { "default": { "type": "boolean" } },
+            "not": { "anyOf": [{ "required": ["min"] }, { "required": ["max"] }] }
+          },
+          "else": { "required": ["min", "max"], "properties": { "default": { "type": "number" } } }
+        },
+        {
+          "description": "an int param has an integer default and range",
+          "if": { "required": ["type"], "properties": { "type": { "const": "int" } } },
+          "then": {
+            "properties": { "default": { "type": "integer" }, "min": { "type": "integer" }, "max": { "type": "integer" } }
+          }
+        }
+      ]
+    }
+  }
+}

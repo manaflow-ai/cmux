@@ -1,0 +1,424 @@
+//! Checked forms of the blocking std primitives. Each one checks the current
+//! thread with [`assert_blocking_allowed`] at the caller's location, then makes
+//! the std call unchanged, so call sites swap `std::fs::read` for
+//! `checked::fs::read` and nothing else. As in Chrome, the blocking API makes
+//! its own `ScopedBlockingCall`; callers do not wrap it.
+
+use crate::blocking::{BlockingKind, assert_blocking_allowed};
+use std::future::Future;
+
+/// File-system calls ([`BlockingKind::Fs`]).
+pub mod fs {
+    use super::{BlockingKind, assert_blocking_allowed};
+    use std::fs::{self, File, Metadata, OpenOptions, Permissions, ReadDir};
+    use std::io;
+    use std::path::{Path, PathBuf};
+
+    macro_rules! checked_fs {
+        ($( $(#[$doc:meta])* fn $name:ident($($arg:ident: $ty:ty),*) -> $ret:ty = $call:path; )*) => {
+            $(
+                $(#[$doc])*
+                #[track_caller]
+                pub fn $name($($arg: $ty),*) -> $ret {
+                    assert_blocking_allowed(BlockingKind::Fs);
+                    $call($($arg),*)
+                }
+            )*
+        };
+    }
+
+    checked_fs! {
+        /// `std::fs::read`.
+        fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> = fs::read;
+        /// `std::fs::read_to_string`.
+        fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> = fs::read_to_string;
+        /// `std::fs::write`.
+        fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> = fs::write;
+        /// `std::fs::create_dir`.
+        fn create_dir(path: impl AsRef<Path>) -> io::Result<()> = fs::create_dir;
+        /// `std::fs::create_dir_all`.
+        fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> = fs::create_dir_all;
+        /// `std::fs::remove_file`.
+        fn remove_file(path: impl AsRef<Path>) -> io::Result<()> = fs::remove_file;
+        /// `std::fs::remove_dir`.
+        fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> = fs::remove_dir;
+        /// `std::fs::remove_dir_all`.
+        fn remove_dir_all(path: impl AsRef<Path>) -> io::Result<()> = fs::remove_dir_all;
+        /// `std::fs::rename`.
+        fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> = fs::rename;
+        /// `std::fs::copy`.
+        fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> = fs::copy;
+        /// `std::fs::hard_link`.
+        fn hard_link(original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> = fs::hard_link;
+        /// `std::fs::metadata`.
+        fn metadata(path: impl AsRef<Path>) -> io::Result<Metadata> = fs::metadata;
+        /// `std::fs::symlink_metadata`.
+        fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<Metadata> = fs::symlink_metadata;
+        /// `std::fs::exists`.
+        fn exists(path: impl AsRef<Path>) -> io::Result<bool> = fs::exists;
+        /// `std::fs::read_dir`.
+        fn read_dir(path: impl AsRef<Path>) -> io::Result<ReadDir> = fs::read_dir;
+        /// `std::fs::read_link`.
+        fn read_link(path: impl AsRef<Path>) -> io::Result<PathBuf> = fs::read_link;
+        /// `std::fs::canonicalize`.
+        fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> = fs::canonicalize;
+        /// `std::fs::set_permissions`.
+        fn set_permissions(path: impl AsRef<Path>, permissions: Permissions) -> io::Result<()> = fs::set_permissions;
+        /// `File::open`.
+        fn open(path: impl AsRef<Path>) -> io::Result<File> = File::open;
+        /// `File::create`.
+        fn create(path: impl AsRef<Path>) -> io::Result<File> = File::create;
+        /// `File::sync_all`.
+        fn sync_all(file: &File) -> io::Result<()> = File::sync_all;
+        /// `File::sync_data`.
+        fn sync_data(file: &File) -> io::Result<()> = File::sync_data;
+    }
+
+    /// `OpenOptions::open`.
+    #[track_caller]
+    pub fn open_with(options: &OpenOptions, path: impl AsRef<Path>) -> io::Result<File> {
+        assert_blocking_allowed(BlockingKind::Fs);
+        options.open(path)
+    }
+}
+
+/// Child processes ([`BlockingKind::ProcessSpawn`], [`BlockingKind::ProcessWait`]).
+pub mod process {
+    use super::{BlockingKind, assert_blocking_allowed};
+    use std::io;
+    use std::process::{Child, Command, ExitStatus, Output};
+
+    /// `Command::spawn`.
+    #[track_caller]
+    pub fn spawn(command: &mut Command) -> io::Result<Child> {
+        assert_blocking_allowed(BlockingKind::ProcessSpawn);
+        command.spawn()
+    }
+
+    /// `Command::output`: spawns and waits.
+    #[track_caller]
+    pub fn output(command: &mut Command) -> io::Result<Output> {
+        assert_blocking_allowed(BlockingKind::ProcessWait);
+        command.output()
+    }
+
+    /// `Command::status`: spawns and waits.
+    #[track_caller]
+    pub fn status(command: &mut Command) -> io::Result<ExitStatus> {
+        assert_blocking_allowed(BlockingKind::ProcessWait);
+        command.status()
+    }
+
+    /// `Child::wait`.
+    #[track_caller]
+    pub fn wait(child: &mut Child) -> io::Result<ExitStatus> {
+        assert_blocking_allowed(BlockingKind::ProcessWait);
+        child.wait()
+    }
+
+    /// `Child::wait_with_output`.
+    #[track_caller]
+    pub fn wait_with_output(child: Child) -> io::Result<Output> {
+        assert_blocking_allowed(BlockingKind::ProcessWait);
+        child.wait_with_output()
+    }
+}
+
+/// Channel, thread and condition-variable waits, and sleep.
+pub mod sync {
+    use super::{BlockingKind, assert_blocking_allowed};
+    use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError};
+    use std::sync::{Condvar, LockResult, MutexGuard, WaitTimeoutResult};
+    use std::thread::JoinHandle;
+    use std::time::Duration;
+
+    /// `Receiver::recv` ([`BlockingKind::Recv`]).
+    #[track_caller]
+    pub fn recv<T>(receiver: &Receiver<T>) -> Result<T, RecvError> {
+        assert_blocking_allowed(BlockingKind::Recv);
+        receiver.recv()
+    }
+
+    /// `Receiver::recv_timeout` ([`BlockingKind::Recv`]).
+    #[track_caller]
+    pub fn recv_timeout<T>(
+        receiver: &Receiver<T>,
+        timeout: Duration,
+    ) -> Result<T, RecvTimeoutError> {
+        assert_blocking_allowed(BlockingKind::Recv);
+        receiver.recv_timeout(timeout)
+    }
+
+    /// `JoinHandle::join` ([`BlockingKind::Join`]).
+    #[track_caller]
+    pub fn join<T>(handle: JoinHandle<T>) -> std::thread::Result<T> {
+        assert_blocking_allowed(BlockingKind::Join);
+        handle.join()
+    }
+
+    /// `Condvar::wait` ([`BlockingKind::CondvarWait`]).
+    #[track_caller]
+    pub fn wait<'a, T>(
+        condvar: &Condvar,
+        guard: MutexGuard<'a, T>,
+    ) -> LockResult<MutexGuard<'a, T>> {
+        assert_blocking_allowed(BlockingKind::CondvarWait);
+        condvar.wait(guard)
+    }
+
+    /// `Condvar::wait_while` ([`BlockingKind::CondvarWait`]).
+    #[track_caller]
+    pub fn wait_while<'a, T>(
+        condvar: &Condvar,
+        guard: MutexGuard<'a, T>,
+        condition: impl FnMut(&mut T) -> bool,
+    ) -> LockResult<MutexGuard<'a, T>> {
+        assert_blocking_allowed(BlockingKind::CondvarWait);
+        condvar.wait_while(guard, condition)
+    }
+
+    /// `Condvar::wait_timeout` ([`BlockingKind::CondvarWait`]).
+    #[track_caller]
+    pub fn wait_timeout<'a, T>(
+        condvar: &Condvar,
+        guard: MutexGuard<'a, T>,
+        timeout: Duration,
+    ) -> LockResult<(MutexGuard<'a, T>, WaitTimeoutResult)> {
+        assert_blocking_allowed(BlockingKind::CondvarWait);
+        condvar.wait_timeout(guard, timeout)
+    }
+
+    /// `std::thread::sleep` ([`BlockingKind::Sleep`]).
+    #[track_caller]
+    pub fn sleep(duration: Duration) {
+        assert_blocking_allowed(BlockingKind::Sleep);
+        std::thread::sleep(duration);
+    }
+}
+
+/// Runs `future` to completion on this thread, parking between polls
+/// ([`BlockingKind::BlockOn`]). Runtime-specific forms (tokio) wrap their own
+/// `block_on` in [`crate::blocking::scoped_blocking_call`] with the same kind.
+#[track_caller]
+pub fn block_on<F: Future>(future: F) -> F::Output {
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+
+    struct ParkedThread(std::thread::Thread);
+
+    impl Wake for ParkedThread {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+
+        fn wake_by_ref(self: &Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+
+    assert_blocking_allowed(BlockingKind::BlockOn);
+    let waker = Waker::from(Arc::new(ParkedThread(std::thread::current())));
+    let mut context = Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(output) => return output,
+            Poll::Pending => std::thread::park(),
+        }
+    }
+}
+
+/// A cross-process round trip: a request to the holder, terminal host or
+/// browser host and the wait for its reply ([`BlockingKind::IpcReply`]). No
+/// allowance permits it on a disallowed thread.
+#[track_caller]
+pub fn ipc_reply<R>(round_trip: impl FnOnce() -> R) -> R {
+    assert_blocking_allowed(BlockingKind::IpcReply);
+    round_trip()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blocking::{
+        AllowReason, BlockingMode, allow_blocking, disallow_blocking, set_mode, snapshot,
+    };
+    use std::sync::{Arc, Condvar, Mutex, mpsc};
+    use std::time::Duration;
+
+    fn manifest() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")
+    }
+
+    fn count_at(line: u32) -> u64 {
+        snapshot().site(file!(), line).map_or(0, |site| site.count)
+    }
+
+    fn kinds_at(line: u32) -> Vec<BlockingKind> {
+        snapshot().site(file!(), line).map(|site| site.kinds.iter().collect()).unwrap_or_default()
+    }
+
+    fn run_on<R: Send + 'static>(disallowed: bool, f: impl FnOnce() -> R + Send + 'static) -> R {
+        set_mode(BlockingMode::Record);
+        std::thread::spawn(move || {
+            if disallowed {
+                disallow_blocking();
+            }
+            f()
+        })
+        .join()
+        .expect("test thread")
+    }
+
+    #[test]
+    fn checked_read_records_one_site_on_a_disallowed_thread() {
+        let path = manifest();
+        let (line, bytes) = run_on(true, move || {
+            let line = line!() + 1;
+            let bytes = fs::read(&path).expect("read manifest");
+            (line, bytes)
+        });
+        assert!(!bytes.is_empty(), "the checked read still reads");
+        assert_eq!(count_at(line), 1);
+        assert_eq!(kinds_at(line), vec![BlockingKind::Fs]);
+    }
+
+    #[test]
+    fn checked_read_records_nothing_on_an_ordinary_thread() {
+        let path = manifest();
+        let line = run_on(false, move || {
+            let line = line!() + 1;
+            fs::read(&path).expect("read manifest");
+            line
+        });
+        assert_eq!(count_at(line), 0);
+    }
+
+    #[test]
+    fn checked_read_under_shutdown_allowance_records_nothing() {
+        let path = manifest();
+        let line = run_on(true, move || {
+            allow_blocking(AllowReason::Shutdown, || {
+                let line = line!() + 1;
+                fs::read_to_string(&path).expect("read manifest");
+                line
+            })
+        });
+        assert_eq!(count_at(line), 0);
+    }
+
+    #[test]
+    fn sync_waits_record_their_kinds() {
+        let lines = run_on(true, || {
+            let (tx, rx) = mpsc::channel();
+            tx.send(1).expect("send");
+            let recv_line = line!() + 1;
+            assert_eq!(sync::recv(&rx), Ok(1));
+            let timeout_line = line!() + 1;
+            assert!(sync::recv_timeout(&rx, Duration::from_millis(1)).is_err());
+
+            let handle = std::thread::spawn(|| 7);
+            let join_line = line!() + 1;
+            assert_eq!(sync::join(handle).expect("join"), 7);
+
+            let pair = Arc::new((Mutex::new(false), Condvar::new()));
+            let notifier = Arc::clone(&pair);
+            std::thread::spawn(move || {
+                *notifier.0.lock().expect("lock") = true;
+                notifier.1.notify_all();
+            });
+            let guard = pair.0.lock().expect("lock");
+            let wait_line = line!() + 1;
+            let guard = sync::wait_while(&pair.1, guard, |ready| !*ready).expect("wait");
+            assert!(*guard);
+            drop(guard);
+
+            let sleep_line = line!() + 1;
+            sync::sleep(Duration::from_millis(1));
+            [recv_line, timeout_line, join_line, wait_line, sleep_line]
+        });
+        let expected = [
+            BlockingKind::Recv,
+            BlockingKind::Recv,
+            BlockingKind::Join,
+            BlockingKind::CondvarWait,
+            BlockingKind::Sleep,
+        ];
+        for (line, kind) in lines.into_iter().zip(expected) {
+            assert_eq!(count_at(line), 1, "{kind:?} at line {line}");
+            assert_eq!(kinds_at(line), vec![kind], "line {line}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn process_wait_records_process_wait() {
+        let (line, ok) = run_on(true, || {
+            let line = line!() + 1;
+            let status = process::status(
+                std::process::Command::new("true").stdout(std::process::Stdio::null()),
+            );
+            (line, status.map(|status| status.success()).unwrap_or(false))
+        });
+        assert!(ok);
+        assert_eq!(kinds_at(line), vec![BlockingKind::ProcessWait]);
+    }
+
+    #[test]
+    fn block_on_drives_a_future_woken_from_another_thread() {
+        struct Flag {
+            ready: Arc<Mutex<Option<std::task::Waker>>>,
+            done: Arc<std::sync::atomic::AtomicBool>,
+        }
+        impl Future for Flag {
+            type Output = u32;
+            fn poll(
+                self: std::pin::Pin<&mut Self>,
+                cx: &mut std::task::Context<'_>,
+            ) -> std::task::Poll<u32> {
+                // Store the waker before reading the flag, so a wake can never be lost.
+                *self.ready.lock().expect("lock") = Some(cx.waker().clone());
+                if self.done.load(std::sync::atomic::Ordering::Acquire) {
+                    return std::task::Poll::Ready(42);
+                }
+                std::task::Poll::Pending
+            }
+        }
+
+        let (line, value) = run_on(true, || {
+            let ready = Arc::new(Mutex::new(None::<std::task::Waker>));
+            let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let (waker_slot, done_flag) = (Arc::clone(&ready), Arc::clone(&done));
+            let (tx, rx) = mpsc::channel::<()>();
+            std::thread::spawn(move || {
+                rx.recv().expect("first poll happened");
+                done_flag.store(true, std::sync::atomic::Ordering::Release);
+                if let Some(waker) = waker_slot.lock().expect("lock").take() {
+                    waker.wake();
+                }
+            });
+            let started = async move {
+                tx.send(()).expect("signal");
+                Flag { ready, done }.await
+            };
+            let line = line!() + 1;
+            let value = block_on(started);
+            (line, value)
+        });
+        assert_eq!(value, 42);
+        assert_eq!(kinds_at(line), vec![BlockingKind::BlockOn]);
+    }
+
+    #[test]
+    fn ipc_reply_has_no_allowance() {
+        let line = run_on(true, || {
+            allow_blocking(AllowReason::Shutdown, || {
+                let line = line!() + 1;
+                ipc_reply(|| ());
+                line
+            })
+        });
+        assert_eq!(count_at(line), 1);
+        assert_eq!(kinds_at(line), vec![BlockingKind::IpcReply]);
+    }
+}
