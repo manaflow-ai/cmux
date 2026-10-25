@@ -167,7 +167,14 @@ function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
   return (
-    <McpCallDetails id={id} call={call} raw={mcpRawName(tool, call)} output={tool.output} strip={false} reveal={reveal} />
+    <McpCallDetails
+      id={id}
+      call={call}
+      raw={mcpRawName(tool, call)}
+      output={tool.output}
+      strip={false}
+      reveal={reveal}
+    />
   );
 }
 
