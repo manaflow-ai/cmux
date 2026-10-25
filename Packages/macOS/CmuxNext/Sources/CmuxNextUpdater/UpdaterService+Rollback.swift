@@ -28,8 +28,8 @@ enum KeepState {
 extension UpdaterService {
     /// Previous versions this app keeps (`updates.keepPreviousVersions`).
     public var keptVersions: KeptVersionStore {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let root = support.appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)
+        let root = keptVersionsRoot ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)
         return KeptVersionStore(root: root, teamID: { UpdateDropBack.signingTeam(of: $0) })
     }
 
@@ -40,7 +40,7 @@ extension UpdaterService {
     func keepRunningBuildForRollback() {
         guard keptRunningBuild == nil else { return }
         keptRunningBuild = .running
-        let store = keptVersions, bundle = Bundle.main.bundleURL, build = identity.build, limit = preferences.keepPreviousVersions
+        let store = keptVersions, bundle = runningBundle, build = identity.build, limit = preferences.keepPreviousVersions
         let log = log
         let work = work
         // task-owner: one clone that ends by itself; the install waits for nothing it does. The clone and the
@@ -76,7 +76,7 @@ extension UpdaterService {
     public func updaterWillInstallUpdate(build: String) {
         guard keptRunningBuild != .kept else { return }
         do {
-            try keptVersions.keep(bundle: Bundle.main.bundleURL, build: identity.build, limit: preferences.keepPreviousVersions)
+            try keptVersions.keep(bundle: runningBundle, build: identity.build, limit: preferences.keepPreviousVersions)
             log.append("kept \(identity.build) for rollback before installing \(build)")
         } catch {
             log.append("could not keep \(identity.build) for rollback: \(error)")

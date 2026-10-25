@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import Foundation
+import CmuxNextWakeups
 
 /// The way back from a faster ring (``RingReturn``): read on demand when the Channels card
 /// shows a ring, and taken by the card's Go Back button through the one drop-back path
@@ -13,7 +14,8 @@ extension UpdaterService {
         var feedIdentity = identity
         if let testFeedURL { feedIdentity.infoFeedURL = testFeedURL }
         guard let offered = try? await prober.offered(feedIdentity, allowedChannels: allowed) else { return .none }
-        let kept = await Task.detached { [keptVersions] in keptVersions.list() }.value
+        // A directory listing and a read of each kept bundle's Info.plist: the updater's files lane.
+        let kept = (try? await work.run(.userVisible, mayBlock: .files) { [keptVersions] in keptVersions.list() }) ?? []
         let folder = changelogNotes.map { Self.channelFolder(notesBase: $0.notesBase) }
         var promoted: Set<String> = []
         if ring == .nightly {

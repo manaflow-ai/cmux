@@ -95,6 +95,10 @@ public final class UpdaterService {
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
+    /// Where kept versions live; nil is `Application Support/cmux-next/<bundle id>/versions`.
+    let keptVersionsRoot: URL?
+    /// The bundle a keep copies (the running app's; tests pass a folder of their own).
+    let runningBundle: URL
     @ObservationIgnored var keepTask: Task<Void, Never>?
     /// The click that installs, before Sparkle takes over (set by the App:
     /// the windows go at once). ``installAbandoned`` undoes it when the
@@ -197,6 +201,9 @@ public final class UpdaterService {
     ///   release identity (tests, demos).
     /// - Parameter recordsUpdates: false neither writes nor reads the update
     ///   record What's New shows after an update (tests, demos).
+    /// - Parameter keptVersionsRoot: where kept versions live; nil (the default) is the app's
+    ///   Application Support folder. Tests pass a temporary folder.
+    /// - Parameter runningBundle: the bundle a keep for rollback copies; default the running app.
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -206,9 +213,12 @@ public final class UpdaterService {
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock(),
-                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater")) {
+                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.updater"),
+                keptVersionsRoot: URL? = nil, runningBundle: URL = Bundle.main.bundleURL) {
         self.now = now
         self.work = work
+        self.keptVersionsRoot = keptVersionsRoot
+        self.runningBundle = runningBundle
         cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
         installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
         snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)

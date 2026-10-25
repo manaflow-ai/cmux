@@ -1,5 +1,6 @@
 import CmuxUpdater
 public import Foundation
+import CmuxNextWakeups
 
 /// The channels view's data (Settings > Updates): every ring's recent builds with their canary
 /// verdicts and pulls, which one this Mac runs, and which it kept for rollback. Read on demand,
@@ -13,7 +14,10 @@ extension UpdaterService {
         let folder = store.map { Self.channelFolder(notesBase: $0.notesBase) }
         let limit = max(0, limit)
         let recent = Array(index.prefix(limit))
-        let kept = await Task.detached { [keptVersions] in Set(keptVersions.list().map(\.build)) }.value
+        // A directory listing and a read of each kept bundle's Info.plist: the updater's files lane.
+        let kept = (try? await work.run(.userVisible, mayBlock: .files) { [keptVersions] in
+            Set(keptVersions.list().map(\.build))
+        }) ?? []
         async let verdicts = Self.verdicts(for: recent.map(\.build), in: folder)
         async let pulled = Self.pulled(in: folder)
         return ChannelTrack.tracks(index: recent, verdicts: await verdicts, pulled: await pulled,
