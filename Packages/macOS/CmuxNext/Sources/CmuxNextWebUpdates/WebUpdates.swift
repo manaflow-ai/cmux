@@ -162,6 +162,8 @@ public final class WebUpdates {
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
         let reloaded = WebBundleServedViews.shared.reloadServed()
+        // A swap back to the bundled pages (no version) clears an unseen note of an earlier one.
+        if reloaded > 0 { unseenNote = nil }
         if reloaded > 0, let version { note(WebUpdateStrings.updated(toCommit: version.commit)) }
         return reloaded
     }
