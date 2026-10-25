@@ -61,7 +61,7 @@ public struct CloudPaths: Sendable {
         }
         // The hub's config now travels on stdin; an earlier build's file copy of it (with the
         // private key) goes.
-        try? FileManager.default.removeItem(at: legacyWireGuardConfig)
+        try? FileManager.checked.removeItem(at: legacyWireGuardConfig)
     }
 
     /// Writes `text` atomically with mode 0600.
