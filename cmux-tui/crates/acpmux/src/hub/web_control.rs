@@ -176,7 +176,7 @@ impl Hub {
         device: Option<&str>,
     ) -> Result<(), RpcError> {
         self.web_control_check(session, control)?;
-        self.full_access_hold(session, &session.meta(), control, device)?;
+        self.full_access_hold(&session.meta(), control, device)?;
         if control != Control::Web {
             return Ok(());
         }
@@ -214,7 +214,7 @@ impl Hub {
         let refused = {
             let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             self.web_control_verdict(session, &m, control)
-                .and_then(|()| self.full_access_hold(session, &m, control, device))
+                .and_then(|()| self.full_access_hold(&m, control, device))
                 .err()
         };
         let refused = match refused {
@@ -244,7 +244,6 @@ impl Hub {
     /// a queued prompt's dispatch. The shared dashboard token and every other machine are refused.
     pub(crate) fn full_access_hold(
         &self,
-        _session: &Session,
         meta: &crate::store::SessionMeta,
         control: Control,
         device: Option<&str>,
@@ -253,7 +252,8 @@ impl Hub {
             return Ok(());
         }
         // The config being written: the strictest default, so the chat counts as held.
-        let default = self.config.try_read().map_or(PermissionPolicy::DenyAll, |c| c.permission_policy);
+        let default =
+            self.config.try_read().map_or(PermissionPolicy::DenyAll, |c| c.permission_policy);
         if !super::policy_mode::out_of_policy(meta, default, &self.web_modes())
             || device.is_some_and(|d| self.pairing.full_access(d))
         {

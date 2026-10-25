@@ -455,7 +455,8 @@ pub(super) fn out_of_policy(
     }
     let family = crate::web_modes::family_of(meta);
     let offered = super::start_mode::offered_ids(meta);
-    narrow_policy(meta, default).is_some_and(|policy| policy_mode(policy, &family, &offered).is_some())
+    narrow_policy(meta, default)
+        .is_some_and(|policy| policy_mode(policy, &family, &offered).is_some())
         && crate::web_modes::mode_of(meta)
             .is_some_and(|mode| !super::start_mode::asks_in(&mode, &family, table.modes(&family)))
 }

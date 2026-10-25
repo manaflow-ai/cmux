@@ -287,8 +287,17 @@ impl Hub {
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
         let text = prompt_text(&blocks);
-        if let Err(e) =
-            self.check_dispatch(session, control, trust_gate, device.as_deref(), &prompt_id, &turn_id, client).await
+        if let Err(e) = self
+            .check_dispatch(
+                session,
+                control,
+                trust_gate,
+                device.as_deref(),
+                &prompt_id,
+                &turn_id,
+                client,
+            )
+            .await
         {
             drop(guard);
             return Err(e);
@@ -377,8 +386,17 @@ impl Hub {
         let control = session.turn().map_or(control, |t| t.control);
         // Starting the agent may have changed its mode (a spawn, a resume, a
         // pool claim, a replayed config): checked again before the prompt.
-        if let Err(e) =
-            self.check_dispatch(session, control, trust_gate, device.as_deref(), &prompt_id, &turn_id, client).await
+        if let Err(e) = self
+            .check_dispatch(
+                session,
+                control,
+                trust_gate,
+                device.as_deref(),
+                &prompt_id,
+                &turn_id,
+                client,
+            )
+            .await
         {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
