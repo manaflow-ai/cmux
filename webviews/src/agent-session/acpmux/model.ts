@@ -761,7 +761,10 @@ function activityStepHeight(item: AcpmuxActivity): number {
     if ((subsession.tool === "wait" || subsession.tool === "list") && !subsession.running)
       return Math.max(
         40,
-        subsession.sessions.reduce((sum, session) => sum + 60 + (session.reply && session.state !== "working" ? 56 : 0), 0) + TOOL_ROW_HEIGHT,
+        subsession.sessions.reduce(
+          (sum, session) => sum + 60 + (session.reply && session.state !== "working" ? 56 : 0),
+          0,
+        ) + TOOL_ROW_HEIGHT,
       );
     if (subsession.tool === "start" && subsession.prompt) return 120;
     return 40;
