@@ -130,8 +130,8 @@ export const SubagentTray = memo(function SubagentTray({
   const title =
     [
       working ? running > 0 && t("subagents.allRunning", { n: running }) : items.length > 0 && t("bgWork.running"),
-      !working && subagents > 0 && t("subagents.count", { n: subagents }),
-      working && waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
+      !working && running > 0 && t("subagents.count", { n: running }),
+      waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
       commands > 0 && t("turn.working.commands", { n: commands }),
     ]
       .filter((part): part is string => typeof part === "string")

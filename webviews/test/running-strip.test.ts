@@ -142,7 +142,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         const listHeight = await page.$eval(".acpmux-running-tray__list", (list) => list.clientHeight);
         await page.hover(listHeight > 0 ? ".acpmux-running-tray__list" : ".acpmux-running-tray__head");
         for (let step = 0; step < 20; step += 1) await page.mouse.wheel(0, 800);
-        const state = await page.evaluate(() => {
+        const state = await page.evaluate((h) => {
           const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
           const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
           const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
@@ -153,14 +153,14 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!.getBoundingClientRect();
           return {
             moreInside: more.height > 20 && more.bottom <= box.bottom + 0.5,
-            // Where the pane leaves the list no room at all it has nothing to scroll.
-            listScrolled: list.clientHeight === 0 || list.scrollTop > 0,
+            // The list really scrolls wherever it has room; at the tightest squeeze it may have none.
+            listScrolled: list.scrollHeight > list.clientHeight && (list.clientHeight === 0 ? h === 72 : list.scrollTop > 0),
             trayScroll: tray.scrollTop,
             headTop: rect.top - box.top,
             headHeight: rect.height,
             headDrawn: !!hit && head.contains(hit),
           };
-        });
+        }, height);
         expect(state.listScrolled).toBe(true);
         expect(state.trayScroll).toBe(0);
         expect(state.headTop).toBeCloseTo(0, 0);
