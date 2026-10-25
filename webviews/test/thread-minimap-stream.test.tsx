@@ -152,9 +152,12 @@ test("a token streaming into the last reply of a 300-prompt chat builds no tick 
   try {
     let reply = "Streaming";
     await render(reply);
-    expect(host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
-    // The rail drew each tick once.
-    expect(labels).toBeGreaterThanOrEqual(PROMPTS);
+    // The rail draws the ticks in its view and some past each edge (tickWindow.ts), not all 300.
+    const drawn = host.querySelectorAll("[data-tick]").length;
+    expect(drawn).toBeGreaterThan(0);
+    expect(drawn).toBeLessThan(PROMPTS);
+    // The rail drew each of them once.
+    expect(labels).toBeGreaterThanOrEqual(drawn);
     const perToken: number[] = [];
     for (let token = 0; token < 20; token += 1) {
       reply += ` word${token}`;
@@ -164,7 +167,7 @@ test("a token streaming into the last reply of a 300-prompt chat builds no tick 
     }
     // No tick is built again for a token: the ticks show the prompts, and no prompt changed.
     expect(Math.max(...perToken)).toBe(0);
-    expect(host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
+    expect(host.querySelectorAll("[data-tick]").length).toBe(drawn);
 
     // The card still previews the reply as it streams.
     const last = host.querySelector<HTMLElement>(`[data-tick="${PROMPTS - 1}"]`)!;
@@ -196,13 +199,17 @@ test("a new prompt adds its tick, and the earlier ones keep theirs", async () =>
     );
   try {
     await render(rows);
-    const before = [...host.querySelectorAll("[data-tick]")];
+    const ticks = () =>
+      new Map([...host.querySelectorAll<HTMLElement>("[data-tick]")].map((node) => [node.dataset.tick, node]));
+    const before = ticks();
     await render([...rows, row(`user-${PROMPTS + 1}`, "user", "One more question")]);
-    expect(host.querySelectorAll("[data-tick]").length).toBe(PROMPTS + 1);
     expect(host.querySelector(`[data-tick="${PROMPTS}"]`)?.getAttribute("aria-label")).toContain("One more question");
-    // Every earlier tick is the same element.
-    const after = [...host.querySelectorAll("[data-tick]")].slice(0, PROMPTS);
-    expect(after.every((node, index) => node === before[index])).toBe(true);
+    expect(host.querySelector(`[data-tick="${PROMPTS}"]`)?.getAttribute("aria-label")).toContain(`${PROMPTS + 1}`);
+    // Every earlier tick still drawn is the same element (the rail draws those in its view, tickWindow.ts).
+    const after = ticks();
+    const kept = [...before].filter(([index]) => after.has(index));
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept.every(([index, node]) => after.get(index) === node)).toBe(true);
   } finally {
     await act(async () => root.unmount());
     host.remove();

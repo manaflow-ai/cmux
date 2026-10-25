@@ -1,0 +1,177 @@
+// The compact rail on a long chat draws only the rows in its view (tickWindow.ts): a 2,000-turn chat
+// mounts a bounded number of ticks, and the keyboard still reaches every prompt, Tab, arrows and
+// Home/End alike. Its 1,000 buttons cost 34 ms a frame at p95 while scrolling a 2,000-row chat and
+// 42 ms while a reply streamed (bench/thread-minimap-frame-cost.bench.ts).
+import { afterAll, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
+import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+// These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
+
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
+const scope = globalThis as Record<string, unknown>;
+const replacements: Record<string, unknown> = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  IntersectionObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+// Pierre's registered elements read their own DOM constructors at import time.
+for (const key of Object.getOwnPropertyNames(dom.window))
+  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
+    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
+const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+Object.assign(scope, replacements);
+
+// jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
+// and a scroll offset the test moves as the reader would.
+const VIEWPORT = 600;
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
+// Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
+const offsets = new WeakMap<object, number>();
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
+  configurable: true,
+  get(this: object) {
+    return offsets.get(this) ?? 0;
+  },
+  set(this: object, value: number) {
+    offsets.set(this, value);
+  },
+});
+// A browser scrolls the rail's list to a row that takes focus; the list's scroll event then moves the
+// drawn rows along. jsdom scrolls nothing, so focus does it here.
+dom.window.document.addEventListener(
+  "focusin",
+  (event) => {
+    const tick = (event.target as HTMLElement).closest?.<HTMLElement>("[data-tick]");
+    const list = tick?.closest<HTMLElement>(".acpmux-minimap__list");
+    if (!tick || !list) return;
+    const top = Number(tick.dataset.tick) * 10;
+    const room = Number.parseFloat(list.parentElement!.style.height);
+    const at = list.scrollTop;
+    if (top >= at && top + 10 <= at + room) return;
+    list.scrollTop = top < at ? top : top + 10 - room;
+    list.dispatchEvent(new dom.window.Event("scroll"));
+  },
+  true,
+);
+const jumps: number[] = [];
+dom.window.HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+  const top = typeof options === "number" ? 0 : (options?.top ?? 0);
+  jumps.push(top);
+  this.scrollTop = top;
+} as typeof HTMLElement.prototype.scrollTo;
+
+const { act } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+
+afterAll(() => {
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+
+const row = (id: string, kind: string, text?: string): AcpmuxRow => ({ id, kind, text, version: 1, at: 1 });
+const TURNS = 2000;
+const turns = Array.from({ length: TURNS }, (_, index) => [
+  row(`t${index}-user`, "user", `Question ${index}`),
+  row(`t${index}-answer`, "assistant", `Answer ${index}.`),
+  { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
+]).flat();
+/// Far fewer than the prompts: the rail's view (at most 60 rows in a 600 px pane) and the rows past it.
+const MAX_TICKS = 120;
+
+test("a 2,000-turn chat draws a bounded number of ticks, and the keyboard reaches every prompt", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={turnView(turns, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    const ticks = () => [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick")];
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    const tick = (index: number) => document.querySelector<HTMLElement>(`[data-tick="${index}"]`);
+    /// A key on `target`; a Tab the page leaves to the browser moves focus to the next or previous
+    /// row in the DOM, as a browser's Tab does (jsdom has none).
+    const key = (target: HTMLElement, name: string, shiftKey = false) =>
+      act(async () => {
+        const event = new dom.window.KeyboardEvent("keydown", { key: name, shiftKey, bubbles: true, cancelable: true });
+        if (!target.dispatchEvent(event) || name !== "Tab") return;
+        const rows = ticks();
+        rows[rows.indexOf(target) + (shiftKey ? -1 : 1)]?.focus();
+      });
+    const focused = () => Number((document.activeElement as HTMLElement | null)?.dataset.tick ?? -1);
+    // A bounded number of buttons, the latest prompt among them, and the list as tall as every row.
+    expect(ticks().length).toBeGreaterThan(0);
+    expect(ticks().length).toBeLessThanOrEqual(MAX_TICKS);
+    expect(tick(TURNS - 1)).not.toBeNull();
+    expect(tick(0)).toBeNull();
+    const height = [...list.children].reduce(
+      (sum, child) =>
+        sum + (child.hasAttribute("data-tick") ? 10 : Number.parseFloat((child as HTMLElement).style.height) || 0),
+      0,
+    );
+    expect(height).toBe(TURNS * 10);
+    // Each row keeps its label: its place among all 2,000 and its prompt.
+    expect(tick(TURNS - 1)!.getAttribute("aria-label")).toContain(`${TURNS}`);
+    expect(tick(TURNS - 1)!.getAttribute("aria-label")).toContain(`Question ${TURNS - 1}`);
+
+    // Home from the latest prompt reaches the first, which was not drawn.
+    await act(async () => tick(TURNS - 1)!.focus());
+    await key(tick(TURNS - 1)!, "Home");
+    expect(focused()).toBe(0);
+    expect(ticks().length).toBeLessThanOrEqual(MAX_TICKS);
+    // Arrow Down walks every prompt to the last, one at a time, never drawing them all.
+    let most = 0;
+    for (let index = 1; index < TURNS; index += 1) {
+      await key(document.activeElement as HTMLElement, "ArrowDown");
+      if (focused() !== index) throw new Error(`ArrowDown from ${index - 1} focused ${focused()}`);
+      if (index % 50 === 0) most = Math.max(most, ticks().length);
+    }
+    expect(most).toBeLessThanOrEqual(MAX_TICKS);
+    // End and Home jump across the chat; Tab and Shift-Tab step past the drawn rows.
+    await key(document.activeElement as HTMLElement, "Home");
+    expect(focused()).toBe(0);
+    await key(document.activeElement as HTMLElement, "End");
+    expect(focused()).toBe(TURNS - 1);
+    for (let index = TURNS - 2; index >= TURNS - 200; index -= 1) {
+      await key(document.activeElement as HTMLElement, "Tab", true);
+      if (focused() !== index) throw new Error(`Shift-Tab to ${index} focused ${focused()}`);
+    }
+    for (let index = TURNS - 199; index < TURNS; index += 1) {
+      await key(document.activeElement as HTMLElement, "Tab");
+      if (focused() !== index) throw new Error(`Tab to ${index} focused ${focused()}`);
+    }
+    expect(ticks().length).toBeLessThanOrEqual(MAX_TICKS);
+  } finally {
+    await act(async () => root.unmount());
+  }
+}, 300_000);

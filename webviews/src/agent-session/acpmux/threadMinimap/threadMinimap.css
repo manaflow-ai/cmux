@@ -448,3 +448,7 @@
 .acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked]:not([data-tone="current"]):not([data-tone="active"]) .acpmux-minimap__bar {
   opacity: var(--acpmux-minimap-mark, 0.7);
 }
+/* The rows the rail does not draw (tickWindow.ts): one block as tall as they are. */
+.acpmux-minimap__gap {
+  flex: none;
+}
