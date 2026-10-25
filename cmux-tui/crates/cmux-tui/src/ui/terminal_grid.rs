@@ -353,8 +353,10 @@ struct PaletteResolver<'a> {
     default_bg: Rgb,
 }
 
-pub(crate) fn resolved_cursor_color(frame: &SurfaceRenderFrame) -> Rgb {
-    frame.frame.cursor_color.unwrap_or(frame.frame.default_colors.1)
+/// The cursor color the inner application authored, or `None` to keep the
+/// host terminal's own cursor color.
+pub(crate) fn resolved_cursor_color(frame: &SurfaceRenderFrame) -> Option<Rgb> {
+    frame.frame.cursor_color
 }
 
 impl<'a> PaletteResolver<'a> {
@@ -380,8 +382,13 @@ impl<'a> PaletteResolver<'a> {
         }
     }
 
+    /// The default foreground stays unset (`Color::Reset`) so the host
+    /// terminal's own foreground applies.
     fn resolve_fg(&self, spec: ColorSpec) -> Color {
-        self.resolve(spec, self.default_fg)
+        match spec {
+            ColorSpec::Default => Color::Reset,
+            other => self.resolve(other, self.default_fg),
+        }
     }
 
     /// The default background stays unpainted (`Color::Reset`) so the host
@@ -394,7 +401,7 @@ impl<'a> PaletteResolver<'a> {
     }
 
     fn blank_style(&self) -> Style {
-        Style::default().fg(rgb_color(self.default_fg)).bg(Color::Reset)
+        Style::default().fg(Color::Reset).bg(Color::Reset)
     }
 }
 
