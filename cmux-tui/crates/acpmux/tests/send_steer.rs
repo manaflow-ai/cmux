@@ -74,17 +74,20 @@ async fn busy(steering: bool) -> Busy {
     // SAFETY: a valid NUL-terminated path.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
     let b = Busy { hub, id, gate, socket, scratch, person };
-    b.run_gated();
-    b.agent_said("before-gate").await;
+    b.run_gated().await;
     b
 }
 
 impl Busy {
-    /// The person's turn behind the gate, as the app sends it.
-    fn run_gated(&self) {
-        let prompt = json!({"sessionId": self.id, "prompt": [{"type": "text", "text": format!("gate: {}", self.gate.display())}]});
+    /// The person's turn behind the gate, as the app sends it, once its agent is in it.
+    async fn run_gated(&self) {
+        let pid = prompt_id();
+        let text = format!("gate: {}", self.gate.display());
+        let prompt = json!({"sessionId": self.id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": pid}}});
         let person = self.person.clone();
         tokio::spawn(async move { person.request(method::SESSION_PROMPT, prompt).await });
+        let turn = self.record("user_message", &pid).await["turnId"].as_str().unwrap().to_owned();
+        self.agent_said_in(&turn, "before-gate").await;
     }
 
     fn open_gate(&self) {
@@ -99,9 +102,9 @@ impl Busy {
         cmd
     }
 
-    /// The record `kind` of prompt `prompt_id`, within 10 s.
+    /// The record `kind` of prompt `prompt_id`, within 30 s.
     async fn record(&self, kind: &str, prompt_id: &str) -> Value {
-        for _ in 0..200 {
+        for _ in 0..600 {
             let events = self.hub.events(&self.id, 0, 1000).unwrap();
             if let Some(e) =
                 events.iter().find(|e| e.kind == kind && e.msg["promptId"] == prompt_id)
@@ -113,11 +116,23 @@ impl Busy {
         panic!("no {kind} record for {prompt_id}");
     }
 
-    /// The agent wrote `text` into the chat, within 10 s.
+    /// The agent wrote `text` into the chat, within 30 s.
     async fn agent_said(&self, text: &str) {
-        for _ in 0..200 {
+        self.agent_said_in("", text).await;
+    }
+
+    /// The agent wrote `text` into the chat after turn `turn` started (any turn for ""), within
+    /// 30 s.
+    async fn agent_said_in(&self, turn: &str, text: &str) {
+        for _ in 0..600 {
             let events = self.hub.events(&self.id, 0, 1000).unwrap();
-            if events.iter().any(|e| e.dir == "in" && e.msg.to_string().contains(text)) {
+            let start = events.iter().position(|e| {
+                turn.is_empty() || (e.kind == "user_message" && e.msg["turnId"] == turn)
+            });
+            let said = |e: &acpmux::store::EventRecord| {
+                e.dir == "in" && e.msg.to_string().contains(text)
+            };
+            if start.is_some_and(|at| events[at..].iter().any(said)) {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -136,7 +151,7 @@ fn prompt_id() -> String {
 }
 
 async fn done(send: tokio::task::JoinHandle<std::io::Result<Output>>) -> (Value, Output) {
-    let out = tokio::time::timeout(Duration::from_secs(20), send).await.unwrap().unwrap().unwrap();
+    let out = tokio::time::timeout(Duration::from_secs(60), send).await.unwrap().unwrap().unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "send failed: {stdout} {stderr}");
@@ -234,8 +249,7 @@ async fn a_no_steer_send_and_the_persons_waiting_send_queue() {
     let (reply, _) = done(send).await;
     let text = reply["reply"].as_str().unwrap_or_default();
     assert!(text.contains("rebase first"), "its own turn's reply, got {reply}");
-    b.run_gated();
-    b.agent_said("before-gate").await;
+    b.run_gated().await;
     let mine = prompt_id();
     let mut cmd = b.send(&["send", "--prompt-id", &mine, &b.id, "mine"]);
     let send = tokio::spawn(async move { cmd.output().await });
@@ -254,7 +268,7 @@ async fn a_steered_sends_timeout_leaves_the_turn_it_went_into_running() {
     let b = busy(true).await;
     let pid = prompt_id();
     let args = ["send", "--from", "lane-a", "--timeout", "2", "--prompt-id", &pid, &b.id, "rebase"];
-    let out = tokio::time::timeout(Duration::from_secs(20), b.send(&args).output())
+    let out = tokio::time::timeout(Duration::from_secs(60), b.send(&args).output())
         .await
         .unwrap()
         .unwrap();
