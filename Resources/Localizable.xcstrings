@@ -673880,6 +673880,124 @@
           }
         }
       }
+    },
+    "notification.claudeAccountAutoSwitch.notSwitched.draftPending": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hit its usage limit while a message was typed in Claude's input box. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %@ حد الاستخدام بينما كانت رسالة مكتوبة في حقل إدخال Claude. تبديل الحساب يعيد تشغيل الطرفية وسيحذفها، لذا لم يبدّل cmux. بدّل الحساب يدويًا للمتابعة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat das Nutzungslimit erreicht, während eine Nachricht in Claudes Eingabefeld getippt war. Ein Kontowechsel startet das Terminal neu und würde sie verwerfen, daher hat cmux nicht gewechselt. Wechsle das Konto manuell, um fortzufahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alcanzó su límite de uso mientras había un mensaje escrito en el cuadro de entrada de Claude. Cambiar de cuenta reinicia el terminal y lo descartaría, así que cmux no cambió. Cambia de cuenta manualmente para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a atteint sa limite d’utilisation alors qu’un message était saisi dans le champ de Claude. Changer de compte redémarre le terminal et le supprimerait, donc cmux n’a pas changé. Changez de compte manuellement pour continuer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が使用量の上限に達したとき、Claude の入力欄に入力中のメッセージがありました。アカウントを切り替えるとターミナルが再起動してメッセージが失われるため、cmux は切り替えませんでした。続けるには手動でアカウントを切り替えてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 계정이 사용량 한도에 도달했을 때 Claude 입력란에 입력한 메시지가 있었습니다. 계정을 전환하면 터미널이 다시 시작되어 메시지가 사라지므로 cmux가 전환하지 않았습니다. 계속하려면 직접 계정을 전환하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 达到用量上限时，Claude 的输入框中有已输入的消息。切换账号会重启终端并丢弃该消息，因此 cmux 没有切换。请手动切换账号以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 達到用量上限時，Claude 的輸入框中有已輸入的訊息。切換帳號會重新啟動終端機並捨棄該訊息，因此 cmux 沒有切換。請手動切換帳號以繼續。"
+          }
+        }
+      }
+    },
+    "dialog.claudeAccountSwitch.paneInUse.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal was in use, so cmux left it unchanged instead of switching accounts."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "كانت الطرفية قيد الاستخدام، لذا تركها cmux دون تغيير بدلًا من تبديل الحساب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal war in Benutzung, daher hat cmux es unverändert gelassen, statt das Konto zu wechseln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El terminal estaba en uso, así que cmux lo dejó sin cambios en lugar de cambiar de cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le terminal était utilisé, donc cmux l’a laissé tel quel au lieu de changer de compte."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルが使用中だったため、cmux はアカウントを切り替えずにそのままにしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널이 사용 중이어서 cmux가 계정을 전환하지 않고 그대로 두었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端正在使用中，因此 cmux 没有切换账号，保持原样。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機正在使用中，因此 cmux 沒有切換帳號，保持原狀。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

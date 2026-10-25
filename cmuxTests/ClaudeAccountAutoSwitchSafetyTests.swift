@@ -66,6 +66,31 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     }
 
     @Test
+    func aMessageTypedInClaudesInputHoldsTheSwitchBack() {
+        // A draft typed during the failing turn stays in Claude's input box; the restart would
+        // discard it and `continue` would replace it.
+        guard case .holdBack(_, .draftPending) = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: .draft) else {
+            Issue.record("a typed draft must hold the switch back")
+            return
+        }
+        guard case .switchAccount = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: .emptyPrompt) else {
+            Issue.record("an empty input box is no reason to stay")
+            return
+        }
+    }
+
+    @Test
+    func thePaneIsInUseWhenItHoldsADraftOrGotInput() {
+        typealias HoldBack = ClaudeAccountAutoSwitchAction.HoldBack
+        // The same check runs again, synchronously, right before the pane restarts.
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .emptyPrompt) == nil)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .unknown) == nil)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: false, screen: .draft) == .draftPending)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .emptyPrompt) == .userInput)
+        #expect(HoldBack.paneInUse(receivedInputSinceReport: true, screen: .draft) == .draftPending)
+    }
+
+    @Test
     func aHoldBackNeedsAFreeAccount() {
         // With nowhere to go, the pane just keeps its usage-limit status; no "switch manually".
         let action = fixture.decide(

@@ -62,6 +62,11 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
         }
     }
 
+    @Test
+    func aPaneInUseRightBeforeTheRestartIsHeldBackNotIgnored() {
+        #expect(ClaudeAccountAutoSwitchFollowUp(result: .paneInUse, sendContinue: true) == .paneInUse)
+    }
+
     private func makePlan() throws -> ClaudeAccountSwitchPlan {
         try ClaudeAccountSwitchPlanner.plan(
             sessionID: sessionId,
@@ -254,6 +259,10 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
             (.attemptLimit, String(format: String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.attemptLimit",
                 defaultValue: "%@ hit its usage limit. This terminal already went through every other account without finishing a turn, so cmux stopped switching it automatically."
+            ), "default")),
+            (.draftPending, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.draftPending",
+                defaultValue: "%@ hit its usage limit while a message was typed in Claude's input box. Switching accounts restarts the terminal and would discard it, so cmux didn't switch. Switch accounts manually to continue."
             ), "default")),
             (.notRecorded, String(format: String(
                 localized: "notification.claudeAccountAutoSwitch.notSwitched.notRecorded",

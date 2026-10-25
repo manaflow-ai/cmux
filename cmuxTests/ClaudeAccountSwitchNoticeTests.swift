@@ -121,6 +121,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .alreadySwitching,
             .transcriptUnavailable,
             .respawnFailed,
+            .paneInUse,
         ]
 
         let notices = results.compactMap { ClaudeAccountSwitchNotice(result: $0, requestedAccountName: "work") }
@@ -138,6 +139,7 @@ struct ClaudeAccountSwitchNoticeTests {
             .alreadySwitching,
             .transcriptUnavailable(accountName: "work"),
             .respawnFailed,
+            .paneInUse,
         ])
         #expect(notices.allSatisfy { $0.reportsFailure && !$0.offersTypingResumeCommand })
         #expect(notices.allSatisfy { !$0.title.isEmpty && !$0.message.isEmpty })

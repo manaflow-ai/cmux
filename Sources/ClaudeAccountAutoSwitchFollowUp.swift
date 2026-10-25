@@ -14,6 +14,9 @@ enum ClaudeAccountAutoSwitchFollowUp: Equatable, Sendable {
     /// Nothing switched. The pane keeps its usage-limit status and the target account is not
     /// marked exhausted.
     case keepUsageLimitStatus
+    /// Nothing switched because the pane was in use right before it would have restarted: tell
+    /// the user, as a hold-back does.
+    case paneInUse
 
     /// The follow-up for `result`.
     ///
@@ -29,6 +32,8 @@ enum ClaudeAccountAutoSwitchFollowUp: Equatable, Sendable {
         case .refused, .notClaude, .remoteUnsupported, .agentNotOwnedByPane, .alreadySwitching,
              .transcriptUnavailable, .respawnFailed:
             self = .keepUsageLimitStatus
+        case .paneInUse:
+            self = .paneInUse
         }
     }
 }

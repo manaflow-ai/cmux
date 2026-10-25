@@ -72,6 +72,8 @@ enum ClaudeAccountSwitchSocketOutcome: Equatable, Sendable {
             code = "transcript_unavailable"
         case .respawnFailed:
             code = "respawn_failed"
+        case .paneInUse:
+            code = "pane_in_use"
         }
         return .err(
             code: code,

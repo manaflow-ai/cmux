@@ -38,6 +38,9 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
     case transcriptUnavailable(accountName: String)
     /// The terminal could not be restarted; the pane was left alone.
     case respawnFailed
+    /// An automatic switch found the terminal in use right before restarting it; the pane was
+    /// left alone.
+    case paneInUse
 
     /// The notice for `result`, or `nil` when the conversation resumed on the new account.
     ///
@@ -87,6 +90,8 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             self = .transcriptUnavailable(accountName: requestedAccountName)
         case .respawnFailed:
             self = .respawnFailed
+        case .paneInUse:
+            self = .paneInUse
         }
     }
 
@@ -238,6 +243,11 @@ enum ClaudeAccountSwitchNotice: Equatable, Sendable {
             return String(
                 localized: "dialog.claudeAccountSwitch.respawnFailed.message",
                 defaultValue: "cmux couldn't restart the terminal, so it was left unchanged."
+            )
+        case .paneInUse:
+            return String(
+                localized: "dialog.claudeAccountSwitch.paneInUse.message",
+                defaultValue: "The terminal was in use, so cmux left it unchanged instead of switching accounts."
             )
         }
     }

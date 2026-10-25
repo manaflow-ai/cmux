@@ -34,4 +34,8 @@ enum ClaudeAccountSwitchResult: Equatable, Sendable {
     case transcriptUnavailable
     /// The terminal surface could not be replaced; the pane was left alone.
     case respawnFailed
+    /// Automatic switch only: right before the pane would have restarted, it had received input
+    /// or Claude's input box held a typed message, so the pane was left alone rather than
+    /// discard it.
+    case paneInUse
 }

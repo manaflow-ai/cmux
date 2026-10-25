@@ -34,6 +34,8 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
     enum HoldBack: Equatable, Sendable {
         /// The pane received input after the limit: someone is using it.
         case userInput
+        /// Claude's input box holds a typed message, which restarting the pane would discard.
+        case draftPending
         /// The stopped turn left background work running, which a restart would kill.
         case backgroundWork
         /// The pane already went through every other account without finishing a turn.
@@ -41,6 +43,21 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         /// The limit could not be written to the exhaustion file, so a later report could pick
         /// this account again.
         case notRecorded
+
+        /// Why the source pane must not restart now, or `nil` when it may: Claude's input box
+        /// holds a typed message, or the pane received input after the limit. Checked when the
+        /// switch is decided and again, synchronously, right before the pane restarts.
+        ///
+        /// - Parameters:
+        ///   - receivedInputSinceReport: Whether the pane got input after the limit was reported.
+        ///   - screen: The pane's screen as the shared prompt classifier reads it.
+        static func paneInUse(
+            receivedInputSinceReport: Bool,
+            screen: AgentAutoResumeCoordinator.ScreenState
+        ) -> HoldBack? {
+            if screen == .draft { return .draftPending }
+            return receivedInputSinceReport ? .userInput : nil
+        }
     }
 
     /// The exhaustion every non-ignored action records.

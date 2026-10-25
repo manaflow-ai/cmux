@@ -131,6 +131,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
             isEnabled: isEnabled,
             storedExhaustion: exhaustionStore.exhaustedUntil(now: now),
             ledger: ledger,
+            sourceScreen: Self.screenState(of: workspace, panelId: panelId),
             isUsable: { candidates.usable.contains($0.exhaustionKey(homeDirectory: home)) },
             isTrusted: { candidates.trusted.contains($0.exhaustionKey(homeDirectory: home)) },
             now: now,
@@ -154,19 +155,34 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 panelId: panelId
             )
         case .switchAccount(let target, let sendContinue, let exhaustion):
-            await switchAccount(panelId: panelId, workspace: workspace, to: target, sendContinue: sendContinue, exhaustion: exhaustion)
+            await switchAccount(
+                request: request,
+                workspace: workspace,
+                to: target,
+                sendContinue: sendContinue,
+                exhaustion: exhaustion
+            )
         }
     }
 
     private func switchAccount(
-        panelId: UUID,
+        request: ClaudeAccountAutoSwitchRequest,
         workspace: Workspace,
         to target: ClaudeAccount,
         sendContinue: Bool,
         exhaustion: ClaudeAccountAutoSwitchAction.Exhaustion
     ) async {
+        let panelId = request.panelId
         let switchStartedAt = Date()
-        let result = await workspace.switchClaudeAccount(panelId: panelId, toAccountNamed: target.name, trigger: .automatic)
+        let result = await workspace.switchClaudeAccount(
+            panelId: panelId,
+            toAccountNamed: target.name,
+            trigger: .automatic,
+            paneIsFree: { [weak self, weak workspace] in
+                guard let self, let workspace else { return false }
+                return self.paneInUse(request, workspace: workspace) == nil
+            }
+        )
         log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) to=\(target.name) result=\(result)")
         switch ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue) {
         case .announce(let from, let to, let sessionId, let typeContinue):
@@ -206,7 +222,33 @@ final class ClaudeAccountAutoSwitchCoordinator {
             )
         case .keepUsageLimitStatus:
             break
+        case .paneInUse:
+            post(
+                ClaudeAccountAutoSwitchAnnouncement.holdBackNotification(
+                    from: exhaustion.account.name,
+                    reason: paneInUse(request, workspace: workspace) ?? .userInput
+                ),
+                workspaceId: workspace.id,
+                panelId: panelId
+            )
         }
+    }
+
+    /// Why the report's pane must not restart now, read synchronously; `nil` when it may.
+    private func paneInUse(
+        _ request: ClaudeAccountAutoSwitchRequest,
+        workspace: Workspace
+    ) -> ClaudeAccountAutoSwitchAction.HoldBack? {
+        ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(
+            receivedInputSinceReport: ledger.receivedInput(panelId: request.panelId, after: request.occurredAtMs),
+            screen: Self.screenState(of: workspace, panelId: request.panelId)
+        )
+    }
+
+    /// The pane's screen as the shared prompt classifier reads it; `.unknown` when it is gone.
+    private static func screenState(of workspace: Workspace, panelId: UUID) -> AgentAutoResumeCoordinator.ScreenState {
+        guard let terminal = workspace.terminalPanel(for: panelId) else { return .unknown }
+        return AgentAutoResumeCoordinator.shared.screenState(for: terminal.surface)
     }
 
     /// The accounts other than the current one that have a Claude config, and those of them that

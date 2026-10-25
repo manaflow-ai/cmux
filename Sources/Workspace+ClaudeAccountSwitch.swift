@@ -124,11 +124,17 @@ extension Workspace {
     /// ``ClaudeAccountSwitchResult/switchedWithoutResume(_:_:_:)`` with the built command. The
     /// pane stays marked as switching until then. Remote panes are refused. Confirming a running
     /// turn is the caller's job; this never asks.
+    ///
+    /// - Parameter paneIsFree: For the unattended automatic switch: asked synchronously right
+    ///   before the pane restarts, after every await. `false` (the pane got input, or Claude's
+    ///   input box holds a typed message) leaves the pane alone and returns
+    ///   ``ClaudeAccountSwitchResult/paneInUse``. A manual switch passes nothing.
     @MainActor
     func switchClaudeAccount(
         panelId: UUID,
         toAccountNamed name: String,
-        trigger: ClaudeAccountSwitchTrigger
+        trigger: ClaudeAccountSwitchTrigger,
+        paneIsFree: (@MainActor () -> Bool)? = nil
     ) async -> ClaudeAccountSwitchResult {
         guard Self.claudeAccountSwitchInFlightPanelIds.insert(panelId).inserted else {
             return .alreadySwitching
@@ -200,6 +206,8 @@ extension Workspace {
 
         // Checked again with the agents recorded now: they may have changed during the copy.
         guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(panelId) else { return .agentNotOwnedByPane }
+        // No await from here to the restart, so what the user did meanwhile is seen.
+        if let paneIsFree, !paneIsFree() { return .paneInUse }
         let accountEnvironment = ClaudeAccountSwitchSurfaceEnvironment(
             plan: plan,
             workspaceEnvironment: workspaceEnvironment,

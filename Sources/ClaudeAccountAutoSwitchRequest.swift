@@ -76,11 +76,14 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     ///   - ledger: What the coordinator remembers in memory.
     ///   - isUsable: Whether an account has a Claude config (its `.claude.json` exists).
     ///   - isTrusted: Whether an account already trusts the session's folder.
+    ///   - sourceScreen: The pane's screen now; a typed message in Claude's input box holds the
+    ///     switch back, since the restart would discard it.
     func action(
         pane: Pane,
         isEnabled: Bool,
         storedExhaustion: [String: Date],
         ledger: ClaudeAccountAutoSwitchLedger,
+        sourceScreen: AgentAutoResumeCoordinator.ScreenState,
         isUsable: (ClaudeAccount) -> Bool,
         isTrusted: (ClaudeAccount) -> Bool,
         now: Date,
@@ -118,7 +121,12 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
             return .markExhaustedOnly(exhaustion)
         case .switchTo(let target, let sendContinue):
             if pendingWork { return .holdBack(exhaustion, .backgroundWork) }
-            if ledger.receivedInput(panelId: panelId, after: occurredAtMs) { return .holdBack(exhaustion, .userInput) }
+            if let inUse = ClaudeAccountAutoSwitchAction.HoldBack.paneInUse(
+                receivedInputSinceReport: ledger.receivedInput(panelId: panelId, after: occurredAtMs),
+                screen: sourceScreen
+            ) {
+                return .holdBack(exhaustion, inUse)
+            }
             // Spec D4: at most one attempt per other account until a turn finishes.
             if ledger.automaticSwitches(panelId: panelId) >= others.count { return .holdBack(exhaustion, .attemptLimit) }
             return .switchAccount(to: target, sendContinue: sendContinue, exhausted: exhaustion)

@@ -57,6 +57,7 @@ struct ClaudeAccountAutoSwitchFixture {
         isEnabled: Bool = true,
         stored: [String: Date] = [:],
         ledger: ClaudeAccountAutoSwitchLedger = ClaudeAccountAutoSwitchLedger(),
+        sourceScreen: AgentAutoResumeCoordinator.ScreenState = .unknown,
         isUsable: (ClaudeAccount) -> Bool = { _ in true },
         isTrusted: (ClaudeAccount) -> Bool = { _ in true }
     ) -> ClaudeAccountAutoSwitchAction {
@@ -65,6 +66,7 @@ struct ClaudeAccountAutoSwitchFixture {
             isEnabled: isEnabled,
             storedExhaustion: stored,
             ledger: ledger,
+            sourceScreen: sourceScreen,
             isUsable: isUsable,
             isTrusted: isTrusted,
             now: now,
