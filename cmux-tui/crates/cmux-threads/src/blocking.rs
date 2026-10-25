@@ -19,8 +19,9 @@
 //!   a disallowed thread is always a violation.
 //!
 //! A violation records its call site in a 256-site table (plus an overflow
-//! count) in every build. In Debug, `CMUX_DAEMON_BLOCKING=panic` (or
-//! [`set_mode`]) also panics at the caller's location. Release never panics.
+//! count) in every build. Debug also panics at the caller's location, as
+//! Chrome's `DCHECK` does, unless `CMUX_DAEMON_BLOCKING=record` (or
+//! [`set_mode`]) turns that off. Release never panics.
 
 use std::cell::Cell;
 use std::panic::Location;
@@ -145,15 +146,18 @@ impl AllowReason {
 /// What a violation does beyond recording its site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BlockingMode {
-    /// Record the site and continue (the default while the sweep runs).
+    /// Record the site and continue (Release always; Debug with
+    /// `CMUX_DAEMON_BLOCKING=record`).
     Record,
-    /// Record the site, then panic at the caller's location. Debug builds only;
-    /// Release treats it as [`BlockingMode::Record`].
+    /// Record the site, then panic at the caller's location (the Debug default
+    /// since the sweep passed in record mode, task p02-threads-021). Debug
+    /// builds only; Release treats it as [`BlockingMode::Record`].
     Panic,
 }
 
-/// The environment variable that selects [`BlockingMode::Panic`] when its
-/// value is `panic`.
+/// The environment variable whose value `record` selects
+/// [`BlockingMode::Record`]; unset or any other value is
+/// [`BlockingMode::Panic`].
 pub const MODE_ENV: &str = "CMUX_DAEMON_BLOCKING";
 
 const MODE_UNSET: u8 = 0;
@@ -175,10 +179,7 @@ pub fn set_mode(mode: BlockingMode) {
 pub fn mode() -> BlockingMode {
     let raw = match MODE.load(Ordering::Relaxed) {
         MODE_UNSET => {
-            let from_env = match std::env::var(MODE_ENV) {
-                Ok(value) if value == "panic" => MODE_PANIC,
-                _ => MODE_RECORD,
-            };
+            let from_env = mode_from_env(std::env::var(MODE_ENV).ok().as_deref());
             // A concurrent set_mode wins over the environment.
             match MODE.compare_exchange(MODE_UNSET, from_env, Ordering::Relaxed, Ordering::Relaxed)
             {
@@ -192,6 +193,15 @@ pub fn mode() -> BlockingMode {
         BlockingMode::Panic
     } else {
         BlockingMode::Record
+    }
+}
+
+/// The raw mode [`MODE_ENV`]'s value selects: `record` is the off switch,
+/// anything else (unset included) panics.
+fn mode_from_env(value: Option<&str>) -> u8 {
+    match value {
+        Some("record") => MODE_RECORD,
+        _ => MODE_PANIC,
     }
 }
 
@@ -620,6 +630,14 @@ mod tests {
 
     fn count_at(line: u32) -> u64 {
         snapshot().site(file!(), line).map_or(0, |site| site.count)
+    }
+
+    #[test]
+    fn the_environment_panics_unless_it_says_record() {
+        assert_eq!(mode_from_env(None), MODE_PANIC);
+        assert_eq!(mode_from_env(Some("panic")), MODE_PANIC);
+        assert_eq!(mode_from_env(Some("")), MODE_PANIC);
+        assert_eq!(mode_from_env(Some("record")), MODE_RECORD);
     }
 
     #[test]

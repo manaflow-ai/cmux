@@ -5,7 +5,7 @@ internal import CmuxNextSettings
 /// `debug.blocking`: the call sites that blocked the main thread since launch (the main-thread
 /// blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the
 /// benches (Debug and bench builds). `{"reset": true}` zeroes the counts after the report; no other
-/// parameter is read (trap mode is set only by `CMUX_BLOCKING_TRAP=1` at launch). It reads the detector's own tables, so it
+/// parameter is read (the mode is set only at launch: Debug traps unless started with `CMUX_BLOCKING_TRAP=0`). It reads the detector's own tables, so it
 /// runs off the main thread (socket threading policy) and answers while the main thread is busy.
 public struct BlockingControl: Sendable {
     private let detector: BlockingDetector

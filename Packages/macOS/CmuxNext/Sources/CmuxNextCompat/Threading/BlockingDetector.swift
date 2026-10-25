@@ -42,8 +42,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// What a violation does (``BlockingMode/record`` in every build but a Debug build started with
-    /// `CMUX_BLOCKING_TRAP=1`).
+    /// What a violation does (``BlockingMode/trap`` in a Debug build unless it was started with
+    /// `CMUX_BLOCKING_TRAP=0`; ``BlockingMode/record`` in every other build).
     public var mode: BlockingMode {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.mode

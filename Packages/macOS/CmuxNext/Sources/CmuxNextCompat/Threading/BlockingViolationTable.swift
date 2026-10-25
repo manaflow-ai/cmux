@@ -72,7 +72,8 @@ final class BlockingViolationTable: Sendable {
     /// Makes a table.
     ///
     /// - Parameters:
-    ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` (Debug builds only: every other build records).
+    ///   - environment: Read for the off switch `CMUX_BLOCKING_TRAP=0` (Debug builds only, which trap
+    ///     without it; every other build records).
     ///   - mode: A test's mode; nil reads `environment`.
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
     ///   - uptimeNanos: The clock a contended ``Mutex`` wait is measured with.
@@ -82,7 +83,7 @@ final class BlockingViolationTable: Sendable {
          uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
          startsDrain: Bool = true) {
         #if DEBUG
-        self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "1" ? .trap : .record)
+        self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "0" ? .record : .trap)
         #else
         self.mode = .record  // a bench (and, to come, a Nightly) never stops the app, whatever it was asked
         #endif
