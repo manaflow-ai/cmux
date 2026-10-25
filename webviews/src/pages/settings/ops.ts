@@ -98,6 +98,10 @@ export type DeviceRow = {
   /** connected, offline, pending or error. */
   state: string;
   removable: boolean;
+  /** A paired client machine's Full-access setting; absent on a row without one. */
+  full_access?: boolean;
+  /** What turning Full access on allows, beside the switch. */
+  full_access_help?: string;
 };
 
 /** Settings > Devices as the app serves it (`devices` in the host lists), every text localized. */
@@ -109,6 +113,7 @@ export type DevicesHostState = {
   remove_title: string;
   remove_confirm_title: string;
   remove_help: string;
+  full_access_title: string;
   activity_title: string;
   error: string | null;
   rows: DeviceRow[];
@@ -142,6 +147,8 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
+  /** Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet address; every text localized by the host. */
+  server?: ServerHostState | null;
   /** Settings > Devices (plans/cmux-next/add-device-DESIGN.md): every device, its texts localized by the app. */
   devices?: DevicesHostState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
@@ -167,6 +174,36 @@ export type HostLists = {
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
+};
+
+/** Settings > Server (plans/cmux-next/server-updates-DESIGN.md section 10): one row per server the app heard from. */
+export type ServerHostState = {
+  title: string;
+  /** Shown while `servers` is empty. */
+  empty: string;
+  socket_title: string;
+  tailnet_title: string;
+  copy_title: string;
+  pair_title: string;
+  servers: Array<{
+    id: string;
+    /** `cmux-tui` or `acpmux`. */
+    kind: string;
+    /** The paired host's name; null for this Mac. */
+    host: string | null;
+    /** "cmux-tui", or "cmux-tui on cmux-mini". */
+    name: string;
+    running: boolean;
+    status: string;
+    /** "Version 0.67.0 · Build abc1234 · Protocol 12". */
+    version_line: string;
+    /** Present when a restart would turn on new features; the button opens the host's confirm. */
+    restart: { title: string; help: string; button: string } | null;
+    /** This Mac's control socket (the local server only). */
+    socket: string | null;
+    /** This Mac's Tailscale address (the local server only). */
+    tailnet: string | null;
+  }>;
 };
 
 /**
@@ -727,8 +764,14 @@ export type SettingsOps = {
   "cmux.settings.mobile.remove_phone": [{ id: string }, Record<string, never>];
   /** Native: Settings > Devices' Remove: the device leaves every store that lets it in (the person's gesture only). */
   "cmux.settings.devices.remove": [{ id: string }, { error?: string }];
+  /** Native: Settings > Devices' Full access switch on a paired client machine (the person's gesture only). */
+  "cmux.settings.devices.full_access": [{ id: string; on: boolean }, { error?: string }];
   /** Native: after the owner removed this Mac, allow iPhone connections again (a new device; the person's gesture only). */
   "cmux.settings.mobile.allow_again": [Record<string, never>, Record<string, never>];
+  /** Native: Settings > Server's Restart…: opens the host's confirm, never restarts by itself (the person's gesture only). */
+  "cmux.settings.server.restart": [{ kind: string; host?: string | null }, Record<string, never>];
+  /** Native: Settings > Server's Pair: opens the Server panel's pairing card (the person's gesture only). */
+  "cmux.settings.server.pair": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
   /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */

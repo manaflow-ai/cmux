@@ -4,7 +4,7 @@
 # (scripts/fuzz/macos-matrix/vm.sh on a Tart worker), waits, downloads the results and prints
 # the verdict per macOS major.
 #
-# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|repro:NAME]
+# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|repro:NAME|exec:NAME]
 #                                       [--seed N] [--minutes N] [--ref SHA] [--attempt N] [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
 #              (the release socket refuses debug.* calls). The build may be of any commit.
@@ -14,14 +14,18 @@
 #              WebKit tab that load a page served in the guest, Settings, quit.
 #              fuzz: the seeded UI fuzz (fuzz.py) for --minutes (default 15) per major.
 #              repro:NAME: replay scripts/fuzz/macos-matrix/repros/NAME.jsonl.
+#              exec:NAME: an OS probe, scripts/fuzz/macos-matrix/probes/NAME.swift, compiled on the
+#              Tart host from the runner ref and run in each guest (exit 0 PASS, 1 FAIL, else no
+#              verdict; its output is in <out>/<major>/result.json). It tests the OS, not the build.
 #   --seed     fuzz seed (default 1); the same seed and build repeat the same steps.
 #   --ref      the feat-cmux-next commit whose vm.sh runs (default: the current tip). The fleet runs
 #              a script only in its reviewed (landed) version.
 #   --attempt  a new step for the same build, ref, majors and suite (default 1): the step key holds
 #              it, so the same command re-attaches to its step and --attempt 2 runs it again.
 #   --out      results directory (default artifacts/os-matrix/<build>-<suite>-<UTC>).
-# Prints one line per major and "MATRIX VERDICT PASS|FAIL"; exits 0 on PASS, 1 on FAIL, 2 on a usage
-# error and 75 when the fleet gave no verdict (a refused, failed or unfinished step). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
+# Prints one line per major and "MATRIX VERDICT PASS|FAIL|NO-VERDICT"; exits 0 on PASS, 1 on FAIL, 2 on a
+# usage error and 75 when there is no verdict (a refused, failed or unfinished step, or a major without
+# one: a VM that did not boot, an exec probe that crashed, timed out or did not compile). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
 # *.hang,faults.ndjson,smoke.log|fuzz.log}, <out>/matrix.json and <out>/step.log.
 # A VM has a paravirtual GPU and no ProMotion: use it for correctness, crashes, hangs, launch and
 # OS-behavior differences, never for frame timing. Label any VM timing "VM, not comparable".
@@ -40,7 +44,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
     --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,31p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -55,7 +59,8 @@ case "$SUITE" in
   smoke) ;;
   fuzz) suite_args+=(--seed "$SEED" --minutes "$MINUTES") ;;
   repro:*) suite_args+=(--repro "${SUITE#repro:}") ;;
-  *) echo "--suite takes smoke, fuzz or repro:NAME" >&2; exit 2 ;;
+  exec:*) suite_args+=(--probe "${SUITE#exec:}") ;;
+  *) echo "--suite takes smoke, fuzz, repro:NAME or exec:NAME" >&2; exit 2 ;;
 esac
 
 CI=${CMUX_CI:-$HOME/.local/bin/cmux-ci}
@@ -91,7 +96,7 @@ code=${PIPESTATUS[0]}
 set -e
 # grep finds nothing in exactly the no-verdict cases: never let that end the script under set -e.
 step=$(grep -Eo 'cmux-ci: step [0-9a-f]{24}' "$OUT/step.log" | head -1 | awk '{print $3}' || true)
-verdict=$(grep -Eo '^MATRIX VERDICT (PASS|FAIL)' "$OUT/step.log" | tail -1 | awk '{print $3}' || true)
+verdict=$(grep -Eo '^MATRIX VERDICT (PASS|FAIL|NO-VERDICT)' "$OUT/step.log" | tail -1 | awk '{print $3}' || true)
 if [[ "$code" != 0 || -z "$step" || -z "$verdict" ]]; then
   echo "os-matrix: no verdict (step ${step:-not created}, cmux-ci exit $code); the log is $OUT/step.log" >&2
   if [[ -n "$step" ]]; then
@@ -103,7 +108,11 @@ if ! "$CI" artifact "$step" "$OUT/results.tgz" >/dev/null || ! tar -xzf "$OUT/re
   echo "os-matrix: step $step gave MATRIX VERDICT $verdict, but its results did not download: $CI artifact $step OUT.tgz" >&2
   exit 75
 fi
-grep -E '^[0-9]+ +[0-9.?]+ +[a-z]+ +(PASS|FAIL)' "$OUT/step.log" || true
+grep -E '^EXEC |^[0-9]+ +[0-9.?]+ +[a-z]+ +(PASS|FAIL|NO-VERDICT)' "$OUT/step.log" || true
 echo "results: $OUT"
 echo "MATRIX VERDICT $verdict"
-[[ "$verdict" == PASS ]]
+case "$verdict" in
+  PASS) exit 0 ;;
+  FAIL) exit 1 ;;
+  *) echo "os-matrix: some major gave no verdict (see <out>/<major>/failure and result.json)" >&2; exit 75 ;;
+esac

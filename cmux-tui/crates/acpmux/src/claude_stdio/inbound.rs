@@ -151,14 +151,21 @@ impl Translator {
                     }
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
-                            let used = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0)
-                                + u.get("cache_read_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("cache_creation_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            // `used` is the context held by the last request. It is the prompt
+                            // side of the usage, including cache reads/writes, and deliberately
+                            // excludes output: the context ring must not grow from generated text.
+                            let input = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let cache_read = u
+                                .get("cache_read_input_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            let cache_write = u
+                                .get("cache_creation_input_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            let output =
+                                u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let used = input + cache_read + cache_write;
                             // A subagent's usage is its own context, not the chat's.
                             if parent.is_none() {
                                 self.context_used.store(used, Ordering::SeqCst);
@@ -172,6 +179,10 @@ impl Translator {
                                 "sessionUpdate": "usage_update",
                                 "used": used,
                                 "size": size,
+                                "inputTokens": input,
+                                "cachedReadTokens": cache_read,
+                                "cachedWriteTokens": cache_write,
+                                "outputTokens": output,
                                 "_meta": {"acpmux": {"call": true}},
                             })));
                         }
@@ -542,6 +553,9 @@ impl Translator {
                             why.unwrap_or("Claude Code did not move its work to the background");
                         Message::err(id, RpcError::internal(why))
                     });
+                } else if let Some(rest) = rid.strip_prefix("unsteer-") {
+                    // A steer taken back, or read first (`steer_withdraw.rs`).
+                    out.extend(self.steer_withdrawn(rest, ok, &inner).await);
                 } else if let Some(acp) = rid.strip_prefix("now-") {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
@@ -862,25 +876,40 @@ impl Translator {
                 None,
             ));
         }
-        if sub != "task_notification" || !self.background_subagents.lock().await.remove(&tool) {
+        // A workflow's task_updated that ends it counts too: Claude Code sends no
+        // notification after it pauses a workflow (which stops its agents; a
+        // resume is a new task with the same run id) and may send none after a
+        // stop.
+        let status = match sub {
+            "task_notification" => {
+                Some(line.get("status").and_then(Value::as_str).unwrap_or("completed"))
+            }
+            // Only a workflow: a plain agent always ends with its notification.
+            "task_updated" if self.workflows.lock().await.contains_key(&tool) => {
+                super::workflows::ended_status(line)
+            }
+            _ => None,
+        }?;
+        if !self.background_subagents.lock().await.remove(&tool) {
             return None;
         }
-        self.subagent_tasks.lock().await.remove(task);
+        self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
         self.workflows.lock().await.remove(&tool);
         let child = self.subagents.lock().await.remove(&tool)?;
-        let state = match line.get("status").and_then(Value::as_str) {
-            Some("failed") => "failed",
-            Some("stopped") => "cancelled",
+        let state = match status {
+            "failed" => "failed",
+            "stopped" | "killed" | "paused" => "cancelled",
             _ => "completed",
         };
-        Some((
-            json!({
-                "sessionUpdate": "subagent_state_update",
-                "subagentSessionId": child,
-                "state": state,
-            }),
-            Some(tool),
-        ))
+        let mut update = json!({
+            "sessionUpdate": "subagent_state_update",
+            "subagentSessionId": child,
+            "state": state,
+        });
+        if status == "paused" {
+            update.set("reason", json!("paused"));
+        }
+        Some((update, Some(tool)))
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and
@@ -892,7 +921,10 @@ impl Translator {
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {
-            self.workflows.lock().await.insert(tool_use_id.to_owned(), None);
+            self.workflows
+                .lock()
+                .await
+                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input));
         }
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
         if background {

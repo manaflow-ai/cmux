@@ -314,6 +314,14 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (!what || typeof t.by !== "string") return reject("validation.invalid", "action and by required")
         return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `${what} (epoch ${t.epoch}, removed: ${(t.tainted_by ?? []).join(", ") || "none"})`, detail: params } }, state.team.id, ctx, op)
       }
+      case "team.github.token_minted": {
+        // Delivered by the team's own ConnectionDO outbox (integrations/github-tokens.ts): audit only.
+        if (p.kind !== "system" || !state.team || p.identity !== `system:connections:${state.team.id}`) return reject("auth.forbidden", "internal op of this team's ConnectionDO")
+        const t = params as { repo?: string; permissions?: Record<string, string>; principal_kind?: string; install?: string; user?: string; label?: string; token_id?: string }
+        const perms = Object.entries(t.permissions ?? {}).map(([k, v]) => `${k}:${v}`).join(", ")
+        const who = `${t.principal_kind} ${t.install ?? t.user}${t.label ? ` (${t.label})` : ""}`
+        return withAudit({ ok: true, state, value: { audited: true }, audit: { summary: `GitHub token ${t.token_id} for ${t.repo} (${perms}) minted for ${who}`, detail: params } }, state.team.id, ctx, op)
+      }
       case "team_vm.ssh_ca_installed":
       case "team_vm.ssh_certs_revoked":
       case "team_vm.ssh_account_allocated": {

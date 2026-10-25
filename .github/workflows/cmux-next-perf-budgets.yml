@@ -512,6 +512,16 @@ jobs:
       # 20-minute slot (its measure host is idle right now). The new tick queues behind this run (concurrency group)
       # and makes its own plan and fleet checks, so it still yields to nightly and dev builds. The chain ends when
       # a part yields, the fleet check says no, or the measurement has no part left.
+      # A refusal of the cron's own making (an unreadable measurement version) fails the tick, after the state and the
+      # issue are saved; only a busy fleet is a quiet wait.
+      - name: Fail when the cron measures nothing for a reason of its own
+        if: ${{ steps.report.outputs.not_measuring != '' }}
+        env:
+          WHY: ${{ steps.report.outputs.not_measuring }}
+        run: |
+          echo "::error title=perf cron NOT MEASURING::$WHY"
+          exit 1
+
       - name: Start the next part now
         if: ${{ steps.report.outputs.next_now == 'true' }}
         env:

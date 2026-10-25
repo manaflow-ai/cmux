@@ -147,7 +147,8 @@ public final class ControlSocketServer: Sendable {
         var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue) { [weak self] in self?.restoreSocket() ?? true }]
         if let link = configuration.compatibilityLink {
             Self.makeLink(link, to: path)
-            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue) { Self.makeLink(link, to: path) })
+            // The link yields to another app's live socket at its path: no /tmp watch for it.
+            watches.append(ControlSocketPathWatch(path: link, queue: acceptQueue, yieldsToHeldPath: true) { Self.makeLink(link, to: path) })
         }
         pathWatch.withLock { $0 = watches }
         watches.forEach { $0.start() }

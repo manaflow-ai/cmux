@@ -50,6 +50,8 @@ export type AgentSessionTheme = {
   /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
   /// `borderStrong` are already transparent then. Absent means default.
   borders?: "default" | "none";
+  /// Whether keyboard focus outlines, including transcript response rows, are shown.
+  focusRingEnabled?: boolean;
   /// The chat column's width on a wide pane (Debug Settings `agent.chatWidth`, acpmux chatWidth.ts):
   /// `standard`, `wide` or `wideBlocks`. Absent means standard.
   chatWidth?: string;

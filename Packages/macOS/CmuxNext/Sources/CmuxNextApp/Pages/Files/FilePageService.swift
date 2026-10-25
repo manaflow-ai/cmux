@@ -7,7 +7,7 @@ import CmuxNextIcons
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
-import CmuxNextCompat
+import CmuxNextWakeups
 import typealias CmuxNextDaemon.SurfaceID
 
 /// Owns one file page's tabs (diff-host S6 `cmux.markdown`, S7 `cmux.editor`): pane tabs, one
@@ -57,7 +57,7 @@ final class FilePageService: InternalPageProvider {
     /// Tabs whose pages are saving their last edits after the tab closed.
     private(set) var flushing: [Task<Void, Never>] = []
     /// The local live links of the Markdown Share menu, started on the first link.
-    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
+    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -101,8 +101,6 @@ final class FilePageService: InternalPageProvider {
         guard tabs[key] == nil, route.hasPrefix("/") else { return }
         tabs[key] = Tab(file: URL(fileURLWithPath: route), userChose: isRecent(route))
     }
-
-    var openKeys: [String] { tabs.keys.sorted() }
 
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
 

@@ -49,7 +49,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
     func thumbnail() async throws -> CGImage
 
     /// Evaluates a script and returns its completion value.
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
+    /// - Parameters:
+    ///   - world: The page's world or an isolated one.
+    ///   - gesture: Whether the script acts as the person (``BrowserScriptGesture``); no default.
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue
 
     /// Highlights the next or previous match of `text`.
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult
@@ -98,6 +101,10 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
     /// Tears the page down. Pending prompts are dismissed. Idempotent.
     func close()
+
+    /// The zoom per site this tab's chrome follows (its engine's ``BrowserSharedStores``). The
+    /// default is nil: the chrome keeps the tab's own zoom.
+    var siteZoomLevels: SiteZoomLevels? { get }
 }
 
 extension BrowserTab {
@@ -112,19 +119,17 @@ extension BrowserTab {
 
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
+    public var siteZoomLevels: SiteZoomLevels? { nil }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
 
     public func zoomIn() { setZoom(BrowserZoom.zoomIn(from: state.zoom)) }
     public func zoomOut() { setZoom(BrowserZoom.zoomOut(from: state.zoom)) }
     public func resetZoom() { setZoom(1) }
 
-    public func evaluate(_ script: String) async throws -> BrowserJSValue {
-        try await evaluate(script, world: .page)
-    }
-
     /// An engine whose `evaluate` awaits a promise (Chromium) runs the body as an async function.
+    /// Automation waits: an agent's call.
     public func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
-        try await evaluate("(async () => {\n\(body)\n})()", world: .page)
+        try await evaluate("(async () => {\n\(body)\n})()", world: .page, gesture: .agent)
     }
 
     public func fullPageSnapshot() async throws -> CGImage {

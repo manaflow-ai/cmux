@@ -9,6 +9,7 @@ import CmuxNextPhoneAccess
 import Foundation
 import Observation
 import os
+import CmuxNextWakeups
 
 /// Cloud orchestration: sign-in state, the machine list from `/api/vm`, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
@@ -30,6 +31,8 @@ final class CloudService {
     /// Chief hands: levels, the presence key and requests waiting for the owner (cx-om025).
     @ObservationIgnored let hands: HandsService
     @ObservationIgnored private let machines: MachineRegistry
+    /// The plan gate for a create, from the last machine list's limits.
+    var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits) }
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
     @ObservationIgnored private let link: CloudLinkLifecycle
@@ -78,11 +81,20 @@ final class CloudService {
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
     @ObservationIgnored let uploads = CloudUploads()
 
-    init(machines: MachineRegistry, isDebugBuild: Bool) {
+    /// The app's main-thread scheduler, passed by the composition root: every Cloud machine's event
+    /// batches run on it (one main thread, one budget).
+    @ObservationIgnored private let mainWork: MainWorkScheduler
+
+    /// - Parameters:
+    ///   - mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
+    ///   - work: The app's blocking-work lanes: the install id is read on its files lane (``CloudDeviceID``).
+    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
+        self.mainWork = mainWork
         configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
         auth = CloudAuth(configuration: configuration)
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
+        deviceID = CloudDeviceID(paths: paths, work: work)
         let auth = auth
         api = CloudAPIClient(
             configuration: configuration,
@@ -139,15 +151,12 @@ final class CloudService {
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
-    /// This Mac's install id, read from disk once (it never changes once written); every window
-    /// record save reads it, so a pane focus move does no file I/O (speed-of-sound-DESIGN.md 3.2).
-    func localDeviceID() throws -> String {
-        if let cachedDeviceID { return cachedDeviceID }
-        let id = try paths.loadOrCreateDeviceID()
-        cachedDeviceID = id
-        return id
-    }
-    @ObservationIgnored private var cachedDeviceID: String?
+    /// This Mac's install id for a synchronous caller (``CloudDeviceID/loadNow()``): read once, on the files
+    /// lane when Cloud starts; async callers use ``installID()``.
+    func localDeviceID() throws -> String { try deviceID.loadNow() }
+    /// This Mac's install id, read off the main thread (``CloudDeviceID/load()``).
+    func installID() async throws -> String { try await deviceID.load() }
+    @ObservationIgnored private let deviceID: CloudDeviceID
 
     var isSignedIn: Bool { auth.isSignedIn }
 
@@ -173,6 +182,7 @@ final class CloudService {
     }
 
     func start() {
+        deviceID.preload()
         auth.start()
         startCredentialProvider()
         if configuration.linkSource == .appServer, linkEvents == nil {
@@ -389,11 +399,11 @@ final class CloudService {
             })
             let local = machines.local
             session = CloudMachineSession(machine: machine, appLink: CloudLinkSession(key: CloudLinkKey(machine: machine.id), resolver: resolver),
-                                          localIdentity: { [weak local] in local?.identity })
+                                          localIdentity: { [weak local] in local?.identity }, mainWork: mainWork)
         case .legacy:
             guard let hub, let binary else { return nil }
             let link = CloudMachineLink(machineID: machine.id, api: api, hub: hub, paths: paths, binary: binary, deviceName: Self.deviceName)
-            session = CloudMachineSession(machine: machine, link: link)
+            session = CloudMachineSession(machine: machine, link: link, mainWork: mainWork)
         }
         session.daemon.workTracker = machines.local.workTracker
         // An attach to a paused machine resumes it through Resume Machine's own path.
@@ -421,7 +431,7 @@ final class CloudService {
     /// Creates a machine and connects to it. Returns its session.
     /// `creation` moves to its `creating` stage when the request is sent.
     /// `startedByPerson`: the person's own gesture in this app; any other
-    /// create asks the person first, on either path (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
+    /// create goes out at once on a paid plan (a Free or full plan gets the upgrade card; the opt-in `cloud.askBeforeAgentCreate` asks first) (``CloudMachineCreateFlow``); `askedBy` names the agent chat that asked.
     func createMachine(name: String?, creation: CloudMachineCreation? = nil, startedByPerson: Bool, askedBy: String? = nil) async throws -> CloudMachineSession {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
@@ -430,7 +440,7 @@ final class CloudService {
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
         let machine = configuration.linkSource == .appServer
             ? try await appServerCreate(name: name, startedByPerson: startedByPerson, askedBy: askedBy, onSent: onSent)
-            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
+            : try await CloudMachineCreateFlow.legacy(name: name, startedByPerson: startedByPerson, askedBy: askedBy, askFirst: UserDefaults.standard.bool(forKey: "cloud.askBeforeAgentCreate"), gate: { [weak self] in self?.createGate ?? .allowed }, confirm: { [weak self] in await self?.confirmCreate?($0) ?? false }, create: { [api] in try await api.createMachine(displayName: name, onSent: onSent) })
         logger.info("created machine \(machine.id, privacy: .public)")
         if let existing = machines.session(machine.id) { return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }

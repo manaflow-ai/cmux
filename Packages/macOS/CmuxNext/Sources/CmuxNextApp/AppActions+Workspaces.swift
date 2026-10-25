@@ -220,7 +220,7 @@ extension AppActions {
                     }
                     guard hidden else { return failure }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
-                    if failure == nil, let connection = daemon.connection { await daemon.store.applied(through: await connection.eventSequence()) }
+                    if failure == nil, let connection = daemon.connection { await daemon.appliedThroughReply(on: connection, after: "close workspace") }
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
                     return failure
                 }

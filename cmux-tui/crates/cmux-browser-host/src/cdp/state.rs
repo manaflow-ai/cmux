@@ -59,6 +59,9 @@ pub struct TabState {
     pub request_order: std::collections::VecDeque<String>,
     /// The newest responses' (URL, remote IP address), for net.fetch.
     pub responses: std::collections::VecDeque<(String, String)>,
+    /// The newest HTTP sign-in challenges (URL, `WWW-Authenticate` realm),
+    /// for the navigation error that hands the sign-in to the person.
+    pub auth_challenges: std::collections::VecDeque<(String, String)>,
     /// Out-of-process frames: frame id -> its own CDP session.
     pub frame_sessions: HashMap<String, String>,
     /// Closed shadow roots per CDP session (`closed_roots`).
@@ -158,6 +161,7 @@ impl TabState {
             requests: HashMap::new(),
             request_order: std::collections::VecDeque::new(),
             responses: std::collections::VecDeque::new(),
+            auth_challenges: std::collections::VecDeque::new(),
             frame_sessions: HashMap::new(),
             closed_roots: HashMap::new(),
             closed_root_stats: Default::default(),

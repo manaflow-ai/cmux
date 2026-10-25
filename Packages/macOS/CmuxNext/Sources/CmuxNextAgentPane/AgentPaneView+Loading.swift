@@ -15,7 +15,7 @@ private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category:
 /// (``AgentPaneView/pageFades(hasNewTab:isVisible:fromKeptTail:)``).
 public final class AgentPaneLoadingView: NSView {
     /// The shared busy mark (`appearance.statusIndicator.style`; `none` draws only the background).
-    let indicator = StatusIndicatorView()
+    let indicator = StatusIndicatorView.spinner()
     static let markSide: CGFloat = 18
     /// How long the mark waits: a page that paints sooner shows only its background before it
     /// fades in, never a mark that pops up and goes. Longer than a pane's hold on the chat it
@@ -38,7 +38,7 @@ public final class AgentPaneLoadingView: NSView {
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
     private var leaving = false
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     var isLeaving: Bool { leaving }
     #endif
     /// Whether the page was asked to fade in when this left, nil until it has. The decision, not

@@ -370,6 +370,11 @@ _TEST_CFG = (r"(?:test|all\(\s*(?:" + _CFG_ITEM + r"\s*,\s*)*test\s*(?:,\s*" + _
              + r"\s*)*,?\s*\))")
 INLINE_TESTS = re.compile(r"#\[cfg\(" + _TEST_CFG
                           + r"\)\]\s*(#\[[^\]]*\]\s*)*(pub(\([^)]*\))?\s+)?mod\s+\w+\s*\{")
+# An out-of-line test-only module: `#[cfg(test)] mod name;` (attributes such as `#[path = "x.rs"]`
+# may sit between). Its file, and every file below it, compiles only in tests.
+TEST_MOD_DECL = re.compile(r"#\[cfg\(" + _TEST_CFG + r"\)\]\s*(?P<attrs>(?:#\[[^\]]*\]\s*)*)"
+                           r"(?:pub(?:\([^)]*\))?\s+)?mod\s+(?P<name>\w+)\s*;")
+RUST_PATH_ATTR = re.compile(r'#\[path\s*=\s*"(?P<path>[^"]+)"\s*\]')
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
@@ -418,8 +423,14 @@ def swift_code(line):
     return "".join(out)
 
 
+def allow_lines(lines, index):
+    """The 0-based lines whose `// crash-allow:` waives LINES[INDEX]: the line itself and the line directly
+    above. guardrails.py reads the same window, so it never passes a line this ratchet counts."""
+    return [index, index - 1] if index > 0 else [index]
+
+
 def allowed(lines, index):
-    return bool(ALLOW.search(lines[index]) or (index > 0 and ALLOW.search(lines[index - 1])))
+    return any(ALLOW.search(lines[i]) for i in allow_lines(lines, index))
 
 
 # An exported tree (--exported-tree, git archive of a ref) holds tracked files only, so every
@@ -665,7 +676,8 @@ def scan_swift(repo, scan, exported):
 def load_allowlist():
     if not os.path.exists(ALLOWLIST):
         return {"banned": [], "allow": []}
-    data = json.load(open(ALLOWLIST))
+    with open(ALLOWLIST, encoding="utf-8") as handle:
+        data = json.load(handle)
     data.setdefault("banned", [])
     data.setdefault("allow", [])
     return data
@@ -741,15 +753,48 @@ def scan_env_writes(repo, exported):
     return over
 
 
+def rust_test_modules(paths):
+    """(files, folders) that hold only test code: the targets of `#[cfg(test)] mod name;` declarations
+    (`name.rs` or `name/mod.rs`, or a `#[path]`) in PATHS, and the folder of each such module, which holds its
+    own submodules. 2026-10-24: shell_integration's `#[cfg(all(test, unix))] mod test_pty;` and `mod fork_watch;`
+    counted 22 test unwraps and expects as cmux-tui-core's own, because only `tests.rs`, `*_tests.rs`,
+    `*_test.rs` and inline `mod x { }` blocks were cut."""
+    files, folders = set(), set()
+    for path in paths:
+        if not path.endswith(".rs") or not os.path.isfile(path):
+            continue
+        text = open(path, encoding="utf-8", errors="replace").read()
+        if "mod " not in text:
+            continue
+        here, name = os.path.split(path)
+        # A mod.rs, lib.rs or main.rs owns its folder; any other file foo.rs owns foo/.
+        owner = here if name in ("mod.rs", "lib.rs", "main.rs") else os.path.join(here, name[:-3])
+        for decl in TEST_MOD_DECL.finditer(text):
+            attr = RUST_PATH_ATTR.search(decl.group("attrs") or "")
+            if attr:
+                target = os.path.normpath(os.path.join(here, attr.group("path")))
+                files.add(target)
+                folders.add(os.path.dirname(target) if os.path.basename(target) == "mod.rs" else target[:-3])
+                continue
+            module = os.path.join(owner, decl.group("name"))
+            files.update((module + ".rs", os.path.join(module, "mod.rs")))
+            folders.add(module)
+    return files, folders
+
+
 def scan_rust(repo, scan, exported):
     crates = os.path.join(repo, "cmux-tui/crates")
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
-    for path in tracked_files(repo, crates, exported):
+    paths = tracked_files(repo, crates, exported)
+    test_files, test_folders = rust_test_modules(paths)
+    for path in paths:
         dirpath, name = os.path.split(path)
         parts = os.path.relpath(dirpath, crates).split(os.sep)
         if skipped_dirs.intersection(parts) or os.sep + "src" not in dirpath or not os.path.isfile(path):
             continue
         if not name.endswith(".rs") or name in ("tests.rs",) or name.endswith("_tests.rs") or name.endswith("_test.rs"):
+            continue
+        if path in test_files or any(path.startswith(folder + os.sep) for folder in test_folders):
             continue
         rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
         text = open(path, encoding="utf-8", errors="replace").read()

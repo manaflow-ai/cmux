@@ -1218,7 +1218,7 @@ pre.cv-math-source {
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-accent) 8%, transparent);
 }
-.acpmux-row[data-transcript-active="true"]:focus-visible {
+[data-focus-ring-enabled="true"] .acpmux-row[data-transcript-active="true"]:focus-visible {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: -1.5px;
   border-radius: 8px;
@@ -1639,56 +1639,19 @@ pre.cv-math-source {
   --cv-tool-row-height: 26px;
   --cv-tool-run-bottom-gap: 8px;
 }
-/* An opened run's calls; past nine 26px rows the list scrolls. */
+/* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
+   but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
+   own their horizontal overflow below. */
 .cv-tool-run {
-  max-height: 234px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-/* Scrolled, its top fades out under the summary line above it (Leo 2026-10-21: "in that top section
-   fade would be good"), so a row half scrolled away dissolves instead of sitting cut in half against
-   the line. The transcript's top edge (.acpmux-scroll[data-fade-top], below): an alpha mask on the
-   list itself, never a painted overlay, so it covers nothing, catches no clicks and lets the pane's
-   glass show through in light and dark; at the list's start the edge is plain (data-fade-top,
-   scrollEdges.ts). The scrollbar's lane at the right keeps full ink. Reduce Transparency keeps a
-   plain edge. */
-.cv-tool-run[data-fade-top] {
-  --cv-tool-run-fade-top: 18px;
-  -webkit-mask-image:
-    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
-    linear-gradient(#000, #000);
-  mask-image:
-    linear-gradient(to bottom, transparent, #000 var(--cv-tool-run-fade-top)),
-    linear-gradient(#000, #000);
-  -webkit-mask-size:
-    100% 100%,
-    var(--cmux-scroller-size, 8px) 100%;
-  mask-size:
-    100% 100%,
-    var(--cmux-scroller-size, 8px) 100%;
-  -webkit-mask-position:
-    0 0,
-    100% 0;
-  mask-position:
-    0 0,
-    100% 0;
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-}
-@media (prefers-reduced-transparency: reduce) {
-  .cv-tool-run[data-fade-top] {
-    -webkit-mask-image: none;
-    mask-image: none;
-  }
-}
-:root[data-reduce-transparency] .cv-tool-run[data-fade-top] {
-  -webkit-mask-image: none;
-  mask-image: none;
+  max-height: none;
+  overflow: visible;
+  overscroll-behavior: auto;
 }
 .cv-tool {
   all: unset;
   box-sizing: border-box;
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -1745,11 +1708,13 @@ pre.cv-math-source {
   }
 }
 .cv-tool__icon {
+  grid-column: 1;
   display: flex;
   flex: none;
   margin-right: -1.5px;
 }
 .cv-tool__text {
+  grid-column: 2;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1767,7 +1732,9 @@ pre.cv-math-source {
 }
 /* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
-  margin-left: -4px;
+  grid-column: 4;
+  justify-self: end;
+  margin-left: 0;
   color: var(--cv-text-dim);
 }
 /* A transcript row's Copy is an absolute sibling of its tool button. Reserve one
@@ -1779,7 +1746,7 @@ pre.cv-math-source {
 }
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
-  margin-left: 34px;
+  margin-inline-start: 0;
 }
 .acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
   right: 24px;
@@ -1789,6 +1756,7 @@ pre.cv-math-source {
    fold's left rule, so the label and the first words never read as one sentence (Leo 2026-10-21:
    "Thought I am here" read weird). */
 .cv-thought {
+  display: flex;
   align-items: flex-start;
   gap: 6px;
   padding-block: 3px;
@@ -2009,6 +1977,7 @@ pre.cv-math-source {
 }
 /* "+K more" lines up with the calls' text, past their glyphs. */
 .cv-tool-group.is-flat .cv-tool-group__more {
+  display: flex;
   padding-left: 22.5px;
 }
 .cv-tool__counts {
@@ -2098,6 +2067,7 @@ pre.cv-math-source {
 }
 /* "Ran npm test  ✓ 4.2s": the command fills the row, its status and time sit at the right edge. */
 .cv-command__text {
+  grid-column: 2;
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -2127,7 +2097,8 @@ pre.cv-math-source {
   opacity: 0;
 }
 .cv-tool > .cv-command__meta {
-  margin-left: auto;
+  grid-column: 3;
+  margin-left: 0;
 }
 .cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
   opacity: 1;
@@ -2147,7 +2118,8 @@ pre.cv-math-source {
 }
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {
-  margin-left: auto;
+  grid-column: 3;
+  margin-left: 0;
 }
 .cv-command__bg-state {
   display: flex;
@@ -2310,6 +2282,15 @@ button.cv-received__name:focus-visible {
 }
 .cv-received__toggle > .cv-rotor {
   flex: none;
+}
+/* Minimal Mode's closed message (IncomingMessageCard.tsx): the message's first line after the
+   chip, cut with an ellipsis, the chevron after it. model.ts estimates the line alone. */
+.cv-received__preview {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 26px;
 }
 .cv-received__toggle:hover,
 .cv-received__toggle:focus-visible {
@@ -3656,6 +3637,14 @@ a.cv-sha:focus-visible {
   flex: none;
   font-variant-numeric: tabular-nums;
 }
+/* A live line under a plan is the finished turn footer's slot. Keep its content at the same
+   leading edge while the row holds the footer's 24px line plus turn gap, so `turnSummary` can
+   replace it in place when the turn ends. */
+.acpmux-row.acpmux-activityLine.acpmux-row--below {
+  min-height: 0;
+  height: calc(var(--cv-meta-row) + var(--cv-turn-gap));
+  padding-bottom: 0;
+}
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
 /* A failed task keeps its red mark, open or closed. A click opens it in place (`.is-toggle`: the
@@ -3892,6 +3881,23 @@ article.acpmux-row:empty {
   color: var(--cv-text);
 }
 .cv-user__send-now:disabled {
+  opacity: 0.5;
+}
+/* The X that takes a waiting steer back to edit (PendingSteer.tsx): a plain glyph, as muted as
+   Send now's text, on the same centred line. */
+.cv-user__take-back {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  cursor: default;
+}
+.cv-user__take-back:hover:not(:disabled) {
+  color: var(--cv-text);
+}
+.cv-user__take-back:disabled {
   opacity: 0.5;
 }
 /* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened

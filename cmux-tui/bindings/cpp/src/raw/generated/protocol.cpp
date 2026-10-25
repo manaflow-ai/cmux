@@ -29042,6 +29042,11 @@ Result<Json> Codec<SendRequest>::encode(const SendRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("expect_foreground", std::move(encoded).value());
     }
+    if (!value.flow.is_absent()) {
+        auto encoded = encode_value(value.flow);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("flow", std::move(encoded).value());
+    }
     if (value.paste) {
         auto encoded = encode_value(*value.paste);
         if (!encoded) return std::move(encoded).error();
@@ -29102,6 +29107,16 @@ Result<SendRequest> Codec<SendRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_expect_foreground);
             if (!decoded) return std::move(decoded).error();
             result.expect_foreground = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_flow = value.find("flow");
+    if (field_flow) {
+        if (field_flow->is_null()) {
+            result.flow = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_flow);
+            if (!decoded) return std::move(decoded).error();
+            result.flow = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_paste = value.find("paste");

@@ -120,6 +120,9 @@ parser.add_argument("--settle", type=float, default=0.5, help="seconds of frames
 parser.add_argument("--no-interactions", action="store_true")
 parser.add_argument("--write-gaps", action="store_true", help="rewrite every-action-gaps.json from this whole-catalog run")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
+parser.add_argument("--app-env", action="append", default=[], metavar="NAME=VALUE",
+                    help="one more variable in the app's environment (repeatable), e.g. a measurement tool's "
+                         "DYLD_INSERT_LIBRARIES (scripts/measure/blocking-probe.sh)")
 opts = parser.parse_args()
 
 OUT = os.path.abspath(opts.out)
@@ -214,7 +217,10 @@ def hang_summary(hangs):
     if longest:
         out["stack"] = {"ms": round(longest.get("duration_ms") or 0, 2), "cpu_ms": round(longest.get("cpu_ms") or 0, 2),
                         "top": (longest.get("frames") or [])[:6],
-                        "app": [f for f in longest.get("frames") or [] if "cmux" in f.lower()][:14]}
+                        "app": [f for f in longest.get("frames") or [] if "cmux" in f.lower()][:14],
+                        # The whole main-thread stack (bounded): a wait in the window server or a lock shows its
+                        # AppKit and app callers only here (the app filter keeps cmux frames, `top` the leaf).
+                        "frames": (longest.get("frames") or [])[:64]}
     return out
 
 
@@ -299,6 +305,11 @@ class App:
                "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY, "CMUX_NEXT_CHIEF_ISOLATED": "1",
                "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TYPING_PROBE": PROBE,
                "CMUX_NEXT_HANG_THRESHOLD_MS": "8", "ACPMUX_AGENT_LAUNCH": "deny"}
+        for item in opts.app_env:
+            name, equals, value = item.partition("=")
+            if not equals or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                raise SystemExit(f"every-action: --app-env takes NAME=VALUE (got {item!r})")
+            env[name] = value
         def started(process):
             self.process = process
             self.pids.append(process.pid)
@@ -560,6 +571,23 @@ EXPECTED_REFUSALS = {
     "palette.disableBrowser": "can be changed only by you",
     "palette.enableBrowser": "can be changed only by you",
 }
+# Setup each sample needs that the session's base lacks (the light base pane holds one tab in one column, its
+# workspace one screen): action.run steps in order, on the focused base pane, just before the sample's `before`
+# shape. What they make is an extra the restore closes like any other (close_new). Without them the rows timed the
+# daemon's refusal (sweep 2026-10-24, macOS 27 light): Move Tab to New Column "a pane's only tab cannot be split out
+# of that pane", Move Column Left "no scrolling column on that side", Move Column Right "already at the edge", Move
+# Screen to Workspace "a workspace's last screen cannot be moved out of it".
+PREPARE = {
+    # A second tab (selected): the moved tab leaves a pane that keeps the base tab.
+    "tab.moveToNewColumn": [("newSurface", {})],
+    # A new column right of the base, focused: it moves left past the base.
+    "column.moveLeft": [("newColumn", {})],
+    # A new column right of the base, then the focus back on the base: the base moves right past it.
+    "column.moveRight": [("newColumn", {}), ("column.focusLeft", {})],
+    # A second screen, shown: it moves out and the base screen stays.
+    "screen.moveToWorkspace": [("screen.new", {})],
+}
+
 # Actions whose effect is state no restore sees (not a topology object, not a setting, not a TOGGLES re-run): the
 # inverse the restore runs after each sample, before anything else. The fits write the daemon tab record's
 # extra.emulation (BrowserDeviceHandlers: browser.tab.emulate on the focused tab); a session's tabs start with no fit
@@ -1403,6 +1431,10 @@ class Sweep:
             if info and info.get("available") is False and not plan["args"]:
                 why = info.get("context_reason") or info.get("unavailable_reason") or "context"
                 return None, f"unavailable here: {why}", "gap"
+            for step, args in PREPARE.get(ident, ()):
+                err = error_of(act(step, args=args, focus=True))
+                if err:
+                    return None, f"setup {step} failed: {err}"[:200], "gap"
             start, why = self.focus_start(ident)
             return (start, None, None) if why is None else (None, why, "state")
 
@@ -1461,6 +1493,15 @@ class Sweep:
                 row["expected_refusal"] = err[:160]
                 check = "refused"
             sample["check"] = check
+            if check == "wrong":
+                # The step log carries the report when the step fails (its artifacts do not come back): say what changed.
+                c0, c1 = counts(before), counts(shape(after_topo))
+                reply = sample["reply"] if isinstance(sample["reply"], dict) else {"reply": str(sample["reply"])[:120]}
+                detail = {"entry": entry, "expect": expectation(ident, entry), "before": c0, "after": c1,
+                          "reply": {k: reply.get(k) for k in ("handled_by", "action", "refused_action", "error", "reply") if reply.get(k)},
+                          "focus": [before.get("focus"), shape(after_topo).get("focus")]}
+                row.setdefault("wrong", []).append(detail)
+                note(f"every-action: {self.session} {ident} wrong: {json.dumps(detail, default=str)[:400]}")
             if result_ms is not None:
                 sample["result_ms"] = result_ms
             checks.append(check)
@@ -1580,6 +1621,18 @@ class Sweep:
                                                        "main_max_ms": round(frames.get("main_max_ms") or 0, 2)},
                 "hangs": hang_summary(hangs), **extra}
 
+    def second_tab(self):
+        """The base pane holds at least two tabs: a light base pane holds one, so a tab click selected the tab already
+        selected and a tab drag emptied (and closed) its pane, and both rows read `wrong` (sweep 2026-10-24). Adds a
+        terminal tab when needed (an extra the restore closes) and returns the id of a tab that is not selected."""
+        workspace, pane = self.base["workspace"], self.base["pane"]
+        tabs = tabs_at(topology(), workspace, pane)
+        if len(tabs) < 2:
+            act("newSurface", target=f"pane:{pane}", focus=True)
+            wait(lambda: len(tabs_at(topology(), workspace, pane)) >= 2, 3.0)
+            tabs = tabs_at(topology(), workspace, pane)
+        return next((t.get("id") for t in tabs if not t.get("selected")), None)
+
     def pane_chrome(self, synced=False):
         reply = rpc("debug.pane_chrome", {"after": "sync"} if synced else None) or {}
         window = (reply.get("windows") or [{}])[0] if isinstance(reply, dict) else {}
@@ -1675,13 +1728,18 @@ class Sweep:
         self.interaction("click.pane", click_pane)
 
         def click_tab():
-            window = self.pane_chrome()
+            other = self.second_tab()
+            window = self.pane_chrome(synced=True)
             pane = next((p for p in window.get("panes") or [] if p.get("pane") == self.base["pane"]), None)
             if not pane or not pane.get("strip") or not pane.get("tab_slots"):
                 return {"skipped": "no tab strip geometry (debug.pane_chrome)"}
             sx, sy, sw, sh = pane["strip"]
             slots = pane["tab_slots"]
-            target = slots[1] if len(slots) > 1 else slots[0]
+            if len(slots) < 2 or not other:
+                return {"skipped": "the base pane has no second tab to click"}
+            # The tab that is not selected, by its place in the strip.
+            order = [t.get("id") for t in tabs_at(topology(), self.base["workspace"], self.base["pane"])]
+            target = slots[order.index(other)] if other in order and order.index(other) < len(slots) else slots[0]
             x = sx + target[0] + target[1] / 2
             y = sy + sh / 2
             rpc("debug.tab_switch", {"action": "start"})
@@ -1793,23 +1851,29 @@ class Sweep:
         self.interaction("activate.cmd_tab", cmd_tab)
 
         def tab_drag():
-            window = self.pane_chrome()
+            dragged = self.second_tab()
+            window = self.pane_chrome(synced=True)
             panes = window.get("panes") or []
             src = next((p for p in panes if p.get("pane") == self.base["pane"]), None)
             dst = next((p for p in panes if p.get("pane") != self.base["pane"] and p.get("cell")), None)
-            if not src or not dst or not src.get("tab_slots"):
-                return {"skipped": "no two panes with geometry"}
+            if not src or not dst or not src.get("tab_slots") or not dragged:
+                return {"skipped": "no two panes with geometry, or no second tab"}
             sx, sy, sw, sh = src["strip"]
-            slot = src["tab_slots"][0]
+            order = [t.get("id") for t in tabs_at(topology(), self.base["workspace"], self.base["pane"])]
+            index = order.index(dragged) if dragged in order else 0
+            slot = src["tab_slots"][min(index, len(src["tab_slots"]) - 1)]
             cx, cy, cw, ch = dst["cell"]
             before = counts(shape(topology()))
             def body():
                 rpc("debug.mouse", {"action": "drag", "x": sx + slot[0] + slot[1] / 2, "y": sy + sh / 2,
                                     "to_x": cx + cw / 2, "to_y": cy + ch / 2, "steps": 30})
             out = self.frames_during(body, settle=0.8)
-            moved = [p for p in panes_of(next((w for w in topology().get("workspaces") or [] if w.get("id") == self.base["workspace"]), {}))
-                     if p.get("id") == self.base["pane"]]
-            out["check"] = "ok" if moved and len(moved[0].get("tabs") or []) < len(self.base["shape"]["workspaces"][self.base["workspace"]][self.base["pane"]]) else "wrong"
+            # The dragged tab is in the pane it was dropped on.
+            landed = wait(lambda: dragged in [t.get("id") for t in tabs_at(topology(), self.base["workspace"], dst["pane"])], 2.0)
+            out["check"] = "ok" if landed else "wrong"
+            if not landed:
+                out["wrong"] = {"dragged": dragged, "to": dst["pane"],
+                                "source_tabs": [t.get("id") for t in tabs_at(topology(), self.base["workspace"], self.base["pane"])]}
             out["counts_before"] = before
             return out
         self.interaction("drag.tab_to_pane", tab_drag)

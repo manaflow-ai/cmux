@@ -12,9 +12,11 @@ import CmuxNextDesign
 ///
 /// It runs only while the system's "Swipe between pages" is on
 /// (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`) and Debug Settings
-/// `browser.swipeNavigation` is on (the default). A gesture that begins with Command held
-/// belongs to the layout while `layout.scrollModifier` is `command` (Command + scroll pans the
-/// columns), so it never starts a swipe.
+/// `browser.swipeNavigation` is on (the default). A gesture the layout took (Command + scroll
+/// moves the columns and rows, decided once at the gesture's first event) is never a swipe: the
+/// page's host view asks the layout around it (`isScrollGestureTakenByEnclosingView`, the one
+/// owner decision) instead of testing the modifier keys here. A gesture the layout passes to the
+/// page swipes like any other, as a WebKit page does with the same gesture.
 @MainActor
 final class CEFSwipeNavigation {
     private weak var runtime: CEFRuntime?
@@ -48,8 +50,7 @@ final class CEFSwipeNavigation {
         // Momentum after a gesture never starts a swipe; a mouse wheel has no phases.
         guard event.momentumPhase.isEmpty, let phase = Self.scrollPhase(event.phase) else { return event }
         if phase == .began {
-            let layoutOwnsGesture = event.modifierFlags.contains(.command) && DesignSettings.shared.layoutScrollModifier == .command
-            guard !layoutOwnsGesture, NavigationTunables.swipeNavigation.value, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
+            guard NavigationTunables.swipeNavigation.value, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
                   let target = target(of: event) else {
                 gesture.cancel()
                 tab = nil
@@ -61,7 +62,10 @@ final class CEFSwipeNavigation {
         } else if tab == nil {
             return event
         }
-        switch gesture.scroll(phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY) {
+        // Asked on began and moving events (`BrowserSwipeGesture.scroll`): a superview walk, no allocation.
+        // On began it is true when the layout decided at the touch, so a Command gesture never probes the page.
+        let takenByLayout = (phase == .began || phase == .changed) && hostView?.isScrollGestureTakenByEnclosingView == true
+        switch gesture.scroll(phase, deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, takenByLayout: takenByLayout) {
         case .none:
             return event
         case .probe:
@@ -100,7 +104,7 @@ final class CEFSwipeNavigation {
         let generation = gesture.generation
         let pageProbe = pageProbe
         Task { @MainActor [weak self, weak tab] in
-            let value = try? await tab?.evaluate(script, world: .page)
+            let value = try? await tab?.evaluate(script, world: .page, gesture: .cmux)
             self?.gesture.probeAnswered(value.flatMap(pageProbe.edges), generation: generation)
         }
     }

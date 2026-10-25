@@ -10,6 +10,7 @@ private final class RunTimingRecorder: ActionRunTiming {
         let id: ActionID
         let origin: ActionOrigin
         let inputAge: Double
+        let entrypoint: ActionEntrypoint
     }
 
     var runs: [Run] = []
@@ -22,8 +23,12 @@ private final class RunTimingRecorder: ActionRunTiming {
     /// Key window route runs.
     var routed = 0
 
-    func time<T>(_ id: ActionID, _ origin: ActionOrigin, inputAge: () -> Double, _ body: () -> T) -> T {
-        runs.append(Run(id: id, origin: origin, inputAge: inputAge()))
+    func intern(_ id: ActionID) -> UInt32 { 0 }
+
+    func time<T>(_ key: ActionRunKey, _ origin: ActionOrigin, input: () -> ActionRunInput, _ body: () -> T) -> T {
+        let id = key.id
+        let read = input()
+        runs.append(Run(id: id, origin: origin, inputAge: read.ageMilliseconds, entrypoint: read.entrypoint))
         events.append("run.begin \(id.rawValue)")
         let wasTiming = isTiming
         isTiming = true
@@ -34,8 +39,9 @@ private final class RunTimingRecorder: ActionRunTiming {
         return body()
     }
 
-    func beginGate(_ id: ActionID, _ origin: ActionOrigin, inputAge: () -> Double) -> (@MainActor () -> Void)? {
-        gates.append(Run(id: id, origin: origin, inputAge: inputAge()))
+    func beginGate(_ id: ActionID, _ origin: ActionOrigin, input: () -> ActionRunInput) -> (@MainActor () -> Void)? {
+        let read = input()
+        gates.append(Run(id: id, origin: origin, inputAge: read.ageMilliseconds, entrypoint: read.entrypoint))
         events.append("gate.begin \(id.rawValue)")
         return { [weak self] in self?.events.append("gate.end \(id.rawValue)") }
     }
@@ -100,6 +106,28 @@ private final class RunTimingRecorder: ActionRunTiming {
         #expect(recorder.runs.map(\.origin) == [.cli, .user])
         #expect(recorder.runs.first?.inputAge == -1)
         #expect((recorder.runs.last?.inputAge ?? -1) >= 5)
+    }
+
+    /// The budget is kept per entrypoint: a person's key, a person's click, a person's run with no
+    /// event being dispatched, and every other origin by itself.
+    @Test func eachRunNamesItsEntrypoint() throws {
+        _ = NSApplication.shared
+        let recorder = RunTimingRecorder()
+        let registry = Self.registry(recorder)
+        let key = try Self.key(at: ProcessInfo.processInfo.systemUptime)
+        let click = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0,
+                                                    context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        var dispatching: NSEvent? = key
+        registry.dispatchingInputEvent = { dispatching }
+        #expect(registry.perform("test.run"))
+        dispatching = click
+        #expect(registry.perform("test.run"))
+        #expect(registry.perform("test.run", invocation: ActionInvocation(origin: .cli)))
+        dispatching = nil
+        #expect(registry.perform("test.run"))
+        #expect(registry.perform("test.run", invocation: ActionInvocation(origin: .page)))
+        #expect(recorder.runs.map(\.entrypoint) == [.key, .pointer, .cli, .unattributed, .page])
     }
 
     @Test func aUserRunOutsideADispatchHasNoInputAge() {

@@ -41,7 +41,7 @@ scripts/cmux-next/os-matrix.sh --build JOB_ID --os 14 --suite repro:incognito-cl
 
 It submits one `cmux-ci run --class vm --script scripts/fuzz/macos-matrix/vm.sh` step with one `tart-<digest>`
 label per major, waits, downloads the step's artifact (`os-matrix-results.tgz`) into
-`artifacts/os-matrix/<build>-<suite>-<UTC>/` and prints one line per major and `MATRIX VERDICT PASS|FAIL`. Exit
+`artifacts/os-matrix/<build>-<suite>-<UTC>/` and prints one line per major and `MATRIX VERDICT PASS|FAIL|NO-VERDICT`. Exit
 0 is PASS, 1 is FAIL, 75 is no verdict (a wait timeout leaves the step running: `cmux-ci wait ID`, never
 resubmit). Per major the results hold `result.json` (smoke) or `summary.json` and `steps.jsonl` (fuzz), the app
 log (`app.log`, the app's stdout and stderr), a VNC screenshot per smoke step (`shot-<step>.png`) or every 50 fuzz
@@ -69,8 +69,34 @@ each ok/FAIL in `result.json`: `launch` (the app answers a ping), `window` (`deb
 makes a live terminal), `echo` (keys typed with `debug.key` run `echo cmux-matrix-$((6*7))` in the shell, and the
 terminal shows the output line `cmux-matrix-42`), `split` (Split Right makes a second pane), `chromium` (a Chromium
 tab loads a page served in the guest, and `debug.cef` says ready with no `unavailable` reason and no WebKit
-fallback), `webkit` (a WebKit tab loads the same page), `settings` (Settings opens and paints), `alive`, `quit`
+fallback), `webkit` (a WebKit tab loads the same page), then WebKit's gesture-free scripts on a second WebKit
+tab (port 8738): `favicon` (the favicon URL FaviconScript reads reaches the store), `type_waits`
+(`browser.page.insert_text` answers only after the page handled the text: the page holds 1.2 s in its input handler,
+under the router's 2 s request deadline),
+`design_on` and `design_off` (Ctrl-Opt-Cmd-D over VNC adds and removes the design-mode overlay), `page_info` (View
+Site Information opens its panel), `settings` (Settings opens and paints), `alive`, `quit`
 (`quitEndEverything` ends the process within 30 s; else a `sample` and a kill). A crash report fails the run.
+
+### Exec suite (OS probes)
+
+`os-matrix.sh --build JOB --os 14,15,26 --suite exec:NAME` runs one OS probe, `probes/NAME.swift`, in each guest.
+A probe is one self-contained Swift file (Foundation and system frameworks only). vm.sh compiles it on the Tart
+host with the host's Xcode (`swiftc -O -target arm64-apple-macos14.0`, an ad hoc signature, 5 min bound),
+copies only the binary into each guest and runs it there as the guest user `admin` with a 5 min bound. It
+never runs on the host. Exit 0 is PASS, 1 is FAIL, and anything else (a crash, a trap, a timeout, exit 2
+"cannot test") is no verdict: a probe must catch its errors and exit 1 for a FAIL. A probe that does not
+compile is no verdict for that step only, with the compiler's error in the step log. The compile runs in its
+own process group from an empty folder with its own module cache, bounded to 5 min. `result.json` per major
+has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the source's sha256.
+
+- The source comes from the runner ref, not from the build: a probe tests the OS. It is review-gated like the
+  rest of this folder: the fleet runs only a reviewed `scripts/fuzz/macos-matrix/` tree.
+- NAME is a-z, 0-9 and `-`; `probes/` and `probes/NAME.swift` must be a real folder and a regular file, not
+  links. `test_probe_names.sh` checks each refusal (run it on a fleet host).
+- `CMUX_MATRIX_APP` holds the build's app path in the guest, for a later probe that needs the app.
+- Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
+- `key-change-cost` (issue #24913): ms of one key-window change between a window and its child window, with
+  0-120 hidden workspace-like view trees in the window and out of it (does a hidden tree cost a key change?).
 
 ### cmux-unit and xctrace in the guest
 
@@ -123,7 +149,9 @@ there). For each major, it:
    - It sends clicks, right-clicks, double-clicks, drags (resizes, tab and sidebar drags), scrolls and typed
      text.
 4. After every step, it pings the main thread from inside the guest. A ping over `--hang-ms` (1000 ms) counts
-   as a hang and the fuzzer `sample`s the app. New `.ips` or `.hang` reports count as crashes. When the app
+   as a hang. A ping still unanswered at `--hang-ms` starts a 5 s `sample` of the app in the guest while the hang
+   lasts (`hang-N.live-sample.txt`; `sudo -n` first, because the hardened runtime refuses a non-root sampler), and
+   a 2 s sample follows after the ping. New `.ips` or `.hang` reports count as crashes. When the app
    has died, the fuzzer records a screenshot and starts the app again. At the end, it collects the unified-log
    faults of the cmux processes.
 5. Copies the results out and deletes the clone.

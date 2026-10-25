@@ -75,7 +75,8 @@ def rpc(method, params=None, timeout=30):
 
 
 def action(name, args=None, timeout=60):
-    return rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "user"}, timeout=timeout)
+    # origin script: the control socket refuses origin user (dc82dca5497), so every setup open failed.
+    return rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
 
 
 def wait(check, seconds, step=0.25):
