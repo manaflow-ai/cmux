@@ -16,6 +16,13 @@ use std::collections::HashMap;
 /// What a waiting send heard of its steer.
 #[derive(Default)]
 pub(crate) struct SteerReply {
+    /// The send's prompt id: its records name it.
+    prompt_id: String,
+    /// The running turn its prompt went into as a steer (its `user_message` record says so).
+    steered_in: Option<String>,
+    /// Its prompt runs a turn of its own: it queued, started one, or fell back to the queue
+    /// after a steer its turn ended before reading (`hub/steer_end.rs`).
+    own_turn: bool,
     /// The turn the steer went into, once the agent answered `steered`.
     into: Option<String>,
     /// The turns that ended before that answer came, and how.
@@ -23,6 +30,10 @@ pub(crate) struct SteerReply {
 }
 
 impl SteerReply {
+    pub(crate) fn new(prompt_id: &str) -> Self {
+        Self { prompt_id: prompt_id.to_owned(), ..Self::default() }
+    }
+
     /// The prompt's answer: what the send answers, or `None` while the turn it steered into
     /// runs on.
     pub(crate) fn answered(&mut self, answer: Result<Value>) -> Option<Result<Value>> {
@@ -39,6 +50,7 @@ impl SteerReply {
     /// A notification of the session: what the send answers when it ends the turn the steer
     /// went into.
     pub(crate) fn heard(&mut self, m: &str, p: &Value) -> Option<Result<Value>> {
+        self.note_prompt(m, p);
         let (turn, end) = turn_end(m, p)?;
         match &self.into {
             Some(into) => (*into == turn).then_some(end),
@@ -49,9 +61,33 @@ impl SteerReply {
         }
     }
 
+    /// Where its prompt went, from the records that name it.
+    fn note_prompt(&mut self, m: &str, p: &Value) {
+        if m != method::MUX_EVENT || p.get("dir").and_then(Value::as_str) != Some("mux") {
+            return;
+        }
+        let Some(msg) = p.get("msg") else { return };
+        if msg.get("promptId").and_then(Value::as_str) != Some(self.prompt_id.as_str()) {
+            return;
+        }
+        match p.get("kind").and_then(Value::as_str) {
+            Some("user_message") if msg.get("steer").and_then(Value::as_bool) == Some(true) => {
+                self.steered_in = msg.get("turnId").and_then(Value::as_str).map(str::to_owned);
+            }
+            Some("user_message" | "queued") => self.own_turn = true,
+            _ => {}
+        }
+    }
+
     /// It waits for the end of another prompt's turn, which is not the send's to stop.
     pub(crate) fn waiting(&self) -> bool {
         self.into.is_some()
+    }
+
+    /// Its prompt went into another prompt's running turn and runs no turn of its own: a timeout
+    /// leaves that turn running.
+    pub(crate) fn in_another_turn(&self) -> bool {
+        self.into.is_some() || (self.steered_in.is_some() && !self.own_turn)
     }
 }
 
@@ -102,7 +138,7 @@ mod tests {
 
     #[test]
     fn a_steered_answer_waits_for_its_turns_end() {
-        let mut s = SteerReply::default();
+        let mut s = SteerReply::new("p1");
         assert!(s.answered(steered("t1")).is_none());
         assert!(s.waiting());
         let other = event("turn_end", json!({"turnId": "t0", "stopReason": "end_turn"}));
@@ -115,8 +151,11 @@ mod tests {
 
     #[test]
     fn a_turn_that_ended_before_the_steered_answer_came_answers_at_once() {
-        let mut s = SteerReply::default();
-        let end = event("turn_result", json!({"turnId": "t1", "status": "cancelled", "stopReason": "cancelled"}));
+        let mut s = SteerReply::new("p1");
+        let end = event(
+            "turn_result",
+            json!({"turnId": "t1", "status": "cancelled", "stopReason": "cancelled"}),
+        );
         assert!(s.heard(method::MUX_EVENT, &end).is_none());
         let r = s.answered(steered("t1")).unwrap().unwrap();
         assert_eq!(r["stopReason"], "cancelled");
@@ -124,16 +163,37 @@ mod tests {
 
     #[test]
     fn a_failed_turn_fails_the_send() {
-        let mut s = SteerReply::default();
+        let mut s = SteerReply::new("p1");
         assert!(s.answered(steered("t1")).is_none());
         let failed = event("turn_error", json!({"turnId": "t1", "error": "agent process closed"}));
         let e = s.heard(method::MUX_EVENT, &failed).unwrap().unwrap_err();
         assert_eq!(e.to_string(), "agent process closed");
     }
 
+    /// A timeout before the agent read the steer leaves the turn it went into running; a steer
+    /// that fell back to the queue (its turn ended first) runs a turn of its own, which it stops.
+    #[test]
+    fn a_steer_is_in_another_turn_from_its_record_until_it_falls_back() {
+        let mut s = SteerReply::new("p1");
+        assert!(!s.in_another_turn());
+        let other = event("user_message", json!({"promptId": "p0", "steer": true, "turnId": "t1"}));
+        s.heard(method::MUX_EVENT, &other);
+        assert!(!s.in_another_turn(), "another prompt's steer");
+        let steer = event("user_message", json!({"promptId": "p1", "steer": true, "turnId": "t1"}));
+        s.heard(method::MUX_EVENT, &steer);
+        assert!(s.in_another_turn() && !s.waiting(), "steered in, not read yet");
+        let fallback = event("queued", json!({"promptId": "p1", "turnId": "t2"}));
+        s.heard(method::MUX_EVENT, &fallback);
+        assert!(!s.in_another_turn(), "fell back: its own turn");
+        let mut plain = SteerReply::new("p1");
+        let started = event("user_message", json!({"promptId": "p1", "turnId": "t3"}));
+        plain.heard(method::MUX_EVENT, &started);
+        assert!(!plain.in_another_turn(), "a prompt that started its own turn");
+    }
+
     #[test]
     fn any_other_answer_is_the_sends_own() {
-        let mut s = SteerReply::default();
+        let mut s = SteerReply::new("p1");
         // codex-acp answers a steer at the turn's end; a steer taken back answers `withdrawn`.
         for stop in ["end_turn", "withdrawn", "cancelled"] {
             let answer = json!({"stopReason": stop, "_meta": {"acpmux": {"turnId": "t1"}}});

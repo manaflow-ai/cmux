@@ -210,3 +210,20 @@ async fn a_no_steer_send_queues_behind_a_turn_that_could_take_it() {
     let r = tokio::time::timeout(Duration::from_secs(10), send).await.unwrap().unwrap().unwrap();
     assert!(r.reply.contains("mine"), "its own turn's reply, got {:?}", r.reply);
 }
+
+/// A send's `--timeout` that passes while it waits for the turn it steered into leaves that turn
+/// running: it is another prompt's.
+#[tokio::test]
+async fn a_steered_sends_timeout_leaves_the_turn_it_went_into_running() {
+    let b = busy(true).await;
+    let prompt = from_lane();
+    let opts = CollectOpts { timeout: Some(2), ..opts(true) };
+    let r = collect_reply(b.client().await, &b.id, "rebase first", opts, &prompt).await;
+    let e = r.err().expect("the send times out");
+    assert!(e.to_string().contains("runs on"), "{e}");
+    let turn = b.hub.resolve(&b.id).unwrap().turn().expect("the person's turn still runs");
+    let events = b.hub.events(&b.id, 0, 1000).unwrap();
+    assert!(!events.iter().any(|e| e.kind == "turn_end" || e.kind == "turn_error"), "nothing ended");
+    open_gate(&b.gate);
+    assert_eq!(record(&b, "turn_result", &turn.prompt_id).await["status"], "completed");
+}

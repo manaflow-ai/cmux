@@ -298,7 +298,7 @@ pub(crate) async fn stream_prompt(
     let c = client.clone();
     let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
-    let mut steered = crate::cli::steer_reply::SteerReply::default();
+    let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id);
     let mut t = Transcript::default();
     let mut printed_assistant = 0usize;
     let mut last_tool = String::new();
@@ -561,7 +561,7 @@ async fn timed_out(
     turn: &mut tokio::task::JoinHandle<Result<Value>>,
 ) -> anyhow::Error {
     let secs = opts.timeout.unwrap_or(0);
-    if steered.waiting() {
+    if steered.in_another_turn() {
         let text = format!("no reply after {secs}s; the turn it steered into runs on");
         return crate::cli::errors::AppError::timeout(text).with_session(id).into();
     }
@@ -626,7 +626,7 @@ async fn collect_once(
     let c = client.clone();
     let params = prompt.params(id, text, opts.steer, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
-    let mut steered = crate::cli::steer_reply::SteerReply::default();
+    let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id);
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
     let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));

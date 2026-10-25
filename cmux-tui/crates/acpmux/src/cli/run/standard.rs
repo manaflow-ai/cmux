@@ -566,8 +566,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.supersede = supersede;
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
-            let asked = steer;
             let mut steer = send_steers(steer, no_steer, no_wait, agent);
+            // A sub-session's send to its parent waits for the parent's turn to end, as its
+            // send_message does (`hub/subsession_send.rs`), --steer or not.
+            if steer && to_parent(&client, &session).await {
+                steer = false;
+            }
             let text = arg_or_stdin(&prompt)?;
             if no_wait {
                 return super::send_async::queue(
@@ -582,11 +586,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await;
             }
             let id = resolve_id(&client, &session).await?;
-            // A sub-session's waiting send to its parent waits for the parent's turn to end, as
-            // its send_message does (`hub/subsession_send.rs`), unless it asks to steer.
-            if steer && !asked && to_parent(&client, &id).await {
-                steer = false;
-            }
             let on_permission = OnPermission::parse(&on_permission)?;
             // Never refuse: report what the prompt queues behind.
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -881,19 +880,29 @@ fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool 
     !no_steer && (steer || no_wait || agent)
 }
 
-/// Whether `target` is the parent of the acpmux session this send runs in (`startedBy`).
+/// Whether the session `target` names is the parent of the acpmux session this send runs in
+/// (its `startedBy`). Only a sub-session asks which session `target` is.
 async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
     let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty())
     else {
         return false;
     };
-    let info = client.request(method::MUX_INFO, json!({"sessionId": own, "waitLogs": false}));
-    info.await.is_ok_and(|info| started_by(&info, target))
+    let info = |key: &str| {
+        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false}))
+    };
+    let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
+        return false;
+    };
+    if target == parent {
+        return true;
+    }
+    let Ok(key) = orchestrate::expand_session_key(target) else { return false };
+    info(&key).await.is_ok_and(|t| t.get("sessionId").and_then(Value::as_str) == Some(parent.as_str()))
 }
 
-/// The session `info` describes was started by `target`.
-fn started_by(info: &Value, target: &str) -> bool {
-    info.get("startedBy").and_then(Value::as_str) == Some(target)
+/// The session that started the one `info` describes, if one did.
+fn started_by(info: &Value) -> Option<String> {
+    info.get("startedBy").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned)
 }
 
 /// The agent of the session `info` describes takes a prompt mid-turn.
@@ -925,9 +934,10 @@ mod tests {
     }
 
     #[test]
-    fn a_session_started_by_the_target_sends_to_its_parent() {
-        assert!(started_by(&json!({"sessionId": "child", "startedBy": "p"}), "p"));
-        assert!(!started_by(&json!({"sessionId": "child", "startedBy": "p"}), "other"));
-        assert!(!started_by(&json!({"sessionId": "root", "startedBy": null}), "p"));
+    fn a_sub_session_names_the_parent_that_started_it() {
+        let child = json!({"sessionId": "child", "startedBy": "p"});
+        assert_eq!(started_by(&child).as_deref(), Some("p"));
+        assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
+        assert_eq!(started_by(&json!({"sessionId": "old"})), None);
     }
 }

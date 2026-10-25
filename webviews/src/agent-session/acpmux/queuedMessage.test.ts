@@ -71,3 +71,17 @@ test("acpmux's queue list keeps the message its record gave", () => {
     { id: "p1", prompt: "Rebase first", message },
   ]);
 });
+
+test("a queue row the pane never read the record of is an agent's message when the list names it", () => {
+  const listed = mergeQueue(
+    [],
+    [
+      { promptId: "p1", prompt: "Rebase first", fromAgent: "lane-a" },
+      { promptId: "p2", prompt: "Also update the comment", fromAgent: null },
+    ],
+  );
+  expect(listed).toEqual([
+    { id: "p1", prompt: "Rebase first", message: { name: "lane-a", text: "Rebase first", raw: "Rebase first" } },
+    { id: "p2", prompt: "Also update the comment" },
+  ]);
+});
