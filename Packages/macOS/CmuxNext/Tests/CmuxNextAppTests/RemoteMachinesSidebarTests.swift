@@ -125,6 +125,21 @@ struct RemoteMachinesSidebarTests {
         #expect(ids == ["itm_home", SidebarTransientItem.channelsID.rawValue, LayoutItemID.transientPrefix + "remote:machine:huge-blue"])
     }
 
+    /// The user 2026-10-25: "pressing cmd 1 no longer takes me to home". Remote chat rows anchor after Home in
+    /// the document's top block; they are stops after Home and the App Store, never before them, so Cmd-1 is Home.
+    @Test func remoteChatsNeverComeBeforeHomeInTheCmdNumberOrder() throws {
+        let model = SidebarModel(sections: [SidebarSection(
+            kind: .custom(SidebarCustomSection(id: SidebarLayoutDocument.topSectionID.rawValue, title: "", showsTitle: false)), nodes: [])])
+        model.transientTopItems = RemoteMachinesSidebar.mergedRows(
+            machines: RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue", since: 2), Self.lane("b", peer: "huge-blue", since: 1)],
+                                                     peers: nil),
+            displayName: { _ in nil })
+        try #require(model.transientTopItems.count == 2)
+        let settings = SidebarNavigationSettings(numbering: .allItems, cmd9: .last)
+        let first = try #require(model.itemOrder.pick(1, settings))
+        #expect(first == .topItem(LayoutItemID("itm_home")), "Cmd-1 is \(first); order \(model.itemOrder.items)")
+    }
+
     @Test func peerListReadsNamesAndLinks() {
         let peers = AcpmuxPeerList.peers(["peers": [["name": "cmux16", "connected": true, "sessions": 484],
                                                     ["name": "big-red", "connected": false], ["connected": true]]])
