@@ -42,10 +42,14 @@ public nonisolated struct TraceClock: Sendable {
         public let continuous: ContinuousClock.Instant
         /// `CLOCK_UPTIME_RAW` nanoseconds at the same moment.
         public let uptimeNanos: UInt64
+        /// The nanoseconds between the two uptime reads around the continuous read. ``uptimeNanos`` is their
+        /// midpoint, so it is off by at most half of this; a caller that needs a tight pairing reads again.
+        public let readWidthNanos: UInt64
 
-        public init(continuous: ContinuousClock.Instant, uptimeNanos: UInt64) {
+        public init(continuous: ContinuousClock.Instant, uptimeNanos: UInt64, readWidthNanos: UInt64 = 0) {
             self.continuous = continuous
             self.uptimeNanos = uptimeNanos
+            self.readWidthNanos = readWidthNanos
         }
     }
 
@@ -68,12 +72,14 @@ public nonisolated struct TraceClock: Sendable {
         return reader.uptimeNanos()
     }
 
-    /// Reads `ContinuousClock.now` between two uptime reads and pairs it with their midpoint.
+    /// Reads `ContinuousClock.now` between two uptime reads and pairs it with their midpoint, keeping the
+    /// reads' width as the pairing's error bound.
     public func continuousStamp() -> ContinuousStamp {
         let before = nowNanos()
         let continuous = reader?.continuousNow() ?? ContinuousClock.now
         let after = nowNanos()
-        return ContinuousStamp(continuous: continuous, uptimeNanos: before &+ (after &- before) / 2)
+        let width = after &- before
+        return ContinuousStamp(continuous: continuous, uptimeNanos: before &+ width / 2, readWidthNanos: width)
     }
 
     /// Uptime seconds (`NSEvent.timestamp`, `ProcessInfo.systemUptime`) as trace nanoseconds, rounded.
