@@ -8,17 +8,23 @@ The format and semantics copy Blink's TestExpectations (chromium/src
 
     [ bug ] [ [ tags ] ] suite/case[/step][#/json/pointer] [ results ] [# comment]
 
-- `bug` is a WORK.tsv task id (`p15-oracle-015`) or a cmux issue (`#1234`).
+- `bug` is a WORK.tsv task id (`p15-oracle-015`) or a cmux issue (`#1234`). A `#1234` line is an
+  expectation only when a `[ tags ]` group or a `suite/case` target follows; any other line that
+  starts with `#` is a comment.
 - Tags come from four groups; a line matches a run when every tag on it equals the run's value
   for that group (typ semantics: tags on one line are ANDed, two tags of one group never match).
 - Results: Pass Failure Crash Timeout Skip Slow. Several results (Slow aside) mean flaky; there
-  is no Flaky keyword. Slow gives 5x settleMaxMs. Skip never runs. Expecting a non-Pass result
-  and passing is an unexpected pass: reported, it does not fail the run (Blink behavior).
+  is no Flaky keyword. Skip never runs. Expecting a non-Pass result and passing is an unexpected
+  pass: reported, it does not fail the run (Blink behavior).
+- Slow is a modifier, not a result: any matching case, step or `suite/*` line with Slow gives 5x
+  settleMaxMs, whatever line wins the result (Blink keeps it in a separate SlowTests file; typ
+  ORs `is_slow_test` over every matching line). A Slow-only line never competes for the result.
 - A `#/json/pointer` suffix scopes the line to that value and its subtree; every other value of
-  the snapshot stays strict.
-- Most specific match wins: pointer-in-step > pointer > step > case > `suite/*`, then the deeper
-  pointer, then more tags. Equal-rank matches union their results, as typ does; the linter
-  refuses such overlaps so they never reach a run.
+  the snapshot stays strict. A `suite/*` line takes no Failure: it would hide a whole suite.
+- Most specific target wins: pointer-in-step > pointer > step > case > `suite/*` (typ: an exact
+  name beats a glob), then the deeper pointer. Tags do not rank: lines on one target whose tag
+  sets can both match a run union their results (typ `expectations_for`), and the linter refuses
+  them (typ `check_for_conflicts`), so a union never reaches a run.
 
 Files: `tests/oracle/Expectations.d/<suite>.txt` and `tests/oracle/NeverFix.d/<suite>.txt`, one
 file per suite so parallel agents do not conflict. A combined file (all suites in one file) is
@@ -65,6 +71,7 @@ GOLDEN_BUDGET = 0.02
 
 TASK_ID_RE = re.compile(r"^p\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*-\d{3}$")
 ISSUE_RE = re.compile(r"^#\d+$")
+ISSUE_LINE_RE = re.compile(r"^\s*#\d+\s+(?:\[|[A-Za-z0-9][A-Za-z0-9._-]*/)")  # `#1234 [ tags ]` or `#1234 suite/case`
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Scope ranks, least to most specific.
@@ -144,6 +151,11 @@ class Entry:
         return SLOW in self.results
 
     @property
+    def has_result(self) -> bool:
+        """False for a Slow-only line: it modifies the settle time and never competes for the result."""
+        return bool(self.results - {SLOW})
+
+    @property
     def flaky(self) -> bool:
         return len(self.outcomes) > 1
 
@@ -169,6 +181,9 @@ class Entry:
             return False
         return pointer == self.pointer or pointer.startswith(self.pointer + "/")
 
+    def covers(self, d: "Divergence") -> bool:
+        return (self.step is None or self.step == d.step) and self.covers_pointer(d.pointer)
+
 
 def _tag_order(tag: str) -> tuple[int, int]:
     group = GROUP_OF_TAG.get(tag)
@@ -177,9 +192,9 @@ def _tag_order(tag: str) -> tuple[int, int]:
     return (list(TAG_GROUPS).index(group), TAG_GROUPS[group].index(tag))
 
 
-def _rank(entry: Entry) -> tuple[int, int, int]:
+def _rank(entry: Entry) -> tuple[int, int]:
     depth = 0 if entry.pointer is None else entry.pointer.count("/")
-    return (entry.scope, depth, len(entry.tags))
+    return (entry.scope, depth)
 
 
 def _tags_compatible(a: frozenset[str], b: frozenset[str]) -> bool:
@@ -220,7 +235,7 @@ def _parse_line(raw: str, file: str, lineno: int, kind: str) -> tuple[Entry | No
     tokens = raw.replace("[", " [ ").replace("]", " ] ").split()
     if not tokens:
         return None, None
-    if tokens[0].startswith("#") and not ISSUE_RE.match(tokens[0]):
+    if tokens[0].startswith("#") and not ISSUE_LINE_RE.match(raw):
         return None, None  # comment line
     for index, token in enumerate(tokens[1:], start=1):
         if token.startswith("#"):
@@ -304,6 +319,12 @@ def _parse_line(raw: str, file: str, lineno: int, kind: str) -> tuple[Entry | No
         return error("skip-alone", f"{test}: Skip never runs, so it cannot share a line with other results")
     if entry.pointer is not None and not entry.results <= {PASS, FAILURE}:
         return error("pointer-results", f"{test}: a pointer line scopes one value; only Pass and Failure apply")
+    if entry.scope == SCOPE_GLOB and FAILURE in entry.results:
+        return error(
+            "glob-failure",
+            f"{test}: Failure on suite/* hides every divergence of the suite; scope the known-wrong value with "
+            "#/pointer, or use Skip, Crash or Timeout",
+        )
     if entry.step is not None and SKIP in entry.results:
         return error("step-skip", f"{test}: a step cannot be skipped alone; skip the case")
     if kind == "neverfix" and entry.results != {SKIP}:
@@ -372,7 +393,7 @@ class Expectations:
         candidates = [
             e
             for e in self._matching(suite, case, config)
-            if e.pointer is None and (e.step is None or e.step == step)
+            if e.kind == "expectations" and e.pointer is None and (e.step is None or e.step == step)
         ]
         return Resolution.of(candidates)
 
@@ -383,7 +404,7 @@ class Expectations:
     def should_run(self, suite: str, case: str, config: RunConfig) -> bool:
         if self.neverfix(suite, case, config) is not None:
             return False
-        return self.resolve(suite, case, config).outcomes != {SKIP}
+        return SKIP not in self.resolve(suite, case, config).outcomes
 
     def settle_multiplier(self, suite: str, case: str, config: RunConfig, step: str | None = None) -> int:
         return SLOW_MULTIPLIER if self.resolve(suite, case, config, step).slow else 1
@@ -402,28 +423,37 @@ class Expectations:
                 outcome, actual.result, case_level.outcomes, case_level.flaky, (), (), lines
             )
 
-        matching = self._matching(suite, case, config)
+        candidates = [
+            e for e in self._matching(suite, case, config) if e.kind == "expectations" and e.has_result
+        ]
         divergences = list(actual.divergences)
         if actual.result == FAILURE and not divergences:
             divergences = [Divergence(actual.step, None)]
         uncovered: list[Divergence] = []
         hit: set[str] = set()
+        missed: set[str] = set()
+        diverged: set[str] = set()  # lines whose scope holds a divergence
         flaky = False
         for d in divergences:
-            covering = _cover(matching, d)
+            covering = _cover(candidates, d)
             flaky = flaky or covering.flaky
             if FAILURE in covering.outcomes:
                 hit.update(e.key for e in covering.lines)
             else:
                 uncovered.append(d)
+                missed.update(e.key for e in covering.lines)
+            diverged.update(e.key for e in candidates if e.covers(d))
 
-        # Every line that wins for its own target is either exercised (hit) or, lacking Pass, an
-        # unexpected pass: the Blink signal that the line can go.
-        winners = _winners([e for e in matching if e.kind == "expectations"])
+        # A winning line is an unexpected pass only when its whole scope passed: the Blink signal
+        # that the line can go. A line whose scope diverged under a more specific line is shadowed.
         unexpected_pass: list[str] = []
-        for e in winners:
+        for e in _winners(candidates):
             if e.key in hit:
                 lines[e.key] = "hit"
+            elif e.key in missed:
+                lines[e.key] = "missed"
+            elif e.key in diverged:
+                lines[e.key] = "shadowed"
             elif PASS in e.outcomes:
                 lines[e.key] = "pass-ok"
             else:
@@ -431,7 +461,7 @@ class Expectations:
                 unexpected_pass.append(e.key)
         if uncovered:
             outcome = UNEXPECTED_FAILURE
-        elif unexpected_pass:
+        elif unexpected_pass and actual.result == PASS:
             outcome = UNEXPECTED_PASS
         else:
             outcome = EXPECTED
@@ -473,22 +503,19 @@ def _winners(entries: list[Entry]) -> list[Entry]:
     return result
 
 
-def _cover(matching: list[Entry], d: "Divergence") -> "Resolution":
-    candidates = [
-        e
-        for e in matching
-        if e.kind == "expectations"
-        and (e.step is None or e.step == d.step)
-        and e.covers_pointer(d.pointer)
-    ]
-    return Resolution.of(candidates)
+def _cover(candidates: list[Entry], d: "Divergence") -> "Resolution":
+    return Resolution.of([e for e in candidates if e.covers(d)])
 
 
 @dataclasses.dataclass(frozen=True)
 class Resolution:
-    lines: tuple[Entry, ...]
+    lines: tuple[Entry, ...]  # the winning result lines
     outcomes: frozenset[str]
-    slow: bool
+    slow_lines: tuple[Entry, ...]  # every candidate with Slow, winner or not
+
+    @property
+    def slow(self) -> bool:
+        return bool(self.slow_lines)
 
     @property
     def flaky(self) -> bool:
@@ -496,12 +523,14 @@ class Resolution:
 
     @classmethod
     def of(cls, candidates: list[Entry]) -> "Resolution":
-        if not candidates:
-            return cls((), frozenset({PASS}), False)
-        best = max(_rank(e) for e in candidates)
-        top = tuple(e for e in candidates if _rank(e) == best)
-        outcomes = frozenset().union(*(e.outcomes for e in top))
-        return cls(top, outcomes, any(e.slow for e in top))
+        """Most specific result lines win and union on a tie (typ); Slow is ORed over all candidates."""
+        slow_lines = tuple(e for e in candidates if e.slow)
+        ranked = [e for e in candidates if e.has_result]
+        if not ranked:
+            return cls((), frozenset({PASS}), slow_lines)
+        best = max(_rank(e) for e in ranked)
+        top = tuple(e for e in ranked if _rank(e) == best)
+        return cls(top, frozenset().union(*(e.outcomes for e in top)), slow_lines)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -516,6 +545,10 @@ class Actual:
     divergences: tuple[Divergence, ...] = ()
     step: str | None = None  # the step a Crash or Timeout happened at
 
+    def __post_init__(self) -> None:
+        if self.result not in ACTUAL_RESULTS:
+            raise ValueError(f"actual result {self.result!r} is not one of {' '.join(ACTUAL_RESULTS)}")
+
 
 @dataclasses.dataclass(frozen=True)
 class Verdict:
@@ -525,7 +558,7 @@ class Verdict:
     flaky: bool
     uncovered: tuple[Divergence, ...]
     unexpected_pass_lines: tuple[str, ...]
-    lines: dict[str, str]  # line key -> hit | missed | pass-ok | unexpected-pass
+    lines: dict[str, str]  # line key -> hit | missed | shadowed | pass-ok | unexpected-pass
 
     @property
     def fails_run(self) -> bool:
@@ -581,34 +614,52 @@ def lint(
 
 def _lint_overlaps(entries: list[Entry]) -> list[Diagnostic]:
     diags: list[Diagnostic] = []
+    expectations = [e for e in entries if e.kind == "expectations"]
+    neverfix = [e for e in entries if e.kind == "neverfix"]
+    for e in expectations:
+        skip = next(
+            (
+                n
+                for n in neverfix
+                if n.suite == e.suite and n.case in (e.case, "*") and _tags_compatible(e.tags, n.tags)
+            ),
+            None,
+        )
+        if skip is not None:
+            diags.append(
+                Diagnostic(
+                    e.file,
+                    e.lineno,
+                    "neverfix-overlap",
+                    f"{e.target} never takes effect: NeverFix {skip.where} skips it on "
+                    f"[ {' '.join(sorted(e.tags | skip.tags, key=_tag_order))} ] runs",
+                )
+            )
+
     by_target: dict[tuple, list[Entry]] = {}
     for e in entries:
-        by_target.setdefault((e.suite, e.case, e.step, e.pointer), []).append(e)
+        by_target.setdefault((e.kind, e.suite, e.case, e.step, e.pointer), []).append(e)
     for group in by_target.values():
-        kinds = {e.kind for e in group}
-        if kinds == {"expectations", "neverfix"}:
-            for e in group:
-                if e.kind == "expectations":
-                    diags.append(
-                        Diagnostic(e.file, e.lineno, "neverfix-overlap", f"{e.target} is also in NeverFix.d")
-                    )
         for index, a in enumerate(group):
             for b in group[index + 1 :]:
-                if a.kind != b.kind:
-                    continue
                 if a.tags == b.tags:
                     diags.append(
                         Diagnostic(b.file, b.lineno, "duplicate", f"{b.target} duplicates {a.where}")
                     )
-                elif _tags_compatible(a.tags, b.tags) and not (a.tags < b.tags or b.tags < a.tags):
+                elif (
+                    a.kind == "expectations"
+                    and a.has_result
+                    and b.has_result
+                    and _tags_compatible(a.tags, b.tags)
+                ):
                     diags.append(
                         Diagnostic(
                             b.file,
                             b.lineno,
                             "overlap",
                             f"{b.target} and {a.where} both match a "
-                            f"[ {' '.join(sorted(a.tags | b.tags, key=_tag_order))} ] run with equal "
-                            "specificity; add the shared tags to one line",
+                            f"[ {' '.join(sorted(a.tags | b.tags, key=_tag_order))} ] run, which would get "
+                            "both lines' results; make the tag sets disjoint",
                         )
                     )
     return diags
@@ -655,39 +706,50 @@ def _step_ids(path: Path) -> set[str] | None:
 
 
 def _lint_budget(entries: list[Entry], corpus: Path) -> list[Diagnostic]:
-    cases = sum(len(list((corpus / s).glob("*.json"))) for s in GOLDEN_SUITES if (corpus / s).is_dir())
-    counted = [e for e in entries if e.suite in GOLDEN_SUITES and e.outcomes != {PASS}]
+    """A `suite/*` line counts as every case of its suite: one line must not hide a golden suite."""
+    suite_cases = {
+        s: len(list((corpus / s).glob("*.json"))) for s in GOLDEN_SUITES if (corpus / s).is_dir()
+    }
+    cases = sum(suite_cases.values())
+    counted = sum(
+        suite_cases.get(e.suite, 0) if e.scope == SCOPE_GLOB else 1
+        for e in entries
+        if e.suite in GOLDEN_SUITES and e.outcomes != {PASS}
+    )
     limit = int(cases * GOLDEN_BUDGET)
-    if len(counted) <= limit:
+    if counted <= limit:
         return []
     return [
         Diagnostic(
             "tests/oracle",
             0,
             "golden-budget",
-            f"{len(counted)} golden Expectations + NeverFix lines > 2 % of {cases} golden cases ({limit}); "
-            "rebaseline instead",
+            f"golden Expectations + NeverFix lines cover {counted} cases > 2 % of {cases} golden cases "
+            f"({limit}); rebaseline instead",
         )
     ]
 
 
 def _lint_stale_results(entries: list[Entry], records: Iterable[dict], min_runs: int) -> list[Diagnostic]:
-    """A non-Pass line seen in >= min_runs verdicts and never hit is stale (Blink update_expectations)."""
-    seen: dict[str, int] = {}
+    """A non-Pass line that passed in >= min_runs verdicts and was never hit is stale (Blink
+    update_expectations). Missed and shadowed runs did not pass, so they do not count."""
+    passed: dict[str, int] = {}
     hit: set[str] = set()
     for record in records:
         for key, state in (record.get("lines") or {}).items():
-            seen[key] = seen.get(key, 0) + 1
             if state == "hit":
                 hit.add(key)
+            elif state == "unexpected-pass":
+                passed[key] = passed.get(key, 0) + 1
     diags: list[Diagnostic] = []
     for e in entries:
         if e.kind != "expectations" or PASS in e.outcomes:
             continue
-        runs = seen.get(e.key, 0)
+        runs = passed.get(e.key, 0)
         if runs >= min_runs and e.key not in hit:
+            expected = "/".join(sorted(e.outcomes))
             diags.append(
-                Diagnostic(e.file, e.lineno, "stale", f"{e.target}: passed as expected-{'/'.join(sorted(e.outcomes))} in {runs} runs; remove it")
+                Diagnostic(e.file, e.lineno, "stale", f"{e.target}: passed in {runs} runs that expected {expected}; remove it")
             )
     return diags
 
@@ -812,20 +874,26 @@ def _selftest() -> int:
         step_ptr.evaluate("journeys", "j1", mac_app, Actual(FAILURE, (Divergence("s2", "/focus"),))).outcome == EXPECTED
         and step_ptr.evaluate("journeys", "j1", mac_app, Actual(FAILURE, (Divergence("s1", "/focus"),))).fails_run,
     )
-    # 15. Most specific match wins: more tags beat fewer, a step line beats the case line.
+    # 15. The most specific target wins: a step line beats the case line, a case line beats suite/*.
     spec = exp(
         "p15-oracle-015 terminal/a [ Failure ]\n"
-        "p15-oracle-015 [ linux daemon ] terminal/a [ Pass ]\n"
         "p15-oracle-015 terminal/a/s1 [ Timeout ]\n"
         "p15-oracle-015 [ mac ] terminal/* [ Skip ]"
     )
     check(
         "most specific wins",
-        spec.resolve("terminal", "a", linux_daemon).outcomes == {PASS}
-        and spec.resolve("terminal", "a", RunConfig(platform="linux")).outcomes == {FAILURE}
+        spec.resolve("terminal", "a", RunConfig(platform="linux")).outcomes == {FAILURE}
         and spec.resolve("terminal", "a", RunConfig(platform="linux"), "s1").outcomes == {TIMEOUT}
         and spec.resolve("terminal", "a", mac_app).outcomes == {FAILURE}
         and not spec.should_run("terminal", "zz", mac_app),
+    )
+    # 15b. Tags do not rank: compatible tag sets on one target union (typ) and the linter refuses them.
+    union = exp("p15-oracle-015 terminal/a [ Failure ]\np15-oracle-015 [ linux daemon ] terminal/a [ Pass ]")
+    check(
+        "tags union, lint refuses",
+        union.resolve("terminal", "a", linux_daemon).outcomes == {PASS, FAILURE}
+        and union.resolve("terminal", "a", mac_app).outcomes == {FAILURE}
+        and sorted(d.code for d in lint(union)) == ["overlap", "whole-case-failure"],
     )
     # 16. Slow multiplies settleMaxMs by 5 and still expects Pass.
     slow = exp("p15-oracle-015 [ debug ] tla/trace-9 [ Slow ]")
@@ -835,6 +903,51 @@ def _selftest() -> int:
         and slow.settle_multiplier("tla", "trace-9", RunConfig(build="bench")) == 1
         and slow.evaluate("tla", "trace-9", RunConfig(build="debug"), Actual(PASS)).outcome == EXPECTED,
     )
+    # 16b. Slow is a modifier: a more specific step or tagged line keeps it, and a Slow-only line
+    # never hides a result line.
+    debug = RunConfig(build="debug")
+    slow_step = exp("p15-oracle-015 t/a [ Slow ]\np15-oracle-015 t/a/s2 [ Failure ]")
+    slow_tag = exp("p15-oracle-015 t/a [ Slow ]\np15-oracle-015 [ linux ] t/a [ Pass Timeout ]")
+    slow_hides = exp("p15-oracle-015 tla/t1 [ Failure ]\np15-oracle-015 [ debug ] tla/t1 [ Slow ]")
+    slow_tag_step = exp("p15-oracle-015 [ debug ] tla/t1 [ Slow ]\np15-oracle-015 tla/t1/s2 [ Pass Timeout ]")
+    check(
+        "slow is a modifier",
+        slow_step.settle_multiplier("t", "a", mac_app, "s2") == 5
+        and slow_step.settle_multiplier("t", "a", mac_app) == 5
+        and slow_tag.settle_multiplier("t", "a", RunConfig(platform="linux")) == 5
+        and slow_hides.settle_multiplier("tla", "t1", debug) == 5
+        and slow_hides.resolve("tla", "t1", debug).outcomes == {FAILURE}
+        and slow_hides.evaluate("tla", "t1", debug, Actual(FAILURE, (Divergence(None, "/x"),))).outcome == EXPECTED
+        and [d.code for d in lint(slow_hides)] == ["whole-case-failure"]
+        and slow_tag_step.settle_multiplier("tla", "t1", debug, "s2") == 5
+        and slow_tag_step.settle_multiplier("tla", "t1", RunConfig(build="bench"), "s2") == 1,
+    )
+    # 16c. A failing run is never an unexpected pass: a line whose scope diverged under a more
+    # specific line is shadowed, and an unexpected pass of another scope leaves the run expected.
+    shadow = exp("p15-oracle-015 a/b [ Failure ]\np15-oracle-015 a/b#/x [ Failure ]")
+    v_shadow = shadow.evaluate("a", "b", mac_app, Actual(FAILURE, (Divergence(None, "/x"),)))
+    step_shadow = exp("p15-oracle-015 j/c/s1 [ Timeout ]\np15-oracle-015 j/c#/a [ Failure ]")
+    v_step = step_shadow.evaluate("j", "c", mac_app, Actual(FAILURE, (Divergence("s1", "/a"),)))
+    other_step = exp("p15-oracle-015 j/c/s1 [ Failure ]\np15-oracle-015 j/c/s2#/a [ Failure ]")
+    v_other = other_step.evaluate("j", "c", mac_app, Actual(FAILURE, (Divergence("s2", "/a"),)))
+    check(
+        "failing run is not an unexpected pass",
+        v_shadow.outcome == EXPECTED
+        and not v_shadow.unexpected_pass_lines
+        and set(v_shadow.lines.values()) == {"hit", "shadowed"}
+        and v_step.outcome == EXPECTED
+        and not v_step.unexpected_pass_lines
+        and v_other.outcome == EXPECTED
+        and v_other.unexpected_pass_lines == ("p15-oracle-015 [ ] j/c/s1 [ Failure ]",),
+    )
+    # 16d. The runner's actual result is one of Pass Failure Crash Timeout.
+    refused = []
+    for bad in (SKIP, SLOW, "pass"):
+        try:
+            Actual(bad)
+        except ValueError:
+            refused.append(bad)
+    check("actual result validated", refused == [SKIP, SLOW, "pass"])
     # 17. Lint: bug id, duplicates, overlap, NeverFix overlap.
     lint_codes = sorted(
         d.code
@@ -854,8 +967,39 @@ def _selftest() -> int:
     )
     check(
         "lint ids, duplicates, overlap",
-        lint_codes == ["bug-id", "bug-id", "duplicate", "neverfix-overlap", "overlap", "whole-case-failure"],
+        lint_codes
+        == ["bug-id", "bug-id", "duplicate", "neverfix-overlap", "overlap", "overlap", "overlap", "whole-case-failure"],
     )
+    # 17b. NeverFix overlap follows tags and suite/*: disjoint tags are fine, a glob skip hides a line.
+    def nf_codes(text: str, neverfix: str) -> list[str]:
+        return [d.code for d in lint(exp(text, neverfix)) if d.code == "neverfix-overlap"]
+
+    check(
+        "neverfix overlap by tags",
+        nf_codes("p15-oracle-015 [ mac ] t/e [ Timeout ]", "p15-oracle-015 [ windows ] t/e [ Skip ]") == []
+        and nf_codes("p15-oracle-015 [ windows ] t/e [ Timeout ]", "p15-oracle-015 [ windows ] t/* [ Skip ]")
+        == ["neverfix-overlap"]
+        and nf_codes("p15-oracle-015 [ debug ] t/e/s1 [ Timeout ]", "p15-oracle-015 [ mac ] t/e [ Skip ]")
+        == ["neverfix-overlap"]
+        and nf_codes("p15-oracle-015 [ mac ] t/* [ Timeout ]", "p15-oracle-015 [ mac ] t/e [ Skip ]") == [],
+    )
+    # 17c. suite/* takes no Failure: one line would hide every divergence of the suite.
+    check(
+        "glob failure refused",
+        codes("p15-oracle-015 [ linux ] journeys/* [ Failure ]") == ["glob-failure"]
+        and codes("p15-oracle-015 [ linux ] journeys/* [ Pass Failure ]") == ["glob-failure"]
+        and codes("p15-oracle-015 [ linux ] journeys/* [ Pass Timeout ]") == [],
+    )
+    # 17d. A comment that starts with an issue number stays a comment.
+    entries, diags = parse(
+        "#12 is the tracking issue\n#24990 tracks the sidebar flakes [ see below ]\n"
+        "#7 https://github.com/manaflow-ai/cmux/issues/7\n#24990 [ mac app ] tours/sidebar [ Pass Timeout ]"
+    )
+    check("issue comments", not diags and [e.target for e in entries] == ["tours/sidebar"])
+    # 17e. Stale by results counts only passing runs: a Timeout line hit by crashes is not stale.
+    timeout = exp("p15-oracle-015 t/a [ Timeout ]")
+    crashes = [timeout.evaluate("t", "a", mac_app, Actual(CRASH)).to_json() for _ in range(3)]
+    check("missed is not stale", _lint_stale_results(timeout.entries, crashes, 3) == [])
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -899,6 +1043,12 @@ def _selftest() -> int:
             "".join(f"p15-oracle-015 terminal/vt-{i:02}#/c [ Failure ]\n" for i in range(3))
         )
         check("budget over", [d.code for d in lint(Expectations.load([split]), corpus)] == ["golden-budget"])
+        # 20b. A suite/* line counts as every case of its suite, not as one line.
+        (split / "terminal.txt").write_text("p15-oracle-015 [ mac ] terminal/* [ Timeout ]\n")
+        check("budget glob", [d.code for d in lint(Expectations.load([split]), corpus)] == ["golden-budget"])
+        (split / "terminal.txt").write_text(
+            "".join(f"p15-oracle-015 terminal/vt-{i:02}#/c [ Failure ]\n" for i in range(3))
+        )
         # 21. Stale from results: a Failure line never hit across min_runs verdicts.
         loaded = Expectations.load([split])
         verdicts = [
@@ -972,6 +1122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "flaky": res.flaky,
                 "settle_multiplier": exp.settle_multiplier(suite, case, config, step),
                 "lines": [e.where for e in res.lines],
+                "slow_lines": [e.where for e in res.slow_lines],
                 "pointer_lines": [
                     e.where
                     for e in exp._matching(suite, case, config)

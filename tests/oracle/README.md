@@ -31,6 +31,9 @@ p15-oracle-024 [ windows ] cli/* [ Skip ]
 `bug [ tags ] suite/case[/step][#/json/pointer] [ results ]`
 
 - **bug**: a WORK.tsv task ID (`p15-oracle-015`) or a cmux issue (`#1234`). Every line must have one.
+  A line that starts with `#1234` is an expectation only when a `[ tags ]` group or a
+  `suite/case` target comes next. Every other line that starts with `#` is a comment, so
+  `#12 is the tracking issue` is a comment.
 - **tags**: optional. Each tag is in one of these groups:
 
   | Group | Tags |
@@ -43,21 +46,29 @@ p15-oracle-024 [ windows ] cli/* [ Skip ]
   A line applies to a run only when the run has each tag on the line. Two tags from the same
   group are an error, because no run can have both. Write two lines instead.
 - **target**: `suite/case`, `suite/case/step`, or `suite/*` for all cases of a suite.
+  A `suite/*` line cannot have `Failure`, because one line would then hide every divergence
+  of the suite.
   A `#/json/pointer` suffix (RFC 6901) applies the line to that value and its subtree only.
   All other values of the snapshot stay strict.
 - **results**: `Pass Failure Crash Timeout Skip Slow`.
   - Two or more results mean that the case is flaky; any one of those results is expected.
     There is no `Flaky` keyword.
   - `Skip` never runs the case. It must be the only result. You cannot skip one step.
-  - `Slow` multiplies `settleMaxMs` by 5. If it is the only result, the expected result is Pass.
+  - `Slow` multiplies `settleMaxMs` by 5. It is a modifier, not a result: when any matching case,
+    step or `suite/*` line has `Slow`, the run is slow, whichever line gives the result. A line
+    with only `Slow` expects Pass and never hides a result line of the same case. (Chrome keeps
+    slow tests in a separate `SlowTests` file.)
   - A pointer line can only have `Pass` and `Failure`.
   - If a case has a non-Pass line and passes, the run reports an **unexpected pass**. It does not
-    fail the run, but it tells you to remove the line.
+    fail the run, but it tells you to remove the line. A case or step line is an unexpected pass
+    only when nothing in its scope diverged, and only a passing run gets the unexpected-pass outcome.
   - `Crash` and `Timeout` are results. If they are not on the line, they are unexpected failures.
 
 When two or more lines match, the most specific line wins. The order is: pointer in a step,
-then pointer, then step, then case, then `suite/*`. Then a deeper pointer wins, then the line
-with more tags. The linter refuses two lines that match one run with equal specificity.
+then pointer, then step, then case, then `suite/*`. Then a deeper pointer wins.
+Tags do not change the order. If two lines have the same target and one run can match both
+tag sets, the run gets the results of both lines (typ `expectations_for`). The linter refuses
+such lines (typ `check_for_conflicts`), so make their tag sets disjoint.
 
 ## Policy
 
@@ -79,11 +90,14 @@ The lint refuses:
 
 - a line without a task ID or `#issue`;
 - syntax errors, unknown tags or results, and two tags from one group;
-- duplicate lines, and lines that match one run with equal specificity;
-- a line in the wrong suite file, and a NeverFix target that is also in Expectations.d;
-- stale lines: the suite, case or step is not in the corpus, or a non-Pass line was not hit in
-  `--min-runs` (default 3) verdicts from `--results`;
+- duplicate lines, and two lines with one target whose tag sets can both match one run;
+- a line in the wrong suite file, and an Expectations line that a NeverFix line skips on some
+  run (same case or `suite/*`, and tag sets that can both match);
+- stale lines: the suite, case or step is not in the corpus, or a non-Pass line passed in
+  `--min-runs` (default 3) verdicts from `--results` and was never hit. A run that failed with
+  a result the line does not list (`missed`), or that diverged under a more specific line
+  (`shadowed`), does not count;
 - golden-suite lines (Expectations + NeverFix, Slow-only lines not counted) that are more than
-  2 % of the golden cases in the corpus.
+  2 % of the golden cases in the corpus. A `suite/*` line counts as every case of its suite.
 
 `oracle.py check` (task 017) calls the same `lint()`.
