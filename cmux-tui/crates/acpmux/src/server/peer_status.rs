@@ -70,6 +70,11 @@ pub(super) async fn host_health(hub: &Hub, origin: Origin) -> Value {
     }
     v["pressure"] =
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect();
+    // What the machine health loop found wrong and could not fix
+    // (`machine_health.rs`); none on a machine without the loop.
+    if let Some(problems) = super::machine_health::problems().await {
+        v["problems"] = problems;
+    }
     if !origin.web_class() {
         v["host"] = json!(crate::hub::host_label());
     }
@@ -137,6 +142,10 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             }
             row["name"] = json!(name);
             row["self"] = json!(false);
+            // A peer's words reach a terminal and the app: cleaned and capped like this machine's own.
+            if let Some(problems) = health.get("problems") {
+                row["problems"] = super::machine_health::sanitize(problems);
+            }
             row["outdated"] = json!(health["build"].as_str() != Some(crate::hub::BUILD));
         }
         // It answered, so it is up: an older build without this method.
