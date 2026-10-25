@@ -81,6 +81,9 @@ class Host:
     def now(self):
         return time.time()
 
+    def mono(self):
+        return time.monotonic()
+
     def sleep(self, s):
         time.sleep(s)
 
@@ -161,14 +164,14 @@ class Host:
 class Pass:
     def __init__(self, host, config, state):
         self.host, self.config = host, config
-        self.start = host.now()
+        self.start = host.mono()
         self.since_was = state.get("since", {})
         self.last = state.get("last", {})
         self.since, self.problems, self.new_fixed = {}, [], []
         self.fixed_was = state.get("fixed", [])
 
     def left(self):
-        return BUDGET_S - (self.host.now() - self.start)
+        return BUDGET_S - (self.host.mono() - self.start)
 
     def run(self, argv, timeout):
         """A command bounded by what is left of this pass, so the report is always written."""
@@ -176,9 +179,10 @@ class Pass:
         return self.host.run(argv, t) if t >= 1 else (124, "")
 
     def may(self, key, every_s, needs_s=0):
-        """True at most once per every_s for this fix, and only with needs_s left in this run."""
+        """True at most once per every_s for this fix, and only with needs_s left in this run. A
+        last time in the future (the clock went back) does not block."""
         now = self.host.now()
-        if self.left() < needs_s or now - self.last.get(key, 0) < every_s:
+        if self.left() < needs_s or 0 <= now - self.last.get(key, 0) < every_s:
             return False
         self.last[key] = now
         return True
@@ -224,10 +228,10 @@ class Pass:
             if self.run(["systemctl", "show", "-p", "LoadState", "--value", "tailscaled.service"], 5)[1].strip() == "loaded":
                 if self.run(["systemctl", "restart", "tailscaled.service"], 15)[0] == 0:
                     self.fixed("dns", "restarted tailscaled so it picks systemd-resolved")
-            until = self.host.now() + 10
+            until = self.host.mono() + 10
             while failing:
                 failing = [n for n in failing if not self.resolves(n)]
-                if not failing or self.host.now() >= until or self.left() < 8:
+                if not failing or self.host.mono() >= until or self.left() < 8:
                     break
                 self.host.sleep(1)
         for n in failing:
@@ -245,18 +249,23 @@ class Pass:
     def check_disk(self):
         path = self.config["diskPath"]
         free, total = self.host.disk(path)
-        floor = self.config["diskFloorBytes"] or max(min(10 * GB, total // 5), total // 20)
-        hard = self.config["diskHardFloorBytes"] or min(3 * GB, total // 10)
+        floor = self.config["diskFloorBytes"]
+        floor = max(min(10 * GB, total // 5), total // 20) if floor is None else floor
+        hard = self.config["diskHardFloorBytes"]
+        hard = min(3 * GB, total // 10) if hard is None else hard
         if free >= floor:
             return
         commands = self.hygiene_commands()
-        if commands and self.may("fix:disk", 15 * 60):
+        if commands and self.may("fix:disk", 15 * 60, needs_s=10):
             started = 0
             for i, argv in enumerate(commands):
                 unit = ["systemd-run", "--quiet", "--collect", "--no-block", f"--unit=cmux-machine-health-hygiene-{i}", "-p", "RuntimeMaxSec=900", "-p", "Nice=10", "-p", "IOSchedulingClass=idle", "--"]
-                started += self.run(unit + list(argv), 10)[0] == 0
-            self.fixed("disk", f"started disk hygiene ({started} of {len(commands)} commands)")
-            free, total = self.host.disk(path)
+                started += self.run(unit + list(argv), 5)[0] == 0
+            if started:
+                self.fixed("disk", f"started disk hygiene ({started} of {len(commands)} commands)")
+                free, total = self.host.disk(path)
+            else:
+                del self.last["fix:disk"]  # nothing ran: the next pass tries again
         if free < hard:
             self.problem("disk", "disk", f"disk: CRITICAL: {gb(free)} free on {path}, under the hard floor of {gb(hard)}")
         elif free < floor:
@@ -264,7 +273,8 @@ class Pass:
 
     def check_ram(self):
         avail, total = self.host.meminfo()
-        floor = self.config["ramFloorBytes"] or min(2 * 2**30, total // 10)
+        floor = self.config["ramFloorBytes"]
+        floor = min(2 * 2**30, total // 10) if floor is None else floor
         if avail < floor:
             self.problem("ram", "ram", f"RAM: {gb(avail)} available of {gb(total)}, under the floor of {gb(floor)}")
 
@@ -277,6 +287,28 @@ class Pass:
         return health, state
 
 
+def config_problems(given):
+    """Why a config is unusable, or nothing; install refuses it, a pass uses the defaults."""
+    if not isinstance(given, dict):
+        return ["the config must be a JSON object"]
+    problems = [f"unknown config key {k}" for k in sorted(set(given) - set(DEFAULTS))]
+    for key in ("dnsNames",):
+        if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
+            problems.append(f"{key} must be a list of non-empty strings")
+    if "tailnetName" in given and not isinstance(given["tailnetName"], bool):
+        problems.append("tailnetName must be true or false")
+    if "diskPath" in given and not (isinstance(given["diskPath"], str) and given["diskPath"].startswith("/")):
+        problems.append("diskPath must be an absolute path")
+    for key in ("diskFloorBytes", "diskHardFloorBytes", "ramFloorBytes"):
+        v = given.get(key)
+        if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 0):
+            problems.append(f"{key} must be a whole number of bytes, or null")
+    hc = given.get("hygieneCommands")
+    if hc is not None and not (isinstance(hc, list) and all(isinstance(a, list) and a and all(isinstance(x, str) for x in a) for a in hc)):
+        problems.append("hygieneCommands must be a list of argv lists")
+    return problems
+
+
 def load_config(host):
     config = dict(DEFAULTS)
     try:
@@ -285,24 +317,17 @@ def load_config(host):
         return config, f"{CONFIG_FILE} is not valid JSON; the defaults apply"
     if given is None:
         return config, None
-    if not isinstance(given, dict):
-        return config, f"{CONFIG_FILE} is not a JSON object; the defaults apply"
-    config.update({k: v for k, v in given.items() if k in DEFAULTS})
+    problems = config_problems(given)
+    if problems:
+        return config, f"{CONFIG_FILE}: {problems[0]}; the defaults apply"
+    config.update(given)
     return config, None
 
 
 def check_config(given):
-    if not isinstance(given, dict):
-        raise SystemExit("the config must be a JSON object")
-    unknown = sorted(set(given) - set(DEFAULTS))
-    if unknown:
-        raise SystemExit(f"unknown config keys: {', '.join(unknown)}")
-    for key in ("dnsNames",):
-        if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) for x in given[key])):
-            raise SystemExit(f"{key} must be a list of strings")
-    hc = given.get("hygieneCommands")
-    if hc is not None and not (isinstance(hc, list) and all(isinstance(a, list) and a and all(isinstance(x, str) for x in a) for a in hc)):
-        raise SystemExit("hygieneCommands must be a list of argv lists")
+    problems = config_problems(given)
+    if problems:
+        raise SystemExit("; ".join(problems))
 
 
 def run_pass(host):
@@ -315,7 +340,7 @@ def run_pass(host):
     p = Pass(host, config, state)
     if config_error:
         p.problem("loop", "loop:config", config_error)
-    for name, fn in (("dns", p.check_dns), ("disk", p.check_disk), ("ram", p.check_ram)):
+    for name, fn in (("disk", p.check_disk), ("ram", p.check_ram), ("dns", p.check_dns)):
         p.run_check(name, fn)
     health, state = p.report()
     for item in p.problems:

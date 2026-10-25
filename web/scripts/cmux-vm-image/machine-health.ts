@@ -20,17 +20,26 @@ export function machineHealthFiles(): Array<{ path: string; text: string; mode: 
   ];
 }
 
-/** Install from the staged copy, verify the units, run one pass; prints the health JSON last. */
+/**
+ * Install from the staged copy, verify the units, run one pass; prints the health JSON last. The
+ * timer stays enabled but stopped for the rest of the bake, so no pass (and no disk hygiene) runs
+ * while later steps build, clean and catalogue the image: machineHealthArmCommand starts it as the
+ * last step before the snapshot, and clones resume with it running.
+ */
 export function machineHealthBakeCommand(): string {
   return [
     `python3 ${STAGED} install`,
     `rm -f ${STAGED}`,
+    "systemctl stop cmux-machine-health.timer",
     "systemd-analyze verify /etc/systemd/system/cmux-machine-health.service /etc/systemd/system/cmux-machine-health.timer",
-    "systemctl is-active cmux-machine-health.timer",
+    "test \"$(systemctl is-enabled cmux-machine-health.timer)\" = enabled",
     "systemctl start cmux-machine-health.service",
     "cat /run/cmux/machine-health.json",
   ].join(" && ");
 }
+
+/** The last step before the snapshot: no pass ran since the bake's own (its files are gone), the timer runs. */
+export const MACHINE_HEALTH_ARM_COMMAND = "rm -f /run/cmux/machine-health.json /run/cmux/machine-health-state.json && systemctl start cmux-machine-health.timer && systemctl is-active cmux-machine-health.timer";
 
 /**
  * Smoke on a clone: the timer runs, one pass exits 0 and writes valid JSON, and the guard

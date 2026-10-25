@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import path from "node:path";
-import { machineHealthBakeCommand, machineHealthFiles, machineHealthSmokeCommand, machineHealthSmokeProblems, MACHINE_HEALTH_SCRIPT } from "../scripts/cmux-vm-image/machine-health";
+import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles, machineHealthSmokeCommand, machineHealthSmokeProblems, MACHINE_HEALTH_SCRIPT } from "../scripts/cmux-vm-image/machine-health";
 import { runChild } from "./helpers/run-child";
 
 const MEM = 4_101_844_992;
@@ -26,9 +27,15 @@ describe("cmux-machine-health in the cmux VM image", () => {
   }, 70_000);
 
   test("the bake installs through the script's own install and the smoke commands parse", async () => {
-    expect(machineHealthBakeCommand()).toStartWith("python3 /root/cmux-machine-health install && rm -f /root/cmux-machine-health");
+    // The timer is stopped for the rest of the bake and started as the last step before the snapshot.
+    expect(machineHealthBakeCommand()).toStartWith("python3 /root/cmux-machine-health install && rm -f /root/cmux-machine-health && systemctl stop cmux-machine-health.timer");
+    expect(MACHINE_HEALTH_ARM_COMMAND).toContain("systemctl start cmux-machine-health.timer");
+    const bake = readFileSync(new URL("../scripts/cmux-vm-image/bake.ts", import.meta.url), "utf8");
+    const arm = bake.indexOf('"machine-health-arm"');
+    expect(arm).toBeGreaterThan(bake.indexOf('"drop-cache-warm-bind-path"'));
+    expect(bake.slice(arm, bake.indexOf("async function", arm))).not.toContain("L.step(");
     expect(machineHealthFiles().map((f) => f.path)).toEqual(["/root/cmux-machine-health", "/usr/local/bin/cmux-machine-hygiene"]);
-    for (const command of [machineHealthBakeCommand(), machineHealthSmokeCommand("cmux")]) {
+    for (const command of [machineHealthBakeCommand(), MACHINE_HEALTH_ARM_COMMAND, machineHealthSmokeCommand("cmux")]) {
       expect((await runChild("bash", ["-n"], { input: command })).status).toBe(0);
     }
   });

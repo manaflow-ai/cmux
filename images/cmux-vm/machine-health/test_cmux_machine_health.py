@@ -29,6 +29,9 @@ class FakeHost:
     def now(self):
         return self.t
 
+    def mono(self):
+        return self.t
+
     def sleep(self, s):
         self.t += s
 
@@ -186,15 +189,44 @@ class HealthTests(unittest.TestCase):
         host = FakeHost()
         host.files[cmh.CONFIG_FILE] = "{"
         self.assertEqual(details(run(host)), ["/etc/cmux/machine-health.json is not valid JSON; the defaults apply"])
-        with self.assertRaises(SystemExit):
-            cmh.check_config({"hygieneCommand": []})
-        with self.assertRaises(SystemExit):
-            cmh.check_config({"hygieneCommands": ["systemctl start x"]})
-        with self.assertRaises(SystemExit):
-            cmh.check_config(["not", "an", "object"])
-        cmh.check_config({"hygieneCommands": [["systemctl", "start", "x"]], "dnsNames": ["github.com"]})
-        host.files[cmh.CONFIG_FILE], host.t = "[]", host.t + 60
-        self.assertEqual(details(run(host)), ["/etc/cmux/machine-health.json is not a JSON object; the defaults apply"])
+        host.t += 60
+        host.files[cmh.CONFIG_FILE] = "[]"
+        self.assertEqual(details(run(host)), ["/etc/cmux/machine-health.json: the config must be a JSON object; the defaults apply"])
+        # A string where a list belongs is refused, not probed character by character.
+        host.t += 60
+        host.files[cmh.CONFIG_FILE] = json.dumps({"dnsNames": "github.com"})
+        self.assertEqual(details(run(host)), ["/etc/cmux/machine-health.json: dnsNames must be a list of non-empty strings; the defaults apply"])
+        self.assertFalse(any(c.startswith("getent ahosts g ") or c == "getent ahosts g" for c in host.calls))
+        for bad in ({"hygieneCommand": []}, {"hygieneCommands": ["systemctl start x"]}, ["not", "an", "object"], {"diskFloorBytes": -1}, {"ramFloorBytes": True}, {"tailnetName": "yes"}, {"diskPath": "home"}):
+            with self.assertRaises(SystemExit, msg=bad):
+                cmh.check_config(bad)
+        cmh.check_config({"hygieneCommands": [["systemctl", "start", "x"]], "dnsNames": ["github.com"], "diskFloorBytes": 0})
+
+    def test_disk_hygiene_that_could_not_start_is_tried_again_next_pass(self):
+        host = FakeHost()
+        host.hygiene, host.free = True, 5 * cmh.GB
+        real = host.run
+        host.run = lambda argv, timeout, **kw: (1, "") if argv[0] == "systemd-run" else real(argv, timeout, **kw)
+        h = run(host)
+        self.assertEqual(h["fixed"], [])
+        host.run, host.t = real, host.t + 60
+        h = run(host)
+        self.assertEqual(h["fixed"][0]["action"], "started disk hygiene (1 of 1 commands)")
+
+    def test_disk_runs_before_a_slow_dns_heal_so_it_is_never_starved(self):
+        host = FakeHost()
+        host.step, host.resolving, host.hygiene, host.free = 4, set(), True, 1 * cmh.GB
+        h = run(host)
+        self.assertEqual(h["fixed"][0]["action"], "started disk hygiene (1 of 1 commands)")
+        self.assertIn("disk: CRITICAL: 1.0 GB free on /, under the hard floor of 3.0 GB", details(h))
+
+    def test_a_clock_that_goes_back_neither_extends_the_budget_nor_blocks_a_fix(self):
+        host = FakeHost()
+        host.resolving = set()
+        run(host)
+        host.t -= 3600  # wall clock corrected backwards
+        run(host)
+        self.assertEqual(sum(c == "systemctl restart systemd-resolved.service" for c in host.calls), 2)
 
 
 class InstallTests(unittest.TestCase):
