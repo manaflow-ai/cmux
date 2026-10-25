@@ -10,6 +10,7 @@ stayed at 01:59Z.
 
 Runs the workflow's github-script under node with a stubbed GitHub API.
 """
+import datetime
 import json
 import re
 import shutil
@@ -137,6 +138,29 @@ calls = run([dev_run(8, "8" * 40, "success")], {8: app_job("success")},
             [{"name": "x", "display_title": "cmux NEXT DEV daily · publish 8",
               "status": "completed", "conclusion": "skipped"}])
 check(published(calls) == ["8"], f"a skipped publisher must be retried, got {published(calls)}")
+
+# A DEV build started under five minutes ago is still running: a push kick
+# for a newer tip waits for the next push or tick instead of starting another.
+def built(calls):
+    return [c[2]["dev_daily_sha"] for c in calls if c[0] == "dispatch" and c[1] == "cmux-next.yml"]
+
+
+def active_run(run_id, sha, age_s):
+    created = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=age_s)
+    return {"id": run_id, "head_sha": sha, "status": "in_progress", "conclusion": None,
+            "created_at": created.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "name": "cmux-next", "display_title": f"cmux NEXT DEV daily · {sha}"}
+
+
+calls = run([active_run(20, "2" * 40, 60)], {})
+check(built(calls) == [], f"a DEV build under five minutes old must space the next one, got {built(calls)}")
+calls = run([active_run(21, "2" * 40, 6 * 60)], {})
+check(built(calls) == [TIP], f"a DEV build over five minutes old must not hold the tip, got {built(calls)}")
+finished = dev_run(22, "2" * 40, "failure")
+finished["created_at"] = active_run(22, "2" * 40, 60)["created_at"]
+calls = run([finished], {22: app_job("failure")})
+check(built(calls) == [TIP], f"a finished DEV build must not space the next one, got {built(calls)}")
+check(run([], {}) and built(run([], {})) == [TIP], "with no DEV build running the tip is built")
 
 # No finished run has an app: nothing is published.
 calls = run([dev_run(7, "7" * 40, "failure"), dev_run(6, "6" * 40, "failure")],
