@@ -296,6 +296,9 @@ async fn a_retried_delivery_stores_one_copy() {
     assert!(reply.get("error").is_none(), "{reply}");
     assert_saved(&session, "shot.png", &shot);
     assert_eq!(c.user_messages(&session).await.len(), 1);
+    // The transcript keeps the first run's image, and no copy of the resend's.
+    assert!(home().join("attachments").join(sha(&shot)).is_file());
+    assert!(!home().join("attachments").join(sha(&png(300))).exists());
 }
 
 /// A session on another host gets the file over the peer link, no scp: saved owner-only on the

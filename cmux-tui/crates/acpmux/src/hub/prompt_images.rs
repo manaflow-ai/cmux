@@ -134,13 +134,16 @@ pub(super) fn named(blocks: &[Value]) -> Vec<Value> {
 /// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` (and a
 /// queued prompt's `queued` and `queue_updated`) records of them. An image that cannot be read
 /// or kept is left out: the prompt still goes.
-pub(crate) fn keep(blocks: &[Value]) -> Vec<Value> {
+pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
     blocks
         .iter()
         .filter_map(decode)
         .filter_map(|(bytes, named)| {
             let id = named["id"].as_str()?;
             let path = dir().join(id);
+            // A prompt names it: an attachment's early copy (`stage`) stays.
+            let mut staged = STAGED.lock().unwrap_or_else(|e| e.into_inner());
+            staged.remove(id);
             if !path.is_file() {
                 let written = std::fs::create_dir_all(dir()).and_then(|()| {
                     // Written aside and renamed, so a reader never sees half an image.
@@ -156,6 +159,44 @@ pub(crate) fn keep(blocks: &[Value]) -> Vec<Value> {
             Some(named)
         })
         .collect()
+}
+
+/// Images `stage` kept before any prompt named them, by id. `keep` takes an id out (a prompt names
+/// it now); `unstage` deletes the ones still here.
+static STAGED: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// `keep` for an attachment, ahead of its prompt and off the runtime (`attach::receive`): answers
+/// the ids it wrote, which `unstage` deletes unless a prompt kept them meanwhile.
+pub(crate) fn stage(blocks: &[Value]) -> Vec<String> {
+    let mut staged = STAGED.lock().unwrap_or_else(|e| e.into_inner());
+    let mut wrote = Vec::new();
+    for (bytes, named) in blocks.iter().filter_map(decode) {
+        let Some(id) = named["id"].as_str() else { continue };
+        let path = dir().join(id);
+        if path.is_file() {
+            continue;
+        }
+        let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
+        let written = std::fs::create_dir_all(dir())
+            .and_then(|()| write_owner_only(&partial, &bytes))
+            .and_then(|()| std::fs::rename(&partial, &path));
+        if written.is_ok() && staged.insert(id.to_owned()) {
+            wrote.push(id.to_owned());
+        }
+    }
+    wrote
+}
+
+/// Deletes the images of `ids` that `stage` wrote and no prompt kept since (its prompt was a
+/// duplicate, or refused). Blocking.
+pub(crate) fn unstage(ids: &[String]) {
+    let mut staged = STAGED.lock().unwrap_or_else(|e| e.into_inner());
+    for id in ids {
+        if staged.remove(id) {
+            let _ = std::fs::remove_file(dir().join(id));
+        }
+    }
 }
 
 /// Writes a new file only its owner reads (0600 on Unix).

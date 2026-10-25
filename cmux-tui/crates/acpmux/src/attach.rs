@@ -195,7 +195,7 @@ pub fn receive(
     let dir = uploads.join(uuid::Uuid::now_v7().to_string());
     let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save an attachment: {e}"));
     crate::config::private_state_dir(&dir).map_err(failed)?;
-    let mut saved = Vec::new();
+    let (mut saved, mut staged) = (Vec::new(), Vec::new());
     for (index, name, bytes) in files {
         let path = dir.join(&name);
         crate::agent_tools::write_private(&path, &bytes).map_err(failed)?;
@@ -206,9 +206,8 @@ pub fn receive(
             Some(mime) => {
                 let image = json!({"type": "image", "mimeType": mime, "name": name,
                                    "data": data_of(&blocks[index]).unwrap_or_default()});
-                // The transcript's copy, written here off the runtime (`prompt_images::keep`
-                // finds it kept).
-                crate::hub::prompt_images::keep(std::slice::from_ref(&image));
+                // The transcript's copy, written here off the runtime (`keep` finds it).
+                staged.extend(crate::hub::prompt_images::stage(std::slice::from_ref(&image)));
                 image
             }
             None => {
@@ -224,12 +223,14 @@ pub fn receive(
         ),
         "_meta": {"acpmux": {"context": true}},
     }));
-    Ok(Some(Saved { dir, accepted: Arc::new(AtomicBool::new(false)) }))
+    Ok(Some(Saved { dir, staged, accepted: Arc::new(AtomicBool::new(false)) }))
 }
 
-/// The folder [`receive`] saved a message's files in, until its prompt is answered.
+/// The folder [`receive`] saved a message's files in, and the transcript copies it wrote, until
+/// its prompt is answered.
 pub struct Saved {
     dir: PathBuf,
+    staged: Vec<String>,
     accepted: Arc<AtomicBool>,
 }
 
@@ -253,13 +254,19 @@ impl Saved {
     /// first run's outcome (that run reads its own folder, so a retried delivery keeps one copy),
     /// or it was refused before it reached the session. A message an agent pair holds keeps them
     /// for its release (`agent_pairs.rs`).
+    /// A transcript copy no prompt kept goes either way (`prompt_images::unstage`; a held
+    /// message keeps its own when it is released).
     pub async fn settle(self, answer: &Result<Value, RpcError>) {
         let held = answer.as_ref().err().and_then(|e| e.data.as_ref()?.get("held"));
-        if self.accepted.load(Ordering::SeqCst) || held == Some(&Value::Bool(true)) {
-            return;
-        }
-        let dir = self.dir;
-        let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(dir)).await;
+        let keep = self.accepted.load(Ordering::SeqCst) || held == Some(&Value::Bool(true));
+        let (dir, staged) = (self.dir, self.staged);
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::hub::prompt_images::unstage(&staged);
+            if !keep {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        })
+        .await;
     }
 }
 
