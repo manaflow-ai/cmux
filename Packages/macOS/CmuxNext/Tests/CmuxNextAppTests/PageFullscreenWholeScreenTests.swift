@@ -83,4 +83,22 @@ struct PageFullscreenWholeScreenTests {
         #expect(!tab.state.isContentFullscreen, "the page left on screen elsewhere leaves fullscreen, as in Chrome")
         #expect(root.contentHost.frame == inset)
     }
+
+    /// A top page (Settings, a create page) parks the workspace before it hides it: the page that
+    /// had the screen leaves fullscreen then too, not only its window's chrome coming back.
+    @Test func aTopPageEndsThePagesFullscreen() async throws {
+        let fixture = try await Fixture(keys: ["k0", "k1"])
+        defer { fixture.close() }
+        fixture.controller.window?.collectionBehavior = [.fullScreenNone]
+        let (tab, _) = try page(in: fixture)
+        tab.simulate(.contentFullscreenChanged(true))
+        fixture.frame()
+        try #require(fixture.controller.pagePresentation != nil)
+
+        fixture.controller.parkContentForPage()
+        fixture.frame()
+        #expect(fixture.controller.pagePresentation == nil)
+        #expect(!tab.state.isContentFullscreen, "the page under the top page leaves fullscreen")
+        #expect(!fixture.controller.root.presentsPage)
+    }
 }

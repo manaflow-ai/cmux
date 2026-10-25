@@ -445,6 +445,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         currentTabKey = nil
         view.detachContent(parks: parks)
         services.surfaceInvariant.noteChange()
+        windowController?.revalidatePagePresentation() // a page that had the screen moved away
     }
 
     /// The selected tab is a terminal that will draw a frame (not a dead one).

@@ -206,10 +206,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     /// Minimal: no strip, and the sidebar header is as tall as the tab
     /// strip, so the list starts level with the panes' content.
-    private func applyTokens() {
+    func applyTokens() {
         let minimal = titlebarStyle == .minimal
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
-        titlebar.isHidden = minimal
+        titlebar.isHidden = minimal || presentsPage
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true
     }
@@ -296,7 +296,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)
-        if presentsPage { hidePagePresentationChrome() }
     }
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).

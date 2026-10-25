@@ -13,15 +13,18 @@ import CmuxNextDesign
 extension WindowController {
     func windowWillEnterFullScreen(_ notification: Notification) {
         services.hoverCards.dismiss(.action)
+        isEnteringFullScreen = true
     }
 
     func windowDidEnterFullScreen(_ notification: Notification) {
         fullScreenTransitionDidEnd()
+        pageFullScreenEnterDidEnd()
     }
 
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
         Motion.fullScreenTransitionFailed(window)
         fullScreenTransitionDidEnd()
+        pageFullScreenEnterDidEnd()
     }
 
     func windowWillExitFullScreen(_ notification: Notification) {
@@ -32,6 +35,8 @@ extension WindowController {
 
     func windowDidExitFullScreen(_ notification: Notification) {
         fullScreenTransitionDidEnd()
+        // A page went fullscreen while the window was leaving full screen: it enters again now.
+        if pagePresentation?.entersWindowFullScreen == true, let window, !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {
@@ -68,12 +73,17 @@ extension WindowController {
     /// Gives `entry`'s fullscreen page the whole screen when its pane is the only one on screen.
     func presentPage(_ entry: BrowserEntry) {
         guard pagePresentation == nil, let window, let pane = lonePane(showing: entry.chrome) else { return }
-        let entersFullScreen = !window.styleMask.contains(.fullScreen)
+        let leaving = (window as? ShellWindow)?.isLeavingFullScreen == true
+        // The full screen is the page's when the window is not there, is on its way out, or entered
+        // for an earlier page whose exit waits for the enter to end (`pageFullScreenExitPending`).
+        let entersFullScreen = !window.styleMask.contains(.fullScreen) || leaving || pageFullScreenExitPending
+        pageFullScreenExitPending = false
         pagePresentation = BrowserPagePresentation(chrome: entry.chrome, tab: entry.tab, pane: pane, entersWindowFullScreen: entersFullScreen)
         services.hoverCards.dismiss(.action)
         pane.presentsPage = true
         root.presentsPage = true
-        if entersFullScreen { window.toggleFullScreen(nil) }
+        // While leaving, AppKit ignores a toggle: `windowDidExitFullScreen` enters again.
+        if entersFullScreen, !leaving, !window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
     }
 
     /// The page in `chrome` left fullscreen: the window's chrome comes back.
@@ -89,7 +99,21 @@ extension WindowController {
         pagePresentation = nil
         (presentation.pane as? PaneController)?.presentsPage = false
         root.presentsPage = false
-        if presentation.entersWindowFullScreen, let window, window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
+        guard presentation.entersWindowFullScreen, let window else { return }
+        // AppKit ignores a toggle mid-transition: an exit during the enter waits for its end.
+        if isEnteringFullScreen {
+            pageFullScreenExitPending = true
+        } else if window.styleMask.contains(.fullScreen), (window as? ShellWindow)?.isLeavingFullScreen != true {
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    /// The enter transition ended: an exit that waited for it runs now.
+    private func pageFullScreenEnterDidEnd() {
+        isEnteringFullScreen = false
+        guard pageFullScreenExitPending else { return }
+        pageFullScreenExitPending = false
+        if pagePresentation == nil, let window, window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
     }
 
     /// The person left macOS full screen (the green button, the menu, its shortcut) while a page
@@ -107,13 +131,17 @@ extension WindowController {
     /// that gained a neighbor stays fullscreen in its pane, and the window's chrome comes back.
     func revalidatePagePresentation() {
         guard let presentation = pagePresentation else { return }
-        guard let chrome = presentation.chrome, chrome.window === window, !chrome.isHiddenOrHasHiddenAncestor else {
+        // On screen: still in its pane, which is still a shown pane of the shown workspace (a top
+        // page parks the workspace before it hides it).
+        guard let chrome = presentation.chrome, let pane = presentation.pane as? PaneController, let content,
+              chrome.window === window, !chrome.isHiddenOrHasHiddenAncestor, chrome.isDescendant(of: pane.view),
+              pane.isVisible, content.panes.values.contains(where: { $0 === pane }) else {
             let tab = presentation.tab
             endPagePresentation()
             tab?.exitContentFullscreen()
             return
         }
-        if let pane = presentation.pane, lonePane(showing: chrome) === pane { return }
+        if lonePane(showing: chrome) === pane { return }
         endPagePresentation()
     }
 

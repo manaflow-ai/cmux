@@ -60,6 +60,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var rightSidebarView: RightSidebarView?
     /// A fullscreen page that has the whole screen (`WindowController+FullScreen`).
     var pagePresentation: BrowserPagePresentation?
+    /// A full screen enter is under way (AppKit ignores a toggle until it ends).
+    var isEnteringFullScreen = false
+    /// The page that entered full screen left during the enter: the window leaves once it ends.
+    var pageFullScreenExitPending = false
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
@@ -367,6 +371,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        pagePresentation = nil
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)

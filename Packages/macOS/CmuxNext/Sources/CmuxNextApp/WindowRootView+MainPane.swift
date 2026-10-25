@@ -207,12 +207,14 @@ extension WindowRootView {
             NSLayoutConstraint.deactivate(contentHostPins)
             NSLayoutConstraint.activate(pagePresentationPins)
             hidePagePresentationChrome()
+            applyTokens()
         } else {
             NSLayoutConstraint.deactivate(pagePresentationPins)
             NSLayoutConstraint.activate((sidePins[sidebarSide] ?? []).filter { $0.firstItem === contentHost } + mainPaneEdges)
             applySidebarRail()
             for view in pagePresentationHidden { view.isHidden = false }
             pagePresentationHidden = []
+            applyTokens() // the title row as the titlebar style says now
             applyMainPane()
         }
         needsLayout = true
@@ -223,11 +225,10 @@ extension WindowRootView {
     }
 
     /// Hides the chrome around the content host, remembering the views it hid (one hidden on its own stays so).
-    /// Layout runs it again, after the passes that show their views (the right sidebar's width).
     func hidePagePresentationChrome() {
-        let chrome: [NSView?] = [sidebar, titlebar, toolbarBand, trafficLightsGlass, titlebarRevealRegion, mainPaneShade,
-                                 rightPanel, titlebarBadge, hostPressureIndicator]
-        for case let view? in chrome where !view.isHidden {
+        // The title row (`applyTokens`), the right sidebar and the titlebar badge (layout) follow
+        // `presentsPage` themselves; the host pressure warning stays (it shows only under pressure).
+        for view in [sidebar, toolbarBand, trafficLightsGlass, titlebarRevealRegion, mainPaneShade] as [NSView] where !view.isHidden {
             pagePresentationHidden.append(view)
             view.isHidden = true
         }

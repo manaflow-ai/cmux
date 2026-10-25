@@ -422,7 +422,8 @@ public final class BrowserChromeView: NSView {
         updateOcclusion()
         if state.isContentFullscreen != reportedContentFullscreen {
             reportedContentFullscreen = state.isContentFullscreen
-            onContentFullscreenChange?(reportedContentFullscreen)
+            // task-owner: the host's window work runs after this render, outside its observation.
+            Task { @MainActor [weak self, on = reportedContentFullscreen] in self?.onContentFullscreenChange?(on) }
         }
     }
 
