@@ -371,3 +371,42 @@ test("after earlier turns go, streaming does no search of the ticks, and the car
     await act(async () => root.unmount());
   }
 }, 300_000);
+
+test("a focused tick that goes away with its chat is not held drawn when the chat comes back", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  const show = (rows: AcpmuxRow[], sessionId: string) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId={sessionId}
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  try {
+    const long = span(0, 2000);
+    await show(long, "long-away-a");
+    const rail = document.querySelector(".acpmux-minimap__rail");
+    const clicked = document.querySelector<HTMLElement>(`[data-tick="1999"]`)!;
+    await act(async () => clicked.click());
+    expect(document.activeElement).toBe(clicked);
+    // Another chat replaces it in the same rail: the focused button goes with no blur (jsdom, as a
+    // browser may, sends none for a removed element), and the page's focus is elsewhere.
+    await show(span(0, 5), "long-away-b");
+    expect(document.querySelector(".acpmux-minimap__rail")).toBe(rail);
+    expect(clicked.isConnected).toBe(false);
+    // The first chat comes back and the reader scrolls to its top: only the rows in the rail's
+    // window are drawn, not the tick that had focus before.
+    await show(long, "long-away-a");
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    scroller.scrollTop = 0;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(document.querySelector(`[data-tick="0"]`)).not.toBeNull();
+    expect(document.querySelector(`[data-tick="1999"]`)).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+}, 120_000);

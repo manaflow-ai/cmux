@@ -169,7 +169,7 @@ export function ThreadMinimap({
   /// The focused, hovered and card rows as of the last commit, each with its prompt's key.
   const keyed = useRef<{ focused?: KeyedRow; hovered?: KeyedRow; card?: KeyedRow }>({});
   /// The prompt key of the tick the page's focus is on, if one is.
-  const [domFocus, setDomFocus] = useState<string | undefined>(undefined);
+  const [domFocus, setDomFocus] = useState<{ sessionId?: string; key: string } | undefined>(undefined);
   const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
@@ -602,7 +602,10 @@ export function ThreadMinimap({
   };
   /// The tick that has the page's focus (a pointer's click focuses one too, without the keyboard's
   /// grow or card), by its prompt's key: it stays drawn wherever the list scrolls.
-  const domFocused = domFocus === undefined ? undefined : rowOf.get(domFocus);
+  /// A focused button that goes (its chat replaced, its prompt cut) may send no blur: a key that is
+  /// no longer a tick, or one from another chat, holds nothing and is dropped below.
+  const domFocusLive = domFocus !== undefined && domFocus.sessionId === sessionId && rowOf.has(domFocus.key);
+  const domFocused = domFocusLive ? rowOf.get(domFocus.key) : undefined;
   /// The rows the list draws (tickWindow.ts), the same array while they stay the same, so a render
   /// that moves none (a streamed token) renders no row.
   const drawn = tickRanges(ticks.length, listTop, height, [
@@ -617,6 +620,7 @@ export function ThreadMinimap({
   const ranges = useMemo(() => drawn, [drawnKey]);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: it keeps the rows' keys as of this commit, and its setState calls run only when the ticks moved a row.
   useLayoutEffect(() => {
+    if (domFocus !== undefined && !domFocusLive) setDomFocus(undefined);
     if (held.focused !== focused) setFocused(held.focused);
     if (held.hovered !== hovered) setHovered(held.hovered);
     if (held.card !== cardRow) setCardRow(held.card);
@@ -730,7 +734,7 @@ export function ThreadMinimap({
           onFocus={(event) => {
             const tick = (event.target as Element).closest?.<HTMLElement>("[data-tick]");
             const key = tick ? ticks[Number(tick.dataset.tick)]?.key : undefined;
-            if (key !== undefined) setDomFocus(key);
+            if (key !== undefined) setDomFocus({ sessionId, key });
           }}
           onBlur={(event) => {
             if (!within(event.currentTarget, event.relatedTarget)) setDomFocus(undefined);
