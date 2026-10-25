@@ -230,5 +230,12 @@ extension IPhoneHostService {
         guard let directory = dependencies?.stateDirectory,
               let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }
         approverSync?.update(list.approversParams(macDevice: macDevice))
+        pushListedPhones()
+    }
+
+    /// The paired phones the account lists get their own acpmux credential (their Full-access
+    /// setting); every other phone's record is revoked.
+    func pushListedPhones() {
+        approverSync?.updatePhones(paired?.listed(in: knownPhones) ?? [])
     }
 }
