@@ -82,14 +82,21 @@ fn harnesses() -> Value {
                      "description": "UniiChat: one chat that never ends (uniichat.com)",
                      "capabilities": {"resume": true}},
             // The name `claude` and `claude-sr` get when they keep apart by
-            // their ids, so the second pass has something to resolve.
+            // their ids, so the fallback has something to resolve...
             "claude-vm": {"kind": "claude-stdio", "argv": ["claude"], "family": "claude",
                           "displayName": "Claude Code (claude)"},
+            // ...and `claude`'s own fallback to its id is taken too, so even
+            // that has to give way.
+            "claude-box": {"kind": "claude-stdio", "argv": ["claude"], "family": "claude",
+                           "displayName": "claude"},
+            // An empty catalog name is no name: this row falls back to its id.
+            "nameless": {"kind": "acp", "argv": ["nameless"], "family": "other"},
             "aider": {"kind": "terminal", "argv": ["aider"], "family": "aider"},
         },
         "catalog": {"harnesses": [
             {"id": "claude", "name": "Claude Code", "profiles": ["claude", "claude-sr"]},
             {"id": "codex", "name": "Codex", "profiles": ["codex"]},
+            {"id": "nameless", "name": "", "profiles": ["nameless"]},
         ]},
     })
 }
@@ -341,9 +348,11 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
         &[
             ("claude", Family::Claude),
             ("claude-acp", Family::Claude),
+            ("claude-box", Family::Claude),
             ("claude-sr", Family::Claude),
             ("claude-vm", Family::Claude),
             ("codex", Family::Codex),
+            ("nameless", Family::Other),
             ("opencode", Family::Other),
             ("unii", Family::Other),
         ],
@@ -358,9 +367,11 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
         [
             "claude",
             "claude-acp",
+            "claude-box",
             "claude-sr",
             "claude-vm",
             "codex",
+            "nameless",
             "opencode",
             "unii"
         ],
@@ -381,12 +392,12 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
         json!(["minimal", "low", "medium", "high", "xhigh", "max"])
     );
 
-    // Two profiles of one catalog harness keep apart by their ids. `claude`
-    // would become "Claude Code (claude)", which claude-vm already is, so
-    // both of those fall back to their ids and no two rows share a name.
+    // Two profiles of one catalog harness keep apart by their ids, and
+    // claude-vm, which acpmux already calls "Claude Code (claude)", gives way
+    // to its own id, so no two rows share a name.
     let sr = by_id("claude-sr");
     assert_eq!(sr["displayName"], "Claude Code (claude-sr)", "{sr:#}");
-    assert_eq!(by_id("claude")["displayName"], "claude", "{answer:#}");
+    assert_eq!(by_id("claude")["displayName"], "Claude Code (claude)");
     assert_eq!(by_id("claude-vm")["displayName"], "claude-vm", "{answer:#}");
     assert_eq!(sr["chiefFamily"], "claude");
     assert_eq!(sr["capabilities"]["speeds"], json!(["default"]));
@@ -506,14 +517,38 @@ fn no_two_rows_leave_the_picker_with_the_same_name() {
     let mut brain = brain(dir.path(), &[("claude-sr", Family::Claude)]);
     let answer = engine(&mut brain, EngineRequest::Show);
     let offered = answer["offered"]["harnesses"].as_array().unwrap();
-    let mut names: Vec<&str> = offered
+    let names: Vec<&str> = offered
         .iter()
         .filter_map(|h| h["displayName"].as_str())
         .collect();
-    let seen = names.len();
-    names.sort_unstable();
-    names.dedup();
-    assert_eq!(names.len(), seen, "duplicate picker names: {answer:#}");
+    let mut unique = names.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(
+        unique.len(),
+        names.len(),
+        "duplicate picker names {names:?}: {answer:#}"
+    );
+    assert!(
+        !names.iter().any(|n| n.is_empty()),
+        "a blank picker name in {names:?}"
+    );
+    let by_id = |id: &str| offered.iter().find(|h| h["id"] == id).unwrap();
+    // The shape the old two-pass disambiguation left two rows called
+    // "claude" in: claude and claude-sr share "Claude Code", claude-vm is
+    // already called "Claude Code (claude)", and claude-box is already called
+    // "claude", the id claude would have fallen back to. Rows are taken in id
+    // order, so claude keeps the parenthesised name and claude-vm gives way.
+    assert_eq!(
+        by_id("claude-sr")["displayName"],
+        "Claude Code (claude-sr)",
+        "{answer:#}"
+    );
+    assert_eq!(by_id("claude")["displayName"], "Claude Code (claude)");
+    assert_eq!(by_id("claude-vm")["displayName"], "claude-vm", "{answer:#}");
+    assert_eq!(by_id("claude-box")["displayName"], "claude");
+    // An empty catalog name is no name.
+    assert_eq!(by_id("nameless")["displayName"], "nameless");
 }
 
 /// The reaction classifier's fields (a416): a set saves them in engine.json,

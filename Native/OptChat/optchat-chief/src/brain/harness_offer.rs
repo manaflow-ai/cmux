@@ -17,7 +17,7 @@
 //! unavailable ("restart the Chief"), because the set checks the start-up
 //! families; and a declared effort the set does not take is left out.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value, json};
 
@@ -47,7 +47,13 @@ pub(super) fn offered_harnesses(
         .into_iter()
         .flatten()
     {
-        let Some(name) = h.get("name").and_then(Value::as_str) else {
+        // An empty catalog name is no name: the row falls back to its id,
+        // never to a blank picker label.
+        let Some(name) = h
+            .get("name")
+            .and_then(Value::as_str)
+            .filter(|n| !n.is_empty())
+        else {
             continue;
         };
         for p in h
@@ -81,31 +87,41 @@ pub(super) fn offered_harnesses(
 }
 
 /// Two profiles under one name keep apart by their ids, and no two rows leave
-/// with the same name: `X (a)` is taken when a third profile is already called
-/// that, so a name that is still shared after the first pass becomes the id,
-/// which is unique (it keys acpmux's map).
+/// the picker with the same name.
+///
+/// A row wants `name`, or `name (id)` when another row wants the same `name`.
+/// What it wants can be taken anyway, by a profile acpmux literally calls
+/// `Claude Code (claude)` or `claude`, so the wanted name is then given up for
+/// the id, and that for `id (2)`, `id (3)`... Rows are walked in id order
+/// (``offered_harnesses`` sorted them), so the result does not depend on the
+/// order acpmux listed them in.
 fn disambiguate(rows: &mut [Value]) {
     let name_of = |r: &Value| r["displayName"].as_str().unwrap_or_default().to_owned();
     let id_of = |r: &Value| r["id"].as_str().unwrap_or_default().to_owned();
-    let counts = |rows: &[Value]| {
-        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-        for r in rows {
-            *counts.entry(name_of(r)).or_default() += 1;
-        }
-        counts
-    };
-    let shared = counts(rows);
+    let mut shared: BTreeMap<String, usize> = BTreeMap::new();
+    for r in rows.iter() {
+        *shared.entry(name_of(r)).or_default() += 1;
+    }
+    let mut taken: BTreeSet<String> = BTreeSet::new();
     for r in rows.iter_mut() {
         let (name, id) = (name_of(r), id_of(r));
-        if shared.get(&name).copied().unwrap_or(0) > 1 && name != id {
-            r["displayName"] = json!(format!("{name} ({id})"));
+        let wanted = if shared.get(&name).copied().unwrap_or(0) > 1 && name != id {
+            format!("{name} ({id})")
+        } else {
+            name
+        };
+        let mut pick = wanted;
+        if taken.contains(&pick) {
+            pick = id.clone();
+            for n in 2.. {
+                if !taken.contains(&pick) {
+                    break;
+                }
+                pick = format!("{id} ({n})");
+            }
         }
-    }
-    let shared = counts(rows);
-    for r in rows.iter_mut() {
-        if shared.get(&name_of(r)).copied().unwrap_or(0) > 1 {
-            r["displayName"] = json!(id_of(r));
-        }
+        r["displayName"] = json!(pick);
+        taken.insert(pick);
     }
 }
 
