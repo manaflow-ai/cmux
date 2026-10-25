@@ -960,6 +960,78 @@ fn make_below(_base: &Path, _rest: &Path) -> std::io::Result<()> {
     Err(std::io::Error::other("folders are made for a peer on unix only"))
 }
 
+/// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
+/// temporary `scratch/<name>` directory, one per session name (a lane's `-n`),
+/// else one per request. It must stay outside `~/.acpmux`: remote Claude's
+/// Seatbelt rejects hidden children of the home directory as settings or
+/// programs, even though the peer is trusted.
+async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
+    let name = params
+        .pointer("/_meta/acpmux/name")
+        .or_else(|| params.get("name"))
+        .and_then(Value::as_str)
+        .map(scratch_name)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
+    let dir = peer_scratch_root()?.join(name);
+    let made = {
+        let dir = dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder.create(&dir)
+        })
+        .await
+    };
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    };
+    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+    crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
+    canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+}
+
+fn peer_scratch_root() -> Result<PathBuf, RpcError> {
+    static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let uid = {
+            #[cfg(unix)]
+            {
+                unsafe { libc::getuid() }.to_string()
+            }
+            #[cfg(not(unix))]
+            {
+                "user".to_owned()
+            }
+        };
+        let root = std::env::temp_dir()
+            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&root).map_err(|e| format!("{}: {e}", root.display())).and_then(|_| {
+            crate::config::private_state_dir(&root).map(|_| root).map_err(|e| e.to_string())
+        })
+    })
+    .clone()
+    .map_err(|e| {
+        RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
+    })
+}
+
+/// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything
+/// else is `-`, and no name of dots only.
+fn scratch_name(name: &str) -> String {
+    let n: String = name
+        .chars()
+        .take(80)
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '-' })
+        .collect();
+    if n.chars().all(|c| c == '.') { String::new() } else { n }
+}
+
 /// `told`: the configured roots, said only to a proven peer (the owner's own daemon), with
 /// the scratch folder it gets when it names none. The Web is not told this machine's folders.
 fn outside_roots(field: &str, told: Option<&[PathBuf]>) -> RpcError {
