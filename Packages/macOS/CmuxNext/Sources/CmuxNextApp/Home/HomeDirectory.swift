@@ -20,7 +20,7 @@ final class HomeDirectory {
     /// `call` acting in `team` (`x-cmux-team`); a session acts in its personal team otherwise.
     typealias TeamCall = @MainActor (_ path: String, _ body: [String: Any], _ team: String) async throws -> [String: Any]
 
-    private(set) var teamMembers: [HomeContact] = []
+    var teamMembers: [HomeContact] = []
     private(set) var chiefs: [HomeChiefRecord] = []
     /// My archived and deleted Chiefs' agent ids: the page hides their conversations.
     var archivedChiefs: Set<String> { hiddenCloudChiefs.union(deletedLocalChiefs) }

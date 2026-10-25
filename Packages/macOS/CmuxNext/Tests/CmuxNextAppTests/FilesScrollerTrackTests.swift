@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFiles
 @testable import CmuxNextFilesUI
@@ -57,7 +58,9 @@ struct FilesScrollerTrackTests {
         // Each folder lists off the main actor, so open one level once the one above has listed.
         var path = ""
         for depth in 1...3 {
-            for _ in 0..<200 where browser.item(atRow: 0, inColumn: depth - 1) == nil { await Task.yield() }
+            // The checked read: before the column loads, a raw item(atRow:inColumn:) raises
+            // (column <= lastColumn), the #24776 crash class.
+            for _ in 0..<200 where browser.item(ifValidRow: 0, inColumn: depth - 1) == nil { await Task.yield() }
             path += "/folder-\(depth)"
             browser.setPath(path)
         }

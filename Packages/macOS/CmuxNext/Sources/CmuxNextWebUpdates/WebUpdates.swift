@@ -38,19 +38,24 @@ public final class WebUpdates {
     /// How long cmux stays in the background before an update swaps in.
     let grace: Duration = .seconds(3)
 
-    /// NIGHTLY bundles only (`com.cmuxterm.app.nightly[.<tag>]`): Debug builds keep a developer's
-    /// own web, and Release and RC builds the web they were built with.
-    static func isAvailable(bundleID: String?) -> Bool {
-        guard let bundle = bundleID else { return false }
-        return bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.")
+    /// NIGHTLY bundles and the tip app only (``WebUpdater/takesUpdates(_:)``).
+    static func isAvailable(_ bundle: Bundle) -> Bool {
+        WebUpdater.takesUpdates(UpdateBuildIdentity(infoDictionary: bundle.infoDictionary ?? [:]))
+    }
+
+    /// Starts the launch check with the launch settings before any restored or prewarmed page can
+    /// request its entry document. Applying the channel first keeps `updates.web: off` on the
+    /// bundled web even while the settings observer is still starting.
+    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+        start(bundle: bundle, settings: settings)
     }
 
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point.
-    func start(bundle: Bundle) {
+    private func start(bundle: Bundle, settings: UpdatesSettings? = nil) {
         guard !started else { return }
         started = true
-        guard Self.isAvailable(bundleID: bundle.bundleIdentifier),
+        guard Self.isAvailable(bundle),
               let pages = WebBundleOverlay.bundledPages,
               let app = WebUpdater.App.bundled(pages: pages, infoPlist: bundle.bundleURL.appending(path: "Contents/Info.plist")),
               let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)
@@ -69,6 +74,7 @@ public final class WebUpdates {
         }
         updater.served = { WebBundleOverlay.shared.activeTree }
         self.updater = updater
+        if let settings { follow(settings, updater: updater) }
         if WebBundleServedViews.shared.isEmpty {
             launchServed = true
             overlay.load { await updater.launchTree() }
@@ -100,6 +106,10 @@ public final class WebUpdates {
     public func follow(_ settings: UpdatesSettings, bundle: Bundle = .main) {
         start(bundle: bundle)
         guard let updater else { return }
+        follow(settings, updater: updater)
+    }
+
+    private func follow(_ settings: UpdatesSettings, updater: WebUpdater) {
         updater.allowsConstrained = settings.meteredNetwork == .download
         updater.allowsExpensive = settings.meteredNetwork != .deferExpensive
         updater.follow(WebUpdater.Channel(rawValue: settings.web.rawValue) ?? .off)

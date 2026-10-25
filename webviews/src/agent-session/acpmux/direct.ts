@@ -55,7 +55,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import { incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -75,6 +75,7 @@ import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
+import { recordedConversationEvents } from "./conversation/exportEvents";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -840,6 +841,9 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// long chat whose rows only changed in place copies this instead of sorting every row again.
   private ordered: AcpmuxRow[] | undefined;
   private orderedIndex = new Map<string, number>();
+  /// The array handed to snapshots. Metadata updates can emit without changing a transcript row;
+  /// reuse this reference so the pane's derived rows stay memoized.
+  private snapshot: AcpmuxRow[] | undefined;
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
@@ -851,17 +855,22 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       for (const key of keys) if (typeof a[key] !== "object" && a[key] !== b[key]) return false;
       return true;
     };
+    let changed = false;
     for (const [id, row] of this) {
       const old = previous.get(id);
       if (!old || old === row || old.kind !== row.kind || old.version !== row.version || !plainSame(old, row)) continue;
       super.set(id, old);
       const at = this.orderedIndex.get(id);
       if (this.ordered && at !== undefined) this.ordered[at] = old;
+      changed = true;
     }
+    if (changed) this.snapshot = undefined;
   }
 
   override set(id: string, row: AcpmuxRow): this {
     const known = this.order.has(id);
+    const unchanged = known && this.get(id) === row;
+    if (!unchanged) this.snapshot = undefined;
     if (!known) {
       if (this.current !== undefined) {
         this.order.set(id, this.current);
@@ -871,7 +880,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.local.add(id);
       }
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
-    if (this.ordered) this.keepOrdered(id, row, known);
+    if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     return super.set(id, row);
   }
 
@@ -919,6 +928,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // Every text delta drops the typing row, which is usually gone already.
     if (!this.has(id)) return false;
     this.ordered = undefined;
+    this.snapshot = undefined;
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
@@ -926,6 +936,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   override clear(): void {
     this.ordered = undefined;
+    this.snapshot = undefined;
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -944,6 +955,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// rebuild replayed happened before them.
   placeLocalLast(): void {
     this.ordered = undefined;
+    this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
@@ -956,7 +968,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       );
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
-    return this.ordered.slice();
+    return (this.snapshot ??= this.ordered.slice());
   }
 }
 
@@ -1323,6 +1335,36 @@ export class AcpmuxDirectClient {
       if (!page?.hasMore || last === undefined || last <= after) return events;
       after = last;
     }
+  }
+
+  /// An export stays on this connection and selection, including while a history page is in flight.
+  async conversationEvents(isCurrent: () => boolean): Promise<EventRecord[]> {
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const connection = this.socket;
+    const current = () =>
+      !this.closed &&
+      this.socket === connection &&
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      isCurrent();
+    if (!sessionId) throw new Error("conversation_export_no_session");
+    return recordedConversationEvents(
+      sessionId,
+      {
+        detail: async () => {
+          // Events is already allowed on the pane bridge; its sequence watermark avoids exposing
+          // the daemon's broader, native-only session detail surface to page code.
+          const page = await this.typed("_acpmux/events", { sessionId, afterSeq: 0, limit: 1, kinds: ["transcript"] });
+          return { lastSeq: page.lastSeq };
+        },
+        page: async (params) => {
+          const page = await this.typed("_acpmux/events", params);
+          return { events: records(page.events), hasMore: page.hasMore };
+        },
+      },
+      current,
+    );
   }
 
   static async connect(
@@ -3128,6 +3170,7 @@ export class AcpmuxDirectClient {
           ...shown,
           ...(untyped ? { untyped } : {}),
           ...(sentByChief(msg) ? { from: "chief" as const } : {}),
+          ...(!untyped && cliHost(msg.client) ? { viaCli: cliHost(msg.client) } : {}),
           ...(received ? { received } : {}),
           ...(steer ? { steer } : {}),
           ...(continues ? { continues } : {}),
@@ -3170,6 +3213,16 @@ export class AcpmuxDirectClient {
             this.streamingAssistant = undefined;
             this.streamingAssistantMessageId = undefined;
           }
+        }
+      } else if (event.kind === "steer_withdrawn") {
+        // A steer taken back before the agent read it (the X beside it): its bubble goes, and its
+        // text went back to the composer that took it.
+        const id = String(msg.promptId ?? "");
+        const rowId = this.steerRows.get(id);
+        if (rowId) {
+          this.rows.delete(rowId);
+          this.steerRows.delete(id);
+          this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;

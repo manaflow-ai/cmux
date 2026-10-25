@@ -15,13 +15,16 @@ public protocol StateResourceQueries: AnyObject {
     var appliedSequence: UInt64 { get }
     var connectionState: DaemonConnectionState { get }
     func workspace(key: WorkspaceKey) -> WorkspaceModel?
+    /// Shows now whatever a script batch's stage holds at or below `sequence` (``applied(through:)``
+    /// never waits on a script).
+    func commitStage(ifHolding sequence: UInt64?)
 }
 
 extension StateResourceQueries {
     /// True when this daemon serves the state resources (closed history,
     /// ephemeral workspaces, workspace status, the v2 state mutations): its
-    /// `identify` advertises `DaemonCapabilities.stateResources`.
-    public var servesStateResources: Bool { supports(DaemonCapabilities.stateResources) }
+    /// `identify` advertises `DaemonCapability.stateResources`.
+    public var servesStateResources: Bool { supports(DaemonCapability.stateResources.rawValue) }
 
     /// Whether this daemon's `identify` advertises `capability`.
     public func supports(_ capability: String) -> Bool {
@@ -52,6 +55,8 @@ extension StateResourceQueries {
     /// `DaemonConnection.eventSequence()` taken after a command's reply), or
     /// the connection changed. Event-driven: it observes the store.
     public func applied(through sequence: UInt64?) async {
+        // A read-your-writes wait never waits on a script batch's stage: what it needs shows now.
+        commitStage(ifHolding: sequence)
         guard let sequence, appliedSequence < sequence else { return }
         let state = connectionState
         for await done in ObservationStream({ self.appliedSequence >= sequence || self.connectionState != state }) where done {

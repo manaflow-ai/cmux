@@ -18,7 +18,6 @@
 .bg-gallery__tail-foot{justify-content: flex-start; border-top: 1px solid var(--line); color: var(--ink-muted); font-size: var(--bg-text-caption);}
 .bg-gallery__follow-dot, .bg-gallery__status-dot{display: inline-block; flex: none; width: var(--bg-space-7); height: var(--bg-space-7); border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px var(--success-soft);}
 .bg-gallery__tail-body, .bg-gallery__failed pre{max-height: var(--bg-space-188); margin: 0; overflow: auto; padding: var(--bg-space-12); color: var(--ink); font: var(--bg-text-caption) / 1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; tab-size: 2; white-space: pre;}
-.bg-gallery__tail-body{scrollbar-color: var(--line-strong) transparent;}
 .bg-gallery__text-button, .bg-gallery__terminal-button, .bg-gallery__composer button, .bg-gallery__pill{border: 0; color: var(--accent); cursor: pointer; font: inherit;}
 .bg-gallery__text-button, .bg-gallery__terminal-button{padding: var(--bg-space-3) 0; background: transparent; font-size: var(--bg-text-caption); font-weight: 600;}
 .bg-gallery__terminal-button{margin-left: auto; padding: var(--bg-space-5) var(--bg-space-8); border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-muted);}

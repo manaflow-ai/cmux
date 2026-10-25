@@ -56,6 +56,10 @@ pub use reaper::tree_rss_bytes;
 /// Most a pooled start's `initialize` and harness session may take before
 /// it counts as failed (and its host is ended).
 const START_BUDGET: Duration = Duration::from_secs(90);
+// A pooled host waits longer for its first controller than this budget
+// gives the attach (`agent_host/host.rs`).
+#[cfg(unix)]
+const _: () = assert!(agent_host::host::POOLED_OWNER_WAIT.as_secs() > START_BUDGET.as_secs());
 /// How often the pool's RSS is measured again while it holds entries.
 const RSS_TICK: Duration = Duration::from_secs(60);
 /// Most a `session/new` waits for a matching entry that is still starting

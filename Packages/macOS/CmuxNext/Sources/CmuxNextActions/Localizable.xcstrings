@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.effect.failed": {
+      "comment": "Shown when an action's change was undone because the daemon refused it. %1$@ is the action title, %2$@ the reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ did not apply: %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُطبَّق %1$@: %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ nije primijenjeno: %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ blev ikke anvendt: %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ wurde nicht angewendet: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ no se aplicó: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ n’a pas été appliqué : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ non è stato applicato: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ を適用できませんでした: %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ មិនបានអនុវត្ត៖ %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 적용 안 됨: %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ble ikke brukt: %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie zastosowano: %1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ não foi aplicado: %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не применено: %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ ไม่ได้ถูกนำไปใช้: %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ uygulanmadı: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ не застосовано: %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ chưa được áp dụng: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 未生效：%2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%1$@ 未生效：%2$@"
+          }
+        }
+      }
+    },
     "argument.fit": {
       "extractionState": "manual",
       "localizations": {
@@ -11404,127 +11536,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show ACP Inspector"
+            "value": "Toggle Session Info"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ACPインスペクタを表示"
+            "value": "セッション情報を切り替え"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار مفتش ACP"
+            "value": "تبديل معلومات الجلسة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prikaži ACP inspektor"
+            "value": "Uključi/isključi informacije o sesiji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis ACP-inspektør"
+            "value": "Skift sessionsinfo"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "ACP-Inspektor anzeigen"
+            "value": "Sitzungsinfo umschalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar inspector de ACP"
+            "value": "Alternar información de la sesión"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher l’inspecteur ACP"
+            "value": "Basculer les infos de la session"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostra ispettore ACP"
+            "value": "Attiva/disattiva info sessione"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បង្ហាញកម្មវិធីត្រួតពិនិត្យ ACP"
+            "value": "បិទ/បើកព័ត៌មានវគ្គ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "ACP 인스펙터 보기"
+            "value": "세션 정보 토글"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vis ACP-inspektør"
+            "value": "Veksle sessionsinfo"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pokaż inspektor ACP"
+            "value": "Przełącz informacje o sesji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar inspetor ACP"
+            "value": "Alternar informações da sessão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показать инспектор ACP"
+            "value": "Переключить информацию о сеансе"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แสดงตัวตรวจสอบ ACP"
+            "value": "สลับข้อมูลเซสชัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ACP Denetçisini Göster"
+            "value": "Oturum Bilgilerini Aç/Kapat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Показати інспектор ACP"
+            "value": "Перемкнути відомості про сеанс"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hiện trình kiểm tra ACP"
+            "value": "Bật/tắt thông tin phiên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示 ACP 检查器"
+            "value": "切换会话信息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示 ACP 檢查器"
+            "value": "切換工作階段資訊"
+          }
+        }
+      }
+    },
+    "action.agentPane.stopTurn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Agent Turn"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントターンを停止"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف دور الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavi agentski potez"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop agenttur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentenrunde stoppen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener el turno del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter le tour de l’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi il turno dell’agente"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់វេនភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 턴 중지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp agentrunde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymaj turę agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar turno do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить ход агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดรอบของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan turunu durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинити хід агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dừng lượt của tác nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止智能体回合"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止代理回合"
           }
         }
       }
