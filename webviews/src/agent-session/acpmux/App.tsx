@@ -7512,9 +7512,9 @@ function AcpmuxPane() {
     />
   );
   // Keep the row out of a new/loading chat until the daemon has reported a cwd or branch. The
-  // EnvironmentLine itself returns null for that state, but its component wrapper would otherwise
-  // still be a truthy React element and leave an empty row behind.
-  const environment = snapshot.summary?.cwd || snapshot.summary?.branch ? environmentLine() : null;
+  // render site calls `environmentLine()` only after the local folder and split handlers below
+  // have been initialized, avoiding a transient render-time TDZ for a started chat.
+  const hasEnvironment = Boolean(snapshot.summary?.cwd || snapshot.summary?.branch);
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -9358,13 +9358,13 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {!header.status && environmentPlacement !== "off" && environment && (
+                {!header.status && environmentPlacement !== "off" && hasEnvironment && (
                   <div
                     className="acpmux-environment-row"
                     data-placement={environmentPlacement}
                     data-tab-row={inTabRow ? "" : undefined}
                   >
-                    {environment}
+                    {environmentLine()}
                   </div>
                 )}
                 {!inspector.on && !summaryCard.column && summaryPanel}
