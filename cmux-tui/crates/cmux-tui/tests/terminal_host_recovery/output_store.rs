@@ -114,6 +114,60 @@ fn process_io(pid: u32) -> Option<(u64, Duration)> {
     Some((wchar, Duration::from_millis(ticks * 1000 / hertz)))
 }
 
+fn twb_dump(state: &Path, label: &str) -> std::collections::BTreeMap<String, Vec<String>> {
+    let registry = registry_path(state);
+    let copy = std::env::temp_dir().join(format!("twb-{label}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&copy);
+    fs::create_dir_all(&copy).unwrap();
+    for suffix in ["", "-wal", "-shm"] {
+        let from = PathBuf::from(format!("{}{suffix}", registry.display()));
+        if from.exists() {
+            fs::copy(&from, copy.join(format!("r.sqlite3{suffix}"))).unwrap();
+        }
+    }
+    let connection = rusqlite::Connection::open(copy.join("r.sqlite3")).unwrap();
+    let tables: Vec<String> = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
+    let mut out = std::collections::BTreeMap::new();
+    for table in tables {
+        let mut statement = connection.prepare(&format!("SELECT * FROM \"{table}\"")).unwrap();
+        let columns = statement.column_count();
+        let rows: Vec<String> = statement
+            .query_map([], |row| {
+                let mut text = String::new();
+                for index in 0..columns {
+                    let value: rusqlite::types::Value = row.get(index)?;
+                    let shown = match value {
+                        rusqlite::types::Value::Blob(bytes) => format!(
+                            "blob{}:{:x}",
+                            bytes.len(),
+                            bytes
+                                .iter()
+                                .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(*b as u64))
+                        ),
+                        other => {
+                            let t = format!("{other:?}");
+                            if t.len() > 160 { format!("{}..({})", &t[..160], t.len()) } else { t }
+                        }
+                    };
+                    text.push_str(&shown);
+                    text.push('|');
+                }
+                Ok(text)
+            })
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        out.insert(table, rows);
+    }
+    out
+}
+
 fn idle_terminals_write_nothing(mode: &str) {
     let _exclusive = exclusive_process_test();
     let harness = harness(&format!("output-idle-{mode}"), mode);
@@ -131,10 +185,27 @@ fn idle_terminals_write_nothing(mode: &str) {
     std::thread::sleep(Duration::from_secs(3));
     let pid = harness.child.as_ref().unwrap().id();
     let before = file_states(&harness.state);
+    let twb_before = twb_dump(&harness.state, "before");
     let io_before = process_io(pid);
     let window = idle_window();
     std::thread::sleep(window);
     let after = file_states(&harness.state);
+    let twb_after = twb_dump(&harness.state, "after");
+    for (table, rows) in &twb_after {
+        let old = twb_before.get(table).cloned().unwrap_or_default();
+        if &old != rows {
+            eprintln!("TWB table {table} changed: {} rows -> {} rows", old.len(), rows.len());
+            for row in rows.iter().filter(|r| !old.contains(r)).take(8) {
+                eprintln!("TWB + {row}");
+            }
+            for row in old.iter().filter(|r| !rows.contains(r)).take(8) {
+                eprintln!("TWB - {row}");
+            }
+        }
+    }
+    for state in after.iter().filter(|s| !before.contains(s)) {
+        eprintln!("TWB file {:?}", state);
+    }
     let io_after = process_io(pid);
     if let (Some((written_before, cpu_before)), Some((written_after, cpu_after))) =
         (io_before, io_after)
