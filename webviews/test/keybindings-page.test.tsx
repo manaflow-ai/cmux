@@ -613,4 +613,22 @@ test("keys another action has: the recorder says who has them and offers Overwri
   await settle();
   expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+o" });
   expect(recorder()).toBeNull();
+
+  // Keys of an action that runs in more places than the new ones (Find runs in a terminal, Next
+  // Tab everywhere): the hint says Find takes them where it runs and Next Tab keeps them
+  // everywhere else; Overwrite saves and removes nothing.
+  await click(row("Find")?.querySelector(".keys-key-button"));
+  await keys("ctrl+tab");
+  expect(choices()).toBeTruthy();
+  expect(title()).toContain("Next Tab");
+  expect(recorder()?.textContent).toContain("Find takes it where it runs. Next Tab keeps it everywhere else.");
+  const removesBefore = provider.calls.filter(({ op }) => op === KeybindingOps.remove).length;
+  await act(async () => {
+    provider.press("return");
+    await Promise.resolve();
+  });
+  await settle();
+  expect(provider.calls.filter(({ op }) => op === KeybindingOps.remove)).toHaveLength(removesBefore);
+  expect(sets().at(-1)?.params).toMatchObject({ command: "find.open", key: "ctrl+tab" });
+  expect(row("Next Tab")?.querySelector(".keys-key-button")?.textContent).toBe("⌃⇥");
 });

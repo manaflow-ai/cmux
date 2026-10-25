@@ -88,6 +88,8 @@ import Testing
             return
         }
         #expect(Set(taken.compactMap { Self.field($0, "command")?.stringValue }).isSuperset(of: Self.actualSizes))
+        // A global Cmd-0 holds wherever each of them runs: Overwrite takes it from all of them.
+        #expect(taken.allSatisfy { Self.field($0, "takesAll") == .bool(true) })
     }
 
     /// Actual Size runs in a focused browser; on Cmd-T it would take New Tab's key there, so it
@@ -102,6 +104,9 @@ import Testing
         }
         let commands = Set(taken.compactMap { Self.field($0, "command")?.stringValue })
         #expect(!commands.isDisjoint(with: ["newSurface", "newTab.default", "newTab"]), "Cmd-T takes: \(commands)")
+        // It takes the key in the browser only: New Tab keeps Cmd-T everywhere else, so
+        // Overwrite leaves its entry (Lucas 2026-10-25: Overwrite had unbound New Tab everywhere).
+        #expect(taken.allSatisfy { Self.field($0, "takesAll") == .bool(false) })
         // A focused terminal and a focused browser never hold together: no conflict there.
         guard case .array(let none)? = Self.field(KeybindingReports.conflicts(
             ["command": "terminal.resetFontSize", "key": "cmd+0"], when: try WhenClause.parse("terminalFocused"),
