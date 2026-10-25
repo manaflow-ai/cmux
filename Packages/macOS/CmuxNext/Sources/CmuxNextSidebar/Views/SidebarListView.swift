@@ -215,6 +215,7 @@ final class SidebarListView: NSView {
     private var pointerMonitor: Any?
     /// Additional sidebar-owned gestures that share this list's app/window pointer monitor.
     var onPointerEventSeen: ((NSEvent.EventType, NSWindow?) -> Void)?
+    var onPointerWindowLostKey: (() -> Bool)?
     var onPointerFocusLost: (() -> Void)?
     /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
     var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }

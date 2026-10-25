@@ -33,6 +33,8 @@ final class SidebarPriorityPanelView: NSView {
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     /// The chat whose row the pointer drags: `placeRows` leaves that row where the pointer has it.
     private(set) var draggingID: String?
+    /// Tests and the shared sidebar monitor use this to distinguish a key change from a lost release.
+    var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override init(frame: NSRect) {
         super.init(frame: frame)
         header.onPress = { [weak self] in self.map { $0.onAction?(.setCollapsed(!$0.panel.collapsed)) } }
@@ -73,7 +75,9 @@ final class SidebarPriorityPanelView: NSView {
         self.panel = panel
         // A re-rank, a row coming or going, or a fold under a live drag ends it with no place: the
         // slot it would take was measured against the old rows. A content-only refresh keeps it.
-        if draggingID != nil, old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id) {
+        if draggingID != nil,
+           old.collapsed != panel.collapsed || old.entries.map(\.id) != panel.entries.map(\.id)
+            || old.entries.map({ $0.preview != nil }) != panel.entries.map({ $0.preview != nil }) {
             stopDrag()
         }
         header.configure(title: Strings.priorityTitle, collapsed: panel.collapsed)
@@ -242,6 +246,8 @@ final class SidebarPriorityPanelView: NSView {
     }
 
     func pointerFocusLost() { cancelDrag() }
+
+    func shouldKeepPointerOnWindowLoss() -> Bool { draggingID != nil && leftButtonIsDown() }
 
     /// Ends the live drag, if any, without placing anything: its row takes no more of this press
     /// and sits above the others no longer. The caller lays the rows out.

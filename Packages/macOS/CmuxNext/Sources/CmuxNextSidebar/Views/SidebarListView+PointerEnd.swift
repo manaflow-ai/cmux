@@ -35,6 +35,7 @@ extension SidebarListViewComponents {
     /// button up, the release went to another window: the gesture ends as for the app losing focus.
     func pointerWindowLostKey() {
         if holdsPointerGesture, leftButtonIsDown() { return }
+        if onPointerWindowLostKey?() == true { return }
         pointerFocusLost()
     }
 
