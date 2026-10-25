@@ -4,12 +4,16 @@ import type { CloudTransport } from "../cloud-vm-api-config.ts"
 /**
  * Plan limits for CloudDO (state-placement.md 5.7, contract 1.5).
  *
- * STUB: the backend has no Cloud entitlement yet (the billing webhook path, Stripe -> MySQL billing
- * tables -> op to the owner, is not built). Until it lands, STUB_PLAN exists only in the stub
- * environments (development, staging, test) and only for teams on CLOUD_ALLOWED_TEAMS; every other
- * team, every other environment (production, local, previews, anything unknown) gets no plan, so
- * create answers cloud.plan.required and no provider VM is made for free. Replace `planFor` with
- * the entitlement read when billing lands.
+ * Two sources, the paid one first:
+ * - Paid entitlements (CLOUD_PLAN_ENTITLEMENTS=on, plans/cmux-next/paid-product-DESIGN.md): the
+ *   team's paid plan, the same one the model router gates on (TeamDO.inferencePlan, the sign-in
+ *   service's cmuxPlan that web billing writes from Stripe), mapped to PAID_PLAN_LIMITS. CloudDO
+ *   keeps the last known plan (cloud-entitlements.ts) and hands it to the pure reducers through
+ *   CloudConfig.entitlements.
+ * - STUB_PLAN: only in the stub environments (development, staging, test) and only for teams on
+ *   CLOUD_ALLOWED_TEAMS.
+ * Every other team gets no plan, so create answers cloud.plan.required and no provider VM is made
+ * for free. With the flag off (production until go-live) only the stub applies, as before.
  */
 export interface PlanLimits {
   readonly plan_id: string
@@ -37,6 +41,42 @@ export const STUB_PLAN: PlanLimits = {
   upgrade_plan: cloudEntryPlan()
 }
 
+const GiB = 1024
+/** Pro, Team and Founders: 5 machines at once, up to 8 vCPU / 16 GB (pricing-DESIGN.md section 4). */
+const PRO_LIMITS: Omit<PlanLimits, "plan_id" | "upgrade_plan"> = {
+  max_active: 5,
+  max_saved: 20,
+  memory_options_mb: [4 * GiB, 8 * GiB, 16 * GiB],
+  locked_memory_options_mb: [],
+  vm_hours_included: null,
+  max_cpu: 8,
+  max_disk_mb: 128 * GiB
+}
+
+/**
+ * The Cloud limits of each paid plan id (the ids web billing writes as cmuxPlan). `upgrade_plan` is
+ * the plan that lifts them: Go -> Pro, Pro and Founders -> Max; Max and Team have no self-serve plan
+ * above them (null).
+ */
+export const PAID_PLAN_LIMITS: Readonly<Record<string, PlanLimits>> = {
+  go: { plan_id: "go", max_active: 1, max_saved: 5, memory_options_mb: [4 * GiB], locked_memory_options_mb: [], vm_hours_included: 40, max_cpu: 2, max_disk_mb: 32 * GiB, upgrade_plan: "pro" },
+  pro: { plan_id: "pro", ...PRO_LIMITS, upgrade_plan: "max" },
+  founders: { plan_id: "founders", ...PRO_LIMITS, upgrade_plan: "max" },
+  team: { plan_id: "team", ...PRO_LIMITS, upgrade_plan: null },
+  max: { plan_id: "max", max_active: 20, max_saved: 50, memory_options_mb: [4 * GiB, 8 * GiB, 16 * GiB, 32 * GiB, 64 * GiB], locked_memory_options_mb: [], vm_hours_included: null, max_cpu: 32, max_disk_mb: 512 * GiB, upgrade_plan: null }
+}
+
+/** The paid limits of a plan id, or null (free, unknown, or no plan). */
+export const paidPlanLimits = (plan: string | null | undefined): PlanLimits | null => (plan && Object.hasOwn(PAID_PLAN_LIMITS, plan) ? PAID_PLAN_LIMITS[plan]! : null)
+
+/** The team's paid plan as CloudDO last knew it (cloud-entitlements.ts), read synchronously by the reducers. */
+export interface CloudEntitlements {
+  /** CLOUD_PLAN_ENTITLEMENTS is on for this object. */
+  readonly enabled: boolean
+  /** The team's last known paid plan id, or null when it has none (or it was never read). */
+  plan(team: string): string | null
+}
+
 /** What CloudDO's reducer needs from the deployment. Fixed per object instance, so the reducer stays pure. */
 export interface CloudConfig {
   readonly transport?: CloudTransport
@@ -49,6 +89,8 @@ export interface CloudConfig {
   readonly image: string | null
   /** Why there is no image: no snapshot configured, or one without this environment's prefix (CLOUD-DEV-SNAPSHOT). */
   readonly imageProblem?: "missing" | "foreign"
+  /** Paid plan entitlements; absent = the stub rule only. */
+  readonly entitlements?: CloudEntitlements
 }
 
 /** Environments where the stub plan may apply, as an explicit list (never "not production"). */
@@ -57,7 +99,11 @@ export const STUB_PLAN_ENVIRONMENTS: ReadonlySet<string> = new Set(["development
 export const planFor = (environment: string, team: string | null | undefined, allowed: ReadonlySet<string>): PlanLimits | null =>
   STUB_PLAN_ENVIRONMENTS.has(environment) && team !== null && team !== undefined && allowed.has(team) ? STUB_PLAN : null
 
-export const teamPlan = (config: CloudConfig, team: string | null | undefined) => planFor(config.environment, team, config.allowedTeams)
+/** The team's limits: its paid plan when entitlements are on and it has one, else the stub rule. */
+export const teamPlan = (config: CloudConfig, team: string | null | undefined): PlanLimits | null => {
+  const paid = config.entitlements?.enabled && team ? paidPlanLimits(config.entitlements.plan(team)) : null
+  return paid ?? planFor(config.environment, team, config.allowedTeams)
+}
 
 /** CLOUD_ALLOWED_TEAMS: comma-separated team ids; blanks dropped; unset or empty = nobody. */
 export const parseAllowedTeams = (raw: string | undefined): ReadonlySet<string> => new Set((raw ?? "").split(",").map((t) => t.trim()).filter((t) => t.length > 0))

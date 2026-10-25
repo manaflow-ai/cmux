@@ -7,6 +7,7 @@ import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -36,8 +37,9 @@ extension LiveCoordinator {
         let pairing = pairing
         let deviceID = identity.link
         let deviceName = deviceName
+        let macID = session.macID
         session.link.prepare = { link, _ in
-            await Self.prepareLink(link, pairing: pairing, deviceID: deviceID, deviceName: deviceName)
+            await Self.prepareLink(link, pairing: pairing, macID: macID, deviceID: deviceID, deviceName: deviceName)
         }
         session.feed.place = { [weak session] sessionID in session?.place(sessionID: sessionID) }
         session.terminalFeed.request = { [weak session] command, params, connection in
@@ -49,11 +51,31 @@ extension LiveCoordinator {
             for (key, value) in params { fields[key] = value }
             return try await client.request(command, params: fields)
         }
+        session.terminalFeed.type = { [weak session] surface, bytes, connection in
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            _ = try WorkspaceSync.check(try await client.request("send", params: ["surface": surface, "bytes": bytes.base64EncodedString()]))
+        }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
             self.apply(tree, session: session)
         }
-        session.workspaces.onNotification = { [weak session] in session?.terminalFeed.notificationPosted() }
+        session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
+            guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
+            // A Feed reply into a terminal agent: this connection's channel only, pasted and
+            // submitted in one write, only while that program is still the terminal's foreground
+            // one and its agent waits at its prompt in that session (the daemon checks both).
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            let expectAgent: [String: Any] = ["session": agentSession]
+            return try await client.request("send", params: [
+                "surface": surface, "text": text, "paste": true, "submit": true,
+                "expect_foreground": expectForeground, "expect_agent": expectAgent,
+            ])
+        }
+        session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
@@ -79,6 +101,11 @@ extension LiveCoordinator {
     /// The session for a Mac id, when it has one.
     func session(macID: String?) -> MacSession? {
         macID.flatMap { sessions[$0] }
+    }
+
+    /// The terminal agents' Feed of the Mac `macID` (a Feed item's own Mac; never another's).
+    public func terminalFeed(macID: String?) -> TerminalFeed? {
+        session(macID: macID)?.terminalFeed
     }
 
     /// The session of the Mac that shows `tabID`: `macID` when given, else the
@@ -129,9 +156,9 @@ extension LiveCoordinator {
         let daemon: Result<WorkspaceSync.Prepared, LinkError>
     }
 
-    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, deviceID: String,
+    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, macID: String? = nil, deviceID: String,
                                         deviceName: String) async -> PreparedLink {
-        let auth = await pairing?.open(link: link)
+        let auth = await pairing?.open(link: link, macID: macID)
         ConnectTimeline.shared.mark("pairing_opened")
         do {
             let channel = try await link.openChannel(service: "daemon", args: [:])
@@ -149,7 +176,7 @@ extension LiveCoordinator {
         // ones opened behind it until it passes. Workspaces, the chats and the Feed open
         // right behind it, without waiting for each other (an open costs no round trip).
         ConnectTimeline.shared.mark("link_served")
-        let auth = await openPairing(link)
+        let auth = await openPairing(link, macID: session.macID)
         guard let passed = startServing(session, link, auth: auth, daemon: nil) else { return }
         await finishServing(session, link, passed: passed)
     }
@@ -222,7 +249,7 @@ extension LiveCoordinator {
 
     /// `session`'s link once its pairing passed, for channels that may overtake
     /// `auth` (the input lane rides another stream).
-    private func pairedLink(_ session: MacSession) async throws -> any MacLink {
+    func pairedLink(_ session: MacSession) async throws -> any MacLink {
         guard let link = session.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
         if let gate = session.pairingGate, gate.link === link, !(await gate.passed.value) {
             throw LinkError(code: "unpaired", message: "This iPhone is not paired with the Mac")
@@ -340,9 +367,9 @@ extension LiveCoordinator {
     }
 
     /// Opens `auth` on `link` (no round trip); nil without pairing keys.
-    private func openPairing(_ link: any MacLink) async -> Result<LinkPairing.Opened, LinkError>? {
+    private func openPairing(_ link: any MacLink, macID: String) async -> Result<LinkPairing.Opened, LinkError>? {
         guard let pairing else { return nil }
-        return await pairing.open(link: link)
+        return await pairing.open(link: link, macID: macID)
     }
 
     /// The pairing state of a Mac's link; the focused Mac's is the shell's.
@@ -406,6 +433,7 @@ extension LiveCoordinator {
         let hadLinks = sessions.values.contains { $0.link.target != nil }
         for session in sessions.values { session.link.send(.target(nil)) }
         pairing.keys.reset()
+        pairing.push?.reset(user: userID)
         removedFromMacsCount += 1
         if hadLinks { retarget() }
     }
@@ -415,6 +443,7 @@ extension LiveCoordinator {
     public func forgetThisPhone() {
         accountDeleted = true
         pairing?.keys.reset()
+        pairing?.push?.reset(user: userID)
         pairing?.pins.removeAll()
         DeviceIdentity.forget(userID: userID, store: secrets)
     }
@@ -532,7 +561,7 @@ extension LiveCoordinator {
         guard chiefMacID != focusedMacID else { return }
         let owner = focused
         guard let link = owner.servedLink else {
-            if chiefMacID != nil { chiefOffline() }
+            if chiefMacID != nil { chiefOffline() } else { useChiefCloudCopy(macName: owner.name) }
             return
         }
         Task { [weak self] in
@@ -551,6 +580,24 @@ extension LiveCoordinator {
         ChiefSession.shared.use(ChiefOfflineBackend())
         ChiefSession.shared.status = nil
         chiefLive = false
+        useChiefCloudCopy(macName: ChiefSession.shared.macName)
+    }
+
+    /// With no link to the Mac, Chief reads the Mac's cloud copy and its
+    /// messages wait in the cloud for the Mac (a450, logs/iphone-chief-DESIGN.md);
+    /// nothing changes when the Mac publishes no copy or a link came back meanwhile.
+    func useChiefCloudCopy(macName: String?) {
+        // task-owner: one host lookup; ends with the swap or nothing
+        Task { [weak self] in
+            guard let replica = await ChiefSources.shared.macReplica(named: macName) else { return }
+            let session = ChiefSession.shared
+            guard let self, self.chiefLink == nil, session.backend is ChiefOfflineBackend else {
+                replica.close()
+                return
+            }
+            session.use(replica)
+            session.status = ChiefSources.macOfflineReason
+        }
     }
 
     /// Chief on the Mac: its Chief owner over the link's scoped `chief`
@@ -572,6 +619,10 @@ extension LiveCoordinator {
         // Try Again on Chief's unavailable bar opens the channel again on this link.
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
+        // A file a Chief message links to previews from this Mac (absolute paths only).
+        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+            await owner?.servedLink
+        }
         // Chief's settings show this Mac's last known model until it answers.
         session.macID = owner.macID
         // A newer link (or another focused Mac) took over while this one was opening: leave it be.
@@ -586,7 +637,9 @@ extension LiveCoordinator {
                 session.use(ChiefOfflineBackend(reason: reason))
             }
             chiefLive = false
+            MacHomeFeed.shared.forget(unless: owner.macID)
             log.info("chief unavailable: \(reason, privacy: .public)")
+            useChiefCloudCopy(macName: owner.name)
         }
         do {
             let channel = try await link.openChannel(service: ChiefDaemonBackend.service, args: [:])
@@ -597,6 +650,11 @@ extension LiveCoordinator {
                 await channel.close(code: "eof", reason: "chief unavailable")
                 offline(String(localized: "Chief on this Mac: \(object?["error"] as? String ?? "unavailable")"))
                 return
+            }
+            // Home shows this Mac's Home list (its owner's `home-inbox`), on a channel of its own.
+            if current() {
+                let macID = owner.macID
+                Task { await MacHomeFeed.shared.connect(link: link, macID: macID) }
             }
             let conversations = (object?["data"] as? [String: Any])?["conversations"] as? [[String: Any]] ?? []
             let identity = ChiefIdentity.standard
@@ -843,7 +901,7 @@ extension LiveCoordinator {
     /// first `reconnectingAttempts` attempts. A Mac never reached, or still
     /// unreachable after those, says so; without TURN neither transport gets
     /// through from another network (WireGuard's backend relay is retired).
-    nonisolated static func waitingBanner(macName: String, transport: TransportKind, reason: String,
+    nonisolated static func waitingBanner(macName: String, transport: CmuxMobileTransport.TransportKind, reason: String,
                                           attempt: Int, wasConnected: Bool,
                                           relayAvailable: Bool?) -> ConnectionBannerState {
         if reason == LinkController.reason(LinkError(code: "offline", message: "")) { return .macOffline(macName) }
@@ -853,11 +911,22 @@ extension LiveCoordinator {
     }
 }
 
-/// The Feed's answers go to the Mac whose chat asked: each Mac's `LiveFeed`
-/// knows its own asks. Pull to refresh reads every linked Mac.
+/// The Feed's answers go to the Mac whose agent asked, over that Mac's own
+/// link, whichever Mac is chosen: each Mac's `LiveFeed` knows its own asks.
+/// A Mac whose link is idle (or still opening) is linked on demand and
+/// answered once its chats are ready. Pull to refresh reads every linked Mac.
 @MainActor
 final class MultiMacFeedActions: FeedActions {
     private weak var coordinator: LiveCoordinator?
+    /// The coordinator, for the terminal-question answers (`MultiMacFeedActions+Terminal.swift`).
+    var coordinatorForTerminal: LiveCoordinator? { coordinator }
+    /// How long an answer waits for its Mac's link and chats to open.
+    var linkTimeout: Duration = .seconds(20)
+
+    /// Why an answer could not be sent (shown under the card; the ask stays open).
+    struct Unsent: Error, Equatable {
+        let message: String
+    }
 
     init(coordinator: LiveCoordinator) {
         self.coordinator = coordinator
@@ -868,11 +937,41 @@ final class MultiMacFeedActions: FeedActions {
         return [coordinator.focused.feed] + coordinator.sessions.values.filter { $0 !== coordinator.focused }.map(\.feed)
     }
 
-    /// The feed that put `item` in the Feed (its ask). Never another Mac's:
-    /// an ask no linked Mac owns (restored from the archive, or of a closed
-    /// link) is "not connected" until its Mac's link reads it again.
-    private func owner(_ item: FeedItem) -> LiveFeed? {
-        feeds.first { $0.owns(item.id) }
+    /// The Mac `item` came from: its own tag, else the Mac whose feed holds the
+    /// ask, else the Mac that lists its workspace. Never the chosen Mac by default.
+    func macID(of item: FeedItem) -> String? {
+        guard let coordinator else { return nil }
+        if let macID = item.macID, !macID.isEmpty { return macID }
+        if let owner = coordinator.sessions.values.first(where: { $0.feed.owns(item.id) }) { return owner.macID }
+        let macID = coordinator.store.workspace(id: item.workspaceID)?.macID
+        return macID?.isEmpty == false ? macID : nil
+    }
+
+    /// The feed that answers `item`, on its Mac's ready link: an idle link opens,
+    /// and an ask the feed has not read on this link is read again first.
+    private func owner(_ item: FeedItem) async throws -> LiveFeed {
+        guard let coordinator, let macID = macID(of: item) else {
+            throw Unsent(message: FeedStore.notConnectedMessage)
+        }
+        let name = coordinator.store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "your Mac"
+        guard coordinator.canLink(macID: macID) else {
+            throw Unsent(message: "Only the owner of \(name) can answer from a phone. Nothing was sent.")
+        }
+        // Opens the Mac's link if it was idle, and keeps it (it is recent now)
+        // while the answer goes out.
+        coordinator.touch(macID)
+        guard let session = coordinator.sessions[macID] else {
+            throw Unsent(message: "\(name) is offline. Nothing was sent.")
+        }
+        guard await session.acpmux.waitUntilReady(timeout: linkTimeout, clock: coordinator.clock) else {
+            throw Unsent(message: "Couldn't connect to \(name). Nothing was sent.")
+        }
+        if !session.feed.owns(item.id) { try await session.feed.refresh() }
+        // The Mac no longer has the ask: it was answered on the Mac or elsewhere.
+        guard session.feed.owns(item.id) else {
+            throw AcpmuxConnection.RPCError(code: 0, message: "no pending permission \(item.id)", reason: nil)
+        }
+        return session.feed
     }
 
     /// Reads every linked Mac's Feed. Fails only when no Mac could be read.
@@ -897,22 +996,23 @@ final class MultiMacFeedActions: FeedActions {
     }
 
     func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
-        guard let feed = owner(item) else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected", reason: nil) }
-        try await feed.answer(item, question: question, with: answer)
+        if item.opensTerminal { return try await terminalOwner(item).answer(item, question: question, with: answer) }
+        try await owner(item).answer(item, question: question, with: answer)
     }
 
     func decline(_ item: FeedItem, question: AgentQuestion) async throws {
-        guard let feed = owner(item) else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected", reason: nil) }
-        try await feed.decline(item, question: question)
+        if item.opensTerminal { return try await terminalOwner(item).decline(item, question: question) }
+        try await owner(item).decline(item, question: question)
     }
 
     func respond(_ item: FeedItem, request: ACPPermissionRequest, option: ACPPermissionOption) async throws {
-        guard let feed = owner(item) else { throw AcpmuxConnection.RPCError(code: 0, message: "Not connected", reason: nil) }
-        try await feed.respond(item, request: request, option: option)
+        try await owner(item).respond(item, request: request, option: option)
     }
 
     func message(for error: any Error) -> String {
-        AcpmuxSessionSource.message(error)
+        if let unsent = error as? Unsent { return unsent.message }
+        if let refused = error as? TerminalFeed.QuestionRefused { return refused.message }
+        return AcpmuxSessionSource.message(error)
     }
 
     func isAlreadyAnswered(_ error: any Error) -> Bool {

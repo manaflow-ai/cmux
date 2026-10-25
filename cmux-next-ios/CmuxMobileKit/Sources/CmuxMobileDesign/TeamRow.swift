@@ -10,24 +10,34 @@ public struct SidebarTeamRow: View {
     let name: String
     let colorHex: String?
     let emoji: String?
+    let transparent: Bool
     let dots: [Bool]
     let overflow: Int
     let onlineCount: Int
     let isSelected: Bool
 
-    public init(name: String, colorHex: String?, emoji: String?, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool) {
+    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool) {
         self.name = name
         self.colorHex = colorHex
         self.emoji = emoji
+        self.transparent = transparent
         self.dots = dots
         self.overflow = overflow
         self.onlineCount = onlineCount
         self.isSelected = isSelected
     }
 
+    /// The gap from the avatar column to the name.
+    public static let avatarGap: CGFloat = 12
+    /// The name's x in the drawer: the side margin, the avatar column, the gap.
+    /// The drawer's section label and Invite to team start here too.
+    public static var textLeading: CGFloat {
+        theme.metrics.sideMargin + theme.metrics.teamAvatar + avatarGap
+    }
+
     public var body: some View {
-        HStack(spacing: 12) {
-            TeamAvatar(name: name, colorHex: colorHex, emoji: emoji, size: theme.metrics.teamAvatar)
+        HStack(spacing: Self.avatarGap) {
+            TeamAvatar(name: name, colorHex: colorHex, emoji: emoji, size: theme.metrics.teamAvatar, transparent: transparent)
             VStack(alignment: .leading, spacing: 5) {
                 Text(name)
                     .font(theme.type.rowTitle.weight(isSelected ? .semibold : .regular))

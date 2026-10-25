@@ -97,7 +97,7 @@ enum ScreenGroupCommands {
     /// else the raw command `raw`.
     static func change(_ label: String, _ state: ScreenGroupStateClient.Operation?, daemon: DaemonService,
                        raw: @escaping DaemonCommandBody) {
-        guard let state, daemon.supports(DaemonCapabilities.shared.stateResources) else { return daemon.send(label, raw) }
+        guard let state, daemon.supports(DaemonCapability.stateResources.rawValue) else { return daemon.send(label, raw) }
         let key = idempotencyKey(label)
         daemon.send(label) { _ = try await ScreenGroupStateClient(connection: $0).send(state, idempotencyKey: key) }
     }
@@ -118,7 +118,7 @@ enum ScreenGroupCommands {
     /// state resources (its closed history records each screen; there is no
     /// v2 group close), else `close-screen-group`.
     static func close(_ ref: ScreenGroupRef, services: AppServices) {
-        if ref.daemon.supports(DaemonCapabilities.shared.stateResources) {
+        if ref.daemon.supports(DaemonCapability.stateResources.rawValue) {
             return ScreenCommands.close(ref.members, in: ref.workspace, daemon: ref.daemon, services: services)
         }
         let group = ref.group.id

@@ -245,6 +245,22 @@ impl Hub {
         v
     }
 
+    /// This host's sessions whose agent runs (ready, running or waiting on a
+    /// permission); a peer's are not counted (`acpmux peer status`).
+    pub fn live_session_count(&self) -> usize {
+        self.sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|s| {
+                matches!(
+                    s.status(),
+                    SessionStatus::Ready | SessionStatus::Running | SessionStatus::Waiting
+                )
+            })
+            .count()
+    }
+
     /// Whether `generation` is the peer instance registered under `name`.
     /// Called with the rows lock held (lock order: `remote_sessions`, then
     /// `peers`).
@@ -502,7 +518,7 @@ impl Hub {
                     let ids: Vec<String> = self
                         .remote_sessions
                         .lock()
-                        .unwrap()
+                        .unwrap_or_else(|e| e.into_inner())
                         .values()
                         .filter(|r| r.peer == peer)
                         .map(|r| r.receipt.mux_session_id.clone())

@@ -10,6 +10,7 @@ import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
 import type { ChangeItem, IndexEntry, WhatsNewCategory } from "./types";
 import { cardVersion } from "./UpdateSurfaces";
+import { ChangePullRequest } from "./ChangePullRequest";
 
 export interface PartsContext {
   strings: Strings;
@@ -310,12 +311,7 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
     <ul>
       {changes.map((c, i) => (
         <li key={c.pr ?? `t${i}`}>
-          <span>{c.title}</span>
-          {c.pr !== undefined && (
-            <a className="cl-pr" href={`https://github.com/manaflow-ai/cmux/pull/${c.pr}`} rel="noreferrer">
-              #{c.pr}
-            </a>
-          )}
+          {c.pr === undefined ? <span>{c.title}</span> : <ChangePullRequest pr={c.pr} title={c.title} />}
         </li>
       ))}
     </ul>
