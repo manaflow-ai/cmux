@@ -24,7 +24,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// A send's wait for the end of the turn it steered into (`wait_end`); dropping it stops it.
-pub(crate) type EndWait = std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send>>;
+pub(crate) type EndWait =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Value>> + Send>>;
 
 /// What a waiting send heard of its steer.
 #[derive(Default)]
