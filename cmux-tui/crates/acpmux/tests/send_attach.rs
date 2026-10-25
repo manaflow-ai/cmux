@@ -1,8 +1,7 @@
 //! Files sent with a message between sessions (`acpmux send --attach FILE`, `src/attach.rs`;
 //! claude-sr2 scp'd Leo's screenshots to big-red one at a time on 2026-10-25). The receiving
 //! daemon saves each owner-only in the session's uploads, an image reaches the agent and the
-//! transcript as an image, a peer's session gets it over the link, and the caps, the names and a
-//! retried delivery are checked.
+//! transcript as an image, and the caps, the names, a retried delivery and a held one are checked.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -13,8 +12,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
-use acpmux::server::peer_auth::PeerAuth;
-use acpmux::server::{Origin, WsAuth, bind_ws, serve_connection_with, serve_ws_with};
+use acpmux::server::{Origin, serve_connection_with};
 use base64::Engine;
 use serde_json::{Value, json};
 use sha2::Digest;
@@ -301,101 +299,39 @@ async fn a_retried_delivery_stores_one_copy() {
     assert!(!home().join("attachments").join(sha(&png(300))).exists());
 }
 
-/// A session on another host gets the file over the peer link, no scp: saved owner-only on the
-/// host that runs it, an image for its agent, the sender's chip in its transcript, readable
-/// through the sender's daemon. Over the cap is refused before the link.
+/// A message an agent pair holds keeps its files for the release; the sender's resend of it is
+/// held again and keeps none (`hub/agent_pairs.rs`).
 #[tokio::test]
-async fn a_send_to_a_peers_session_lands_the_attachment_on_the_peer() {
-    // B (big-red) runs the lane; A, the sender's daemon, mirrors B as a peer.
-    let b = hub();
-    let dir = std::env::temp_dir().join(format!("send-attach-peer-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let auth = PeerAuth::create(&dir).unwrap();
-    let token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&dir)).unwrap();
-    let l = bind_ws("127.0.0.1:0").await.unwrap();
-    let port = l.local_addr().unwrap().port();
-    let ws_auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
-    tokio::spawn(serve_ws_with(b.clone(), l, "tok".into(), ws_auth));
-    let mut cb = client(&b, Origin::Local);
-    let remote = cb.new_session("attach-far").await;
-    let a = hub();
-    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(token), true)
-        .await
-        .unwrap();
-    let mut ca = client(&a, Origin::Local);
-    let (shot, id) = (png(64 << 10), v7());
-    let mut sent = json!({"sessionId": "b/attach-far", "prompt": [{"type": "text", "text": "see"},
-        image("leo.png", &shot)], "_meta": {"acpmux": {"promptId": id, "fromAgent": "claude-sr2"}}});
-    let (reply, echoed) = ca.call_text(method::SESSION_PROMPT, sent.take()).await;
-    assert!(reply.get("error").is_none(), "{reply}");
-    assert_eq!(reply["result"]["peer"], "b", "{reply}");
-    assert!(echoed.contains(&format!("image:{}", sha(&shot))), "{echoed}");
-    assert_saved(&remote, "leo.png", &shot);
-    let messages = cb.user_messages(&remote).await;
-    assert_eq!(messages.len(), 1, "{messages:?}");
-    assert_eq!(messages[0]["images"][0]["id"], sha(&shot), "{messages:?}");
-    assert_eq!(messages[0]["_meta"]["provenance"]["fromName"], "claude-sr2", "{messages:?}");
-    let read =
-        ca.call("_acpmux/attachment", json!({"sessionId": "b/attach-far", "id": sha(&shot)})).await;
-    assert_eq!(read["result"]["data"], b64(&shot), "{read}");
-
-    let big = vec![image("big.png", &png(MAX_FILE + 1))];
-    let (big, _) = ca.send("b/attach-far", &v7(), "big", big).await;
-    assert_eq!(big["error"]["data"]["reason"], "attach.tooLarge", "{big}");
-    assert_eq!(saved(&remote).len(), 1, "{:?}", saved(&remote));
-    assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
+async fn a_held_message_and_its_resend_keep_one_copy() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let (a, b) = (c.new_session("attach-pair-a").await, c.new_session("attach-pair-b").await);
+    let (shot, mut reply) = (png(128), Value::Null);
+    for (n, resend) in [(1, false), (2, false), (3, false), (3, true)] {
+        let provenance = json!({"kind": "agent_message", "from": format!("acp:{a}"),
+            "fromName": "agent", "to": format!("acp:{b}"), "msgId": format!("h{n}"),
+            "threadId": "t-1"});
+        let mux = json!({"promptId": format!("h{n}"), "provenance": provenance, "resend": resend});
+        let blocks = json!([{"type": "text", "text": "please check the build"},
+            image("shot.png", &shot)]);
+        let p = json!({"sessionId": b, "prompt": blocks, "_meta": {"acpmux": mux}});
+        reply = c.call(method::SESSION_PROMPT, p).await;
+    }
+    assert_eq!(reply["error"]["data"]["held"], true, "{reply}");
+    assert_eq!(reply["error"]["data"]["resent"], true, "{reply}");
+    let shots: Vec<_> = saved(&b).into_iter().filter(|p| p.ends_with("shot.png")).collect();
+    assert_eq!(shots.len(), 3, "h1, h2 and the held h3, not its resend: {shots:?}");
 }
 
-/// A peer on a build from before attachments would run the message without saving its files:
-/// refused before anything is sent, naming the update. A peer that lists one session, `old-1`,
-/// and no `sendAttach` feature, counting the prompts it gets.
+/// A message refused by a check after its files were read (here its `fromAgent`) keeps none.
 #[tokio::test]
-async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sent() {
-    use futures_util::{SinkExt, StreamExt};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use tokio_tungstenite::tungstenite::Message as Ws;
-    let prompts = Arc::new(AtomicUsize::new(0));
-    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = l.local_addr().unwrap().port();
-    let counted = prompts.clone();
-    tokio::spawn(async move {
-        while let Ok((tcp, _)) = l.accept().await {
-            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
-            let counted = counted.clone();
-            tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
-                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
-                        continue;
-                    };
-                    let result = match m.as_str() {
-                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
-                            "build": "older", "origin": "peer", "features": ["trustGate"]}}}),
-                        method::MUX_WATCH => json!({"sessions": [{"sessionId": "old-1"}]}),
-                        method::SESSION_PROMPT => {
-                            counted.fetch_add(1, Ordering::SeqCst);
-                            json!({"stopReason": "end_turn"})
-                        }
-                        _ => json!({}),
-                    };
-                    let reply = Message::ok(id, result).to_line();
-                    if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
-                        return;
-                    }
-                }
-            });
-        }
-    });
-    let a = hub();
-    a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
-        .await
-        .unwrap();
-    let mut ca = client(&a, Origin::Local);
-    let (reply, _) = ca.send("old-1", &v7(), "see", vec![image("a.png", &png(32))]).await;
-    assert_eq!(reply["error"]["data"]["reason"], "attach.unsupported", "{reply}");
-    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
-    assert_eq!(prompts.load(Ordering::SeqCst), 0);
-    // A message with no attachment still goes.
-    let (reply, _) = ca.send("old-1", &v7(), "plain", vec![]).await;
-    assert!(reply.get("error").is_none(), "{reply}");
-    assert_eq!(prompts.load(Ordering::SeqCst), 1);
+async fn a_message_refused_after_its_files_are_read_keeps_none() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("attach-refused").await;
+    let p = json!({"sessionId": session, "prompt": [{"type": "text", "text": "x"},
+        image("shot.png", &png(64))], "_meta": {"acpmux": {"promptId": v7(), "fromAgent": 7}}});
+    let reply = c.call(method::SESSION_PROMPT, p).await;
+    assert!(reply.get("error").is_some(), "{reply}");
+    assert!(saved(&session).is_empty(), "{:?}", saved(&session));
 }
