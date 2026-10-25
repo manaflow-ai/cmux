@@ -1883,3 +1883,13 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_p06_queue.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. p06_queue.py is a local planning tool for the p06 scheduler sweep, not a gate; run python3 tests/test_p06_queue.py yourself after changing it (about 10 s with the real-cut tests, git only, no build)."
+
+[[test]]
+path = "tests/test_ipc_census.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. ipc-census.py is the p05-ipc queue report, not a gate; run python3 -I tests/test_ipc_census.py yourself after changing ipc-census.py or plans/cmux-next/ipc-targets.json (about 10 s, git only, no build)."

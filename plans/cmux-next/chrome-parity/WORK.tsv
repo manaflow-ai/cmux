@@ -1918,8 +1918,8 @@ p15-oracle-119	p15-oracle	L	p15-oracle-002	One coordinated Linux move commit (ow
 p15-oracle-007	p15-oracle	M	p15-oracle-024	runnerd.py: one VM queue with quotas, request joining and target cache	scripts/cmux-next/oracle/runnerd.py;scripts/cmux-next/oracle/linux_run.sh
 p15-oracle-010	p15-oracle	M		oracle-DESIGN.md, OWNERS row, plan links	plans/cmux-next/oracle-DESIGN.md;plans/cmux-next/OWNERS.md;plans/cmux-next/ui-workflow-corpus.md;plans/cmux-next/input-spec.md
 p15-oracle-011	p15-oracle	M		Snapshot schema v1	schemas/oracle/snapshot-v1.schema.json;schemas/oracle/README.md;schemas/oracle/fixtures/snapshot-example.json
-p15-oracle-012	p15-oracle	M		Case schema v1 with requires, waitFor and allow_crashes	schemas/oracle/case-v1.schema.json;schemas/oracle/fixtures/case-example-daemon.json;schemas/oracle/fixtures/case-example-app.json
-p15-oracle-013	p15-oracle	L	p15-oracle-011	normalize.py canonicalizer and stdlib validator	scripts/cmux-next/oracle/normalize.py
+p15-oracle-012	p15-oracle	M		Case schema v1 with requires, waitFor and allow_crashes	schemas/oracle/case-v1.schema.json;schemas/oracle/fixtures/case-example-daemon.json;schemas/oracle/fixtures/case-example-app.json;schemas/oracle/fixtures/case-v1-mutations.json;scripts/cmux-next/oracle/case_checks.py
+p15-oracle-013	p15-oracle	L	p15-oracle-011;p15-oracle-012	normalize.py canonicalizer and stdlib validator (snapshot-v1, case-v1 with case_checks.py)	scripts/cmux-next/oracle/normalize.py
 p15-oracle-014	p15-oracle	M	p15-oracle-013	diff.py first divergence with host check	scripts/cmux-next/oracle/diff.py
 p15-oracle-015	p15-oracle	M		Expectations.d with Chrome keywords, modifiers, pointer scope and linter	scripts/cmux-next/oracle/expectations.py;tests/oracle/Expectations.d/;tests/oracle/NeverFix.d/;tests/oracle/README.md
 p15-oracle-016	p15-oracle	M	p15-oracle-013	Baseline store with Blink two-pass fallback and suite classes	scripts/cmux-next/oracle/baselines.py;tests/oracle/baselines/.gitkeep

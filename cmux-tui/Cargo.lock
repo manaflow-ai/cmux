@@ -1094,6 +1094,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-features"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
@@ -1554,6 +1558,13 @@ dependencies = [
 [[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-threads"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cmux-transport"
