@@ -44,11 +44,11 @@ type CompactBreakdownRow = { name: string; tokens: number; share: number; tone: 
 export function compactBreakdownRows(breakdown: Breakdown): CompactBreakdownRow[] {
   const used = breakdown.rows.filter((row) => row.kind === "used");
   const grouped: Array<{ name: string; rows: BreakdownRow[] }> = [
-    { name: "Messages", rows: used.filter((row) => /message/i.test(row.name)) },
+    { name: used.find((row) => /message/i.test(row.name))?.name ?? "Messages", rows: used.filter((row) => /message/i.test(row.name)) },
     { name: "Tools", rows: used.filter((row) => /tool/i.test(row.name)) },
     {
       name: "System",
-      rows: used.filter((row) => /system|prompt/i.test(row.name) && !/tool/i.test(row.name)),
+      rows: used.filter((row) => !/message|tool/i.test(row.name)),
     },
   ];
   const rows = grouped
@@ -97,16 +97,21 @@ export function ContextCardBody({
       <div className="acpmux-context-card-title">{t("context.title")}</div>
       <div className="acpmux-context-card-line">
         <span className="acpmux-context-card-compact-tokens">
-          {tokens.format(used)} / {tokens.format(size)}
+          {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
         </span>
-        <span aria-hidden="true"> · </span>
-        <span className="acpmux-context-card-compact-percent">{percent}%</span>
       </div>
-      <div className="acpmux-context-card-bar" aria-label={`${percent}% used`}>
+      <div
+        className="acpmux-context-card-bar"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
+      >
         <span style={{ width: `${percent}%` }} />
       </div>
       {compactRows.length > 0 && (
-        <ul className="acpmux-context-card-parts" aria-label="Context breakdown">
+        <ul className="acpmux-context-card-parts">
           {compactRows.map((row) => (
             <li className="acpmux-context-card-part" key={row.name}>
               <span
@@ -114,7 +119,13 @@ export function ContextCardBody({
                 data-tone={row.tone}
                 aria-hidden="true"
               />
-              <span>{row.name}</span>
+              <span>
+                {row.name === "Tools"
+                  ? t("chatInspector.context.mcpTools")
+                  : row.name === "System"
+                    ? t("chatInspector.context.memoryFiles")
+                    : row.name}
+              </span>
               <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>
             </li>
           ))}

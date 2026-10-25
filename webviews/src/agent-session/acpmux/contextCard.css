@@ -7,7 +7,7 @@
   width: 260px;
   max-width: min(260px, calc(100vw - 24px));
   box-sizing: border-box;
-  padding: 12px;
+  padding: var(--ui-popup-padding);
   border-radius: var(--ui-popup-radius, 10px);
   color: var(--agent-text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -21,21 +21,21 @@
 .acpmux-context-pop--compact.ui-card {
   width: 230px;
   max-width: min(230px, calc(100vw - 24px));
-  padding: 10px 12px 9px;
+  padding: var(--ui-popup-padding);
   text-align: left;
 }
 .acpmux-context-pop--compact .acpmux-context-card-title {
   color: var(--agent-text);
 }
 .acpmux-context-card-compact-percent {
-  margin-top: 2px;
+  margin-top: var(--ds-space-1);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
   font-variant-numeric: tabular-nums;
 }
 .acpmux-context-card-compact-tokens {
-  margin-top: 1px;
+  margin-top: var(--ds-space-1);
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -48,7 +48,7 @@
 }
 
 .acpmux-context-card-line {
-  margin-top: 2px;
+  margin-top: var(--ds-space-1);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: var(--weight-emphasis);
@@ -57,8 +57,8 @@
 
 .acpmux-context-card-bar {
   display: flex;
-  height: 3px;
-  margin-top: 8px;
+  height: var(--cmux-hairline);
+  margin-top: var(--ds-space-1);
   border-radius: 999px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   overflow: hidden;
@@ -88,8 +88,8 @@
 
 .acpmux-context-card-parts {
   display: grid;
-  gap: 3px;
-  margin: 9px 0 0;
+  gap: var(--ds-space-1);
+  margin: var(--ds-space-1) 0 0;
   padding: 0;
   font-size: var(--text-detail);
   list-style: none;
@@ -98,13 +98,13 @@
 .acpmux-context-card-part {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
-  column-gap: 8px;
+  column-gap: var(--ds-space-1);
   align-items: center;
 }
 
 .acpmux-context-card-swatch {
-  width: 8px;
-  height: 8px;
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
   border-radius: 2px;
 }
 
@@ -121,14 +121,14 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
-  margin-top: 9px;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
 }
 
 .acpmux-context-card-compact,
 .acpmux-context-card-details {
-  height: 22px;
-  padding: 0 6px;
+  height: var(--cmux-control-height);
+  padding: 0 var(--ds-space-1);
   border: 0;
   border-radius: 6px;
   background: none;
@@ -141,12 +141,12 @@
   display: flex;
   align-items: center;
   width: 100%;
-  margin: 2px 0 0;
+  margin: var(--ds-space-1) 0 0;
   padding-inline: 0;
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
   border-radius: 0;
   text-align: left;
-  padding-top: 7px;
+  padding-top: var(--ds-space-1);
 }
 
 .acpmux-context-card-details span { margin-inline-start: auto; }
