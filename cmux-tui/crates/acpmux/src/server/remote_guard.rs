@@ -123,7 +123,7 @@ pub(super) fn control_of(
 
 /// The paired machine whose Full-access setting covers this request
 /// (`crate::pairing` module docs), or None: the connection presented that
-/// machine's own `client` credential (`ConnAuth::Device`; never the shared
+/// machine's own `client` or `phone` credential (`ConnAuth::Device`; never the shared
 /// dashboard token, a peer token, LocalApp or a read-only machine), the
 /// request is held to the Web's rules (it forwards for that machine's Web
 /// client, `via: web`), and the setting is on now, read from the pairing
@@ -182,6 +182,19 @@ async fn check_inner(
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
+    }
+    // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
+    // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
+    // phone presented its own credential: it runs only when that phone's Full-access setting
+    // covers it (`device`, from `full_access_device`). The mark only narrows.
+    if params.pointer("/_meta/acpmux/requireFullAccess").and_then(Value::as_bool) == Some(true)
+        && device.is_none()
+    {
+        return Err(RpcError::new(
+            -32000,
+            "Full access is off for this device: turn it on for this device in Settings > Devices on the Mac",
+        )
+        .with_data(serde_json::json!({"reason": "remote.full_access_required"})));
     }
     let web = origin.web_class();
     // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):

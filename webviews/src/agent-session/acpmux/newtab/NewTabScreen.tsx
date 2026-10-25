@@ -1,3 +1,5 @@
+import { useWebSwapHold } from "../../../pages/shared/useWebSwapHold";
+import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { ConnectKind } from "../environments";
@@ -352,6 +354,11 @@ export function NewTabScreen(props: Props) {
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
   const holdForAttachments = useSendWhenAttached(reading.length);
+  // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
+  // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
+  );
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useLayoutEffect(() => {
@@ -381,6 +388,10 @@ export function NewTabScreen(props: Props) {
   // A saved environment the picker picked names where the chat starts (askInEnvironment).
   const saved = useSavedEnvironments(props.environments ? props.savedEnvironments : undefined);
   const environment = saved.picked;
+  // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
+  // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
+  const editingEnvironment = saved.on && saved.editing !== undefined;
+  useWebSwapHold(shell || picked || none || environment || editingEnvironment ? "newtab.choice" : null);
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = environment
     ? environment.kind === "local"
@@ -1193,6 +1204,7 @@ export function NewTabScreen(props: Props) {
             <textarea
               ref={field}
               className="nt-field"
+              {...{ [WEB_SWAP_KEPT_TEXT]: "" }}
               rows={1}
               data-focus-ring="none"
               aria-label={shell ? t("composer.shell") : placeholder}
