@@ -44,7 +44,7 @@ public final class RemoteMachinesSidebar {
         public var harness: String?
         public var activity: StatusIndicatorState
         /// When it last changed state (orders chats across machines).
-        public var since: Date = .distantPast
+        var since: Date = .distantPast
     }
 
     /// One machine's group.
