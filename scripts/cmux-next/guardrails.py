@@ -1708,7 +1708,9 @@ def in_task_body(version: Version, index: int) -> bool:
             return False  # main-blocking's
         if POOL_TASK_OPENER.search(opener.rstrip()) or POOL_TASK_OPENER.search(header.rstrip()):
             return True
-        if CONTROL_OPENER.search(header):
+        # The opener's own line first: block_header joins back past a `Task { [weak self] in` line (no statement
+        # end), so `if ready {` there would read as part of a closure header.
+        if CONTROL_OPENER.search(opener) or CONTROL_OPENER.search(header):
             continue
         return False  # a declaration, or another closure (a BackgroundWork lane body, a callback)
     return False
