@@ -9,7 +9,13 @@ import { isNameOnlyPath } from "./paths";
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
 export type SiteInfo = { icon?: string; title?: string };
-export type ReplyPolicy = { outsideRoots: "confirm" | "text" | "open"; remoteImages: "click" | "never" | "always" };
+export type ReplyPolicy = {
+  outsideRoots: "confirm" | "text" | "open";
+  remoteImages: "click" | "never" | "always";
+  /// Sites whose web images load without a click under `click` (the host's declared list,
+  /// `AgentPaneSafeFetch.clickFreeImageHosts`); an older host names none.
+  clickFreeImageHosts: readonly string[];
+};
 
 type Inspect = {
   paths?: Record<string, PathInfo>;
@@ -24,7 +30,7 @@ const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
 /// Paths sent to the host and not answered yet.
 const asking = new Set<string>();
-let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click" };
+let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click", clickFreeImageHosts: [] };
 let queuedPaths: string[] = [];
 let queuedUrls: string[] = [];
 /// Bare file names (`next-sync.py`): asked in their own batches, because the host may search the
@@ -180,7 +186,7 @@ export function resetLinkStore(): void {
   inFlight = false;
   namesInFlight = false;
   epoch += 1;
-  policy = { outsideRoots: "confirm", remoteImages: "click" };
+  policy = { outsideRoots: "confirm", remoteImages: "click", clickFreeImageHosts: [] };
   policyAsked = false;
   changed();
 }

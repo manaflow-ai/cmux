@@ -48,8 +48,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
     /// becomes the host's drag only then, so page script alone never starts one.
     public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
-    /// Starts the host's drag of a real file out of the pane (the view's dragging session); false
-    /// when there is no pane to drag from.
+    /// Starts the host's drag of a real file out of the pane (the view's dragging session) in this
+    /// turn, with no read; false when there is no pane to drag from.
     public var startDrag: @MainActor (URL) -> Bool = { _ in false }
     /// The Quick Look panel's source for ``quickLookFile``.
     private let quickLook = AgentPaneQuickLook()
@@ -68,6 +68,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     let choices = AgentPaneBrowserChoices()
     /// The home folder for `~/` and the deny list (tests replace it).
     var home = NSHomeDirectory()
+    /// The current remote chat's media reader, supplied by its ACP wire; nil for local chats.
+    var remoteImageLoader: (@Sendable (String) async throws -> Data)?
 
     public init() {}
 
@@ -80,13 +82,51 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
         if let fetchedAt = answer.fetchedAt { reply["fetchedAt"] = fetchedAt }
         return AgentPaneReply.success(reply)
     }
+
+    /// The link requests a page answers for its link hover card with no chat behind it: the agent
+    /// page, and the changelog page's PR chip (`cmux.changelog.<method>`).
+    public static let cardMethods: Set<String> = ["browser.list", "browser.openIn", "pr.inspect"]
+
+    /// The reply to one of ``cardMethods`` (any other request is `link.open_failed`), the same on
+    /// every page that shows the card. `consumeGesture` spends the person's gesture in that page;
+    /// `openInCmux` opens a URL in a cmux browser tab (`browserId` `cmux`), false when nothing opened.
+    public func respond(toCard request: AgentPaneReplyRequest, consumeGesture: @MainActor () -> Bool,
+                        openInCmux: (@MainActor (URL) -> Bool)?) -> [String: Any] {
+        switch request {
+        case .listBrowsers:
+            return AgentPaneReply.success(["browsers": choices.list(from: browsers)])
+        case .inspectPullRequest(let url):
+            return respondToPullRequest(url)
+        case .openIn(let url, let browserId):
+            if browserId == "cmux" {
+                guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+                guard let openInCmux, openInCmux(url) else { return AgentPaneModel.replyFailure(.openFailed) }
+                return AgentPaneReply.success()
+            }
+            guard let app = choices.app(browserId) else { return AgentPaneModel.replyFailure(.browserUnknown) }
+            guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
+            browsers.open(url, withApplicationAt: app)
+            return AgentPaneReply.success()
+        case .inspect, .openPath, .loadImage, .loadMedia, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage,
+             .dragImage, .dragFile:
+            return AgentPaneModel.replyFailure(.openFailed)
+        }
+    }
 }
 
 extension AgentPaneModel {
     /// The folders a reply's paths may name for an open: the pane's roots and the folders the
-    /// user added (the same as `file.open`).
+    /// user added (the same as `file.open`). Images also have a read-only scope on this Mac: the
+    /// chat's cwd, `/tmp` and home. Keeping it separate means a text path in those folders stays
+    /// behind the ordinary outside-root gate. A remote chat never reads this Mac's image roots;
+    /// its `image.load` request is handled by the remote wire.
     func replyPaths() -> AgentPaneReplyPaths {
-        AgentPaneReplyPaths(roots: fileOpenRoots(), home: replyLinks.home, base: sessionRoots().first ?? primaryRoot())
+        let base = sessionRoots().first ?? primaryRoot()
+        let local = !remoteChat
+        let imageRoots = local ? [base, "/tmp", replyLinks.home].compactMap { $0 } : []
+        // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
+        // roots as a fallback: a same-named local file must not be read or opened here.
+        return AgentPaneReplyPaths(roots: local ? fileOpenRoots() : [], imageRoots: imageRoots, home: replyLinks.home, base: local ? base : nil)
     }
 
     /// The reply for one reply link request.
@@ -95,7 +135,11 @@ extension AgentPaneModel {
         case .inspect(let paths, let urls):
             let resolver = replyPaths()
             var resolvedPaths: [String: AgentPaneReplyPaths.Resolved] = [:]
-            for path in paths { resolvedPaths[path] = resolver.resolve(path) }
+            for path in paths {
+                resolvedPaths[path] = remoteChat && AgentPaneReplyPaths.isImagePath(path)
+                    ? AgentPaneReplyPaths.Resolved(place: .root, path: path, isFolder: false)
+                    : (AgentPaneReplyPaths.isImagePath(path) ? resolver.resolveImage(path) : resolver.resolve(path))
+            }
             // A bare name that is not in the chat's folder may be in one of its subfolders.
             let missing = resolvedPaths.filter { $0.value.place == .missing }.map(\.key)
             for (name, found) in await resolveNames(missing, resolver: resolver) { resolvedPaths[name] = found }
@@ -119,7 +163,10 @@ extension AgentPaneModel {
             let setting = replyLinks.settings()
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
-                "policy": ["outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue],
+                "policy": [
+                    "outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue,
+                    "clickFreeImageHosts": AgentPaneSafeFetch.clickFreeImageHosts.sorted(),
+                ],
             ])
         case .openPath(let path, let line):
             let result = await openReplyPath(path, line: line)
@@ -127,24 +174,12 @@ extension AgentPaneModel {
                 replyLinks.notice(message)
             }
             return Self.replyResult(result)
-        case .loadImage(let src):
-            return await loadReplyImage(src)
+        case .loadImage(let src, let auto):
+            return await loadReplyImage(src, auto: auto)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
-        case .listBrowsers:
-            return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
-        case .inspectPullRequest(let url):
-            return replyLinks.respondToPullRequest(url)
-        case .openIn(let url, let browserId):
-            if browserId == "cmux" {
-                guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-                guard let onOpenPreview, onOpenPreview(url) else { return Self.replyFailure(.openFailed) }
-                return AgentPaneReply.success()
-            }
-            guard let app = replyLinks.choices.app(browserId) else { return Self.replyFailure(.browserUnknown) }
-            guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-            replyLinks.browsers.open(url, withApplicationAt: app)
-            return AgentPaneReply.success()
+        case .listBrowsers, .inspectPullRequest, .openIn:
+            return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
             return await AgentPaneImageCopies.respond(to: request, in: self)
         }
@@ -155,7 +190,8 @@ extension AgentPaneModel {
     func openReplyPath(_ text: String, line: FileLineLocation? = nil) async -> Result<Void, AgentPaneReplyError> {
         let resolver = replyPaths()
         // Only a person's click is told why a path did not open (the notice).
-        guard var resolved = resolver.resolve(text) else { return refusal(.pathInvalid) }
+        let first = AgentPaneReplyPaths.isImagePath(text) ? resolver.resolveImage(text) : resolver.resolve(text)
+        guard var resolved = first else { return refusal(.pathInvalid) }
         if resolved.place == .missing, let found = await resolveNames([text], resolver: resolver)[text] { resolved = found }
         switch resolved.place {
         case .denied: return refusal(.pathDenied)
@@ -203,21 +239,45 @@ extension AgentPaneModel {
     }
 
     /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched
-    /// under the network rules, after a click unless `agentPane.images.remote` is `always`.
-    func loadReplyImage(_ src: String) async -> [String: Any] {
+    /// under the network rules, after a click unless `agentPane.images.remote` is `always` or the
+    /// image is from a click-free site (``AgentPaneSafeFetch/isClickFree(_:)``), whose load spends
+    /// no gesture and is redirected only within ``AgentPaneSafeFetch/clickFreeImageHosts``. `auto`
+    /// is the page's load without a click: one this host does not judge click-free is refused
+    /// without spending a gesture the person made for something else.
+    func loadReplyImage(_ src: String, auto: Bool = false) async -> [String: Any] {
         if let url = URL(string: src), let scheme = url.scheme?.lowercased(), scheme != "file" {
             guard scheme == "https", AgentPaneSafeFetch.isFetchable(url) else { return Self.replyFailure(.imageRefused) }
+            var clickFree = false
             switch replyLinks.settings().remoteImages {
             case .never: return Self.replyFailure(.imageRefused)
             case .always: break
-            case .click: guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+            case .click:
+                clickFree = AgentPaneSafeFetch.isClickFree(src)
+                guard clickFree || (!auto && transport.gestures.consume()) else { return Self.replyFailure(.gestureRequired) }
             }
-            switch await replyLinks.fetcher.fetch(url) {
+            let fetched = clickFree
+                ? await replyLinks.fetcher.fetch(url, within: AgentPaneSafeFetch.clickFreeImageHosts)
+                : await replyLinks.fetcher.fetch(url)
+            switch fetched {
             case .success(let data): return Self.replyImage(await AgentPaneReplyImages.remote(data))
             case .failure(let error): return Self.replyFailure(error)
             }
         }
-        guard let resolved = replyPaths().resolve(src) else { return Self.replyFailure(.pathInvalid) }
+        if remoteChat {
+            guard let path = AgentPaneReplyPaths.imagePath(src), AgentPaneReplyPaths.isImagePath(src),
+                  let remoteImageLoader = replyLinks.remoteImageLoader else { return Self.replyFailure(.imageRefused) }
+            do {
+                return Self.replyImage(await AgentPaneReplyImages.remote(try await remoteImageLoader(path)))
+            } catch {
+                return Self.replyFailure(.imageFailed)
+            }
+        }
+        let paths = replyPaths()
+        // A raster image may also come from the extra image roots (read-only displays); any other file
+        // the loader draws (an SVG, rebuilt without script or links; a PDF's first page) only from the
+        // pane's own roots, as before #24619 narrowed this to raster types.
+        let resolved = AgentPaneReplyPaths.isImagePath(src) ? paths.resolveImage(src) : paths.resolve(src)
+        guard let resolved else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)

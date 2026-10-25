@@ -16,8 +16,10 @@ enum CloudHandlers {
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
+        CloudGitHubHandlers.bind(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
+        bindListActions(into: registry, context: context)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)

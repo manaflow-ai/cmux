@@ -1,6 +1,7 @@
 import CmuxNextActions
 import Foundation
 import Observation
+import CmuxNextFilesUI
 
 /// The right sidebar's Find section and the Find pane (classic's project-wide
 /// find): ripgrep over a folder (``RipgrepSearch``, the flags classic ran),
@@ -41,9 +42,9 @@ final class FindSectionModel {
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { pendingSearch?.cancel() }
+        pendingSearch?.cancel()
     }
 
     /// The search field's text changed: cancels the waiting or running search (ripgrep stops)

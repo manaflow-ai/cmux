@@ -232,6 +232,24 @@ class Wrapper(unittest.TestCase):
         self.assertEqual(done.returncode, 0, out)
         self.assertNotIn("on the base", out)
 
+    def test_a_pull_request_can_publish_head_results_without_replaying_the_base(self):
+        base, head = self.shard_1()
+        with tempfile.TemporaryDirectory() as results_dir:
+            result_path = Path(results_dir) / "head.json"
+            done, out = self.run_pr(
+                base,
+                head,
+                extra_env={
+                    "CMUX_WEB_TEST_SKIP_BASE": "1",
+                    "CMUX_WEB_TEST_RESULTS": str(result_path),
+                },
+            )
+            self.assertEqual(done.returncode, 1, out)
+            self.assertTrue(result_path.is_file())
+            self.assertIn("test/agent-pane-peer-chat.test.ts", result_path.read_text())
+            self.assertIn("base comparison runs in the separate react-apps base job", out)
+            self.assertNotIn("the red files again on the base", out)
+
 
 class Collect(unittest.TestCase):
     def test_a_summary_becomes_per_test_results(self):
@@ -267,6 +285,21 @@ class Workflow(unittest.TestCase):
         step = step[: step.index("\n      - name:", 10)]
         self.assertIn("BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}", step)
         self.assertIn('run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"', step)
+        self.assertIn("CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results.json", step)
+        self.assertIn("CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}", step)
+        self.assertIn("Upload head webview results", text)
+        self.assertIn("react-apps-head-results-shard${{ matrix.shard }}", text)
+        self.assertNotIn("react-apps-head-results-shard${{ matrix.shard }}-attempt", text)
+        self.assertIn("overwrite: true", text)
+        self.assertIn("react-apps-base-check:", text)
+        base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+        # The base builds with its own declared bun, before it installs anything.
+        self.assertLess(base.index("run: scripts/cmux-next/private-bun.sh"), base.index("bun install --frozen-lockfile"))
+        self.assertIn("actions/download-artifact@", text)
+        self.assertIn("guards_new_reds.py --label \"Webview test\"", text)
+        self.assertIn("printf '{}\\n' > \"$BASE_RESULTS\"", text)
+        self.assertNotIn('cp "$HEAD_RESULTS" "$BASE_RESULTS"', text)
+        self.assertIn('CMUX_WEB_TEST_FILES="$(cat "$files")"', text)
         shard = text[text.index("  react-apps-check-shard:"):text.index("  react-doctor:")]
         self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}", shard)
 

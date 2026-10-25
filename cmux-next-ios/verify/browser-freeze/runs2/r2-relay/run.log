@@ -1,0 +1,95 @@
+04:50:01 rig mini-cmux11s-mac-mini: device 20b6e48c-f0ba-4169-a60b-52b887731225, workspace brfz-term (12 workspaces: ['Home', 'brfz-term', 'New Workspace', 'brfz-term', 'brfz-A', 'brfz-term', 'lr-a', 'lr-a'])
+04:50:03 app launched, config relay, env ['CMUX_MOBILE_DEV_RELAY_ONLY', 'CMUX_MOBILE_LOG'], drop 0, bg 0
+04:50:06 phone tab s116 opens -
+04:50:08 host 04:50:05 link up session_id="980ba915-3084-44c8-964e-e4d7c282f2f8" kind=WireGuard path=Turn phone="07d3d268-ebfe-4601-af11-a32bd5d268cd" video=true timings=offer_received=0.0ms ice_servers_cached=0.0ms video_l
+04:50:08 host 04:50:05 link path changed session_id="980ba915-3084-44c8-964e-e4d7c282f2f8" path=Turn
+04:50:08 host 04:50:06 media session up session_id="1d97c14e-cccc-4804-8274-86e9f2f246c0" link_session="980ba915-3084-44c8-964e-e4d7c282f2f8" path=Turn timings=media_offer_received=0.0ms pc_created=0.2ms media_answer_sent=0
+04:50:20 step open_tab ('A', 'https://en.wikipedia.org/wiki/Cat') at +0.3 min
+04:50:29 phone tab new-c33ece33-t1 opens -
+04:50:34 host 04:50:30 browser: another tab took the media lane; video returns to the channel
+04:51:15 act {"t": 1792817475.46, "utc": "04:51:15", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Cat", "load_s": 47.6, "key": "new-c33ece33-t1", "mac_ws": "ws_97913519c1a374e278dc3cc65fc17405", "row": "workspace.row.fad1baa4-e59a-4310-82f1-9d799f779a68"}
+04:51:15 step interact (70,) at +1.2 min
+04:51:25 act {"t": 1792817485.13, "utc": "04:51:25", "tab": "A", "act": "scroll-down", "rtt": null}
+04:51:56 act {"t": 1792817516.31, "utc": "04:51:56", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz001", "type_s": 2.5}
+04:51:56 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: search on A)
+04:51:57 captured /Users/cmux/brfreeze/runs/r2-relay/freeze-01-phone-unresponsive-045156
+04:51:59 act {"t": 1792817519.11, "utc": "04:51:59", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:52:09 act {"t": 1792817529.32, "utc": "04:52:09", "tab": "A", "act": "scroll-down", "rtt": null}
+04:52:09 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: scroll-down on A)
+04:52:18 act {"t": 1792817538.76, "utc": "04:52:18", "tab": "A", "act": "scroll-up", "rtt": null}
+04:52:18 FREEZE phone-unresponsive: 4 inputs in a row with no screen change in 8 s (last: scroll-up on A)
+04:52:50 act {"t": 1792817570.86, "utc": "04:52:50", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz002", "type_s": 3.63}
+04:52:50 FREEZE phone-unresponsive: 5 inputs in a row with no screen change in 8 s (last: search on A)
+04:52:51 step long_scroll (12,) at +2.8 min
+04:53:08 act {"t": 1792817588.52, "utc": "04:53:08", "tab": "A", "act": "long-scroll", "rtt": null, "swipes": 7, "seconds": 16.7, "reconnecting": []}
+04:53:08 FREEZE phone-unresponsive: 6 inputs in a row with no screen change in 8 s (last: long-scroll on A)
+04:53:09 captured /Users/cmux/brfreeze/runs/r2-relay/freeze-05-phone-unresponsive-045308
+04:53:09 step interact (60,) at +3.1 min
+04:53:13 act {"t": 1792817593.78, "utc": "04:53:13", "tab": "A", "act": "scroll-down", "rtt": 3.59}
+04:53:15 act {"t": 1792817595.82, "utc": "04:53:15", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:53:20 act {"t": 1792817600.32, "utc": "04:53:20", "tab": "A", "act": "scroll-up", "rtt": 3.43}
+04:53:31 act {"t": 1792817611.54, "utc": "04:53:31", "tab": "A", "act": "tap", "rtt": null, "at": [217, 408]}
+04:53:34 act {"t": 1792817614.98, "utc": "04:53:34", "tab": "A", "act": "scroll-up", "rtt": 1.66}
+04:53:45 act {"t": 1792817625.26, "utc": "04:53:45", "tab": "A", "act": "scroll-up", "rtt": null}
+04:53:46 act {"t": 1792817626.25, "utc": "04:53:46", "tab": "A", "act": "back", "skipped": "no history from this run"}
+04:53:47 act {"t": 1792817627.58, "utc": "04:53:47", "tab": "A", "act": "forward", "skipped": "no history from this run"}
+04:53:52 act {"t": 1792817632.85, "utc": "04:53:52", "tab": "A", "act": "scroll-down", "rtt": 3.43}
+04:53:57 act {"t": 1792817637.47, "utc": "04:53:57", "tab": "A", "act": "scroll-down", "rtt": 2.44}
+04:54:02 act {"t": 1792817642.49, "utc": "04:54:02", "tab": "A", "act": "scroll-up", "rtt": 3.52}
+04:54:37 act {"t": 1792817677.3, "utc": "04:54:37", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz003", "type_s": 7.16}
+04:54:38 step open_tab ('B', 'https://news.ycombinator.com') at +4.6 min
+04:54:53 phone tab new-8d5e7da6-t1 opens -
+04:54:58 host 04:54:53 browser: another tab took the media lane; video returns to the channel
+04:55:12 act {"t": 1792817712.0, "utc": "04:55:12", "tab": "B", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "load_s": 26.4, "key": "new-8d5e7da6-t1", "mac_ws": "ws_8cc7756cd1476bec40b8b38aae1e91b4", "row": "workspace.row.da7c8dfa-d79c-4700-a320-090df9b6ecae"}
+04:55:12 step interact (60,) at +5.1 min
+04:55:21 act {"t": 1792817721.94, "utc": "04:55:21", "tab": "B", "act": "scroll-down", "rtt": null}
+04:55:21 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+04:55:23 captured /Users/cmux/brfreeze/runs/r2-relay/freeze-06-phone-unresponsive-045521
+04:55:34 act {"t": 1792817734.99, "utc": "04:55:34", "tab": "B", "act": "tap", "rtt": null, "at": [129, 354]}
+04:55:34 FREEZE phone-unresponsive: 3 inputs in a row with no screen change in 8 s (last: tap on B)
+04:55:45 act {"t": 1792817745.04, "utc": "04:55:45", "tab": "B", "act": "scroll-up", "rtt": null}
+04:55:45 FREEZE phone-unresponsive: 4 inputs in a row with no screen change in 8 s (last: scroll-up on B)
+04:55:56 act {"t": 1792817756.64, "utc": "04:55:56", "tab": "B", "act": "tap", "rtt": null, "at": [278, 300]}
+04:55:56 FREEZE phone-unresponsive: 5 inputs in a row with no screen change in 8 s (last: tap on B)
+04:56:06 act {"t": 1792817766.76, "utc": "04:56:06", "tab": "B", "act": "scroll-down", "rtt": null}
+04:56:06 FREEZE phone-unresponsive: 6 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+04:57:04 act {"t": 1792817824.26, "utc": "04:57:04", "tab": "B", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz004", "type_s": 2.56}
+04:57:04 FREEZE phone-unresponsive: 7 inputs in a row with no screen change in 8 s (last: search on B)
+04:57:05 captured /Users/cmux/brfreeze/runs/r2-relay/freeze-11-phone-unresponsive-045704
+04:57:06 step list_idle (45,) at +7.0 min
+04:57:09 act {"t": 1792817829.14, "utc": "04:57:09", "tab": null, "act": "list-idle", "seconds": 45, "left": "B"}
+04:57:54 step switch ('B',) at +7.8 min
+04:57:59 act {"t": 1792817879.75, "utc": "04:57:59", "tab": "B", "act": "switch", "name": "B", "s": 5.6, "page": true}
+04:57:59 step interact (80,) at +7.9 min
+04:58:08 act {"t": 1792817888.6, "utc": "04:58:08", "tab": "B", "act": "scroll-down", "rtt": null}
+04:58:08 FREEZE phone-unresponsive: 8 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+04:58:09 captured /Users/cmux/brfreeze/runs/r2-relay/freeze-12-phone-unresponsive-045808
+04:58:19 act {"t": 1792817899.65, "utc": "04:58:19", "tab": "B", "act": "scroll-down", "rtt": null}
+04:58:19 FREEZE phone-unresponsive: 9 inputs in a row with no screen change in 8 s (last: scroll-down on B)
+04:58:31 act {"t": 1792817911.1, "utc": "04:58:31", "tab": "B", "act": "tap", "rtt": null, "at": [145, 546]}
+04:58:31 FREEZE phone-unresponsive: 10 inputs in a row with no screen change in 8 s (last: tap on B)
+04:58:32 act {"t": 1792817912.97, "utc": "04:58:32", "tab": "B", "act": "back", "skipped": "no history from this run"}
+04:59:03 act {"t": 1792817943.63, "utc": "04:59:03", "tab": "B", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz005", "type_s": 2.69}
+04:59:03 FREEZE phone-unresponsive: 11 inputs in a row with no screen change in 8 s (last: search on B)
+04:59:15 act {"t": 1792817955.26, "utc": "04:59:15", "tab": "B", "act": "tap", "rtt": null, "at": [264, 386]}
+04:59:15 FREEZE phone-unresponsive: 12 inputs in a row with no screen change in 8 s (last: tap on B)
+04:59:16 captured /Users/cmux/brfreeze/runs/r2-relay/freeze-16-phone-unresponsive-045915
+04:59:28 act {"t": 1792817968.55, "utc": "04:59:28", "tab": "B", "act": "tap", "rtt": null, "at": [217, 361]}
+04:59:28 FREEZE phone-unresponsive: 13 inputs in a row with no screen change in 8 s (last: tap on B)
+04:59:29 step switch ('A',) at +9.4 min
+04:59:37 host 04:59:34 browser: the shown tab takes the media lane back
+04:59:37 host 04:59:34 browser: another tab took the media lane; video returns to the channel
+04:59:37 host 04:59:34 media route stalled (no feedback); video moves to the next route carrier="webrtc-track"
+04:59:37 host 04:59:35 media lane switched route at a keyframe from="webrtc-track" to="wireguard-udp"
+04:59:37 host 04:59:36 media lane switched route at a keyframe from="wireguard-udp" to="webrtc-track"
+04:59:37 act {"t": 1792817977.34, "utc": "04:59:37", "tab": "A", "act": "switch", "name": "A", "s": 7.6, "page": true}
+04:59:37 step interact (50,) at +9.6 min
+04:59:37 act {"t": 1792817977.6, "utc": "04:59:37", "tab": "A", "act": "back", "skipped": "no history from this run"}
+04:59:46 act {"t": 1792817986.19, "utc": "04:59:46", "tab": "A", "act": "tap", "rtt": 6.8, "at": [108, 494]}
+04:59:58 act {"t": 1792817998.44, "utc": "04:59:58", "tab": "A", "act": "tap", "rtt": null, "at": [311, 546]}
+05:00:32 act {"t": 1792818032.23, "utc": "05:00:32", "tab": "A", "act": "search", "rtt": null, "via": "address-bar", "marker": "brfz006", "type_s": 5.55}
+05:00:32 FREEZE phone-unresponsive: 2 inputs in a row with no screen change in 8 s (last: search on A)
+05:00:33 captured /Users/cmux/brfreeze/runs/r2-relay/freeze-18-phone-unresponsive-050032
+05:00:34 minutes reached; ending the plan
+05:00:41 per minute: [{"minute": 0, "decoded_frames": 90, "fps_max": 29, "carriers": ["track"], "kf_requests": 3, "inputs": 0, "no_response": 0, "rtt_median_s": null}, {"minute": 1, "decoded_frames": 30, "fps_max": 16, "carriers": ["track"], "kf_requests": 5, "inputs": 3, "no_response": 3, "rtt_median_s": null}, {"minute": 2, "decoded_frames": 270, "fps_max": 39, "carriers": ["track"], "kf_requests": 6, "inputs": 3, "no_response": 3, "rtt_median_s": null}, {"minute": 3, "decoded_frames": 480, "fps_max": 55, "carriers": ["track"], "kf_requests": 3, "inputs": 11, "no_response": 5, "rtt_median_s": 3.43}, {"minute": 4, "decoded_frames": 90, "fps_max": 23, "carriers": ["track"], "kf_requests": 3, "inputs": 1, "no_response": 1, "rtt_median_s": null}, {"minute": 5, "decoded_frames": 60, "fps_max": 11, "carriers": ["track"], "kf_requests": 4, "inputs": 4, "no_response": 4, "rtt_median_s": null}, {"minute": 6, "decoded_frames": 0, "fps_max": 0, "carriers": [], "kf_requests": 6, "inputs": 1, "no_response": 1, "rtt_median_s": null}, {"minute": 7, "decoded_frames": 30, "fps_max": 12, "carriers": ["track"], "kf_requests": 1, "inputs": 1, "no_response": 1, "rtt_median_s": null}, {"minute": 8, "decoded_frames": 30, "fps_max": 1, "carriers": ["track"], "kf_requests": 6, "inputs": 4, "no_response": 4, "rtt_median_s": null}, {"minute": 9, "decoded_frames": 60, "fps_max": 4, "carriers": ["track"], "kf_requests": 9, "inputs": 6, "no_response": 5, "rtt_median_s": 6.8}, {"minute": 10, "decoded_frames": 120, "fps_max": 4, "carriers": ["track"], "kf_requests": 4, "inputs": 1, "no_response": 1, "rtt_median_s": null}]
+05:00:41 done: freezes 18

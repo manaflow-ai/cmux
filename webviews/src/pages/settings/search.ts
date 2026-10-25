@@ -1,7 +1,7 @@
 // Search across every category by title, summary, help, keywords, key and current value, in the page's
 // language and in English. Every whitespace-separated term must match somewhere. "Show only
 // changed" (P4) uses the same listing: the rows whose value differs from the default.
-import { categories, type Category, type CategoryGroup } from "./categories";
+import { shownCategories, type Category, type CategoryGroup } from "./categories";
 import { valueText } from "./format";
 import type { SchemaRow } from "./schema";
 import { text } from "./strings";
@@ -37,6 +37,8 @@ export type ListFilter = {
   changedOnly?: boolean;
   valueOf(key: string): unknown;
   isChanged?(key: string): boolean;
+  /** The host is a DEV build: DEV-only categories are searched too. */
+  devBuild?: boolean;
 };
 
 /** Matching rows of every category, in navigation order; an empty query with changedOnly lists
@@ -44,13 +46,19 @@ export type ListFilter = {
 // Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes.
 const UNLISTED = new Set(["appearance.themeEdits"]);
 
-export function filterRows({ query, changedOnly = false, valueOf, isChanged }: ListFilter): SearchGroup[] {
+export function filterRows({
+  query,
+  changedOnly = false,
+  valueOf,
+  isChanged,
+  devBuild = false,
+}: ListFilter): SearchGroup[] {
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
     !UNLISTED.has(row.key) &&
     (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms)) &&
     (!changedOnly || (isChanged?.(row.key) ?? false));
-  return categories
+  return shownCategories(devBuild)
     .map((category) => {
       const groups = category.groups
         .map((group) => ({ ...group, rows: group.rows.filter(keep) }))
