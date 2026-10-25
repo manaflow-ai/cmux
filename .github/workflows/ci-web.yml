@@ -538,6 +538,12 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      # The base replays its reds with the bun its own webviews/package.json declares,
+      # so a PR that moves the pin (or a base whose bun check is exact) compares like
+      # with like; private-bun.sh is the base's copy and reads the base's devEngines.
+      - name: Use the base's bun
+        run: scripts/cmux-next/private-bun.sh
+
       - name: Cache Bun package cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
