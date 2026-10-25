@@ -61,6 +61,15 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       case "file.search":
         return answer(state.native?.[message.method] ?? []);
       default: {
+        // The gallery has no session storage to stage uploads in (cloudUploads.ts): unless a variant
+        // answers it, it refuses the staged upload as an older host does, so the pane falls back to
+        // `chat.upload`, which a variant answers in `native` (unanswered: nothing is saved, no note).
+        if (
+          message.method === "chat.upload.begin" &&
+          !Object.hasOwn(state.native ?? {}, message.method) &&
+          !Object.hasOwn(state.nativeDelayMs ?? {}, message.method)
+        )
+          return { ok: false, error: { code: "unsupported" } };
         const value = state.native?.[message.method ?? ""] ?? null;
         // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
         if (value && typeof value === "object" && "nativeError" in value)

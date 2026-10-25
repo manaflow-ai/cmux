@@ -162,6 +162,28 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
+// Chips a chat kept from a draft (`chat.draftAttachments.get`, keptAttachments.ts). A paste no longer
+// makes these (a PDF or an image the engine cannot draw goes to the session as its file path,
+// intakeFiles.ts), but a draft kept from before still brings them back.
+const TWO_PAGE_PDF = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
+const KEPT_PDF = {
+  id: "kept-pdf",
+  kind: "document",
+  name: "design-notes.pdf",
+  mimeType: "application/pdf",
+  size: TWO_PAGE_PDF.length,
+  data: btoa(TWO_PAGE_PDF),
+  pageCount: 2,
+};
+const KEPT_BROKEN_IMAGE = {
+  id: "kept-broken-image",
+  kind: "image",
+  name: "image.png",
+  mimeType: "image/png",
+  size: 8,
+  data: btoa(String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4)),
+};
+
 /// Pastes files into the prompt as the browser does: a paste event whose clipboardData is a real
 /// DataTransfer, so the prompt's paste handler can read it (getData) as it reads a person's paste.
 function pasteFiles(ctx: PlayContext, files: File[]): void {
@@ -680,18 +702,13 @@ export default agentPaneEntry({
       },
     },
     "image-failed": {
-      note: "A pasted image whose bytes cannot be drawn: its chip says Couldn't load image, and × still removes it.",
+      note: "A kept draft's image whose bytes cannot be drawn: its chip says Couldn't load image, and × still removes it.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
+      native: { "chat.draftAttachments.get": [KEPT_BROKEN_IMAGE] },
       play: async (ctx) => {
-        const view = ctx.document.defaultView!;
-        const file = new view.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], "image.png", {
-          type: "image/png",
-        });
-        pasteFiles(ctx, [file]);
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment:not([aria-busy])"));
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image-failed"));
       },
     },
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
@@ -739,13 +756,10 @@ export default agentPaneEntry({
       },
     },
     "pdf-attached": {
-      note: "A pasted PDF shows a preview card, its file name, and the detected page count before sending.",
+      note: "A kept draft's PDF shows a preview card, its file name, and its page count before sending.",
       snapshot: chat(finished),
+      native: { "chat.draftAttachments.get": [KEPT_PDF] },
       play: async (ctx) => {
-        const view = ctx.document.defaultView!;
-        const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
-        const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
-        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
@@ -757,16 +771,17 @@ export default agentPaneEntry({
       },
     },
     "file-saved-as-path": {
-      note: "Pasted files no content block takes (a zip, a video) are saved by the chat's host; each chip names the file and says it goes as a file path. A text file beside them is a plain file chip, sent in the prompt's text.",
+      note: "Pasted files (a text file, a zip, a video) are saved by the chat's host; each chip names the file and says it goes as a file path.",
       snapshot: chat(finished),
       native: {
         "chat.upload": {
           uploads: [
+            { name: "notes.md", path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/0/notes.md" },
             {
               name: "build-logs.zip",
-              path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/0/build-logs.zip",
+              path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/1/build-logs.zip",
             },
-            { name: "repro.mov", path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/1/repro.mov" },
+            { name: "repro.mov", path: "/Users/dev/Library/Application Support/cmux/Chat Uploads/1/2/repro.mov" },
           ],
         },
       },
@@ -783,7 +798,7 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-link[data-saved]").length === 3);
         if (ctx.find({ selector: ".acpmux-md" }).textContent?.includes("Chat Uploads"))
           throw new Error("a saved file's path must go as its chip's link, not as prompt text");
       },
