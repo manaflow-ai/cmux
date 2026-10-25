@@ -15,8 +15,30 @@ import { useSyncExternalStore } from "react";
 export type ChatFontPreset = "system" | "serif" | "mono";
 /// What the chat keys hold: `markdown` follows the Markdown viewer's font.
 export type ChatFontChoice = ChatFontPreset | "markdown";
-/// Where the started chat's machine · folder chip sits below the tab row.
+/// Where the started chat's machine · folder chip sits: Left gets a row below tabs, Right keeps the
+/// original header slot, and Off hides it.
 export type EnvironmentPlacement = "left" | "right" | "off";
+
+/// The header surface that owns the environment chip. Left gets a dedicated row below tabs;
+/// Right preserves the original header slot and compact tab-row lead; Off and covered views mount
+/// nothing. Keeping this decision pure lets the App and rendering tests share the same contract.
+export function environmentPlacementSurface({
+  placement,
+  inTabRow,
+  hasEnvironment,
+  hasStatus,
+  covered,
+}: {
+  placement: EnvironmentPlacement;
+  inTabRow: boolean;
+  hasEnvironment: boolean;
+  hasStatus: boolean;
+  covered: boolean;
+}): { header: boolean; row: boolean; compact: boolean } {
+  if (placement === "off" || !hasEnvironment || covered) return { header: false, row: false, compact: false };
+  if (placement === "right") return { header: true, row: false, compact: inTabRow };
+  return { header: false, row: !hasStatus, compact: false };
+}
 
 export interface ChatDisplay {
   /// The column's cap in px (the chat's text width); `fullWidth` fills the pane instead.

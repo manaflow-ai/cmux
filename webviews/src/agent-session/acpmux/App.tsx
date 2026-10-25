@@ -336,7 +336,7 @@ import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
-import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
+import { environmentPlacementSurface, registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
@@ -5682,6 +5682,10 @@ function AcpmuxPane() {
   // In a narrow pane the side panel covers the whole pane, the header with it (ArtifactPanel.tsx).
   const narrowPane = useArtifactCoversPane();
   const artifactCovers = narrowPane && artifact !== undefined;
+  // A diff in place, the event Inspector, and a narrow artifact cover the chat header. Keep the
+  // environment chip out of the covered surface entirely so it cannot remain in the tab order or
+  // flash through the overlay.
+  const environmentCovered = (diffView !== undefined && diffFiles !== undefined) || inspectorOpen || artifactCovers;
   const uncoverChat = useCallback(() => {
     closeDiff();
     closeInspector();
@@ -5721,7 +5725,7 @@ function AcpmuxPane() {
     // A turn's diff in place, the event Inspector and, in a narrow pane, the side panel take the pane
     // in the chat's place, its header and the toggle with it: the panel steps aside while they show,
     // and opening it closes them.
-    covered: (diffView !== undefined && diffFiles !== undefined) || inspectorOpen || artifactCovers,
+    covered: environmentCovered,
     onUncover: uncoverChat,
     beside: artifact?.opened,
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
@@ -7427,24 +7431,39 @@ function AcpmuxPane() {
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
   // The Environment line (header/EnvironmentLine.tsx): machine · folder · branch, opening the
-  // Inspector at Environment while the Inspector is on, else the chat folder's Files tree. It is
-  // kept below the tab row so the chat tools never move when the line is shown or hidden.
+  // Inspector at Environment while the Inspector is on, else the chat folder's Files tree. Left
+  // owns the dedicated row below tabs; Right preserves the original header slot/compact tab-row
+  // placement.
   // Called while the header draws, after `localCwd` and `runSplitAction` below are set.
-  const environmentLine = () => (
-    <EnvironmentLine
-      summary={snapshot.summary}
-      machineName={machineName}
-      peerKinds={snapshot.peerKinds}
-      onOpen={environmentOpener(
-        inspector.reveal,
-        localCwd ? () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle") : undefined,
-      )}
-    />
-  );
+  const environmentOpenRef = useRef<(() => void) | undefined>(undefined);
+  const stableEnvironmentOpen = useCallback(() => environmentOpenRef.current?.(), []);
+  const environmentLine = (compact = false) => {
+    const open = environmentOpener(
+      inspector.reveal,
+      localCwd ? () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle") : undefined,
+    );
+    environmentOpenRef.current = open;
+    return (
+      <EnvironmentLine
+        summary={snapshot.summary}
+        machineName={machineName}
+        peerKinds={snapshot.peerKinds}
+        compact={compact}
+        onOpen={open ? stableEnvironmentOpen : undefined}
+      />
+    );
+  };
   // Keep the row out of a new/loading chat until the daemon has reported a cwd or branch. The
   // render site calls `environmentLine()` only after the local folder and split handlers below
   // have been initialized, avoiding a transient render-time TDZ for a started chat.
   const hasEnvironment = Boolean(snapshot.summary?.cwd || snapshot.summary?.branch);
+  const environmentSurface = environmentPlacementSurface({
+    placement: environmentPlacement,
+    inTabRow,
+    hasEnvironment,
+    hasStatus: Boolean(header.status),
+    covered: environmentCovered,
+  });
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -9200,9 +9219,15 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
-                  <ChatHeaderStatus status={header.status} detail={header.detail} />
+                  <ChatHeaderStatus status={header.status} detail={header.detail}>
+                    {!inTabRow && environmentSurface.header && environmentLine(environmentSurface.compact)}
+                  </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
+                    {inTabRow && (
+                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
+                        {environmentSurface.header && environmentLine(environmentSurface.compact)}
+                      </ChatHeaderInlineStatus>
+                    )}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"
@@ -9288,12 +9313,8 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {!header.status && environmentPlacement !== "off" && hasEnvironment && (
-                  <div
-                    className="acpmux-environment-row"
-                    data-placement={environmentPlacement}
-                    data-tab-row={inTabRow ? "" : undefined}
-                  >
+                {environmentSurface.row && (
+                  <div className="acpmux-environment-row" data-placement="left">
                     {environmentLine()}
                   </div>
                 )}

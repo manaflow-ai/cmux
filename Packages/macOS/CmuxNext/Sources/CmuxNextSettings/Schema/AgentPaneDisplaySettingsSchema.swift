@@ -73,7 +73,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 .string("overlay"), ["session", "info", "inspector", "panel", "side", "right", "overlay", "push", "details"]),
             row(["environment", "placement"], SettingsText.keyed("settings.agentPane.display.environment", "Session Info Chip"),
                 help: SettingsText.keyed("settings.agentPane.display.environment.help",
-                                         "Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it."),
+                                         "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."),
                 .choice([
                     SettingChoice("left", SettingsText.keyed("settings.choice.left", "Left")),
                     SettingChoice("right", SettingsText.keyed("settings.choice.right", "Right")),
