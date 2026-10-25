@@ -40,6 +40,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Whether an unsigned development daemon needs its person key on an
     /// inherited descriptor. Signed builds enroll only after checking the peer.
     public var passesPersonKeyAtSpawn = true
+    /// The daemon is another app's, reached through `CMUX_NEXT_ACPMUX_ATTACH`
+    /// (AcpmuxEnvironment+Attach.swift): this app never starts, hands off or ends it.
+    public var isAttached = false
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
