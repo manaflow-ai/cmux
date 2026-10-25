@@ -104,7 +104,7 @@ export function agentRun(command: string): AgentRun | undefined {
 
 /// The agent a command given as its words (Codex's `["bash", "-lc", "…"]`) starts, or undefined.
 export function agentRunOf(argv: readonly string[]): AgentRun | undefined {
-  return unwrap([...argv], undefined, undefined, 0);
+  return unwrap(withoutAssignments(argv), undefined, undefined, 0, 0);
 }
 
 /// `stdin` is what the command string's own standard input reads (`reach H '…' < prompt.txt`):
@@ -118,7 +118,7 @@ function runIn(
   // A command string inside a command string inside …: deep enough for `reach H 'sh -c "…"'`.
   if (depth > 4) return undefined;
   for (const simple of simpleCommands(command)) {
-    const found = unwrap(simple.argv, simple.stdin ?? stdin, host, depth);
+    const found = unwrap(withoutAssignments(simple.argv), simple.stdin ?? stdin, host, depth, 0);
     if (found) return found;
   }
   return undefined;
@@ -127,28 +127,38 @@ function runIn(
 const base = (word: string) => word.slice(word.lastIndexOf("/") + 1);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-/// Looks through the wrappers before the command that runs, then reads that command.
+/// The words after a simple command's leading `NAME=value` assignments (`X=1 codex …`).
+function withoutAssignments(words: readonly string[]): string[] {
+  let at = 0;
+  while (at < words.length && ASSIGNMENT.test(words[at]!)) at += 1;
+  return words.slice(at);
+}
+
+/// Wrappers looked through in one command (`nohup timeout 60 env codex …`) at most.
+const MAX_WRAPPERS = 8;
+
+/// Looks through the wrappers before the command that runs, then reads that command. `hops`
+/// counts the wrappers looked through so far.
 function unwrap(
-  argv: string[],
+  words: string[],
   stdin: Stdin | undefined,
   host: string | undefined,
   depth: number,
+  hops: number,
 ): AgentRun | undefined {
-  // `X=1 codex …`, and env's own `env X=1 codex …`.
-  let at = 0;
-  while (at < argv.length && ASSIGNMENT.test(argv[at]!)) at += 1;
-  const words = argv.slice(at);
-  if (words.length === 0) return undefined;
+  if (words.length === 0 || hops > MAX_WRAPPERS) return undefined;
   const name = base(words[0]!);
   const rest = words.slice(1);
-  const again = (next: string[]) => unwrap(next, stdin, host, depth);
+  const again = (next: string[]) => unwrap(next, stdin, host, depth, hops + 1);
   switch (name) {
+    case "command": {
+      // `command -v codex` (or `-p -v`) only asks where it is.
+      const options = rest.slice(0, rest.length - skipFlags(rest, []).length);
+      if (options.some((word) => /^-[a-zA-Z]*[vV]/.test(word))) return undefined;
+      return again(skipFlags(rest, []));
+    }
     case "nohup":
     case "exec":
-    case "command":
-      // `command -v codex` only asks where it is.
-      if (/^-[a-zA-Z]*[vV]/.test(rest[0] ?? "")) return undefined;
-      return again(skipFlags(rest, []));
     case "time":
     case "sr":
       return again(skipFlags(rest, []));
@@ -156,12 +166,8 @@ function unwrap(
       return again(skipFlags(rest, ["-n"]));
     case "caffeinate":
       return again(skipFlags(rest, ["-t", "-w"]));
-    case "env": {
-      // `env -S 'codex exec …'` splits its string into the command's words.
-      const split = rest.findIndex((word) => word === "-S" || word === "--split-string");
-      if (split >= 0) return runIn(rest.slice(split + 1).join(" "), stdin, host, depth + 1);
-      return again(skipFlags(rest, ["-u", "-C"]));
-    }
+    case "env":
+      return env(rest, again);
     case "timeout":
     case "gtimeout": {
       // Its options, then its duration, then the command.
@@ -201,6 +207,30 @@ function unwrap(
 
 const PERL_TIMEOUT = /^\s*(?:alarm\s+\d+\s*;\s*)?exec\s*\(?\s*@ARGV\s*\)?\s*;?\s*$/;
 const SSH_VALUES = spaced("-i -p -o -l -F -J -L -R -D -W -b -c -E -m -O -S -w");
+
+/// `env [options] [NAME=value …] command …`: its options (`-u NAME`, `-C DIR`), and `-S STRING`
+/// (`--split-string=STRING`, `-SSTRING`), whose string it splits into words that go before the
+/// rest, then its assignments, then the command.
+function env(args: readonly string[], run: (words: string[]) => AgentRun | undefined): AgentRun | undefined {
+  let at = 0;
+  let split: string[] = [];
+  while (at < args.length && args[at]!.startsWith("-") && args[at] !== "-") {
+    const word = args[at]!;
+    at += 1;
+    if (word === "--") break;
+    if (word === "-u" || word === "-C" || word === "--unset" || word === "--chdir") at += 1;
+    else if (word === "-S" || word === "--split-string") split = splitWords(args[at++] ?? "");
+    else if (word.startsWith("--split-string=")) split = splitWords(word.slice("--split-string=".length));
+    else if (word.startsWith("-S")) split = splitWords(word.slice(2));
+  }
+  return run(withoutAssignments([...split, ...args.slice(at)]));
+}
+
+/// A string's words as a shell reads one simple command's; none when it holds more than one.
+function splitWords(text: string): string[] {
+  const commands = simpleCommands(text);
+  return commands.length === 1 ? commands[0]!.argv : [];
+}
 
 /// The words after the leading options; `values` are the options that take the next word.
 function skipFlags(words: readonly string[], values: readonly string[]): string[] {
@@ -287,7 +317,7 @@ function read(cli: Cli, args: readonly string[], stdin: Stdin | undefined, host:
   if (started === "new" && prompt === undefined && !file) return undefined;
   // `acpmux run --parent` (acpmux #25019) makes a real sub-session of the chat, with typed state
   // and result: the session list and its records draw it, not its command.
-  if (args.some((word) => word === "--parent" || word.startsWith("--parent="))) return undefined;
+  if (options.some((word) => word === "--parent" || word.startsWith("--parent="))) return undefined;
   return run;
 }
 

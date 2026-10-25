@@ -68,6 +68,8 @@ describe("agentRun", () => {
       prompt: "Look",
     });
     expect(agentRun(`codex exec -- --help`)?.prompt).toBe("--help");
+    expect(agentRun(`env --split-string='codex exec "Look"'`)?.prompt).toBe("Look");
+    expect(agentRun(`acpmux run -m codex -- --parent`)?.prompt).toBe("--parent");
     expect(agentRun(`claude -p --model opus "Summarize the log"`)).toEqual({
       harness: "claude",
       model: "opus",
@@ -87,6 +89,12 @@ describe("agentRun", () => {
       `acpmux session stop review; which codex; codex --version`,
       `claude mcp list`,
       `command -v codex exec`,
+      `command -p -v codex exec`,
+      `env -- -S codex exec`,
+      `env echo -S codex exec`,
+      `env -S 'echo ok; codex exec'`,
+      `nohup A=1 codex exec`,
+      `${"exec ".repeat(40)}codex exec "deep"`,
       `perl -e 'print "exec @ARGV"' codex exec "text"`,
     ])
       expect(agentRun(command)).toBeUndefined();
