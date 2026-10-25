@@ -23,7 +23,8 @@ const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef012345
 /// Two harnesses of two families: the parent's `lead` (it has a full-access mode) and the
 /// child's `coder` (OpenCode's modes).
 fn hub() -> Arc<Hub> {
-    let fake = |family: &str, env: Value| json!({"argv": ["python3", FAKE], "family": family, "env": env});
+    let fake =
+        |family: &str, env: Value| json!({"argv": ["python3", FAKE], "family": family, "env": env});
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "lead": fake("fake", json!({"FAKE_FULL_ACCESS": "1"})),

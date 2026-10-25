@@ -294,6 +294,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
+        Command::New(args) if args.parent.is_some() => super::parent::run(args, json_out).await,
         Command::New(args) => {
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;

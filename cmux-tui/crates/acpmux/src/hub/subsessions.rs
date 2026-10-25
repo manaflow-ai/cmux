@@ -329,6 +329,8 @@ pub struct StartRequest {
     pub name: Option<String>,
     pub harness: Option<String>,
     pub model: Option<String>,
+    /// Thinking effort (`acpmux new --parent -e`); None is the harness's default.
+    pub effort: Option<String>,
     pub cwd: Option<PathBuf>,
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
@@ -620,13 +622,6 @@ impl Hub {
             }
             kept.keep();
         }
-        let link = child.meta().subsession.clone();
-        self.append(
-            parent,
-            "mux",
-            RECORD_KIND,
-            json!({"event": "started", "childSessionId": child.id, "shortName": link.as_ref().map(|l| &l.short_name)}),
-        );
         Ok(reply)
     }
 
@@ -675,6 +670,7 @@ impl Hub {
             cwd: Some(cwd.clone()),
             policy,
             model: req.model.clone(),
+            effort: req.effort.clone(),
             remote: pm.remote_origin,
             workspace_id: pm.workspace_id.clone(),
             // Same family: the parent's mode, set below. Another family: the
@@ -695,6 +691,9 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         let cm = probe.meta();
+        // Before its prompt goes: the parent's log has `started` before the turn's end.
+        let asked = (req.model.as_deref(), req.effort.as_deref());
+        self.subsession_started(parent, &probe, &req.prompt, asked);
         let accepted =
             self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
         let accepted = match accepted {
