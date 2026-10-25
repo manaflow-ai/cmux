@@ -166,6 +166,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "spoof/child",
         "linked-target/lanes",
         "skips/lanes",
+        "roundtrip/lanes",
         "elsewhere/lanes",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -245,6 +246,21 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     assert!(
         start_waits_on_a_card(&hub, &mut app, &skips, &root.join("skips/lanes")).await,
         "a launch command lent its folder's trust"
+    );
+
+    // A chat cmux set to full access whose harness then leaves the mode and comes back to it by
+    // itself: the return is the harness's, not cmux's, so it lends nothing.
+    decide("roundtrip", "trusted");
+    let roundtrip = app.new_session(&root.join("roundtrip"), "fake-full").await;
+    for text in ["set-mode: normal", "set-mode: full-access"] {
+        let turn = json!({"sessionId": roundtrip, "prompt": [{"type": "text", "text": text}]});
+        app.ok("session/prompt", turn).await;
+    }
+    let info = app.ok("_acpmux/info", json!({"sessionId": roundtrip})).await;
+    assert_eq!(info["modes"]["currentModeId"], "full-access", "{info}");
+    assert!(
+        start_waits_on_a_card(&hub, &mut app, &roundtrip, &root.join("roundtrip/lanes")).await,
+        "a mode the harness came back to by itself lent its folder's trust"
     );
 
     // Outside its folder it still asks.
