@@ -240,7 +240,9 @@ export class SubagentFold {
     // A call whose command has not come yet may still be one.
     if (typeof command !== "string" && !Array.isArray(command)) return false;
     const run = typeof command === "string" ? agentRun(command) : agentRunOf(command.map(String));
-    if (!run || (run.harness && this.harness && harnessFamily(run.harness) === harnessFamily(this.harness))) {
+    // Only another family's: both harnesses known and different (a chat whose harness is not known
+    // yet keeps its calls).
+    if (!run?.harness || !this.harness || harnessFamily(run.harness) === harnessFamily(this.harness)) {
       this.notRuns.add(call);
       return false;
     }
@@ -301,7 +303,13 @@ export class SubagentFold {
     agent.state = state;
     agent.endedAt = at;
     this.ended.add(agent.id);
+    // Its file was read while it ran: a read after its end says what that one said, and is drawn.
+    if (agent.result) this.forgetOutput(agent.id);
     this.touch(agent);
+  }
+
+  private forgetOutput(id: string): void {
+    for (const [file, owner] of this.runOutputs) if (owner === id) this.runOutputs.delete(file);
   }
 
   /// A call that reads a background run's output file (a Read of it, a `cat` or a `tail`): once it
@@ -327,8 +335,7 @@ export class SubagentFold {
       this.touch(agent);
     }
     // Read once the run ended, its file says nothing more.
-    if (agent.state === "running") return;
-    for (const [file, owner] of this.runOutputs) if (owner === agent.id) this.runOutputs.delete(file);
+    if (agent.state !== "running") this.forgetOutput(agent.id);
   }
 
   /// A turn starts: its stop ends the subagents spawned from here on.

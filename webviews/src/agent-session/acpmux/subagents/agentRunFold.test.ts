@@ -96,6 +96,44 @@ test("a background run ends with its task, and a read of its output file is its 
   expect(fold.all()[0]!.result).toBe("VERDICT: FIX\n- one finding");
 });
 
+test("a run's output read while it runs is its reply, and its end forgets the file", () => {
+  const { fold, send } = folder();
+  send(call("c1", REVIEW, { run_in_background: true }));
+  send({
+    sessionUpdate: "tool_call_update",
+    toolCallId: "c1",
+    status: "completed",
+    content: text("Command running in background with ID: b1. Output is being written to: /tmp/tasks/b1.output."),
+  });
+  send({
+    sessionUpdate: "tool_call",
+    toolCallId: "r1",
+    kind: "execute",
+    status: "completed",
+    rawInput: { command: "tail -5 /tmp/tasks/b1.output" },
+    content: text("halfway"),
+  });
+  expect(fold.all()[0]).toMatchObject({ state: "running", result: "halfway" });
+  send({ sessionUpdate: "background_task_update", toolCallId: "c1", state: "failed" });
+  expect(fold.all()[0]!.state).toBe("failed");
+  // The file is forgotten: a later read of it is only a read.
+  send({
+    sessionUpdate: "tool_call",
+    toolCallId: "r2",
+    kind: "read",
+    status: "completed",
+    rawInput: { file_path: "/tmp/tasks/b1.output" },
+    content: text("later"),
+  });
+  expect(fold.all()[0]!.result).toBe("halfway");
+});
+
+test("a chat whose harness is not known yet keeps its calls", () => {
+  const fold = new SubagentFold();
+  const update = call("c1", REVIEW);
+  expect(fold.reduce({ seq: 1, at: 1000, msg: { params: { update } } }, update)).toBe(false);
+});
+
 test("a call that is no other family's agent stays a command", () => {
   const { fold, send } = folder("codex");
   expect(send(call("c1", REVIEW))).toBe(false);
