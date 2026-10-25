@@ -194,6 +194,8 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("acpmux send --timeout=abc lane hi")).toBeUndefined();
     expect(acpmuxSend("acpmux send --stall soon lane hi")).toBeUndefined();
     expect(acpmuxSend("acpmux send --on-permission maybe lane hi")).toBeUndefined();
+    expect(acpmuxSend("acpmux send --prompt-id --no-wait lane hi")).toBeUndefined();
+    expect(acpmuxSend("timeout --signal --foreground 10 acpmux send lane hi")).toBeUndefined();
     expect(acpmuxSend("acpmux send a b | grep foo 5")).toBeUndefined();
     expect(acpmuxSend("acpmux send a b | grep -m 1 foo")?.text).toBe("b");
     expect(acpmuxSend("acpmux send x y | tail -1 < /tmp/log")).toBeUndefined();

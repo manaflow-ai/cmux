@@ -408,7 +408,11 @@ function afterOptions(words: ShellWord[], runner: Runner, assignments = false): 
     if (text === "--") return words.slice(index + 1);
     const name = text.split("=", 1)[0]!;
     if (assignments && ASSIGNMENT.test(text)) index += 1;
-    else if (runner.values.has(name)) index += text.includes("=") ? 1 : 2;
+    else if (runner.values.has(name)) {
+      // A value that looks like an option is a missing value: the runner refuses the line.
+      if (!text.includes("=") && (words[index + 1]?.text ?? "-").startsWith("-")) return undefined;
+      index += text.includes("=") ? 1 : 2;
+    }
     else if (text.startsWith("-") && (text.length > 1 || assignments)) {
       if (!runner.flags.test(text)) return undefined;
       index += 1;
@@ -555,7 +559,9 @@ function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefi
       if (SEND_VALUES.has(name)) {
         const value = text.includes("=") ? text.slice(name.length + 1) : args[++index]?.text;
         // clap parses these: a value it rejects fails the call.
-        if (value === undefined || !(SEND_VALUE_FORMS[name]?.test(value) ?? true)) return undefined;
+        // A missing value, or one clap would read as an option, fails the call too.
+        if (value === undefined || (!text.includes("=") && value.startsWith("-"))) return undefined;
+        if (!(SEND_VALUE_FORMS[name]?.test(value) ?? true)) return undefined;
       }
     } else positional.push(word);
   }
