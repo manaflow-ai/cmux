@@ -51,7 +51,9 @@ struct CloudDeviceIDTests {
 
         let ids = try await withThrowingTaskGroup(of: String.self) { group in
             for _ in 0..<8 { group.addTask { try paths.loadOrCreateDeviceID() } }
-            return try await group.reduce(into: Set<String>()) { $0.insert($1) }
+            var ids = Set<String>()
+            for try await id in group { ids.insert(id) }
+            return ids
         }
 
         #expect(ids.count == 1)
