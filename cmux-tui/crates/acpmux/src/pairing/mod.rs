@@ -24,10 +24,11 @@
 //!
 //! Full access, per machine, off by default (Leo: "#2 seems
 //! reasonable i think... it's a gate that you can enable for your phone,
-//! which is an attack vector you opt in to"). A request held to the Web's
-//! rules (`server/remote_guard.rs`) never moves a chat whose own policy
-//! asks into a mode that does not (`hub/policy_mode.rs`). The person may
-//! let one `client` machine do that: `_acpmux/pair_set {id, fullAccess}`,
+//! which is an attack vector you opt in to"). A chat a remote connection
+//! starts has the policy `ask` (`server/remote_guard.rs`), which holds it in
+//! a mode that asks (`hub/policy_mode.rs`). The person may let one `client`
+//! machine move such a chat out of it (not one held by deny-all, and not a
+//! chat started on this machine): `_acpmux/pair_set {id, fullAccess}`,
 //! on the unix socket only, and turning it on needs the person
 //! (`hub/person.rs`), so an agent on this machine cannot grant it to a
 //! machine it paired itself. The setting is on the device's record, so

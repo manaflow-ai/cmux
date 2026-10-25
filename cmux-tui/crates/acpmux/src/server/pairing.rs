@@ -247,7 +247,7 @@ async fn set(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcEr
         return Err(crate::hub::person::person_required("letting a machine run chats in Full access"));
     }
     let device = hub.pairing.set_full_access(key, on)?;
-    let held_again = 0;
+    let held_again = if on { 0 } else { hub.hold_policies_again().await };
     tracing::info!(device = %device.id, name = %device.name, on, "a machine's Full-access setting changed");
     Ok(json!({
         "device": device.to_value(),
@@ -319,6 +319,10 @@ async fn revoke(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("id is required"))?;
     let reply = hub.pairing.revoke(key)?;
+    // Its Full-access setting ends with it: no chat stays out of its policy's mode.
+    if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device") {
+        hub.hold_policies_again().await;
+    }
     // A machine this daemon drove (role daemon) is also no longer its peer.
     if reply.pointer("/revoked/kind").and_then(Value::as_str) == Some("device")
         && reply.pointer("/revoked/role").and_then(Value::as_str) == Some("daemon")

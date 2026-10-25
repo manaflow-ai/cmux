@@ -337,6 +337,27 @@ async fn a_paired_device_without_the_setting_stays_refused_while_one_with_it_is_
     assert!(r.get("error").is_none(), "with: {r}");
     let r = with.call("session/set_mode", full_access(&mine)).await;
     assert!(r.get("error").is_none(), "with, the other machine's chat: {r}");
+    // Nothing else: deny-all still holds a chat, and a chat started on this
+    // machine keeps the mode its own policy holds.
+    let locked = with
+        .call(
+            "session/new",
+            json!({"cwd": d.join("work"), "mcpServers": [], "policy": "deny-all", "_meta": {"acpmux": {"harness": "bridge"}}}),
+        )
+        .await;
+    let locked = locked["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{locked}"));
+    let r = with.call("session/set_mode", full_access(locked)).await;
+    assert!(held(&r), "deny-all: {r}");
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let own = local
+        .call(
+            "session/new",
+            json!({"cwd": d.join("work"), "mcpServers": [], "policy": "ask", "_meta": {"acpmux": {"harness": "bridge"}}}),
+        )
+        .await;
+    let own = own["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{own}"));
+    let r = with.call("session/set_mode", full_access(own)).await;
+    assert!(held(&r), "a chat started on this machine: {r}");
     let _ = std::fs::remove_dir_all(&d);
 }
 
