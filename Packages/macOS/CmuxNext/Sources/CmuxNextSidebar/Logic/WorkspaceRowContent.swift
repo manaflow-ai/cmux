@@ -96,7 +96,15 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// leads the second line whatever the preferences show, followed by the
     /// workspace's folder on that computer and a starting Cloud machine's
     /// stage (`SidebarWorkspace.stage`).
+    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache) {
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages)
+    }
+
     public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil) {
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache())
+    }
+
+    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
         let set = preferences.resolved(for: ws.rowKind)
         // Another computer's workspace names its folder after the computer, so the row says
         // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
@@ -129,7 +137,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now) }
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -141,6 +149,12 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// time reads in days; a change today shows its time.
     public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true,
                 showsPullRequest: Bool = true) {
+        self.init(expanded: ws, now: now, machine: machine, showsNotification: showsNotification,
+                  showsPullRequest: showsPullRequest, ages: AgeTextCache())
+    }
+
+    init(expanded ws: SidebarWorkspace, now: Date, machine: String?, showsNotification: Bool, showsPullRequest: Bool,
+         ages: AgeTextCache) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
@@ -153,19 +167,16 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             showsWorking: ws.agentWorking
         )
         expanded = true
-        time = ws.lastActivity.map { Self.ageText($0, now: now) }
+        time = ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
-    /// Age labels, made once per distinct day count or minute (see ``AgeTextCache``); a memo of a pure function, not state.
-    private static let ageLabels = AgeTextCache()
-
     /// The age of a change, short: a time today, else days (`3d`), weeks
     /// (`3w`) or months (`5mo`), as T3 Code and Codex label chats.
-    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current, ages: AgeTextCache = AgeTextCache()) -> String {
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
         let minute = Int(date.timeIntervalSince1970 / 60)
-        return ageLabels.label(days: days <= 0 ? nil : days, minute: minute, locale: .current, timeZone: calendar.timeZone) {
+        return ages.label(days: days <= 0 ? nil : days, minute: minute, locale: .current, timeZone: calendar.timeZone) {
             if days <= 0 { return date.formatted(date: .omitted, time: .shortened) }
             // One unit, from whole days, like All chats' ages (`SidebarChatsDesign.age`): no timer.
             let formatter = DateComponentsFormatter()
