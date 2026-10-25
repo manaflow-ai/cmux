@@ -56,7 +56,7 @@ final class HostPressureService {
     /// The generation the monitor should run for, read by the monitor actor itself right before it
     /// builds its timer, so a stop issued while a start hop is in flight wins.
     @ObservationIgnored private let wanted = OSAllocatedUnfairLock(initialState: 0)
-    private static let log = Logger(subsystem: "com.cmuxterm.next", category: "host-pressure")
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "host-pressure")
 
     /// `acpmux`: the daemon whose verdict counts, nil without one (showcase, mock agent host).
     init(acpmux: AcpmuxEnvironment?, store: TunableStore = .shared) {
