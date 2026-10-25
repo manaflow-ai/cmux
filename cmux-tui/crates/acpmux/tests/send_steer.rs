@@ -186,8 +186,9 @@ async fn an_agents_waiting_send_steers_and_answers_with_the_turns_final_reply() 
     assert_eq!(resent["reply"], reply["reply"], "{resent}");
 }
 
-/// The streaming send (no `--json`, no `--quiet`) waits for the turn's end the same way, and an
-/// agent running in an acpmux session (its caller token) needs no `--from`.
+/// The streaming send (no `--json`, no `--quiet`) waits for the turn's end the same way and
+/// prints its reply, and an agent running in an acpmux session (its caller token) needs no
+/// `--from`.
 #[tokio::test]
 async fn an_agent_in_a_session_steers_and_its_stream_waits_for_the_turns_end() {
     let b = busy(true).await;
@@ -212,6 +213,18 @@ async fn an_agent_in_a_session_steers_and_its_stream_waits_for_the_turns_end() {
     b.open_gate();
     let (_, out) = done(send).await;
     assert!(String::from_utf8_lossy(&out.stdout).contains("steer: rebase first"));
+    // A resend after the turn ended streams nothing of it: the reply comes from the log.
+    let mut again = daemon_env::tokio_command(&b.scratch, daemon_env::Agents::Deny);
+    again
+        .args(["send", "--prompt-id", &pid, &b.id, "rebase first"])
+        .env("ACPMUX_SOCKET", &b.socket)
+        .env("ACPMUX_SESSION_ID", &lane)
+        .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(&lane))
+        .env("ACPMUX_SESSION_TOKEN_SOCKET", &b.socket)
+        .kill_on_drop(true);
+    let (_, out) = done(tokio::spawn(async move { again.output().await })).await;
+    let printed = String::from_utf8_lossy(&out.stdout);
+    assert!(printed.contains("after-gate"), "the turn's reply, got {printed}");
 }
 
 /// An agent that does not steer gets it after the turn, as before. Its `queued` record, the
