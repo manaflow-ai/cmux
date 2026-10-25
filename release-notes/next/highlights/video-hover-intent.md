@@ -1,4 +1,4 @@
-title: Video previews wait for a deliberate hover
+title: Video previews stop when the page moves away
 category: fixed
 
-Videos in agent replies preview after the shared hover-intent dwell and respect Reduce Motion and disabled animations. Click Play to watch with sound and controls.
+Videos in agent replies stop muted hover previews when you scroll or leave the page, and previews stop on unmount. Click Play to watch with sound and controls.

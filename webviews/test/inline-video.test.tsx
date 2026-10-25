@@ -293,10 +293,27 @@ describe("the inline player", () => {
     expect(video.dataset.played).toBe("muted");
     delete video.dataset.paused;
     await act(async () => {
-      document.documentElement.dataset.cmuxMotion = "off";
+      document.dispatchEvent(new dom!.window.Event("scroll"));
     });
-    await act(async () => await Promise.resolve());
     expect(video.getAttribute("data-paused")).toBe("yes");
+    delete video.dataset.paused;
+    await act(async () => hover(container, false));
+  });
+
+  test("page interruptions do not pause explicit playback after it is muted", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    await act(async () => hover(container));
+    await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__poster")!.click());
+    video.muted = true;
+    await act(async () => {
+      document.dispatchEvent(new dom!.window.Event("scroll"));
+      document.dispatchEvent(new dom!.window.Event("visibilitychange"));
+      dom!.window.dispatchEvent(new dom!.window.Event("pagehide"));
+    });
+    expect(video.dataset.paused).toBeUndefined();
   });
 
   test("unmount cancels a pending preview and pauses an active one", async () => {
@@ -311,6 +328,19 @@ describe("the inline player", () => {
     await act(async () => root!.unmount());
     root = undefined;
     expect(video.getAttribute("data-paused")).toBe("yes");
+  });
+
+  test("unmount cancels a pending preview", async () => {
+    const { container, video } = await mount();
+    video.pause = () => {
+      video.dataset.paused = "yes";
+    };
+    jest.useFakeTimers();
+    await act(async () => hover(container));
+    await act(async () => root!.unmount());
+    root = undefined;
+    expect(video.dataset.played).toBeUndefined();
+    expect(video.dataset.paused).toBe("yes");
   });
 
   test("Open in tab asks the host to open the file, never the granted URL", async () => {
