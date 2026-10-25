@@ -325,38 +325,43 @@ each region's offset, so a decoder never computes one.
 | 20 | 2 | `role` u16 | 1 app, 2 daemon, 3 holder, 4 terminal host, 5 acpmux, 6 Chromium host, 7 CLI |
 | 22 | 1 | `ring_kind` u8 | 1 black box, 2 recording |
 | 23 | 1 | `clock_domain` u8 | 1 `CLOCK_UPTIME_RAW`, 2 Linux `CLOCK_MONOTONIC`, 3 Windows QPC nanoseconds |
-| 24 | 8 | `start_uptime_ns` u64 | the trace clock when the ring started |
+| 24 | 8 | `start_uptime_ns` u64 | the trace clock when the ring started (a recording ring: when this recording started) |
 | 32 | 8 | `start_unix_ns` u64 | the wall clock at the same moment: display and the 3-day cleanup only |
 | 40 | 8 | `process_start_unix_us` u64 | the kernel's start time of `pid`: with `kill(pid, 0)`, cleanup tells a reused pid |
 | 48 | 16 | `boot_session_uuid` | `kern.bootsessionuuid` as 16 bytes (Linux `boot_id`, Windows zero): uptime is valid within one boot only |
 | 64 | 16 | `build_uuid` | `LC_UUID` of the main image (Linux: the first 16 bytes of the GNU build id; zero when none) |
 | 80 | 32 | `build_version` | ASCII, NUL padded: version, build number and short commit |
 | 112 | 4 | `chunk_bytes` u32 | 1024 |
-| 116 | 4 | `chunk_count` u32 | a power of two |
+| 116 | 4 | `chunk_count` u32 | a power of two (the sizes table below) |
 | 120 | 8 | `chunks_offset` u64 | offset of chunk 0, a multiple of 16384 |
-| 128 | 8 | `chunk_cursor` u64 | atomic: chunks claimed so far (the claim's `fetch_add`) |
+| 128 | 8 | `chunk_cursor` u64 | atomic: claim tries so far (the claim's `fetch_add`); it never goes back |
 | 136 | 8 | `name_table_offset` u64 | offset of name entry 0 |
-| 144 | 4 | `name_capacity` u32 | name entries in the table |
-| 148 | 4 | `name_cursor` u32 | atomic: name entries claimed |
+| 144 | 4 | `name_capacity` u32 | name entries in the table, at most 65536 (a name id is a u16) |
+| 148 | 4 | `name_cursor` u32 | atomic: the next name id to claim; at least 1 (id 0 means no name) |
 | 152 | 8 | `thread_table_offset` u64 | offset of thread entry 0 |
-| 160 | 4 | `thread_capacity` u32 | thread entries, a multiple of 256 |
-| 164 | 4 | `thread_cursor` u32 | atomic: thread entries claimed |
+| 160 | 4 | `thread_capacity` u32 | thread entries, a multiple of 256 (whole 16 KiB pages) |
+| 164 | 4 | `thread_cursor` u32 | atomic: fresh thread entries claimed; it can pass `thread_capacity` |
 | 168 | 8 | `categories` u64 | atomic: the process's category bitset, mirrored on each change |
-| 176 | 8 | `chunks_skipped` u64 | atomic: claims that found their chunk still owned and took the next |
-| 184 | 8 | `records_dropped` u64 | atomic: records not written because every chunk was owned |
+| 176 | 8 | `chunks_skipped` u64 | atomic: claim tries that found their chunk owned or claimed by a newer lap |
+| 184 | 8 | `records_dropped` u64 | atomic: records not written because 4 claim tries failed |
 | 192 | 4 | `name_overflow` u32 | atomic: names that found the table full (written as name 0) |
 | 196 | 4 | `thread_overflow` u32 | atomic: threads that found the table full (their chunks name thread `0xFFFFFFFF`) |
-| 200 | 8 | `heap_cursor` u64 | `chunk_cursor` when the heap ring was copied into this file; 0 if the ring started here |
+| 200 | 8 | `heap_cursor` u64 | the heap ring's `chunk_cursor` when its chunks were copied into this file; 0 if the ring started here |
 | 208 | 8 | `start_continuous_ns` u64 | `mach_continuous_time` nanoseconds read with `start_uptime_ns` (Linux `CLOCK_BOOTTIME`): places `log` signposts until the first sleep |
-| 216 | 40 | reserved | zero |
+| 216 | 8 | `chunks_overwritten` u64 | atomic: claims that took over a chunk that held records of this ring's current recording (step 3 of the claim) |
+| 224 | 8 | `recording_start_cursor` u64 | the first `chunk_cursor` value of this recording; 0 for a black box. `start_lap = recording_start_cursor / chunk_count` |
+| 232 | 4 | `heap_chunks_lost` u32 | chunks the heap ring claimed after its copy and before the swap to this file |
+| 236 | 20 | reserved | zero |
 
-The ring's overwrites are `max(0, chunk_cursor - chunk_count)`, so no counter is kept.
+`chunk_cursor` also moves on every failed claim try, at the heap copy and at each `trace.start`, so it is not a
+count of overwrites: `chunks_overwritten` is.
 
 #### Name table (64-byte entries)
 
-The header holds the **full** table: the fixed catalog names (`SignpostName` ids, append-only, from 1), the
-names interned at run time after them, and the categories. A decoder reads the names from the ring alone, so
-a newer build decodes an older ring. Name id = entry index; id 0 means no name.
+Each ring holds the **full** table for its own records: the fixed catalog names (`SignpostName` ids,
+append-only, from 1), the names interned at run time after them, and the categories. A decoder reads the names
+from the ring alone, so a newer build decodes an older ring. Name id = entry index; id 0 means no name, and
+entry 0 stays zero.
 
 | Offset | Size | Field | Meaning |
 |---|---|---|---|
@@ -367,25 +372,55 @@ a newer build decodes an older ring. Name id = entry index; id 0 means no name.
 | 8 | 1 | `name_len` u8 | at most 55 |
 | 9 | 55 | `name` | UTF-8, NUL padded, for example `key.frame` |
 
-A writer claims an entry with `fetch_add` on `name_cursor`, fills it and publishes `state = 2`. The fixed
-names are written when the ring is created, off the hot path; a trace point keeps its id after its first use.
+The ring's creator writes the catalog and category entries and stores `name_cursor` = the last of their ids + 1
+while the ring is still private (before it becomes active), so a catalog id is the same in every ring and needs
+no lookup.
 
-#### Thread table (64-byte entries, 256 per chunk)
+An interned name has one id **per ring**. A process has at most three rings (the heap ring, the black-box file
+and the recording ring, slots 0, 1 and 2), and a trace point keeps its three ids in one atomic u64 (bits
+16*slot, 0 = not interned in that ring yet). At its first record into a ring it claims an entry with
+`fetch_add(name_cursor, 1, relaxed)`, fills it, stores `state = 2` (release), then sets its id in its slot
+with a compare-exchange loop that writes those 16 bits only while they are 0. When two threads intern the same trace point at once, both entries are
+published with the same text and the record uses the id that won. An id at or past `name_capacity` is not used:
+the record names id 0, and `name_overflow` counts it. The ids never cross rings, so a ring's records name only
+that ring's entries. Perfetto keeps interned data per sequence for the same reason and writes it again into
+each new buffer (`include/perfetto/tracing/track_event_interned_data_index.h`).
 
-Thread index = entry index. Chunks of 256 entries (16 KiB) are claimed in order from the thread region, so a
-process with few threads touches one page. A thread's entry is written at its first record only.
+#### Thread table (64-byte entries)
+
+Thread index = entry index, per ring. A thread registers in a ring at its first record there and keeps that
+ring's index in TLS (one per ring slot). Fresh entries are taken in index order, so a process with few threads
+touches one 16 KiB page.
 
 | Offset | Size | Field | Meaning |
 |---|---|---|---|
 | 0 | 4 | `state` u32 | atomic: 0 free, 1 being written, 2 live, 3 exited (the TLS destructor) |
-| 4 | 4 | `generation` u32 | incremented each time the entry is reused after an exit |
+| 4 | 4 | `generation` u32 | 0 for a fresh entry, + 1 each time the entry is taken again after an exit |
 | 8 | 8 | `tid` u64 | `pthread_threadid_np` (Linux `gettid`, Windows `GetCurrentThreadId`) |
 | 16 | 1 | `qos` u8 | `qos_class_t` at registration (`pthread_get_qos_class_np`; 0 elsewhere) |
 | 17 | 1 | `name_len` u8 | at most 46 |
 | 18 | 46 | `name` | `pthread_getname_np`, UTF-8, NUL padded, truncated |
 
-A chunk whose `thread_generation` differs from its entry's `generation` was written by an earlier occupant of
-the entry: the decoder names its thread `thread <index> (generation <g>)`.
+**Register** a thread in a ring (once per thread and ring, off the record path that follows):
+
+1. If `load(thread_cursor, relaxed) < thread_capacity`, `j = fetch_add(thread_cursor, 1, relaxed)`. If
+   `j < thread_capacity`, entry `j` is fresh: store `state = 1` and `generation = 0`, and go to step 4.
+   Otherwise go on to step 2.
+2. Scan entries 0 to `thread_capacity - 1` for `state == 3` and take the first that
+   `compare_exchange(state, 3, 1, acquire)` changes. Store `generation` = its generation + 1, and go to step 4.
+3. No entry was taken: add 1 to `thread_overflow` and stop. The thread's chunks in this ring name thread
+   `0xFFFFFFFF`.
+4. Store `tid`, `qos` and `name` (relaxed), then `state = 2` (release).
+
+After step 1 or 2 only the entry's thread writes it. The thread reads its tid, QoS and name once, at its first
+registration, and keeps them in TLS, so registering in a later ring is stores only. At exit the TLS destructor
+completes the thread's chunk and stores `state = 3` (release) in each of its entries. Only an exited entry is
+taken again, so a live thread's index never changes.
+
+A decoder reads entries 0 to `min(thread_cursor, thread_capacity) - 1`: `state` and `generation` (acquire), the
+fields, then both again, and keeps an entry whose two reads agree. A chunk whose `thread_generation` differs
+from its entry's `generation` was written by an earlier occupant of the entry: the decoder names its thread
+`thread <index> (generation <g>)`.
 
 #### Chunk (1024 bytes: a 32-byte header in slot 0, records in slots 1-31)
 
@@ -393,7 +428,7 @@ The thread lives in the chunk header, so a record stays 32 bytes.
 
 | Offset | Size | Field | Meaning |
 |---|---|---|---|
-| 0 | 4 | `thread_index` u32 | the owner's thread entry, or `0xFFFFFFFF` |
+| 0 | 4 | `thread_index` u32 | the owner's thread entry in this ring, or `0xFFFFFFFF` |
 | 4 | 4 | `thread_generation` u32 | the entry's generation when the owner claimed the chunk |
 | 8 | 8 | `lap_seq` u64 | atomic: 0 never claimed, `2*lap+1` owned and filling, `2*lap+2` complete |
 | 16 | 4 | `published` u32 | atomic: records published in this lap, 0-31 (a hint: each slot is still checked) |
@@ -435,17 +470,25 @@ estimate (for example `frame.present_estimate`). Bits 2-7 are zero, and a decode
 
 ### Writing
 
-**Claim a chunk** when a thread has none, its chunk is full, or the active ring changed:
+**Claim a chunk** when a thread has none, its chunk is full, or the active ring changed. A claim makes at most
+4 tries:
 
 1. `c = fetch_add(chunk_cursor, 1, relaxed)`, `i = c & (chunk_count - 1)`, `lap = c / chunk_count`.
 2. `h = load(chunk[i].lap_seq, relaxed)`. If `h` is odd (another thread still owns the chunk) or
-   `h >= 2*lap+2` (a newer claim got there first), add 1 to `chunks_skipped` and go to step 1.
-3. `compare_exchange(chunk[i].lap_seq, h, 2*lap+1, acq_rel)`; on failure go to step 1. Then a release fence.
+   `h >= 2*lap+2` (a newer claim got there first), add 1 to `chunks_skipped`: the try failed.
+3. `compare_exchange(chunk[i].lap_seq, h, 2*lap+1, acq_rel)`; on failure the try failed. Then a release fence.
+   If `h >= 2*start_lap+2`, the chunk held records of this recording: add 1 to `chunks_overwritten`.
 4. Store `thread_index`, `thread_generation` and `published = 0` (relaxed).
 
-After `chunk_count` failed tries, add 1 to `records_dropped` and drop the record: a writer never waits. Each
-writing thread holds one chunk, so a ring needs more chunks than writing threads; `chunks_skipped` shows when
-it has too few.
+After 4 failed tries, add 1 to `records_dropped` and drop the record; the thread's next record tries again. A
+writer never waits, and a record costs at most 4 tries. Perfetto's producers also drop rather than wait when no
+chunk is free (`BufferExhaustedPolicy::kDrop`, `include/perfetto/tracing/buffer_exhausted_policy.h`).
+
+**Pinned chunks.** A thread keeps its chunk until slot 31, its exit or a change of the active ring, also while it
+idles. So when `T` live threads hold a chunk in a ring, the ring keeps at least `(chunk_count - T) * 31` earlier
+records, not `chunk_count * 31`, and a claim fails more often as `T` grows. The sizes below give every role at
+least 4 times as many chunks as the threads that usually write; `chunks_skipped` and `records_dropped` show a
+ring with too few.
 
 **Publish a record** in slot `k` (1-31) of the owned chunk:
 
@@ -454,22 +497,26 @@ it has too few.
 3. Store `seq = 2*lap+2` (release), then `published = k` (release).
 
 **Complete the chunk** after slot 31, at the thread's exit and when the active ring changes: store
-`lap_seq = 2*lap+2` (release).
+`lap_seq = 2*lap+2` (release). Only the owner stores to an odd `lap_seq`, so this store never overwrites
+another owner's claim.
 
-A record costs one relaxed load (the category bits and the active ring epoch), the clock read and the
-record's stores, two of them release stores. No lock, allocation or system call; the only read-modify-write
-is the chunk claim, once per 31 records.
+A record costs one relaxed load (the category bits and the active ring epoch), one more for an interned trace
+point's ids, the clock read and the record's stores, two of them release stores. No lock, allocation or system
+call; the read-modify-writes are the chunk claim's, once per 31 records.
 
-**Overwrite.** The cursor wraps: a claim of lap `L` takes over a chunk that lap `L-1` completed. The new
-owner does not clear it. The old records' `seq` (`2*(L-1)+2`) no longer matches the header, so a decoder
-drops them. Two writers never share a chunk (step 2 skips an owned one), so a record can tear only while its
-own writer is inside it, and then its `seq` is odd.
+**Overwrite.** The cursor wraps: a claim of lap `L` takes over a chunk that an earlier lap completed, and
+counts it in `chunks_overwritten`. The new owner does not clear it. The old records' `seq` no longer matches the
+chunk's lap, so a decoder drops them. Two writers never share a chunk (step 2 skips an owned one, and no
+`lap_seq` is ever reset), so a record can tear only while its own writer is inside it, and then its `seq` is
+odd.
 
 **Decode** a chunk:
 
-1. `h1 = load(lap_seq, acquire)`. If it is 0, skip the chunk. Else `lap = (h1 - 1) / 2`, rounded down.
+1. `h1 = load(lap_seq, acquire)`. If it is 0, skip the chunk. Else `lap = (h1 - 1) / 2`, rounded down. If
+   `lap < start_lap`, skip the chunk: it is from an earlier recording.
 2. For each slot: `s1 = load(seq, acquire)`; skip the slot unless `s1 == 2*lap+2` (low 32 bits); copy the
-   payload; an acquire fence; `s2 = load(seq, relaxed)`; keep the record only if `s2 == s1`.
+   payload; an acquire fence; `s2 = load(seq, relaxed)`; keep the record only if `s2 == s1` and
+   `t_ns >= start_uptime_ns`.
 3. An acquire fence; read `thread_index` and `thread_generation`; `h2 = load(lap_seq, relaxed)`. If the lap
    of `h2` is not `lap`, drop the chunk: it was taken over while it was read.
 
@@ -478,33 +525,71 @@ process decodes the same way: the chunk a thread was filling is odd, and its pub
 
 ### One write path
 
-Every trace point writes one record, into the process's **active** ring, never two. The active ring is the
-black box until `trace.start`, then the recording ring until `trace.stop`. A writer compares its chunk's ring
-epoch with the active epoch on each write (the same relaxed load as the category bits). On a change it
-completes its chunk and claims from the active ring. So a recording's records are in the recording ring
-only, and the black-box tail is the last N records of whichever ring is active.
+Every trace point writes one record, into the process's **active** ring, never two. A process has at most three
+rings: the heap ring, the black-box file and the recording ring. The active ring is the black box (the heap
+ring until the file is adopted) until `trace.start`, then the recording ring until `trace.stop`. One atomic
+word holds the active ring and an epoch that grows at every change. A writer compares its chunk's epoch with it
+on each write (the same relaxed load as the category bits). On a change it completes its chunk, registers its
+thread in the active ring if its TLS has no index there, and claims from the active ring. So a recording's
+records are in the recording ring only, and the black box holds the records written while it was active.
 
-The ring starts as a heap buffer with this layout at the process's first instruction. A one-shot job off the
-main thread (Swift: BackgroundWork `.files`; Rust: a thread at start) renames a spare file or creates the
-ring file, maps it `MAP_SHARED`, swaps the active ring (epoch + 1), copies the heap image into the file and
-stores `heap_cursor`. The file has the heap's `chunk_count`, so the copied chunks keep their places and laps.
-A record that was mid-write on the heap during the copy has an odd `seq` and is dropped. The heap buffer is
-never freed, and a recording mapping is never unmapped while the process lives, so a late writer cannot
-fault; the next `trace.start` resets the mapping. Nothing on the main thread opens, truncates or maps a file
-before the first frame.
+**Heap, then file.** The ring starts as a heap buffer with this layout at the process's first instruction. A
+one-shot job off the main thread (Swift: BackgroundWork `.files`; Rust: a thread at start) adopts the file. It
+copies first and swaps last, so no writer ever claims a chunk in the file before the copy is done:
 
-Ring sizes by role (records; a chunk holds 31):
+1. Rename a spare file or create the ring file with the heap's `chunk_count` and capacities, and map it
+   `MAP_SHARED`. No writer can see it yet.
+2. Write the header's fields from the heap's (the start times too), then copy the heap's chunks with the
+   decode protocol below: a slot whose two `seq` reads differ is stored with `seq` 0, and a chunk taken over
+   while it was copied is stored with `lap_seq` 0. A copied odd `lap_seq` is stored as `lap_seq + 1`
+   (complete): the copy has no owner, and its published slots are whole.
+3. Load the heap's `name_cursor`, `thread_cursor` and `chunk_cursor` (acquire), copy every published name and
+   thread entry below the first two, and store those two cursors in the file. Store `heap_cursor` = the heap's
+   `chunk_cursor` and the file's `chunk_cursor` = `heap_cursor + chunk_count`, so every new claim is a lap past
+   every copied one.
+4. Swap the active word to the file (release). Then store `heap_chunks_lost` = the heap's `chunk_cursor` now
+   minus `heap_cursor`.
 
-| Role | Black box | Recording |
-|---|---|---|
-| App, daemon | 4096 | 1M |
-| Holder, acpmux, Chromium host | 4096 | 256K |
-| Terminal host | 512 | 16K |
+Records written to the heap between its copy and the swap are lost. `heap_chunks_lost` counts the chunks the
+heap claimed in that window; records added in that window to a chunk claimed before the copy are lost too and
+are not counted. A copied chunk names only entries below the cursors of step 3, because a thread or a name is
+registered before its first record. An entry still being written during step 3 is not copied, and its records
+decode as `thread <index>` or `name <id>`. After the swap, threads and trace points register in the file as in
+any new ring (their heap indexes do not carry over; a few entries repeat the heap's). The heap buffer is never
+freed, so a late writer cannot fault.
 
-`chunk_count` is the role's record count divided by 31, rounded up to a power of two.
-`trace.start` caps the total bytes and reports them in `trace.status`. Cleanup deletes a ring whose pid is
-dead (`kill(pid, 0)` plus `process_start_unix_us`) and that is older than 3 days, and caps the directory at
-16 MiB.
+**Recording ring.** The first `trace.start` creates the recording ring off the main thread the same way: map
+it, write the header, the catalog and the categories, then swap. The mapping is never unmapped while the
+process lives, and it is never cleared: every later `trace.start` reuses it. While the black box is active,
+`trace.start`:
+
+1. Stores 0 to the counters, then the new `start_uptime_ns`, `start_unix_ns` and `start_continuous_ns`.
+2. `c = fetch_add(chunk_cursor, chunk_count, relaxed)`; stores `recording_start_cursor = c + chunk_count`
+   (release). Every later claim is a lap past every claim of an earlier recording.
+3. Swaps the active word to the recording ring (release).
+
+A late writer of an earlier recording (it loaded the old epoch and was preempted) still owns its chunk, whose
+`lap_seq` is odd, so new claims skip it and two writers never share a chunk. Its records have a lap below
+`start_lap` or a `t_ns` before `start_uptime_ns`, and the decoder drops them. The tables carry over: thread and
+name indexes stay valid from one recording to the next. A late writer's increment can land in the new
+recording's counters.
+
+**Sizes by role.** The tables and the chunk counts are fixed per role; the black box and the recording ring of
+one process have the same capacities.
+
+| Role | `name_capacity` | `thread_capacity` | Black box `chunk_count` | Recording `chunk_count` |
+|---|---|---|---|---|
+| App, daemon | 4096 | 2048 | 512 (512 KiB: at least 4096 records while up to 379 threads hold a chunk) | 32768 (32 MiB: about 1M records) |
+| Chromium host | 4096 | 2048 | 512 (512 KiB) | 8192 (8 MiB: about 254K records) |
+| Holder, acpmux | 2048 | 512 | 256 (256 KiB: at least 4096 records while up to 123 threads hold a chunk) | 8192 (8 MiB: about 254K records) |
+| Terminal host | 1024 | 256 | 64 (64 KiB: at least 512 records while up to 47 threads hold a chunk) | 512 (512 KiB: about 16K records) |
+
+A file adds its header page and tables to the chunks: 64 bytes per name and per thread entry (App: 256 KiB of
+names and 128 KiB of threads), mostly untouched pages. `trace.start` caps the total bytes of the recording rings
+it would map and reports them in `trace.status`. Cleanup covers black-box files only: it deletes one whose pid is
+dead (`kill(pid, 0)` plus `process_start_unix_us`) and that is older than 3 days, then the oldest dead ones
+until the dead processes' black boxes take at most 16 MiB. It never deletes a live process's ring. Recording
+files are under the `trace.start` cap, not the cleanup cap.
 
 ### Versions
 

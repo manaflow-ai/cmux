@@ -43,18 +43,22 @@ struct TraceClockTests {
         #expect(tightest < Self.microsecond)
     }
 
-    /// The live `ContinuousClock` converts to the uptime reads around it when no sleep falls in between.
+    /// The live `ContinuousClock` converts to the uptime reads around it when no sleep falls in between. Each
+    /// try takes a fresh stamp, so one preempted stamp costs one try, and each conversion lies inside the reads
+    /// around it give or take half its stamp's read width (1 us for rounding). The tightest try is within 1 us.
     @Test func continuousConverterAgreesWithNowWithinOneMicrosecond() {
         let clock = TraceClock()
-        let stamp = clock.continuousStamp()
         var tightest = UInt64.max
         for _ in 0 ..< 1_000 {
+            let stamp = clock.continuousStamp()
             let before = clock.nowNanos()
             let converted = TraceClock.nanos(ContinuousClock.now, pairedWith: stamp)
             let after = clock.nowNanos()
-            #expect(converted + Self.microsecond >= before)
-            #expect(converted <= after + Self.microsecond)
-            tightest = min(tightest, max(after, converted) - min(before, converted))
+            let slack = stamp.readWidthNanos / 2 + Self.microsecond
+            #expect(converted + slack >= before)
+            #expect(converted <= after + slack)
+            let spread = max(after, converted) - min(before, converted)
+            tightest = min(tightest, spread + stamp.readWidthNanos / 2)
         }
         #expect(tightest < Self.microsecond)
     }
@@ -79,13 +83,15 @@ struct TraceClockTests {
         #expect(TraceClock.nanos(later, pairedWith: beforeSleep) == wokeUptime + 3_000_000 + 10 * Self.second)
     }
 
-    /// The stamp's uptime lies between the uptime reads around it.
+    /// The stamp's uptime is the midpoint of its two reads, and both reads lie between the reads around it.
     @Test func continuousStampPairsAnUptimeReadFromTheSameMoment() {
         let clock = TraceClock()
         let before = clock.nowNanos()
         let stamp = clock.continuousStamp()
         let after = clock.nowNanos()
-        #expect(before <= stamp.uptimeNanos && stamp.uptimeNanos <= after)
+        let firstRead = stamp.uptimeNanos - stamp.readWidthNanos / 2
+        #expect(before <= firstRead)
+        #expect(firstRead + stamp.readWidthNanos <= after)
     }
 
     @Test func secondsConvertersRoundAndClamp() {
