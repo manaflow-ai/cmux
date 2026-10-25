@@ -1,162 +1,129 @@
 import CmuxNextCompat
 import Darwin
 
-/// One process's trace ring v1: 32-byte records in 1 KiB chunks, each chunk owned by one writing thread,
-/// so threads never contend on a record.
+/// One process's trace ring v1, written byte for byte as plans/cmux-next/trace.md "Release trace ring
+/// v1" specifies (the Rust `cmux-trace` crate and the C writer write the same bytes; the shared golden
+/// file `Tests/CmuxNextTraceTests/Fixtures/ring-v1-golden.cmxtrace` pins them): 32-byte records in
+/// 1 KiB chunks, each chunk owned by one writing thread, so threads never contend on a record.
 ///
-/// This is Perfetto's shared-memory writer design (`src/tracing/core/shared_memory_abi.cc`,
-/// `SharedMemoryABI::TryAcquireChunk`): a writer owns its chunk until the chunk is full, then claims the
-/// next with one `fetch_add` on the chunk cursor and one compare-and-swap of the chunk header, which skips
-/// a chunk another live writer still owns. Unlike Perfetto there is no consumer: when the cursor wraps,
-/// the claim overwrites the oldest chunk (black-box semantics) and counts the overwrite.
+/// This is Perfetto's shared memory buffer (`src/tracing/core/shared_memory_abi.h`): a writer owns its
+/// chunk until slot 31, then claims the next with one `fetch_add` on the chunk cursor and one
+/// compare-and-swap of the chunk's `lap_seq`. A claim skips a chunk another writer still owns and gives up
+/// after four tries (Perfetto's `BufferExhaustedPolicy::kDrop`). Unlike Perfetto there is no consumer:
+/// when the cursor wraps, a claim overwrites the oldest chunk (black-box semantics) and counts it.
 ///
-/// ``write(name:phase:flags:timestamp:arg0:arg1:)`` takes no lock, allocates nothing, makes no system call
-/// and calls no Foundation: one load of the storage address, one `pthread_getspecific`, three loads and six
-/// stores into the thread's own chunk. Every 31st write also claims a chunk.
-///
-/// The ring starts on the heap. ``TraceRingFile/adopt(_:directory:records:)`` moves it into a `MAP_SHARED`
-/// file off main. No storage is ever freed or unmapped, so a writer that still holds an old chunk never
-/// faults; the process ring lives as long as the process, like Chrome's `TraceLog`.
-///
-/// Byte layout (little-endian; Swift, Rust and C share it):
-/// - Header, 1024 bytes: `magic u64` (0, "CMXTRACE"), `version u32` (8), `header bytes u32` (12),
-///   `pid u32` (16), `chunk bytes u32` (20), `chunk count u64` (24), `chunk offset u64` (32),
-///   `start uptime ns u64` (40), `name table offset u64` (48), `thread table offset u64` (56),
-///   `role` 16 ASCII bytes (64), `build id` 16 bytes (80), `boot session` 16 bytes (96), `file backed u64`
-///   (112); the `chunk cursor u64` (256) alone on its cache line; the counters `overwritten chunks u64`
-///   (384), `skipped owned chunks u64` (392) and `dropped records u64` (400).
-/// - Chunk, 1024 bytes: slot 0 is the chunk header: `thread index u32` (0), `thread generation u32` (4),
-///   `lap word u64` (8: 0 = never claimed, else lap + 1, with bit 63 set while a live writer owns the
-///   chunk), `published u32` (16: records 1...published are written), reserved (20). Slots 1-31 are records.
-/// - Record, 32 bytes: `t_ns u64` (0), `seq u32` (8: `2*lap+1` while writing, `2*lap+2` when published),
-///   `name u16` (12), `phase u8` (14), `flags u8` (15), `arg0 u64` (16), `arg1 u64` (24).
-///
-/// A decoder accepts a record only in a slot below the chunk's published count, with the published
-/// sequence of the chunk's lap, and unchanged across its read.
+/// The ring starts on the heap. ``TraceRingFile/adopt(_:directory:)`` copies it into a `MAP_SHARED` file
+/// off main and then swaps the active ring. No storage is ever freed or unmapped, so a writer that still
+/// holds an old chunk never faults; the ring lives as long as the process, like Chrome's `TraceLog`.
 public final class TraceRing: Sendable {
-    /// Bytes in one record.
-    public static let recordBytes = 32
-    /// Bytes in one chunk: its header slot and ``recordsPerChunk`` records.
-    public static let chunkBytes = 1024
-    /// Records in one chunk.
-    public static let recordsPerChunk = 31
-    /// Bytes in the ring header, before the first chunk.
-    public static let headerBytes = 1024
-    /// The format version this writer produces.
-    public static let version: UInt32 = 1
+    /// The header's process fields.
+    public let identity: Identity
 
-    /// The process role written into the header and used in the file name ("app", "daemon", ...).
-    public let role: String
-    /// The process id written into the header.
-    public let pid: Int32
-
-    /// The address of the storage writers use: the heap block first, then a mapped file. The word itself
-    /// is a heap allocation that lives as long as the process.
-    private let storageCell: AtomicPointerSlot
-    /// The thread's owned chunk in the current storage, or none.
-    private let chunkKey: pthread_key_t
-    /// The thread's chunk-header word plus one (zero: not assigned yet).
+    /// The address of the active ring's ``TraceRingActive`` (never freed): the heap ring, then the file.
+    private let activeCell = Atomic<UInt64>(0)
+    /// The calling thread's ``TraceRingThreadState``; its destructor completes the thread's chunk and
+    /// marks its thread entries exited.
     private let threadKey: pthread_key_t
-    private let hasThreadKeys: Bool
-    private let nextThreadIndex = Atomic<UInt64>(0)
+    private let hasThreadKey: Bool
+    private let threadIdentity: @Sendable () -> ThreadIdentity
+    /// 0 heap, 1 adopting, 2 file-backed: adoption is one-shot.
+    private let adoption = Atomic<UInt64>(0)
     private let adoptFailureCount = Atomic<UInt64>(0)
 
-    /// Makes a heap ring that holds at least `records` records. Its memory is never freed (a thread may
-    /// hold a chunk in it until that thread exits), so a process makes one ring per use, for its lifetime.
+    /// Makes a heap ring. Its memory is never freed (a thread may hold a chunk in it until that thread
+    /// exits), so a process makes one ring per use, for its lifetime.
     ///
     /// - Parameters:
-    ///   - records: the capacity in records; rounded up to whole chunks (at least 2).
-    ///   - role: the process role: up to 16 ASCII letters, digits, `-` or `_` (other characters are dropped).
-    ///   - pid: the process id for the header; nil: this process.
-    ///   - startUptimeNanos: the process start on the `CLOCK_UPTIME_RAW` clock (TraceClock).
-    public init(records: Int, role: String, pid: Int32? = nil, startUptimeNanos: UInt64 = 0) {
-        let allowed = role.unicodeScalars.filter { scalar in
-            switch scalar.value {
-            case 0x30 ... 0x39, 0x41 ... 0x5A, 0x61 ... 0x7A, 0x2D, 0x5F: true
-            default: false
-            }
-        }
-        let cleanRole = String(String.UnicodeScalarView(allowed.prefix(16)))
-        let headerRole = cleanRole.isEmpty ? "process" : cleanRole
-        let headerPid = pid ?? getpid()
-        self.role = headerRole
-        self.pid = headerPid
-        let chunkCount = Self.chunkCount(forRecords: records)
-        let bytes = Self.storageBytes(chunkCount: chunkCount)
-        let heap = UnsafeMutableRawPointer.allocate(byteCount: bytes, alignment: 128)
-        heap.initializeMemory(as: UInt64.self, repeating: 0, count: bytes / 8)
-        TraceRingStorage(heap).writeHeader(chunkCount: chunkCount, role: headerRole, pid: headerPid,
-                                           startUptimeNanos: startUptimeNanos, fileBacked: false)
-        let cell = UnsafeMutablePointer<UInt64>.allocate(capacity: 1)
-        cell.initialize(to: UInt64(UInt(bitPattern: heap)))
-        storageCell = AtomicPointerSlot(cell)
-        var chunk = pthread_key_t()
-        var thread = pthread_key_t()
-        // A thread that exits gives its chunk back, so short-lived threads do not keep chunks owned.
-        let chunkKeyMade = pthread_key_create(&chunk) { TraceRingStorage.releaseChunk($0) } == 0
-        let threadKeyMade = pthread_key_create(&thread, nil) == 0
-        chunkKey = chunk
-        threadKey = thread
-        // Without its thread keys (the process ran out) the ring records nothing.
-        hasThreadKeys = chunkKeyMade && threadKeyMade
+    ///   - sizes: the tables and chunks (trace.md "Sizes by role" for a real process).
+    ///   - identity: the header's process fields.
+    ///   - catalog: the fixed names and categories, written before any writer sees the ring.
+    ///   - threadIdentity: reads the calling thread's tid, QoS and name, once per thread (tests inject it).
+    public init(sizes: Sizes, identity: Identity, catalog: [CatalogName] = [],
+                threadIdentity: @escaping @Sendable () -> ThreadIdentity = ThreadIdentity.current) {
+        self.identity = identity
+        self.threadIdentity = threadIdentity
+        var key = pthread_key_t()
+        hasThreadKey = pthread_key_create(&key) { TraceRingThreadState.threadExited($0) } == 0
+        threadKey = key
+        let heap = TraceRingStorage.allocateHeap(TraceRingLayout(sizes))
+        heap.initialize(identity: identity, catalog: catalog)
+        activeCell.store(UInt64(UInt(bitPattern: TraceRingActive.make(heap, slot: TraceRingActive.heapSlot))), ordering: .releasing)
     }
 
-    /// The chunks needed for `records` records (at least 2).
-    public static func chunkCount(forRecords records: Int) -> Int {
-        max(2, (max(0, records) + recordsPerChunk - 1) / recordsPerChunk)
+    /// A heap ring with room for `records` records and small tables (tests and tools).
+    public convenience init(records: Int, role: Role, pid: UInt32 = UInt32(bitPattern: getpid())) {
+        self.init(sizes: Sizes(records: records), identity: Identity(pid: pid, role: role))
     }
 
-    /// The bytes of a ring (header and chunks) with `chunkCount` chunks: the heap block or the file size.
-    public static func storageBytes(chunkCount: Int) -> Int {
-        headerBytes + chunkCount * chunkBytes
-    }
-
-    /// Appends one record. Lock-free, allocation-free, no system call: safe from any thread, a signal
-    /// handler or a forked child. When every chunk is owned by another live thread, the record is
+    /// Appends one record to the active ring. Lock-free, and after the thread's first write (which
+    /// allocates the thread's state and reads its tid, QoS and name once) no allocation, system call or
+    /// Foundation call: a `pthread_getspecific`, an acquire load of the active ring and the record's
+    /// stores. Every 31st write also claims a chunk; when four claim tries find owned chunks, the record is
     /// dropped and counted.
     ///
+    /// One write at a time per thread: a signal handler must not write (it would share the slot of the
+    /// write it interrupted), and a forked child must not write (its thread state names the parent's
+    /// chunks, which a `MAP_SHARED` file shares with the parent).
+    ///
     /// - Parameters:
-    ///   - name: the catalog name id.
+    ///   - name: the name id in the active ring's name table.
     ///   - phase: begin, end, instant, async, flow or counter.
-    ///   - flags: bit 0: `arg1` is an async or track id; bit 1: the time is estimated.
-    ///   - timestamp: `CLOCK_UPTIME_RAW` nanoseconds (TraceClock).
+    ///   - flags: bit 0: `arg1` is an async or track id; bit 1: the time is an estimate.
+    ///   - timestamp: trace clock nanoseconds (TraceClock).
     ///   - arg0: the first argument.
     ///   - arg1: the second argument.
     // perf-hot: 60ns trace-ring-write
     public func write(name: UInt16, phase: TraceRecord.Phase, flags: UInt8 = 0, timestamp: UInt64,
                       arg0: UInt64 = 0, arg1: UInt64 = 0) {
-        guard hasThreadKeys, let storage = currentStorage else { return }
-        var chunk = pthread_getspecific(chunkKey)
-        // A full chunk, or one in a storage the ring has left (after adoption), is given back.
-        var published = UInt64(Self.recordsPerChunk)
-        if let owned = chunk, storage.contains(owned) {
-            published = TraceRingStorage.word(owned, TraceRingStorage.chunkPublished).load(ordering: .relaxed)
+        guard hasThreadKey, let state = threadState(), let active = activeRing else { return }
+        if state.pointee.nextSlot != 0, let owner = state.pointee.owner, owner != active {
+            // The active ring changed: complete the chunk in the old one, claim in the new one.
+            owner.pointee.storage.complete(chunk: state.pointee.chunk, lap: state.pointee.lap)
+            state.pointee.nextSlot = 0
         }
-        if published >= UInt64(Self.recordsPerChunk) {
-            chunk = claim(in: storage, previous: chunk)
-            published = 0
+        let storage = active.pointee.storage
+        if state.pointee.nextSlot == 0 {
+            let thread = TraceRingThreadState.entry(state, in: active)
+            guard let claimed = storage.claim(threadIndex: thread.index, generation: thread.generation) else { return }
+            state.pointee.owner = active
+            state.pointee.chunk = claimed.chunk
+            state.pointee.lap = claimed.lap
+            state.pointee.nextSlot = 1
         }
-        guard let chunk else { return }
-        TraceRingStorage.publish(chunk: chunk, slot: Int(published) + 1, lap: TraceRingStorage.lap(ofOwned: chunk),
-                                 name: name, phase: phase.rawValue, flags: flags, timestamp: timestamp, arg0: arg0, arg1: arg1)
+        let slot = state.pointee.nextSlot
+        storage.publish(chunk: state.pointee.chunk, lap: state.pointee.lap, slot: slot, name: name, phase: phase.rawValue,
+                        flags: flags, timestamp: timestamp, arg0: arg0, arg1: arg1)
+        if slot == Self.recordsPerChunk {
+            storage.complete(chunk: state.pointee.chunk, lap: state.pointee.lap)
+            state.pointee.nextSlot = 0
+        } else {
+            state.pointee.nextSlot = slot + 1
+        }
     }
 
-    /// The whole records in the current storage, oldest first (by time, then by write order). Safe while
+    /// Registers `text` in the active ring's name table and returns its id there, or 0 (counted in
+    /// `name_overflow`) when the table is full. The id is valid in the active ring only: task 004's trace
+    /// sites keep one id per ring.
+    public func intern(_ text: StaticString, category: UInt8) -> UInt16 {
+        activeRing?.pointee.storage.intern(text, category: category) ?? 0
+    }
+
+    /// The whole records in the active ring, oldest first (by time, then by write order). Safe while
     /// threads write: a record being written or overwritten is left out.
     public func records() -> [TraceRecord] {
-        currentStorage?.decode() ?? []
+        activeRing?.pointee.storage.decode() ?? []
     }
 
-    /// A v1 ring image of the current storage (header and chunks) that holds only whole records, safe
-    /// while threads write. ``records(inImage:)`` decodes it; the exporter writes it out.
+    /// The active ring's bytes as a file of it would read (every record whole or absent), safe while
+    /// threads write. ``records(inImage:)`` decodes it.
     public func image() -> [UInt8] {
-        currentStorage?.image() ?? []
+        activeRing?.pointee.storage.snapshot() ?? []
     }
 
     /// Decodes a ring image (``image()`` or a ring file's bytes); nil when it is not a whole v1 ring.
     public static func records(inImage bytes: [UInt8]) -> [TraceRecord]? {
         // An aligned copy: the decoder reads 8-byte words atomically.
-        let copy = UnsafeMutableRawPointer.allocate(byteCount: max(bytes.count, 8), alignment: 128)
+        let copy = UnsafeMutableRawPointer.allocate(byteCount: max(bytes.count, 8), alignment: 16)
         defer { copy.deallocate() }
         bytes.withUnsafeBytes { source in
             if let address = source.baseAddress { copy.copyMemory(from: address, byteCount: source.count) }
@@ -166,71 +133,192 @@ public final class TraceRing: Sendable {
 
     /// Whether writes go to a mapped file rather than the heap.
     public var isFileBacked: Bool {
-        currentStorage?.isFileBacked ?? false
+        activeRing?.pointee.slot == TraceRingActive.fileSlot
     }
 
-    /// The records the current storage holds when full.
+    /// The records the active ring holds when full.
     public var capacity: Int {
-        (currentStorage?.chunkCount ?? 0) * Self.recordsPerChunk
+        (activeRing?.pointee.storage.layout.chunkCount ?? 0) * Self.recordsPerChunk
     }
 
-    /// What the ring lost or skipped so far.
+    /// What the active ring lost or skipped so far (its header counters).
     public var counters: Counters {
-        let storage = currentStorage
+        let storage = activeRing?.pointee.storage
+        let overflow = storage?.counter(TraceRingOffsets.overflowWord) ?? 0
         return Counters(
-            overwrittenChunks: storage?.counter(TraceRingStorage.headerOverwritten) ?? 0,
-            skippedOwnedChunks: storage?.counter(TraceRingStorage.headerSkipped) ?? 0,
-            droppedRecords: storage?.counter(TraceRingStorage.headerDropped) ?? 0,
+            chunksOverwritten: storage?.counter(TraceRingOffsets.chunksOverwritten) ?? 0,
+            chunksSkipped: storage?.counter(TraceRingOffsets.chunksSkipped) ?? 0,
+            recordsDropped: storage?.counter(TraceRingOffsets.recordsDropped) ?? 0,
+            nameOverflow: overflow & 0xFFFF_FFFF,
+            threadOverflow: overflow >> 32,
+            heapChunksLost: (storage?.counter(TraceRingOffsets.heapChunksLostWord) ?? 0) & 0xFFFF_FFFF,
             adoptFailures: adoptFailureCount.load(ordering: .relaxed)
         )
     }
 
     /// What a ring lost or skipped.
     public struct Counters: Sendable, Equatable {
-        /// Chunks a claim took back from an older lap (black-box overwrite).
-        public var overwrittenChunks: UInt64
-        /// Claims that passed over a chunk another live thread still owned.
-        public var skippedOwnedChunks: UInt64
-        /// Records dropped because every chunk was owned by another live thread.
-        public var droppedRecords: UInt64
-        /// File adoptions that failed (open, preallocation or mmap); the ring stayed where it was.
+        /// Claims that took over a chunk holding records of this ring's current recording.
+        public var chunksOverwritten: UInt64
+        /// Claim tries that found their chunk owned or claimed by a newer lap.
+        public var chunksSkipped: UInt64
+        /// Records not written because four claim tries failed.
+        public var recordsDropped: UInt64
+        /// Names that found the table full.
+        public var nameOverflow: UInt64
+        /// Threads that found the table full.
+        public var threadOverflow: UInt64
+        /// Chunks the heap ring claimed after its copy into the file and before the swap.
+        public var heapChunksLost: UInt64
+        /// File adoptions that failed (open, preallocation or mmap) or were refused (the ring already
+        /// had a file or another adoption ran); the ring stayed where it was.
         public var adoptFailures: UInt64
     }
 
-    // MARK: - Storage swap (TraceRingFile)
+    /// The calling thread's identity in the thread table.
+    public struct ThreadIdentity: Sendable {
+        /// `pthread_threadid_np`.
+        public var tid: UInt64
+        /// `qos_class_t` at registration.
+        public var qos: UInt8
+        /// `pthread_getname_np` (cut at 46 bytes).
+        public var name: String
 
-    var currentStorage: TraceRingStorage? {
-        TraceRingStorage(address: UInt(storageCell.load(ordering: .acquiring)))
+        public init(tid: UInt64, qos: UInt8, name: String) {
+            self.tid = tid
+            self.qos = qos
+            self.name = name
+        }
+
+        /// The calling thread's tid, QoS class and name.
+        public static func current() -> ThreadIdentity {
+            var tid: UInt64 = 0
+            pthread_threadid_np(nil, &tid)
+            let capacity = 64
+            var buffer = [CChar](repeating: 0, count: capacity)
+            pthread_getname_np(pthread_self(), &buffer, capacity)
+            let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+            return ThreadIdentity(tid: tid, qos: UInt8(truncatingIfNeeded: qos_class_self().rawValue),
+                                  name: String(decoding: bytes, as: UTF8.self))
+        }
     }
 
-    /// Points writers at `storage`, whose header is written. The old storage is never freed: a writer may
-    /// still finish one record in a chunk there before its next write moves it.
-    func swapStorage(to storage: TraceRingStorage) {
-        storageCell.store(UInt64(UInt(bitPattern: storage.base)), ordering: .releasing)
+    // MARK: - Adoption (TraceRingFile)
+
+    var activeRing: UnsafeMutablePointer<TraceRingActive>? {
+        UnsafeMutablePointer(bitPattern: UInt(activeCell.load(ordering: .acquiring)))
+    }
+
+    /// Starts the one adoption this ring gets; false when one ran or runs.
+    func beginAdoption() -> Bool {
+        adoption.compareExchange(expected: 0, desired: 1, ordering: .acquiringAndReleasing).exchanged
+    }
+
+    /// Ends the adoption: a failed one may be tried again, a finished one never.
+    func endAdoption(adopted: Bool) {
+        adoption.store(adopted ? 2 : 0, ordering: .releasing)
+    }
+
+    /// Points writers at the file, whose header, tables and chunks are written. The heap is never freed:
+    /// a writer that loaded it may still finish one record there.
+    func activateFile(_ storage: TraceRingStorage) {
+        activeCell.store(UInt64(UInt(bitPattern: TraceRingActive.make(storage, slot: TraceRingActive.fileSlot))), ordering: .releasing)
     }
 
     func countAdoptFailure() {
         adoptFailureCount.add(1, ordering: .relaxed)
     }
 
-    /// Gives back the thread's full chunk (when it is in `storage`) and claims the next one.
-    private func claim(in storage: TraceRingStorage, previous: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
-        if let previous {
-            TraceRingStorage.releaseChunk(previous)
+    /// The thread's state, made at its first write.
+    @inline(__always)
+    private func threadState() -> UnsafeMutablePointer<TraceRingThreadState>? {
+        if let raw = pthread_getspecific(threadKey) {
+            return raw.assumingMemoryBound(to: TraceRingThreadState.self)
         }
-        let chunk = storage.acquireChunk(threadWord: threadWord())
-        pthread_setspecific(chunkKey, chunk)
-        return chunk
+        return makeThreadState()
     }
 
-    /// The calling thread's chunk-header word, assigned at its first claim. Task 004's thread table
-    /// replaces this counter with a registered index and generation.
-    private func threadWord() -> UInt64 {
-        if let stored = pthread_getspecific(threadKey) {
-            return UInt64(UInt(bitPattern: stored)) &- 1
+    @inline(never)
+    private func makeThreadState() -> UnsafeMutablePointer<TraceRingThreadState>? {
+        let thread = threadIdentity()
+        let state = UnsafeMutablePointer<TraceRingThreadState>.allocate(capacity: 1)
+        state.initialize(to: TraceRingThreadState(tid: thread.tid, info: TraceRingThreadInfo(qos: thread.qos, name: Array(thread.name.utf8))))
+        guard pthread_setspecific(threadKey, state) == 0 else {
+            state.deinitialize(count: 1)
+            state.deallocate()
+            return nil
         }
-        let index = nextThreadIndex.add(1, ordering: .relaxed).oldValue & 0xFFFF_FFFF
-        pthread_setspecific(threadKey, UnsafeRawPointer(bitPattern: UInt(index + 1)))
-        return index
+        return state
+    }
+}
+
+/// One ring a ``TraceRing`` writes or wrote to, and its slot (0 heap, 1 file). Allocated once per
+/// activation and never freed, so its address also tells a writer that the active ring changed.
+struct TraceRingActive {
+    static let heapSlot = 0
+    static let fileSlot = 1
+
+    let storage: TraceRingStorage
+    let slot: Int
+
+    static func make(_ storage: TraceRingStorage, slot: Int) -> UnsafeMutablePointer<TraceRingActive> {
+        let pointer = UnsafeMutablePointer<TraceRingActive>.allocate(capacity: 1)
+        pointer.initialize(to: TraceRingActive(storage: storage, slot: slot))
+        return pointer
+    }
+}
+
+/// A thread's writer state for one ``TraceRing``: its owned chunk and its thread-table entry in each ring
+/// slot. Only its thread touches it, through an unsafe pointer (no exclusivity check on the write path).
+struct TraceRingThreadState {
+    struct Entry {
+        var ring: UnsafeMutablePointer<TraceRingActive>?
+        var index: UInt32 = TraceRing.noThread
+        var generation: UInt32 = 0
+    }
+
+    /// The ring holding the owned chunk (valid while `nextSlot` is not 0).
+    var owner: UnsafeMutablePointer<TraceRingActive>?
+    var chunk = 0
+    var lap: UInt64 = 0
+    /// The next slot (1-31) in the owned chunk; 0: no chunk.
+    var nextSlot = 0
+    var heapEntry = Entry()
+    var fileEntry = Entry()
+    let tid: UInt64
+    let info: TraceRingThreadInfo
+
+    init(tid: UInt64, info: TraceRingThreadInfo) {
+        self.tid = tid
+        self.info = info
+    }
+
+    /// The thread's entry in `active`'s ring, registered at its first claim there.
+    static func entry(_ state: UnsafeMutablePointer<TraceRingThreadState>,
+                      in active: UnsafeMutablePointer<TraceRingActive>) -> (index: UInt32, generation: UInt32) {
+        let isFile = active.pointee.slot == TraceRingActive.fileSlot
+        let known = isFile ? state.pointee.fileEntry : state.pointee.heapEntry
+        if let ring = known.ring, ring.pointee.storage.base == active.pointee.storage.base {
+            return (known.index, known.generation)
+        }
+        let made = active.pointee.storage.registerThread(tid: state.pointee.tid, info: state.pointee.info)
+        let entry = Entry(ring: active, index: made.index, generation: made.generation)
+        if isFile { state.pointee.fileEntry = entry } else { state.pointee.heapEntry = entry }
+        return made
+    }
+
+    /// The thread-exit destructor: completes the owned chunk, marks the thread's entries exited and frees
+    /// the state.
+    static func threadExited(_ raw: UnsafeMutableRawPointer) {
+        let state = raw.assumingMemoryBound(to: TraceRingThreadState.self)
+        if state.pointee.nextSlot != 0, let owner = state.pointee.owner {
+            owner.pointee.storage.complete(chunk: state.pointee.chunk, lap: state.pointee.lap)
+        }
+        for entry in [state.pointee.heapEntry, state.pointee.fileEntry] {
+            guard let ring = entry.ring, entry.index != TraceRing.noThread else { continue }
+            ring.pointee.storage.exitThread(index: entry.index, generation: entry.generation)
+        }
+        state.deinitialize(count: 1)
+        state.deallocate()
     }
 }

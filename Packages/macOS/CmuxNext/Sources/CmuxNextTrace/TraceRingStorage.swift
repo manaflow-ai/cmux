@@ -1,288 +1,395 @@
 import CmuxNextCompat
 
-/// A ring's bytes (heap block or mapped file) and the operations on them (layout in ``TraceRing``).
-/// Every access is an atomic load or store, so a reader may run while writers write.
+/// One ring's bytes (a heap block or a mapped file) and the ring v1 operations on them: header and
+/// tables, the chunk claim, the record seqlock, the decoder and the copy. The layout is immutable and
+/// owned by the caller, so the write path never reads a size or an offset from the shared header (a
+/// mapped file another process can write). Every access is an aligned 64-bit atomic, so a reader may
+/// run while writers write.
 struct TraceRingStorage {
     let base: UnsafeMutableRawPointer
+    let layout: TraceRingLayout
 
-    init(_ base: UnsafeMutableRawPointer) {
+    init(base: UnsafeMutableRawPointer, layout: TraceRingLayout) {
         self.base = base
+        self.layout = layout
     }
 
-    init?(address: UInt) {
-        guard let base = UnsafeMutableRawPointer(bitPattern: address) else { return nil }
-        self.base = base
-    }
-
-    /// Accepts `base` only when it holds a whole v1 ring of at most `byteCount` bytes.
+    /// Accepts `base` only when it holds a whole v1 ring of at most `byteCount` bytes; the layout comes
+    /// from its header.
     init?(validating base: UnsafeMutableRawPointer, byteCount: Int) {
-        guard byteCount >= TraceRing.headerBytes else { return nil }
-        let storage = TraceRingStorage(base)
-        guard Self.word(base, Self.headerMagic).load(ordering: .relaxed) == Self.magic,
-              UInt32(truncatingIfNeeded: Self.word(base, Self.headerVersion).load(ordering: .relaxed)) == TraceRing.version,
-              Self.word(base, Self.headerChunkOffset).load(ordering: .relaxed) == UInt64(TraceRing.headerBytes),
-              storage.chunkCount > 0, storage.chunkCount <= byteCount / TraceRing.chunkBytes,
-              storage.byteCount <= byteCount else { return nil }
-        self = storage
+        guard let layout = TraceRingLayout(header: { Self.word(base, $0).load(ordering: .relaxed) }, byteCount: byteCount)
+        else { return nil }
+        self.init(base: base, layout: layout)
     }
 
-    // Header offsets.
-    static let headerMagic = 0
-    static let headerVersion = 8
-    static let headerPid = 16
-    static let headerChunkCount = 24
-    static let headerChunkOffset = 32
-    static let headerStartUptime = 40
-    static let headerRole = 64
-    /// Word 112: 1 when the storage is a mapped file.
-    static let headerFileBacked = 112
-    static let headerCursor = 256
-    static let headerOverwritten = 384
-    static let headerSkipped = 392
-    static let headerDropped = 400
-    /// "CMXTRACE" as a little-endian u64.
-    static let magic: UInt64 = 0x4543_4152_5458_4D43
-
-    // Chunk header offsets.
-    static let chunkThread = 0
-    static let chunkLap = 8
-    static let chunkPublished = 16
-    static let ownedBit: UInt64 = 1 << 63
-    static let lapMask: UInt64 = ~ownedBit
+    /// A zeroed heap block for `layout`. Never freed: a writer may still hold a chunk in it.
+    static func allocateHeap(_ layout: TraceRingLayout) -> TraceRingStorage {
+        let heap = UnsafeMutableRawPointer.allocate(byteCount: layout.totalBytes, alignment: TraceRing.pageBytes)
+        heap.initializeMemory(as: UInt64.self, repeating: 0, count: layout.totalBytes / 8)
+        return TraceRingStorage(base: heap, layout: layout)
+    }
 
     @inline(__always)
     static func word(_ pointer: UnsafeMutableRawPointer, _ offset: Int) -> AtomicPointerSlot {
         AtomicPointerSlot((pointer + offset).assumingMemoryBound(to: UInt64.self))
     }
 
-    var chunkCount: Int {
-        Int(truncatingIfNeeded: Self.word(base, Self.headerChunkCount).load(ordering: .relaxed))
-    }
-
-    var byteCount: Int {
-        TraceRing.storageBytes(chunkCount: chunkCount)
-    }
-
     @inline(__always)
-    func chunk(_ index: Int) -> UnsafeMutableRawPointer {
-        base + TraceRing.headerBytes + index * TraceRing.chunkBytes
+    func word(_ offset: Int) -> AtomicPointerSlot {
+        Self.word(base, offset)
     }
 
-    /// Whether `chunk` is one of this storage's chunks.
-    @inline(__always)
-    func contains(_ chunk: UnsafeMutableRawPointer) -> Bool {
-        let offset = UInt(bitPattern: chunk) &- UInt(bitPattern: base) &- UInt(TraceRing.headerBytes)
-        return offset < UInt(chunkCount * TraceRing.chunkBytes)
-    }
+    // MARK: - Header and tables
 
-    /// Writes a fresh header into zeroed storage.
-    func writeHeader(chunkCount: Int, role: String, pid: Int32, startUptimeNanos: UInt64, fileBacked: Bool) {
-        Self.word(base, Self.headerMagic).store(Self.magic, ordering: .relaxed)
-        Self.word(base, Self.headerVersion).store(UInt64(TraceRing.version) | UInt64(TraceRing.headerBytes) << 32, ordering: .relaxed)
-        Self.word(base, Self.headerPid).store(UInt64(UInt32(bitPattern: pid)) | UInt64(TraceRing.chunkBytes) << 32, ordering: .relaxed)
-        Self.word(base, Self.headerChunkCount).store(UInt64(chunkCount), ordering: .relaxed)
-        Self.word(base, Self.headerChunkOffset).store(UInt64(TraceRing.headerBytes), ordering: .relaxed)
-        Self.word(base, Self.headerStartUptime).store(startUptimeNanos, ordering: .relaxed)
-        var roleWords: [UInt64] = [0, 0]
-        for (index, byte) in role.utf8.prefix(16).enumerated() {
-            roleWords[index / 8] |= UInt64(byte) << (8 * (index % 8))
-        }
-        Self.word(base, Self.headerRole).store(roleWords[0], ordering: .relaxed)
-        Self.word(base, Self.headerRole + 8).store(roleWords[1], ordering: .relaxed)
-        Self.word(base, Self.headerFileBacked).store(fileBacked ? 1 : 0, ordering: .relaxed)
-    }
-
-    /// The header's start uptime.
-    var startUptimeNanos: UInt64 {
-        Self.word(base, Self.headerStartUptime).load(ordering: .relaxed)
-    }
-
-    var isFileBacked: Bool {
-        Self.word(base, Self.headerFileBacked).load(ordering: .relaxed) != 0
-    }
-
-    func counter(_ offset: Int) -> UInt64 {
-        Self.word(base, offset).load(ordering: .relaxed)
-    }
-
-    /// Claims the oldest chunk no live writer owns, for a writer with `threadWord`. Nil, and a counted
-    /// drop, after one full lap of owned chunks.
-    func acquireChunk(threadWord: UInt64) -> UnsafeMutableRawPointer? {
-        let count = UInt64(chunkCount)
-        let cursor = Self.word(base, Self.headerCursor)
-        for _ in 0 ..< count {
-            let ticket = cursor.add(1, ordering: .relaxed).oldValue
-            let chunk = chunk(Int(ticket % count))
-            let lap = ticket / count
-            let lapWord = Self.word(chunk, Self.chunkLap)
-            let current = lapWord.load(ordering: .relaxed)
-            if current & Self.ownedBit != 0 {
-                Self.word(base, Self.headerSkipped).add(1, ordering: .relaxed)
+    /// Writes the header, the catalog and the category entries into zeroed storage that no writer sees yet.
+    func initialize(identity: TraceRing.Identity, catalog: [TraceRing.CatalogName]) {
+        typealias Offsets = TraceRingOffsets
+        let put = { (offset: Int, value: UInt64) in word(offset).store(value, ordering: .relaxed) }
+        put(Offsets.magic, TraceRing.magic)
+        put(Offsets.versionWord, UInt64(TraceRing.version) | UInt64(TraceRing.headerBytes) << 32)
+        put(Offsets.identityWord, UInt64(identity.pid) | UInt64(identity.role.rawValue) << 32
+            | UInt64(identity.ringKind) << 48 | UInt64(identity.clockDomain) << 56)
+        put(Offsets.startUptime, identity.startUptimeNanos)
+        put(Offsets.startUnix, identity.startUnixNanos)
+        put(Offsets.startContinuous, identity.startContinuousNanos)
+        put(Offsets.processStartUnixMicros, identity.processStartUnixMicros)
+        putBytes(Offsets.bootSessionUUID, identity.bootSessionUUID, words: 2)
+        putBytes(Offsets.buildUUID, identity.buildUUID, words: 2)
+        putBytes(Offsets.buildVersion, Array(identity.buildVersion.utf8), words: 4)
+        put(Offsets.chunkGeometryWord, UInt64(TraceRing.chunkBytes) | UInt64(layout.chunkCount) << 32)
+        put(Offsets.chunksOffset, UInt64(layout.chunksOffset))
+        put(Offsets.nameTableOffset, UInt64(layout.nameTableOffset))
+        put(Offsets.threadTableOffset, UInt64(layout.threadTableOffset))
+        put(Offsets.threadWord, UInt64(layout.threadCapacity))
+        put(Offsets.categories, identity.categories)
+        var cursor: UInt64 = 1
+        for name in catalog {
+            guard name.id != 0, Int(name.id) < layout.nameCapacity else {
+                word(Offsets.overflowWord).add(1, ordering: .relaxed)
                 continue
             }
-            // A later ticket already took this chunk: never move its lap back.
-            if current != 0, current &- 1 >= lap { continue }
-            let claimed = lapWord.compareExchange(expected: current, desired: Self.ownedBit | (lap + 1), ordering: .acquiringAndReleasing)
-            guard claimed.exchanged else { continue }
-            if current != 0 {
-                Self.word(base, Self.headerOverwritten).add(1, ordering: .relaxed)
-            }
-            Self.word(chunk, Self.chunkPublished).store(0, ordering: .relaxed)
-            Self.word(chunk, Self.chunkThread).store(threadWord, ordering: .releasing)
-            return chunk
+            writeName(id: name.id, kind: name.kind, category: name.category, text: name.text)
+            cursor = max(cursor, UInt64(name.id) + 1)
         }
-        Self.word(base, Self.headerDropped).add(1, ordering: .relaxed)
+        put(Offsets.nameWord, UInt64(layout.nameCapacity) | cursor << 32)
+    }
+
+    /// Stores `bytes` (zero padded or cut to `words` words) little-endian at `offset`.
+    private func putBytes(_ offset: Int, _ bytes: [UInt8], words: Int) {
+        for index in 0 ..< words {
+            var value: UInt64 = 0
+            for byte in 0 ..< 8 where index * 8 + byte < bytes.count {
+                value |= UInt64(bytes[index * 8 + byte]) << (8 * UInt64(byte))
+            }
+            word(offset + index * 8).store(value, ordering: .relaxed)
+        }
+    }
+
+    private func writeName(id: UInt16, kind: UInt8, category: UInt8, text: StaticString) {
+        let entry = layout.nameEntry(Int(id))
+        let meta = UInt64(id) | UInt64(kind) << 16 | UInt64(category) << 24
+        word(entry).store(meta << 32 | TraceRing.entryWriting, ordering: .relaxed)
+        // name_len at byte 8, then at most 55 bytes of text: seven words.
+        var packed = [UInt8](repeating: 0, count: 56)
+        text.withUTF8Buffer { utf8 in
+            var length = min(utf8.count, 55)
+            // Cut on a character boundary: never leave a UTF-8 continuation byte first past the cut.
+            while length > 0, length < utf8.count, utf8[length] & 0xC0 == 0x80 { length -= 1 }
+            packed[0] = UInt8(length)
+            for index in 0 ..< length { packed[1 + index] = utf8[index] }
+        }
+        putBytes(entry + TraceRingOffsets.entryTextWord, packed, words: 7)
+        word(entry).store(meta << 32 | TraceRing.entryPublished, ordering: .releasing)
+    }
+
+    /// Claims a name entry for `text` and publishes it; 0 (counted in `name_overflow`) when the table is full.
+    func intern(_ text: StaticString, category: UInt8) -> UInt16 {
+        let nameWord = word(TraceRingOffsets.nameWord)
+        let capacity = UInt64(layout.nameCapacity)
+        var id = capacity
+        if nameWord.load(ordering: .relaxed) >> 32 < capacity {
+            id = nameWord.add(1 << 32, ordering: .relaxed).oldValue >> 32
+        }
+        guard id < capacity else {
+            word(TraceRingOffsets.overflowWord).add(1, ordering: .relaxed)
+            return 0
+        }
+        writeName(id: UInt16(id), kind: 2, category: category, text: text)
+        return UInt16(id)
+    }
+
+    /// Registers a thread (trace.md "Register"): a fresh entry, else an exited one taken again with the
+    /// next generation, else ``TraceRing/noThread`` counted in `thread_overflow`.
+    func registerThread(tid: UInt64, info: TraceRingThreadInfo) -> (index: UInt32, generation: UInt32) {
+        let threadWord = word(TraceRingOffsets.threadWord)
+        let capacity = UInt64(layout.threadCapacity)
+        if threadWord.load(ordering: .relaxed) >> 32 < capacity {
+            let index = threadWord.add(1 << 32, ordering: .relaxed).oldValue >> 32
+            if index < capacity {
+                let entry = layout.threadEntry(Int(index))
+                word(entry).store(TraceRing.entryWriting, ordering: .relaxed)
+                fillThread(entry, generation: 0, tid: tid, info: info)
+                return (UInt32(index), 0)
+            }
+        }
+        for index in 0 ..< layout.threadCapacity {
+            let state = word(layout.threadEntry(index))
+            let seen = state.load(ordering: .relaxed)
+            guard seen & 0xFFFF_FFFF == TraceRing.threadExited else { continue }
+            let generation = UInt32(truncatingIfNeeded: seen >> 32) &+ 1
+            let taken = state.compareExchange(expected: seen, desired: UInt64(generation) << 32 | TraceRing.entryWriting,
+                                              ordering: .acquiring)
+            guard taken.exchanged else { continue }
+            fillThread(layout.threadEntry(index), generation: generation, tid: tid, info: info)
+            return (UInt32(index), generation)
+        }
+        word(TraceRingOffsets.overflowWord).add(1 << 32, ordering: .relaxed)
+        return (TraceRing.noThread, 0)
+    }
+
+    private func fillThread(_ entry: Int, generation: UInt32, tid: UInt64, info: TraceRingThreadInfo) {
+        word(entry + TraceRingOffsets.threadTid).store(tid, ordering: .relaxed)
+        info.forEachWord { index, value in
+            word(entry + TraceRingOffsets.threadInfoWord + index * 8).store(value, ordering: .relaxed)
+        }
+        word(entry).store(UInt64(generation) << 32 | TraceRing.entryPublished, ordering: .releasing)
+    }
+
+    /// Marks a live thread's entry exited (its TLS destructor), so a later thread may take it.
+    func exitThread(index: UInt32, generation: UInt32) {
+        guard Int(index) < layout.threadCapacity else { return }
+        word(layout.threadEntry(Int(index))).store(UInt64(generation) << 32 | TraceRing.threadExited, ordering: .releasing)
+    }
+
+    // MARK: - Writing
+
+    /// Claims a chunk for the thread (trace.md "Claim a chunk"): at most four tries, each one
+    /// `fetch_add` on the cursor; a try fails on a chunk that is owned (odd `lap_seq`) or claimed by a
+    /// newer lap. After four failed tries the record is dropped and counted. Perfetto's producers drop
+    /// rather than wait the same way (`BufferExhaustedPolicy::kDrop`).
+    @inline(__always)
+    func claim(threadIndex: UInt32, generation: UInt32) -> (chunk: Int, lap: UInt64)? {
+        let count = UInt64(layout.chunkCount)
+        let cursor = word(TraceRingOffsets.chunkCursor)
+        for _ in 0 ..< TraceRing.claimTries {
+            let ticket = cursor.add(1, ordering: .relaxed).oldValue
+            let chunk = Int(ticket & (count - 1))
+            let lap = ticket / count
+            let lapSeq = word(layout.chunk(chunk) + TraceRingOffsets.chunkLapSeq)
+            let seen = lapSeq.load(ordering: .relaxed)
+            guard seen & 1 == 0, seen < TraceRingLayout.lapComplete(lap),
+                  lapSeq.compareExchange(expected: seen, desired: TraceRingLayout.lapOwned(lap), ordering: .acquiringAndReleasing).exchanged
+            else {
+                word(TraceRingOffsets.chunksSkipped).add(1, ordering: .relaxed)
+                continue
+            }
+            let startLap = word(TraceRingOffsets.recordingStartCursor).load(ordering: .relaxed) / count
+            if seen >= TraceRingLayout.lapComplete(startLap) {
+                word(TraceRingOffsets.chunksOverwritten).add(1, ordering: .relaxed)
+            }
+            // Release stores: a reader that sees the new owner or count also sees the claim before it.
+            word(layout.chunk(chunk) + TraceRingOffsets.chunkThreadWord)
+                .store(UInt64(threadIndex) | UInt64(generation) << 32, ordering: .releasing)
+            word(layout.chunk(chunk) + TraceRingOffsets.chunkPublishedWord).store(0, ordering: .releasing)
+            return (chunk, lap)
+        }
+        word(TraceRingOffsets.recordsDropped).add(1, ordering: .relaxed)
         return nil
     }
 
-    /// The lap of a chunk the caller owns.
+    /// Publishes one record in `slot` (1-31) of an owned chunk (trace.md "Publish a record"): the odd
+    /// `seq`, the payload, the even `seq` with the name, phase and flags, then `published`. The payload
+    /// stores are releases, so a reader that sees any of them also sees the odd `seq` before them (the
+    /// spec's release fence).
     @inline(__always)
-    static func lap(ofOwned chunk: UnsafeMutableRawPointer) -> UInt64 {
-        (word(chunk, chunkLap).load(ordering: .relaxed) & lapMask) &- 1
+    func publish(chunk: Int, lap: UInt64, slot: Int, name: UInt16, phase: UInt8, flags: UInt8,
+                 timestamp: UInt64, arg0: UInt64, arg1: UInt64) {
+        let chunkBase = layout.chunk(chunk)
+        let record = chunkBase + slot * TraceRing.recordBytes
+        let seqWord = word(record + TraceRingOffsets.recordSeqWord)
+        seqWord.store(UInt64(TraceRingLayout.seqWriting(lap)), ordering: .relaxed)
+        word(record + TraceRingOffsets.recordTime).store(timestamp, ordering: .releasing)
+        word(record + TraceRingOffsets.recordArg0).store(arg0, ordering: .releasing)
+        word(record + TraceRingOffsets.recordArg1).store(arg1, ordering: .releasing)
+        let meta = UInt64(name) | UInt64(phase) << 16 | UInt64(flags) << 24
+        seqWord.store(UInt64(TraceRingLayout.seqPublished(lap)) | meta << 32, ordering: .releasing)
+        word(chunkBase + TraceRingOffsets.chunkPublishedWord).store(UInt64(slot), ordering: .releasing)
     }
 
-    /// Lets other writers claim `chunk` again. Only its owner calls this (or the thread-exit destructor):
-    /// no claimer writes the lap word of an owned chunk.
-    static func releaseChunk(_ chunk: UnsafeMutableRawPointer) {
-        let lapWord = word(chunk, chunkLap)
-        lapWord.store(lapWord.load(ordering: .relaxed) & lapMask, ordering: .releasing)
-    }
-
-    /// Writes one record with the seqlock: odd sequence, payload, even sequence, then the published
-    /// count. The payload stores are releases, so a reader that sees any of them also sees the odd
-    /// sequence stored before them, and rejects the slot when it reads the sequence again.
+    /// Completes an owned chunk (`lap_seq = 2*lap+2`). Only the owner stores to an odd `lap_seq`.
     @inline(__always)
-    static func publish(chunk: UnsafeMutableRawPointer, slot: Int, lap: UInt64, name: UInt16, phase: UInt8,
-                        flags: UInt8, timestamp: UInt64, arg0: UInt64, arg1: UInt64) {
-        let record = chunk + slot * TraceRing.recordBytes
-        let sequence = UInt64(UInt32(truncatingIfNeeded: lap &* 2 &+ 1))
-        let header = word(record, 8)
-        header.store(sequence, ordering: .relaxed)
-        word(record, 0).store(timestamp, ordering: .releasing)
-        word(record, 16).store(arg0, ordering: .releasing)
-        word(record, 24).store(arg1, ordering: .releasing)
-        let even = UInt64(UInt32(truncatingIfNeeded: sequence &+ 1))
-        header.store(even | UInt64(name) << 32 | UInt64(phase) << 48 | UInt64(flags) << 56, ordering: .releasing)
-        word(chunk, chunkPublished).store(UInt64(slot), ordering: .releasing)
+    func complete(chunk: Int, lap: UInt64) {
+        word(layout.chunk(chunk) + TraceRingOffsets.chunkLapSeq).store(TraceRingLayout.lapComplete(lap), ordering: .releasing)
     }
 
-    /// Every whole record, sorted by time, then by write order (ticket, slot).
+    func counter(_ offset: Int) -> UInt64 {
+        word(offset).load(ordering: .relaxed)
+    }
+
+    // MARK: - Decoding
+
+    /// Every whole record of the current recording (lap and time), sorted by time, then claim order and
+    /// slot (trace.md "Decode").
     func decode() -> [TraceRecord] {
         var records: [TraceRecord] = []
-        let count = chunkCount
-        for index in 0 ..< count {
-            decodeChunk(index, chunkCount: count, into: &records)
+        let count = UInt64(layout.chunkCount)
+        let startLap = word(TraceRingOffsets.recordingStartCursor).load(ordering: .acquiring) / count
+        let startTime = word(TraceRingOffsets.startUptime).load(ordering: .relaxed)
+        for index in 0 ..< layout.chunkCount {
+            let chunkBase = layout.chunk(index)
+            let lapSeq = word(chunkBase + TraceRingOffsets.chunkLapSeq)
+            let first = lapSeq.load(ordering: .acquiring)
+            guard first != 0 else { continue }
+            let lap = TraceRingLayout.lap(ofLapSeq: first)
+            guard lap >= startLap else { continue }
+            let start = records.count
+            let wanted = TraceRingLayout.seqPublished(lap)
+            for slot in 1 ... TraceRing.recordsPerChunk {
+                let record = chunkBase + slot * TraceRing.recordBytes
+                guard let payload = readSlot(record), UInt32(truncatingIfNeeded: payload.seqWord) == wanted,
+                      payload.time >= startTime else { continue }
+                records.append(TraceRecord(
+                    timestamp: payload.time, name: UInt16(truncatingIfNeeded: payload.seqWord >> 32),
+                    phaseCode: UInt8(truncatingIfNeeded: payload.seqWord >> 48),
+                    flags: UInt8(truncatingIfNeeded: payload.seqWord >> 56), arg0: payload.arg0, arg1: payload.arg1,
+                    threadIndex: 0, threadGeneration: 0, ticket: lap &* count &+ UInt64(index), slot: slot
+                ))
+            }
+            let thread = word(chunkBase + TraceRingOffsets.chunkThreadWord).load(ordering: .acquiring)
+            guard TraceRingLayout.lap(ofLapSeq: lapSeq.load(ordering: .relaxed)) == lap else {
+                records.removeSubrange(start...)
+                continue
+            }
+            for position in start ..< records.count {
+                records[position].threadIndex = UInt32(truncatingIfNeeded: thread)
+                records[position].threadGeneration = UInt32(truncatingIfNeeded: thread >> 32)
+            }
         }
         records.sort { ($0.timestamp, $0.ticket, $0.slot) < ($1.timestamp, $1.ticket, $1.slot) }
         return records
     }
 
-    /// Appends the chunk's whole records of its current lap; none when the chunk changed lap meanwhile.
-    private func decodeChunk(_ index: Int, chunkCount: Int, into records: inout [TraceRecord]) {
-        let start = records.count
-        let stable = readChunk(index) { slot, lap, header, timestamp, arg0, arg1 in
-            records.append(TraceRecord(
-                timestamp: timestamp, name: UInt16(truncatingIfNeeded: header >> 32),
-                phaseCode: UInt8(truncatingIfNeeded: header >> 48), flags: UInt8(truncatingIfNeeded: header >> 56),
-                arg0: arg0, arg1: arg1, threadIndex: 0, threadGeneration: 0,
-                ticket: lap &* UInt64(chunkCount) &+ UInt64(index), slot: slot
-            ))
-        }
-        guard let stable else {
-            records.removeSubrange(start...)
-            return
-        }
-        for position in start ..< records.count {
-            records[position].threadIndex = UInt32(truncatingIfNeeded: stable.thread)
-            records[position].threadGeneration = UInt32(truncatingIfNeeded: stable.thread >> 32)
-        }
+    /// The seqlock read of one record: its words when the `seq` word read the same before and after the
+    /// payload (acquire loads keep the second read after the payload), else nil.
+    @inline(__always)
+    private func readSlot(_ record: Int) -> (seqWord: UInt64, time: UInt64, arg0: UInt64, arg1: UInt64)? {
+        let seqWord = word(record + TraceRingOffsets.recordSeqWord)
+        let first = seqWord.load(ordering: .acquiring)
+        let time = word(record + TraceRingOffsets.recordTime).load(ordering: .acquiring)
+        let arg0 = word(record + TraceRingOffsets.recordArg0).load(ordering: .acquiring)
+        let arg1 = word(record + TraceRingOffsets.recordArg1).load(ordering: .acquiring)
+        guard seqWord.load(ordering: .relaxed) == first else { return nil }
+        return (first, time, arg0, arg1)
     }
 
-    /// The seqlock read of one chunk: calls `record(slot, lap, header word, timestamp, arg0, arg1)` for each
-    /// slot below the published count that holds the chunk lap's published sequence and kept it across the
-    /// read. Returns the chunk's lap word and thread word, or nil when the chunk was never claimed or
-    /// changed lap during the read (then the records it reported are not whole).
-    private func readChunk(_ index: Int,
-                           record: (Int, UInt64, UInt64, UInt64, UInt64, UInt64) -> Void) -> (lapWord: UInt64, thread: UInt64)? {
-        let chunk = chunk(index)
-        let lapWord = Self.word(chunk, Self.chunkLap)
-        let before = lapWord.load(ordering: .acquiring) & Self.lapMask
-        guard before != 0 else { return nil }
-        let lap = before - 1
-        let wanted = UInt32(truncatingIfNeeded: lap &* 2 &+ 2)
-        let published = min(Int(truncatingIfNeeded: Self.word(chunk, Self.chunkPublished).load(ordering: .acquiring)), TraceRing.recordsPerChunk)
-        if published > 0 {
-            for slot in 1 ... published {
-                let slotBase = chunk + slot * TraceRing.recordBytes
-                let header = Self.word(slotBase, 8)
-                let first = header.load(ordering: .acquiring)
-                guard UInt32(truncatingIfNeeded: first) == wanted else { continue }
-                let timestamp = Self.word(slotBase, 0).load(ordering: .acquiring)
-                let arg0 = Self.word(slotBase, 16).load(ordering: .acquiring)
-                let arg1 = Self.word(slotBase, 24).load(ordering: .acquiring)
-                guard header.load(ordering: .relaxed) == first else { continue }
-                record(slot, lap, first, timestamp, arg0, arg1)
+    // MARK: - Copying
+
+    /// Copies this live ring into `destination` (same layout, zeroed, private): the header as it reads
+    /// now, every chunk with the decode protocol, then the name and thread entries below the cursors
+    /// loaded after the chunks, and those cursors (trace.md "Heap, then file", steps 2 and 3). The chunks
+    /// go first: a thread or a name is published before its first record. Returns the copied
+    /// `chunk_cursor`.
+    @discardableResult
+    func copy(into destination: TraceRingStorage) -> UInt64 {
+        for offset in stride(from: 0, to: TraceRing.headerBytes, by: 8) {
+            destination.word(offset).store(word(offset).load(ordering: .relaxed), ordering: .relaxed)
+        }
+        for index in 0 ..< layout.chunkCount {
+            copyChunk(layout.chunk(index), into: destination)
+        }
+        let nameWord = word(TraceRingOffsets.nameWord).load(ordering: .acquiring)
+        let threadWord = word(TraceRingOffsets.threadWord).load(ordering: .acquiring)
+        let cursor = word(TraceRingOffsets.chunkCursor).load(ordering: .acquiring)
+        let names = min(Int(nameWord >> 32), layout.nameCapacity)
+        if names > 1 {
+            for index in 1 ..< names {
+                copyEntry(layout.nameEntry(index), into: destination) { $0 == TraceRing.entryPublished }
             }
         }
-        let thread = Self.word(chunk, Self.chunkThread).load(ordering: .acquiring)
-        guard lapWord.load(ordering: .relaxed) & Self.lapMask == before else { return nil }
-        return (before, thread)
+        // Exited threads too: copied chunks of an exited thread still name it.
+        for index in 0 ..< min(Int(threadWord >> 32), layout.threadCapacity) {
+            copyEntry(layout.threadEntry(index), into: destination) {
+                $0 == TraceRing.entryPublished || $0 == TraceRing.threadExited
+            }
+        }
+        destination.word(TraceRingOffsets.nameWord).store(nameWord, ordering: .relaxed)
+        destination.word(TraceRingOffsets.threadWord).store(threadWord, ordering: .relaxed)
+        destination.word(TraceRingOffsets.chunkCursor).store(cursor, ordering: .relaxed)
+        return cursor
     }
 
-    /// A copy of the storage that holds only whole records: the header words, then each chunk through the
-    /// seqlock read (a slot being written is left zero, a chunk that changed lap is left unclaimed). A
-    /// plain word-by-word copy would pair one record's payload with another's sequence.
-    func image() -> [UInt8] {
-        var bytes = [UInt8](repeating: 0, count: byteCount)
-        bytes.withUnsafeMutableBytes { buffer in
-            for offset in stride(from: 0, to: TraceRing.headerBytes, by: 8) {
-                buffer.storeBytes(of: Self.word(base, offset).load(ordering: .relaxed), toByteOffset: offset, as: UInt64.self)
-            }
-            for index in 0 ..< chunkCount {
-                let chunkOffset = TraceRing.headerBytes + index * TraceRing.chunkBytes
-                var highest = 0
-                let stable = readChunk(index) { slot, _, header, timestamp, arg0, arg1 in
-                    let recordOffset = chunkOffset + slot * TraceRing.recordBytes
-                    for (field, value) in [(0, timestamp), (8, header), (16, arg0), (24, arg1)] {
-                        buffer.storeBytes(of: value, toByteOffset: recordOffset + field, as: UInt64.self)
-                    }
-                    highest = slot
-                }
-                guard let stable else {
-                    for offset in stride(from: chunkOffset, to: chunkOffset + TraceRing.chunkBytes, by: 8) {
-                        buffer.storeBytes(of: UInt64(0), toByteOffset: offset, as: UInt64.self)
-                    }
-                    continue
-                }
-                buffer.storeBytes(of: stable.thread, toByteOffset: chunkOffset + Self.chunkThread, as: UInt64.self)
-                buffer.storeBytes(of: stable.lapWord, toByteOffset: chunkOffset + Self.chunkLap, as: UInt64.self)
-                buffer.storeBytes(of: UInt64(highest), toByteOffset: chunkOffset + Self.chunkPublished, as: UInt64.self)
-            }
+    /// One entry, kept when its first word (state with id or generation) reads the same before and
+    /// after the copy and `keep` accepts the state.
+    private func copyEntry(_ entry: Int, into destination: TraceRingStorage, keep: (UInt64) -> Bool) {
+        let first = word(entry).load(ordering: .acquiring)
+        guard keep(first & 0xFFFF_FFFF) else { return }
+        var words: [UInt64] = []
+        words.reserveCapacity(7)
+        for index in 1 ..< TraceRing.entryBytes / 8 {
+            words.append(word(entry + index * 8).load(ordering: .acquiring))
         }
-        return bytes
+        guard word(entry).load(ordering: .relaxed) == first else { return }
+        for (index, value) in words.enumerated() {
+            destination.word(entry + (index + 1) * 8).store(value, ordering: .relaxed)
+        }
+        destination.word(entry).store(first, ordering: .releasing)
     }
 
-    /// Copies every whole record of `source` into this storage, one claimed chunk per source chunk, in
-    /// write order, keeping each chunk's thread word. Safe while writers write here.
-    func copyRecords(from source: TraceRingStorage) {
-        let byChunk = Dictionary(grouping: source.decode(), by: \.ticket)
-        for ticket in byChunk.keys.sorted() {
-            guard let records = byChunk[ticket]?.sorted(by: { $0.slot < $1.slot }), let first = records.first else { continue }
-            let threadWord = UInt64(first.threadIndex) | UInt64(first.threadGeneration) << 32
-            guard let chunk = acquireChunk(threadWord: threadWord) else { return }
-            let lap = Self.lap(ofOwned: chunk)
-            for (offset, record) in records.enumerated() {
-                Self.publish(chunk: chunk, slot: offset + 1, lap: lap, name: record.name, phase: record.phaseCode,
-                             flags: record.flags, timestamp: record.timestamp, arg0: record.arg0, arg1: record.arg1)
-            }
-            Self.releaseChunk(chunk)
+    /// One chunk with the decode protocol: a slot whose two `seq` reads differ stays zero, a chunk taken
+    /// over while it was read keeps `lap_seq` 0, and an odd (owned) `lap_seq` is stored complete: the
+    /// copy has no owner, and its published slots are whole.
+    private func copyChunk(_ chunkBase: Int, into destination: TraceRingStorage) {
+        let first = word(chunkBase + TraceRingOffsets.chunkLapSeq).load(ordering: .acquiring)
+        guard first != 0 else { return }
+        for slot in 1 ... TraceRing.recordsPerChunk {
+            let record = chunkBase + slot * TraceRing.recordBytes
+            guard let payload = readSlot(record) else { continue }
+            destination.word(record + TraceRingOffsets.recordTime).store(payload.time, ordering: .relaxed)
+            destination.word(record + TraceRingOffsets.recordArg0).store(payload.arg0, ordering: .relaxed)
+            destination.word(record + TraceRingOffsets.recordArg1).store(payload.arg1, ordering: .relaxed)
+            destination.word(record + TraceRingOffsets.recordSeqWord).store(payload.seqWord, ordering: .relaxed)
         }
+        let thread = word(chunkBase + TraceRingOffsets.chunkThreadWord).load(ordering: .acquiring)
+        let published = word(chunkBase + TraceRingOffsets.chunkPublishedWord).load(ordering: .acquiring)
+        let second = word(chunkBase + TraceRingOffsets.chunkLapSeq).load(ordering: .relaxed)
+        guard TraceRingLayout.lap(ofLapSeq: second) == TraceRingLayout.lap(ofLapSeq: first) else { return }
+        destination.word(chunkBase + TraceRingOffsets.chunkThreadWord).store(thread, ordering: .relaxed)
+        destination.word(chunkBase + TraceRingOffsets.chunkPublishedWord).store(published, ordering: .relaxed)
+        destination.word(chunkBase + TraceRingOffsets.chunkLapSeq).store(first + (first & 1), ordering: .releasing)
     }
 
-    /// Adds `source`'s loss counters to this storage's.
-    func addCounters(from source: TraceRingStorage) {
-        for offset in [Self.headerOverwritten, Self.headerSkipped, Self.headerDropped] {
-            Self.word(base, offset).add(source.counter(offset), ordering: .relaxed)
+    /// The ring's bytes as a file of it would read: every record whole or absent.
+    func snapshot() -> [UInt8] {
+        let copy = Self.allocateHeap(layout)
+        defer { copy.base.deallocate() }
+        self.copy(into: copy)
+        return Array(UnsafeRawBufferPointer(start: copy.base, count: layout.totalBytes))
+    }
+}
+
+/// A thread's `qos`, `name_len` and name, packed as the thread entry's six words at offset 16.
+struct TraceRingThreadInfo {
+    private var bytes: (UInt64, UInt64, UInt64, UInt64, UInt64, UInt64) = (0, 0, 0, 0, 0, 0)
+
+    init(qos: UInt8, name: [UInt8]) {
+        var packed = [UInt8](repeating: 0, count: 48)
+        var length = min(name.count, 46)
+        while length > 0, length < name.count, name[length] & 0xC0 == 0x80 { length -= 1 }
+        packed[0] = qos
+        packed[1] = UInt8(length)
+        for index in 0 ..< length { packed[2 + index] = name[index] }
+        func word(_ index: Int) -> UInt64 {
+            (0 ..< 8).reduce(UInt64(0)) { $0 | UInt64(packed[index * 8 + $1]) << (8 * UInt64($1)) }
         }
+        bytes = (word(0), word(1), word(2), word(3), word(4), word(5))
+    }
+
+    func forEachWord(_ body: (Int, UInt64) -> Void) {
+        body(0, bytes.0)
+        body(1, bytes.1)
+        body(2, bytes.2)
+        body(3, bytes.3)
+        body(4, bytes.4)
+        body(5, bytes.5)
     }
 }
