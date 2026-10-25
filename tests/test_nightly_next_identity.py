@@ -135,7 +135,9 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert 'local feed_url="$3"' in builder and builder.count(":SUFeedURL string") == 1
     assert 'Add :SUFeedURL string ${feed_url}"' in builder
     assert 'NIGHTLY_APPCAST="appcast-${NIGHTLY_VARIANT}.xml"' in WORKFLOW
-    assert "? ['arm64']" in WORKFLOW and "? ['appcast-arm64.xml']" in WORKFLOW
+    # nightly-next builds only arm64, so it bakes and publishes only appcast-arm64.xml.
+    assert "const variants = fastBuild || track === 'nightly-next' ? ['arm64'] :" in WORKFLOW
+    assert "const feeds = track === 'nightly-next'\n              ? ['appcast-arm64.xml']\n" in WORKFLOW
     upload = WORKFLOW[WORKFLOW.index("- name: Upload nightly-next appcasts to R2"):]
     upload = upload[:upload.index("\n      - name:", 10)]
     assert 'for appcast in $NIGHTLY_FEEDS; do' in upload and 'key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"' in upload
