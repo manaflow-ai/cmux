@@ -83,44 +83,60 @@ function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "
 /// list item's lead, emphasis and code ticks, a link's target and title (inline, with parentheses in
 /// it, or by reference), an image's address. A line of marks alone (a lone `>`) and a reference
 /// link's definition are no text; a code fence's marker line (```ts) is skipped and its first code
-/// line read as written.
+/// line read as written, up to the fence that closes it (its marker, at least as long, alone).
 export function messagePreview(text: string): string {
-  let fenced = false;
-  for (const raw of text.split("\n")) {
-    if (FENCE.test(raw)) {
-      fenced = !fenced;
+  const lines = text.split("\n");
+  // The labels the message defines, which a shortcut reference (`[docs]`) names.
+  const defined = new Set<string>();
+  for (const raw of lines) {
+    const definition = LINK_DEFINITION.exec(raw);
+    if (definition) defined.add(linkLabel(definition[1]!));
+  }
+  let fence: { mark: string; length: number } | undefined;
+  for (const raw of lines) {
+    if (fence) {
+      const closing = FENCE_CLOSE.exec(raw);
+      if (closing && closing[1]![0] === fence.mark && closing[1]!.length >= fence.length) fence = undefined;
+      else if (raw.trim()) return clip(raw);
       continue;
     }
-    if (fenced) {
-      if (raw.trim()) return clip(raw);
+    const opening = FENCE.exec(raw);
+    if (opening) {
+      fence = { mark: opening[1]![0]!, length: opening[1]!.length };
       continue;
     }
     if (LINK_DEFINITION.test(raw)) continue;
-    const line = inlineText(raw.replace(LINE_LEAD, ""));
+    const line = inlineText(raw.replace(LINE_LEAD, ""), defined);
     if (line) return clip(line);
   }
   return "";
 }
 
-/// A code fence's marker line: three or more backticks or tildes, an info string after them.
-const FENCE = /^\s{0,3}(?:`{3,}|~{3,})/;
+/// A code fence's opening line: three or more backticks or tildes, an info string after them.
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+/// A fence's closing line: its marker alone, spaces after it.
+const FENCE_CLOSE = /^\s{0,3}(`{3,}|~{3,})\s*$/;
 /// A reference link's definition: `[id]: https://… "title"`.
-const LINK_DEFINITION = /^\s{0,3}\[[^\]\n]+\]:\s*\S/;
+const LINK_DEFINITION = /^\s{0,3}\[([^\]\n]+)\]:\s*\S/;
+/// A link label as references match it: case and runs of spaces ignored.
+const linkLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
 /// A line's leading marks, nested: quotes, a heading, a list item (with a task box).
 const LINE_LEAD = /^(?:\s*(?:>\s?|#{1,6}(?:\s+|$)|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+))+/;
 
-/// A line's words without inline Markdown: links and images read as their labels, emphasis and code
-/// ticks dropped.
-function inlineText(line: string): string {
-  return withoutLinks(line)
+/// A line's words without inline Markdown: links and images read as their labels, emphasis (strong,
+/// `*italic*` and `_italic_`, never a snake_case word's underscores) and code ticks dropped.
+function inlineText(line: string, defined: ReadonlySet<string>): string {
+  return withoutLinks(line, defined)
     .replace(/<((?:https?|mailto):[^>\s]+)>/g, "$1")
     .replace(/(\*\*|__|~~|`)/g, "")
+    .replace(/(^|[^\w*])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?![\w*])/g, "$1$2")
+    .replace(/(^|[^\w])_([^\s_](?:[^_\n]*?[^\s_])?)_(?!\w)/g, "$1$2")
     .trim();
 }
 
 /// `line` with each link and image as its label: `[label](url "title")`, a URL with balanced
-/// parentheses in it, `[label][id]` and `[label][]`.
-function withoutLinks(line: string): string {
+/// parentheses in it, `[label][id]`, `[label][]`, and `[label]` when the message defines it.
+function withoutLinks(line: string, defined: ReadonlySet<string>): string {
   let out = "";
   let at = 0;
   while (at < line.length) {
@@ -128,15 +144,16 @@ function withoutLinks(line: string): string {
     if (open < 0) break;
     const close = labelEnd(line, open);
     if (close < 0) break;
+    const label = line.slice(open + 1, close);
     const after = linkEnd(line, close + 1);
-    if (after < 0) {
+    if (after < 0 && !defined.has(linkLabel(label))) {
       out += line.slice(at, close + 1);
       at = close + 1;
       continue;
     }
     const image = open > at && line[open - 1] === "!";
-    out += line.slice(at, image ? open - 1 : open) + line.slice(open + 1, close);
-    at = after;
+    out += line.slice(at, image ? open - 1 : open) + label;
+    at = after < 0 ? close + 1 : after;
   }
   return out + line.slice(at);
 }

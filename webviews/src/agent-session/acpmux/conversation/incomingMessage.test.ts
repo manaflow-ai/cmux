@@ -543,6 +543,18 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("[pr]: https://example.com/12\nShipped.")).toBe("Shipped.");
   expect(messagePreview("![chart](https://example.com/c.png) attached")).toBe("chart attached");
   expect(messagePreview("Logs at <https://example.com/log>")).toBe("Logs at https://example.com/log");
+  // A fence closes only on its own marker, at least as long, alone on its line.
+  expect(messagePreview("```\n```not-a-close\n```")).toBe("```not-a-close");
+  expect(messagePreview("````\n```\nstill code\n````")).toBe("still code");
+  expect(messagePreview("~~~\n```\n~~~\nAfter")).toBe("```");
+  expect(messagePreview("```\n```   \nAfter the fence")).toBe("After the fence");
+  // Single emphasis drops; a snake_case word keeps its underscores.
+  expect(messagePreview("This is *really* _done_ now")).toBe("This is really done now");
+  expect(messagePreview("Set retry_count and max_wait_ms, *a* b")).toBe("Set retry_count and max_wait_ms, a b");
+  expect(messagePreview("2 * 3 * 4 stays")).toBe("2 * 3 * 4 stays");
+  // A shortcut reference reads as its label when the message defines it; an undefined one stays.
+  expect(messagePreview("Read [docs] first\n\n[Docs]: https://example.com/docs")).toBe("Read docs first");
+  expect(messagePreview("[lane] Ready for review")).toBe("[lane] Ready for review");
   // A link reads as its label: Minimal Mode's closed line shows no URL.
   expect(messagePreview("Opened [#24772](https://github.com/manaflow-ai/cmux/pull/24772) for review")).toBe(
     "Opened #24772 for review",
