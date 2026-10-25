@@ -40,6 +40,10 @@ struct AgentTabContent {
             guard let pane else { return false }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
+        view.model.onOpenArtifact = { [weak pane] save in
+            guard let pane else { return false }
+            return pane.services.registry.openAgentArtifact(save: save, pane: pane.paneKey)
+        }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         if view.model.newTab != nil { rememberNewTabFrame(of: view) }
         if view.model.newTab != nil { BenchSpans.mark(view.superview is NewTabSpareParking ? "newTab.show.parked" : "newTab.show") }

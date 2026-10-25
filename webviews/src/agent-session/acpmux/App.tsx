@@ -163,7 +163,7 @@ import {
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
 import { RenderCard, canRender } from "./conversation/RenderCard";
-import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
+import { ArtifactPanel, type OpenArtifact, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
 import { artifactVersions } from "./conversation/artifactVersions";
@@ -354,6 +354,14 @@ const saveDocumentNatively: SaveDocument = async (text, suggestedName, kind) => 
     return (await callNative<boolean>("pane.saveFile", { text, suggestedName, kind })) === true ? "saved" : "cancelled";
   } catch {
     return "unavailable";
+  }
+};
+
+const openArtifactInBrowserNatively: OpenArtifact = async (text, suggestedName, kind) => {
+  try {
+    return (await callNative<boolean>("pane.openArtifact", { text, suggestedName, kind })) === true;
+  } catch {
+    return false;
   }
 };
 
@@ -5254,6 +5262,7 @@ function AcpmuxPane() {
             artifact={artifact}
             versions={artifactVersionList}
             onClose={() => setArtifact(undefined)}
+            onOpenInBrowser={openArtifactInBrowserNatively}
             onSave={saveDocumentNatively}
           />
         )}

@@ -192,6 +192,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `pane.saveLog` (the ACP inspector's export) and `pane.saveFile` (a side panel document):
     /// text to save where the user picks (``AgentPaneSave``).
     case saveFile(AgentPaneSave)
+    /// `pane.openArtifact` (a side panel document): write it to a private temporary file and open
+    /// it in a browser tab through the shared `openBrowser` action.
+    case openArtifact(AgentPaneSave)
     /// `pane.showContextUsage` or `pane.showDictation` with `{show}`: the composer's Hide or Show
     /// Context Usage, or the mic's Hide dictation button, which the host writes to cmux.json at `path`
     /// (`agentPane.showContextUsage`, `agentPane.showDictation`).

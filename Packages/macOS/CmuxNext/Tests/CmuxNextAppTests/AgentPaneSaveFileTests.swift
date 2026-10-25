@@ -66,4 +66,38 @@ struct AgentPaneSaveFileTests {
         model.onSaveFile = nil
         #expect(Self.errorCode(await Self.ask(model, "pane.saveFile", ["text": "x", "kind": "html"])) == "unsupported")
     }
+
+    @Test func opensAnArtifactThroughTheNativeCallback() async {
+        let model = AgentPaneModel(host: NoHost())
+        var opened: [AgentPaneSave] = []
+        model.onOpenArtifact = { save in
+            opened.append(save)
+            return true
+        }
+        let reply = await Self.ask(model, "pane.openArtifact", [
+            "text": "<h1>Hi</h1>", "suggestedName": "../../Quarterly.HTML", "kind": "html",
+        ])
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        #expect(reply["value"] as? Bool == true)
+        #expect(opened.map(\.suggestedName) == ["Quarterly.html"])
+
+        model.onOpenArtifact = nil
+        #expect(Self.errorCode(await Self.ask(model, "pane.openArtifact", ["text": "x", "kind": "html"])) == "unsupported")
+        #expect(Self.errorCode(await Self.ask(model, "pane.openArtifact", ["text": "x", "kind": "log"])) == "unsupported")
+    }
+
+    @Test func artifactWriterKeepsNamesAndBytesInPrivateTempDirectory() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("artifact-writer-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let save = AgentPaneSave(text: "<svg>safe</svg>", suggestedName: "../../chart.SVG", kind: .svg)!
+        let file = try #require(AgentPaneArtifactFileWriter(directory: base).write(save))
+        #expect(file.path.hasPrefix(base.resolvingSymlinksInPath().path + "/"))
+        #expect(file.lastPathComponent == "chart.svg")
+        #expect(try String(contentsOf: file, encoding: .utf8) == save.text)
+        let folder = file.deletingLastPathComponent()
+        let folderMode = try #require(FileManager.default.attributesOfItem(atPath: folder.path)[.posixPermissions] as? NSNumber)
+        let fileMode = try #require(FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)
+        #expect(folderMode.uint16Value & 0o777 == 0o700)
+        #expect(fileMode.uint16Value & 0o777 == 0o600)
+    }
 }

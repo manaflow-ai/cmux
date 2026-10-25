@@ -28,4 +28,16 @@ extension AgentPaneModel {
             return AgentPaneReply.failure(code: "save_failed", message: "Could not save the file: \(error.localizedDescription)")
         }
     }
+
+    /// Writes a side panel document to a private temporary file and opens it in a browser tab.
+    func openArtifact(_ save: AgentPaneSave) async -> [String: Any] {
+        guard let onOpenArtifact else {
+            return AgentPaneReply.failure(code: "unsupported", message: "Opening documents is unavailable")
+        }
+        do {
+            return AgentPaneReply.success(try await onOpenArtifact(save))
+        } catch {
+            return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
+        }
+    }
 }

@@ -70,6 +70,13 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.openArtifact":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneSave.Kind.init(rawValue)), kind != .log,
+               let save = AgentPaneSave(text: params?["text"], suggestedName: params?["suggestedName"], kind: kind) {
+                self = .openArtifact(save)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.showContextUsage", "pane.showDictation":
             if let show = params?["show"] as? Bool {
                 let path = method == "pane.showDictation" ? AgentPaneComposerSetting.showDictationPath : AgentPaneComposerSetting.showContextUsagePath

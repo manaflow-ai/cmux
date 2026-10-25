@@ -72,4 +72,12 @@ extension ActionRegistry {
         let refusal = reportingRefusal { performed = perform(.openBrowser, invocation: invocation) }
         return performed && refusal == nil
     }
+
+    /// Writes a side panel artifact to a private temporary file and opens it through the shared
+    /// `openBrowser` catalog action. False when writing or the action is refused.
+    @discardableResult
+    public func openAgentArtifact(save: AgentPaneSave, pane: String) -> Bool {
+        guard let file = AgentPaneArtifactFileWriter().write(save) else { return false }
+        return openAgentPreview(file, pane: pane)
+    }
 }

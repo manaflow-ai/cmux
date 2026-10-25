@@ -132,6 +132,8 @@ public final class AgentPaneModel {
     /// Saves the inspector's exported log or a side panel document where the user picks; true
     /// when saved, false when the user cancelled. Nil leaves the page to copy the text instead.
     @ObservationIgnored public var onSaveFile: (@MainActor (AgentPaneSave) async throws -> Bool)?
+    /// Opens a side panel document in a browser tab; false when the native action refused it.
+    @ObservationIgnored public var onOpenArtifact: (@MainActor (AgentPaneSave) async throws -> Bool)?
     /// Add Files to Project's open panel: the files the user picked, none when they cancelled.
     @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
@@ -309,6 +311,7 @@ public final class AgentPaneModel {
         case .projectInstructions, .projectAddFiles, .composerCapture: return await AgentPaneProjectFiles.respond(to: request, in: self)
         case .reply(let reply): return await respond(to: reply)
         case .saveFile(let save): return await saveFile(save)
+        case .openArtifact(let save): return await openArtifact(save)
         case .composerSetting(let path, let show): return await setComposer(path, show)
         case .toolCard(let card, let action, let value): return AgentPaneToolCard.respond(card: card, action: action, value: value, in: self)
         case .upload(let files): return await AgentPaneUpload.respond(files, in: self)

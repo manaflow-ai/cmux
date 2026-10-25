@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
 import { CodeBlock, languageLabel } from "./CodeBlock";
-import { Check, ChevronLeft, ChevronRight, Close, Copy, SaveTray } from "./icons";
+import { Check, ChevronLeft, ChevronRight, Close, Copy, Globe, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
 import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
 
@@ -23,11 +23,14 @@ export type SaveDocument = (
   kind: ArtifactKind,
 ) => Promise<"saved" | "cancelled" | "unavailable">;
 
+export type OpenArtifact = (text: string, suggestedName: string, kind: ArtifactKind) => Promise<boolean>;
+
 export function ArtifactPanel({
   artifact: opened,
   versions = [opened],
   onClose,
   onSave,
+  onOpenInBrowser,
 }: {
   artifact: Artifact;
   /// The document's versions in the chat (cx-ncc.64, `artifactVersions`), with the opened one: the
@@ -36,6 +39,8 @@ export function ArtifactPanel({
   onClose(): void;
   /// Unset where the page has no host save panel (a gallery, a test): no Save.
   onSave?: SaveDocument;
+  /// Unset where the page has no native browser tab action (a gallery, a test): no browser control.
+  onOpenInBrowser?: OpenArtifact;
 }) {
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
@@ -151,6 +156,19 @@ export function ArtifactPanel({
           >
             <Copy size={14} />
           </button>
+          {onOpenInBrowser && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.openInBrowser")}
+              title={t("artifact.openInBrowser")}
+              onClick={() =>
+                void onOpenInBrowser(artifact.code, documentName(artifact), artifact.kind).catch(() => undefined)
+              }
+            >
+              <Globe size={14} />
+            </button>
+          )}
           {onSave && (
             <button
               type="button"

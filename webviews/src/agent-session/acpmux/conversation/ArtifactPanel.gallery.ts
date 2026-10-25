@@ -39,6 +39,12 @@ const open = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact"));
 };
 
+const openControls = async (ctx: PlayContext) => {
+  await open(ctx);
+  await ctx.click({ role: "button", name: "Open in browser pane" });
+  await ctx.click({ role: "button", name: "Save" });
+};
+
 const notesV1 = `# Uploader retry
 
 Uploads now retry, doubling from 200 ms.`;
@@ -63,6 +69,12 @@ export default agentPaneEntry({
       note: "An HTML page: in the bundled pane it draws in the render frame; here it shows Code only.",
       snapshot: reply("Mock the Pro plan card", `A first pass:\n\n${fence("html", page)}`),
       play: open,
+    },
+    controls: {
+      note: "The side panel exposes both host actions: open the artifact in a browser pane or save it to a file.",
+      snapshot: reply("Mock the Pro plan card", `A first pass:\n\n${fence("html", page)}`),
+      native: { "pane.openArtifact": true, "pane.saveFile": true },
+      play: openControls,
     },
     versions: {
       note: "The chat rewrote the notes: the panel opens on the first and steps to the rewrite with < 1/2 >.",
