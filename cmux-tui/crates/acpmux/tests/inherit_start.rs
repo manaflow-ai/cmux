@@ -219,8 +219,20 @@ async fn a_start_with_no_proven_caller_is_unchanged() {
     }
 }
 
-#[tokio::test]
-async fn a_dispatched_child_inherits_its_starters_mode_and_policy() {
+/// The dispatch handler's future is deeper than a debug build's 2 MiB worker stack: the
+/// connection runs on workers with room, as the release daemon's fit in the default.
+#[test]
+fn a_dispatched_child_inherits_its_starters_mode_and_policy() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .thread_stack_size(32 << 20)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(dispatched_child_inherits());
+}
+
+async fn dispatched_child_inherits() {
     let hub = hub();
     let mut app = Client::new(&hub);
     let parent = starter(&mut app, Some("approve-all"), Some("full-access")).await;
