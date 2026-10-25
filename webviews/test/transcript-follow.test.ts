@@ -165,6 +165,7 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     // The capture listener updates rows before the browser delivers the scroll event. A two-pixel
     // wheel is below the stray-scroll deadband, but it is still an intentional move up and must
     // release following before the streamed layout pass can pin the view back to the bottom.
+    const beforeHeight = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight);
     text += `\n\n${paragraph(20)}\n\n${paragraph(21)}`;
     const next = [...history, row("stream", "assistant", text, { version: 3, streaming: true })];
     await page.evaluate((rows) => {
@@ -182,6 +183,10 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
       return target;
     }, next);
     await frames(page, 3);
+    await page.waitForFunction((height) => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+      return node !== null && node.scrollHeight >= height + 20;
+    }, beforeHeight);
     expect(
       await page.evaluate(() => {
         const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
