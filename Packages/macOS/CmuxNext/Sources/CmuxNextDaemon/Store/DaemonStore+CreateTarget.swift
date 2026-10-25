@@ -43,9 +43,11 @@ extension DaemonStore {
     /// without suspending, so creates keep the order they were pressed in.
     ///
     /// - Throws: ``CreateTargetGone`` when `handle` is a stand-in the store no longer knows, or the
-    ///   connection changed while it waited (the create's command was bound to the old one).
+    ///   connection changed or the store's run ended while it waited (the create's command was bound
+    ///   to that connection); `CancellationError` when the calling task is cancelled while it waits.
     public func daemonTarget(for handle: PaneID) async throws -> PaneID {
         let epoch = connectionEpoch
+        let connection = driver?.connection
         // The stand-in stays known for the whole call, also across a lift that settles its create
         // between a resume and the next look, or inside the stage commit below (a reply-path create
         // has no intent that keeps it; ``releaseStandIns()``).
@@ -55,7 +57,8 @@ extension DaemonStore {
         }
         // wakeup-allow: each pass waits for the next store lift or connection change (an event), never polls.
         while true {
-            guard connectionEpoch == epoch else { throw CreateTargetGone(pane: handle) }
+            guard connectionEpoch == epoch, driver?.connection === connection else { throw CreateTargetGone(pane: handle) }
+            try Task.checkCancellation()
             switch createTarget(for: handle) {
             case .pane(let pane):
                 return pane
@@ -68,8 +71,17 @@ extension DaemonStore {
                     stage.commitAll()
                     continue
                 }
-                await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
-                    standInWaiters.append((handle: handle, transaction: transaction, resume: resume))
+                standInWaiterSerial &+= 1
+                let id = standInWaiterSerial
+                // A cancelled caller ends its own wait (the handler hops to the main actor, after the
+                // wait is recorded); the loop then throws.
+                await withTaskCancellationHandler {
+                    await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+                        standInWaiters.append((id: id, handle: handle, transaction: transaction, resume: resume))
+                    }
+                } onCancel: {
+                    // task-owner: one main-actor hop that resumes this wait; it ends at once, nothing to cancel
+                    Task { @MainActor [weak self] in self?.resumeStandInWaiter(id) }
                 }
             }
         }
@@ -78,6 +90,12 @@ extension DaemonStore {
     /// Every lift can give a stand-in its daemon pane, cancel it or refuse it, and a connection
     /// change ends every wait: the waiting creates look again (each one waits again while its
     /// stand-in is still pending on the same connection).
+    /// Resumes the one wait `id` (its caller was cancelled), if it still waits.
+    func resumeStandInWaiter(_ id: UInt64) {
+        guard let index = standInWaiters.firstIndex(where: { $0.id == id }) else { return }
+        standInWaiters.remove(at: index).resume.resume()
+    }
+
     func resumeStandInWaiters() {
         guard !standInWaiters.isEmpty else { return }
         let waiters = standInWaiters

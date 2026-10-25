@@ -197,6 +197,8 @@ extension DaemonStore {
         resyncPacer.reset()
         personalRefetch = PersonalRefetch()
         self.driver = nil
+        // A create waiting for a stand-in of this connection ends with it (its command was bound to it).
+        resumeStandInWaiters()
     }
 
     /// Applies everything buffered as one batch, never split across frames: one daemon transaction

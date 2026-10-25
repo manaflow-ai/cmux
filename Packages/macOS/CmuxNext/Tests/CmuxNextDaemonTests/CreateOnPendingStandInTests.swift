@@ -302,4 +302,18 @@ struct CreateOnPendingStandInTests {
         #expect(!store.intentLog.contains(transaction), "the split's create did not settle in the commit")
         #expect(store.mirrorViolations.isEmpty)
     }
+
+    /// A create whose caller is cancelled while it waits for a stand-in's daemon pane ends its wait
+    /// (CancellationError) and leaves no waiter: before, the wait held until a lift or a connection
+    /// change that might never come, and kept the store alive.
+    @Test func aCancelledCreateEndsItsWait() async throws {
+        let store = Self.store()
+        let split = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: .generate())
+        let target = Task { try await store.daemonTarget(for: split.handle) }
+        try await store.waitUntil("the create waits for its stand-in's daemon pane") { store.standInWaiters.count == 1 }
+        target.cancel()
+        await #expect(throws: CancellationError.self) { try await target.value }
+        #expect(store.standInWaiters.isEmpty)
+    }
 }

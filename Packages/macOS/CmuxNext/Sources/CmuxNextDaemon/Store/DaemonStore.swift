@@ -141,7 +141,9 @@ public final class DaemonStore: StateResourceQueries {
     /// lift, when that can have changed, and the create each one waits for (a script stage holding
     /// its pane-added commits).
     // Observed (tests wait for a create to start waiting); it changes only when a wait starts or resumes.
-    var standInWaiters: [(handle: PaneID, transaction: ClientTransactionID, resume: CheckedContinuation<Void, Never>)] = []
+    var standInWaiters: [(id: UInt64, handle: PaneID, transaction: ClientTransactionID, resume: CheckedContinuation<Void, Never>)] = []
+    /// The last ``standInWaiters`` id (a cancelled create resumes its own wait by it).
+    @ObservationIgnored var standInWaiterSerial: UInt64 = 0
     /// The handles creates are looking up now (``daemonTarget(for:)``), with how many: each stays
     /// known while one does (``releaseStandIns()``).
     @ObservationIgnored var standInLookups: [PaneID: Int] = [:]

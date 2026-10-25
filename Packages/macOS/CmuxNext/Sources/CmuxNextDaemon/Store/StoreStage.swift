@@ -70,7 +70,8 @@ public final class StoreStage {
     var events: [DaemonEventEnvelope] { hold.events }
 
     /// Joins one batch: its scope's intents are held from now on. The stage commits by itself at
-    /// `deadline` on `clock`; the earliest deadline of the joined batches holds.
+    /// `deadline` on `clock`; the earliest deadline of the joined batches holds. Every batch of one
+    /// stage must pass the same clock (the timer sleeps on the first batch's clock).
     func join<C: Clock>(scope: DaemonCommandScope?, until deadline: C.Instant, clock: C) -> StoreStageBatch where C.Duration == Duration {
         if let scope, !scopes.contains(where: { $0 === scope }) { scopes.append(scope) }
         let batch = StoreStageBatch(stage: self)
