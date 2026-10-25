@@ -13,6 +13,7 @@ import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
+import CmuxNextEnergy
 import CmuxNextFeed
 import CmuxNextFavicons
 import CmuxNextHomeEngine
@@ -65,6 +66,15 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
+    /// Energy Saver's one input owner (power source, Low Power Mode, battery, thermal, sleep) and the policy it
+    /// publishes; consumers get ``energy`` by init, never a shared instance (plans/cmux-next/chrome-parity/p14-energy.md D).
+    let energyMonitor: EnergyMonitor
+    let energy: EnergyPolicySource
+    /// The main thread's one wake timer, which main deadlines and CEF's delayed pump share
+    /// (Chromium base/message_loop/message_pump_apple.mm, `delayed_work_timer_`).
+    let wakeUps: MainWakeUpQueue
+    /// Pushes the policy to the consumers that take a value: the local daemon and KeepAwake (``EnergyHost``).
+    private var energyLink: EnergyHostLink?
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -120,7 +130,7 @@ final class AppServices {
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
-    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
+    var settings: SettingsController? { didSet { if let settings, settings !== oldValue { madeAgentTabs?.follow(settings); browserHost?.follow(settings); energyMonitor.follow(settings); cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil }) } } }
     /// Writes the palette shortcut recorder's edits (the recorder holds it weakly).
     var paletteShortcutEditor: PaletteShortcutEditor?
     /// Where Chromium comes from: embedded, or downloaded on first use (bundle-size-DESIGN.md section 6).
@@ -131,7 +141,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus, energy: energy, wakeUps: wakeUps), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -426,6 +436,13 @@ final class AppServices {
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared, agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         self.work = work
+        let energy = EnergyPolicySource()
+        self.energy = energy
+        energyMonitor = EnergyMonitor(policy: energy)
+        wakeUps = MainWakeUpQueue(energy: energy)
+        // Process defaults, read at each schedule (Chrome's MessagePump::OverrideAlignWakeUpsState is process-wide too).
+        DemandTimer.setProcessDefaults(wakeUps: wakeUps, energy: energy)
+        FrameScheduler.setProcessEnergy(energy)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
@@ -604,6 +621,10 @@ final class AppServices {
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
         }
+        cache.webKit.follow(energy)
+        BackdropVideoPlayers.shared.follow(energy)
+        energyMonitor.start()  // real inputs first, so the link's first push carries them
+        energyLink = EnergyHostLink(source: energy, host: self)
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`

@@ -10,7 +10,7 @@ extension AppServices {
     /// It subscribes to the app's one ``MemoryPressureEvents`` (`memoryPressure`), which the new tab
     /// and page host spare pools share.
     func startHibernation(settings: SettingsController) {
-        let hibernation = BrowserHibernation(cache: cache, memoryPressure: memoryPressure)
+        let hibernation = BrowserHibernation(cache: cache, memoryPressure: memoryPressure, energy: energy)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.onPressureChange = { [weak self] level in self?.memoryPressureDidChange(level) }
