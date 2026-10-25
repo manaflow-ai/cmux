@@ -278,44 +278,51 @@ def read_feed(url: str) -> dt.datetime | None:
 
 
 def nightly_builds(feed_xml: str) -> list[tuple[int, dt.datetime]]:
-    """Each Nightly-ring item's build and date: tagged cmux-next, or untagged (every ring)."""
+    """Each Nightly-ring item's build and date: tagged cmux-next, as nightly_next_ring.py select
+    keeps them (an untagged item is on no ring)."""
     builds = []
     for item in re.findall(r"<item>.*?</item>", feed_xml, re.DOTALL):
-        channel = re.search(r"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>", item)
+        channel = re.search(r"<sparkle:channel>([^<]*)</sparkle:channel>", item)
         version = re.search(r"<sparkle:version>\s*(\d+)\s*</sparkle:version>", item)
         date = re.search(r"<pubDate>([^<]+)</pubDate>", item)
-        if version and date and (channel is None or channel.group(1) == "cmux-next"):
+        if version and date and channel and channel.group(1) == "cmux-next":
             builds.append((int(version.group(1)), email.utils.parsedate_to_datetime(date.group(1))))
     return builds
 
 
-def legacy_identity_heal(gh: GitHub, now: dt.datetime, next_xml: str, legacy_xml: str,
-                         max_lag_minutes: float = LEGACY_MAX_LAG_MINUTES) -> tuple[bool, str]:
-    """(stale, what happened): when cmux NEXT's newest Nightly build has waited past the limit for
-    the old feed, re-run the failed legacy jobs of the nightly-next run that built it. A nightly
-    build is its run id and a two-digit attempt (4023540480101 is run 40235404801)."""
+def legacy_lag(now: dt.datetime, next_xml: str, legacy_xml: str,
+               max_lag_minutes: float = LEGACY_MAX_LAG_MINUTES) -> tuple[int | None, str]:
+    """(the build cmux NIGHTLY's feed has waited for past the limit, or None; what was found).
+    Reads only the two feeds, so an API error never hides a stale feed."""
     newest_next = max(nightly_builds(next_xml), default=None)
     old = max((build for build, _ in nightly_builds(legacy_xml)), default=0)
     if newest_next is None or newest_next[0] <= old:
-        return False, f"current at build {old}"
+        return None, f"current at build {old}"
     build, published = newest_next
     waited = (now - published).total_seconds() / 60
     if waited < max_lag_minutes:
-        return False, f"build {build} published {waited:.0f} min ago; the legacy jobs have {max_lag_minutes:g}"
-    reason = f"cmux NIGHTLY's feed {LEGACY_FEED_URL} is at build {old}, {waited:.0f} min behind cmux NEXT build {build}"
+        return None, f"build {build} published {waited:.0f} min ago; the legacy jobs have {max_lag_minutes:g}"
+    return build, f"cmux NIGHTLY's feed {LEGACY_FEED_URL} is at build {old}, {waited:.0f} min behind cmux NEXT build {build}"
+
+
+def legacy_rerun(gh: GitHub, build: int) -> str:
+    """Re-run the earliest failed legacy job of the nightly-next run that built `build` (a nightly
+    build is its run id and a two-digit attempt: 4023540480101 is run 40235404801). A job's re-run
+    also re-runs the jobs that need it, so the later legacy jobs follow; no other job is touched."""
     run = gh.call("GET", f"/actions/runs/{build // 100}")
     url = run.get("html_url", str(build // 100))
     if not str(run.get("path", "")).endswith("nightly.yml") or run.get("head_branch") != "nightly-next":
-        return True, f"{reason}; run {url} is not a nightly-next nightly.yml run"
+        return f"run {url} is not a nightly-next nightly.yml run"
     if run.get("status") in ACTIVE:
-        return True, f"{reason}; its run {url} is still running"
-    failed = [job["name"] for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") == "failure"]
+        return f"its run {url} is still running"
+    failed = {job["name"]: job for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") == "failure"}
     if not failed:
-        return True, f"{reason}; run {url} has no failed legacy job to re-run"
+        return f"run {url} has no failed legacy job to re-run"
     if int(run.get("run_attempt") or 1) >= LEGACY_MAX_ATTEMPTS:
-        return True, f"{reason}; {', '.join(failed)} still failed after {LEGACY_MAX_ATTEMPTS} attempts of {url}"
-    gh.call("POST", f"/actions/runs/{run['id']}/rerun-failed-jobs")
-    return True, f"{reason}; re-ran the failed {', '.join(failed)} of {url}"
+        return f"{', '.join(failed)} still failed after {LEGACY_MAX_ATTEMPTS} attempts of {url}"
+    first = next(name for name in LEGACY_JOBS if name in failed)
+    gh.call("POST", f"/actions/jobs/{failed[first]['id']}/rerun")
+    return f"re-ran {first} of {url}"
 
 
 def sync_issue(gh: GitHub, stage: Stage, body: str, max_lag_hours: float, run_url: str) -> str:
@@ -365,7 +372,21 @@ def main(argv: list[str]) -> int:
         return 0
     gh = GitHub(args.repo, token, args.dry_run)
     now = dt.datetime.now(dt.timezone.utc)
-    legacy_stale, legacy = False, ""
+    # cmux NIGHTLY's feed first and on its own: its staleness comes from the two feeds, so neither
+    # a failed re-run nor an API error below can turn a stale feed green.
+    try:
+        legacy_build, legacy = legacy_lag(now, next_xml, fetch_feed(args.legacy_feed_url))
+    except OSError as error:
+        legacy_build, legacy = None, ""
+        print(f"::warning::could not read cmux NIGHTLY's feed {args.legacy_feed_url}: {error}")
+    legacy_stale = legacy_build is not None
+    if legacy_stale:
+        try:
+            legacy = f"{legacy}; {legacy_rerun(gh, legacy_build)}"
+        except OSError as error:
+            legacy = f"{legacy}; the re-run failed: {error}"
+    if legacy:
+        print("cmux NIGHTLY feed: " + legacy)
     try:
         published_sha = published_commit(gh)
         try:
@@ -398,13 +419,11 @@ def main(argv: list[str]) -> int:
                 branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"}))
         except OSError as error:
             print(f"::warning::starvation guard API error, skipped this check: {error}")
-        try:
-            legacy_stale, legacy = legacy_identity_heal(gh, now, next_xml, fetch_feed(args.legacy_feed_url))
-            print("cmux NIGHTLY feed: " + legacy)
-        except OSError as error:
-            print(f"::warning::cmux NIGHTLY feed check error, skipped this check: {error}")
     except OSError as error:  # urllib.error.URLError and HTTPError; the next check runs in 30 minutes
         print(f"::warning::GitHub API error, skipped this check: {error}")
+        if legacy_stale:
+            print(f"::error title=cmux NIGHTLY feed behind::{legacy}")
+            return 1
         return 0
     if stage.stale:
         print(f"::error title=nightly-next feed stale::feat-cmux-next pushes have waited {stage.waited_hours:.1f}h "

@@ -188,7 +188,8 @@ class StaleExitTests(unittest.TestCase):
     def main_with(self, stale, legacy_stale=False):
         stage = watch.Stage(stale, 5.0 if stale else 0.5, NOW - dt.timedelta(hours=5), "Nothing was promoted.")
         with unittest.mock.patch.object(watch, "fetch_feed", lambda url: NEWEST_FEED), \
-                unittest.mock.patch.object(watch, "legacy_identity_heal", lambda *a: (legacy_stale, "legacy")), \
+                unittest.mock.patch.object(watch, "legacy_lag", lambda *a: (4023540480101 if legacy_stale else None, "legacy")), \
+                unittest.mock.patch.object(watch, "legacy_rerun", lambda *a: "re-ran"), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
@@ -228,10 +229,12 @@ def feed(*items):
 
 
 class LegacyGitHub:
-    def __init__(self, run, jobs):
-        self.run, self.job_list, self.posts = run, jobs, []
+    def __init__(self, run, jobs, fail=None):
+        self.run, self.job_list, self.posts, self.fail = run, jobs, [], fail
 
     def call(self, method, path, body=None):
+        if self.fail == method:
+            raise urllib.error.HTTPError("u", 403, "API rate limit exceeded for installation", {}, None)
         if method == "GET":
             return self.run
         self.posts.append(path)
@@ -249,36 +252,57 @@ class LegacyFeedTests(unittest.TestCase):
     OLD = feed((4020374816001, 450, "cmux-next"))
     RUN = {"id": 40235404801, "path": ".github/workflows/nightly.yml", "head_branch": "nightly-next",
            "status": "completed", "run_attempt": 1, "html_url": "run-url"}
-    FAILED = [{"name": "publish-nightly-identity-legacy", "conclusion": "failure"},
-              {"name": "publish-nightly", "conclusion": "success"}]
+    FAILED = [{"id": 11, "name": "verify-nightly-identity-legacy", "conclusion": "failure"},
+              {"id": 12, "name": "publish-nightly-identity-legacy", "conclusion": "failure"},
+              {"id": 13, "name": "sign-nightly-identity-legacy", "conclusion": "success"},
+              {"id": 14, "name": "publish-nightly", "conclusion": "failure"}]
 
-    def heal(self, next_xml=NEXT, old_xml=OLD, run=None, jobs=None):
-        gh = LegacyGitHub(dict(self.RUN, **(run or {})), self.FAILED if jobs is None else jobs)
-        return watch.legacy_identity_heal(gh, NOW, next_xml, old_xml), gh.posts
+    def lag(self, next_xml=NEXT, old_xml=OLD):
+        return watch.legacy_lag(NOW, next_xml, old_xml)
 
-    def test_reruns_the_failed_legacy_job_of_the_run_that_built_it(self):
-        (stale, message), posts = self.heal()
-        self.assertTrue(stale)
-        self.assertEqual(posts, ["/actions/runs/40235404801/rerun-failed-jobs"])
+    def rerun(self, run=None, jobs=None, fail=None):
+        gh = LegacyGitHub(dict(self.RUN, **(run or {})), self.FAILED if jobs is None else jobs, fail)
+        return watch.legacy_rerun(gh, 4023540480101), gh.posts
+
+    def test_a_feed_behind_names_the_waiting_build(self):
+        build, message = self.lag()
+        self.assertEqual(build, 4023540480101)
         self.assertIn("4020374816001", message)
-        self.assertIn("publish-nightly-identity-legacy", message)
 
-    def test_current_or_fresh_is_left_alone(self):
-        (stale, _), posts = self.heal(old_xml=feed((4023540480101, 30, "cmux-next")))
-        self.assertEqual((stale, posts), (False, []))
-        (stale, _), posts = self.heal(next_xml=feed((4023540480101, 5, "cmux-next")))
-        self.assertEqual((stale, posts), (False, []))
+    def test_current_or_fresh_is_not_behind(self):
+        self.assertIsNone(self.lag(old_xml=feed((4023540480101, 30, "cmux-next")))[0])
+        self.assertIsNone(self.lag(next_xml=feed((4023540480101, 5, "cmux-next")))[0])
 
-    def test_only_nightly_ring_builds_count(self):
-        (stale, _), posts = self.heal(next_xml=feed((4023540480101, 40, "cmux-next-dev"), (4020374816001, 450, "cmux-next")))
-        self.assertEqual((stale, posts), (False, []))
+    def test_only_items_tagged_cmux_next_count(self):
+        # nightly_next_ring.py select keeps only explicit cmux-next tags.
+        self.assertIsNone(self.lag(next_xml=feed((4023540480101, 40, "cmux-next-dev"), (4020374816001, 450, "cmux-next")))[0])
+        self.assertIsNone(self.lag(next_xml=feed((4023540480101, 40, None), (4020374816001, 450, "cmux-next")))[0])
 
-    def test_stale_without_a_rerun_when_running_exhausted_or_not_failed(self):
+    def test_reruns_only_the_earliest_failed_legacy_job_of_the_run_that_built_it(self):
+        message, posts = self.rerun()
+        self.assertEqual(posts, ["/actions/jobs/11/rerun"], "publish follows verify; publish-nightly is not touched")
+        self.assertIn("verify-nightly-identity-legacy", message)
+
+    def test_no_rerun_when_running_exhausted_not_failed_or_foreign(self):
         for run, jobs in (({"status": "in_progress"}, None), ({"run_attempt": 3}, None),
-                          (None, [{"name": "publish-nightly-identity-legacy", "conclusion": "skipped"}]),
+                          (None, [{"id": 12, "name": "publish-nightly-identity-legacy", "conclusion": "skipped"}]),
                           ({"head_branch": "main"}, None)):
-            (stale, _), posts = self.heal(run=run, jobs=jobs)
-            self.assertEqual((stale, posts), (True, []), (run, jobs))
+            _, posts = self.rerun(run=run, jobs=jobs)
+            self.assertEqual(posts, [], (run, jobs))
+
+    def run_main(self, fail):
+        def call(gh, method, path, body=None):
+            raise urllib.error.HTTPError("u", 403, "API rate limit exceeded for installation", {}, None)
+        feeds = {watch.FEED_URL: self.NEXT, watch.LEGACY_FEED_URL: self.OLD}
+        with unittest.mock.patch.object(watch, "fetch_feed", lambda url: feeds.get(url, self.NEXT)), \
+                unittest.mock.patch.object(watch.dt, "datetime", wraps=dt.datetime) as clock, \
+                unittest.mock.patch.object(watch.GitHub, "call", call), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            clock.now.return_value = NOW
+            return watch.main(["--repo", "o/r", "--dry-run"])
+
+    def test_an_api_error_never_turns_a_stale_feed_green(self):
+        self.assertEqual(self.run_main(fail=True), 1)
 
     def test_the_watch_may_rerun_jobs(self):
         workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/nightly-next-feed-watch.yml").read_text()
