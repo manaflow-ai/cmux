@@ -42,8 +42,10 @@ struct HomeChiefDefaultTests {
         #expect(cloud.chiefTab(local: Self.local, localHasHistory: false, choice: .hosted, prefersLocal: true) == Self.local)
         #expect(cloud.chiefTab(local: Self.local, localHasHistory: true, choice: .placed, prefersLocal: true) == Self.local)
         #expect(cloud.chiefTab(local: Self.local, localHasHistory: true, choice: .hosted, prefersLocal: false) == "conv_hosted")
-        // Before this Mac's owner lists its Chief, the cloud Chief keeps the tab.
-        #expect(cloud.chiefTab(local: nil, localHasHistory: false, choice: .hosted, prefersLocal: true) == "conv_hosted")
+        // Before this Mac's owner lists its Chief the tab waits: the person's choice never opens
+        // the cloud Chief's composer, whose messages would leave this Mac.
+        #expect(cloud.chiefTab(local: nil, localHasHistory: false, choice: .hosted, prefersLocal: true) == nil)
+        #expect(cloud.chiefTab(local: nil, localHasHistory: true, choice: .placed, prefersLocal: true) == nil)
     }
 
     @Test func thisMacsChiefIsMainWhenItIsPreferred() {
