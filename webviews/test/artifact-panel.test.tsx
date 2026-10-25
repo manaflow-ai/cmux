@@ -223,6 +223,37 @@ test("a document's versions are the chat's documents of its kind and title, olde
   expect(artifactVersions(replies, signup)).toEqual([signup]);
 });
 
+test("a live artifact follows its fence identity and rejects an older row revision", async () => {
+  const { artifactForIdentity, artifactIdentity } = await import(
+    "../src/agent-session/acpmux/conversation/artifactVersions"
+  );
+  const identity = artifactIdentity("assistant-live", "0");
+  const latest = artifactForIdentity(
+    [
+      {
+        id: "assistant-live",
+        version: 7,
+        kind: "assistant",
+        text: "```html\n<title>Pricing</title><p>Latest</p>\n```",
+      },
+    ],
+    identity,
+    6,
+  );
+  expect(latest).toMatchObject({
+    identity,
+    revision: 7,
+    code: "<title>Pricing</title><p>Latest</p>",
+  });
+  expect(
+    artifactForIdentity(
+      [{ id: "assistant-live", version: 5, kind: "assistant", text: "```html\n<title>Pricing</title>\n```" }],
+      identity,
+      6,
+    ),
+  ).toBeUndefined();
+});
+
 test("the panel steps between a document's versions, starting on the one opened", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
