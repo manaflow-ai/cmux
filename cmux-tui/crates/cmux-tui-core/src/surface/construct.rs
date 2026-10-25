@@ -301,7 +301,7 @@ impl Surface {
                 cmd.env(k, v);
             }
         }
-        for key in crate::shell_integration::UNSET_IN_TERMINAL_CHILDREN {
+        for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
             cmd.env_remove(*key);
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);

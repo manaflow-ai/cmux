@@ -162,18 +162,6 @@ pub struct ShellLaunch {
     pub env: Vec<(String, String)>,
 }
 
-/// Environment keys no cmux-tui terminal child may see, whatever the daemon
-/// inherited or a caller passed.
-///
-/// `TERM_PROGRAM_VERSION`: cmux keeps `TERM_PROGRAM=ghostty` so a child
-/// detects a Ghostty-class terminal, but cmux forwards a full-screen TUI's
-/// mouse reports instead of providing Ghostty's native selection, so a child
-/// that reads a Ghostty version turns its own copy-on-select drag fallback
-/// off (cmux#22585: Codex and Claude lose drag-to-copy). The daemon's own
-/// environment carries it (`cmux-host::daemon_spec`), so every child path
-/// drops it: this one, the per-terminal host, and the holder.
-pub const UNSET_IN_TERMINAL_CHILDREN: &[&str] = &["TERM_PROGRAM_VERSION"];
-
 /// Apply shell integration to the default interactive shell.
 ///
 /// Only the default shell is modified: an explicit command is the caller's

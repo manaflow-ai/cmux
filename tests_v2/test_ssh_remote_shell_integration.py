@@ -277,6 +277,10 @@ def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface
     _must(bool(startup_command.strip()), "cmux ssh output missing ssh_terminal_startup_command for PTY fallback")
     env = dict(os.environ)
     env.pop("CMUX_SOCKET_PATH", None)
+    # The fallback stands in for a cmux terminal, which never passes this key
+    # down (cmux#22585); keeping the host's value would make the
+    # TERM_PROGRAM_VERSION assertion below depend on where the test runs.
+    env.pop("TERM_PROGRAM_VERSION", None)
     env["CMUX_WORKSPACE_ID"] = workspace_id
     env["CMUX_SURFACE_ID"] = surface_id
     env["CMUX_TAB_ID"] = workspace_id
