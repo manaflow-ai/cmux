@@ -3609,7 +3609,6 @@ export function VirtualTranscript({
       const movingUp =
         event !== undefined &&
         ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
-          event.type === "touchstart" ||
           (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
       if (movingUp) follow(false);
       clearTimeout(settle.current);
