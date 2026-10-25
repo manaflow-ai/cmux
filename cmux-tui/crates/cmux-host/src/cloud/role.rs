@@ -16,6 +16,8 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -196,6 +198,9 @@ struct WorkerHandle {
     control: UnixStream,
     /// Disconnects when the worker thread ends.
     done: Receiver<()>,
+    /// Set before `stop`: from then on the minter hands out no token,
+    /// even if the worker is stuck in a request past the deadline.
+    github_stop: Arc<AtomicBool>,
 }
 
 impl CloudRole {
@@ -210,6 +215,9 @@ impl CloudRole {
     }
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
+        if let Some(worker) = self.worker.as_ref() {
+            worker.github_stop.store(true, Ordering::SeqCst);
+        }
         self.send("stop");
         let Some(worker) = self.worker.take() else { return Ok(()) };
         // The worker ends after its current request (each is bounded by
@@ -241,17 +249,19 @@ impl Role for CloudRole {
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
+        let github_stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&github_stop);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
             .spawn(move || {
                 let _done = done_tx;
-                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs);
+                let worker = Worker::new(paths, instance_id, heartbeat_env, theirs, worker_stop);
                 if let Err(e) = worker.and_then(|mut w| w.run()) {
                     log(&format!("worker stopped: {e}"));
                 }
             })
             .map_err(|e| RoleError(e.to_string()))?;
-        self.worker = Some(WorkerHandle { thread, control: ours, done });
+        self.worker = Some(WorkerHandle { thread, control: ours, done, github_stop });
         Ok(())
     }
 
@@ -307,7 +317,7 @@ struct Worker {
     activity: Activity,
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
-    github: Option<Minter<PosterHttp>>,
+    github: Minter<PosterHttp>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -320,6 +330,7 @@ impl Worker {
         instance_id: String,
         heartbeat_env: Option<String>,
         control: UnixStream,
+        github_stop: Arc<AtomicBool>,
     ) -> io::Result<Worker> {
         let state_dir = paths.at(STATE_DIR);
         fs::create_dir_all(&state_dir)?;
@@ -346,9 +357,7 @@ impl Worker {
                 unsupported: false,
             },
             live: None,
-            github: Minter::spawn(wall_ms, log)
-                .map_err(|e| log(&format!("github minter: {e}")))
-                .ok(),
+            github: Minter::spawn(wall_ms, log, github_stop)?,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -545,10 +554,8 @@ impl Worker {
             }
         }
         for (i, ask) in asks {
-            if let (Some(minter), Some(pos)) =
-                (self.github.as_ref(), taken.iter().position(|(at, _)| *at == i))
-            {
-                minter.ask(ask, taken.swap_remove(pos).1);
+            if let Some(pos) = taken.iter().position(|(at, _)| *at == i) {
+                self.github.ask(ask, taken.swap_remove(pos).1);
             }
         }
         for line in session_lines {
@@ -635,11 +642,9 @@ impl Worker {
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
             log(&format!("heartbeat test override: {heartbeat} ms (dev only)"));
         }
-        if let Some(minter) = self.github.as_ref() {
-            match github_client(&bound, &key) {
-                Ok(client) => minter.bound(client),
-                Err(e) => log(&format!("github minter: {e}")),
-            }
+        match github_client(&bound, &key) {
+            Ok(client) => self.github.bound(client),
+            Err(e) => log(&format!("github minter: {e}")),
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());

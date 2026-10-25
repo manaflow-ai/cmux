@@ -2,6 +2,7 @@
 
 use std::io::Write;
 use std::os::unix::net::UnixStream;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::Worker;
@@ -20,7 +21,8 @@ fn agent_socket_clients_never_stop_the_worker() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker = Worker::new(worker_paths, "vm-1".to_owned(), None, theirs)?;
+        let mut worker =
+            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);
@@ -52,7 +54,8 @@ fn github_token_asks_get_one_reply_line() {
     let (ours, theirs) = UnixStream::pair().unwrap();
     let worker_paths = paths.clone();
     let thread = std::thread::spawn(move || {
-        let mut worker = Worker::new(worker_paths, "vm-1".to_owned(), None, theirs)?;
+        let mut worker =
+            Worker::new(worker_paths, "vm-1".to_owned(), None, theirs, Arc::default())?;
         worker.run()
     });
     let socket = paths.at(AGENT_SOCKET);

@@ -250,18 +250,23 @@ fn ask_minter<H: Http + Send + 'static>(minter: &Minter<H>, a: Result<TokenAsk, 
 fn the_minter_answers_each_connection_off_the_poll_loop() {
     let fake = Fake::default();
     fake.0.lock().unwrap().answers.extend([minted(), minted()]);
-    let minter: Minter<Fake> = Minter::spawn(fixed_now, no_log).unwrap();
+    let minter: Minter<Fake> = Minter::spawn(fixed_now, no_log, Arc::default()).unwrap();
     let a = ask(json!({ "contents": "write" }));
     assert_eq!(ask_minter(&minter, Ok(a.clone()))["error"]["code"], "vm.unbound");
     assert_eq!(ask_minter(&minter, Err("bad".to_owned()))["error"]["code"], "request.invalid");
     minter.bound(client(&fake));
-    // A client gone before its reply does not stop the minter.
+    // A client gone before its turn costs no token and does not stop the
+    // minter.
     let (gone, theirs) = UnixStream::pair().unwrap();
     drop(gone);
     minter.ask(Ok(a.clone()), theirs);
     let reply = ask_minter(&minter, Ok(a));
     assert_eq!(reply["ok"], true);
     assert_eq!(reply["token"], SECRET);
+    let mints = |f: &Fake| {
+        f.0.lock().unwrap().seen.iter().filter(|(url, _, _)| url.ends_with(TOKEN_PATH)).count()
+    };
+    assert_eq!(mints(&fake), 1);
     // Dropping the handle stops and joins the thread.
     drop(minter);
 }
@@ -287,12 +292,14 @@ fn asks_over_the_limit_are_answered_busy_at_once() {
     let (release, gate) = std::sync::mpsc::channel();
     let fake = Fake::default();
     fake.0.lock().unwrap().answers.extend((0..MAX_PENDING).map(|_| minted()));
-    let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log).unwrap();
+    let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log, Arc::default()).unwrap();
     minter.bound(client_with(Gated { inner: fake, gate: Arc::new(Mutex::new(gate)) }));
     let a = ask(json!({ "contents": "write" }));
     let mut held = Vec::new();
     for _ in 0..MAX_PENDING {
         let (ours, theirs) = UnixStream::pair().unwrap();
+        // Before the reply: macOS refuses socket options once the peer closed.
+        ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
         minter.ask(Ok(a.clone()), theirs);
         held.push(ours);
     }
@@ -302,9 +309,31 @@ fn asks_over_the_limit_are_answered_busy_at_once() {
         release.send(()).unwrap();
     }
     for ours in held {
-        ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
         let mut line = String::new();
         BufReader::new(ours).read_line(&mut line).unwrap();
         assert!(line.contains(SECRET));
     }
+}
+
+#[test]
+fn a_stop_from_the_role_withholds_the_token_of_a_mint_in_flight() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let (release, gate) = std::sync::mpsc::channel();
+    let fake = Fake::default();
+    fake.0.lock().unwrap().answers.push_back(minted());
+    let stop = Arc::new(AtomicBool::new(false));
+    let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log, Arc::clone(&stop)).unwrap();
+    minter.bound(client_with(Gated { inner: fake, gate: Arc::new(Mutex::new(gate)) }));
+    let (ours, theirs) = UnixStream::pair().unwrap();
+    ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    minter.ask(Ok(ask(json!({ "contents": "write" }))), theirs);
+    // The role sets the flag while the mint is in flight; the minter is
+    // not dropped (a worker stuck past the deadline).
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    stop.store(true, Ordering::SeqCst);
+    release.send(()).unwrap();
+    let mut line = String::new();
+    BufReader::new(ours).read_line(&mut line).unwrap();
+    assert!(!line.contains(SECRET));
+    assert!(line.contains("vm.agent_stopping"));
 }
