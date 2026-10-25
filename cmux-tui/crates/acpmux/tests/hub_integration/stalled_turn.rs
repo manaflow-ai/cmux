@@ -197,3 +197,72 @@ async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
     let ended = until_results(&hub, &id, 1).await;
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
 }
+
+/// The last open tool call ending brings the turn's deadline back to one period after it: the
+/// reaper, asleep until the four-period deadline, looks again.
+#[tokio::test]
+async fn a_tool_call_that_ends_brings_the_stalled_deadline_back() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(None);
+    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    let id = new_session(&mut c, "stall-tool-done").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "tool-done-hang", None)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| {
+        p["sessionId"] == id && p["update"]["toolCallId"] == "tdh-1"
+    })
+    .await;
+    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    // The reaper now sleeps until four periods from here.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    clock.advance(Duration::from_secs(30));
+    // The tool call ends (in real time): one period from now.
+    c.wait_for(method::SESSION_UPDATE, |p| {
+        p["sessionId"] == id && p["update"]["status"] == "completed"
+    })
+    .await;
+    clock.advance(Duration::from_secs(61));
+    let ended = until_results(&hub, &id, 1).await;
+    assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
+}
+
+/// A turn whose prompt has not reached its agent is never stalled: its count starts when the
+/// prompt is written, never from the previous turn's last word. Here the agent exited idle and
+/// starts again slowly for the next turn; the reaper, woken by the new agent, must not send it a
+/// cancel before its prompt.
+#[tokio::test]
+async fn a_turn_counts_from_its_prompt_being_written() {
+    let env = BTreeMap::from([("FAKE_INIT_DELAY_MS".to_owned(), "1500".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let clock = acpmux::clock::ManualClock::new();
+    hub.set_clock(clock.clone());
+    hub.set_idle_child(Some(Duration::from_secs(300)));
+    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    let id = new_session(&mut c, "stall-written").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
+    c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    // The agent exits idle; the last word was 5 min ago, past one period.
+    clock.advance(Duration::from_secs(301));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let status = hub.session_summary(&hub.resolve("stall-written").unwrap())["status"].clone();
+    assert_eq!(status, "idle", "the agent did not exit idle");
+
+    let mut other = connect(&hub).await;
+    start(&mut other, &id, "hang", "working").await;
+    other.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let cancels = events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_CANCEL);
+    assert_eq!(cancels.count(), 0, "a cancel went to an agent whose prompt was not written");
+    assert!(
+        results(&hub, &id).iter().all(|r| r["status"] == "completed"),
+        "ended before its prompt"
+    );
+
+    clock.advance(Duration::from_secs(59));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(results(&hub, &id).len(), 1, "counted from before its prompt was written");
+    clock.advance(Duration::from_secs(2));
+    let ended = until_results(&hub, &id, 2).await;
+    assert_eq!(ended[1]["detail"], "stalled", "{ended:?}");
+}
