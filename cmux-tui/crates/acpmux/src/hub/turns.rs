@@ -702,6 +702,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
+        self.subsession_turn_ended(session);
         result
     }
 
@@ -761,6 +762,7 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        self.subsession_turn_ended(session);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
