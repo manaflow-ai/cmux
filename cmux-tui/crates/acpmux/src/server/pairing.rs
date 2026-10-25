@@ -8,8 +8,12 @@
 //!   name); a machine's open connections close at once.
 //! - `_acpmux/pair_issue {name, role}` issues a credential with no ticket
 //!   (the joining side of the daemon role).
+//! - `_acpmux/pair_set {id, fullAccess}` turns a `client` machine's
+//!   Full-access setting on (the person only, `hub/person.rs`) or off
+//!   (`crate::pairing` module docs). Off, like a machine's revoke, puts
+//!   every chat out of its policy's mode back at once.
 //!
-//! All four are the unix socket's only. `_acpmux/pair_redeem` is served only
+//! All five are the unix socket's only. `_acpmux/pair_redeem` is served only
 //! on a connection that presented an open ticket, and nothing else is.
 
 use crate::no_panic::JsonExt;
@@ -211,6 +215,7 @@ pub(super) async fn dispatch(
             | method::MUX_PAIR_LIST
             | method::MUX_PAIR_REVOKE
             | method::MUX_PAIR_ISSUE
+            | method::MUX_PAIR_SET
             | method::MUX_PAIR_REDEEM
     ) {
         return None;
@@ -222,8 +227,33 @@ pub(super) async fn dispatch(
         method::MUX_PAIR_TICKET_NEW => mint(hub, params).await,
         method::MUX_PAIR_LIST => Ok(hub.pairing.list()),
         method::MUX_PAIR_REVOKE => revoke(hub, params).await,
+        method::MUX_PAIR_SET => set(hub, conn, params).await,
         _ => issue(hub, params),
     })
+}
+
+/// `_acpmux/pair_set {id, fullAccess}`: on only from the person, since it
+/// widens what runs without asking; off from any unix socket client.
+async fn set(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let key = params
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("id is required"))?;
+    let on = params
+        .get("fullAccess")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| RpcError::invalid_params("fullAccess (true or false) is required"))?;
+    if on && !conn.is_person() {
+        return Err(crate::hub::person::person_required("letting a machine run chats in Full access"));
+    }
+    let device = hub.pairing.set_full_access(key, on)?;
+    let held_again = 0;
+    tracing::info!(device = %device.id, name = %device.name, on, "a machine's Full-access setting changed");
+    Ok(json!({
+        "device": device.to_value(),
+        "allows": on.then(|| crate::pairing::full_access_allows(&device.name)),
+        "held_again": held_again,
+    }))
 }
 
 fn role_param(params: &Value) -> Result<Role, RpcError> {

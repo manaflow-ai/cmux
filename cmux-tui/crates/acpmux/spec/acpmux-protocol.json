@@ -1250,6 +1250,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pair_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
