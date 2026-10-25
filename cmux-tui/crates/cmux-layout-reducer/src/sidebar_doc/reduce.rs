@@ -1063,6 +1063,12 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
             return Err(Refusal::InvalidValue);
         }
         section.host_group = host_group;
+        // Older clients only sent `host_group`; preserve their explicit
+        // Remove/mark choice in the durable opt-out field unless a newer
+        // client supplied that field explicitly.
+        if patch.host_group_opt_out.is_none() {
+            section.host_group_opt_out = !host_group;
+        }
     }
     if let Some(opt_out) = patch.host_group_opt_out {
         if opt_out && section.kind.machine().is_none() {

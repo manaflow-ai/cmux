@@ -346,9 +346,7 @@ public final class SidebarDocStore {
                     self.foldRefusals[key] = nil
                     // A no-op change echoes no batch: its intent must not stay pending.
                     if !reply.hasInverse {
-                        // A host-group migration keeps its in-flight marker until
-                        // an authoritative echo or refresh: the mirror may know
-                        // the host is grouped while confirmed records still do not.
+                        outcome?(true)
                         self.drop(key, redraws: redraws)
                         NotificationCenter.default.post(name: Self.settledNotification, object: self, userInfo: ["key": key])
                     }

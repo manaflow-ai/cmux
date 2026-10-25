@@ -43,9 +43,11 @@ fn a_machine_section_becomes_a_remote_group_and_back() {
     assert!(!doc.section(&id).unwrap().host_group, "not a remote group by default");
     apply(&mut doc, &[update(&id, true)]).unwrap();
     assert!(doc.section(&id).unwrap().host_group);
+    assert!(!doc.section(&id).unwrap().host_group_opt_out);
     check(&doc).unwrap();
     apply(&mut doc, &[update(&id, false)]).unwrap();
     assert!(!doc.section(&id).unwrap().host_group);
+    assert!(doc.section(&id).unwrap().host_group_opt_out);
 }
 
 #[test]

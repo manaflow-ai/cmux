@@ -22,8 +22,16 @@ extension SidebarDocStore {
         let intent = SidebarMirrorIntent.apply(data, key: SidebarDocStore.newKey())
         pendingHostGroupMarks[session] = intent.idempotencyKey
         do {
-            try submit(intent, title: title, undoable: false, outcome: { [weak self] _ in
-                self?.clearPendingHostGroupMark(session: session, key: intent.idempotencyKey)
+            try submit(intent, title: title, undoable: false, outcome: { [weak self] noOp in
+                guard let self else { return }
+                if noOp {
+                    // The mirror may already know the host is grouped while
+                    // confirmed records lag; no-op has no echo, so refresh to
+                    // reconcile the pending marker with the daemon document.
+                    self.refresh()
+                } else {
+                    self.clearPendingHostGroupMark(session: session, key: intent.idempotencyKey)
+                }
             }) { remote, key, stamped in
                 try await remote.apply(ops: stamped ?? data, key: key)
             }

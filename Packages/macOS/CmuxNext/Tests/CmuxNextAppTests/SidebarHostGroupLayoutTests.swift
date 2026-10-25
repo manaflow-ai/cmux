@@ -109,6 +109,9 @@ import Testing
         store.markHostGroup(session: "mini", title: "Cloud machine")
         await remote.waitForSecondApply()
         #expect(remote.applyCount == 2)
+        await remote.waitForRefresh()
+        await Task.yield()
+        #expect(store.pendingHostGroupMarks.isEmpty)
     }
 }
 
@@ -118,23 +121,43 @@ import Testing
     var isAvailable: Bool { true }
     private var firstApplyStarted: CheckedContinuation<Void, Never>?
     private var firstApplyRelease: CheckedContinuation<Void, Never>?
+    private var firstApplyReleased = false
     private var secondApplyStarted: CheckedContinuation<Void, Never>?
+    private var refreshStarted: CheckedContinuation<Void, Never>?
+    private(set) var documentHostGrouped = false
+    private var getCount = 0
 
     func waitForFirstApply() async {
+        if applyCount >= 1 { return }
         await withCheckedContinuation { firstApplyStarted = $0 }
     }
 
     func releaseFirstApply() {
-        firstApplyRelease?.resume()
-        firstApplyRelease = nil
+        firstApplyReleased = true
+        if let firstApplyRelease {
+            self.firstApplyRelease = nil
+            firstApplyRelease.resume()
+        }
     }
 
     func waitForSecondApply() async {
+        if applyCount >= 2 { return }
         await withCheckedContinuation { secondApplyStarted = $0 }
     }
 
+    func waitForRefresh() async {
+        if getCount >= 2 { return }
+        await withCheckedContinuation { refreshStarted = $0 }
+    }
+
     func get() async throws -> Data {
-        Data(#"{"revision":"1","sections":[{"id":"sec_m_mini","kind":{"type":"machine","session_id":"mini"}}],"items":[]}"#.utf8)
+        getCount += 1
+        if getCount == 2 {
+            refreshStarted?.resume()
+            refreshStarted = nil
+        }
+        let hostGroup = documentHostGrouped ? #",\"host_group\":true"# : ""
+        return Data(#"{"revision":"1","sections":[{"id":"sec_m_mini","kind":{"type":"machine","session_id":"mini"}"# + hostGroup + #"}],"items":[]}"#.utf8)
     }
 
     func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply { try await refused() }
@@ -147,9 +170,14 @@ import Testing
         if applyCount == 1 {
             firstApplyStarted?.resume()
             firstApplyStarted = nil
-            await withCheckedContinuation { firstApplyRelease = $0 }
+            if firstApplyReleased {
+                firstApplyReleased = false
+            } else {
+                await withCheckedContinuation { firstApplyRelease = $0 }
+            }
             throw Refused()
         }
+        documentHostGrouped = true
         secondApplyStarted?.resume()
         secondApplyStarted = nil
         return SidebarDocReply(revision: nil, inverse: Data("[]".utf8))
