@@ -399,4 +399,24 @@ struct StoreStageTests {
         first.commit()
         #expect(store.stage != nil, "the first batch's second commit closed the second batch's stage")
     }
+
+    /// Review 2 of the fixes: a held event that needs a resync keeps the applied sequence below it at the
+    /// commit, so no waiter runs on old records before the snapshot.
+    @Test func aCommitThatNeedsAResyncDoesNotPassItsSequence() {
+        let store = Self.store()
+        let scope = DaemonCommandScope()
+        let batch = store.openStage(for: scope, until: .now + .seconds(600))
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: 3, name: "batch"), transaction: .generate())
+        }
+        _ = store.apply(batch: [
+            // Workspace 1's layout with no delta: only a snapshot carries it (a resync); held.
+            DaemonEventEnvelope(sequence: 5, event: .layoutChanged(screen: 100, layout: nil, transaction: nil)),
+            // Workspace 2: passes.
+            DaemonEventEnvelope(sequence: 6, event: .titleChanged(surface: 21, title: "other")),
+        ])
+        #expect(store.appliedSequence < 5, "the applied sequence passed a held event")
+        batch.commit()
+        #expect(store.appliedSequence < 5, "the commit moved the applied sequence to \(store.appliedSequence), past an event that needs a resync")
+    }
 }

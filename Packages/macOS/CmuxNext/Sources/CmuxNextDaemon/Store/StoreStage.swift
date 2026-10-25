@@ -18,9 +18,9 @@ import Foundation
 /// wait never waits on the stage: an event it needs commits the stage first.
 ///
 /// The stage commits when every joined batch ended (``StoreStageBatch/commit()``), at its deadline,
-/// before a snapshot applies, when the connection changes (a lifecycle event) and at the end of its
-/// connection; a new connection discards it. One per store at a time: a second batch while one is
-/// open joins it.
+/// before a snapshot applies and on a lifecycle event (connected, disconnected, shutdown, overflow);
+/// the end of its connection's run and a new connection discard it (the next snapshot is the truth).
+/// One per store at a time: a second batch while one is open joins it.
 @MainActor
 public final class StoreStage {
     /// What the stage holds back, kept as one value so a pass can be undone before a commit.
@@ -104,17 +104,19 @@ public final class StoreStage {
         // ones among them, in log order) back on top.
         let followup = held.isEmpty ? .none : store.apply(batch: held)
         if held.isEmpty { store.withOverlayLifted(writer: "stage commit") {} }
-        store.advanceAppliedSequence(to: highestSeen)
         if followup == .resync || store.needsResync {
+            // A held event the store could not apply exactly: the applied sequence stays where the batch
+            // left it (never past that event), and the snapshot brings the rest.
             store.resync()
-        } else if followup == .personal {
-            store.refetchPersonal()
+            return
         }
+        store.advanceAppliedSequence(to: highestSeen)
+        if followup == .personal { store.refetchPersonal() }
     }
 
-    /// Closes the stage without applying the events it holds: a new connection, whose snapshot is
-    /// the daemon's truth (the held events and sequences are the old connection's). Held intents
-    /// show again as pending.
+    /// Closes the stage without applying the events it holds: its connection ended, and the next
+    /// one's snapshot is the daemon's truth (the held events and sequences are the old connection's).
+    /// Held intents show again as pending.
     func discard() {
         guard isOpen else { return }
         close()
