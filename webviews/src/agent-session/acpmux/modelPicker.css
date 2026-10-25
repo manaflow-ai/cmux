@@ -104,6 +104,7 @@
    column (Base UI's --available-width, MenuPopup `boundary`), its floor giving way in a narrow one;
    submenus are the same surface and keep to theirs. */
 .acpmux-quick-menu {
+  box-sizing: border-box;
   width: max-content;
   min-width: min(220px, var(--available-width, calc(100vw - 24px)));
   max-width: min(300px, var(--available-width, calc(100vw - 24px)));
@@ -111,8 +112,12 @@
   border: 0;
   border-radius: 12px;
   /* Never past the room on its side (Base UI's --available-height, cx-m6jn0): the list scrolls. */
-  max-height: var(--available-height, none);
+  /* Base UI's available height includes the popup's collision room. Keep a viewport fallback for
+     nested menus whose positioner has not published that variable yet. Border-box keeps padding
+     inside the cap, so a long profile list cannot put its last row past the window edge. */
+  max-height: min(var(--available-height, 100vh), calc(100vh - 16px));
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .acpmux-quick-menu .ui-menu-group-label {
   display: block;
@@ -223,9 +228,9 @@
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
 .acpmux-quick-railed { max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
-.acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
+.acpmux-quick-layout { display: flex; align-items: stretch; min-height: 0; max-height: 100%; }
 .acpmux-quick-rail,
-.acpmux-quick-body { overflow-y: auto; }
+.acpmux-quick-body { min-height: 0; overflow-y: auto; }
 .acpmux-quick-rail {
   flex: none;
   min-inline-size: 0;
