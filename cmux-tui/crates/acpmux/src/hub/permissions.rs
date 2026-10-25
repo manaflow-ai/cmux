@@ -132,6 +132,12 @@ impl Hub {
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
+                // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
+                // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
+                let reported = update.get("currentModeId").and_then(Value::as_str);
+                if reported != m.mode_set_by_cmux.as_deref() {
+                    m.mode_set_by_cmux = None;
+                }
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
             "config_option_update" => {
