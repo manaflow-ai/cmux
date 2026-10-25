@@ -123,9 +123,13 @@ struct BlockingWallTimeTests {
             await BlockingViolationTable.$scoped.withValue(table) {
                 await MainActor.run {
                     blockingCall(.processWait) {
-                        RunLoop.main.perform { _ = FileManager.checked.fileExists(atPath: "/") }  // the nested run's work
-                        _ = usleep(1_000)
-                        _ = CFRunLoopRunInMode(.defaultMode, 0, true)
+                        // The nested run's work: a timer, a source, so the mode is not empty (a run of an empty
+                        // mode returns at once); it ends the run.
+                        RunLoop.main.add(Timer(timeInterval: 0, repeats: false) { _ in
+                            _ = FileManager.checked.fileExists(atPath: "/")
+                            CFRunLoopStop(CFRunLoopGetMain())
+                        }, forMode: .default)
+                        _ = CFRunLoopRunInMode(.defaultMode, 5, false)
                     }
                 }
             }
