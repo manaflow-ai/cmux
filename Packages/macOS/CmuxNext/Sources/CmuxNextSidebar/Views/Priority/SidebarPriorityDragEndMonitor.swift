@@ -4,7 +4,7 @@ import CmuxNextCompat
 /// Seam adapter for the Priority panel's short lived drag end signals.
 /// AppKit owns the notification and local monitor delivery; the panel owns the gesture state.
 @MainActor
-final class SidebarPriorityDragObservation {
+final class SidebarPriorityDragEndMonitor {
     private var appObserver: MainActorObservation?
     private var windowObserver: MainActorObservation?
     private var monitor: Any?
@@ -43,7 +43,7 @@ final class SidebarPriorityDragObservation {
         monitor = nil
     }
 
-    deinit {
+    nonisolated deinit {
         if let monitor { NSEvent.removeMonitor(monitor) }
     }
 }

@@ -34,7 +34,7 @@ final class SidebarPriorityPanelView: NSView {
     /// The chat whose row the pointer drags: `placeRows` leaves that row where the pointer has it.
     private(set) var draggingID: String?
     /// While a drag is live, focus loss and app pointer ends cancel it through the seam adapter.
-    private var dragObservation: SidebarPriorityDragObservation?
+    private var dragObservation: SidebarPriorityDragEndMonitor?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -223,7 +223,7 @@ final class SidebarPriorityPanelView: NSView {
 
     private func startDrag(_ id: String) {
         draggingID = id
-        dragObservation = SidebarPriorityDragObservation(
+        dragObservation = SidebarPriorityDragEndMonitor(
             window: window,
             onEvent: { [weak self] type, eventWindow in self?.pointerEventSeen(type, in: eventWindow) },
             onFocusLost: { [weak self] in self?.cancelDrag() }
