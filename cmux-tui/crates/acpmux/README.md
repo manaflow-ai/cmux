@@ -199,8 +199,13 @@ responding model produces, such as Claude's stream and thinking or Codex's moder
 notice; the agent's own usage and turn notices do not count) for that long after its
 prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
 the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
-`stalledTurnMs` (default 21600000, 6 h; 0 turns it off): a running turn whose model has shown
-no sign of work, counted the same way, for that long (four times that while one of its tool
+`stalledTurnMs` (default 600000; 0 turns it off): a running turn with no tool call in
+flight whose model has shown no sign for that long has stalled: `lane.stalledSince` (and
+`turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
+one tool call is in flight, so it never stalls. It is checked when a summary is read, with
+no timer.
+`stalledTurnEndMs` (default 21600000, 6 h; 0 turns it off): a running turn whose model has
+shown no sign of work, counted the same way, for that long (four times that while one of its tool
 calls has not ended; also across a daemon restart: an adopted
 turn's count and start come from its log) ends as failed, `turn_result` `detail` `stalled`
 with `stalledMs` and `errorSource` `acpmux`. The agent gets the cancel and the turn ends even

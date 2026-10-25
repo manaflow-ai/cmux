@@ -15,7 +15,7 @@ async fn listed(daemon: &Daemon, session: &str) -> Value {
 /// huge-blue, 2026-10-25: 72 Codex chats read `running` for a day. Each Codex sent its model
 /// request, never heard back and lived on with the turn open, ignoring the cancel; each daemon
 /// restart adopted its host and rebuilt the turn as just started. The adopted turn keeps its
-/// logged start, and once its model has said nothing for `stalledTurnMs` (counted from the log,
+/// logged start, and once its model has said nothing for `stalledTurnEndMs` (counted from the log,
 /// not from the restart) acpmux ends it as failed, `stalled`; the idle harness exit then stops
 /// the agent, so it no longer holds a slot.
 #[tokio::test]
@@ -25,7 +25,7 @@ async fn an_adopted_turn_whose_model_went_quiet_ends_as_stalled_and_frees_its_ag
     std::fs::write(
         daemon.home.join("config.json"),
         json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
-               "permissionPolicy": "approve-all", "stalledTurnMs": 8000})
+               "permissionPolicy": "approve-all", "stalledTurnEndMs": 8000})
         .to_string(),
     )
     .unwrap();
@@ -64,9 +64,9 @@ async fn an_adopted_turn_whose_model_went_quiet_ends_as_stalled_and_frees_its_ag
     assert_eq!(result["msg"]["errorSource"], "acpmux", "{result}");
     assert_eq!(result["msg"]["turnId"], started["msg"]["turnId"], "{result}");
     let quiet = result["msg"]["stalledMs"].as_u64().unwrap();
-    assert!(quiet >= 8000, "ended before stalledTurnMs: {result}");
+    assert!(quiet >= 8000, "ended before stalledTurnEndMs: {result}");
     let at = result["at"].as_u64().unwrap();
-    assert!(at >= heard + 8000, "ended before stalledTurnMs: {result}");
+    assert!(at >= heard + 8000, "ended before stalledTurnEndMs: {result}");
     // Counted from the restart it would end 8 s after it, past 13 s.
     assert!(at < heard + 12_000, "counted from the restart, not the model's last word: {result}");
     let row = listed(&daemon, &session).await;
@@ -85,7 +85,7 @@ async fn an_adopted_turn_inside_an_open_tool_call_gets_four_periods() {
     std::fs::write(
         daemon.home.join("config.json"),
         json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
-               "permissionPolicy": "approve-all", "stalledTurnMs": 2500})
+               "permissionPolicy": "approve-all", "stalledTurnEndMs": 2500})
         .to_string(),
     )
     .unwrap();

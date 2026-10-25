@@ -152,7 +152,7 @@ class SidebarItemRowView: NSView {
         // caption can truncate, so it keeps the full title.
         // The profile control draws no name, so its tooltip says who it is: the email.
         themedToolTip = info.avatar?.toolTip ?? (style.isIconOnly ? info.toolTip : style == .favorite ? info.title : nil)
-        setAccessibilityLabel(info.title)
+        setAccessibilityLabel(info.accessibilityTitle ?? info.title)
         applyAvatar()
         setAccessibilitySelected(info.isActive)
         alphaValue = info.isMissing ? 0.5 : 1

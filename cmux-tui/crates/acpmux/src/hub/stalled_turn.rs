@@ -9,7 +9,7 @@
 //! wrong, and a prompt queued behind such a turn waited forever.
 //!
 //! A turn that has shown no sign of its model at work (`tap.rs` `from_the_model`, as
-//! `silentTurnMs` counts them) for `stalledTurnMs` (default 6 h; 0 off; four times that while
+//! `silentTurnMs` counts them) for `stalledTurnEndMs` (default 6 h; 0 off; four times that while
 //! one of its tool calls has not ended, so a long command that prints nothing is not cut off,
 //! and a tool that never ends does not hold the turn for good) ends here as failed,
 //! `detail` `stalled`, unless someone holds it: a client that shows the chat, a permission or
@@ -175,7 +175,7 @@ impl Hub {
             }
             let heard = session.heard_at.load(Ordering::Relaxed);
             let silent_ms = (now as i64).saturating_sub(heard).max(0) as u64 / 1_000_000;
-            tracing::warn!(session = %session.id, turn = %turn.turn_id, silent_ms, "the agent has shown no sign of work for stalledTurnMs: ending its turn");
+            tracing::warn!(session = %session.id, turn = %turn.turn_id, silent_ms, "the agent has shown no sign of work for stalledTurnEndMs: ending its turn");
             // A turn nothing took the end of (no task waits on it) is tried again a period later.
             session.stalled_recheck.store(now.saturating_add(period), Ordering::Relaxed);
             let answer =
@@ -240,7 +240,7 @@ impl Hub {
     pub(super) fn stalled_error(answer: &Value) -> Option<RpcError> {
         let ms = answer.pointer("/_meta/acpmux/stalledMs").and_then(Value::as_u64)?;
         let text = format!(
-            "the agent showed no sign of work for {}; acpmux ended the turn (stalledTurnMs)",
+            "the agent showed no sign of work for {}; acpmux ended the turn (stalledTurnEndMs)",
             quiet_for(ms)
         );
         Some(RpcError::new(-32000, text).with_data(json!({"detail": "stalled", "stalledMs": ms})))

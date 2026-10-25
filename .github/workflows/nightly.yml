@@ -2654,7 +2654,7 @@ jobs:
             echo "superseded=false" >> "$GITHUB_OUTPUT"
           fi
 
-  prepare-nightly-variant:
+  prepare-nightly-variant-primary:
     # No environment and no secrets: this job runs code from the bundle (the
     # cmux-tui install and capability probe, the theme picker regression, the
     # sidecar handshake) before signing. build-sign-notarize-nightly signs
@@ -2665,6 +2665,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+    # The owned Mac route is primary; the anchored fallback job below runs only after refusal.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/nightly-next') && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
@@ -2678,8 +2679,21 @@ jobs:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       TRACK: ${{ needs.decide.outputs.track }}
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      PREPARE_FALLBACK: ${{ startsWith(github.job, 'prepare-nightly-variant-fallback') && 'true' || 'false' }}
     steps:
+      - name: Reuse a successful primary preparation
+        id: reuse
+        if: env.PREPARE_FALLBACK == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+        run: |
+          set -euo pipefail
+          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"
+          if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+
       - name: Clear stale git locks (self-hosted reused workspace)
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         shell: bash
         run: |
           # Self-hosted macOS runners reuse the workspace. A job cancelled or
@@ -2693,6 +2707,7 @@ jobs:
 
 
       - name: Checkout build ref
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -2704,12 +2719,13 @@ jobs:
 
 
       - name: Initialize cmux-next notices submodule
-        if: github.ref_name == 'nightly-next'
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (github.ref_name == 'nightly-next') }}
         shell: bash
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
 
       - name: Select Xcode
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: ./scripts/select-ci-xcode.sh
 
 
@@ -2717,6 +2733,7 @@ jobs:
       # signing inputs over ranged HTTP concurrently, while retaining the
       # action downloads as per-artifact fallbacks if a ranged request fails.
       - name: Download signing inputs (parallel)
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         id: signing-inputs-parallel
         continue-on-error: true
         env:
@@ -2759,7 +2776,7 @@ jobs:
 
 
       - name: Download unsigned nightly app
-        if: steps.signing-inputs-parallel.outputs.app_ok != 'true'
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.app_ok != 'true') }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-nightly-unsigned-app
@@ -2767,7 +2784,7 @@ jobs:
 
 
       - name: Download SSH daemon assets
-        if: steps.signing-inputs-parallel.outputs.daemon_ok != 'true'
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.daemon_ok != 'true') }}
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-nightly-remote-daemon
@@ -2775,7 +2792,7 @@ jobs:
 
 
       - name: Download universal Ghostty CLI helper
-        if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.helper_ok != 'true') }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-nightly-ghostty-cli-helper
@@ -2786,8 +2803,8 @@ jobs:
       # ships the Ghostty license tree. This is a small artifact containing
       # only the trees, rather than the complete source offer archive.
       - name: Download the Ghostty dependency license trees (cmux-next)
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
         id: ghostty_licenses
-        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-next-license-trees
@@ -2795,6 +2812,7 @@ jobs:
 
 
       - name: Restore unsigned nightly products
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
           products="build-universal/Build/Products/Release"
@@ -2817,7 +2835,7 @@ jobs:
       # the prepared app is uploaded. The FIFO write blocks until that step
       # reads it, so the status is never lost and nothing polls.
       - name: Prove the browser-data import is compiled out (cx-f58x notary test)
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/browser-data-proof"
@@ -2840,6 +2858,7 @@ jobs:
 
 
       - name: Inject universal Ghostty CLI helper
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
           APP_DIR="build-universal/Build/Products/Release/cmux.app"
@@ -2857,7 +2876,7 @@ jobs:
       # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
       # source offer that names this release's cmux-next source archive and tag.
       - name: Inject the Ghostty dependency licenses (cmux-next)
-        if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
         run: |
           set -euo pipefail
           APP_DIR="build-universal/Build/Products/Release/cmux.app"
@@ -2884,7 +2903,7 @@ jobs:
       # Every variant installs the one commit resolve-nightly-cmux-tui-client
       # chose, from its attested immutable manifest, before thinning.
       - name: Bundle the cmux-tui client
-        if: needs.decide.outputs.fast_build != 'true'
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.fast_build != 'true') }}
         env:
           # install-cmux-tui-client.sh verifies the manifest's build-provenance
           # attestation with gh before trusting it.
@@ -2913,6 +2932,7 @@ jobs:
 
 
       - name: Run bundled Ghostty theme picker helper regression
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
           CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
@@ -2925,7 +2945,7 @@ jobs:
         # signing so the architecture gate remains meaningful. The Chromium
         # engine artifact is arm64 only: an x86_64 variant drops it first and
         # reports the browser unavailable.
-        if: matrix.variant != 'universal'
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (matrix.variant != 'universal') }}
         run: |
           set -euo pipefail
           ./scripts/cmux-next/drop-cef-without-arch.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
@@ -2937,6 +2957,7 @@ jobs:
       # symbol unless the channel release carries gettext-0.24.tar.gz and
       # COPYING.LIB (the prune step keeps those names, they carry no build number).
       - name: Verify shipped libintl has its source
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -2949,6 +2970,7 @@ jobs:
 
 
       - name: Verify nightly binary architectures
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
           APP="build-universal/Build/Products/Release/cmux.app"
@@ -3005,6 +3027,7 @@ jobs:
           fi
 
       - name: Package prepared app for signing
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         run: |
           set -euo pipefail
           mkdir -p prepared-app-handoff
@@ -3013,6 +3036,7 @@ jobs:
       # nightly-sign.yml (run from main) reads this annotation of this job
       # through the checks API and refuses a tarball with another sha256.
       - name: Record prepared app digest
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         env:
           PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
@@ -3023,7 +3047,7 @@ jobs:
           echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
 
       - name: Finish the browser-data import proof
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
         run: |
           set -euo pipefail
           state="$RUNNER_TEMP/browser-data-proof"
@@ -3039,6 +3063,7 @@ jobs:
           esac
 
       - name: Upload prepared app for signing
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
@@ -3047,6 +3072,436 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+
+  prepare-nightly-variant-fallback:
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
+    # This job must not be skipped when the primary succeeds: GitHub skips every job whose
+    # needs chain holds a skipped job unless its `if` calls a status function, so a skipped
+    # fallback skipped signing and publishing (runs 40154003204 and 40155340212 built an app
+    # and published nothing). After a successful primary it runs on Linux, finds the primary's
+    # result and does nothing; after a failed primary it prepares on the Blacksmith Mac.
+    if: always() && (needs.prepare-nightly-variant-primary.result == 'failure' || needs.prepare-nightly-variant-primary.result == 'success') && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ${{ needs.prepare-nightly-variant-primary.result == 'success' && 'ubuntu-24.04' || 'blacksmith-12vcpu-macos-26' }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.decide.outputs.variants) }}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      NIGHTLY_VARIANT: ${{ matrix.variant }}
+      NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
+      TRACK: ${{ needs.decide.outputs.track }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      PREPARE_FALLBACK: 'true'
+    steps:
+      - name: Reuse a successful primary preparation
+        id: reuse
+        if: env.PREPARE_FALLBACK == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRIMARY_RESULT: ${{ needs.prepare-nightly-variant-primary.result }}
+          ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+        run: |
+          set -euo pipefail
+          # Every primary leg uploaded its prepared app; no API call, so a spent
+          # installation rate limit cannot fail this no-op leg.
+          if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"
+          if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Clear stale git locks (self-hosted reused workspace)
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
+
+      - name: Checkout build ref
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          # Main and RC signing do not need submodules. nightly-next's notice
+          # check reads ghostty-next/build.zig.zon, so initialize that optional
+          # submodule in the next step only for the cmux-next track.
+          submodules: false
+
+
+      - name: Initialize cmux-next notices submodule
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (github.ref_name == 'nightly-next') }}
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+
+      - name: Select Xcode
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        run: ./scripts/select-ci-xcode.sh
+
+
+      # download-artifact reads each blob over one connection. Fetch all three
+      # signing inputs over ranged HTTP concurrently, while retaining the
+      # action downloads as per-artifact fallbacks if a ranged request fails.
+      - name: Download signing inputs (parallel)
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        id: signing-inputs-parallel
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          mkdir -p nightly-inputs/app nightly-inputs/ghostty remote-daemon-assets
+          python3 scripts/ci/download-run-artifact.py \
+            --name cmux-nightly-unsigned-app --out nightly-inputs/app \
+            --connections 64 \
+            >"$RUNNER_TEMP/nightly-app-download.log" 2>&1 &
+          app_pid=$!
+          python3 scripts/ci/download-run-artifact.py \
+            --name cmux-nightly-remote-daemon --out remote-daemon-assets \
+            >"$RUNNER_TEMP/nightly-daemon-download.log" 2>&1 &
+          daemon_pid=$!
+          python3 scripts/ci/download-run-artifact.py \
+            --name cmux-nightly-ghostty-cli-helper --out nightly-inputs/ghostty \
+            >"$RUNNER_TEMP/nightly-helper-download.log" 2>&1 &
+          helper_pid=$!
+          wait "$app_pid"; app_status=$?
+          wait "$daemon_pid"; daemon_status=$?
+          wait "$helper_pid"; helper_status=$?
+          for log in \
+            "$RUNNER_TEMP/nightly-app-download.log" \
+            "$RUNNER_TEMP/nightly-daemon-download.log" \
+            "$RUNNER_TEMP/nightly-helper-download.log"; do
+            cat "$log"
+          done
+          app_ok=false; daemon_ok=false; helper_ok=false
+          [ "$app_status" -eq 0 ] && app_ok=true
+          [ "$daemon_status" -eq 0 ] && daemon_ok=true
+          [ "$helper_status" -eq 0 ] && helper_ok=true
+          {
+            echo "app_ok=$app_ok"
+            echo "daemon_ok=$daemon_ok"
+            echo "helper_ok=$helper_ok"
+          } >> "$GITHUB_OUTPUT"
+          exit 0
+
+
+      - name: Download unsigned nightly app
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.app_ok != 'true') }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-nightly-unsigned-app
+          path: nightly-inputs/app
+
+
+      - name: Download SSH daemon assets
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.daemon_ok != 'true') }}
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-nightly-remote-daemon
+          path: remote-daemon-assets
+
+
+      - name: Download universal Ghostty CLI helper
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (steps.signing-inputs-parallel.outputs.helper_ok != 'true') }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-nightly-ghostty-cli-helper
+          path: nightly-inputs/ghostty
+
+
+      # Blocking, like the step that builds it: a nightly-next app always
+      # ships the Ghostty license tree. This is a small artifact containing
+      # only the trees, rather than the complete source offer archive.
+      - name: Download the Ghostty dependency license trees (cmux-next)
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
+        id: ghostty_licenses
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-license-trees
+          path: nightly-inputs/license-trees
+
+
+      - name: Restore unsigned nightly products
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          products="build-universal/Build/Products/Release"
+          mkdir -p "$products"
+          tar -C "$products" -xzf nightly-inputs/app/cmux-nightly-unsigned.tar.gz
+
+      # The cx-f58x browser-data scan runs here, on the per-run hosted lane,
+      # before anything is injected or signed. In build-nightly-app it took
+      # 54-55 s of the 12-14 minute warm slot that serializes every nightly-next
+      # build (runs 39371003711, 39373745957, 39374887542). It scans file
+      # contents, so the strip before transfer does not hide anything from it;
+      # it now also covers what build-nightly-app adds after the compile (the
+      # Computer Use helper, cmux-symbols.bin), which is the bundle that ships.
+      # The password-reader proof reads symbols with nm, which the strip
+      # removes, so it stays right after the compile in build-nightly-app.
+      # The scan reads every file of the bundle (93-121 s in runs 39508830200,
+      # 39509829525, 39519824930), so it runs in the background on an APFS
+      # clone of the bundle as it is here, while the steps below change the
+      # original; "Finish the browser-data import proof" waits for it before
+      # the prepared app is uploaded. The FIFO write blocks until that step
+      # reads it, so the status is never lost and nothing polls.
+      - name: Prove the browser-data import is compiled out (cx-f58x notary test)
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/browser-data-proof"
+          rm -rf "$state"
+          mkdir -p "$state/snapshot"
+          # clonefile(2) is instant on APFS; ditto is the copy elsewhere.
+          app="build-universal/Build/Products/Release/cmux.app"
+          if ! cp -cR "$app" "$state/snapshot/cmux.app" 2>"$state/clone.err"; then
+            echo "cp -c failed ($(head -c 200 "$state/clone.err")); copying with ditto"
+            rm -rf "$state/snapshot/cmux.app"
+            ditto "$app" "$state/snapshot/cmux.app"
+          fi
+          mkfifo "$state/status.fifo"
+          (
+            status=0
+            scripts/ci/check-browser-data-import-absent.sh "$state/snapshot/cmux.app" || status=$?
+            echo "$status" >"$state/status.fifo"
+          ) >"$state/proof.log" 2>&1 </dev/null &
+          echo "browser-data import proof started on a clone of the bundle (PID $!)"
+
+
+      - name: Inject universal Ghostty CLI helper
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          APP_DIR="build-universal/Build/Products/Release/cmux.app"
+          if [ ! -d "$APP_DIR" ]; then
+            echo "Built app not found at $APP_DIR" >&2
+            exit 1
+          fi
+          DEST="$APP_DIR/Contents/Resources/bin/ghostty"
+          mkdir -p "$(dirname "$DEST")"
+          install -m 755 nightly-inputs/ghostty/ghostty "$DEST"
+          echo "Injected Ghostty CLI helper architectures: $(lipo -archs "$DEST")"
+
+
+      # The Ghostty dependency license tree (collect-ghostty-licenses.py, checked
+      # by verify-ghostty-license-bundle.py) ships in the app, with the MPL-2.0
+      # source offer that names this release's cmux-next source archive and tag.
+      - name: Inject the Ghostty dependency licenses (cmux-next)
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true') }}
+        run: |
+          set -euo pipefail
+          APP_DIR="build-universal/Build/Products/Release/cmux.app"
+          tree="nightly-inputs/license-trees/ghostty-licenses"
+          python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
+            --root "$tree" --revision "$(git rev-parse HEAD:ghostty)"
+          rm -rf "$APP_DIR/Contents/Resources/ghostty-licenses"
+          cp -R "$tree" "$APP_DIR/Contents/Resources/ghostty-licenses"
+          # bin/cmux's libghostty-vt: the submodule ghostty-vt-sys's build.rs
+          # selects, at this commit's gitlink (the resolved cmux-tui client
+          # commit has the same cmux-tui tree and gitlinks: pin-cmux-tui.sh key).
+          # Today: Contents/Resources/ghostty-next-licenses.
+          vt="$(python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --print-source | sed -n 's/^libghostty-vt source: //p')"
+          vt_name="${vt%% *}" vt_revision="${vt##* }"
+          if [[ "$vt_name" != ghostty ]]; then
+            next_tree="nightly-inputs/license-trees/$vt_name-licenses"
+            python3 cmux-tui/build-support/notices/ghostty/verify-ghostty-license-bundle.py \
+              --root "$next_tree" --revision "$vt_revision"
+            rm -rf "$APP_DIR/Contents/Resources/$vt_name-licenses"
+            cp -R "$next_tree" "$APP_DIR/Contents/Resources/$vt_name-licenses"
+          fi
+
+
+      # Every variant installs the one commit resolve-nightly-cmux-tui-client
+      # chose, from its attested immutable manifest, before thinning.
+      - name: Bundle the cmux-tui client
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (needs.decide.outputs.fast_build != 'true') }}
+        env:
+          # install-cmux-tui-client.sh verifies the manifest's build-provenance
+          # attestation with gh before trusting it.
+          GH_TOKEN: ${{ github.token }}
+          CMUX_TUI_CLIENT_COMMIT: ${{ needs.resolve-nightly-cmux-tui-client.outputs.commit }}
+          CMUX_TUI_CLIENT_KEY: ${{ needs.resolve-nightly-cmux-tui-client.outputs.key }}
+          # Per-job cache, so legs sharing a host never race on one download.
+          CMUX_TUI_CLIENT_CACHE: ${{ runner.temp }}/cmux-tui-client
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
+          [[ "$cmux_tui_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "resolve-nightly-cmux-tui-client produced no commit" >&2; exit 1; }
+          ./scripts/install-cmux-tui-client.sh \
+            "$app" \
+            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+            --expected-commit "$cmux_tui_commit" \
+            --require-capability wireguard-hub \
+            --require-acpmux
+          # The client and its SSH payloads arrive after the build job's strip, so
+          # strip again; already-stripped binaries are unchanged. bin/cmux-tui and
+          # bin/acpmux are symlinks to bin/cmux.
+          ./scripts/strip-release-bundle.sh "$app"
+          ./scripts/cmux-next/write-cmux-tui-version.sh "$app" "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
+          ./scripts/cmux-next/check-daemon-capabilities.sh --static-only --binary "$app/Contents/Resources/bin/cmux-tui"
+
+
+      - name: Run bundled Ghostty theme picker helper regression
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
+            ./tests/test_bundled_ghostty_theme_picker_helper.sh
+
+
+      - name: Thin bundle to the variant architecture
+        # The fast build is already compiled arm64, but the downloaded cmux-tui
+        # client can still be universal. Thin every non-universal artifact before
+        # signing so the architecture gate remains meaningful. The Chromium
+        # engine artifact is arm64 only: an x86_64 variant drops it first and
+        # reports the browser unavailable.
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (matrix.variant != 'universal') }}
+        run: |
+          set -euo pipefail
+          ./scripts/cmux-next/drop-cef-without-arch.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
+          ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
+
+
+      # GNU libintl is LGPL-2.1-or-later. GhosttyKit and the ghostty CLI helper
+      # are built with -Di18n=false, so no shipped Mach-O may define a libintl
+      # symbol unless the channel release carries gettext-0.24.tar.gz and
+      # COPYING.LIB (the prune step keeps those names, they carry no build number).
+      - name: Verify shipped libintl has its source
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          args=(build-universal/Build/Products/Release/cmux.app)
+          if [ -n "${CHANNEL_RELEASE_TAG:-}" ]; then
+            args+=(--release-repo "$GITHUB_REPOSITORY" --release-tag "$CHANNEL_RELEASE_TAG")
+          fi
+          python3 scripts/verify_app_libintl.py "${args[@]}"
+
+
+      - name: Verify nightly binary architectures
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          APP="build-universal/Build/Products/Release/cmux.app"
+          for binary in \
+            "$APP/Contents/MacOS/cmux" \
+            "$APP/Contents/Resources/bin/cmux" \
+            "$APP/Contents/Resources/bin/ghostty" \
+            "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
+            "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+          do
+            archs="$(lipo -archs "$binary")"
+            echo "$binary: $archs"
+            if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+              [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+            else
+              [ "$archs" = "$NIGHTLY_VARIANT" ]
+            fi
+          done
+          # The cmux-next nightly carries the OptChat Chief with the app's slices.
+          if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
+            for helper in optchat-chief cmux-mobile-host; do
+              binary="$APP/Contents/Resources/bin/$helper"
+              [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
+              archs="$(lipo -archs "$binary")"
+              echo "$binary: $archs"
+              if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+                [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+              else
+                [ "$archs" = "$NIGHTLY_VARIANT" ]
+              fi
+            done
+          fi
+          # bin/cmux is the cmux-tui binary; cmux-tui and acpmux are symlinks to it.
+          for alias in cmux-tui acpmux; do
+            [ "$(readlink "$APP/Contents/Resources/bin/$alias")" = cmux ] || {
+              echo "bin/$alias is not a symlink to cmux" >&2; exit 1; }
+          done
+          if [ "$NIGHTLY_VARIANT" != "universal" ]; then
+            # No fat Mach-O may survive thinning anywhere in the bundle.
+            # Only files with a Mach-O or fat magic reach `file` (one process
+            # each); the per-file scan of the whole bundle took 90 s.
+            fat="$(find "$APP" -type f -print0 | python3 scripts/list-macho-candidates.py \
+              | xargs -0 sh -c 'for f do if file -b "$f" | grep -q "Mach-O universal"; then echo "$f"; fi; done' sh)"
+            if [ -n "$fat" ]; then
+              echo "Fat Mach-O files remain after thinning:" >&2
+              echo "$fat" >&2
+              exit 1
+            fi
+          fi
+          if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "arm64 x86_64"
+          else
+            ./scripts/verify-diff-sidecar-artifact.sh "$APP/Contents/Resources/bin/cmux-diff-sidecar" --archs "$NIGHTLY_VARIANT"
+          fi
+
+      - name: Package prepared app for signing
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p prepared-app-handoff
+          tar -C build-universal/Build/Products/Release -czf prepared-app-handoff/cmux-prepared-app.tar.gz cmux.app
+
+      # nightly-sign.yml (run from main) reads this annotation of this job
+      # through the checks API and refuses a tarball with another sha256.
+      - name: Record prepared app digest
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        env:
+          PREPARED_APP_ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
+        run: |
+          set -euo pipefail
+          digest="$(shasum -a 256 prepared-app-handoff/cmux-prepared-app.tar.gz | awk '{print $1}')"
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
+          echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+
+      - name: Finish the browser-data import proof
+        if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')) }}
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/browser-data-proof"
+          [ -p "$state/status.fifo" ] || { echo "the browser-data import proof was never started" >&2; exit 1; }
+          status=""
+          read -r status <"$state/status.fifo" || true
+          cat "$state/proof.log"
+          rm -rf "$state"
+          case "$status" in
+            0) ;;
+            "") echo "the browser-data import proof ended without a status" >&2; exit 1 ;;
+            *) echo "the browser-data import proof failed (status $status)" >&2; exit 1 ;;
+          esac
+
+      - name: Upload prepared app for signing
+        if: env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: prepared-app-handoff/cmux-prepared-app.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 3
+
+
+  prepare-nightly-variant:
+    needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
+    if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Accept primary or fallback preparation
+        run: echo "nightly preparation completed on the primary or fallback route"
 
   build-sign-notarize-nightly:
     # Production secrets: GitHub releases them only to protected refs (the

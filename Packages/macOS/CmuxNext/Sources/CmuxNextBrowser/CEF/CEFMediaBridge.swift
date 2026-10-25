@@ -87,11 +87,12 @@ final class CEFMediaBridge {
         return true
     }
 
-    /// The page's media report (a binding call's payload, or a page channel post): untrusted JSON.
+    /// One frame's media report (a binding call's payload, or a page channel post): untrusted JSON,
+    /// `{frame, report}` (``BrowserMediaState/frameReport(json:)``).
     func report(_ payload: String) {
-        guard let tab, let media = BrowserMediaState.report(json: payload) else { return }
-        tab.machine.apply(.mediaChanged(media))
-        tab.keepAudioMute(after: media)
+        guard let tab, let report = BrowserMediaState.frameReport(json: payload) else { return }
+        tab.machine.apply(.mediaChanged(report.media, frame: report.frame))
+        tab.keepAudioMute(after: report.media)
     }
 
     /// A refused protected media request: the key system's name, untrusted.

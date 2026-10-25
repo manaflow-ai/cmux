@@ -742,6 +742,17 @@ const USER_STATUS_HEIGHT = 20;
 const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
+/// A sub-session card (subagents/AgentCard.css): its 10px margins, 12px padding and 24px head, and
+/// while it works or waits on the person, its 16px doing line.
+const cardHeight = (state: string) => 46 + (state === "working" || state === "input" ? 16 : 0);
+
+/// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
+/// about 60 characters, and the toggle once it is cut.
+function replyHeight(reply: string): number {
+  const lines = reply.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 60)), 0);
+  return Math.min(lines, 3) * 16 + (lines > 3 ? 20 : 0);
+}
+
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 2;
 const TOOL_ROW_HEIGHT = 22;
@@ -756,7 +767,21 @@ function activityStepHeight(item: AcpmuxActivity): number {
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
     if (!subsession) return 26;
-    if (subsession.tool === "wait" && !subsession.running) return Math.max(40, subsession.sessions.length * 80);
+    // Each card (cardHeight), a finished one's reply under it (replyHeight), and the Raw toggle's row.
+    if ((subsession.tool === "wait" || subsession.tool === "list") && !subsession.running)
+      return Math.max(
+        40,
+        subsession.sessions.reduce(
+          (sum, session) =>
+            sum +
+            cardHeight(session.state) +
+            (session.reply && session.state !== "working" ? replyHeight(session.reply) : 0),
+          0,
+        ) + TOOL_ROW_HEIGHT,
+      );
+    // A start's card, its doing line while it starts, and its prompt (cut like a reply).
+    if (subsession.tool === "start" && subsession.prompt)
+      return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
     return 40;
   }
   switch (tool.kind) {
@@ -1175,6 +1200,7 @@ function measuredRowHeight(
   cache: Map<string, PreparedRow>,
   beforeFooter = false,
   lastTurn = false,
+  sessionId?: string,
 ): number {
   const finish = (height: number) =>
     height === 0 || !lastTurn ? height : height + TURN_GAP - (row.kind === "activity" ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
@@ -1191,11 +1217,16 @@ function measuredRowHeight(
   // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
   if (row.incoming?.kind === "message") {
+    // In Minimal Mode a closed message is its line alone, images too; one the person opened
+    // (incomingOpened.ts) is its whole card, uncut.
+    const minimal = chatDisplay().minimal;
+    const opened = minimal && messageOpened(sessionId, row.id);
+    if (minimal && !opened) return finish(26 + 4 + MESSAGE_GAP);
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
     const lines = text ? textHeight(text, Math.max(80, width - 46), receivedPrepared) : lineHeight;
-    const card = 4 + 16 + Math.min(lines, RECEIVED_LINES * lineHeight) + 6;
+    const card = 4 + 16 + (opened ? lines : Math.min(lines, RECEIVED_LINES * lineHeight)) + 6;
     return finish(26 + 4 + card + MESSAGE_GAP + (row.images?.length ? 128 : 0));
   }
   if (row.incoming?.kind === "notice") return finish(2 + 26 + MESSAGE_GAP);
@@ -1260,6 +1291,8 @@ export function layoutConversation(
   /// The last layout at this width, whose rows (by object) the new rows may start with: those
   /// keep their places, and only the rows after the first change are placed again.
   previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
+  sessionId?: string,
 ): ConversationLayout {
   const tops = new Float64Array(rows.length);
   const heights = new Float64Array(rows.length);
@@ -1280,10 +1313,17 @@ export function layoutConversation(
     heights.set(previous.layout.heights.subarray(0, start));
   }
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
+  // Hidden bookkeeping can span many rows. Keep the next drawn row for the whole
+  // pass: searching anew for every hidden row makes one run quadratic.
+  let nextDrawn = start;
   for (let index = start; index < rows.length; index += 1) {
     tops[index] = top;
     const row = rows[index]!;
-    const edge = rowEdge(row, nextDrawnRow(rows, index));
+    if (nextDrawn <= index) {
+      nextDrawn = index + 1;
+      while (nextDrawn < rows.length && drawsNothing(rows[nextDrawn]!)) nextDrawn += 1;
+    }
+    const edge = rowEdge(row, rows[nextDrawn]);
     const kept = known?.get(row);
     let height: number;
     if (kept && kept.width === width && kept.edge === edge) height = kept.height;
@@ -1292,7 +1332,7 @@ export function layoutConversation(
       height =
         customHeight !== undefined && Number.isFinite(customHeight) && customHeight > 0
           ? customHeight
-          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last-turn");
+          : measuredRowHeight(row, width, cache, edge === "footer", edge === "last-turn", sessionId);
       known?.set(row, { width, height, edge });
     }
     heights[index] = height;
@@ -1409,7 +1449,8 @@ import { type Translate, translate } from "./i18n";
 import { lastBlockBoundary } from "./conversation/incrementalMarkdown";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
 import { chatColumn, type ChatColumn } from "./chatWidth";
-import { currentChatMetrics } from "./chatDisplay";
+import { chatDisplay, currentChatMetrics } from "./chatDisplay";
+import { messageOpened } from "./conversation/incomingOpened";
 
 /// The pane's fallback accessible name and problem-only header status.
 export function paneHeader(

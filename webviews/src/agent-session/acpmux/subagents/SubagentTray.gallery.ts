@@ -213,7 +213,7 @@ export default agentPaneEntry({
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
     "after-latest-message": {
-      note: "Labs/fixture placement: the running command tray sits directly after the latest message while the default remains above the composer. Expanding a command keeps its live tail bounded to the open row.",
+      note: "Labs/fixture placement: the running command tray sits directly after the latest message while the default remains above the composer. A click opens the command's row; its live tail needs a connected process source, which the gallery has none of.",
       theme: { subagentTrayPlacement: "after-latest-message" },
       play: async (ctx) => {
         await trayLines(1)(ctx);
@@ -224,7 +224,10 @@ export default agentPaneEntry({
         if (dock && reserve && reserve.getBoundingClientRect().bottom > dock.getBoundingClientRect().top + 1)
           throw new Error("after-latest tray must remain above the full dock");
         await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__tail"));
+        await ctx.waitFor(() => {
+          const row = ctx.document.querySelector(".acpmux-running-tray .acpmux-agent-line__button");
+          return row?.getAttribute("aria-expanded") === "true";
+        });
       },
       snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
     },
