@@ -36,6 +36,7 @@ impl Launch {
     /// Checks the launcher flags and reads the prompt file, before anything
     /// is created; every mistake fails here.
     pub(super) fn prepare(args: &NewArgs) -> Result<Self> {
+        crate::beads::checked(&args.beads)?;
         let launcher = args.worktree.is_some()
             || args.prompt_file.is_some()
             || args.report_to.is_some()

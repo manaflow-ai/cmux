@@ -33,9 +33,12 @@ pub enum Command {
     /// print its host, ids, harness, model, folder, lane, pull requests, last turn and link.
     #[command(alias = "find")]
     Resolve {
-        /// The link, an id, `HOST/NAME`, a name, or `@` for this session.
+        /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
         query: String,
     },
+    /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
+    #[command(subcommand)]
+    Bead(crate::cli::beads::BeadCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
@@ -1111,6 +1114,9 @@ pub struct NewArgs {
     /// the first prompt is not sent to it again.
     #[arg(long)]
     pub reuse: bool,
+    /// Link the session to this tracker bead (`acpmux bead`); repeat for more.
+    #[arg(long = "bead", value_name = "ID")]
+    pub beads: Vec<String>,
 }
 
 /// Map the grouped spellings onto the flat handlers.
