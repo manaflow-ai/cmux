@@ -1227,9 +1227,8 @@ fn server_status_rejects_a_malformed_lifecycle_readiness_value() {
 #[test]
 fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
     fn fake_server(listener: UnixListener, identified_session: &'static str, expect_stop: bool) {
-        // Answers one identify on a new connection; returns its reader and writer.
-        let identify = |listener: &UnixListener| {
-            let stream = accept_with_timeout(listener, Duration::from_secs(5)).unwrap();
+        // Answers the identify a new connection opens with; returns its reader and writer.
+        let identify = |stream: UnixStream| {
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut writer = stream;
             let mut request = String::new();
@@ -1256,15 +1255,25 @@ fn server_stop_uses_identify_fence_and_refuses_cross_session_targeting() {
         };
         // `server stop` first waits for a restoring owner on a connection of its own
         // (e64eb4d6735: an identify it closes once the owner is ready), then runs the
-        // lifecycle exchange on a second one.
-        drop(identify(&listener));
-        let (mut reader, mut writer) = identify(&listener);
-        let mut request = String::new();
-        if !expect_stop {
-            return;
-        }
-        request.clear();
-        reader.read_line(&mut request).unwrap();
+        // lifecycle exchange on another one: every connection gets its identify answered,
+        // and one that sends nothing more is the wait's.
+        let mut first = true;
+        let (mut writer, request) = loop {
+            let timeout = Duration::from_secs(if first { 5 } else { 2 });
+            first = false;
+            let Ok(stream) = accept_with_timeout(&listener, timeout) else {
+                assert!(!expect_stop, "the stop never sent shutdown-daemon");
+                return;
+            };
+            let (mut reader, writer) = identify(stream);
+            let mut request = String::new();
+            let _ = reader.read_line(&mut request);
+            if request.is_empty() {
+                continue;
+            }
+            assert!(expect_stop, "a refused stop sent {request}");
+            break (writer, request);
+        };
         let request: serde_json::Value = serde_json::from_str(&request).unwrap();
         assert_eq!(request["cmd"], "shutdown-daemon");
         assert_eq!(request["pid"], 4242);

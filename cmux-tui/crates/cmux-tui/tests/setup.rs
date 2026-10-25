@@ -95,7 +95,7 @@ case "$script" in *"echo ACPMUX_UPDATE_LOCKED"*)
 esac
 # Every step of it is fenced for that lease: answer the script inside the fence.
 case "$script" in *"} 8>&- 9>&-")
-  script=$(printf '%s\n' "$script" | awk 'f && $0 != "} 8>&- 9>&-" {print} /exit 75; }$/ {getline; f=1}');;
+  script=$(printf '%s\n' "$script" | awk '!f && $0 == "{" {f=1; next} f && $0 != "} 8>&- 9>&-" {print}');;
 esac
 case "$script" in
   # `acp host update`'s probe (c9e045f2e48): this machine's own `uname -sm`,
