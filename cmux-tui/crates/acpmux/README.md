@@ -215,7 +215,10 @@ names) not running or waiting. The chat stays open and its idle agent exits as a
 does; the next prompt resumes it.
 Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
-(default 30; 0 keeps them), checked at the daemon's start and daily.
+(default 30; 0 keeps them), checked at the daemon's start and daily. A larger file streams
+in 512 KiB chunks (`_acpmux/file_put_begin`, `_chunk`, `_finish`, `_cancel`) and has no size
+cap: it is refused only when the machine's disk lacks room for it (`filePut.noSpace`, with
+`machine` and `freeBytes`). A cancel deletes the partial file; one never finished goes after a day.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets an instant first-message placeholder, then a 3-6 word model title, logged
