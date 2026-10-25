@@ -125,12 +125,21 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     # cmux NEXT: SUFeedURL is feedBase/appcast-<variant>.xml; the upload writes
     # NIGHTLY_NEXT_R2_PREFIX + each of the track's feeds, served from the same path.
     assert field(identity_block(), "feedBase") == "process.env.NIGHTLY_NEXT_FEED_BASE"
-    assert '"${CHANNEL_FEED_BASE}/${NIGHTLY_APPCAST}"' in WORKFLOW
+    # The signing job hands prepare_variant decide's feedBase, and prepare_variant
+    # writes its third argument into SUFeedURL.
+    builder = job_containing("          prepare_variant \\\n")
+    assert job_env(builder, "CHANNEL_FEED_BASE") == "${{ needs.decide.outputs.feed_base }}"
+    assert "\n      feed_base: ${{ steps.decide.outputs.feed_base }}\n" in job_block("decide")
+    assert "core.setOutput('feed_base', channelIdentity.feedBase);" in WORKFLOW
+    assert re.search(r'\n {10}prepare_variant \\\n {12}"\$APP_DIR" \\\n {12}"\$CHANNEL_BUNDLE_ID" \\\n {12}"\$\{CHANNEL_FEED_BASE\}/\$\{NIGHTLY_APPCAST\}"\n', builder)
+    assert 'local feed_url="$3"' in builder and builder.count(":SUFeedURL string") == 1
+    assert 'Add :SUFeedURL string ${feed_url}"' in builder
     assert 'NIGHTLY_APPCAST="appcast-${NIGHTLY_VARIANT}.xml"' in WORKFLOW
     assert "? ['arm64']" in WORKFLOW and "? ['appcast-arm64.xml']" in WORKFLOW
     upload = WORKFLOW[WORKFLOW.index("- name: Upload nightly-next appcasts to R2"):]
     upload = upload[:upload.index("\n      - name:", 10)]
     assert 'for appcast in $NIGHTLY_FEEDS; do' in upload and 'key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"' in upload
+    assert upload.count("--key ") == 1 and '--key "$key"' in upload
     # ...and NIGHTLY_FEEDS in that job is decide's feed list, the one checked above.
     publisher = job_containing("- name: Upload nightly-next appcasts to R2")
     assert job_env(publisher, "NIGHTLY_FEEDS") == "${{ needs.decide.outputs.feeds }}"
@@ -150,6 +159,8 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     assert 'pb "Set :SUFeedURL $LEGACY_FEED_URL"' in script and script.count(":SUFeedURL") == 1
     assert f'prefix="${{NIGHTLY_NEXT_LEGACY_FEED_BASE#{host}}}"' in publish
     assert 'upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST"' in publish
+    # upload() puts its file at its second argument, the key checked above.
+    assert publish.count("--key ") == 1 and '--bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$2"' in publish
     assert legacy_base.startswith(host) and legacy_base != next_base
     # main's feed watch alarms when this feed falls behind; it must watch the same URL.
     assert f"{legacy_base}/appcast-arm64.xml" == "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
