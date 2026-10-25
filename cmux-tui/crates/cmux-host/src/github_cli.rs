@@ -489,8 +489,9 @@ fn self_program() -> Option<PathBuf> {
 }
 
 /// `argv0` as an absolute path: joined to `cwd` when it names a directory,
-/// else the first `PATH` entry holding it (a relative entry joined to `cwd`).
-/// Symlinks are kept: the name `cmux` selects the verb.
+/// else the first `PATH` entry holding it as an executable file (a relative
+/// entry joined to `cwd`), as a shell finds it. Symlinks are kept: the name
+/// `cmux` selects the verb.
 pub fn program_path(
     argv0: &Path,
     path_var: Option<std::ffi::OsString>,
@@ -500,19 +501,25 @@ pub fn program_path(
     if argv0.components().count() > 1 {
         return Some(absolute(argv0.to_path_buf()));
     }
-    std::env::split_paths(&path_var?).map(|dir| absolute(dir.join(argv0))).find(|p| p.is_file())
+    std::env::split_paths(&path_var?).map(|dir| absolute(dir.join(argv0))).find(|p| executable(p))
 }
 
-/// The `git config --global` argument lists `setup` (or `--unset`) runs.
-pub fn setup_commands(helper: &str, unset: bool) -> Vec<Vec<String>> {
+fn executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+/// The `git config --global` argument lists `setup` runs for `helper`, or
+/// `setup --unset` (`None`: unsetting needs no path to this binary).
+pub fn setup_commands(helper: Option<&str>) -> Vec<Vec<String>> {
     let cmd = |args: &[&str]| {
         let mut out = vec!["config".to_owned(), "--global".to_owned()];
         out.extend(args.iter().map(|a| (*a).to_owned()));
         out
     };
-    if unset {
+    let Some(helper) = helper else {
         return vec![cmd(&["--unset-all", HOST_KEY]), cmd(&["--unset-all", PATH_KEY])];
-    }
+    };
     vec![
         // An empty value resets the helper list for github.com (a gh login's
         // `gh auth git-credential` or a store), so only this helper answers.
@@ -528,14 +535,15 @@ fn setup(args: &[String]) -> u8 {
         [flag] if flag == "--unset" => true,
         _ => return usage("setup takes --unset only"),
     };
-    let helper = match self_program() {
-        Some(program) => helper_value(&program),
-        None => {
-            eprintln!("cmux github setup: cannot find this binary's path");
-            return 1;
-        }
+    let helper = if unset {
+        None
+    } else if let Some(program) = self_program() {
+        Some(helper_value(&program))
+    } else {
+        eprintln!("cmux github setup: cannot find this binary's path");
+        return 1;
     };
-    for args in setup_commands(&helper, unset) {
+    for args in setup_commands(helper.as_deref()) {
         let status = std::process::Command::new("git").args(&args).status();
         match status {
             Ok(s) if s.success() => {}
@@ -852,11 +860,17 @@ mod tests {
     fn setup_finds_this_binary_by_an_absolute_path() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir(dir.path().join("bin")).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        let exe = std::fs::Permissions::from_mode(0o755);
         std::fs::write(dir.path().join("bin/cmux"), "").unwrap();
+        std::fs::set_permissions(dir.path().join("bin/cmux"), exe).unwrap();
+        // A non-executable `cmux` earlier on PATH is skipped, as a shell does.
+        std::fs::create_dir(dir.path().join("decoy")).unwrap();
+        std::fs::write(dir.path().join("decoy/cmux"), "").unwrap();
         let cwd = dir.path();
         let path = |v: &str| Some(std::ffi::OsString::from(v));
         let found = |argv0: &str, var| program_path(Path::new(argv0), var, cwd);
-        assert_eq!(found("cmux", path("/nonexistent:bin")), Some(cwd.join("bin/cmux")));
+        assert_eq!(found("cmux", path("/nonexistent:decoy:bin")), Some(cwd.join("bin/cmux")));
         assert_eq!(found("bin/cmux", None), Some(cwd.join("bin/cmux")));
         assert_eq!(
             found("/opt/cmux/current/bin/cmux", None),
@@ -870,11 +884,11 @@ mod tests {
         let helper = helper_value(Path::new("/opt/cmux/current/bin/cmux"));
         assert_eq!(helper, "!'/opt/cmux/current/bin/cmux' github credential");
         assert_eq!(helper_value(Path::new("/a'b/cmux")), r"!'/a'\''b/cmux' github credential");
-        let on = setup_commands(&helper, false);
+        let on = setup_commands(Some(&helper));
         assert_eq!(on[0], strings(&["config", "--global", "--replace-all", HOST_KEY, ""]));
         assert_eq!(on[1], strings(&["config", "--global", "--add", HOST_KEY, &helper]));
         assert_eq!(on[2], strings(&["config", "--global", "--replace-all", PATH_KEY, "true"]));
-        let off = setup_commands(&helper, true);
+        let off = setup_commands(None);
         assert_eq!(
             off,
             vec![
@@ -909,7 +923,7 @@ mod tests {
 
     #[test]
     fn the_ask_timeout_outlasts_the_agents_queue_and_one_mint() {
-        let one_mint = Duration::from_secs(6 * 20);
+        let one_mint = Duration::from_secs(120);
         let need = crate::cloud::github_minter::MAX_QUEUE_WAIT.checked_add(one_mint);
         assert!(need.is_some_and(|need| ASK_TIMEOUT >= need));
     }
