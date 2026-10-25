@@ -62,12 +62,14 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # EARLIER run's build with this run's tools; this run's build commit does not
 # apply to them (the recovered build carries its own, from its manifest).
 # The cmux NIGHTLY-identity jobs (sign-, verify- and publish-nightly-identity-legacy)
-# build nothing either: they download the cmux NEXT DMG publish-nightly released,
-# re-sign that build as cmux NIGHTLY, smoke it and publish it with this run's
-# tools; verify checks out the build's own commit only for its license check
-# (cx-x7hwx, cx-vws1x). legacy-identity-target checks out only to run
-# scripts/ci/nightly-next-legacy-target.py, which compares the two published
-# feeds to pick that build; it builds and ships nothing.
+# build nothing: the signing job downloads this run's prepared app and makes a
+# temporary NEXT DMG when available, or a published DMG for a continuation,
+# re-signs that build as cmux NIGHTLY and publishes it with this run's tools;
+# verify checks out the build's own commit only for its license check
+# (cx-x7hwx, cx-vws1x).
+# legacy-identity-target checks out only to run
+# scripts/ci/nightly-next-legacy-target.py, which compares the feeds and admits
+# the current signed artifact beside publication; it builds and ships nothing.
 # verify-recovered-nightly-next smokes the DMG recover-nightly-next-notarization
 # continued, with this run's tools. promote-nightly-next and its -acked job run
 # only on main and check out the promote guard at github.sha; they move a branch

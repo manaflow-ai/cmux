@@ -22,6 +22,8 @@
 
 use super::*;
 
+pub(super) mod revive;
+
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
@@ -265,13 +267,15 @@ impl Hub {
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
     /// `worktree_restore_failed` (the start goes on and reports the
     /// missing folder as before).
-    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) {
+    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
+        self.revive_folder(session, &CARE.restoring).await?;
         // A stopped session reopens on demand. Only a purge is final.
         if session.status() == SessionStatus::Closed {
             self.append(session, "mux", "reopened", json!({}));
             self.set_status(session, SessionStatus::Idle);
         }
+        Ok(())
     }
 
     /// Before a prompt for a session with no running agent is recorded (`turns.rs`): its folder
@@ -293,6 +297,7 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
+        self.revive_folder(session, &CARE.restoring).await?;
         let meta = session.meta();
         // A folder that cannot be read (its permissions) fails at the start as before.
         match tokio::fs::metadata(&meta.cwd).await {

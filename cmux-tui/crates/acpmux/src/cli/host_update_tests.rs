@@ -945,6 +945,121 @@ fn a_listen_address_acpmux_service_would_lose_is_refused() {
     peer.assert_untouched(&fake_acpmux(STALE, Some(STALE)), OLD);
 }
 
+/// The target of a `Darwin arm64` peer.
+#[cfg(unix)]
+const MAC_TARGET: &str = "aarch64-apple-darwin";
+
+/// launchd as macOS 27 runs the job `host setup` loads: `$HOME/loaded`
+/// while it is loaded, its daemon pid 4242. `kickstart -k` after the binary
+/// at the plist's path became a new ad-hoc signed build kills the restarted
+/// daemon at once (`OS_REASON_CODESIGNING`). `bootout` returns before the old
+/// daemon has exited (`$HOME/exiting`, until the next `ps` sees it gone), and
+/// a `bootstrap` before then starts a daemon that finds `daemon.lock` held.
+#[cfg(unix)]
+const FAKE_LAUNCHCTL: &str = r#"#!/bin/sh
+echo "launchctl $*" >> "$HOME/calls"
+case "$1" in
+print) test -f "$HOME/loaded" || exit 113; printf 'gui/501/com.acpmux.daemon = {\n\tstate = running\n\tpid = 4242\n\tlast exit code = (never exited)\n}\n';;
+bootout) test -f "$HOME/loaded" || { echo 'Boot-out failed: 3: No such process' >&2; exit 3; }; rm -f "$HOME/loaded" "$HOME/daemon"; touch "$HOME/exiting";;
+bootstrap)
+  test ! -f "$HOME/loaded" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
+  touch "$HOME/loaded"
+  if [ -f "$HOME/exiting" ]; then echo 'daemon.lock held' >> "$HOME/calls"; else ~/.local/bin/acpmux __start; fi;;
+kickstart) rm -f "$HOME/daemon"; echo 'OS_REASON_CODESIGNING' >> "$HOME/calls";;
+esac
+"#;
+
+/// `ps -p`: the old daemon is still there once after a `bootout`.
+#[cfg(unix)]
+const FAKE_PS: &str = "#!/bin/sh\necho \"ps $*\" >> \"$HOME/calls\"\n[ -f \"$HOME/exiting\" ] || exit 1\nrm -f \"$HOME/exiting\"\n";
+
+#[cfg(unix)]
+impl FakePeer {
+    /// A macOS host: the daemon runs build OLD under the launchd job, with
+    /// no systemd and no `/proc`.
+    fn under_launchd(&self) {
+        self.write("uname", "Darwin arm64\n");
+        self.write("no-systemd", "");
+        let unit = format!("{UNITS}/acpmux.service");
+        for rel in [unit.as_str(), "active-acpmux.service", "proc/4242/cgroup"] {
+            let _ = std::fs::remove_file(self.home.join(rel));
+        }
+        self.exe("fakebin/launchctl", FAKE_LAUNCHCTL);
+        self.exe("fakebin/ps", FAKE_PS);
+        self.write("loaded", "");
+    }
+
+    /// What launchd and `ps` got since the last call.
+    fn take_launchd_calls(&self) -> Vec<String> {
+        let keep = |c: &String| {
+            c.starts_with("launchctl ")
+                || c.starts_with("ps ")
+                || c == "daemon.lock held"
+                || c == "OS_REASON_CODESIGNING"
+        };
+        self.take_calls().into_iter().filter(keep).collect()
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
+    let uid = Command::new("id").arg("-u").output().unwrap();
+    let uid = String::from_utf8_lossy(&uid.stdout).trim().to_owned();
+    let job = format!("gui/{uid}/com.acpmux.daemon");
+    let peer = FakePeer::new("launchd");
+    peer.under_launchd();
+    let plist = format!("{}/Library/LaunchAgents/com.acpmux.daemon.plist", peer.home.display());
+    let bootstrap = format!("launchctl bootstrap gui/{uid} {plist}");
+    let restart = [
+        format!("launchctl print {job}"),
+        format!("launchctl bootout {job}"),
+        "ps -p 4242".to_owned(),
+        "ps -p 4242".to_owned(),
+        bootstrap.clone(),
+    ];
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(up.target, Some(MAC_TARGET));
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    assert_eq!(peer.daemon(), NEW);
+    assert_eq!(peer.take_launchd_calls(), restart);
+    assert!(peer.exists("agents"));
+
+    // A build whose daemon never answers: the rollback restarts the same way.
+    let never = "b2c3d4e5f 2026-10-22";
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(never, None));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("noAnswer")),
+        "{up:?}"
+    );
+    assert_eq!(peer.daemon(), NEW);
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+    assert_eq!(peer.take_launchd_calls(), [restart.clone(), restart].concat());
+
+    // A job that is not loaded: bootout fails harmlessly and bootstrap still runs.
+    let _ = std::fs::remove_file(peer.home.join("loaded"));
+    let _ = std::fs::remove_file(peer.home.join("daemon"));
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(OLD, Some(OLD)));
+    let up = update_peer(
+        &peer,
+        &UpdateOptions {
+            binary_dir: Some(peer.home.join("binaries")),
+            if_idle: false,
+            caller: None,
+        },
+    );
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(peer.daemon(), OLD);
+    assert_eq!(
+        peer.take_launchd_calls(),
+        [format!("launchctl print {job}"), format!("launchctl bootout {job}"), bootstrap]
+    );
+}
+
 #[cfg(unix)]
 #[path = "host_lock_tests.rs"]
 mod lock;

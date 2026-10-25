@@ -178,12 +178,6 @@ extension WindowRootView {
         for edge in mainPaneEdges where edge.firstItem === contentHost && edge.firstAttribute == .top && edge.constant != top { edge.constant = top }
     }
 
-    /// The content host's edge constraints: top and bottom, and the
-    /// content's side pins of both sidebar sides.
-    var mainPaneInsetConstraints: [NSLayoutConstraint] {
-        (mainPaneEdges + sidePins.values.flatMap { $0 }).filter { $0.firstItem === contentHost }
-    }
-
     /// Rounds the content host and redraws the shade around its current
     /// frame. A radius change alone moves no page, so Chromium pages are
     /// told to re-read their clip.

@@ -24,29 +24,24 @@ struct AcpmuxRefusedDaemonTests {
         #expect(!message.contains("did not start"))
     }
 
-    /// Lawrence, 2026-10-22: the chat said "acpmux is running at ~/.acpmux/acpmux.sock, but this
-    /// build may not use it: <reason>" and "cmux tries again on its own", and the prompt waited
-    /// for good. A refused daemon does not heal by retrying: every refusal names one command
-    /// that stops that daemon (hosted agents keep running for the next one), run with this app's
-    /// own acpmux on that very socket, and then what to do.
+    /// A live peer from another cmux build remains a real refusal. The person may quit that
+    /// build and press Retry, but the app never asks them to paste a shell command.
     @Test(arguments: [nil, "cmux DEV nxdog98-v1"] as [String?])
-    func everyRefusalSaysExactlyWhatToDo(holder: String?) {
+    func everyRefusalNamesTheBuildWithoutACommand(holder: String?) {
         let error = AgentPaneHostError.daemonRefused(
             holder: holder, socketPath: "/Users/u/.acpmux/acpmux.sock",
             reason: "the socket's peer is not signed by this app's team",
             executable: "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux")
         let message = AgentPaneHostError.userMessage(for: error)
-        #expect(message.contains(
-            "ACPMUX_SOCKET='/Users/u/.acpmux/acpmux.sock' '/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux' daemon shutdown"))
-        #expect(message.contains("agents keep running"))
-        #expect(message.contains("new agent chat"))
+        #expect(!message.contains("Run this in a terminal"))
+        #expect(!message.contains("ACPMUX_SOCKET="))
+        #expect(message.contains("try again"))
         if let holder { #expect(message.contains("Quit \(holder)")) }
     }
 
-    /// The command quotes a path with a single quote in it for the shell.
-    @Test func theShutdownCommandQuotesForTheShell() {
-        #expect(AgentPaneHostError.shutdownCommand(socketPath: "/tmp/it's.sock", executable: "/a b/acpmux")
-                == #"ACPMUX_SOCKET='/tmp/it'\''s.sock' '/a b/acpmux' daemon shutdown"#)
+    @Test func aMissingSocketIsTransientDuringAHandOff() {
+        #expect(AcpmuxServerPeer.Refusal.unreachable("No such file or directory").isTransientRestart)
+        #expect(!AcpmuxServerPeer.Refusal.otherExecutable("/tmp/other-acpmux").isTransientRestart)
     }
 
     /// The refusal the host makes carries this app's own acpmux, so the command never runs the

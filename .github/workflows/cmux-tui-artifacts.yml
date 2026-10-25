@@ -18,6 +18,8 @@ name: cmux-tui artifacts
 #                                                  install as cmux-browser-host beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-host-<rust-target>  slim terminal host (macOS);
 #                                                  install as cmux-tui-host beside cmux-tui
+#   cmux-tui/<commit-sha>/cmux-tui-holder-<rust-target>  terminal holder (macOS);
+#                                                  install as cmux-holder beside cmux-tui
 #   cmux-tui/<commit-sha>/cmux-tui-agent-screen-detection-<rust-target>  agent screen
 #                                                  detector (macOS); install as
 #                                                  cmux-agent-screen-detection beside cmux-tui;
@@ -574,6 +576,8 @@ jobs:
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          TREE_READY: ${{ needs.tree-preflight.outputs.tree_ready }}
+          DAEMON_TESTED: ${{ needs.tree-preflight.outputs.daemon_tested }}
           # The pool a feat-cmux-next push's daemon tests take now
           # (cmux-next-daemon-tests): a publisher whose test job waits on
           # another label, or too long, is not waited for
@@ -610,6 +614,7 @@ jobs:
           }
           poll=0
           deferred=false
+          unmarked=false
           if [[ -n "$OWNER_RUN_ID" ]]; then
             # One look, no waiting (cx-urd.26). Polling a live owner for up to
             # 55 minutes held 21,801 runner minutes on 2026-10-12, and 221 of
@@ -691,6 +696,7 @@ jobs:
                   echo "Tree $KEY has no daemon-tests marker yet; feat-cmux-next push run $OWNER_RUN_ID is still active and tests it and requests the promotion."
                 else
                   unmarked=true
+                  deferred=true
                   echo "Tree $KEY has no daemon-tests marker and run $OWNER_RUN_ID is not an active feat-cmux-next push whose daemon tests run soon; this run tests it here."
                 fi
               fi
@@ -732,6 +738,16 @@ jobs:
               takeover=false
               deferred=true
             fi
+          elif [[ "$TREE_READY" == true && "$DAEMON_TESTED" == false ]]; then
+            # A published tree with separate daemon tests has no tree owner in
+            # preflight: its publisher already finished, so the first follower
+            # is the tester. Leave the same deferred marker as an ordinary
+            # owner waiter, so a cancelled or failed tester hands the key to a
+            # later follower instead of leaving the tick with no marker.
+            takeover=false
+            deferred=true
+            unmarked=true
+            echo "Tree $KEY is published without daemon-tests.json; this run tests it and leaves a takeover marker."
           else
             echo "This run owns tree $KEY; building and publishing it."
           fi
@@ -740,7 +756,7 @@ jobs:
             echo "owner=$OWNER_RUN_ID"
             echo "feat_builder=${feat_builder:-false}"
             echo "takeover=$takeover"
-            echo "unmarked=${unmarked:-false}"
+            echo "unmarked=$unmarked"
           } >> "$GITHUB_OUTPUT"
 
       # The marker a later feat-cmux-next push of this key reads, so only
@@ -1468,7 +1484,7 @@ jobs:
               binary, so infer libc from the build artifact set rather than
               the target name alone.
               """
-              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
+              target = filename.removeprefix(sys.argv[2]).removeprefix("hook-").removeprefix("acpmux-").removeprefix("app-host-").removeprefix("cloud-server-").removeprefix("browser-host-").removeprefix("holder-").removeprefix("host-").removeprefix("agent-screen-detection-").removesuffix(".exe")
               if "apple-darwin" in target:
                   return {"os": "macos", "architecture": "arm64" if target.startswith("aarch64") else "x86_64", "libc": "none"}
               if "windows" in target:
@@ -1663,6 +1679,8 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -1835,7 +1853,7 @@ jobs:
           legacy_assets="assets-legacy"
           mkdir -p "$legacy_assets"
           for file in assets/cmux-tui/cmux-tui-*; do
-            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
+            if [[ "$(basename "$file")" == cmux-tui-hook-* || "$(basename "$file")" == cmux-tui-acpmux-* || "$(basename "$file")" == cmux-tui-app-host-* || "$(basename "$file")" == cmux-tui-cloud-server-* || "$(basename "$file")" == cmux-tui-browser-host-* || "$(basename "$file")" == cmux-tui-host-* || "$(basename "$file")" == cmux-tui-holder-* || "$(basename "$file")" == cmux-tui-agent-screen-detection-* ]]; then
               continue
             fi
             cp "$file" "$legacy_assets/$(basename "$file" | sed 's/^cmux-tui-/cmux-mux-/')"
@@ -1919,6 +1937,8 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
@@ -2023,6 +2043,8 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --require-artifact cmux-tui-host-aarch64-apple-darwin \
             --require-artifact cmux-tui-host-x86_64-apple-darwin \
+            --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+            --require-artifact cmux-tui-holder-x86_64-apple-darwin \
             --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
             --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2073,6 +2095,8 @@ jobs:
               --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
               --require-artifact cmux-tui-host-aarch64-apple-darwin \
               --require-artifact cmux-tui-host-x86_64-apple-darwin \
+              --require-artifact cmux-tui-holder-aarch64-apple-darwin \
+              --require-artifact cmux-tui-holder-x86_64-apple-darwin \
               --require-artifact cmux-tui-acpmux-x86_64-unknown-linux-musl \
               --require-artifact cmux-tui-acpmux-aarch64-unknown-linux-musl \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
@@ -2751,7 +2775,7 @@ jobs:
     # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
     # job, so a run re-run below finds this owner ended (cx-urd.26).
     needs: [tree-preflight, tree-owner-wait, build, build-windows, cmux-next-daemon-tests, publish, publish-windows, publish-tree, publish-tree-windows, macos-cross-shadow, macos-cross-runtime-x86_64]
-    if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) }}
+    if: ${{ always() && needs.tree-preflight.result == 'success' && ((needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success') || (needs.tree-preflight.outputs.tree_ready == 'true' && needs.tree-preflight.outputs.daemon_tested == 'false' && needs.tree-owner-wait.outputs.unmarked == 'true')) && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
@@ -2767,7 +2791,7 @@ jobs:
       # A run whose daemon tests found it superseded publishes no tree on
       # purpose: no failure to report. It still hands the key on (below).
       - name: Report the unpublished tree to the cmux-next runs that wait for it
-        if: needs.cmux-next-daemon-tests.outputs.superseded != 'true'
+        if: needs.tree-preflight.outputs.tree_ready != 'true' && needs.cmux-next-daemon-tests.outputs.superseded != 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
