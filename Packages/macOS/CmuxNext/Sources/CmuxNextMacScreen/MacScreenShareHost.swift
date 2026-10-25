@@ -35,7 +35,8 @@ public final class MacScreenShareHost {
         guard activation == nil else { return }
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                Task { await self?.refreshPermissions() }
+                guard let self else { return }
+                Task { await self.refreshPermissions() }
             }
         }
     }
