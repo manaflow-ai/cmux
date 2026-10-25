@@ -17,7 +17,6 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -31,7 +30,7 @@ use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
 use super::github::{self, TokenAsk};
-use super::github_minter::Minter;
+use super::github_minter::{Minter, Stop};
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -200,7 +199,7 @@ struct WorkerHandle {
     done: Receiver<()>,
     /// Set before `stop`: from then on the minter hands out no token,
     /// even if the worker is stuck in a request past the deadline.
-    github_stop: Arc<AtomicBool>,
+    github_stop: Arc<Stop>,
 }
 
 impl CloudRole {
@@ -216,7 +215,7 @@ impl CloudRole {
 
     fn halt(&mut self, deadline: Instant) -> Result<(), RoleError> {
         if let Some(worker) = self.worker.as_ref() {
-            worker.github_stop.store(true, Ordering::SeqCst);
+            worker.github_stop.set();
         }
         self.send("stop");
         let Some(worker) = self.worker.take() else { return Ok(()) };
@@ -249,7 +248,7 @@ impl Role for CloudRole {
         let paths = self.paths.clone();
         let heartbeat_env = std::env::var(HEARTBEAT_ENV).ok();
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
-        let github_stop = Arc::new(AtomicBool::new(false));
+        let github_stop = Arc::new(Stop::default());
         let worker_stop = Arc::clone(&github_stop);
         let thread = std::thread::Builder::new()
             .name("cmux-host-cloud".to_owned())
@@ -330,7 +329,7 @@ impl Worker {
         instance_id: String,
         heartbeat_env: Option<String>,
         control: UnixStream,
-        github_stop: Arc<AtomicBool>,
+        github_stop: Arc<Stop>,
     ) -> io::Result<Worker> {
         let state_dir = paths.at(STATE_DIR);
         fs::create_dir_all(&state_dir)?;

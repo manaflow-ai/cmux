@@ -226,6 +226,11 @@ fn a_200_must_carry_every_field_for_the_asked_repo() {
     let read = ask(json!({ "contents": "read" }));
     let wider = Answer::Http { status: 200, body: full() };
     assert_eq!(reply_for(&read, &wider)["ok"], true, "write covers read");
+    for token in ["bearer-1", "ghs_", "ghp_personal0000", "ghs_a.b"] {
+        let mut odd = full();
+        odd["token"] = json!(token);
+        assert_eq!(reply(odd)["error"]["code"], "integration.bad_answer", "{token}");
+    }
     let mut short_id = full();
     short_id["token_id"] = json!("abc");
     assert_eq!(reply(short_id)["ok"], false);
@@ -317,11 +322,10 @@ fn asks_over_the_limit_are_answered_busy_at_once() {
 
 #[test]
 fn a_stop_from_the_role_withholds_the_token_of_a_mint_in_flight() {
-    use std::sync::atomic::{AtomicBool, Ordering};
     let (release, gate) = std::sync::mpsc::channel();
     let fake = Fake::default();
     fake.0.lock().unwrap().answers.push_back(minted());
-    let stop = Arc::new(AtomicBool::new(false));
+    let stop = Arc::new(super::github_minter::Stop::default());
     let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log, Arc::clone(&stop)).unwrap();
     minter.bound(client_with(Gated { inner: fake, gate: Arc::new(Mutex::new(gate)) }));
     let (ours, theirs) = UnixStream::pair().unwrap();
@@ -330,7 +334,7 @@ fn a_stop_from_the_role_withholds_the_token_of_a_mint_in_flight() {
     // The role sets the flag while the mint is in flight; the minter is
     // not dropped (a worker stuck past the deadline).
     std::thread::sleep(std::time::Duration::from_millis(100));
-    stop.store(true, Ordering::SeqCst);
+    stop.set();
     release.send(()).unwrap();
     let mut line = String::new();
     BufReader::new(ours).read_line(&mut line).unwrap();

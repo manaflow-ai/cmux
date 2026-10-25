@@ -21,9 +21,9 @@
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -49,17 +49,37 @@ enum Msg<H: Http> {
 /// A `busy` reply never holds the poll loop longer than this.
 const BUSY_WRITE_TIMEOUT: Duration = Duration::from_millis(200);
 
+/// The role's stop, shared with the minter. Setting it waits for a reply
+/// being written, and a reply is written only while it is unset, so no
+/// token is handed out once [`Stop::set`] returns.
+#[derive(Default)]
+pub struct Stop(Mutex<bool>);
+
+impl Stop {
+    pub fn set(&self) {
+        *self.lock() = true;
+    }
+
+    fn is_set(&self) -> bool {
+        *self.lock()
+    }
+
+    fn lock(&self) -> MutexGuard<'_, bool> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// The worker's handle on the minter thread.
 pub struct Minter<H: Http> {
     tx: Option<Sender<Msg<H>>>,
     pending: Arc<AtomicUsize>,
-    stop: Arc<AtomicBool>,
+    stop: Arc<Stop>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl<H: Http> Drop for Minter<H> {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::SeqCst);
+        self.stop.set();
         self.tx = None;
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -71,7 +91,7 @@ impl<H: Http + Send + 'static> Minter<H> {
     /// Starts the thread. `now` is wall-clock milliseconds; `log` takes
     /// journal lines (repo, permissions and outcome; never a token). Once
     /// `stop` is set no token is handed out.
-    pub fn spawn(now: fn() -> u64, log: fn(&str), stop: Arc<AtomicBool>) -> io::Result<Minter<H>> {
+    pub fn spawn(now: fn() -> u64, log: fn(&str), stop: Arc<Stop>) -> io::Result<Minter<H>> {
         let (tx, rx) = mpsc::channel();
         let pending = Arc::new(AtomicUsize::new(0));
         let (counter, stopping) = (Arc::clone(&pending), Arc::clone(&stop));
@@ -106,7 +126,7 @@ impl<H: Http + Send + 'static> Minter<H> {
 fn run<H: Http>(
     rx: &Receiver<Msg<H>>,
     pending: &AtomicUsize,
-    stop: &AtomicBool,
+    stop: &Stop,
     now: fn() -> u64,
     log: fn(&str),
 ) {
@@ -117,7 +137,7 @@ fn run<H: Http>(
             Msg::Ask(ask, mut stream, queued) => {
                 let stopping =
                     || github::refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
-                let mut reply = if stop.load(Ordering::SeqCst) {
+                let mut reply = if stop.is_set() {
                     stopping()
                 } else if queued.elapsed() > MAX_QUEUE_WAIT {
                     github::refusal("busy", "the GitHub token ask waited too long; retry")
@@ -129,10 +149,14 @@ fn run<H: Http>(
                 };
                 // A stop during the mint (a park or shutdown): the token is
                 // not handed out after it; the API keeps it in its ledger.
-                if stop.load(Ordering::SeqCst) {
+                // The check and the write hold the lock, so a stop is
+                // either before both or after the write.
+                let stopped = stop.lock();
+                if *stopped {
                     reply = stopping();
                 }
                 let _ = write_reply(&mut stream, &reply, REPLY_WRITE_TIMEOUT);
+                drop(stopped);
                 pending.fetch_sub(1, Ordering::SeqCst);
             }
         }

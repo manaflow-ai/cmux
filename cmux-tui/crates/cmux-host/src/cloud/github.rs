@@ -122,6 +122,16 @@ impl TokenAsk {
     }
 }
 
+/// A GitHub App installation token (`ghs_` and token characters): nothing
+/// else, such as a Cloud bearer, is handed to a process on the machine.
+pub fn installation_token(token: &str) -> bool {
+    token.strip_prefix("ghs_").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest.len() <= 251
+            && rest.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    })
+}
+
 /// A refusal reply (`ok: false`) with the API's error code and message.
 pub fn refusal(code: &str, message: &str) -> Value {
     json!({ "ok": false, "error": { "code": code, "message": message } })
@@ -129,13 +139,13 @@ pub fn refusal(code: &str, message: &str) -> Value {
 
 /// The reply line for the API's answer to `ask`: the token and its expiry,
 /// or the API's error (code, message, HTTP status, `retry_after` when given).
-/// A 200 that lacks a field of the contract (`token_id` is 16 hex
-/// characters), or names another repo, is a
+/// A 200 that lacks a field of the contract (an installation token,
+/// `token_id` of 16 hex characters), or names another repo, is a
 /// refusal, never a success.
 pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
     match answer {
         Answer::Http { status: 200, body } => {
-            let token = body.field("token").as_str().filter(|t| !t.is_empty());
+            let token = body.field("token").as_str().filter(|t| installation_token(t));
             let expires = body.field("expires_at").as_str().filter(|e| !e.is_empty());
             let repo = body.field("repo").as_str().filter(|r| r.eq_ignore_ascii_case(&ask.repo));
             // Every asked permission at its level or above (write covers read).
