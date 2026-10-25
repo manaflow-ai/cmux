@@ -138,17 +138,25 @@ export type TabExtent = { rows: number; separators: number };
 /// Mirrors the unfiltered `list` in QuickModelMenu row for row: keep the two in step.
 export function tabExtent(
   family: QuickFamily,
-  menu: Pick<QuickMenu, "account" | "fast"> & { families: QuickFamilies; levels: number },
+  menu: Pick<QuickMenu, "account" | "current" | "fast" | "providers" | "update"> & {
+    families: QuickFamilies;
+    levels: number;
+  },
 ): TabExtent {
   const chat = family.id === menu.families.current;
-  const models = Math.min(family.models.length, FILTER_ROWS);
-  let rows = models || 1;
+  const shown = family.models.slice(0, FILTER_ROWS);
+  const look = menu.providers ?? "row";
+  let rows = shown.length || 1;
+  // The expanded version lists each provider under its model's name.
+  if (look === "expanded") rows += shown.reduce((count, model) => count + (model.offers?.length ?? 0), 0);
   let separators = 1;
   if (family.note && family.logIn) rows += 1;
   if (chat && menu.levels > 1) {
     rows += 1;
     separators += 1;
   }
+  // The Provider row, for the chat's running model when several providers serve it.
+  if (chat && look === "row" && shown.some((model) => model.id === menu.current && model.offers)) rows += 1;
   if (family.more.length > 0 || menu.families.onAddHarness) rows += 1;
   if ((chat && menu.account) || (menu.families.onAccount && (family.accounts?.length ?? 0) > 1)) rows += 1;
   if (chat && menu.fast) {
@@ -158,10 +166,17 @@ export function tabExtent(
   return { rows, separators };
 }
 
-/// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
-/// submenu (a chevron), shows a number key, or shows the chosen model's check (wider: it has its own
-/// leading padding).
-export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean; check?: boolean };
+/// One row of any tab, for the width probe: its label, its name's tag, its secondary value, and
+/// whether it opens a submenu (a chevron), shows a number key, or shows the chosen model's check
+/// (wider: it has its own leading padding).
+export type ProbeRow = {
+  label: string;
+  tag?: string;
+  value?: string;
+  sub?: boolean;
+  shortcut?: boolean;
+  check?: boolean;
+};
 
 /// The tallest tab's rows and separators, unseen in the list's grid cell under the real rows, so
 /// switching tabs or typing never changes the menu's height while it is open. `widths` is every
@@ -183,6 +198,7 @@ function QuickMenuSpacer({
         {widths.map((row, index) => (
           <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
             <span className="acpmux-menu-label">{row.label}</span>
+            {row.tag && <span className="acpmux-quick-tag">{row.tag}</span>}
             {row.value && <span className="acpmux-quick-value">{row.value}</span>}
             {row.check && <span className="ui-menu-check">✓</span>}
             {row.sub && <span className="ui-submenu-chevron" />}
@@ -316,7 +332,7 @@ export function QuickModelMenu({
   const offerLook = menu.providers ?? "row";
   // The running model's row when several providers serve it: the Provider row switches among them.
   const offered = onChatTab
-    ? (families ? shown?.models : models)?.find((model) => model.id === current && model.offers)
+    ? (families ? shown?.models.slice(0, FILTER_ROWS) : models)?.find((model) => model.id === current && model.offers)
     : undefined;
   const runningProvider = offered?.offers?.find((offer) => offer.id === current)?.provider;
   const valueOf = (model: Pick<QuickModel, "family" | "id">) => (families ? rowValue(model) : model.id);
@@ -419,6 +435,9 @@ export function QuickModelMenu({
         levels: levels.length,
         account,
         fast,
+        current,
+        providers: menu.providers,
+        update: menu.update,
       });
       return { rows: Math.max(most.rows, extent.rows), separators: Math.max(most.separators, extent.separators) };
     },
@@ -443,11 +462,14 @@ export function QuickModelMenu({
         ...families.list.flatMap((family): ProbeRow[] => [
           ...family.models
             .slice(0, FILTER_ROWS)
-            .map((model) =>
-              family.id === families.current && model.id === current
-                ? { label: model.name, check: true }
-                : { label: model.name, shortcut: true },
-            ),
+            .map((model): ProbeRow => ({
+              label: model.name,
+              ...(model.tag ? { tag: model.tag } : {}),
+              ...(model.provider ? { value: model.provider } : {}),
+              // The submenu version's row of a model several providers serve has a chevron.
+              ...(model.offers && menu.providers === "submenu" ? { sub: true } : {}),
+              ...(family.id === families.current && model.id === current ? { check: true } : { shortcut: true }),
+            })),
           ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
           ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
           ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
@@ -459,6 +481,16 @@ export function QuickModelMenu({
                   sub: true,
                 },
               ]
+            : []),
+          ...(family.id === families.current && (menu.providers ?? "row") === "row"
+            ? family.models
+                .slice(0, FILTER_ROWS)
+                .filter((model) => model.id === current && model.offers)
+                .map((model) => ({
+                  label: t("picker.provider"),
+                  value: model.offers?.find((offer) => offer.id === current)?.provider,
+                  sub: true,
+                }))
             : []),
         ]),
         ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
