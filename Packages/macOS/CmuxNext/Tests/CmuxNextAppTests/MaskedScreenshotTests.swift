@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextScreenshots
 import Testing
 import WebKit
 
@@ -193,7 +194,7 @@ import WebKit
         defer { fixture.close() }
         let list = HomeSidebarView(frame: NSRect(x: 4, y: 4, width: 60, height: 60))
         fixture.plain.addSubview(list)
-        #expect(ScreenshotMask.read(fixture.window).regions.contains(list.convert(list.bounds, to: nil)))
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).regions.contains(list.convert(list.bounds, to: nil)))
     }
 
     /// The screen lags the view tree: a page shown for one run loop turn while the capture
@@ -202,14 +203,14 @@ import WebKit
         let fixture = fixture(onScreen: false)
         defer { fixture.close() }
         fixture.chrome.isHidden = true
-        let sampler = ScreenshotMask.Sampler(window: fixture.window)
+        let sampler = ScreenshotMask.Sampler(window: fixture.window, rules: .app)
         defer { sampler.stop() }
         #expect(sampler.mask.regions.isEmpty)
         fixture.chrome.isHidden = false
         sampler.sample()
         fixture.chrome.isHidden = true
         sampler.stop()
-        #expect(ScreenshotMask.read(fixture.window).regions.isEmpty)
+        #expect(ScreenshotMask.read(fixture.window, rules: .app).regions.isEmpty)
         #expect(sampler.mask.regions.contains(fixture.pageRect))
     }
 
@@ -221,12 +222,12 @@ import WebKit
         defer { fixture.close() }
         let stray = WKWebView(frame: NSRect(x: 10, y: 10, width: 50, height: 50))
         fixture.plain.addSubview(stray)
-        let mask = ScreenshotMask.read(fixture.window)
+        let mask = ScreenshotMask.read(fixture.window, rules: .app)
         #expect(mask.regions.contains(stray.convert(stray.bounds, to: nil)))
         #expect(mask.regions.contains(fixture.pageRect))
         #expect(mask.isSettled)
         fixture.chrome.pageArea.layer?.transform = CATransform3DMakeTranslation(12, 0, 0)
-        #expect(!ScreenshotMask.read(fixture.window).isSettled)
+        #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled)
     }
 
     /// A mask covers whole pixels and one more on each side at a fractional scale, so no pixel

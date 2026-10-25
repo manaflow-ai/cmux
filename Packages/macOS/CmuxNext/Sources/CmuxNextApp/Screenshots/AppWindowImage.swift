@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextHome
 import CmuxNextPages
 import CmuxNextScreenshots
 
@@ -55,12 +57,12 @@ struct AppWindowImage {
     /// - Throws: ``WindowScreenshotFailure`` or ``ScreenshotMask/Failure``.
     static func maskedCapture(_ window: NSWindow) async throws -> (image: CGImage, masked: Int) {
         for _ in 0..<ScreenshotMask.attempts {
-            let sampler = ScreenshotMask.Sampler(window: window)
+            let sampler = ScreenshotMask.Sampler(window: window, rules: .app)
             defer { sampler.stop() }
             await ScreenshotMask.waitToSettle()
             let base = try await window.screenshotImage(includeChild: { _ in false })
             var layers: [WindowImageLayer] = []
-            for (page, rect) in PageRegistry.shownChromiumPages(in: window) where !ScreenshotMask.isCovered(page) {
+            for (page, rect) in PageRegistry.shownChromiumPages(in: window) where !ScreenshotMask.isCovered(page, rules: .app) {
                 guard let image = await page.chromiumImage() else { continue }
                 layers.append(.page(image, rect))
             }
@@ -76,5 +78,46 @@ struct AppWindowImage {
             return (image, mask.regions.count)
         }
         throw ScreenshotMask.Failure.unsettled
+    }
+}
+
+extension ScreenshotMask.Rules {
+    /// What an agent's or a script's capture of a window covers: every browser page area, every
+    /// chat and conversation, and every app page not known to show nothing secret. A page's
+    /// pixels reach automation only through the browser host's guarded capture (`cmux browser
+    /// page screenshot`, which hides the secrets sessions typed), and a chat's text only through
+    /// `cmux agents chat read`, which masks secrets; a window capture masks them whole. App pages
+    /// are masked unless listed in ``ScreenshotMask/shownAppPages``, so a new page is masked
+    /// until someone checks it.
+    static let app = ScreenshotMask.Rules(
+        covers: ScreenshotMask.covers,
+        area: { view in
+            // Everything under a browser's toolbar that can show the page's pixels.
+            if let chrome = view as? BrowserChromeView { return chrome.pageArea }
+            // A chat's last frame, drawn under the pane's content until its page paints.
+            return (view as? PaneContentView)?.launchImageView
+        },
+        isAppPage: { $0 is PageWebView },
+        coversContents: { $0 is BrowserChromeView }
+    )
+}
+
+extension ScreenshotMask {
+    /// The app pages a capture shows: they hold no secret, chat or browsing data, and nothing an
+    /// agent cannot read another way (files, diffs, keys, the changelog). Every other app page
+    /// (Settings with its key fields, Passwords, History, Home Channels, the agent page, Agent
+    /// Activity's screen frames, the Chief's pages) is masked.
+    static let shownAppPages: Set<String> = [
+        "cmux.keybindings", "cmux.changelog", "cmux.icon-picker", "cmux.apps", "cmux.diff", "cmux.markdown", "cmux.editor",
+        "cmux.files", "cmux.debug-settings",
+    ]
+
+    /// Whether a capture covers `view` whole: a browser tab's page, an agent chat, a Home
+    /// conversation, list or draft, or an app page not in ``shownAppPages``. Any other web view is
+    /// covered unless a shown app page holds it (``ScreenshotMask/read(_:rules:)``).
+    static func covers(_ view: NSView) -> Bool {
+        if let page = view as? PageWebView { return !shownAppPages.contains(page.descriptor.id) }
+        return BrowserChromeView.isPageContent(view) || view is AgentPaneView || view is HomeHostView || view is TopHomePageView
+            || view is HomeNewMessageView || view is HomeDockSwitchView || view is HomeSidebarView || view is HomeNativeTranscriptView
     }
 }
