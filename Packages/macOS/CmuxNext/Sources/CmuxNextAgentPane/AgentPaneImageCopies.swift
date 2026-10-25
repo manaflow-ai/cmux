@@ -107,7 +107,10 @@ extension AgentPaneImageCopies {
             guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             guard let file = draggedFile(path, in: model) else { return AgentPaneModel.replyFailure(.pathInvalid) }
             let out = handedOut(file, in: model.replyLinks.imageFolder)
-            if out != file, await !rebuild(file, to: out) { return AgentPaneModel.replyFailure(.imageRefused) }
+            if out != file, await !model.replyLinks.rebuildCopy(file, out) { return AgentPaneModel.replyFailure(.imageRefused) }
+            // The rebuild ran off the main actor: a chat that turned remote meanwhile drags
+            // nothing of this Mac's (cx-k21v).
+            guard !model.chatIsElsewhere else { return AgentPaneModel.replyFailure(.pathInvalid) }
             return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }

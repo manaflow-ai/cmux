@@ -44,6 +44,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var readLocalImage: @Sendable (_ path: String) async -> Result<String, AgentPaneReplyError> = {
         await AgentPaneReplyImages.local($0)
     }
+    /// Writes a dragged SVG's rebuilt copy off the main actor (``AgentPaneImageCopies/rebuild(_:to:)``);
+    /// tests stand in for it.
+    var rebuildCopy: @Sendable (_ file: URL, _ copy: URL) async -> Bool = { await AgentPaneImageCopies.rebuild($0, to: $1) }
     /// Quick Look on a file (the system's preview panel).
     public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)

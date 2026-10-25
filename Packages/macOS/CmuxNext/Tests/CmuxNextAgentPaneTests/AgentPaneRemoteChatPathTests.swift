@@ -343,4 +343,84 @@ struct AgentPaneRemoteChatPathTests {
         #expect(router.recorded.isEmpty)
         #endif
     }
+    /// A dragged SVG goes out as its rebuilt copy, written off the main actor; a chat that turns
+    /// remote while the rebuild runs drags nothing, and a chat that stays local drags the copy.
+    @Test func anSVGDragThatOutlivesTheChatTurningRemoteDragsNothing() async throws {
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let drawing = rig.project.appendingPathComponent("drawing.svg")
+            try #"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"/>"#.write(to: drawing, atomically: true, encoding: .utf8)
+            var dragged: [URL] = []
+            rig.model.replyLinks.mouseHeld = { true }
+            rig.model.replyLinks.startDrag = { dragged.append($0); return true }
+            rig.model.replyLinks.imageFolder = rig.folder.appendingPathComponent("copies", isDirectory: true)
+            rig.model.replyLinks.rebuildCopy = { _, _ in true }
+            let local = await Self.ask(rig.model, "file.drag", ["path": drawing.path])
+            #expect(Self.errorCode(local) == nil, "\(wireOnly): \(local)")
+            #expect(dragged.count == 1, "\(wireOnly): a local chat's SVG drags its copy")
+
+            let model = rig.model
+            let opened = Opened()
+            rig.model.replyLinks.rebuildCopy = { _, _ in
+                await Self.turnRemote(model, wireOnly: wireOnly, into: opened)
+                return true
+            }
+            let reply = await Self.ask(rig.model, "file.drag", ["path": drawing.path])
+            #expect(Self.errorCode(reply) != nil, "\(wireOnly): \(reply)")
+            #expect(dragged.count == 1, "\(wireOnly): dragged \(dragged)")
+            if let connection = opened.connection { rig.model.transport.close(connection: connection) }
+        }
+    }
+
+    /// The paths a stand-in remote image loader was asked for.
+    private actor Loads {
+        var paths: [String] = []
+        func add(_ path: String) { paths.append(path) }
+    }
+
+    private static func png() throws -> Data {
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1, pixelsHigh: 1, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        return try #require(rep.representation(using: .png, properties: [:]))
+    }
+
+    /// A chat the model has marked remote keeps its raster image: `link.inspect` gives it a place
+    /// without a lookup here, and `image.load` reads it on its own machine. A chat whose wire alone
+    /// is remote gets neither, and never reaches the loader.
+    @Test func aRemoteChatsImageLoadsFromItsOwnMachine() async throws {
+        let picture = try Self.png()
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let loads = Loads()
+            rig.model.replyLinks.remoteImageLoader = { path in
+                await loads.add(path)
+                return picture
+            }
+            let opened = Opened()
+            if wireOnly {
+                await Self.turnRemote(rig.model, wireOnly: true, into: opened)
+            } else {
+                rig.model.remoteChat = true
+            }
+            let shot = "/remote/out/shot.png"
+            let inspect = await Self.ask(rig.model, "link.inspect", ["paths": [shot], "urls": [String]()])
+            let places = try #require((inspect["value"] as? [String: Any])?["paths"] as? [String: Any], "\(inspect)")
+            let reply = await Self.ask(rig.model, "image.load", ["src": shot])
+            if wireOnly {
+                #expect(places.isEmpty, "\(inspect)")
+                #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(reply)")
+                #expect(await loads.paths.isEmpty)
+            } else {
+                #expect((places[shot] as? [String: Any])?["place"] as? String == "root", "\(inspect)")
+                let src = try #require((reply["value"] as? [String: Any])?["src"] as? String, "\(reply)")
+                #expect(src.hasPrefix("data:image/png;base64,"))
+                #expect(await loads.paths == [shot])
+            }
+            #expect(rig.lookups.count == 0, "\(wireOnly): the host looked up a remote chat's path here")
+            if let connection = opened.connection { rig.model.transport.close(connection: connection) }
+        }
+    }
 }
