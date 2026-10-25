@@ -129,9 +129,9 @@ enum ReportsBasketText {
         ])
         return scroll
     }
-}
 
-/// A document view whose origin is its top-left.
-private final class TopDocument: NSView {
-    override var isFlipped: Bool { true }
+    /// A document view whose origin is its top-left.
+    private final class TopDocument: NSView {
+        override var isFlipped: Bool { true }
+    }
 }

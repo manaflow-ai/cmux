@@ -56,8 +56,10 @@ import Testing
         model.replaceReports([older, newer])
         let (view, window) = shown(model)
         defer { window.close() }
+        // A SwiftUI hosting view (or any SwiftUI-made view) has a SwiftUI-mangled class name.
         let names = subviews(of: view).map { NSStringFromClass(type(of: $0)) }
-        #expect(!names.contains { $0.contains("Hosting") }, "hosting views: \(names.filter { $0.contains("Hosting") })")
+        let swiftUI = names.filter { $0.contains("SwiftUI") }
+        #expect(swiftUI.isEmpty, "SwiftUI views in the basket: \(swiftUI)")
         #expect(!view.rows.isEmpty)
     }
 

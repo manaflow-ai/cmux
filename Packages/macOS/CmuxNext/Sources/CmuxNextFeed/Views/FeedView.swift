@@ -56,21 +56,3 @@ struct FeedBanner: View {
         .background(colors.attention.opacity(0.08))
     }
 }
-
-/// Puts the AppKit ``ReportsBasketView`` in the SwiftUI panel, with the panel's colors. It goes
-/// when the panel is AppKit (plans/cmux-next/no-swiftui-DESIGN.md, Feed).
-struct ReportsBasketHost: NSViewRepresentable {
-    let model: FeedModel
-    let onReply: (@MainActor (ReportReply) async -> Bool)?
-    @Environment(\.feedColors) private var colors
-
-    func makeNSView(context: Context) -> ReportsBasketView {
-        let view = ReportsBasketView(model: model, onReply: onReply)
-        view.apply(colors.basket)
-        return view
-    }
-
-    func updateNSView(_ view: ReportsBasketView, context: Context) {
-        view.apply(colors.basket)
-    }
-}
