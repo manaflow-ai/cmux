@@ -1094,6 +1094,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-features"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
