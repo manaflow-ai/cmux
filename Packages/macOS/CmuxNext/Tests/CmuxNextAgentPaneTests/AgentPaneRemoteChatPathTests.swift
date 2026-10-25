@@ -209,4 +209,138 @@ struct AgentPaneRemoteChatPathTests {
         #expect(Self.errorCode(reply) == nil, "\(reply)")
         #expect(opened.map { $0.resolvingSymlinksInPath().path } == [log.resolvingSymlinksInPath().path])
     }
+
+    /// A pane on a page that never loads anything (the menu needs only the view and its model).
+    private static func view(_ rig: Rig) throws -> AgentPaneView {
+        let page = rig.folder.appendingPathComponent("index.html")
+        try Data("<html><body></body></html>".utf8).write(to: page)
+        return try #require(AgentPaneView(model: rig.model, source: .bundled(page)))
+    }
+
+    /// Runs a menu item's action as AppKit does.
+    private static func run(_ item: NSMenuItem) {
+        _ = (item.target as? NSObject)?.perform(item.action, with: item)
+    }
+
+    /// A path's menu built while the chat was on this Mac: once the chat turns remote, its rows
+    /// act on nothing here, whatever they held when the menu opened.
+    @Test func aPathMenuThatOutlivesTheChatTurningRemoteDoesNothing() async throws {
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let notes = rig.project.appendingPathComponent("notes.md")
+            try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+            var saved: [URL] = []
+            rig.model.replyLinks.savePathFile = { file, _, _ in saved.append(file) }
+            let view = try Self.view(rig)
+            let items = try #require(view.pathMenuItems(notes.path), "\(wireOnly): a local chat's file has its menu")
+            let save = try #require(items.first { $0.title == AgentPaneMenuStrings.saveAs })
+            let connection = try await Self.turnRemote(rig, wireOnly: wireOnly)
+            Self.run(save)
+            #expect(saved.isEmpty, "\(wireOnly): saved \(saved)")
+            if let connection { rig.model.transport.close(connection: connection) }
+        }
+    }
+
+    /// The control: the same row in a chat that stays on this Mac saves the file.
+    @Test func aLocalChatsPathMenuStillActs() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        let notes = rig.project.appendingPathComponent("notes.md")
+        try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+        var saved: [URL] = []
+        rig.model.replyLinks.savePathFile = { file, _, _ in saved.append(file) }
+        let items = try #require(try Self.view(rig).pathMenuItems(notes.path))
+        Self.run(try #require(items.first { $0.title == AgentPaneMenuStrings.saveAs }))
+        #expect(saved.map { $0.resolvingSymlinksInPath().path } == [notes.resolvingSymlinksInPath().path])
+    }
+
+    /// The connection a test opened, for its cleanup.
+    @MainActor private final class Opened {
+        var connection: Int?
+    }
+
+    private static func turnRemote(_ model: AgentPaneModel, wireOnly: Bool, into opened: Opened) async {
+        opened.connection = try? await turnRemote(model, wireOnly: wireOnly)
+    }
+
+    /// An image's read runs off the main actor; a chat that turns remote while it runs gets no
+    /// bytes of this Mac's file, and a chat that stays local still gets its image.
+    @Test func anImageReadThatOutlivesTheChatTurningRemoteSendsNothing() async throws {
+        let picture = "data:image/png;base64,iVBORw0KGgo="
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let shot = rig.project.appendingPathComponent("shot.png")
+            try Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]).write(to: shot)
+            rig.model.replyLinks.readLocalImage = { _ in .success(picture) }
+            let local = await Self.ask(rig.model, "image.load", ["src": shot.path])
+            #expect((local["value"] as? [String: Any])?["src"] as? String == picture, "\(wireOnly): \(local)")
+
+            let model = rig.model
+            let opened = Opened()
+            rig.model.replyLinks.readLocalImage = { _ in
+                await Self.turnRemote(model, wireOnly: wireOnly, into: opened)
+                return .success(picture)
+            }
+            let reply = await Self.ask(rig.model, "image.load", ["src": shot.path])
+            #expect(Self.errorCode(reply) == AgentPaneReplyError.pathOutsideRoots.rawValue, "\(wireOnly): \(reply)")
+            #expect((reply["value"] as? [String: Any])?["src"] == nil, "\(wireOnly): \(reply)")
+            if let connection = opened.connection { rig.model.transport.close(connection: connection) }
+        }
+    }
+
+    /// Copy reads the file after the row is picked; a chat that turns remote before the read ends
+    /// puts nothing on the pasteboard.
+    @Test func aCopyWhoseReadOutlivesTheChatTurningRemoteCopiesNothing() async throws {
+        let rig = try Self.rig()
+        defer { try? FileManager.default.removeItem(at: rig.folder) }
+        let notes = rig.project.appendingPathComponent("notes.md")
+        try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+        var copied = 0
+        #expect(await AgentPaneFileRows(copyItem: { _ in copied += 1; return true }).copy(notes))
+        #expect(copied == 1)
+        // Local when the row runs, remote once the read is done.
+        var checks = 0
+        let rows = AgentPaneFileRows(copyItem: { _ in copied += 1; return true }, allowed: {
+            checks += 1
+            return checks == 1
+        })
+        #expect(await rows.copy(notes) == false)
+        #expect(copied == 1)
+    }
+
+    /// Save As… copies the file when the save panel answers; the menu hands it a live check, so
+    /// a chat that turns remote while the panel is up saves nothing.
+    @Test func aSavePanelThatOutlivesTheChatTurningRemoteSavesNothing() async throws {
+        for wireOnly in [false, true] {
+            let rig = try Self.rig()
+            defer { try? FileManager.default.removeItem(at: rig.folder) }
+            let notes = rig.project.appendingPathComponent("notes.md")
+            try "hi\n".write(to: notes, atomically: true, encoding: .utf8)
+            var checks: [@MainActor () -> Bool] = []
+            rig.model.replyLinks.savePathFile = { _, _, allowed in checks.append(allowed) }
+            let items = try #require(try Self.view(rig).pathMenuItems(notes.path))
+            Self.run(try #require(items.first { $0.title == AgentPaneMenuStrings.saveAs }))
+            let allowed = try #require(checks.first, "\(wireOnly): Save As asked for no panel")
+            #expect(allowed(), "\(wireOnly): a local chat's panel saves")
+            let connection = try await Self.turnRemote(rig, wireOnly: wireOnly)
+            #expect(!allowed(), "\(wireOnly): the panel's answer would save this Mac's file")
+            if let connection { rig.model.transport.close(connection: connection) }
+        }
+    }
+
+    /// Open With ▸ Other… opens the file when the app panel answers: nothing opens once the
+    /// menu's check says the chat has turned remote.
+    @Test func anOpenWithPanelThatOutlivesTheChatTurningRemoteOpensNothing() {
+        let router = LinkRouter()
+        var menu = LinkMenu(router: router)
+        var local = true
+        menu.allowed = { local }
+        local = false
+        menu.openChosen(URL(fileURLWithPath: "/System/Applications/TextEdit.app"), for: URL(fileURLWithPath: "/tmp/notes.md"))
+        #if DEBUG
+        #expect(router.recorded.isEmpty)
+        #endif
+    }
 }
