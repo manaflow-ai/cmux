@@ -51,47 +51,134 @@ export type PromptBlock =
 /** The replacement character stored in the editor for one inline attachment. */
 export const INLINE_ATTACHMENT_MARK = "\uFFFC";
 
-/** Whether `input`'s marks are the composer's: one per inline attachment, in order. Otherwise every
- * U+FFFC is the person's own text (a pasted object character), kept as written. */
-export function hasInlineMarks(input: string, chips: readonly ComposerAttachment[]): boolean {
-  const inline = chips.filter((attachment) => attachment.inline).length;
-  if (!inline || !input.includes(INLINE_ATTACHMENT_MARK)) return false;
-  return input.split(INLINE_ATTACHMENT_MARK).length - 1 === inline;
+/// The composer's draft names each attachment placed in its text by id, between two marks: the
+/// editor's inline node (composer/inlineNode.ts) is written so, a draft read back (a chat reopened,
+/// a relaunch) gets the same node back, and the prompt goes so (`placeInline`). The id is
+/// percent-encoded to letters, digits, `.`, `-` and `%`, so any chip's id (a UUID, a copy's `~`
+/// suffix, a link's `link:/path with spaces`) reads back whole and markdown finds no syntax in it
+/// (a `~` or `_` would be GFM strikethrough or emphasis). Older drafts wrote a UUID or a copy's
+/// `uuid~suffix` as it is; those still read. A lone U+FFFC is the person's text.
+export const INLINE_TOKEN = /\uFFFC([\w.~%-]+)\uFFFC/g;
+const TOKEN_AT = /\uFFFC([\w.~%-]+)\uFFFC/y;
+
+const encodeInlineId = (id: string) =>
+  encodeURIComponent(id).replace(
+    /[^A-Za-z0-9.%-]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`,
+  );
+
+/// A token's id as the chip has it; an id that does not decode (a stray `%`) is taken as written.
+export function decodeInlineId(raw: string): string {
+  if (!raw.includes("%")) return raw;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
-/// The composer's draft names each attachment placed in its text by id, between two marks: the
-/// editor's inline node (MarkdownField.tsx) is written so, and a draft read back (a chat reopened,
-/// a relaunch) gets the same node back. An id is a chip's own (a UUID, a copy's `~` suffix); a
-/// lone U+FFFC is the person's text. `placeInline` turns them into bare marks when the prompt goes.
-export const INLINE_TOKEN = /￼([\w.~-]+)￼/g;
-
 export function inlineToken(id: string): string {
-  return `${INLINE_ATTACHMENT_MARK}${id}${INLINE_ATTACHMENT_MARK}`;
+  return `${INLINE_ATTACHMENT_MARK}${encodeInlineId(id)}${INLINE_ATTACHMENT_MARK}`;
+}
+
+/// The id of a copy pasted beside the attachment `id` names (composer/inlineNode.ts): that whole id,
+/// whatever it holds (a path's own `~`), then `~copy-` and eight hex digits of its own.
+export const inlineCopyId = (id: string) => `${id}~copy-${crypto.randomUUID().slice(0, 8)}`;
+
+/// An older composer gave a UUID's copy `uuid~` and eight hex digits.
+const LEGACY_COPY = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}(~[0-9a-f]{8})$/;
+
+/// The id of the attachment a copy was made from, the copy before it for a copy of a copy; undefined
+/// for an id no copy was given.
+export function inlineCopyParent(id: string): string | undefined {
+  const copy = /~copy-[0-9a-f]{8}$/.exec(id)?.[0] ?? LEGACY_COPY.exec(id)?.[1];
+  return copy === undefined ? undefined : id.slice(0, id.length - copy.length);
 }
 
 /// The ids of the attachments placed in `text`, in its order.
 export function inlineTokenIds(text: string): string[] {
   if (!text.includes(INLINE_ATTACHMENT_MARK)) return [];
-  return [...text.matchAll(INLINE_TOKEN)].map((match) => match[1]!);
+  return [...text.matchAll(INLINE_TOKEN)].map((match) => decodeInlineId(match[1]!));
 }
 
-/// The draft as it goes: each placed attachment's token becomes the bare mark `promptBlocks` pairs
-/// with it, those attachments first in the text's order and `inline`, then the strip's in their
-/// order. A token whose attachment is gone goes as nothing.
+type InlineRun = { type: "text"; text: string } | { type: "token"; id: string };
+
+/// `text` read against the ids of `attachments`: the first token of each one's id is its place,
+/// any other token (a second of one id, one whose attachment is gone) goes as nothing, and every
+/// other U+FFFC is the person's text. A mark that opens a token-shaped run whose closing mark opens
+/// an attachment's own token is the person's too, so their U+FFFC before a place never takes it.
+function inlineRuns(text: string, attachments: readonly { id: string }[]): InlineRun[] {
+  const runs: InlineRun[] = [];
+  if (!text.includes(INLINE_ATTACHMENT_MARK)) return text ? [{ type: "text", text }] : runs;
+  const known = new Set(attachments.map((attachment) => attachment.id));
+  const placed = new Set<string>();
+  const tokenAt = (at: number) => {
+    TOKEN_AT.lastIndex = at;
+    const match = TOKEN_AT.exec(text);
+    return match ? { id: decodeInlineId(match[1]!), end: at + match[0].length } : undefined;
+  };
+  const opensPlace = (at: number) => {
+    const token = tokenAt(at);
+    return token !== undefined && known.has(token.id) && !placed.has(token.id);
+  };
+  let start = 0;
+  const flush = (at: number) => {
+    if (at > start) runs.push({ type: "text", text: text.slice(start, at) });
+  };
+  for (let at = text.indexOf(INLINE_ATTACHMENT_MARK); at >= 0; ) {
+    const token = tokenAt(at);
+    if (token && known.has(token.id) && !placed.has(token.id)) {
+      flush(at);
+      runs.push({ type: "token", id: token.id });
+      placed.add(token.id);
+      start = token.end;
+      at = text.indexOf(INLINE_ATTACHMENT_MARK, token.end);
+    } else if (token && !opensPlace(token.end - 1)) {
+      flush(at);
+      start = token.end;
+      at = text.indexOf(INLINE_ATTACHMENT_MARK, token.end);
+    } else at = text.indexOf(INLINE_ATTACHMENT_MARK, at + 1);
+  }
+  flush(text.length);
+  return runs;
+}
+
+/// Whether `input` places any of `chips` by id (`inlineToken`).
+const placesById = (input: string, chips: readonly ComposerAttachment[]) =>
+  input.includes(INLINE_ATTACHMENT_MARK) && inlineRuns(input, chips).some((run) => run.type === "token");
+
+/// Whether `input` was written by an older composer: one bare mark per `inline` attachment, in order.
+const legacyMarks = (input: string, chips: readonly ComposerAttachment[]) => {
+  const inline = chips.filter((attachment) => attachment.inline).length;
+  if (!inline || !input.includes(INLINE_ATTACHMENT_MARK)) return false;
+  return input.split(INLINE_ATTACHMENT_MARK).length - 1 === inline;
+};
+
+/** Whether `input` places some of `chips` in its text: by id (`inlineToken`), or, as an older
+ * composer wrote it, one bare mark per `inline` attachment in order. Otherwise every U+FFFC is the
+ * person's own text (a pasted object character), kept as written. */
+export function hasInlineMarks(input: string, chips: readonly ComposerAttachment[]): boolean {
+  return placesById(input, chips) || legacyMarks(input, chips);
+}
+
+/// The draft as it goes: each placed attachment keeps its token (`inlineToken`, by id, so the
+/// person's own U+FFFC beside it stays text), those attachments first in the text's order and
+/// `inline`, then the strip's in their order. A token whose attachment is gone, or a second of one
+/// id, goes as nothing.
 export function placeInline(
   text: string,
   attachments: readonly ComposerAttachment[],
 ): { text: string; attachments: ComposerAttachment[] } {
   const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
   const placed: ComposerAttachment[] = [];
-  const out = text.includes(INLINE_ATTACHMENT_MARK)
-    ? text.replace(INLINE_TOKEN, (_, id: string) => {
-        const attachment = byId.get(id);
-        if (!attachment || placed.includes(attachment)) return "";
-        placed.push(attachment);
-        return INLINE_ATTACHMENT_MARK;
-      })
-    : text;
+  let out = "";
+  for (const run of inlineRuns(text, attachments)) {
+    if (run.type === "text") out += run.text;
+    else {
+      placed.push(byId.get(run.id)!);
+      out += inlineToken(run.id);
+    }
+  }
   const strip = attachments
     .filter((attachment) => !placed.includes(attachment))
     .map(({ inline: _, ...attachment }) => attachment);
@@ -116,16 +203,17 @@ export function orderedByMarks<T extends { id: string }>(attachments: readonly T
 }
 
 /// A prompt coming back to the composer (Edit, a failed send, a queued prompt taken back to edit)
-/// in the shape it went (`placeInline`): bare marks, its placed attachments `inline` in the text's
-/// order. Each bare mark becomes its attachment's token again, by id, and the attachments lose
-/// `inline` (the composer's own say nothing; `placeInline` sets it when the prompt goes). Marks that
-/// do not match its inline attachments one for one are the person's text and stay as they are.
+/// in the shape it went (`placeInline`), its attachments losing `inline` (the composer's own say
+/// nothing; `placeInline` sets it when the prompt goes). A prompt that places them by id comes back
+/// as it is, so binding twice changes nothing. One an older composer sent, with a bare mark per
+/// `inline` attachment in order, gets each mark's attachment's token. Marks that match neither are
+/// the person's text and stay as they are.
 export function bindMarks(
   text: string,
   attachments: readonly ComposerAttachment[],
 ): { text: string; attachments: ComposerAttachment[] } {
   const own = attachments.map(({ inline: _, ...attachment }) => attachment);
-  if (!hasInlineMarks(text, attachments)) return { text, attachments: own };
+  if (placesById(text, attachments) || !legacyMarks(text, attachments)) return { text, attachments: own };
   const placed = attachments.filter((attachment) => attachment.inline);
   let next = 0;
   return { text: text.replaceAll(INLINE_ATTACHMENT_MARK, () => inlineToken(placed[next++]!.id)), attachments: own };
@@ -254,7 +342,13 @@ export const thumbnail = thumbnailOffThread;
 
 /// The prompt's text with each text file appended as a fenced block under its name.
 export function promptText(text: string, attachments: ComposerAttachment[]): string {
-  const visibleText = hasInlineMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : text;
+  const visibleText = placesById(text, attachments)
+    ? inlineRuns(text, attachments)
+        .map((run) => (run.type === "text" ? run.text : ""))
+        .join("")
+    : legacyMarks(text, attachments)
+      ? text.replaceAll(INLINE_ATTACHMENT_MARK, "")
+      : text;
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -274,9 +368,22 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
 /// ACP prompt blocks: the text (with text files) first, then each pasted text (pastedText.ts), then
 /// each image, PDF, recording and file or folder link.
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
-/** The editor's ordered runs. Attachments without a mark remain at the end for old drafts. */
+/** The editor's ordered runs: each attachment at its token, by id (`placeInline`), or at its bare
+ * mark as an older composer wrote it; the person's own U+FFFC stays text. Attachments not placed
+ * go after the text, in their order. */
 export function orderedDraftParts(input: string, chips: readonly ComposerAttachment[]): OrderedDraftPart[] {
-  if (!hasInlineMarks(input, chips))
+  if (placesById(input, chips)) {
+    const byId = new Map(chips.map((attachment) => [attachment.id, attachment]));
+    const placed = new Set<string>();
+    const parts = inlineRuns(input, chips).map((run): OrderedDraftPart => {
+      if (run.type === "text") return run;
+      placed.add(run.id);
+      return { type: "attachment", attachment: byId.get(run.id)! };
+    });
+    for (const attachment of chips) if (!placed.has(attachment.id)) parts.push({ type: "attachment", attachment });
+    return parts;
+  }
+  if (!legacyMarks(input, chips))
     return input
       ? [
           { type: "text", text: input },

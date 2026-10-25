@@ -11,6 +11,7 @@ import {
   inlinePlugin,
   insertInline,
   orderInline,
+  placeTokens,
   removeInline,
   sliceHoldsInline,
 } from "./composer/inlineNode";
@@ -125,6 +126,10 @@ export type MarkdownFieldProps = {
   onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
+  /// The editor is made, once per field: the handle's methods act from here on (none did before),
+  /// the value given so far is its document, and its placed attachments are their nodes. Called in
+  /// the same task as `editor.current` and `view.current` are set, before COMPOSER_READY_EVENT.
+  onReady?(): void;
   /// The element each attachment placed in the text draws its chip into, by id, as they change.
   /// Only a field given one when it is made has placed attachments (composer/inlineNode.ts); any
   /// other keeps every U+FFFC as its text and pastes plain text.
@@ -175,6 +180,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onSubmit === next.onSubmit &&
     previous.onReturnInput === next.onReturnInput &&
     previous.onFirstInput === next.onFirstInput &&
+    previous.onReady === next.onReady &&
     previous.onInlineViews === next.onInlineViews &&
     previous.plugins === next.plugins &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
@@ -371,6 +377,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onSubmit,
     onReturnInput,
     onFirstInput,
+    onReady,
     onInlineViews,
     plugins = [],
     multiline = true,
@@ -396,6 +403,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onSubmit,
     onReturnInput,
     onFirstInput,
+    onReady,
     onInlineViews,
   });
   latest.current = {
@@ -407,6 +415,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onSubmit,
     onReturnInput,
     onFirstInput,
+    onReady,
     onInlineViews,
   };
   const composing = useRef(false);
@@ -638,6 +647,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 if (!next.state.selection.eq(previous.selection)) latest.current.onCaret?.(caretOf(next));
                 return;
               }
+              // Before the editor is made there is nothing to write the document with (it would read
+              // as an empty prompt and wipe the draft); the document made is `known` then.
+              if (!editor.current) return;
               const markdown = promptMarkdown(editor.current, next);
               showPlaceholder(markdown);
               // A value applied from outside comes back unchanged: not the user's edit.
@@ -789,9 +801,11 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         view.current = made.ctx.get(editorViewCtx);
         remark.current = made.ctx.get(remarkCtx);
         if (known.current) setDocument(known.current);
+        if (placesInline) placeTokens(view.current);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();
+        latest.current.onReady?.();
         window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
       });
     return () => {

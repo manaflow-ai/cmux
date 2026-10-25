@@ -3,14 +3,15 @@
 // ProseMirror atom per attachment, tied to it by the attachment's id, never by its place among the
 // others. The draft writes it as the id between two marks (attachments.ts inlineToken), so a draft
 // read back, a value set from outside and undo all bring back the same attachment, and a copy pasted
-// in the same prompt brings a copy of it (a new id with the copied one's root, `root~copy`). The
-// node draws nothing itself: the composer draws each attachment's chip into the node's element
-// (composer/inlineAttachments.tsx), which `InlineViews` hands it.
+// in the same prompt brings a copy of it (a new id naming the one it was copied from,
+// attachments.ts inlineCopyId). The node draws nothing itself: the composer draws each
+// attachment's chip into the node's element (composer/inlineAttachments.tsx), which `InlineViews`
+// hands it.
 import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/prose/model";
 import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
-import { INLINE_ATTACHMENT_MARK, INLINE_TOKEN, inlineToken } from "../attachments";
+import { INLINE_ATTACHMENT_MARK, INLINE_TOKEN, decodeInlineId, inlineCopyId, inlineToken } from "../attachments";
 
 export const INLINE_NODE = "inline_attachment";
 
@@ -39,21 +40,28 @@ export const inlineAttachmentNode = $node(INLINE_NODE, () => ({
 
 const idOf = (node: ProseNode) => node.attrs.id as string;
 
-/// Whether `content` holds a placed attachment, as a node or as its token's text.
-function holdsInline(content: Fragment): boolean {
+/// Whether `content` holds a node that `test` says yes to.
+function holds(content: Fragment, test: (node: ProseNode) => boolean): boolean {
   let found = false;
   content.descendants((node) => {
     if (found) return false;
-    if (node.type.name === INLINE_NODE || (node.isText && node.text!.includes(INLINE_ATTACHMENT_MARK))) found = true;
+    found = test(node);
     return !found;
   });
   return found;
 }
 
-export const sliceHoldsInline = (slice: Slice) => holdsInline(slice.content);
+/// Whether an edit may have brought a placed attachment in, as a node or as its token's text (a
+/// value set from outside): what `normalize` looks at.
+const sliceMayPlace = (slice: Slice) =>
+  holds(
+    slice.content,
+    (node) => node.type.name === INLINE_NODE || (node.isText && node.text!.includes(INLINE_ATTACHMENT_MARK)),
+  );
 
-/// A copy's id: the copied one's root with a suffix of its own.
-const copyId = (id: string) => `${id.split("~")[0]}~${crypto.randomUUID().slice(0, 8)}`;
+/// Whether a paste carries a placed attachment's own node: a copy of the prompt's text with one in
+/// it. A U+FFFC in other copied text (a page's bold run) is only text, and pastes as text.
+export const sliceHoldsInline = (slice: Slice) => holds(slice.content, (node) => node.type.name === INLINE_NODE);
 
 /// Each placed attachment's node in `doc`, in order.
 function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {
@@ -75,7 +83,11 @@ function tokensToNodes(state: EditorState): Transaction | undefined {
   state.doc.descendants((node, pos, parent) => {
     if (!node.isText || !node.text!.includes(INLINE_ATTACHMENT_MARK) || parent?.type.spec.code) return;
     for (const match of node.text!.matchAll(INLINE_TOKEN))
-      tokens.push({ from: pos + match.index, to: pos + match.index + match[0].length, id: match[1]! });
+      tokens.push({
+        from: pos + match.index,
+        to: pos + match.index + match[0].length,
+        id: decodeInlineId(match[1]!),
+      });
   });
   for (const token of tokens.reverse()) tr.replaceWith(token.from, token.to, type.create({ id: token.id }));
   return tr;
@@ -88,7 +100,7 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
   const brought = transactions.some((tr) =>
     tr.steps.some((step) => {
       const slice = (step as { slice?: Slice }).slice;
-      return slice ? sliceHoldsInline(slice) : false;
+      return slice ? sliceMayPlace(slice) : false;
     }),
   );
   if (!brought) return null;
@@ -108,7 +120,7 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
   for (const { id, pos } of nodes) {
     // An id new to the prompt, or one whose original went: its first node keeps it.
     if (!owner.has(id)) owner.set(id, pos);
-    if (owner.get(id) !== pos) tr.setNodeMarkup(pos, undefined, { id: copyId(id) });
+    if (owner.get(id) !== pos) tr.setNodeMarkup(pos, undefined, { id: inlineCopyId(id) });
   }
   return tr.docChanged ? tr : null;
 }
@@ -139,18 +151,17 @@ export function inlinePlugin(views: InlineViews) {
       new Plugin({
         props: { nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) } },
         appendTransaction: (transactions, previous, state) => normalize(transactions, previous, state),
-        // The editor's first content (a draft read back: a chat reopened, a relaunch) comes in with no
-        // transaction: its tokens become their nodes once the view is up, outside undo's history.
-        view: (editorView) => {
-          queueMicrotask(() => {
-            if (editorView.isDestroyed) return;
-            const tr = tokensToNodes(editorView.state);
-            if (tr?.docChanged) editorView.dispatch(tr.setMeta("addToHistory", false));
-          });
-          return {};
-        },
       }),
   );
+}
+
+/// The editor's first content (a draft read back: a chat reopened, a relaunch) comes in with no
+/// transaction: its tokens become their nodes here, outside undo's history. The field calls it once
+/// its editor is made (MarkdownField.tsx), so the change reads back as the same draft; a dispatch
+/// any sooner was read with no editor to write it, as an empty prompt.
+export function placeTokens(view: EditorView) {
+  const tr = tokensToNodes(view.state);
+  if (tr?.docChanged) view.dispatch(tr.setMeta("addToHistory", false));
 }
 
 /// Places attachments `ids` at the selection, the caret after them; false where they cannot go (a
