@@ -17,7 +17,7 @@ import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
 import type { BackgroundCommand } from "../inspector/processes";
 import { nestAgents } from "./AgentsPill";
-import { isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
+import { isRunGroup, isSubagentGroup, SUBAGENT_DONE, WORKFLOW_CARD } from "./subagentRows";
 import type { Subagent } from "./subagentFold";
 
 let trayOn = true;
@@ -172,7 +172,8 @@ export function withSubagentLines(
   const cards = new Map<number, AcpmuxRow[]>();
   const made = new Set<string>();
   rows.forEach((row, index) => {
-    if (!isSubagentGroup(row)) return;
+    // An agent a shell call started keeps its card where it started (AgentRunCard.tsx).
+    if (!isSubagentGroup(row) || isRunGroup(row)) return;
     const workflows = workflowCards ? (row.subagents ?? []).filter(isWorkflow) : [];
     if (workflows.length > 0)
       cards.set(
@@ -195,7 +196,7 @@ export function withSubagentLines(
   };
   rows.forEach((row, index) => {
     flush(index);
-    if (!isSubagentGroup(row)) out.push(row);
+    if (!isSubagentGroup(row) || isRunGroup(row)) out.push(row);
     else out.push(...(cards.get(index) ?? []));
   });
   flush(rows.length);
