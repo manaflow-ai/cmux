@@ -630,9 +630,9 @@ export type AcpmuxSnapshot = {
   chatRead?: true;
   sessionId?: string;
   isWorking: boolean;
-  /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
-  /// `turnTokens`); unset when the harness does not report each call or the client missed the
-  /// turn's start.
+  /// The running turn's output tokens so far, its model calls' generated tokens added up,
+  /// subagents' included (direct.ts `turnTokens`); unset when the harness does not report each
+  /// call or the client missed the turn's start.
   turnTokens?: number;
   /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
   /// (direct.ts `silentTurn`): the turn's line says the model has not answered.

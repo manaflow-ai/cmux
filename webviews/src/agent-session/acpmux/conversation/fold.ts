@@ -52,6 +52,21 @@ export function foldMs(node: HTMLElement | null): number {
   return foldMotion.duration(node);
 }
 
+// A row's own disclosure animation changes layout before ResizeObserver delivers its new size.
+// The virtualizer places that row synchronously during this short window, even if scrolling has
+// released its header anchor. Expiry is checked in O(1) only when the row actually resizes; no
+// timer or transcript walk is added, and unmounted row elements are weakly held.
+const heightFolds = new WeakMap<Element, number>();
+const HEIGHT_FOLD_SETTLE_MS = 50; // motion-allow: measurement grace after a fold, not an animation
+
+export function heightFoldInFlight(row: Element): boolean {
+  const until = heightFolds.get(row);
+  if (until === undefined) return false;
+  if (performance.now() <= until) return true;
+  heightFolds.delete(row);
+  return false;
+}
+
 const always = () => true;
 
 /// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
@@ -149,6 +164,8 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // From where the box is drawn now: midway through the other fold, else closed or open. An open
     // ends at the height measured here and then lets go of it (no fill), so the body takes its own
     // height again, content that loaded meanwhile included.
+    const row = node.closest(".acpmux-row");
+    if (row) heightFolds.set(row, performance.now() + ms + HEIGHT_FOLD_SETTLE_MS);
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
     const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;

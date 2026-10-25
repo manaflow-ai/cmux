@@ -7,7 +7,11 @@ extension UpdateController {
     /// Whether found updates download without a prompt and wait staged for the user.
     public var installsUpdatesInBackground: Bool {
         get { driver.installsInBackground }
-        set { driver.installsInBackground = newValue }
+        set {
+            driver.installsInBackground = newValue
+            guard newValue, disableSparkleSilentStagingIfNeeded() else { return }
+            log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
+        }
     }
 
     /// Whether a staged background update should enter the safe idle relaunch gate automatically.
