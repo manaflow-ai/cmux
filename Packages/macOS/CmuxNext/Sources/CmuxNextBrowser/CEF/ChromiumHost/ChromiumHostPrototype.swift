@@ -27,8 +27,8 @@ public final class ChromiumHostPrototype {
 
     /// - Parameters:
     ///   - makeConfiguration: the host app of this build, or nil when it has none.
-    ///   - tunables: Debug Settings (the app's own store; tests pass one of their own).
-    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore = .shared) {
+    ///   - tunables: Debug Settings: the app's store, passed by the composition root (tests pass one of their own).
+    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore) {
         self.makeConfiguration = makeConfiguration
         self.tunables = tunables
     }

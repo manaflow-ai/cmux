@@ -377,7 +377,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 #if DEBUG
                 // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
                 // Socket focus policy: `open` makes the page first responder only with focus: true.
-                let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
+                let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
+                                                         tunables: TunableStore.shared)
                 control.service?.router.register([
                     .mainActor("debug.chromium_host") { [weak services] call in
                         let controller = services?.windows.controllers.first
