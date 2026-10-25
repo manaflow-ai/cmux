@@ -236,7 +236,8 @@ extension AgentPaneTransport {
     /// The frame's paths against the pane's roots and the folders the user added.
     private func checkPathsInScope(_ box: FrameBox) async -> Result<[String], AcpmuxPathPolicy.Refusal> {
         let scope = AcpmuxPathPolicy.Scope(roots: roots(), gestureRoots: gestureRoots(), fillCwd: primaryRoot(),
-                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots)
+                                           agentHome: agentHome(), home: homeFolder, granted: addedRoots,
+                                           workspaceID: workspaceID())
         return await Self.checkPaths(box, scope: scope)
     }
 
