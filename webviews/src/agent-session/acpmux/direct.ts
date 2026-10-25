@@ -41,7 +41,7 @@ import {
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
-import { normalizePromptContentPart } from "./conversation/promptContent";
+import { isInterleaved, normalizePromptContentPart } from "./conversation/promptContent";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
@@ -642,13 +642,14 @@ export function reconcileInlineImages(
 function recordedInlineParts(msg: any): PromptContentPart[] | undefined {
   const raw = Array.isArray(msg?.inlineParts) ? msg.inlineParts : Array.isArray(msg?.prompt) ? msg.prompt : undefined;
   if (!raw) return undefined;
-  const parts = raw.flatMap((part: unknown) => {
+  const parts: PromptContentPart[] = raw.flatMap((part: unknown) => {
     const normalized = normalizePromptContentPart(part);
     return normalized ? [normalized] : [];
   });
-  // A prompt of text alone keeps the plain bubble (its collapse, its height); only media in the
-  // order makes it an ordered one.
-  return parts.some((part: PromptContentPart) => part.kind !== "text") ? parts : undefined;
+  // Recorded but not interleaved (text alone, or text then its attachments): no ordered parts, and an
+  // empty list, not undefined, so an update replaces the parts a queued prompt had (an edit that
+  // took its image out never shows the old image).
+  return isInterleaved(parts) ? parts : [];
 }
 
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
@@ -4087,7 +4088,9 @@ export class AcpmuxDirectClient {
       ? attachments
       : attachments.filter((attachment) => attachment.kind !== "audio");
     const { text, pasted } = shownPrompt(promptText(input, sendAttachments), sendAttachments);
-    const inlineParts = sendAttachments.length ? inlinePromptParts(input, sendAttachments) : undefined;
+    // Ordered parts only for a draft the composer placed attachments in (hasInlineMarks); a strip's
+    // prompt keeps its old shape, and sends no ordered metadata the host may not take yet.
+    const inlineParts = hasInlineMarks(input, sendAttachments) ? inlinePromptParts(input, sendAttachments) : undefined;
     const displayParts = sendAttachments.length ? inlineDisplayParts(input, sendAttachments) : undefined;
     const rowId = `local-${promptId}`;
     const at = Date.now();

@@ -76,6 +76,15 @@ export function normalizePromptContentPart(value: unknown): PromptContentPart | 
  * returns an empty array: UserBubble then uses its established `images`-above-text fallback for
  * persisted rows written before inline content was recorded.
  */
+/** Whether ordered parts need the ordered bubble: some text comes after an attachment. A prompt of
+ * text alone, or text then its attachments (every prompt the strip sends), keeps the plain bubble
+ * with its images over it, as before ordered parts. */
+export function isInterleaved<T extends { kind: string }>(parts: readonly T[] | undefined): parts is readonly T[] {
+  if (!parts) return false;
+  const media = parts.findIndex((part) => part.kind !== "text");
+  return media >= 0 && parts.slice(media + 1).some((part) => part.kind === "text");
+}
+
 export function promptContentParts(row: Pick<AcpmuxRow, "inlineParts">): PromptContentPart[] {
   if (!row.inlineParts?.length) return [];
   return row.inlineParts.flatMap((part) => {

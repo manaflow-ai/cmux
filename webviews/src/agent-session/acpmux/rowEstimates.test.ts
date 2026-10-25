@@ -33,7 +33,10 @@ const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720
 test("ordered prompt estimates reserve inline thumbnail slots before the DOM mounts", () => {
   const image = { kind: "image", id: "a", mimeType: "image/png" };
   const one = { ...prompt("inline-one"), inlineParts: [image, { kind: "text", text: "Caption" }] };
-  const two = { ...prompt("inline-two"), inlineParts: [image, { kind: "text", text: "Caption" }, { ...image, id: "b" }] };
+  const two = {
+    ...prompt("inline-two"),
+    inlineParts: [image, { kind: "text", text: "Caption" }, { ...image, id: "b" }],
+  };
   const [oneHeight] = heightsOf([one]);
   const [twoHeight] = heightsOf([two]);
   expect(oneHeight!).toBeGreaterThan(120);
@@ -47,6 +50,15 @@ test("a prompt of text alone estimates as plain text even with ordered parts", (
   const plain = { ...prompt("plain"), text: long };
   const ordered = { ...plain, id: "ordered", inlineParts: [{ kind: "text", text: long }] };
   expect(heightsOf([ordered])).toEqual(heightsOf([plain]));
+});
+
+// Review (Codex): a prompt the strip sent (its text, then its images) keeps the plain bubble's estimate
+// even when the daemon records its ordered parts; only text after an attachment makes it ordered.
+test("text then its attachments estimates as the plain bubble", () => {
+  const image = { kind: "image", id: "a", mimeType: "image/png" };
+  const plain = { ...prompt("strip"), text: "Look at this" };
+  const recorded = { ...plain, id: "recorded", inlineParts: [{ kind: "text", text: "Look at this" }, image] };
+  expect(heightsOf([recorded])).toEqual(heightsOf([plain]));
 });
 
 test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {

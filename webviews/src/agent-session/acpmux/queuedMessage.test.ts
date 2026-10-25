@@ -95,3 +95,22 @@ test("a queue list's fresh ordered metadata replaces stale optimistic parts", ()
     { kind: "text", text: "new" },
   ]);
 });
+
+// Review (Codex): an edit that takes a queued prompt's image out records text alone; the old image
+// never stays on the queued row.
+test("a queue list's text-only record clears the parts a queued prompt had", () => {
+  const current = [
+    {
+      id: "p1",
+      prompt: "caption",
+      inlineParts: [
+        { kind: "image" as const, id: "sha", mimeType: "image/png" },
+        { kind: "text" as const, text: "caption" },
+      ],
+    },
+  ];
+  const listed = mergeQueue(current, [
+    { promptId: "p1", prompt: "caption", inlineParts: [{ kind: "text", text: "caption" }] },
+  ]);
+  expect(listed[0]?.inlineParts ?? []).toEqual([]);
+});

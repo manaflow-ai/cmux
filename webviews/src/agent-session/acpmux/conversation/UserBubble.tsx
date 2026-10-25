@@ -25,7 +25,7 @@ import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
 import { InlinePromptContent } from "./InlinePromptContent";
-import { promptContentParts } from "./promptContent";
+import { promptContentParts, isInterleaved } from "./promptContent";
 import {
   ForkButton,
   forkWithFeedback,
@@ -57,7 +57,7 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
   const orderedParts = useMemo(() => promptContentParts(row), [row]);
   // Text alone keeps the plain bubble (PromptText's collapse and height); media makes it ordered.
-  const hasOrderedParts = orderedParts.some((part) => part.kind !== "text");
+  const hasOrderedParts = isInterleaved(orderedParts);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails

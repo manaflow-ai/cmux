@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { INLINE_ATTACHMENT_MARK, orderedDraftParts, promptBlocks, promptText, type ComposerAttachment } from "./attachments";
+import {
+  INLINE_ATTACHMENT_MARK,
+  orderedDraftParts,
+  promptBlocks,
+  promptText,
+  type ComposerAttachment,
+} from "./attachments";
 
 const image = (id: string): ComposerAttachment => ({
   id,
@@ -14,7 +20,10 @@ const image = (id: string): ComposerAttachment => ({
 test("ordered draft parts keep text and images at their editor marks", () => {
   const first = image("first");
   const second = image("second");
-  const parts = orderedDraftParts(`before${INLINE_ATTACHMENT_MARK}between${INLINE_ATTACHMENT_MARK}after`, [first, second]);
+  const parts = orderedDraftParts(`before${INLINE_ATTACHMENT_MARK}between${INLINE_ATTACHMENT_MARK}after`, [
+    first,
+    second,
+  ]);
   expect(parts.map((part) => (part.type === "text" ? part.text : part.attachment.id))).toEqual([
     "before",
     "first",
@@ -25,7 +34,10 @@ test("ordered draft parts keep text and images at their editor marks", () => {
 });
 
 test("ACP blocks preserve image, text, image, text order", () => {
-  const blocks = promptBlocks(`caption${INLINE_ATTACHMENT_MARK}middle${INLINE_ATTACHMENT_MARK}tail`, [image("one"), image("two")]);
+  const blocks = promptBlocks(`caption${INLINE_ATTACHMENT_MARK}middle${INLINE_ATTACHMENT_MARK}tail`, [
+    image("one"),
+    image("two"),
+  ]);
   expect(blocks.map((block) => block.type)).toEqual(["text", "image", "text", "image", "text"]);
   expect(blocks.map((block) => (block.type === "text" ? block.text : block.type))).toEqual([
     "caption",
@@ -49,13 +61,20 @@ test("a literal object character with no inline attachment stays in the text", (
 
 test("marks that do not match the inline attachments are all kept as text", () => {
   const typed = `a${INLINE_ATTACHMENT_MARK}b${INLINE_ATTACHMENT_MARK}c`;
-  expect(promptBlocks(typed, [image("one")]).map((block) => (block.type === "text" ? block.text : block.type))).toEqual([
-    typed,
-    "image",
-  ]);
+  expect(promptBlocks(typed, [image("one")]).map((block) => (block.type === "text" ? block.text : block.type))).toEqual(
+    [typed, "image"],
+  );
 });
 
 test("strip attachments go after the text, inline ones at their marks", () => {
-  const parts = orderedDraftParts(`a${INLINE_ATTACHMENT_MARK}b`, [{ ...image("strip"), inline: false }, image("placed")]);
-  expect(parts.map((part) => (part.type === "text" ? part.text : part.attachment.id))).toEqual(["a", "placed", "b", "strip"]);
+  const parts = orderedDraftParts(`a${INLINE_ATTACHMENT_MARK}b`, [
+    { ...image("strip"), inline: false },
+    image("placed"),
+  ]);
+  expect(parts.map((part) => (part.type === "text" ? part.text : part.attachment.id))).toEqual([
+    "a",
+    "placed",
+    "b",
+    "strip",
+  ]);
 });

@@ -35,7 +35,16 @@ export const InlinePromptContent = memo(function InlinePromptContent({
           );
         }
         if (part.kind === "pasted" && part.text)
-          return <PasteChip key={`paste-${index}`} rowId={rowId} index={index} text={part.text} needle="" onOpen={() => {}} />;
+          return (
+            <PasteChip
+              key={`paste-${index}`}
+              rowId={rowId}
+              index={index}
+              text={part.text}
+              needle=""
+              onOpen={() => {}}
+            />
+          );
         return <InlineFile key={`${part.kind}-${part.id ?? part.name}-${index}`} part={part} />;
       })}
     </span>
