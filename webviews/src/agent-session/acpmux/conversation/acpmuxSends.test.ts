@@ -78,6 +78,9 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("acpmux send lane <<-EOF\n\tplain\n\tEOF")?.text).toBe("plain\n");
     expect(acpmuxSend("acpmux send lane <<< 'from a here-string'")?.text).toBe("from a here-string\n");
     expect(acpmuxSend("echo -n 'piped in' | acpmux send lane -")?.text).toBe("piped in");
+    expect(acpmuxSend("printf 'piped\\nin' | acpmux send lane -")?.text).toBe("piped\nin");
+    // A format that formats something: the text is its arguments, not read here.
+    expect(acpmuxSend("printf '%s' world | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
     expect(acpmuxSend("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
     expect(acpmuxSend("acpmux send lane")).toEqual({ target: "lane", noWait: false });
@@ -158,6 +161,14 @@ describe("acpmuxSend", () => {
     // reach's own commands (help, list, …) run no command.
     expect(acpmuxSend("reach --help host acpmux send x y")).toBeUndefined();
     expect(acpmuxSend("reach --list host acpmux send x y")).toBeUndefined();
+    expect(acpmuxSend("reach --timeout 20 --help acpmux send x y")).toBeUndefined();
+    // A wrapper's option that does not run the command (help, env -S) is not looked through.
+    expect(acpmuxSend("timeout --help 10 acpmux send x y")).toBeUndefined();
+    expect(acpmuxSend("env -S 'acpmux send x y'")).toBeUndefined();
+    expect(acpmuxSend("nohup --version acpmux send x y")).toBeUndefined();
+    expect(acpmuxSend("timeout --signal=KILL --foreground 10 env -i acpmux send x y")?.text).toBe("y");
+    // Nothing after `exit` runs.
+    expect(acpmuxSend("exit 0; acpmux send x y")).toBeUndefined();
     // A perl script that is not exactly `alarm N; exec @ARGV` is not looked through.
     expect(acpmuxSend(`perl -e 'print "exec @ARGV"' acpmux send a b`)).toBeUndefined();
     expect(acpmuxSend(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
