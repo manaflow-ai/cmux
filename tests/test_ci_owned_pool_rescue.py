@@ -1880,14 +1880,21 @@ class Nightly(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("no job of the run asked for a persistent pool", summary)
 
-    def test_a_build_a_trusted_mini_takes_is_watched_until_the_run_finishes(self):
-        # A later owned job (prepare-nightly-variant) can still be refused, so
-        # an accepted build does not end the watch.
+    def test_the_watch_ends_once_a_trusted_mini_takes_the_build(self):
         clock = Clock()
         api = NightlyAPI(clock, nightly_run(started_at=30))
         code, summary = run_main(api, clock, payload=nightly_event())
         self.assertEqual(code, 0)
         self.assertIn("main's nightly build", summary)
+        self.assertIn("the fleet accepted", summary)
+        self.assertNotIn("cancel", api.calls)
+
+    def test_a_next_build_a_mini_takes_is_watched_until_the_run_finishes(self):
+        # nightly-next's prepare-nightly-variant takes the side label later and can still be refused.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(started_at=30))
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
         self.assertNotIn("the fleet accepted", summary)
         self.assertIn("stopped: watch limit reached", summary)
         self.assertGreaterEqual(clock.seconds, rescue.NIGHTLY_WATCH_LIMIT_SECONDS)
@@ -1960,7 +1967,16 @@ class Nightly(unittest.TestCase):
         api = NightlyAPI(clock, jobs, finished=lambda s: s >= refused_at + 120)
         _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertNotIn("the fleet accepted", summary)
+        # The refusal waits for the run to finish: nothing healthy is cancelled.
+        self.assertNotIn("cancel", api.calls)
         self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_a_run_cancelled_before_any_job_stops_when_it_finishes(self):
+        clock = Clock()
+        api = NightlyAPI(clock, lambda s: [], finished=lambda s: s >= 100)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("stopped: the run finished with no job", summary)
+        self.assertLess(clock.seconds, 300)
 
     def test_only_a_nightly_honours_a_runner_label(self):
         # A pull request's compile admission names a warm runner as a preference: still rescued.

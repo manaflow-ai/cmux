@@ -153,8 +153,8 @@ re-run, keeping the jobs that had already finished. That re-run takes the
 lane's configured retry route, so the watch ends there or continues on
 cmux-next's owned label. A
 stuck run that finished some other way (a newer push cancelled it) is not
-re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A nightly's watch does not
-end when its accepted jobs are all that exist: prepare-nightly-variant takes
+re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A nightly-next watch does
+not end when its accepted jobs are all that exist: prepare-nightly-variant takes
 the side label only after build-nightly-app finishes, so it lasts until the
 run finishes, within NIGHTLY_WATCH_LIMIT_SECONDS. Side lanes upload no marker
 (cmux-next.yml aside), so the sweeper finds one's run by path once it has
@@ -1141,8 +1141,13 @@ class Target:
         return E2E_PICKER_JOB if self.e2e else PICKER_JOB
 
     @property
+    def late_owned_jobs(self) -> bool:
+        """nightly-next's nightly.yml puts prepare-nightly-variant on the side label after the app build."""
+        return self.nightly and self.push_branch == "nightly-next"
+
+    @property
     def watch_limit(self) -> int:
-        if self.nightly:
+        if self.late_owned_jobs:
             return NIGHTLY_WATCH_LIMIT_SECONDS
         if self.side:
             return SIDE_WATCH_LIMIT_SECONDS
@@ -1268,6 +1273,9 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 log("a side-lane job asked for a persistent pool")
             elif run_finished(jobs):
                 return "stop", "no job of the run asked for a persistent pool"
+            elif not jobs and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
+                # A pending run cancelled before any job (a newer nightly took its place).
+                return "stop", "the run finished with no job"
         elif not on_persistent and target.attempt > 1 and not target.full_rerun:
             # A re-run of failed jobs: no `changes` job, no marker. Follow it
             # if a job asks for an owned pool. When it runs compile admission
@@ -1357,9 +1365,10 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                         and all(accepted(job, seen_at) for job in owned)):
                     # The fleet took the retry; later attempts never come back to it.
                     return "stop", "the fleet accepted the retry"
-                if target.side and not target.nightly and owned and all(accepted(job, seen_at) for job in owned):
+                if target.side and not target.late_owned_jobs and owned \
+                        and all(accepted(job, seen_at) for job in owned):
                     # A side lane's jobs are all created by now, and none can be refused any more.
-                    # Not a nightly's: prepare-nightly-variant takes the side label only once
+                    # Not nightly-next's: prepare-nightly-variant takes the side label only once
                     # build-nightly-app has finished, and its runner can refuse it then
                     # (run 40144317744), so that watch lasts until the run finishes.
                     return "stop", "the fleet accepted the side-lane jobs"
