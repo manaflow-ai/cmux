@@ -208,6 +208,20 @@ class Workflows(unittest.TestCase):
             if "steps.dev-product.outputs.hit != 'true'" in line and line.strip().startswith("if:"):
                 self.assertIn("inputs.dev_daily != true ||", line)
 
+    def test_every_variable_the_compile_step_reads_is_keyed(self):
+        # The workflow file is keyed, but a repository variable's value is not in it: one that changes
+        # the build (the Swift compilation mode) must be passed to the key by the lookup step.
+        import re
+        text = (ROOT / ".github/workflows/cmux-next.yml").read_text()
+        job = text[text.index("\n  cmux-scheme-compile:\n"):text.index("\n  crash-ends-app:\n")]
+        lookup = job[job.index("id: dev-product\n"):job.index("      - name: Fetch the same-tree cmux-tui")]
+        compile_step = job[job.index("id: compile-cmux-next-dev-release\n"):job.index("      - name: Upload DEV daily compile timing")]
+        # The compilation cache decides how much is rebuilt, never what the product is.
+        not_product = {"CMUX_NEXT_DEV_COMPILATION_CACHE"}
+        for name in sorted(set(re.findall(r"vars\.([A-Z0-9_]+)", compile_step)) - not_product):
+            with self.subTest(variable=name):
+                self.assertIn(f"vars.{name}", lookup)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4259,13 +4259,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || vars.CI_NEXT_DEV_PRODUCT_REUSE == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
+          # A repository variable the compile step reads changes the product but not this file: key it.
+          SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
         run: |
           set -euo pipefail
           key="$(python3 -I scripts/ci/job_input_fingerprint.py dev-release-product \
             --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
             --extra "sdk=$(xcrun --sdk macosx --show-sdk-version) $(xcrun --sdk macosx --show-sdk-build-version)" \
             --extra "arch=$(uname -m)" \
-            --extra "recipe=$(python3 -I -c 'import sys; sys.path.insert(0, "scripts/ci"); import dev_release_product_reuse as r; print(r.RECIPE)')" \
+            --extra "recipe=$(python3 -I -c 'import sys; sys.path.insert(0, "scripts/ci"); import dev_release_product_reuse as r; print(r.RECIPE)') swift_mode=$SWIFT_COMPILATION_MODE" \
             --extra "tui_tree=${CMUX_TUI_TREE_KEY:-own}" | sed -n 's/^fingerprint=//p')"
           echo "key=$key" >> "$GITHUB_OUTPUT"
           python3 -I scripts/ci/dev_release_product_reuse.py lookup --key "$key" --skip "$SKIP_REASON" \
