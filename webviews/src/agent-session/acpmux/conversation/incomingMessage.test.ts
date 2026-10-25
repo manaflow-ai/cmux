@@ -330,6 +330,22 @@ test("another session's prompt to this one is that session's message, and opens 
   expect(incomingPrompt("PR #22761 merged.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
 });
 
+test("a task's result is its lane's message, and opens the lane", () => {
+  const provenance = {
+    kind: "task_result",
+    from: "lane-7",
+    fromName: "codex-lane",
+    to: "coordinator-1",
+    taskId: "t-1a2b3c4d",
+    state: "done",
+  };
+  const card = 'Task t-1a2b3c4d "Land #24961" done: Merged\nPR: https://github.com/o/r/pull/1';
+  expect(incomingPrompt(card, { _meta: { provenance }, client: "acpmux" })).toEqual({
+    kind: "message",
+    message: { name: "codex-lane", sessionId: "lane-7", text: card, raw: card },
+  });
+});
+
 test("`acpmux send` from a shell is the message of the agent named first in brackets", () => {
   const sent = "[coord-deputy] Merged #1";
   for (const client of ["acpmux-cli#a1b2c3", "acpmux-peer#huge-blue"]) {

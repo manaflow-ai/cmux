@@ -35,7 +35,6 @@
 .ui-popup.ui-context-menu{max-width:min(360px,calc(100vw - 8px))}
 .ui-context-menu .ui-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
-@media (prefers-reduced-motion:no-preference){.ui-popup.ui-context-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
@@ -679,8 +678,6 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A single permission card's receipt (permissions/record.ts): one muted line where it was answered. */
 .acpmux-permission-record{padding:4px 2px;color:var(--agent-muted);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
-/* Menus and popovers open from their trigger (ui/popupSurface.css), only when motion is allowed. */
-@media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 
 /* Keep the legacy cascade and slash surfaces on the same surface as Base UI's Menu and Popover: the
    liquid glass (.ui-glass, ui/popupSurface.css), whose frost keeps the transcript under it from

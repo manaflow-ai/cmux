@@ -168,6 +168,7 @@ import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
 import { SubagentDoneLine } from "./subagents/SubagentDoneLine";
+import { configureWorkflowCardOpen, WorkflowCard } from "./summary/WorkflowCard";
 import {
   type DoneLineCache,
   configureSubagentTray,
@@ -367,6 +368,7 @@ import {
   SUBAGENT_DONE,
   SUBAGENT_OF,
   SUBAGENT_ROW,
+  WORKFLOW_CARD,
   type SubagentRows,
   childView,
   runningGroups,
@@ -1176,6 +1178,19 @@ const SubagentDoneRow = memo(
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
+/// A Claude workflow's card where it started (Labs, summary/WorkflowCard.tsx).
+const WorkflowCardRow = memo(
+  function WorkflowCardRow({ row }: RowProps) {
+    return (
+      <>
+        {(row.subagents ?? []).map((node) => (
+          <WorkflowCard key={node.id} node={node} />
+        ))}
+      </>
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// The child view's "Subagent of" pill; a click goes back to the parent's view.
 const SubagentOfPillRow = memo(
   function SubagentOfPillRow({ row }: RowProps) {
@@ -1282,6 +1297,7 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_ROW]: SubagentRow,
   [SUBAGENT_DONE]: SubagentDoneRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
+  [WORKFLOW_CARD]: WorkflowCardRow,
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
@@ -4497,8 +4513,8 @@ function AcpmuxPane() {
     if (!subagentView) return undefined;
     if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName);
     const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
-    return view && (withSubagentLines(view, childDoneLines.current) as AcpmuxRow[]);
-  }, [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, subagentTray]);
+    return view && (withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[]);
+  }, [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, subagentTray, workflowLabsEnabled]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
@@ -4634,7 +4650,8 @@ function AcpmuxPane() {
   const transcriptRows = useMemo(() => {
     if (childRows) return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
-    const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current) : startedRows;
+    // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
+    const rows = subagentTray ? withSubagentLines(startedRows, doneLines.current, workflowLabsEnabled) : startedRows;
     return acpmuxPerf.timed("app.rows", () => {
       const last = lastTurns.current;
       const turns = turnViewFrom(
@@ -4667,6 +4684,7 @@ function AcpmuxPane() {
     chatShellRuns,
     panelAsks,
     subagentTray,
+    workflowLabsEnabled,
   ]);
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
@@ -5579,6 +5597,11 @@ function AcpmuxPane() {
     closeInspector();
     if (artifactCovers) setArtifact(undefined);
   }, [closeDiff, closeInspector, artifactCovers]);
+  // Labs: the chat's workflows head the Inspector's Background tasks (inspector/WorkflowTasks.tsx).
+  const inspectorWorkflows = useMemo(
+    () => (workflows.length > 0 ? { list: workflows, onStop: stopSubagent } : undefined),
+    [workflows, stopSubagent],
+  );
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -5593,6 +5616,7 @@ function AcpmuxPane() {
     onStopProcess: stopProcess,
     subagents: cardSubagents,
     sessions: cardSessions,
+    workflows: inspectorWorkflows,
     // A folder opens in the Files tree beside the chat; a remote or cloud chat's folders are not on
     // this Mac.
     onOpenFolder:
@@ -5613,6 +5637,12 @@ function AcpmuxPane() {
     // A handoff review's form is wider than the transcript's column: the chat's shift is measured against it.
     wide: reviewing,
   });
+  // Labs: a workflow's card opens Session Info's Background tasks, which lists its phases and agents.
+  const revealInspector = inspector.reveal;
+  useEffect(() => {
+    configureWorkflowCardOpen(revealInspector ? () => revealInspector("tasks") : undefined);
+    return () => configureWorkflowCardOpen(undefined);
+  }, [revealInspector]);
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
   // that run. A count of one opens its subagent, the command's row or the chat; of several, the
@@ -5639,15 +5669,20 @@ function AcpmuxPane() {
       ].join("\u0000"),
     )
     .join("\u0001");
+  // Labs: a workflow has its card in the transcript and its panel, never a tray row, running or ended.
+  const trayAgents = useMemo(
+    () => (workflowLabsEnabled ? chatAgents.filter((agent) => agent.kind !== "workflow") : chatAgents),
+    [workflowLabsEnabled, chatAgents],
+  );
   const trayList = useMemo(
-    () => (subagentTray ? trayItems(chatAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
+    () => (subagentTray ? trayItems(trayAgents, runningCommandList, childSessions, snapshot.isWorking) : []),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runningCommandList is new on every snapshot; its key is not
-    [subagentTray, chatAgents, commandsKey, childSessions, snapshot.isWorking],
+    [subagentTray, trayAgents, commandsKey, childSessions, snapshot.isWorking],
   );
   // What ended, behind the tray's bounded status cards; never in its count.
   const trayFinished = useMemo(
-    () => (subagentTray ? finishedTrayItems(chatAgents, childSessions) : []),
-    [subagentTray, chatAgents, childSessions],
+    () => (subagentTray ? finishedTrayItems(trayAgents, childSessions) : []),
+    [subagentTray, trayAgents, childSessions],
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
@@ -8913,6 +8948,7 @@ function AcpmuxPane() {
               pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
               {...(newTab.headlineOff ? { headlineOff: true } : {})}
               {...(newTab.allChats === false ? { allChats: false } : {})}
+              {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
               {...(newTab.weather ? { weather: newTab.weather } : {})}
               onEditWidgets={(edit) =>
                 editNewTabWidgets(edit, {

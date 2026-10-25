@@ -56,7 +56,8 @@
 //!   sender, child or parent: checked when it is sent and again when it
 //!   runs (a queued one, `turns.rs`).
 //!
-//! A family lives on one daemon: there is no start on another host. What
+//! A family lives on one daemon: there is no start on another host (a start's
+//! host `auto` only checks this machine has room, `server/place.rs`). What
 //! the tools read back of a family member (its title, last reply, capped
 //! at [`MAX_REPLY_CHARS`], error, running prompt and what it does now) is masked (`secret_scan`),
 //! the reply and the prompt before their cut, and only the caller's descendants and its own parent
@@ -856,6 +857,8 @@ impl Hub {
             // working, input, failed, lost or idle, and since when (`views::lane`).
             "state": summary["lane"]["state"].clone(),
             "stateSince": summary["lane"]["since"].clone(),
+            // Working, but quiet with no tool call in flight since then (`hub/activity.rs`).
+            "stalledSince": summary["lane"]["stalledSince"].clone(),
             "doing": super::subsession_send::doing(&summary),
             // question or permission: only the person allows a permission, in the app.
             "waitingOn": pick("waitingOn"),

@@ -182,6 +182,7 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_generated_fold.py
       - tests/test_cmux_next_pr_autofix_push_gate.py
       - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
@@ -411,6 +412,7 @@ on:
       - .github/workflows/intent-familiar-review.yml
       - .github/review-bot-rules/familiar-intent.md
       - tests/test_cmux_next_checks_workflow.py
+      - tests/test_cmux_next_generated_fold.py
       - tests/test_cmux_next_pr_autofix_push_gate.py
       - .github/workflows/cmux-next-pr-autofix.yml
       - scripts/ci/run-checks-concurrently.sh
@@ -1473,6 +1475,7 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/base-autofix-changed.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
+            bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
             bash scripts/cmux-next/tests/stamp-app-ffi-mtimes.test.sh
@@ -1613,6 +1616,7 @@ jobs:
         continue-on-error: true
         run: |
           python3 tests/test_cmux_next_checks_workflow.py
+          python3 tests/test_cmux_next_generated_fold.py
           python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
@@ -3036,6 +3040,11 @@ jobs:
       # A pull request that changes no cmux-tui path runs on the newest
       # published tree when its own is not ready (path routing's probe).
       CMUX_TUI_TREE_KEY: ${{ inputs.same_tree_sha == '' && needs.path_route.outputs.tree_fetch_key || '' }}
+      # A push whose generated files are routed checks them here, on this job's
+      # package build, instead of a second Mac building the same package and
+      # tests (generated-files skips such a push). Pull requests keep the
+      # generated-files job.
+      CMUX_NEXT_FOLD_GENERATED: ${{ github.event_name == 'push' && inputs.same_tree_sha == '' && needs.path_route.outputs.generated == 'true' }}
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -3180,6 +3189,25 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      # The generated files checks of a push (CMUX_NEXT_FOLD_GENERATED), on the
+      # package and tests built above and before the catalogs are compiled into
+      # the resource bundles, as the generated-files job runs them. Their
+      # verdict is the last steps of this job, after the daemon suites.
+      - name: Check generated action catalog, surfaces and inventory
+        id: actions
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
+        continue-on-error: true
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
+        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+
+      - name: Check the settings exports
+        id: settings
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
+        continue-on-error: true
+        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
+
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
         run: ../../../scripts/cmux-next/compile-string-catalogs.sh
@@ -3225,6 +3253,67 @@ jobs:
       # A test helper that died on a signal leaves its crash report here
       # (scripts/cmux-next/swift-test-with-hang-sampler.sh): the crashed
       # thread names the test that trapped.
+      # The generated files verdict of a push (the checks above), as generated-files gives it.
+      # Only the generated paths are collected into the artifact.
+      - name: Regenerate stale files
+        id: regenerate
+        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.actions.outcome }}" == failure ]]; then
+            scripts/cmux-next/regenerate-action-contracts.sh
+          fi
+          # The Swift settings export only when the source stamp is stale. It writes the
+          # files into the checkout, as the fleet export step does, and fails
+          # when the stamp still does not match afterwards.
+          if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then
+            scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/settings-exports"
+          fi
+          # The defaults snapshot reads the action and settings exports, so it
+          # follows whichever of them was regenerated.
+          python3 scripts/ci/defaults_guard.py snapshot
+          # The regenerated files themselves, at their repository paths, so
+          # they copy onto the PR head. A diff would be against the merge
+          # commit, whose context the head may not have.
+          out="$RUNNER_TEMP/generated/files"
+          mkdir -p "$out"
+          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
+            schemas/settings/settings-schema.json 'schemas/settings-export/*' 'docs/mdm/*' schemas/defaults/cmux-next.json)
+          git add -N -- "${generated[@]}"
+          git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
+          git diff --stat
+          while IFS= read -r path; do
+            mkdir -p "$out/$(dirname "$path")"
+            cp "$path" "$out/$path"
+          done < "$RUNNER_TEMP/generated/paths.txt"
+          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
+          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
+            echo "patch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload the regenerated files
+        if: ${{ !cancelled() && steps.regenerate.outputs.patch == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-generated-patch
+          path: ${{ runner.temp }}/generated/files
+          include-hidden-files: true
+          retention-days: 3
+
+      - name: Fail on stale generated files
+        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') }}
+        run: |
+          {
+            echo "### Generated cmux-next files are stale"
+            echo
+            [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports and source stamp: scripts/cmux-next/regenerate-settings-exports.sh"
+            echo
+            echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
+          exit 1
+
       - name: Upload the test helper's crash reports
         if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -3264,7 +3353,9 @@ jobs:
 
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles]
-    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    # A push that daemon-test runs on is checked there (CMUX_NEXT_FOLD_GENERATED): the clause after
+    # the fork clause is daemon-test's push condition, which the clauses before it already hold.
+    if: ${{ !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && !(github.event_name == 'push' && inputs.same_tree_origin != 'push' && inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready') }}
     name: cmux-next generated files
     # Bind pushes to their exact source head. A stalled old head therefore
     # cannot occupy the one branch-wide pending slot for every newer head.
@@ -3480,6 +3571,8 @@ jobs:
         id: actions
         continue-on-error: true
         working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
         run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
 
       # The CI target graph is bot-only (scripts/cmux-next/generated_outputs.py,
@@ -3930,8 +4023,9 @@ jobs:
   # every tier, so on success the committed exports are the ones the Swift
   # tests checked.
   swift-exports-cache:
-    needs: [checks, generated-files, swift-test, daemon-test]
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && needs.generated-files.result == 'success' && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
+    needs: [path_route, checks, generated-files, swift-test, daemon-test]
+    # generated-files skips a push whose generated files daemon-test checks (CMUX_NEXT_FOLD_GENERATED).
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.path_route.outputs.generated == 'true') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10

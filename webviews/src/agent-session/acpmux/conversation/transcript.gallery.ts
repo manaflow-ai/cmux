@@ -2086,7 +2086,7 @@ export default agentPaneEntry({
       },
     },
     "tool-run-scrolled-fade": {
-      note: 'Leo 2026-10-21, "in that top section fade would be good": a long run ("Read files, ran commands") opened past its nine-row cap and scrolled so a row sits half under its summary line. The list\'s top fades out there instead of cutting the row in half against the line. Play: open the turn and the run, scroll the list 3.5 rows.',
+      note: 'Leo 2026-10-24: a long run ("Read files, ran commands") keeps its collapsed rows on the transcript\'s one vertical scroll surface instead of capturing the wheel in a nested list. Play: open the turn and the run.',
       snapshot: chat([
         user("Find where the sidebar's drag reorder loses its index.", 3),
         activity(
@@ -2107,10 +2107,9 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openGroupedRun(ctx);
         const list = () => ctx.find({ selector: ".cv-tool-run" });
-        await ctx.waitFor(() => list().scrollHeight > list().clientHeight + 26);
-        // 3.5 rows of 26px: the fourth row sits half under the summary line.
-        list().scrollTop = 26 * 3.5;
-        await ctx.waitFor(() => list().scrollTop > 0);
+        await ctx.waitFor(() => list().clientHeight > 0);
+        if (list().scrollHeight > list().clientHeight + 1) throw new Error("tool run captured vertical scroll");
+        if (list().scrollTop !== 0) throw new Error("tool run moved its own scroll position");
       },
     },
     "codex-turn-run-open": {
