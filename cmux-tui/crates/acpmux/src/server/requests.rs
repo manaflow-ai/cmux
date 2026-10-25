@@ -74,9 +74,17 @@ pub(super) async fn handle_notification(
         method::SESSION_CANCEL => {
             // Notifications have no response channel, but they still cross
             // the same origin/ownership boundary as request-form cancels.
+            let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
-                && let Err(e) =
-                    super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await
+                && let Err(e) = super::remote_guard::check(
+                    hub,
+                    conn.origin,
+                    conn.auth,
+                    device.as_deref(),
+                    m,
+                    &mut params,
+                )
+                .await
             {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
@@ -324,6 +332,7 @@ async fn dispatch_brief(
             hub,
             conn.origin,
             conn.auth,
+            None,
             method::SESSION_NEW,
             &mut new_params,
         )
@@ -379,6 +388,7 @@ async fn dispatch_brief(
     let task_session = session.clone();
     let task_via = params.pointer("/_meta/acpmux/via").cloned();
     let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
+    let task_device = super::remote_guard::full_access_device(hub, conn, &prompt);
     tokio::spawn(async move {
         let mut blocks =
             vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
@@ -397,6 +407,7 @@ async fn dispatch_brief(
                     ),
                     trust_gate: task_via.is_some() || web,
                     agent: task_agent,
+                    full_access_device: task_device,
                     ..Default::default()
                 },
             )
@@ -451,7 +462,9 @@ pub(super) async fn handle_request(
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
-        super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await?;
+        let device = super::remote_guard::full_access_device(hub, conn, &params);
+        super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
+            .await?;
     }
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web

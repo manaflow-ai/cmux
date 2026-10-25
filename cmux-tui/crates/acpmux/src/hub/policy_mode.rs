@@ -251,6 +251,11 @@ impl Hub {
         for s in &held {
             tracing::warn!(session = %s.id, "a machine's Full access ended: the chat goes back to its policy's mode");
             self.append(s, "mux", "full_access_ended", json!({}));
+            // First: a Web turn past its dispatch check sends no prompt now (`remote_floor_breach`),
+            // and one whose prompt went out is cancelled.
+            if s.turn().is_some_and(|t| t.control == Control::Web) {
+                self.remote_floor_cancel(s, "remote.full_access_ended");
+            }
         }
         futures::future::join_all(held.iter().map(|s| self.follow_policy(s))).await;
         // After the move: a turn that began before it ran in the wider mode.

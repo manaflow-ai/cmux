@@ -102,6 +102,8 @@ impl Hub {
             .filter(|p| !p.is_empty())
             .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
         let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
+        // A chat in Full access by a machine's setting: that machine only (`full_access_hold`).
+        self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
         if session.moving().is_some() {
             return Err(super::queue::moving_error());

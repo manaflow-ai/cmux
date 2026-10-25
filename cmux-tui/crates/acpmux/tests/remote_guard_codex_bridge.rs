@@ -350,6 +350,18 @@ async fn a_paired_device_without_the_setting_stays_refused_while_one_with_it_is_
     }
     let r = with.call("session/prompt", prompt(&mine)).await;
     assert_eq!(r["result"]["stopReason"], "end_turn", "with: {r}");
+    // Nor do they change its turn or queue.
+    for (m, params) in [
+        ("session/cancel", json!({"sessionId": mine})),
+        ("_acpmux/queue_edit", json!({"sessionId": mine, "promptId": "p", "op": "move", "index": 0})),
+        ("_acpmux/queue_edit", json!({"sessionId": mine, "promptId": "p", "op": "resume"})),
+        ("_acpmux/queue_remove", json!({"sessionId": mine, "promptId": "p"})),
+    ] {
+        let r = web.call(m, params.clone()).await;
+        assert_eq!(r["error"]["data"]["reason"], "remote.full_access_device", "{m}: {r}");
+        let r = with.call(m, params).await;
+        assert_ne!(r["error"]["data"]["reason"], "remote.full_access_device", "with, {m}: {r}");
+    }
     // Nothing else: deny-all still holds a chat, and a chat started on this
     // machine keeps the mode its own policy holds.
     let locked = with

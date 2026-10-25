@@ -437,8 +437,14 @@ impl Hub {
         // The remote floor fired before the prompt went out (a mode write
         // in the gap): the prompt is not sent. After this point the floor's
         // cancel reaches the agent after the prompt (`remote_floor.rs`).
+        // A machine's Full access that ended since the dispatch check (`full_access_hold`).
+        let full_access_ended = || {
+            self.full_access_hold(&session.meta(), control, device.as_deref())
+                .err()
+                .map(|_| "remote.full_access_device")
+        };
         if control == Control::Web
-            && let Some(reason) = self.remote_floor_breach(session)
+            && let Some(reason) = self.remote_floor_breach(session).or_else(full_access_ended)
         {
             let e = RpcError::new(-32000, "the remote floor cancelled this turn before its prompt")
                 .with_data(json!({"reason": reason}));

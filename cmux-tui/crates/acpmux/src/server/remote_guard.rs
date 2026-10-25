@@ -166,6 +166,7 @@ pub(super) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
     auth: super::ConnAuth,
+    device: Option<&str>,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
@@ -398,6 +399,21 @@ pub(super) async fn check(
     // After the folder checks: what the request starts from, and its mode.
     if web {
         web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
+    }
+    // A chat in Full access by a machine's setting: every request that controls or changes its
+    // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
+    // `full_access_device`).
+    if matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::SESSION_CANCEL
+            | method::MUX_QUEUE_EDIT
+            | method::MUX_QUEUE_REMOVE
+            | method::MUX_PERMISSION_RESPOND
+            | method::MUX_PERMISSION_GROUP_RESPOND
+    ) && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
+    {
+        hub.full_access_hold(&s.meta(), control_of(origin, auth, params), device)?;
     }
     Ok(())
 }
