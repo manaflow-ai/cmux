@@ -340,9 +340,17 @@ impl Hub {
         }
         let family = self.trust_family(&pm.harness).await;
         let own = own.to_string_lossy();
-        self.trust_level_of(paths, &own, &family)
+        let decided = self
+            .trust_level_of(paths, &own, &family)
             .await
-            .is_ok_and(|read| read.decided == Level::Trusted)
+            .is_ok_and(|read| read.decided == Level::Trusted);
+        // The parent may have left full access (or its folder or harness) during the read.
+        let now = parent.meta();
+        decided
+            && full_access_by_cmux(&now)
+            && !now.remote_origin
+            && now.cwd == pm.cwd
+            && now.harness == pm.harness
     }
 
     /// Whether the folder reads as trusted for `family` now (`web`: a Web turn, where an auto-trust
