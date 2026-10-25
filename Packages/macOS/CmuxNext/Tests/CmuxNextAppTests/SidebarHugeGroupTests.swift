@@ -52,7 +52,15 @@ struct SidebarHugeGroupTests {
     }
 
     @Test func oneGroup1k() { _ = Self.measure("one-group", count: 1_000, shape: .oneGroup) }
-    @Test func oneGroup10k() { _ = Self.measure("one-group", count: 10_000, shape: .oneGroup) }
+    /// 10,000 in one group on an M4 Pro: baseline was open 647, unfold 222, reorder 334 ms (row text made per row:
+    /// a `DateComponentsFormatter` per age). Ceilings leave 2x headroom for a loaded runner.
+    @Test func oneGroup10k() {
+        let n = Self.measure("one-group", count: 10_000, shape: .oneGroup)
+        #expect(n.openMs < 400, "open \(n.openMs) ms")
+        #expect(n.unfoldMs < 100, "unfold \(n.unfoldMs) ms")
+        #expect(n.foldMs < 60, "fold \(n.foldMs) ms")
+        #expect(n.reorderMs < 200, "reorder \(n.reorderMs) ms")
+    }
     @Test func nested1k() { _ = Self.measure("nested-20", count: 1_000, shape: .nested(depth: 20), groupID: "sb-g1") }
     @Test func nested10k() { _ = Self.measure("nested-20", count: 10_000, shape: .nested(depth: 20), groupID: "sb-g1") }
     @Test func manyCollapsed10k() { _ = Self.measure("many-collapsed", count: 10_000, shape: .manyCollapsed(perGroup: 10), groupID: "sb-g1") }
