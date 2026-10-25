@@ -21,6 +21,15 @@ async fn until_results(hub: &Arc<Hub>, id: &str, n: usize) -> Vec<Value> {
     }
 }
 
+/// Waits (test polling, real time) until `id`'s log has a record `pred` accepts.
+async fn until_event(hub: &Arc<Hub>, id: &str, pred: impl Fn(&acpmux::store::EventRecord) -> bool) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while !hub.events(id, 0, 10_000).unwrap().iter().any(&pred) {
+        assert!(std::time::Instant::now() < deadline, "no such record in {id}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// Prompts `id` with `text` and waits until its model said `word`.
 async fn start(c: &mut TestClient, id: &str, text: &str, word: &str) {
     c.send(method::SESSION_PROMPT, prompt(id, text, None)).await;
@@ -218,10 +227,8 @@ async fn a_tool_call_that_ends_brings_the_stalled_deadline_back() {
     tokio::time::sleep(Duration::from_millis(100)).await;
     clock.advance(Duration::from_secs(30));
     // The tool call ends (in real time): one period from now.
-    c.wait_for(method::SESSION_UPDATE, |p| {
-        p["sessionId"] == id && p["update"]["status"] == "completed"
-    })
-    .await;
+    until_event(&hub, &id, |e| e.msg.pointer("/params/update/status") == Some(&json!("completed")))
+        .await;
     clock.advance(Duration::from_secs(61));
     let ended = until_results(&hub, &id, 1).await;
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
@@ -248,9 +255,18 @@ async fn a_turn_counts_from_its_prompt_being_written() {
     let status = hub.session_summary(&hub.resolve("stall-written").unwrap())["status"].clone();
     assert_eq!(status, "idle", "the agent did not exit idle");
 
+    // An unattended prompt: its client lets go while the agent still starts.
     let mut other = connect(&hub).await;
-    start(&mut other, &id, "hang", "working").await;
+    other.send(method::SESSION_PROMPT, prompt(&id, "hang", None)).await;
+    let session = hub.resolve("stall-written").unwrap();
+    while hub.session_summary(&session)["turn"].is_null() {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     other.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    until_event(&hub, &id, |e| {
+        e.msg.pointer("/params/update/content/text") == Some(&json!("working"))
+    })
+    .await;
     let events = hub.events(&id, 0, 10_000).unwrap();
     let cancels = events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_CANCEL);
     assert_eq!(cancels.count(), 0, "a cancel went to an agent whose prompt was not written");
