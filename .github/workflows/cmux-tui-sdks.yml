@@ -33,6 +33,8 @@ on:
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "tests/test_tui_musl_build.py"
+      - "scripts/build-tui-musl.sh"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
   pull_request:
@@ -65,6 +67,8 @@ on:
       - "tests/test_tui_pypi_postpublish_reconcile.sh"
       - "tests/test_tui_npm_package_artifact.py"
       - "tests/test_tui_package_contract.py"
+      - "tests/test_tui_musl_build.py"
+      - "scripts/build-tui-musl.sh"
       - "web/public/tui/install-static.sh"
       - "web/public/tui/install-static.ps1"
   workflow_dispatch:
@@ -167,6 +171,9 @@ jobs:
 
       - name: Test TUI package artifact contract
         run: python3 tests/test_tui_package_contract.py
+
+      - name: Test TUI Linux musl linker selection
+        run: python3 tests/test_tui_musl_build.py
 
       - name: Test TUI npm artifact transfer contract
         run: python3 tests/test_tui_npm_package_artifact.py
