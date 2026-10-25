@@ -53,6 +53,12 @@ pub struct SessionSummary {
     /// Its sub-sessions that are not closed.
     pub children: u32,
     pub title: Option<String>,
+    /// Who supplied `title`: `prompt` is the first-prompt fallback, while
+    /// `harness`, `generated` and `adopted` are real chat titles. Older peers
+    /// may omit this field.
+    #[serde(default)]
+    #[schemars(default)]
+    pub title_source: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
@@ -234,6 +240,12 @@ pub struct Lane {
     /// The session's title, else its latest prompt, one line, secrets masked
     /// (`secret_scan`).
     pub title: Option<String>,
+    /// A `working` lane that has stalled: since when its turn has had no tool
+    /// call in flight and no sign of its model (`turn.stalledSince`); null
+    /// otherwise. The state stays `working`, so a client that reads only it
+    /// is unchanged.
+    #[serde(default, rename = "stalledSince")]
+    pub stalled_since: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -275,6 +287,10 @@ pub struct TurnSummary {
     pub activity: Option<String>,
     /// Its plan's entry in progress; null without one.
     pub plan_step: Option<String>,
+    /// Since when it has stalled: no tool call in flight and no sign of its
+    /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
+    /// null while it has not.
+    pub stalled_since: Option<u64>,
 }
 
 /// A prompt waiting for the running turn to end.
@@ -349,6 +365,14 @@ pub struct SessionsParams {
     /// A previous reply's `nextCursor`: the page starts after that session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
+    /// (its name, e.g. `huge-blue`). Empty is no filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+    /// `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
+    /// (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

@@ -102,7 +102,7 @@
 .workflow-gallery__pinned-summary {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: var(--layer-raised);
   padding-bottom: var(--workflow-space-12);
   background: var(--workflow-bg);
 }

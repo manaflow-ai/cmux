@@ -72,6 +72,7 @@ impl Hub {
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
             }
             let (d, kind) = match (dir, msg) {
@@ -97,6 +98,8 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // Its workflows ran in the agent's process: they end with it.
+                    tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
                         .append_logged(
                             &tap_session,
@@ -181,6 +184,14 @@ impl Hub {
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
                 subagent = tree.annotate(params);
+            }
+            // A live update's workflow changes feed the daemon's index of them.
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    value.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.workflow_index.observe(&tap_session.id, events, crate::store::now_ms());
             }
             // Live agent updates (not a session/load replay) also feed the
             // stream watcher, which may record `message_superseded` first.

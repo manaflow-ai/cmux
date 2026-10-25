@@ -398,6 +398,7 @@ mod tests {
             provenance,
             agent: agent.map(str::to_owned),
             supersede: None,
+            full_access_device: None,
         })
     }
 

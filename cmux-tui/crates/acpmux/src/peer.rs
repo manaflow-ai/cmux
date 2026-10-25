@@ -16,6 +16,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_health.rs"]
+mod health;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -85,6 +88,8 @@ pub struct Peer {
     file_put: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
+    /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
+    subagent_transcript: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -101,6 +106,10 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
+    health: StdMutex<Option<(u64, Value)>>,
+    /// An ask for it is out.
+    health_asking: AtomicBool,
 }
 
 impl Peer {
@@ -131,6 +140,7 @@ impl Peer {
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
+            subagent_transcript: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
@@ -140,6 +150,8 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            health: StdMutex::new(None),
+            health_asking: AtomicBool::new(false),
         })
     }
 
@@ -290,8 +302,14 @@ impl Peer {
         self.media_read.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it serves subagent transcripts.
+    pub fn supports_subagent_transcript(&self) -> bool {
+        self.subagent_transcript.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
         let link = self.link();
+        let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
             "url": self.url,
@@ -308,6 +326,8 @@ impl Peer {
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "attempts": link.attempts,
+            "health": health,
+            "healthAt": health_at,
         })
     }
 
@@ -514,6 +534,8 @@ impl Peer {
             };
             me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
+            me.subagent_transcript
+                .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
@@ -533,6 +555,7 @@ impl Peer {
             for sid in attached {
                 let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
+            me.refresh_health();
             Ok::<(), RpcError>(())
         });
 
@@ -548,6 +571,7 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {
@@ -571,6 +595,10 @@ impl Peer {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(budget)),
+                    }
+                    ticks += 1;
+                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                        self.refresh_health();
                     }
                 }
                 frame = source.next() => {

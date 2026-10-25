@@ -19,6 +19,8 @@ const TOKEN: [u8; 32] = [0x33; 32];
 struct Collect {
     bytes: Mutex<Vec<u8>>,
     exit: Mutex<Option<ExitStatus>>,
+    /// Each ADOPTED answer's ring end, with the bytes received before it.
+    adopted: Mutex<Vec<(u64, usize)>>,
 }
 
 impl TerminalSink for Collect {
@@ -32,6 +34,10 @@ impl TerminalSink for Collect {
     }
     fn exit(&self, status: ExitStatus, _end: u64) {
         *self.exit.lock().unwrap() = Some(status);
+    }
+    fn adopted(&self, end: u64) {
+        let received = self.bytes.lock().unwrap().len();
+        self.adopted.lock().unwrap().push((end, received));
     }
 }
 
@@ -179,6 +185,14 @@ fn an_adoption_answers_with_the_segment_the_new_holder_writes() {
         .unwrap();
     let written = answer.wait().unwrap().expect("the holder names the fresh segment it writes");
     assert_eq!(cmux_holder::ring::segment_end(&written).unwrap(), received);
+    // Review 2 of pl-holder-11: the sink hears where the ring it writes
+    // ends (a fresh ring: at `resume`) before any output of the adopted
+    // stream, so the daemon marks its loss at the right offset.
+    assert_eq!(
+        *sink.adopted.lock().unwrap(),
+        vec![(received, received as usize)],
+        "the ADOPTED answer reaches the sink once, before the new output"
+    );
     std::fs::File::from(spawned.master.try_clone().unwrap()).write_all(b"after\n").unwrap();
     wait_for("the echo on the new holder", || {
         String::from_utf8_lossy(&sink.bytes.lock().unwrap()).contains("after\r\nafter")
@@ -191,5 +205,83 @@ fn an_adoption_answers_with_the_segment_the_new_holder_writes() {
     wait_for("the exit", || sink.exit.lock().unwrap().is_some());
     let _ = second.kill();
     let _ = second.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Review 1 of pl-holder-11: a SPAWN whose answer comes after the spawn
+/// timeout leaves no terminal on the holder. A stand-in holder takes the
+/// SPAWN and its ATTACH and answers nothing: the spawn times out and the
+/// link sends a CLOSE for the channel. The stand-in's late SPAWNED (nobody
+/// waits for it any more) gets another CLOSE, and the output the terminal
+/// prints meanwhile (no sink parses it) is acknowledged, so the shell never
+/// blocks behind credit nobody gives and can end. Before, the holder kept
+/// the shell, its PTY and its ring for the life of the link.
+#[test]
+fn a_spawn_that_times_out_leaves_no_terminal_on_the_holder() {
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::net::UnixListener;
+
+    use cmux_holder::wire::{self, In, Kind, Out};
+
+    let dir = support::unique_dir("cmhlt");
+    let socket = dir.join("h.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let stand_in = std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        // Only fails a link that never sends what this test waits for.
+        stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        let fd = stream.as_raw_fd();
+        let mut reader = wire::Reader::default();
+        let mut next = |what: &str| loop {
+            if let Some(frame) = reader.next_frame().unwrap() {
+                return frame;
+            }
+            match reader.fill(fd) {
+                Ok(true) => {}
+                other => panic!("the link sent no {what}: {other:?}"),
+            }
+        };
+        let hello = next("HELLO");
+        assert_eq!(hello.kind, Kind::Hello as u16);
+        let welcome = Out::default().u16(wire::VERSION).u32(0).0;
+        wire::send_all(fd, &wire::encode(Kind::Welcome, 0, &welcome), &[]).unwrap();
+        let spawn = next("SPAWN");
+        assert_eq!((spawn.kind, spawn.chan), (Kind::Spawn as u16, 1));
+        let attach = next("ATTACH");
+        assert_eq!((attach.kind, attach.chan), (Kind::Attach as u16, 1));
+        let close = next("CLOSE after the spawn timed out");
+        assert_eq!((close.kind, close.chan), (Kind::Close as u16, 1), "{close:?}");
+        // The late answer, with a stand-in for the master.
+        let mut ends = [0; 2];
+        // SAFETY: pipe fills two descriptors this thread then owns.
+        assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0);
+        // SAFETY: both are fresh descriptors nothing else owns.
+        let (read_end, _write_end) =
+            unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
+        let spawned = wire::encode(Kind::Spawned, 1, &Out::default().i32(4242).0);
+        wire::send_all(fd, &spawned, &[read_end.as_raw_fd()]).unwrap();
+        let close = next("CLOSE for the late SPAWNED");
+        assert_eq!((close.kind, close.chan), (Kind::Close as u16, 1), "{close:?}");
+        // Output nobody parses is consumed.
+        let (offset, output) = (0u64.to_le_bytes(), [b'x'; 100]);
+        let data = wire::encode_parts(Kind::Data, 0, 1, &[&offset[..], &output[..]]);
+        wire::send_all(fd, &data, &[]).unwrap();
+        let ack = next("ACK for output no sink parses");
+        assert_eq!((ack.kind, ack.chan), (Kind::Ack as u16, 1), "{ack:?}");
+        assert_eq!(In(&ack.payload).u64().unwrap(), 100);
+        stream
+    });
+    let (link, _) = HolderLink::connect_with_spawn_timeout(
+        &socket,
+        &TOKEN,
+        Box::new(|_| {}),
+        Duration::from_millis(200),
+    )
+    .unwrap();
+    let error = link.spawn(1, &request(1, "exec cat"), Arc::new(Collect::default())).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut, "{error}");
+    let stream = stand_in.join().expect("the stand-in holder saw every frame it waits for");
+    drop(stream);
+    drop(link);
     let _ = std::fs::remove_dir_all(&dir);
 }

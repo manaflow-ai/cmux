@@ -248,3 +248,40 @@ async fn revoking_a_device_wakes_its_connections() {
     drop(guard);
     assert_eq!(p.list()["devices"][0]["connections"], 0);
 }
+
+#[test]
+fn full_access_is_off_by_default_and_only_a_live_client_has_it() {
+    let (mut s, _) = minted(Role::Client);
+    let laptop = redeem(&mut s, SECRET, "laptop", T0 + 1).unwrap().device;
+    assert!(!laptop.full_access && !laptop.grants_full_access());
+    // A record saved before the setting existed reads as off.
+    let old: Device = serde_json::from_value(serde_json::json!({
+        "id": "dv_old", "name": "old", "role": "client", "tokenHash": "00", "createdMs": T0,
+    }))
+    .unwrap();
+    assert!(!old.grants_full_access());
+    assert!(s.set_full_access("laptop", true).unwrap().grants_full_access());
+    assert!(s.devices[0].grants_full_access());
+    // Off is saved as no field at all.
+    assert!(s.set_full_access(&laptop.id, false).is_ok());
+    assert!(!serde_json::to_string(&s).unwrap().contains("fullAccess"));
+    // A revoked machine has no setting, and none can be turned on for it.
+    s.set_full_access(&laptop.id, true).unwrap();
+    s.revoke(&laptop.id, T0 + 2).unwrap();
+    assert!(!s.devices[0].grants_full_access());
+    assert_eq!(reason(&s.set_full_access(&laptop.id, true).unwrap_err()), "not_found");
+}
+
+#[test]
+fn a_read_only_or_daemon_machine_never_has_full_access() {
+    let mut s = Store::default();
+    for (name, role) in [("watcher", Role::ReadOnly), ("drives", Role::Daemon)] {
+        s.issue(name, role, &"cd".repeat(32), &format!("dv_{name}"), None, T0).unwrap();
+        assert_eq!(reason(&s.set_full_access(name, true).unwrap_err()), "full_access_role");
+        assert!(s.set_full_access(name, false).is_ok(), "off is always accepted");
+    }
+    // A hand-edited record with the setting on still grants nothing.
+    s.devices[0].full_access = true;
+    s.devices[1].full_access = true;
+    assert!(s.devices.iter().all(|d| !d.grants_full_access()));
+}

@@ -90,7 +90,15 @@ type Sent = { method: "model" | "effort" | "route"; value: string | null };
 /// chat bound to `active`.
 async function mount(
   listed: unknown,
-  options: { fast?: boolean; refuse?: boolean; turnCount?: number; model?: string; effort?: string } = {},
+  options: {
+    fast?: boolean;
+    refuse?: boolean;
+    turnCount?: number;
+    model?: string;
+    effort?: string;
+    folderProfile?: boolean;
+    currentFolder?: boolean;
+  } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -99,12 +107,24 @@ async function mount(
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   const { ChatAccountsContext, readChatAccounts } = await import("../src/agent-session/acpmux/chatAccounts");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
-  const acpmux: Snapshot["catalog"] = BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
-    id: harness.id,
-    name: harness.name,
-    family: harness.families[0],
-    models: harness.models.map((model) => ({ id: model.id, name: model.name })),
-  })) as Snapshot["catalog"];
+  const acpmux: Snapshot["catalog"] = [
+    ...BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
+      id: harness.id,
+      name: harness.name,
+      family: harness.families[0],
+      models: harness.models.map((model) => ({ id: model.id, name: model.name })),
+    })),
+    ...(options.folderProfile
+      ? [
+          {
+            id: "machine-profile",
+            name: "Build machine",
+            folder: { folder: "/Users/me/app", state: "enabled" as const },
+            models: [{ id: "machine-model", name: "Machine model" }],
+          },
+        ]
+      : []),
+  ] as Snapshot["catalog"];
   const sent: Sent[] = [];
   const asked: string[] = [];
   const added: string[] = [];
@@ -119,10 +139,13 @@ async function mount(
     },
   };
   function Host() {
+    const initialHarness = options.currentFolder ? "machine-profile" : "claude";
+    const initialModel = options.currentFolder ? "machine-model" : "claude-opus-5-5";
     const [state, setState] = useState({
-      model: options.model ?? "claude-opus-5-5",
+      model: options.model ?? initialModel,
       effort: options.effort ?? "medium",
       fast: "off",
+      harness: initialHarness,
     });
     const snapshot: Snapshot = {
       type: "snapshot",
@@ -136,7 +159,7 @@ async function mount(
       catalog: acpmux,
       summary: {
         sessionId: "s1",
-        harness: "claude",
+        harness: state.harness,
         model: state.model,
         turnCount: options.turnCount ?? 0,
         configOptions: [
@@ -166,7 +189,7 @@ async function mount(
         ],
       },
     } as Snapshot;
-    const picker = usePickerCatalog(snapshot.catalog, { harness: "claude" }, snapshot.sessions);
+    const picker = usePickerCatalog(snapshot.catalog, { harness: state.harness }, snapshot.sessions);
     return (
       <ComposerPickers
         snapshot={snapshot}
@@ -347,6 +370,22 @@ test("without a starred model the rail starts at the harnesses", async () => {
   await mount({ routes: [] });
   await open();
   expect(railTabs()[0]?.getAttribute("aria-label")).toBe("Claude Code");
+});
+
+test("machine profiles stay out of the harness rail", async () => {
+  await mount({ routes: [] }, { folderProfile: true });
+  await open();
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(labels).toContain("Claude Code");
+  expect(labels).toContain("Codex");
+  expect(labels).not.toContain("Build machine");
+});
+
+test("the current machine profile keeps its compact model list without a rail", async () => {
+  await mount({ routes: [] }, { folderProfile: true, currentFolder: true });
+  await open();
+  expect(menu()!.querySelector(".acpmux-quick-rail")).toBeNull();
+  expect(modelNames(menu()!)).toContain("Machine model");
 });
 
 test("More models is a submenu: the harness's other models, then Add harness…", async () => {
