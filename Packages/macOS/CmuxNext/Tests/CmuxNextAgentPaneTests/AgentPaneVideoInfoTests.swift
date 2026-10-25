@@ -1,0 +1,208 @@
+import AVFoundation
+@testable import CmuxNextAgentPane
+import CoreGraphics
+import CoreVideo
+import Foundation
+import ImageIO
+import Testing
+
+/// Leo, 2026-10-25: "also why dont we have previews of videos we should ... oh attaching a video
+/// froze the composer". An attached video shows its poster and length, and the agent gets its key
+/// frames: the host reads them with AVFoundation, off the main actor, and only for a video file of
+/// a chat on this Mac inside its folders or home (``AgentPaneVideoInfo``, `video.info`). Quick Look
+/// plays it on the person's click (`video.quickLook`).
+@MainActor @Suite(.serialized)
+struct AgentPaneVideoInfoTests {
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    private static func folder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("video-info-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    /// A `seconds` long H.264 movie of `width`×`height` at 5 frames a second: red for its first
+    /// half, blue for the rest. `rotated` gives its track a quarter turn, as a phone's portrait
+    /// video has.
+    nonisolated private static func movie(at url: URL, width: Int, height: Int, seconds: Int = 2, rotated: Bool = false) async throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mov)
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
+            AVVideoCodecKey: AVVideoCodecType.h264, AVVideoWidthKey: width, AVVideoHeightKey: height,
+        ])
+        input.expectsMediaDataInRealTime = false
+        if rotated { input.transform = CGAffineTransform(rotationAngle: .pi / 2) }
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
+        ])
+        writer.add(input)
+        #expect(writer.startWriting(), "\(String(describing: writer.error))")
+        writer.startSession(atSourceTime: .zero)
+        let rate = 5
+        for index in 0..<(seconds * rate) {
+            while !input.isReadyForMoreMediaData { await Task.yield() }
+            var buffer: CVPixelBuffer?
+            CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, nil, &buffer)
+            let pixels = try #require(buffer)
+            CVPixelBufferLockBaseAddress(pixels, [])
+            let base = try #require(CVPixelBufferGetBaseAddress(pixels)).assumingMemoryBound(to: UInt8.self)
+            let red = index < seconds * rate / 2
+            for row in 0..<height {
+                let line = base + row * CVPixelBufferGetBytesPerRow(pixels)
+                for column in 0..<width {
+                    // BGRA.
+                    line[column * 4] = red ? 0 : 255
+                    line[column * 4 + 1] = 0
+                    line[column * 4 + 2] = red ? 255 : 0
+                    line[column * 4 + 3] = 255
+                }
+            }
+            CVPixelBufferUnlockBaseAddress(pixels, [])
+            #expect(adaptor.append(pixels, withPresentationTime: CMTime(value: CMTimeValue(index), timescale: CMTimeScale(rate))))
+        }
+        input.markAsFinished()
+        await writer.finishWriting()
+        #expect(writer.status == .completed, "\(String(describing: writer.error))")
+    }
+
+    private static func image(_ jpeg: Data) throws -> CGImage {
+        let source = try #require(CGImageSourceCreateWithData(jpeg as CFData, nil))
+        #expect(CGImageSourceGetType(source) as String? == "public.jpeg")
+        return try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+    }
+
+    /// Whether `image`'s middle pixel is more red than blue.
+    private static func isRed(_ image: CGImage) throws -> Bool {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let context = try #require(CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: -image.width / 2, y: -image.height / 2, width: image.width, height: image.height))
+        return pixel[0] > pixel[2]
+    }
+
+    private static func ask(_ model: AgentPaneModel, _ method: String, _ params: [String: Any]) async -> [String: Any] {
+        await model.respond(to: AgentPaneRequest(body: ["method": method, "params": params]))
+    }
+
+    private static func errorCode(_ reply: [String: Any]) -> String? {
+        (reply["error"] as? [String: Any])?["code"] as? String
+    }
+
+    @Test func keyFramesAreTheMiddlesOfEqualParts() {
+        #expect(AgentPaneVideoInfo.frameTimes(duration: 8, count: 4) == [1, 3, 5, 7])
+        #expect(AgentPaneVideoInfo.frameTimes(duration: 0, count: 4).isEmpty)
+        #expect(AgentPaneVideoInfo.frameTimes(duration: .nan, count: 4).isEmpty)
+    }
+
+    @Test func aVideoGivesItsLengthSizePosterAndFourSpreadFrames() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clip = folder.appendingPathComponent("Screen Recording.mov")
+        try await Self.movie(at: clip, width: 1280, height: 720)
+
+        let info = try #require(await AgentPaneVideoInfo.read(clip))
+        #expect(abs(info.durationMs - 2000) <= 250, "\(info.durationMs)")
+        #expect(info.width == 1280 && info.height == 720)
+        // The poster is the chip's tile: at most 320 on its longest side, the video's shape.
+        let poster = try Self.image(info.poster)
+        #expect(poster.width == 320 && poster.height == 180)
+        // Four frames, in order, inside the video, each at most 1024 wide: red first, blue last.
+        #expect(info.frames.count == 4)
+        #expect(info.frames.map(\.atMs) == info.frames.map(\.atMs).sorted())
+        #expect(info.frames.allSatisfy { (0...info.durationMs).contains($0.atMs) })
+        let frames = try info.frames.map { try Self.image($0.jpeg) }
+        #expect(frames.allSatisfy { $0.width == 1024 && $0.height == 576 })
+        #expect(try Self.isRed(frames[0]))
+        #expect(try !Self.isRed(frames[3]))
+        #expect(try Self.isRed(poster))
+        let reply = info.reply
+        #expect((reply["poster"] as? String)?.hasPrefix("data:image/jpeg;base64,") == true)
+        #expect((reply["frames"] as? [[String: Any]])?.count == 4)
+    }
+
+    @Test func aRotatedVideoShowsUpright() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let clip = folder.appendingPathComponent("portrait.mov")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1, rotated: true)
+
+        let info = try #require(await AgentPaneVideoInfo.read(clip))
+        #expect(info.width == 180 && info.height == 320)
+        let poster = try Self.image(info.poster)
+        #expect(poster.width < poster.height)
+    }
+
+    @Test func aFileThatIsNotAVideoGivesNothing() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let fake = folder.appendingPathComponent("notes.mov")
+        try Data("not a movie".utf8).write(to: fake)
+        #expect(await AgentPaneVideoInfo.read(fake) == nil)
+        #expect(await AgentPaneVideoInfo.read(folder) == nil)
+    }
+
+    @Test func theHostReadsOnlyAVideoOfAChatOnThisMacInsideItsFoldersOrHome() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
+        let project = folder.appendingPathComponent("project", isDirectory: true)
+        for dir in [desktop, project, home.appendingPathComponent(".ssh", isDirectory: true)] {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        let clip = desktop.appendingPathComponent("Screen Recording 2026-10-25.mov")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let model = AgentPaneModel(host: NoHost())
+        model.replyLinks.home = home.path
+        model.workspaceRoots = { [project.path] }
+        var looked: [URL] = []
+        model.replyLinks.quickLookFile = { looked.append($0) }
+
+        // A recording on the Desktop (home, outside the project): its info, as a file URL too.
+        for src in [clip.path, clip.absoluteString] {
+            let reply = await Self.ask(model, "video.info", ["src": src])
+            #expect(Self.errorCode(reply) == nil, "\(reply)")
+            let value = try #require(reply["value"] as? [String: Any])
+            #expect(value["width"] as? Int == 320 && value["height"] as? Int == 180)
+            #expect((value["frames"] as? [[String: Any]])?.count == 4)
+        }
+
+        // Not a video by its name, on the deny list, outside home and the folders, missing, or a
+        // chat on another machine: refused, and nothing read.
+        let notes = desktop.appendingPathComponent("notes.txt")
+        try Data("x".utf8).write(to: notes)
+        let secret = home.appendingPathComponent(".ssh/clip.mov")
+        try FileManager.default.copyItem(at: clip, to: secret)
+        let outside = folder.appendingPathComponent("outside.mov")
+        try FileManager.default.copyItem(at: clip, to: outside)
+        for src in [notes.path, secret.path, outside.path, desktop.appendingPathComponent("gone.mov").path, desktop.path] {
+            let reply = await Self.ask(model, "video.info", ["src": src])
+            #expect(Self.errorCode(reply) == AgentPaneReplyError.mediaRefused.rawValue, "\(src): \(reply)")
+        }
+        model.remoteChat = true
+        #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+        model.remoteChat = false
+
+        // Quick Look plays it on a click only, and only a video the host would read.
+        #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": clip.path])) == AgentPaneReplyError.gestureRequired.rawValue)
+        #expect(looked.isEmpty)
+        model.transport.gestures.record(click: true)
+        #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": outside.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+        let played = await Self.ask(model, "video.quickLook", ["src": clip.path])
+        #expect(Self.errorCode(played) == nil, "\(played)")
+        #expect(looked.map { $0.resolvingSymlinksInPath().path } == [clip.resolvingSymlinksInPath().path])
+    }
+
+    @Test func theRequestsTakeOnlyTheirSource() {
+        #expect(AgentPaneReplyRequest(method: "video.info", params: ["src": "/a.mov"]) == .videoInfo("/a.mov"))
+        #expect(AgentPaneReplyRequest(method: "video.quickLook", params: ["src": "/a.mov"]) == .quickLookVideo("/a.mov"))
+        #expect(AgentPaneReplyRequest(method: "video.info", params: ["src": "/a.mov", "frames": 9]) == nil)
+        #expect(AgentPaneReplyRequest(method: "video.info", params: [:]) == nil)
+        #expect(AgentPaneReplyRequest.videoInfo("/a.mov").isPassive)
+        #expect(!AgentPaneReplyRequest.quickLookVideo("/a.mov").isPassive)
+        #expect(AgentPageOps.method(for: "cmux.agent.video.info") == "video.info")
+        #expect(AgentPageOps.method(for: "cmux.agent.video.quickLook") == "video.quickLook")
+    }
+}

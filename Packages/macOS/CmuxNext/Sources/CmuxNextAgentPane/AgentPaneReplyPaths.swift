@@ -150,4 +150,19 @@ nonisolated struct AgentPaneReplyPaths {
         guard Self.isImagePath(text) else { return nil }
         return resolve(text, inside: roots + imageRoots)
     }
+
+    /// Movies AVFoundation reads (``AgentPaneVideoInfo``); the page's `isVideoAttachment` names the same.
+    static let videoExtensions: Set<String> = ["mov", "mp4", "m4v"]
+
+    static func isVideoPath(_ text: String) -> Bool {
+        guard let path = imagePath(text) else { return false }
+        return videoExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    /// Resolves a video an attachment names (its poster and Quick Look) with the image roots: a
+    /// screen recording lands on the Desktop, outside the project. Read-only, like an image.
+    func resolveVideo(_ text: String) -> Resolved? {
+        guard Self.isVideoPath(text) else { return nil }
+        return resolve(text, inside: roots + imageRoots)
+    }
 }

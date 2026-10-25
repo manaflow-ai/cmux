@@ -98,8 +98,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage,
-             .dragImage, .dragFile:
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+             .quickLookImage, .dragImage, .dragFile:
             return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -160,6 +160,10 @@ extension AgentPaneModel {
             return await loadReplyImage(src, auto: auto)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
+        case .videoInfo(let src):
+            return await videoInfo(src)
+        case .quickLookVideo(let src):
+            return quickLookVideo(src)
         case .listBrowsers, .inspectPullRequest, .openIn:
             return replyLinks.respond(toCard: request, consumeGesture: { transport.gestures.consume() }, openInCmux: onOpenPreview)
         case .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .dragImage, .dragFile:
