@@ -61,11 +61,11 @@ const snapshot = () => look;
 /// The listed chat a send's target names: its id when the call gives it, else the chat with that
 /// name, on that host for `host/name` or `host:name` (a basket such as `reports:leo` is no chat).
 export function targetChat(store: SubsessionStore, target: string, sessionId?: string): string | undefined {
-  if (sessionId) return store.get(sessionId) || store.harness(sessionId) ? sessionId : undefined;
+  if (sessionId) return store.has(sessionId) ? sessionId : undefined;
   // A peer's chat is listed as `host/name` (acpmux hub/peers.rs); a send may name a chat by its id.
   const listed = store.find(target);
   if (listed) return listed;
-  if (store.get(target) || store.harness(target)) return target;
+  if (store.has(target)) return target;
   const split = /^([^/:]+)[/:](.+)$/.exec(target);
   if (!split) return undefined;
   const id = store.find(`${split[1]}/${split[2]}`) ?? store.find(split[2]!);

@@ -164,7 +164,7 @@ test("a compound command's send says the other work, which stays behind Raw", as
 });
 
 const chats = () =>
-  listed({ name: "coord-deputy", harness: "claude" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
+  listed({ name: "coord-deputy" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
 
 test("the target opens its chat when the session list has it, without opening the row", async () => {
   const opened: string[] = [];
