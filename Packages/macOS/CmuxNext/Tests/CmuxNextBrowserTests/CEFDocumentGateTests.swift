@@ -10,38 +10,33 @@ import Testing
     static let first = BrowserNavigationID(rawValue: 1)
     static let second = BrowserNavigationID(rawValue: 2)
 
-    @Test func aDocumentIsServedOnceAtCommitAndOnceAtFinish() {
+    /// Feeds `steps` to a new gate and returns which it admitted.
+    static func admitted(_ steps: [(BrowserNavigationID?, BrowserLoadPhase)]) -> [Bool] {
         var gate = CEFDocumentGate()
-        #expect(gate.admits(document: Self.first, phase: .committed))
-        #expect(!gate.admits(document: Self.first, phase: .committed))
-        #expect(gate.admits(document: Self.first, phase: .finished))
-        #expect(!gate.admits(document: Self.first, phase: .finished))
+        return steps.map { gate.admits(document: $0.0, phase: $0.1) }
+    }
+
+    @Test func aDocumentIsServedOnceAtCommitAndOnceAtFinish() {
+        let admitted = Self.admitted([(Self.first, .committed), (Self.first, .committed), (Self.first, .finished), (Self.first, .finished)])
+        #expect(admitted == [true, false, true, false])
     }
 
     /// A same-document navigation: CEF's loading state flips (provisional, then finished) and the
     /// address changes, but no document commits.
     @Test func aSameDocumentNavigationIsNotServedAgain() {
-        var gate = CEFDocumentGate()
-        _ = gate.admits(document: Self.first, phase: .committed)
-        _ = gate.admits(document: Self.first, phase: .finished)
-        for _ in 0..<5 {
-            #expect(!gate.admits(document: Self.first, phase: .provisional))
-            #expect(!gate.admits(document: Self.first, phase: .finished), "a pushState sent the document calls again")
-        }
+        let pushStates = Array(repeating: [(Self.first, BrowserLoadPhase.provisional), (Self.first, .finished)], count: 5).flatMap { $0 }
+        let admitted = Self.admitted([(Self.first, .committed), (Self.first, .finished)] + pushStates)
+        #expect(admitted.prefix(2) == [true, true])
+        #expect(!admitted.dropFirst(2).contains(true), "a pushState sent the document calls again")
     }
 
     /// A commit and a finish in one main-actor turn coalesce into one observation of `.finished`:
     /// the new document is still served.
     @Test func aNewDocumentIsServedEvenWhenItsCommitWasNotSeen() {
-        var gate = CEFDocumentGate()
-        _ = gate.admits(document: Self.first, phase: .finished)
-        #expect(gate.admits(document: Self.second, phase: .finished))
+        #expect(Self.admitted([(Self.first, .finished), (Self.second, .finished)]) == [true, true])
     }
 
     @Test func otherPhasesAreNeverServed() {
-        var gate = CEFDocumentGate()
-        #expect(!gate.admits(document: nil, phase: .idle))
-        #expect(!gate.admits(document: nil, phase: .provisional))
-        #expect(gate.admits(document: nil, phase: .finished))
+        #expect(Self.admitted([(nil, .idle), (nil, .provisional), (nil, .finished)]) == [false, false, true])
     }
 }
