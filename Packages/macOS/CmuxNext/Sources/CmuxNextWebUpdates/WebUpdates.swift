@@ -9,10 +9,10 @@ import Observation
 
 /// Web updates in the app (plans/cmux-next/web-ota.md). On a NIGHTLY bundle it names where each
 /// bundled web output sits in an update, starts the launch check of the kept update before a
-/// page loads, follows `updates.web`, and makes a ready update the served one at a safe point
-/// (``WebSwapGate``, WebUpdates+SafePoint.swift): at once while no page shows, else once nobody has
-/// touched cmux for a while (or it has been behind other apps for a moment) and every page answers
-/// that a reload keeps what it holds, then reloads every page and agent pane in place. Until then
+/// page loads, follows `updates.web`, and makes a ready update the served one at a safe point:
+/// at once while no page shows, else once cmux has been in the background for a moment (nobody is
+/// typing; a composer draft survives the reload in its origin's storage), then reloads every page
+/// and agent pane in place. Until then
 /// open pages keep the files they started with, so a page never mixes two builds' chunks.
 /// The App calls ``follow(_:bundle:)`` with each `updates.*` read; the first call starts it.
 /// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
@@ -31,14 +31,12 @@ public final class WebUpdates {
     @ObservationIgnored private var launchServed = false
     /// Whether the updater handed an update over; a late launch result never replaces it.
     @ObservationIgnored private var handedOver = false
-    /// The next look for a safe point while an update is pending; it stops when none is.
-    @ObservationIgnored let safePoint = DemandTimer(owner: "web-updates.safe-point")
-    /// A look that is asking the pages (one at a time).
-    @ObservationIgnored var looking = false
-    /// What held the pending update at the last look (`updates.web.status` `waiting_for`).
-    @ObservationIgnored var heldBy: String?
+    /// The wait in the background before an update swaps in.
+    @ObservationIgnored private let safePoint = DemandTimer(owner: "web-updates.safe-point")
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
+    /// How long cmux stays in the background before an update swaps in.
+    let grace: Duration = .seconds(3)
 
     /// NIGHTLY bundles and the tip app only (``WebUpdater/takesUpdates(_:)``).
     static func isAvailable(_ bundle: Bundle) -> Bool {
@@ -75,8 +73,6 @@ public final class WebUpdates {
             self?.ready(tree, version: pointer)
         }
         updater.served = { WebBundleOverlay.shared.activeTree }
-        // Checks come every minute only while cmux is in the front (the activation observers follow it).
-        updater.foreground = NSApp?.isActive ?? false
         self.updater = updater
         if let settings { follow(settings, updater: updater) }
         if WebBundleServedViews.shared.isEmpty {
@@ -94,15 +90,14 @@ public final class WebUpdates {
         // task-owner: the app's activation events, for the life of the app
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didResignActiveNotification) {
-                self?.updater?.noteBackground()
                 self?.scheduleSafePoint()
             }
         })
         // task-owner: the app's activation events, for the life of the app
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                self?.safePoint.cancel()
                 self?.updater?.noteActivation()
-                self?.scheduleSafePoint()
             }
         })
     }
@@ -132,7 +127,7 @@ public final class WebUpdates {
     func ready(_ tree: URL?, version: WebUpdatePointer?) {
         pending = .some(tree)
         pendingVersion = version
-        scheduleSafePoint()
+        if WebBundleServedViews.shared.isEmpty || !NSApp.isActive { scheduleSafePoint() }
     }
 
     /// Serves the pending folder now and reloads the pages; returns how many reloaded.
@@ -140,12 +135,18 @@ public final class WebUpdates {
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
         pending = nil
-        heldBy = nil
-        safePoint.cancel()
         swapped = .some(pendingVersion)
         guard WebBundleOverlay.shared.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
         return WebBundleServedViews.shared.reloadServed()
+    }
+
+    /// Swaps the pending update in after ``grace`` (at once while no page shows); cmux coming
+    /// back to the front cancels the wait.
+    private func scheduleSafePoint() {
+        guard pending != nil else { return }
+        let wait = WebBundleServedViews.shared.isEmpty ? Duration.zero : grace
+        safePoint.scheduleIfIdle(after: wait) { @MainActor [weak self] in self?.applyPending() }
     }
 }
