@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -46,6 +47,10 @@ public final class BrowserDownload: Identifiable {
     var retryHandler: (() -> Bool)?
     @ObservationIgnored
     private var finishHandlers: [(BrowserDownload) -> Void] = []
+    /// A finished file is moving into place off the main actor: the
+    /// download is still in progress, and a later end is ignored.
+    @ObservationIgnored
+    private var isLanding = false
     @ObservationIgnored
     private let quarantine: (URL, URL?) throws -> Void
 
@@ -105,7 +110,7 @@ public final class BrowserDownload: Identifiable {
         return item
     }
 
-    public var canPause: Bool { pauseHandler != nil && status == .inProgress }
+    public var canPause: Bool { pauseHandler != nil && status == .inProgress && !isLanding }
 
     /// A failed or cancelled download its engine can start again.
     public var canRetry: Bool {
@@ -124,7 +129,7 @@ public final class BrowserDownload: Identifiable {
     }
 
     public func cancel() {
-        guard status == .inProgress else { return }
+        guard status == .inProgress, !isLanding else { return }
         cancelHandler?()
         complete(.cancelled)
     }
@@ -152,31 +157,42 @@ public final class BrowserDownload: Identifiable {
 
     /// The download ended. Both engines end every download here, so a
     /// finished file is quarantined while it still has its temporary name,
-    /// then moves into place (`BrowserDownloadPlacement.finish`). A failed
-    /// quarantine or move fails the download and leaves no file; a failed or
-    /// cancelled download also leaves no file, and only the first end counts.
+    /// then moves into place off the main actor
+    /// (`BrowserDownloadPlacement.finish`); the download stays in progress
+    /// until it lands. A failed quarantine or move fails the download and
+    /// leaves no file; a failed or cancelled download also leaves no file,
+    /// and only the first end counts (an end while it lands too).
     func complete(_ end: Status) {
-        guard status == .inProgress, end != .inProgress else { return }
+        guard status == .inProgress, !isLanding, end != .inProgress else { return }
         // A download that ends before its engine named it is named first.
         named()
-        var end = end
-        if let placement {
-            if end == .finished {
-                do {
-                    try BrowserDownloadPolicy.prepareForLanding(
-                        placement.temporaryURL, source: sourceURL, quarantine: quarantine
-                    )
-                    let landed = try placement.finish()
-                    destination = landed
-                    filename = landed.lastPathComponent
-                } catch {
-                    placement.discard()
-                    end = .failed(error.localizedDescription)
-                }
-            } else {
-                placement.discard()
+        guard let placement else { return settle(end) }
+        guard end == .finished else {
+            placement.discard()
+            return settle(end)
+        }
+        do {
+            try BrowserDownloadPolicy.prepareForLanding(placement.temporaryURL, source: sourceURL, quarantine: quarantine)
+        } catch {
+            placement.discard()
+            return settle(.failed(error.localizedDescription))
+        }
+        isLanding = true
+        Task(priority: WorkPriority.userVisible.taskPriority) {
+            do {
+                let landed = try await placement.finish()
+                destination = landed
+                filename = landed.lastPathComponent
+                settle(.finished)
+            } catch {
+                settle(.failed(error.localizedDescription))
             }
         }
+    }
+
+    /// Records the end and runs the finish handlers.
+    private func settle(_ end: Status) {
+        isLanding = false
         if end == .finished {
             fraction = 1
         }

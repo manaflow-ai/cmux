@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The Downloads names that running downloads of both engines hold, so two
@@ -18,8 +19,10 @@ public final class BrowserDownloadReservations {
     func contains(_ url: URL) -> Bool { paths.contains(Self.key(url)) }
     func insert(_ url: URL) { paths.insert(Self.key(url)) }
     func remove(_ url: URL) { paths.remove(Self.key(url)) }
+    /// The names held now (``key(_:)``), as a value for work off the main actor.
+    var held: Set<String> { paths }
 
-    private static func key(_ url: URL) -> String { url.standardizedFileURL.path(percentEncoded: false) }
+    nonisolated static func key(_ url: URL) -> String { url.standardizedFileURL.path(percentEncoded: false) }
 }
 
 /// Where one download of either engine is written while it runs, a
@@ -30,7 +33,8 @@ public final class BrowserDownloadReservations {
 /// in a save panel is replaced only by a complete download, so a failed one
 /// keeps the old file. Failure and cancel delete the temporary file
 /// (`discard`). The temporary file is in the reservations' record
-/// (`BrowserDownloadTempFiles`) from start to `discard`.
+/// (`BrowserDownloadTempFiles`) from start to `discard`. The landing's
+/// file calls run off the main actor (`finish`).
 public final class BrowserDownloadPlacement {
     /// The engine writes here (Chromium adds `.crdownload` while it runs).
     public let temporaryURL: URL
@@ -55,40 +59,62 @@ public final class BrowserDownloadPlacement {
         reservations.tempFiles?.add(temporaryURL)
     }
 
-    /// Moves the complete temporary file into place; returns where it
-    /// landed. Throws (and deletes the temporary file) when it cannot land
-    /// without overwriting a file the person did not choose.
-    public func finish() throws -> URL {
+    /// Moves the complete temporary file into place, off the main actor;
+    /// returns where it landed. Throws when it cannot land without
+    /// overwriting a file the person did not choose. Either way the
+    /// temporary file is deleted and the name freed, as `discard` does.
+    public func finish() async throws -> URL {
         guard !settled else { return finalURL }
-        defer { discard() }
-        if let chosen {
-            if DownloadDestination.entryExists(chosen) {
-                _ = try FileManager.default.replaceItemAt(chosen, withItemAt: temporaryURL)
-            } else {
-                try Self.moveExclusively(temporaryURL, to: chosen)
+        settled = true
+        let landed = await Self.land(temporaryURL, chosen: chosen, finalURL: finalURL, name: landingName,
+                                     held: reservations.held)
+        reservations.remove(finalURL)
+        reservations.tempFiles?.remove(temporaryURL)
+        if chosen == nil, case .success(let url) = landed { finalURL = url }
+        return try landed.get()
+    }
+
+    /// The landing's file calls: the replace or the exclusive rename, then
+    /// the next free name while one is in the way (a name another download
+    /// held at the start, `held`, is skipped), then the temporary file's
+    /// leftovers are deleted. Off the main actor: a replace or a rename on a
+    /// slow or network volume blocks.
+    @concurrent nonisolated private static func land(_ temporaryURL: URL, chosen: URL?, finalURL: URL, name: String,
+                                                     held: Set<String>) async -> Result<URL, any Error> {
+        defer {
+            for url in [temporaryURL, temporaryURL.appendingPathExtension("crdownload")] {
+                try? FileManager.checked.removeItem(at: url)
             }
-            return chosen
+        }
+        if let chosen {
+            return Result {
+                if DownloadDestination.entryExists(chosen) {
+                    _ = try FileManager.checked.replaceItemAt(chosen, withItemAt: temporaryURL)
+                } else {
+                    try moveExclusively(temporaryURL, to: chosen)
+                }
+                return chosen
+            }
         }
         let directory = finalURL.deletingLastPathComponent()
-        let name = landingName
+        var target = finalURL
         // Each failed attempt found a new file in the way; give up (never
         // overwrite) after as many attempts as names `uniqueURL` tries.
         for _ in 0..<DownloadDestination.collisionLimit {
             do {
-                try Self.moveExclusively(temporaryURL, to: finalURL)
-                return finalURL
+                try moveExclusively(temporaryURL, to: target)
+                return .success(target)
             } catch let error as POSIXError where error.code == .EEXIST {
                 // Taken since the download started: the next free name.
-                let reservations = reservations
                 guard let next = DownloadDestination.uniqueURL(in: directory, suggestedFilename: name, exists: {
-                    DownloadDestination.entryExists($0) || reservations.contains($0)
-                }) else { throw error }
-                reservations.remove(finalURL)
-                finalURL = next
-                reservations.insert(next)
+                    DownloadDestination.entryExists($0) || held.contains(BrowserDownloadReservations.key($0))
+                }) else { return .failure(error) }
+                target = next
+            } catch {
+                return .failure(error)
             }
         }
-        throw POSIXError(.EEXIST)
+        return .failure(POSIXError(.EEXIST))
     }
 
     /// The download failed or was cancelled (or has landed): deletes the
@@ -105,7 +131,7 @@ public final class BrowserDownloadPlacement {
 
     /// `renamex_np(RENAME_EXCL)`: fails with EEXIST when anything (a file,
     /// a dangling symlink) is at `destination`; never follows or replaces it.
-    static func moveExclusively(_ source: URL, to destination: URL) throws {
+    nonisolated static func moveExclusively(_ source: URL, to destination: URL) throws {
         let result = renamex_np(source.path(percentEncoded: false), destination.path(percentEncoded: false), UInt32(RENAME_EXCL))
         if result != 0 { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     }
