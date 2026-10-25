@@ -103,7 +103,8 @@ import Testing
         let probe = LaunchReadProbe(held: true)
         let marks = LaunchMarks()
         let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
-        let read = try #require(frames.prefetch(on: Self.work, mark: { marks.record($0) }), "the launch read did not start")
+        let prefetch = frames.prefetch(on: Self.work, mark: { marks.record($0) })
+        let read = try #require(prefetch, "the launch read did not start")
         let started = await probe.waitForStart()
         #expect(started, "the read never started")
         // The read is held on its lane: a show that waited for it would never return.
