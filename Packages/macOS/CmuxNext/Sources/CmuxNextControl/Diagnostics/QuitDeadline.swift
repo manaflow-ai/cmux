@@ -50,7 +50,7 @@ public nonisolated final class QuitDeadline: Sendable {
     }
 }
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 extension QuitDeadline {
     /// A debug seam for the quit's last step: blocks the main thread for
     /// good, as CefShutdown did on a capture mini, so a journey can prove

@@ -68,7 +68,8 @@ final class BrowserImportOfferService {
 
     private func page(_ entry: BrowserEntry) -> BrowserImportOfferPage {
         let tab = entry.tab
-        let personal = !OffTheRecordProfiles.shared.isOffTheRecord(tab.profileID) && !tab.isAgentDriven
+        // No services (a test): an empty incognito set's answer, not off the record.
+        let personal = !(services?.browserStores.offTheRecord.isOffTheRecord(tab.profileID) ?? false) && !tab.isAgentDriven
             && BrowserProfileRecord.wireID(for: tab.profileID) != AgentBrowserProfile.id
         return BrowserImportOfferPage(isPersonal: personal, showsOtherNotice: entry.chrome.noticeText != nil)
     }

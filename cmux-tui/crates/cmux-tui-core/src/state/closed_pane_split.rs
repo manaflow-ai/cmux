@@ -101,10 +101,48 @@ pub(super) fn home_pane(
 }
 
 /// The live neighbor closed tab member `record` was split off, while it
-/// is still on the recorded screen in the member's workspace.
-pub(super) fn split_neighbor(state: &State, record: &Value) -> Option<PaneId> {
+/// is still on the recorded screen in the member's workspace; or, when that
+/// neighbor closed in the same gesture (Close Other Panes), the pane this
+/// reopen split again for it (`panes`).
+pub(super) fn split_neighbor(
+    state: &State,
+    record: &Value,
+    panes: &HashMap<String, SplitPane>,
+) -> Option<PaneId> {
     let split = &record["split"];
-    pane_in_place(state, record, split["neighbor"].as_str()?, split["screen"].as_str())
+    let neighbor = split["neighbor"].as_str()?;
+    match panes.get(neighbor) {
+        Some(again) => pane_in_place(state, record, &again.pane, Some(again.screen.as_str())),
+        None => pane_in_place(state, record, neighbor, split["screen"].as_str()),
+    }
+}
+
+/// `members` in the order that reopens a closed pane's neighbor before the
+/// pane split off it, when both closed in one gesture (Close Other Panes):
+/// the pane then splits off its own neighbor again. Otherwise, and for two
+/// sibling panes that are each other's neighbor, the recorded order; the
+/// relative order of every pane's tabs stays as recorded.
+pub(super) fn neighbors_first(members: Vec<Value>) -> Vec<Value> {
+    let mut pending = members;
+    let mut ordered = Vec::with_capacity(pending.len());
+    while !pending.is_empty() {
+        let ready = {
+            let waiting = pending
+                .iter()
+                .filter_map(|member| member["pane_id"].as_str())
+                .collect::<std::collections::HashSet<_>>();
+            pending
+                .iter()
+                .position(|member| {
+                    member["split"]["neighbor"].as_str().is_none_or(|neighbor| {
+                        !waiting.contains(neighbor) || member["pane_id"].as_str() == Some(neighbor)
+                    })
+                })
+                .unwrap_or(0)
+        };
+        ordered.push(pending.remove(ready));
+    }
+    ordered
 }
 
 /// The pane a reopen split off a closed pane's neighbor again, and its

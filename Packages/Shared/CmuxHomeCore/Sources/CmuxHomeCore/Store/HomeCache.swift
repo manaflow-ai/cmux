@@ -124,10 +124,21 @@ public struct HomeCache: Sendable, Hashable {
         self.url = url
     }
 
-    /// `Caches/cmux-home/<owner>/home.json`; `owner` is made a single path component.
+    /// `Caches/cmux-home/<owner>/home.json` in the user's Caches folder; `owner` is made a single path component.
     public static func standard(owner: String) -> HomeCache {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        return standard(owner: owner, caches: caches)
+    }
+
+    /// `<caches>/cmux-home/<owner>/home.json`; `owner` is made a single path component.
+    ///
+    /// - Parameters:
+    ///   - owner: The Chief owner the cache belongs to.
+    ///   - caches: The folder that holds the Home caches: the user's Caches folder in the app, a
+    ///     test's own temporary folder in a test, so no test reads another's drafts.
+    /// - Returns: The cache at that path.
+    public static func standard(owner: String, caches: URL) -> HomeCache {
         let component = String(owner.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" })
         return HomeCache(url: caches.appendingPathComponent("cmux-home/\(component)/home.json"))
     }

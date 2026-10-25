@@ -1,0 +1,36 @@
+{"t": 1792811634.16, "utc": "03:13:54", "tab": "A", "act": "open", "name": "A", "url": "https://en.wikipedia.org/wiki/Main_Page", "error": "no soft key for '_'; have [' ', '!', '\"', '$', \"'\", '(', ')', ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '?', '@', 'Dictate', 'Emoji', 'Keyboard', 'ampersand', 'de"}
+{"t": 1792811634.58, "utc": "03:13:54", "tab": "A", "act": "forward", "skipped": "no button"}
+{"t": 1792811636.26, "utc": "03:13:56", "tab": "A", "act": "forward", "skipped": "no button"}
+{"t": 1792811648.26, "utc": "03:14:08", "tab": "A", "act": "tap", "rtt": null, "at": [152, 330]}
+{"t": 1792811657.78, "utc": "03:14:17", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792811667.76, "utc": "03:14:27", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792811678.28, "utc": "03:14:38", "tab": "A", "act": "scroll-down", "rtt": null}
+{"t": 1792811727.79, "utc": "03:15:27", "tab": "A", "act": "search", "error": "no soft key for '='; have [' ', '!', '\"', '$', \"'\", '(', ')', ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '?', '@', 'Dictate"}
+{"t": 1792811730.12, "utc": "03:15:30", "tab": "A", "act": "forward", "skipped": "no button"}
+{"t": 1792811741.95, "utc": "03:15:41", "tab": "A", "act": "tap", "rtt": null, "at": [115, 416]}
+{"t": 1792811807.73, "utc": "03:16:47", "tab": "A", "act": "search", "error": "no soft key for '='; have [' ', '!', '\"', '$', \"'\", '(', ')', ',', '-', '.', '/', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', ':', ';', '?', '@', 'Dictate"}
+{"t": 1792811841.51, "utc": "03:17:21", "tab": "B", "act": "open", "name": "B", "url": "https://news.ycombinator.com", "load_s": 32.0, "key": "new-84901c4c-t1", "mac_ws": "ws_a2ba4237cd14d5e2133499bdb5f323e0"}
+{"t": 1792811851.82, "utc": "03:17:31", "tab": "B", "act": "tap", "rtt": null, "at": [317, 417]}
+{"t": 1792811854.65, "utc": "03:17:34", "tab": "B", "act": "scroll-up", "rtt": 0.94}
+{"t": 1792811857.4, "utc": "03:17:37", "tab": "B", "act": "scroll-down", "rtt": 0.95}
+{"t": 1792811859.23, "utc": "03:17:39", "tab": "B", "act": "scroll-down", "rtt": 0.96}
+{"t": 1792811861.05, "utc": "03:17:41", "tab": "B", "act": "scroll-down", "rtt": 0.93}
+{"t": 1792811863.14, "utc": "03:17:43", "tab": "B", "act": "scroll-up", "rtt": 0.92}
+{"t": 1792811865.78, "utc": "03:17:45", "tab": "B", "act": "scroll-down", "rtt": 0.9}
+{"t": 1792811877.22, "utc": "03:17:57", "tab": "B", "act": "back", "rtt": null}
+{"t": 1792811888.73, "utc": "03:18:08", "tab": "B", "act": "back", "rtt": null}
+{"t": 1792811891.05, "utc": "03:18:11", "tab": "B", "act": "scroll-down", "rtt": 0.96}
+{"t": 1792811892.01, "utc": "03:18:12", "tab": "B", "act": "forward", "skipped": "no button"}
+{"t": 1792811904.5, "utc": "03:18:24", "tab": "B", "act": "back", "rtt": null}
+{"t": 1792811938.98, "utc": "03:18:58", "tab": "B", "act": "list_idle-failed", "error": "could not get back to the Workspaces list"}
+{"t": 1792811972.89, "utc": "03:19:32", "tab": "B", "act": "switch-failed", "error": "could not get back to the Workspaces list"}
+{"t": 1792811974.5, "utc": "03:19:34", "tab": "B", "act": "scroll-down", "rtt": 1.32}
+{"t": 1792811975.44, "utc": "03:19:35", "tab": "B", "act": "forward", "skipped": "no button"}
+{"t": 1792811978.4, "utc": "03:19:38", "tab": "B", "act": "scroll-down", "rtt": 0.94}
+{"t": 1792811983.82, "utc": "03:19:43", "tab": "B", "act": "search", "error": "no address bar or pill"}
+{"t": 1792811994.83, "utc": "03:19:54", "tab": "B", "act": "tap", "rtt": null, "at": [281, 435]}
+{"t": 1792812005.99, "utc": "03:20:05", "tab": "B", "act": "back", "rtt": null}
+{"t": 1792812020.06, "utc": "03:20:20", "tab": "B", "act": "tap", "rtt": null, "at": [170, 600]}
+{"t": 1792812032.56, "utc": "03:20:32", "tab": "B", "act": "tap", "rtt": null, "at": [226, 318]}
+{"t": 1792812044.0, "utc": "03:20:43", "tab": "B", "act": "search", "error": "no address bar or pill"}
+{"t": 1792812047.58, "utc": "03:20:47", "tab": "B", "act": "scroll-down", "rtt": 1.9}

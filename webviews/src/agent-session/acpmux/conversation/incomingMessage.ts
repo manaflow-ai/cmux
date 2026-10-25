@@ -13,7 +13,8 @@
 // `start_session`, and a child's report to its parent) names its sender as the receiver's chat
 // knows it, its short name, and who it is to this chat.
 // Any other session's prompt to this one (kind `session_message`, prompt_provenance.rs: `acpmux
-// send` run inside that session) names that session the same way, without a relation.
+// send` run inside that session) names that session the same way, without a relation. So does a
+// task's result (kind `task_result`, acpmux hub/tasks.rs `acpmux task done`): the lane's card.
 // `acpmux send` run at a shell records no provenance (client `acpmux-cli#…`, or `acpmux-peer#…`
 // relayed from another machine), so an agent sending from one puts its name first by convention:
 // `[coord-deputy] Merged #23727`. That prompt is the named agent's message. No chat id comes with
@@ -98,6 +99,12 @@ export function unsigned(text: string, name: string): string {
   return signed && namesSender(signed.name, [name]) ? signed.text : text;
 }
 
+/// The machine the person's own `acpmux send` ran on, from the client acpmux recorded
+/// (`acpmux-cli#…@big-red`, or `acpmux-peer#…@big-red` when it came through a peer, server/requests.rs).
+export function cliHost(client: unknown): string | undefined {
+  return /^acpmux-(?:cli|peer|outbox)#[^@\s]*@([A-Za-z0-9._-]{1,64})$/.exec(String(client ?? ""))?.[1];
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
@@ -107,7 +114,10 @@ export function incomingPrompt(
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
-  const fromSession = provenance?.kind === "subsession_message" || provenance?.kind === "session_message";
+  const fromSession =
+    provenance?.kind === "subsession_message" ||
+    provenance?.kind === "session_message" ||
+    provenance?.kind === "task_result";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
     // sub-session itself, reads better than its full name (`claude-sr2/coordinator`).
@@ -229,31 +239,6 @@ function renderedBody(text: string, msgId: unknown): string | undefined {
   if (lines[line++] !== "---") return undefined;
   if (line >= lines.length || lines.at(-1) !== `--- end of message ${msgId} ---`) return undefined;
   return lines.slice(line, -1).join("\n");
-}
-
-/// A reply in place (direct.ts `AcpmuxDirectClient.reply`) as cmux renders an agent message for
-/// the agent (agent_message_prompt.rs `render`), so the agent reads it as that chat's answer in the
-/// thread: who sent it, its id, the message it answers and cmux's note that it is not an
-/// instruction from the operator. `renderedBody` reads it back. It has no `Reply with` line: its id
-/// is acpmux's, which `cmux agent message --reply-to` does not know.
-export function renderedReply(reply: {
-  from: string;
-  fromName?: string;
-  msgId: string;
-  replyTo: string;
-  text: string;
-}): string {
-  const name = (reply.fromName ?? "").replace(/[\s\p{Cc}\p{Cf}]+/gu, " ").trim();
-  const from = name && name !== reply.from ? `${name} (${reply.from})` : reply.from;
-  return [
-    `[cmux agent message] from ${from}`,
-    `Message id: ${reply.msgId}`,
-    `In reply to: ${reply.replyTo}`,
-    RENDERED_NOTE,
-    "---",
-    reply.text,
-    `--- end of message ${reply.msgId} ---`,
-  ].join("\n");
 }
 
 const RENDERED_HEADER = /^\[cmux agent message(?: \(\d+ of \d+\))?\] from \S/;

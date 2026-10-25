@@ -6,6 +6,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
+import type { AcpmuxSnapshot } from "./model";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 
@@ -79,6 +80,18 @@ const shot = (hue: number, width = 1440, height = 900) =>
 // Another agent's message waiting behind the turn (Leo, 2026-10-21: it drew as the person's prompt).
 const QUEUED_MESSAGE =
   "**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too";
+const QUEUED_LANE_REPORT = [
+  "**cx3-s71-jank · lane report**",
+  "",
+  "| case | PR | result |",
+  "|---|---:|---|",
+  "| queue | [#24772](https://github.com/manaflow-ai/cmux/pull/24772) | green |",
+  "| transcript | [compare](https://cmux.com/compare/agent-message-style) | review |",
+  "",
+  "See [https://github.com/manaflow-ai/cmux/actions](https://github.com/manaflow-ai/cmux/actions) for the run.",
+  "Commit 4c656ea8f42e3d1b9a7c0e6f5d4c3b2a19081716 is the current head.",
+  "The queued report keeps the table readable and shows its sender above the bubble.",
+].join("\n");
 // A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
 const pictured = {
   id: "q1",
@@ -105,8 +118,8 @@ const steerMarks = () =>
     { isWorking: true },
   );
 
-// Two steers the agent has not read yet, one after the other (Leo's report, 2026-10-21): each one's
-// clock and Send now sit at its bubble's left, and the pair is as tall as two prompts.
+// Two steers the agent has not read yet, one after the other: each one's Send now leads its action
+// row under the bubble, and the pair is as tall as two prompts.
 const waitingSteers = () =>
   chat(
     [
@@ -306,6 +319,35 @@ function profileIdsChat() {
   };
 }
 
+/// A finished Claude chat that lists `/fast` as Claude Code does, its fast mode option at `fast`.
+function fastChat(fast: "on" | "off"): AcpmuxSnapshot {
+  const base = chat(finished, {
+    commands: [
+      { name: "compact", description: "Clear conversation history but keep a summary in context" },
+      { name: "fast", description: "Toggle fast mode (Opus 5.5)" },
+      { name: "review", description: "Review a pull request" },
+    ],
+  });
+  return {
+    ...base,
+    summary: {
+      ...base.summary!,
+      configOptions: [
+        {
+          id: "fast-mode",
+          name: "Fast mode",
+          category: "model_config",
+          currentValue: fast,
+          options: [
+            { value: "off", name: "Off" },
+            { value: "on", name: "On" },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 // A new chat in a project on `branch`, before its first send.
 const onBranch = (branch: string) =>
   noChat([session({ sessionId: "older", title: "An older chat" })], {
@@ -360,6 +402,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/FastToggle.tsx",
+    // The `/` menu's Fast row (slash-menu-fast-on, slash-menu-fast-off).
+    "agent-session/acpmux/BoltIcon.tsx#BoltIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
@@ -487,6 +531,43 @@ export default agentPaneEntry({
     "footer-full-access": {
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
       snapshot: footerChat("full-access"),
+    },
+    // Leo 2026-10-21: "why is there no harness at the left" (ComposerHarness.tsx). The quiet row
+    // starts with the harness, its mark and name, before the mode, as Claude Code's footer starts
+    // with its project. test/composer-footer-harness.test.ts measures these.
+    "footer-harness": {
+      note: "A started Claude chat: the quiet row starts with Claude Code's mark and name, then the mode. The harness is fixed once a chat has a message, so the item is quiet text with no pill on hover.",
+      snapshot: footerChat("full-access"),
+    },
+    "footer-harness-codex": {
+      note: "A started Codex chat: the quiet row starts with Codex's mark and name.",
+      snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex chat" }), {
+        modes: {
+          currentModeId: "full-access",
+          availableModes: [
+            { id: "auto", name: "Auto", description: "Ask before commands outside the workspace." },
+            { id: "full-access", name: "Full access", description: "Run commands without asking." },
+          ],
+        },
+      }),
+    },
+    "footer-harness-new-chat": {
+      note: "Play: a new chat can still switch harness, so the harness item takes the soft pill on hover and a click opens the model button's menu, whose rail switches harness.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
+      }),
+      play: async (ctx) => {
+        const item = { selector: ".acpmux-composer-foot .acpmux-foot-harness button" };
+        await ctx.waitFor(() => ctx.document.querySelector(item.selector));
+        await ctx.click(item);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu"));
+      },
+    },
+    "footer-harness-unpicked": {
+      note: "A new chat with harnesses installed and none picked yet: the row names the installed harness the model button draws, never another.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: noChat([session({ sessionId: "older", title: "An older chat" })]),
     },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
     // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
@@ -884,7 +965,7 @@ export default agentPaneEntry({
       ready: { draft: "Use the new tokenizer instead" },
     },
     queued: {
-      note: "Two prompts waiting for the running turn: numbered rows on the composer's top edge.",
+      note: "Two prompts waiting for the running turn on the composer's top edge, as ChatGPT and Codex draw them: one muted line each, cut with an ellipsis, a hairline between them, no header and no number. Their actions show on hover.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -894,7 +975,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to six lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to eight lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -932,17 +1013,60 @@ export default agentPaneEntry({
         });
       },
     },
+    "queued-from-agent-lane-report": {
+      note: "Leo's lane report reference queued behind a running turn: sender header, rendered Markdown table and links, with the long body folded to eight lines.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q-lane-report",
+            prompt: QUEUED_LANE_REPORT,
+            message: {
+              name: "cx3-s71-jank",
+              sessionId: "lane-jank",
+              text: QUEUED_LANE_REPORT,
+              raw: QUEUED_LANE_REPORT,
+            },
+          },
+        ],
+      }),
+    },
     // Leo, 2026-10-21 ("this is what ChatGPT has"): each queued row shows Steer, the trash can and ⋯.
     "queued-actions": {
-      note: "Queued prompts as ChatGPT and Codex show them: each row ends in Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only.",
+      note: "Play: the pointer over a queued prompt shows its actions as ChatGPT and Codex do: Steer (its ↪ glyph and its word), a trash can that deletes it, and ⋯; plain glyphs, a soft pill on hover only. Focus in the row shows them too.",
       snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
+      play: async (ctx) => {
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
+      },
     },
     "queued-actions-menu": {
       note: "Play: ⋯ on a queued prompt opens the composer menus' glass menu: Edit message, Open in side chat (where the chat opens side chats) and Turn off queueing.",
       snapshot: { ...steering(true), queue: waiting.slice(0, 2) },
       play: async (ctx) => {
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
         await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-menu="queued-more"]' });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-queued-more [role="menuitem"]'));
+      },
+    },
+    "queued-cancel-edit": {
+      note: "Play: the x on an unread queued prompt withdraws it from the queue and restores its text in the composer; it is a real cancel-and-edit, so the queued row disappears.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          { id: "q1", prompt: "Then add a test for the 429 path" },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+      native: { "chat.queue.remove": { removed: true } },
+      play: async (ctx) => {
+        await ctx.hover({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-text' });
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] [data-action="cancel-edit"]' });
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector('.acpmux-queued[data-prompt-id="q1"]') &&
+            ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ===
+              "Then add a test for the 429 path",
+        );
       },
     },
     "queued-images": {
@@ -960,7 +1084,7 @@ export default agentPaneEntry({
       },
     },
     "queued-paused": {
-      note: 'A turn failed with prompts queued: the note names the turn\'s error, and they wait, in order, until Resume (never "Sends after this turn"). A prompt sent meanwhile runs now.',
+      note: "A turn failed with prompts queued: the note names the turn's error, and they wait under it, in order, until Resume. A prompt sent meanwhile runs now.",
       snapshot: (() => {
         const failed = steering(true);
         return {
@@ -1020,28 +1144,31 @@ export default agentPaneEntry({
       },
     },
     "queued-steering": {
-      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts stay under Queued and count from 1.",
+      note: "A prompt sent now (its Steer button) to an agent that cannot steer waits first under Steering and runs next; the turn runs on. The queued prompts follow it, one muted line each.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [{ id: "q0", prompt: "Stop and fix the space thing first", next: true }, ...waiting],
       }),
     },
     "steer-waiting-stack": {
-      note: "Two steers the agent has not read, one after the other: each one's clock and Send now sit at its bubble's left, on its first line, so the pair takes no more room than two prompts and nothing trails the last one.",
+      note: "Two steers the agent has not read, one after the other: each one's plain Send now leads the action row under its bubble, before the receipt and message buttons.",
       snapshot: waitingSteers(),
       play: async (ctx) => {
+        await ctx.hover({ text: "Use the cache dir, not tmp" });
         const lines = [...ctx.document.querySelectorAll(".cv-user__pending")];
         if (lines.length !== 2) throw new Error(`expected two Send now marks, found ${lines.length}`);
         for (const line of lines) {
-          const bubble = line.parentElement;
-          if (!bubble?.classList.contains("cv-user__bubble")) throw new Error("Send now is not on its bubble's row");
-          if (line.getBoundingClientRect().right > bubble.getBoundingClientRect().left)
-            throw new Error("Send now is not at its bubble's left");
+          if (line.querySelector("svg")) throw new Error("Send now still has a clock icon");
+          const actions = line.parentElement;
+          if (!actions?.classList.contains("cv-user__actions")) throw new Error("Send now is not in the action row");
+          if (actions.firstElementChild !== line) throw new Error("Send now does not lead the action row");
+          if (!actions.previousElementSibling?.classList.contains("cv-user__bubble"))
+            throw new Error("Send now action row is not under the bubble");
         }
       },
     },
     "steer-marks": {
-      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, a faint clock and Send now sit at its bubble's left, on the bubble's first line, adding no height (Send now stops the agent's current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "A steer never carries a label: it looks like any sent prompt. While the agent has not read it, plain Send now leads the action row under the bubble (Send now stops the current step so it reads the steer at once; the turn goes on); once read, nothing. On hover it shows the row every prompt shows, with the same read check (one while it waits, two once read) and the detail in its tooltip. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
       snapshot: steerMarks(),
     },
     "steer-read-hover": {
@@ -1315,6 +1442,26 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
+    },
+    // Leo 2026-10-22 (relayed by claude-sr2): "Match theirs: icon, plain name, a sentence saying what
+    // selecting it does in the current state." Claude Code's `/fast` row as ChatGPT's Fast row.
+    "slash-menu-fast-on": {
+      note: "Play: type /fast in a Claude chat with Fast on; the row is the bolt, Fast, and what picking it does now: turn Fast off.",
+      snapshot: fastChat("on"),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/fast");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
+      },
+    },
+    "slash-menu-fast-off": {
+      note: "Play: type / in a Claude chat with Fast off; the Fast row says picking it turns Fast on, among the other commands.",
+      snapshot: fastChat("off"),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
       },
     },
     "slash-menu-full": {
@@ -1683,7 +1830,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-codex": {
-      note: "Play: Codex keeps its bolt just left of the mic (Leo 2026-10-21), an outline glyph; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
+      note: "Play: Codex keeps its bolt directly beside the model name in the model picker; the model button's menu has no Fast mode row; a click on the bolt sends Fast.",
       snapshot: withSummary(chat(finished, { harness: "codex", model: "gpt-6-astra", title: "Codex reasoning" }), {
         configOptions: [
           {
@@ -1704,11 +1851,10 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        const bolt = { selector: ".acpmux-composer-actions .acpmux-fast" };
+        const bolt = { selector: ".acpmux-model .acpmux-fast" };
         await ctx.waitFor(() => ctx.document.querySelector(bolt.selector));
         if (ctx.find(bolt).getAttribute("aria-pressed") !== "false") throw new Error("the bolt must start off");
-        if (!ctx.find(bolt).nextElementSibling?.querySelector(".acpmux-mic"))
-          throw new Error("the bolt must sit just left of the mic");
+        if (!ctx.find(bolt).closest(".acpmux-model")) throw new Error("the bolt must sit beside the model picker");
         await openModelMenu(ctx);
         if (ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
           throw new Error("Codex's Fast mode is the bolt, not a menu row as well");

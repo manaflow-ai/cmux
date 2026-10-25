@@ -32,10 +32,13 @@ public nonisolated struct HomeChiefRecord: Hashable, Sendable {
         ((value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []).compactMap(parse)
     }
 
-    /// The agent ids of a `chief.list` value's archived Chiefs.
+    /// The agent ids of a `chief.list` value's archived and deleted Chiefs.
     public static func archivedIDs(from value: Any?) -> Set<String> {
         let list = (value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []
+        // A deleted Chief, and one archived past its restore window, is only a tombstone.
+        let tombstones = (value as? [String: Any])?["tombstones"] as? [[String: Any]] ?? []
         return Set(list.compactMap { $0["archived_at"] is String ? $0["id"] as? String : nil })
+            .union(tombstones.compactMap { $0["id"] as? String })
     }
 
     /// One `HomeChief` value; nil when it has no id or is archived.

@@ -110,7 +110,8 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
         args_out = work / "args"
         base_env = {"RUNNER_TEMP": str(temp), "GITHUB_WORKSPACE": str(work), "GITHUB_STEP_SUMMARY": str(work / "summary"),
                     "GITHUB_SHA": "0" * 40, "AUTOFIX": str(temp / "autofix/scripts/cmux-next"), "ARGS_OUT": str(args_out),
-                    "GRAPH": "false", "STRINGS": "false", "SDK": "false", "SHORTCUTS": "false", "APPHOST": "false",
+                    "GRAPH": "false", "STRINGS": "false", "SDK": "false", "CAPABILITIES": "false",
+                    "SHORTCUTS": "false", "APPHOST": "false",
                     "ACTIONS": "false", "EXPORTS_VERIFIED": "true", "SETTINGS": "true", "SETTINGS_VERIFIED": "true",
                     "RATCHETS": "false", "CLOUD": "false", "GHOSTTY": "false", "FMT": "false"}
         result = run_step(step(doc, job, "Repair")["run"], work, {**base_env, **step_env, **env})

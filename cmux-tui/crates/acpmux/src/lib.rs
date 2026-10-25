@@ -44,6 +44,7 @@ pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_health;
 pub mod harness_limits;
+pub mod host_pressure;
 pub mod hub;
 #[cfg(windows)]
 mod job;
@@ -63,6 +64,7 @@ pub mod pairing;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
+pub mod placement;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;

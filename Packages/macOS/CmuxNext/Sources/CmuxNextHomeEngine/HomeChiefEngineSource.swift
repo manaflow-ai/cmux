@@ -13,7 +13,7 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     /// one engine of its own, and the card hides the Harness row).
     var choosesHarness: Bool { get }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
-    /// Sets (nil: clears) any of harness, model, effort and speed in one brain write; the snapshot after.
+    /// Sets (nil: clears) any of harness, model, effort, speed and the reaction classifier fields in one brain write; the snapshot after.
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
 }
 
@@ -76,13 +76,15 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
 /// one; a field not given is left as it is), for the local and the
 /// paired-server brain alike.
 nonisolated enum HomeChiefEngineSet {
+    /// The fields a set sends: the turns' engine and the reaction classifier (a416).
+    static var fieldKeys: Set<String> { ChiefControlClient.engineSetKeys }
+
     @discardableResult
     static func send(_ fields: [String: String?],
                      on connection: DaemonConnection, chief: String? = nil) async throws(HomeChiefEngineError) -> ChiefEngineReport {
-        let sent = { (key: String) in fields[key].map { $0 ?? "default" } }
+        let sent = fields.filter { fieldKeys.contains($0.key) }.mapValues { $0 ?? "default" }
         do {
-            return try await ChiefControlClient(connection).setChiefEngine(harness: sent("harness"), model: sent("model"),
-                                                                           effort: sent("effort"), speed: sent("speed"), chief: chief)
+            return try await ChiefControlClient(connection).setChiefEngine(sent, chief: chief)
         } catch let error as ChiefControlError {
             throw HomeChiefEngineError(error)
         } catch {

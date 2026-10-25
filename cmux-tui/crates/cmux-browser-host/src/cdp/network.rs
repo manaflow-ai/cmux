@@ -43,6 +43,41 @@ fn record_address(tab: &mut TabState, response: &Value) {
     }
 }
 
+/// Challenges a tab remembers (the navigation error reads the newest).
+const MAX_AUTH_CHALLENGES: usize = 8;
+
+/// The realm of a `WWW-Authenticate` value (`Basic realm="x"`), or "".
+fn realm(challenge: &str) -> String {
+    let lower = challenge.to_ascii_lowercase();
+    let Some(at) = lower.find("realm=") else { return String::new() };
+    let rest = &challenge[at + "realm=".len()..];
+    let value = match rest.strip_prefix('"') {
+        Some(quoted) => quoted.split('"').next().unwrap_or(""),
+        None => rest.split([',', ' ']).next().unwrap_or(""),
+    };
+    value.chars().filter(|c| !c.is_control()).take(120).collect()
+}
+
+/// Records a 401 that asks for an HTTP sign-in (`WWW-Authenticate`).
+fn record_challenge(tab: &mut TabState, request_id: &str, params: &Value) {
+    if params.get("statusCode").and_then(Value::as_i64) != Some(401) {
+        return;
+    }
+    let Some(headers) = params.get("headers").and_then(Value::as_object) else { return };
+    let Some(challenge) = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("www-authenticate"))
+        .and_then(|(_, value)| value.as_str())
+    else {
+        return;
+    };
+    let Some(url) = tab.requests.get(request_id).map(|open| open.url.clone()) else { return };
+    if tab.auth_challenges.len() >= MAX_AUTH_CHALLENGES {
+        tab.auth_challenges.pop_front();
+    }
+    tab.auth_challenges.push_back((url, realm(challenge)));
+}
+
 /// The driver event for a `Network.*` CDP event of a tab, if any.
 pub fn event(
     tab: &mut TabState,
@@ -51,6 +86,10 @@ pub fn event(
     params: &Value,
 ) -> Option<DriverEvent> {
     let request_id = params.get("requestId").and_then(Value::as_str)?.to_owned();
+    if method == "Network.responseReceivedExtraInfo" {
+        record_challenge(tab, &request_id, params);
+        return None;
+    }
     let (name, payload) = match method {
         "Network.requestWillBeSent" => {
             // A redirect's response arrives only here (also for a fetch
@@ -114,6 +153,13 @@ pub fn event(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sign_in_challenge_names_its_realm() {
+        assert_eq!(realm("Basic realm=\"parity\", charset=\"UTF-8\""), "parity");
+        assert_eq!(realm("Digest realm=intranet, qop=auth"), "intranet");
+        assert_eq!(realm("Bearer"), "");
+    }
 
     #[test]
     fn a_request_reports_its_response_and_end() {

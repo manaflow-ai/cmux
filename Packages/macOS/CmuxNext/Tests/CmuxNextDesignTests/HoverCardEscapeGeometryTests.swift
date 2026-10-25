@@ -1,6 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-20: dismissing a sidebar row's hover card took too much travel. The escape-slot
 /// layout (`HoverCardEscapeGeometry.RowAlignment.middle`, a Debug Settings switch since the card

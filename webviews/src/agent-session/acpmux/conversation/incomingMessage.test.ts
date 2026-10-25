@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, messagePreview, renderedReply, unsigned } from "./incomingMessage";
+import { cliHost, incomingPrompt, messagePreview, unsigned } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -52,6 +52,29 @@ test("agent_message provenance names the sending chat", () => {
     const relayed = incomingPrompt("hi", { _meta: { provenance: { ...provenance, kind } }, client: "acpmux-peer#air" });
     expect(relayed?.kind === "message" && relayed.message.remote).toBe(true);
   }
+});
+
+test("a report whose sender acpmux recorded by name is that agent's, from the machine it came from", () => {
+  // acpmux prompt_provenance.rs `named_sender`: `--from`, `ACPMUX_FROM`, or a peer daemon naming
+  // the session that sent it (claude-sr2, 2026-10-24: these read as the person's own words).
+  const named = { kind: "agent_message", from: "fromAgent", fromName: "codex-lane", to: "s-1" };
+  expect(incomingPrompt("#24927 merged.", { _meta: { provenance: named }, client: "acpmux-peer#01a16e" })).toEqual({
+    kind: "message",
+    message: { name: "codex-lane", remote: true, text: "#24927 merged.", raw: "#24927 merged." },
+  });
+  // The same record with no sender is the person's.
+  expect(incomingPrompt("#24927 merged.", { client: "acpmux-peer#01a16e" })).toBeUndefined();
+});
+
+test("the person's own acpmux send names the machine it ran on, here or through a peer", () => {
+  expect(cliHost("acpmux-cli#01a2f3@big-red")).toBe("big-red");
+  expect(cliHost("acpmux-peer#01a16e@big-red")).toBe("big-red");
+  expect(cliHost("acpmux-outbox#01a16e@huge-blue")).toBe("huge-blue");
+  for (const client of ["acpmux-cli#01a2f3", "cmux-react-agent-pane#01a16f@x", "acpmux-cli#a@b c", undefined, 3]) {
+    expect(cliHost(client)).toBeUndefined();
+  }
+  // The person's own words: no card.
+  expect(incomingPrompt("ship it", { client: "acpmux-cli#01a2f3@big-red" })).toBeUndefined();
 });
 
 test("only a chat's address opens; a terminal agent or a person at a shell does not", () => {
@@ -307,6 +330,22 @@ test("another session's prompt to this one is that session's message, and opens 
   expect(incomingPrompt("PR #22761 merged.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
 });
 
+test("a task's result is its lane's message, and opens the lane", () => {
+  const provenance = {
+    kind: "task_result",
+    from: "lane-7",
+    fromName: "codex-lane",
+    to: "coordinator-1",
+    taskId: "t-1a2b3c4d",
+    state: "done",
+  };
+  const card = 'Task t-1a2b3c4d "Land #24961" done: Merged\nPR: https://github.com/o/r/pull/1';
+  expect(incomingPrompt(card, { _meta: { provenance }, client: "acpmux" })).toEqual({
+    kind: "message",
+    message: { name: "codex-lane", sessionId: "lane-7", text: card, raw: card },
+  });
+});
+
 test("`acpmux send` from a shell is the message of the agent named first in brackets", () => {
   const sent = "[coord-deputy] Merged #1";
   for (const client of ["acpmux-cli#a1b2c3", "acpmux-peer#huge-blue"]) {
@@ -450,29 +489,21 @@ test("an agent_digest from one chat answers its newest message; from several, no
 });
 
 test("a reply in place reaches the sender's chat as the replying chat's message, linked and answerable", () => {
-  // Chat `parent` answers message m-1 from `child-3` in place (direct.ts `reply`); acpmux records
-  // it in child-3's chat with the replying chat's address and its own name (`app_reply_fits`).
-  const text = renderedReply({
-    from: "acp:parent",
-    fromName: "Fix the\ngrid\u200b",
-    msgId: "m-2",
+  // Chat `parent` answers m-1 from `child-3` in place (direct.ts `reply`); the app sends it as
+  // parent's cmux agent message (acpmux server/app_reply.rs signs it), so cmux stores it as msg_2,
+  // signs it with the chat's own name and delivers it as any agent message, with its `Reply with`
+  // line.
+  const text = rendered("Merged; thanks.\nShip it.", {
+    id: "msg_2",
+    from: "Fix the grid (acp:parent)",
     replyTo: "m-1",
-    text: "Merged; thanks.\nShip it.",
   });
-  expect(text).toBe(
-    rendered("Merged; thanks.\nShip it.", {
-      id: "m-2",
-      from: "Fix the grid (acp:parent)",
-      replyTo: "m-1",
-      reply: false,
-    }),
-  );
   const recorded = {
     kind: "agent_message",
     from: "acp:parent",
     fromName: "Fix the grid",
     to: "acp:child-3",
-    msgId: "m-2",
+    msgId: "msg_2",
     threadId: "t-1",
     replyTo: "m-1",
   };
@@ -482,16 +513,12 @@ test("a reply in place reaches the sender's chat as the replying chat's message,
     message: {
       name: "Fix the grid",
       sessionId: "parent",
-      msgId: "m-2",
+      msgId: "msg_2",
       threadId: "t-1",
       text: "Merged; thanks.\nShip it.",
       raw: text,
     },
   });
-  // Without a title the address stands in.
-  expect(renderedReply({ from: "acp:parent", msgId: "m-2", replyTo: "m-1", text: "hi" }).split("\n")[0]).toBe(
-    "[cmux agent message] from acp:parent",
-  );
 });
 
 test("a message's closed line previews its first line of text, its spaces collapsed", () => {
@@ -510,10 +537,12 @@ test("a message addressed sender first is that agent's when it names this chat o
   const here = { isThisChat: (name: string) => name.toLowerCase() === "claude-sr2" };
   const sent =
     "summary-panel -> claude-sr2: Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.";
+  // Relayed from another machine, so its files are that machine's (#24190).
   expect(incomingPrompt(sent, peer, here)).toEqual({
     kind: "message",
     message: {
       name: "summary-panel",
+      remote: true,
       text: "Confirmed. On feat-cmux-next today, the overlay card is **as tall** as its content.",
       raw: sent,
     },
@@ -525,11 +554,13 @@ test("a message addressed sender first is that agent's when it names this chat o
     "summary-panel→claude-sr2:\nDone.",
     "summary-panel  ->  Claude-SR2: Done.",
   ])
-    for (const client of ["acpmux-peer#01a161", "acpmux-cli#a1b2c3"])
+    for (const client of ["acpmux-peer#01a161", "acpmux-cli#a1b2c3"]) {
+      const remote = client.startsWith("acpmux-peer#") ? { remote: true as const } : {};
       expect(incomingPrompt(text, { client }, here)).toEqual({
         kind: "message",
-        message: { name: "summary-panel", text: "Done.", raw: text },
+        message: { name: "summary-panel", ...remote, text: "Done.", raw: text },
       });
+    }
   // To another chat, from a listed one.
   const listed = {
     isThisChat: (name: string) => name === "coordinator",

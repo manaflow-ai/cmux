@@ -223,7 +223,14 @@ extension BrowserTab {
     /// Runs a media hub command in the page (`BrowserMediaCommand.script`).
     public func media(_ command: BrowserMediaCommand) async {
         let script = command.script
-        _ = try? await evaluate(script.source, world: script.world)
+        // Only a command that may start playback acts as the user (a page's play() needs the
+        // activation): Play, Play/Pause, Next and Previous. Pause, seek and mute need none, and
+        // macOS sends Pause on its own (headphones unplugged): they must not hand the page an activation.
+        let gesture: BrowserScriptGesture = switch command {
+        case .play, .playPause, .nextTrack, .previousTrack, .pictureInPicture: .agent
+        case .pause, .toggleMute, .seek, .muteTab: .cmux
+        }
+        _ = try? await evaluate(script.source, world: script.world, gesture: gesture)
     }
 
     /// Floats the page's video in Picture in Picture, or brings a floating
@@ -231,7 +238,7 @@ extension BrowserTab {
     /// page did not answer (closed, still loading).
     public func togglePictureInPicture() async -> BrowserPictureInPicture? {
         let script = BrowserMediaCommand.pictureInPicture.script
-        guard case .string(let answer)? = try? await evaluate(script.source, world: script.world) else { return nil }
+        guard case .string(let answer)? = try? await evaluate(script.source, world: script.world, gesture: .agent) else { return nil }
         return BrowserPictureInPicture(rawValue: answer)
     }
 
