@@ -1929,6 +1929,34 @@ class Nightly(unittest.TestCase):
         _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(api.calls[-1], "rerun-failed")
 
+    def test_a_later_job_refused_after_the_build_was_accepted_is_still_moved(self):
+        # Run 40144317744: build-nightly-app ran on cmux14-glaeda-3, and the
+        # prepare-nightly-variant job behind it, created 20 minutes later on the
+        # same side label, was refused for disk. The watch had already stopped.
+        built_at, refused_at = 20 * 60, 21 * 60
+
+        def jobs(seconds):
+            found = [job("decide", status="completed", labels=[BLACKSMITH])]
+            app = job("build-nightly-app", labels=[SIDE], created=15, runner="cmux14-glaeda-3",
+                      status="completed" if seconds >= built_at else "in_progress")
+            app.update(started_at=stamp(20), steps=[{"name": "Set up runner", "conclusion": "success"}])
+            if seconds >= built_at:
+                app.update(conclusion="success", completed_at=stamp(built_at))
+            found.append(app)
+            if seconds >= refused_at:
+                prepare = refused_job("prepare-nightly-variant (arm64)", seconds=60, labels=(SIDE,),
+                                      steps=[{"name": "Set up runner", "conclusion": "failure"}])
+                found.append(prepare)
+            elif seconds >= built_at:
+                found.append(job("prepare-nightly-variant (arm64)", labels=[SIDE], created=built_at))
+            return found
+
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, finished=lambda s: s >= refused_at + 120)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertNotIn("the fleet accepted", summary)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
     def test_only_a_nightly_honours_a_runner_label(self):
         # A pull request's compile admission names a warm runner as a preference: still rescued.
         stuck = job("macos / macOS compile admission", labels=[MINI, "glaeda-runner-cmux1-glaeda"], created=0)
