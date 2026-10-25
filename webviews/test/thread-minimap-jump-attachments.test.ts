@@ -4,8 +4,8 @@
 // Then it just sends me back down to the, like, only the text area of the prompt". The jump's settle
 // used to correct its landing from the text bubble below the images, so it reached the row's top (the
 // images) and then slid down until the bubble sat at the landing line. Here the images answer late
-// (their reads wait on a slow response) and wrap to a second line once they know their shapes, so the
-// row re-measures after the jump has come to rest: its top must not move on any frame.
+// (their responses are held until the jump has come to rest) and wrap to a second line once they know
+// their shapes, so the row re-measures after the landing: its top must not move on any frame.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -38,8 +38,8 @@ await requireBrowserLane("thread-minimap-jump-attachments.test.ts", async () => 
 
   const COUNT = 30;
   const TARGET = 8;
-  /// How long each image's response waits: well past the jump's landing and its settle.
-  const IMAGE_DELAY_MS = 1_200;
+  /// Painted frames the landing must hold, its images not yet loaded, before their responses go out.
+  const REST_FRAMES = 8;
   const paragraph = "The answer goes on for a while so the turn has real height in the transcript, as replies do.";
   const row = (id: string, kind: string, text?: string, extra: Record<string, unknown> = {}) => ({
     id,
@@ -69,9 +69,12 @@ await requireBrowserLane("thread-minimap-jump-attachments.test.ts", async () => 
       const { port } = vite!.httpServer!.address() as { port: number };
       const page = await browser!.newPage({ viewport: { width: 1280, height: 820 } });
       await installPaintedFrames(page);
+      // The images' responses wait on this until the jump has come to rest, however slow the renderer.
+      let release!: () => void;
+      const held = new Promise<void>((done) => (release = done));
       let served = 0;
       await page.route("**/late-image/**", async (route) => {
-        await new Promise((done) => setTimeout(done, IMAGE_DELAY_MS));
+        await held;
         served += 1;
         await route.fulfill({ status: 200, contentType: "image/svg+xml", body: svg });
       });
@@ -116,6 +119,26 @@ await requireBrowserLane("thread-minimap-jump-attachments.test.ts", async () => 
         return { x: box.left + 6, y: box.top + box.height / 2 };
       }, TARGET);
       await page.mouse.click(tick.x, tick.y);
+      // The landing comes to rest: REST_FRAMES painted frames in a row with the row's images at one
+      // place and none of them loaded (their responses are still held).
+      const resting = (frames: { images?: number; loaded: number }[], count: number) =>
+        frames.findIndex(
+          (frame, index) =>
+            frame.images !== undefined &&
+            frames.slice(index, index + count).length === count &&
+            frames.slice(index, index + count).every((later) => later.loaded === 0 && later.images === frame.images),
+        );
+      await page.waitForFunction((count) => {
+        // The same check as `resting`, on the frames painted so far.
+        const frames = (window as any).__frames as { images?: number; loaded: number }[];
+        const last = frames.slice(-count);
+        return (
+          last.length === count &&
+          last.every((frame) => frame.images !== undefined && frame.loaded === 0 && frame.images === last[0]!.images)
+        );
+      }, REST_FRAMES);
+      expect(served).toBe(0);
+      release();
       // Through the images' answer and a second (60 frames) after they have drawn.
       await page.waitForFunction(() => {
         const frames = (window as any).__frames as { loaded: number }[];
@@ -129,16 +152,11 @@ await requireBrowserLane("thread-minimap-jump-attachments.test.ts", async () => 
       expect(served).toBeGreaterThanOrEqual(3);
 
       const loadedAt = frames.findIndex((frame) => frame.loaded === 3);
-      // The jump came to rest before the images answered: its landing is the row's own, not a read
+      // Where the jump came to rest, before any image answered: the row's own landing, not a read
       // taken after the row grew.
-      const restAt = frames.findIndex(
-        (frame, index) =>
-          frame.images !== undefined &&
-          frames.slice(index, index + 8).length === 8 &&
-          frames.slice(index, index + 8).every((later) => later.images === frame.images),
-      );
+      const restAt = resting(frames, REST_FRAMES);
       expect(restAt).toBeGreaterThanOrEqual(0);
-      expect(restAt).toBeLessThan(loadedAt);
+      expect(restAt + REST_FRAMES).toBeLessThanOrEqual(loadedAt);
       // Lands with the images' top at the landing line, the bubble below them.
       const rest = frames[restAt]!;
       expect(Math.abs(rest.images! - LANDING_OFFSET)).toBeLessThanOrEqual(1);
