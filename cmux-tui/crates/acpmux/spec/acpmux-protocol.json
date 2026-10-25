@@ -2988,6 +2988,14 @@
             "null"
           ]
         },
+        "titleSource": {
+          "default": null,
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {
@@ -3414,6 +3422,7 @@
           ]
         },
         "titleSource": {
+          "default": null,
           "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
           "type": [
             "string",
@@ -3529,6 +3538,20 @@
           "minimum": 1,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "peer": {
+          "description": "Only the sessions this acpmux peer owns (its name, e.g. `huge-blue`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "Only the sessions in this status (`running`, `ready`, `idle`, `waiting`, `closed`).",
+          "type": [
+            "string",
             "null"
           ]
         }
