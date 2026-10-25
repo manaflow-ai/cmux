@@ -143,7 +143,8 @@ extension WindowController {
         guard let (workspace, daemon) = services.machines.workspace(id: id) else { return nil }
         if let kept = parked[id], kept.workspace === workspace, kept.daemon === daemon { return kept }
         parked[id]?.teardown()
-        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, parked: true)
+        let controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, parked: true,
+                                                    window: visibility)
         park(controller)
         return controller
     }

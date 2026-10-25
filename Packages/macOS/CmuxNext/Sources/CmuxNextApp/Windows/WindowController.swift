@@ -10,6 +10,7 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
@@ -33,6 +34,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
+    /// This window in the visibility tree: the parent of every mounted workspace's node
+    /// (`WorkspaceContentController.visibility`). Occlusion, miniaturize and app-hidden feed it (p06-scheduler-022).
+    let visibility: VisibilityNode
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
@@ -64,6 +68,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
+        visibility = VisibilityNode(root: "window:\(state.id)", own: .visible)
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
         rightSidebar = RightSidebarModel(defaults: services.rightSidebarDefaults)
@@ -245,7 +250,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             controller.unpark()
         } else {
             kept?.teardown()
-            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
+            controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state, window: visibility)
         }
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new

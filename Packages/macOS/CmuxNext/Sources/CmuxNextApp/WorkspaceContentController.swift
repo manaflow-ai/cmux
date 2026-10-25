@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextPages
+import CmuxNextWakeups
 import CmuxNextWorkspaceRepair
 import Observation
 
@@ -65,6 +66,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private(set) var isOffScreen = false
     /// The latest mapping that came while off screen: applied once, at rest, when it shows.
     private var deferredApply: LayoutMapping.Result?
+    /// This workspace in its window's visibility tree (Chromium `content::Visibility`, p06-scheduler B):
+    /// hidden while it draws nothing or is off screen, else visible. Nil while not mounted in a window,
+    /// and after ``teardown()``. Its panes' nodes go under it.
+    private(set) var visibility: VisibilityNode?
 
     /// Parks this content before its window shows another workspace. Its attention rings draw
     /// nothing while parked, so it stops following them (a global change wakes no parked workspace),
@@ -75,6 +80,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isOffScreen = true
         attentionObservation?.cancel()
         setDrawsNothing(true)
+        publishVisibility()
     }
 
     /// Shows this parked content again, in this frame: the tree changes it skipped while off screen
@@ -85,6 +91,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isParked = false
         comeOnScreen()
         setDrawsNothing(false)
+        publishVisibility()
         observeAttention()
     }
 
@@ -93,7 +100,14 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     func followAttention() {
         comeOnScreen()
         setDrawsNothing(false)
+        publishVisibility()
         observeAttention()
+    }
+
+    /// Publishes the node's own state in the turn it changes: hidden while parked off screen, visible on
+    /// screen (shown, or a drawing companion). The node tells subscribers only on a flip.
+    private func publishVisibility() {
+        visibility?.set(drawsNothing || isOffScreen ? .hidden : .visible)
     }
 
     private func comeOnScreen() {
@@ -121,9 +135,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     /// `parked`: mounted beside the shown workspace (`sidebar.multiView`), so its first apply sends the window no topology.
-    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false) {
+    /// `window`: the window's visibility node, the parent of ``visibility``; nil makes no node (not in a window).
+    init(workspace: WorkspaceModel, daemon: DaemonService, services: AppServices, state: WindowState, parked: Bool = false,
+         window: VisibilityNode? = nil) {
         self.workspace = workspace
         isParked = parked
+        visibility = window.map { VisibilityNode("workspace:\(workspace.id)", own: .visible, parent: $0) }
         self.daemon = daemon
         self.services = services
         self.state = state
@@ -173,6 +190,8 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         for controller in panes.values { controller.teardown() }
         panes.removeAll()
         contentView.removeFromSuperview()
+        visibility?.detach()
+        visibility = nil
     }
 
     private func observe() {
