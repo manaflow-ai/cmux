@@ -219,6 +219,8 @@ function readWord(line: string, from: number, runs: string[] = []): [ShellWord, 
       while (index < line.length && line[index] !== "'") {
         if (line[index] === "\\" && index + 1 < line.length) {
           const escape = line[index + 1]!;
+          // `\x41`, `\u00e9`, octal and the like: not read here, so the word is not the text shown.
+          if (!Object.prototype.hasOwnProperty.call(ANSI_C, escape)) literal = false;
           text += ANSI_C[escape] ?? escape;
           index += 2;
         } else text += line[index++];
@@ -269,20 +271,19 @@ function expansionEnd(line: string, from: number, runs: string[] = []): number {
   if (line[from] === "`") {
     let index = from + 1;
     while (index < line.length && line[index] !== "`") index += line[index] === "\\" ? 2 : 1;
-    runs.push(line.slice(from + 1, index));
+    runs.push(index < line.length ? line.slice(from + 1, index) : UNCLOSED);
     return Math.min(line.length, index + 1);
   }
   const next = line[from + 1];
-  if (next === "(") {
-    const stop = balancedEnd(line, from + 1);
-    runs.push(line.slice(from + 2, line[stop - 1] === ")" ? stop - 1 : stop));
-    return stop;
-  }
-  if (next === "{") {
+  if (next === "(" || next === "{") {
+    const close = balancedEnd(line, from + 1);
+    if (close < 0) {
+      runs.push(UNCLOSED);
+      return line.length;
+    }
     // `${V:-$(cmd)}` runs cmd too.
-    const stop = balancedEnd(line, from + 1);
-    runs.push(...substitutions(line.slice(from + 2, stop)));
-    return stop;
+    runs.push(...(next === "(" ? [line.slice(from + 2, close - 1)] : substitutions(line.slice(from + 2, close - 1))));
+    return close;
   }
   const name = /^(?:[A-Za-z_]\w*|[0-9#?$!@*-])/.exec(line.slice(from + 1));
   return name ? from + 1 + name[0].length : from + 1;
@@ -300,7 +301,7 @@ function substitutions(body: string): string[] {
   return runs;
 }
 
-/// The end of the bracket at `open` and what it holds, quotes inside kept whole.
+/// The end of the bracket at `open` and what it holds, quotes inside kept whole; -1 when it never closes.
 function balancedEnd(line: string, open: number): number {
   const close = line[open] === "(" ? ")" : "}";
   let depth = 0;
@@ -316,7 +317,7 @@ function balancedEnd(line: string, open: number): number {
     } else if (char === line[open]) depth += 1;
     else if (char === close && --depth === 0) return index + 1;
   }
-  return line.length;
+  return -1;
 }
 
 /// Words that only set the stage for the command after them.
