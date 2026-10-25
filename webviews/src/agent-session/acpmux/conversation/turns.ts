@@ -999,7 +999,8 @@ function activityLine(
 /// raw `acpmux send …` line (Leo 2026-10-24: "sending message or sent message to X or Y").
 function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "doingSendTo" | "doingSendSession"> {
   const send = acpmuxSendCall(tool);
-  if (send) return { doingSendTo: send.target };
+  // Only a send still going: one that failed in the background is not "Sending" any more.
+  if (send) return send.state === "sending" ? { doingSendTo: send.target } : {};
   if (tool.kind === "execute" && tool.command) return {};
   const call = subsessionCall(tool);
   if (call?.tool !== "send") return {};

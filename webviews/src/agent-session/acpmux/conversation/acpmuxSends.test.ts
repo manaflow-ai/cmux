@@ -66,6 +66,11 @@ describe("acpmuxSend", () => {
     // An unclosed quote is a line the shell refuses.
     expect(acpmuxSend("acpmux send lane 'message")).toBeUndefined();
     expect(acpmuxSend('acpmux send lane "message')).toBeUndefined();
+    expect(acpmuxSend("acpmux send lane $(cat note.md")).toBeUndefined();
+    expect(acpmuxSend("acpmux send lane `cat note.md")).toBeUndefined();
+    expect(acpmuxSend('acpmux send lane "${V:-x"')).toBeUndefined();
+    // An escape `$'…'` is not read here leaves the text unknown.
+    expect(acpmuxSend("acpmux send lane $'\\x41'")).toEqual({ target: "lane", noWait: false });
   });
 
   test("stdin: a here-document, a here-string, a piped echo; a file or nothing is unknown", () => {
