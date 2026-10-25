@@ -87,7 +87,7 @@ async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
     assert_eq!(calls.len(), 2, "{log:?}");
     assert_eq!(
         calls[0],
-        "systemctl --user show acpmuxsessions.slice -p MemoryMax -p MemoryHigh -p TasksMax"
+        "systemctl --user --no-pager show acpmuxsessions.slice -p MemoryMax -p MemoryHigh -p TasksMax"
     );
     let set = calls[1];
     assert!(

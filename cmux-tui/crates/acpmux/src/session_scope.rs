@@ -318,7 +318,8 @@ fn limit_slice(
     if wanted.is_empty() {
         return Ok(0);
     }
-    let mut show: Vec<String> = vec!["--user".into(), "show".into(), slice.into()];
+    let mut show: Vec<String> =
+        vec!["--user".into(), "--no-pager".into(), "show".into(), slice.into()];
     for (key, _) in wanted {
         show.extend(["-p".to_owned(), (*key).to_owned()]);
     }
@@ -357,8 +358,10 @@ fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String,
 
 /// Runs `program args` with `env` on top of the daemon's and no input; its
 /// output (with `output`, else nothing) when it succeeded within
-/// [`PROBE_TIMEOUT`], else None (killed past the deadline). The output is a
-/// few short lines, far under a pipe's buffer, so it never blocks the child.
+/// [`PROBE_TIMEOUT`], else None. It runs in a process group of its own, and
+/// a run past the deadline is killed with that whole group. The output goes
+/// to an unlinked temporary file, never a pipe, so a child that leaves a
+/// process behind holding it cannot make the read wait.
 #[cfg(target_os = "linux")]
 fn run_bounded(
     program: &std::path::Path,
@@ -366,37 +369,61 @@ fn run_bounded(
     env: &BTreeMap<String, String>,
     output: bool,
 ) -> Option<String> {
-    use std::io::Read;
+    use std::io::{Read, Seek};
+    use std::os::unix::process::CommandExt;
     use std::process::Stdio;
+    let mut file = None;
+    let stdout = if output {
+        let path = std::env::temp_dir()
+            .join(format!("acpmux-run-{}-{}", std::process::id(), uuid::Uuid::now_v7()));
+        let opened = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .ok()?;
+        let _ = std::fs::remove_file(&path);
+        let stdout = Stdio::from(opened.try_clone().ok()?);
+        file = Some(opened);
+        stdout
+    } else {
+        Stdio::null()
+    };
     let mut child = std::process::Command::new(program)
         .args(args)
         .envs(env)
         .stdin(Stdio::null())
-        .stdout(if output { Stdio::piped() } else { Stdio::null() })
+        .stdout(stdout)
         .stderr(Stdio::null())
+        .process_group(0)
         .spawn()
         .ok()?;
     let started = std::time::Instant::now();
-    loop {
+    let succeeded = loop {
         match child.try_wait() {
-            Ok(Some(status)) if status.success() => {
-                let mut text = String::new();
-                if let Some(mut out) = child.stdout.take() {
-                    out.read_to_string(&mut text).ok()?;
-                }
-                return Some(text);
-            }
-            Ok(Some(_)) => return None,
+            Ok(Some(status)) => break status.success(),
             Ok(None) if started.elapsed() < PROBE_TIMEOUT => {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
             _ => {
-                let _ = child.kill();
+                if let Ok(pid) = i32::try_from(child.id()) {
+                    // SAFETY: signals the process group this call made.
+                    unsafe { libc::kill(-pid, libc::SIGKILL) };
+                }
                 let _ = child.wait();
-                return None;
+                break false;
             }
         }
+    };
+    if !succeeded {
+        return None;
     }
+    let mut text = String::new();
+    if let Some(mut file) = file {
+        file.rewind().ok()?;
+        file.take(64 * 1024).read_to_string(&mut text).ok()?;
+    }
+    Some(text)
 }
 
 /// The machine's memory in bytes (0 when unknown, which leaves memory off).
@@ -617,10 +644,14 @@ mod tests {
         let _serial = SLICE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let (held, release) = std::sync::mpsc::channel::<()>();
         let (go, ready) = std::sync::mpsc::channel::<()>();
+        let marker = std::env::temp_dir().join(format!("acpmux-stalled-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let seen = marker.clone();
         let holder = std::thread::spawn(move || {
-            // A `systemctl` that stalls until released.
+            // A `systemctl` that says it started, then stalls.
             let stall = std::env::temp_dir().join(format!("acpmux-stall-{}", std::process::id()));
-            std::fs::write(&stall, "#!/bin/sh\nsleep 2\n").unwrap();
+            std::fs::write(&stall, format!("#!/bin/sh\n: > '{}'\nsleep 2\n", seen.display()))
+                .unwrap();
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&stall, std::fs::Permissions::from_mode(0o755)).unwrap();
             let wanted = [("TasksMax", "1".to_owned())];
@@ -630,8 +661,13 @@ mod tests {
             let _ = release.recv();
         });
         ready.recv().unwrap();
-        // Let the holder reach its stalled `systemctl`.
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        // The holder is in its stalled `systemctl` (so it holds the lock).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !marker.exists() {
+            assert!(std::time::Instant::now() < deadline, "the stalled systemctl never ran");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_file(&marker);
         let started = std::time::Instant::now();
         let nowhere = std::path::Path::new("/nonexistent/systemctl");
         let wanted = [("TasksMax", "1".to_owned())];
