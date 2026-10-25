@@ -27,7 +27,8 @@ struct ClaudeAccountSwitchSurfaceEnvironment: Equatable {
     }
 
     /// - Parameter accountEnvironment: Each account key with the value the shell should run
-    ///   with, `""` for one it should run without.
+    ///   with, `""` for one it should run without. Keys other than
+    ///   ``ClaudeAccountSwitchPlanner/accountEnvironmentKeys`` are ignored.
     init(
         accountEnvironment: [String: String],
         workspaceEnvironment: [String: String],
@@ -35,7 +36,7 @@ struct ClaudeAccountSwitchSurfaceEnvironment: Equatable {
     ) {
         var overrides: [String: String] = [:]
         var removedKeys: Set<String> = []
-        for (key, value) in accountEnvironment {
+        for (key, value) in accountEnvironment where ClaudeAccountSwitchPlanner.accountEnvironmentKeys.contains(key) {
             if !value.isEmpty {
                 overrides[key] = value
             } else if workspaceEnvironment[key]?.isEmpty == false || processEnvironment[key]?.isEmpty == false {

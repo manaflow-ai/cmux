@@ -190,6 +190,9 @@ enum SessionSnapshotImportTrust {
             terminal.claudeBackgroundViewer = nil
             heldBack = true
         }
+        // A switched pane's Claude account keys become the restored shell's environment; a file
+        // must not supply any environment.
+        terminal.claudeAccountEnvironment = nil
         if heldBack {
             report.heldBackResumeCount += 1
         }

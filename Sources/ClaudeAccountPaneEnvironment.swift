@@ -10,15 +10,35 @@ import Foundation
 /// the pane sets, where `""` masks a key the workspace or the app's own environment supplies, and
 /// `removedKeys` lists the keys the switch dropped because nothing else supplied them. Older
 /// snapshots have none, and their panes restore as before.
+///
+/// Only ``ClaudeAccountSwitchPlanner/accountEnvironmentKeys`` are ever held, however the value is
+/// made or decoded: a session file names the restored shell's environment, so any other key it
+/// carries is dropped rather than replayed.
 struct ClaudeAccountPaneEnvironment: Codable, Equatable, Sendable {
     /// Account keys and the values the pane's shell gets; `""` masks an inherited key.
-    var overrides: [String: String]
+    let overrides: [String: String]
     /// Account keys the pane runs without that nothing else supplied when it switched.
-    var removedKeys: [String]
+    let removedKeys: [String]
 
+    private enum CodingKeys: String, CodingKey {
+        case overrides
+        case removedKeys
+    }
+
+    /// Keeps only the account keys of `overrides` and `removedKeys`.
     init(overrides: [String: String], removedKeys: [String]) {
-        self.overrides = overrides
-        self.removedKeys = removedKeys.sorted()
+        let accountKeys = ClaudeAccountSwitchPlanner.accountEnvironmentKeys
+        self.overrides = overrides.filter { accountKeys.contains($0.key) }
+        self.removedKeys = Set(removedKeys).intersection(accountKeys).sorted()
+    }
+
+    /// Decodes a record, dropping any key that is not an account key; missing fields read as empty.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            overrides: try container.decodeIfPresent([String: String].self, forKey: .overrides) ?? [:],
+            removedKeys: try container.decodeIfPresent([String].self, forKey: .removedKeys) ?? []
+        )
     }
 
     /// What a switch handed `respawnTerminalSurface`.

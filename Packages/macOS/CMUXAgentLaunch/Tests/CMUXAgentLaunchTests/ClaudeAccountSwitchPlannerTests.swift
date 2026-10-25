@@ -29,6 +29,14 @@ import Testing
         #expect(p.launchEnvironment == ["FOO": "1", "CLAUDE_CONFIG_DIR": "/Users/u/.claude-work"])
     }
 
+    /// A restore replays only these keys, so every plan must stay within them.
+    @Test func planTouchesExactlyTheAccountEnvironmentKeys() throws {
+        for target in ["work", "default"] {
+            let p = try plan(launchEnvironment: ["CLAUDE_CONFIG_DIR": "/Users/u/.other"], targetName: target).get()
+            #expect(Set(p.surfaceEnvironmentOverrides.keys) == ClaudeAccountSwitchPlanner.accountEnvironmentKeys)
+        }
+    }
+
     @Test func workToDefaultClearsAccountKeys() throws {
         let p = try plan(
             launchEnvironment: ["CLAUDE_CONFIG_DIR": "/Users/u/.claude-work", "CLAUDE_SECURESTORAGE_CONFIG_DIR": "/x"],

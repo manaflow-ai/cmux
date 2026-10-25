@@ -55,6 +55,10 @@ extension ClaudeAccountSwitchRefusal {
 public enum ClaudeAccountSwitchPlanner {
     private static let configKey = "CLAUDE_CONFIG_DIR"
     private static let secureStorageKey = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
+    /// The environment keys that select a Claude account: exactly the keys of
+    /// ``ClaudeAccountSwitchPlan/surfaceEnvironmentOverrides``. Nothing else may be set on a pane
+    /// for an account switch, or replayed for one.
+    public static let accountEnvironmentKeys: Set<String> = [configKey, secureStorageKey]
 
     public static func plan(
         sessionID: String?,
