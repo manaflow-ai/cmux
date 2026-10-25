@@ -53,6 +53,12 @@ pub struct SessionSummary {
     /// Its sub-sessions that are not closed.
     pub children: u32,
     pub title: Option<String>,
+    /// Who supplied `title`: `prompt` is the first-prompt fallback, while
+    /// `harness`, `generated` and `adopted` are real chat titles. Older peers
+    /// may omit this field.
+    #[serde(default)]
+    #[schemars(default)]
+    pub title_source: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
