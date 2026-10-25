@@ -162,7 +162,7 @@ public final class RemoteMachinesSidebar {
     }
 
     /// One bounded `_acpmux/peers` (the daemon answers from memory, never asking a peer) when the
-    /// list is older than `peerInterval` and no read is in flight; its answer rebuilds once.
+    /// list is older than `peerInterval` and no read is in flight; a changed answer arms `refresh`.
     private func askForPeersIfStale() {
         guard peerRead == nil, let read = host?.peers else { return }
         let now = ContinuousClock.now
@@ -175,7 +175,8 @@ public final class RemoteMachinesSidebar {
             peerRead = nil
             if next != peers {
                 peers = next
-                rebuild()
+                // Through the same gate as a lane change: still one rebuild per refreshInterval.
+                refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
             }
         }
     }
@@ -223,8 +224,9 @@ public final class RemoteMachinesSidebar {
     static func rows(machines: [Machine], expanded: Set<String>, pages: [String: Int],
                      displayName: (String) -> String?) -> [SidebarTransientItem] {
         var items: [SidebarTransientItem] = []
-        // The groups draw right after the top items (Home, the App Store), above the workspaces.
-        var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarLayoutDocument.homeRef, .builtIn(.home)]
+        // The groups draw right after the top items (the App Store, else Channels, else Home), above the workspaces.
+        var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref, SidebarLayoutDocument.homeRef,
+                                         .builtIn(.home)]
         func add(_ id: String, _ info: SidebarItemInfo) {
             let item = SidebarTransientItem(id: LayoutItemID(id), info: info, after: previous)
             previous = [item.item.ref]

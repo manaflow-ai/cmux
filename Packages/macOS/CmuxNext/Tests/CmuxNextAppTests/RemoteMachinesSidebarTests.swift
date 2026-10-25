@@ -90,6 +90,17 @@ struct RemoteMachinesSidebarTests {
                         LayoutItemID.transientPrefix + "remote:machine:huge-blue"])
     }
 
+    /// Without the App Store the groups follow Channels (anchored after Home), never land before it.
+    @Test func groupsFollowChannelsWhenTheAppStoreIsGone() {
+        let model = SidebarModel()
+        model.transientTopItems = [SidebarTransientItem.channels]
+            + Self.rows(RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue")], peers: nil))
+        let section = LayoutSection(id: LayoutSectionID("sec_top"), showsTitle: false, region: .top, look: .builtIn,
+                                    items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .app("cmux/home"))])
+        let ids = model.placingTransientItems(in: [section]).flatMap(\.items).map(\.id.rawValue)
+        #expect(ids == ["itm_home", SidebarTransientItem.channelsID.rawValue, LayoutItemID.transientPrefix + "remote:machine:huge-blue"])
+    }
+
     @Test func peerListReadsNamesAndLinks() {
         let peers = AcpmuxPeerList.peers(["peers": [["name": "cmux16", "connected": true, "sessions": 484],
                                                     ["name": "big-red", "connected": false], ["connected": true]]])
