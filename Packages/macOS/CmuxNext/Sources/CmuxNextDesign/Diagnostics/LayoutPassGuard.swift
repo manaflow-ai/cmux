@@ -70,6 +70,10 @@ public final class LayoutPassGuard {
     /// DEBUG builds only; a release build always reads 0.
     public private(set) var viewLayoutCalls = 0
     public private(set) var windowLayoutPasses = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// An armed ``RenderStats`` (set by its `arm()`): it counts each layout call per view class.
+    weak var renderStats: RenderStats?
+    #endif
 
     /// One `layoutIfNeeded` of a window in progress: its nesting depth, the
     /// layout calls per view in it (the weak reference tells a reused
@@ -175,6 +179,9 @@ public final class LayoutPassGuard {
         viewLayoutCalls &+= 1
         #endif
         let type: AnyClass = Swift.type(of: view)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        renderStats?.recordLayout(of: type)
+        #endif
         let typeID = ObjectIdentifier(type)
         if let entry = classCounts[typeID] {
             classCounts[typeID] = (entry.type, entry.count + 1)
