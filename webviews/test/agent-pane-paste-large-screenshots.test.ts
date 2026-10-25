@@ -6,6 +6,9 @@
 //
 // - Several large screenshots pasted at once never block typing: their decode, scale and encode
 //   run in a worker (composer/imageWorker.ts), so the page's main thread never stalls on them.
+// - A host that never answers (`chat.attach.dropped`, `chat.upload.*`) never leaves a tile loading
+//   forever: an image becomes its chip once its preview is made, whatever its original's upload does.
+// - A loading tile spins and has a working ×; a tile that failed says why, and Retry tries again.
 // The page is the pane's dev entry with the in-page mock transport.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -166,6 +169,62 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     );
     expect(await promptText(page)).toBe(" these screenshots attach while I type");
     expect(stall).toBeLessThan(MAX_STALL_MS);
+    await page.close();
+  });
+
+  test("a host that never answers never leaves a pasted screenshot loading", async () => {
+    const page = await newChat({ "chat.attach.dropped": "hang", "chat.upload.begin": "hang" });
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await makeScreenshots(page, 2);
+    await pasteScreenshots(page);
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-attachment-image img").length === 2,
+      undefined,
+      { timeout: 20_000 },
+    );
+    expect(await page.locator(".acpmux-attachment-pending").count()).toBe(0);
+    // The host was asked, and its silence held nothing up.
+    expect(await page.evaluate(() => (window as unknown as { calls: string[] }).calls)).toContain("chat.upload.begin");
+    await page.close();
+  });
+
+  test("a loading tile spins and its × takes it away for good", async () => {
+    const page = await newChat();
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await makeScreenshots(page, 1);
+    await pasteScreenshots(page);
+    const loading = page.locator(".acpmux-attachment-pending");
+    await loading.waitFor();
+    expect(await loading.locator(".acpmux-attachment-spinner").count()).toBe(1);
+    await loading.locator(".acpmux-attachment-remove").click();
+    expect(await loading.count()).toBe(0);
+    // Its read ending later brings nothing back: nothing on the page says when a cancelled read
+    // ends, so the test gives it the time a read of this screenshot takes here.
+    // fixed-wait: a cancelled read has no observable end; the assertion is that nothing appears.
+    await page.waitForTimeout(3000);
+    expect(await page.locator(".acpmux-attachment").count()).toBe(0);
+    await page.close();
+  });
+
+  test("a file whose upload failed says why, and Retry attaches it", async () => {
+    const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    const failed = page.locator(".acpmux-attachment-failed");
+    await failed.waitFor();
+    expect(await failed.textContent()).toContain("The disk is full.");
+    // The host takes it this time.
+    await page.evaluate(() => {
+      (window as unknown as { host: Record<string, string> }).host["chat.upload.begin"] = "ok";
+    });
+    await failed.locator(".acpmux-attachment-retry").click();
+    await page.locator(".acpmux-attachment-link").waitFor();
+    expect(await failed.count()).toBe(0);
     await page.close();
   });
 

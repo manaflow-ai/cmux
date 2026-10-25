@@ -52,6 +52,20 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
   },
 );
 
+/** A button's shortcut as a light hint after its label: the modifiers fainter than the key, so the
+ * eye finds 1, 2, 3 as in Claude Code's and Codex's numbered prompts. Decoration only: the button
+ * carries the key in `aria-keyshortcuts`. */
+function KeyHint({ shortcut }: { shortcut: string }) {
+  const key = Array.from(shortcut).at(-1) ?? "";
+  const modifiers = shortcut.slice(0, shortcut.length - key.length);
+  return (
+    <kbd className="acpmux-permission-action-shortcut" aria-hidden="true">
+      {modifiers && <span className="acpmux-permission-action-modifiers">{modifiers}</span>}
+      {key}
+    </kbd>
+  );
+}
+
 /** Shared action button so grouped and legacy cards present the same localized label and key hint.
  * Only the short label and the key: what an answer covers is the card's one scope line, never the
  * button's (Leo 2026-10-25: "the allow button ... it shouldn't be encompassing so much"). */
@@ -70,7 +84,7 @@ export function PermissionActionButton({
       aria-keyshortcuts={shortcut || undefined}
     >
       <span className="acpmux-permission-action-label">{label}</span>
-      {shortcut && <kbd className="acpmux-permission-action-shortcut">{shortcut}</kbd>}
+      {shortcut && <KeyHint shortcut={shortcut} />}
     </button>
   );
 }
@@ -78,8 +92,8 @@ export function PermissionActionButton({
 /// A permission ask as Claude Code desktop draws it: a glass card with the tool's glyph and what the
 /// call does as its title, the command clamped to its first line ("Show full command" opens all of
 /// it), and Allow once, Always allow and Deny, each shown only when the agent offered that kind
-/// (permissions/prompt.ts), with any other option the agent offered after them, all short and the
-/// same size in one row. What they cover (the folder or app, the Always allow rule) is one muted
+/// (permissions/prompt.ts), with any other option the agent offered after them: short buttons sized
+/// to their labels, grouped at the card's leading edge. What they cover (the folder or app, the Always allow rule) is one muted
 /// line under them, cut with an ellipsis and whole on hover. Deny opens a field for what the agent should do instead, sent with the
 /// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return (Allow once) and Esc (Deny, or close
 /// the field) answer while this card is the prompt and nothing else has the keyboard.
@@ -311,14 +325,7 @@ export function PermissionCard({
         )}
       </div>
       {!writing && (
-        <div
-          className="acpmux-permission-buttons"
-          style={
-            {
-              "--permission-answers": [allowOnce, allowAlways, denyOption].filter(Boolean).length + others.length,
-            } as React.CSSProperties
-          }
-        >
+        <div className="acpmux-permission-buttons">
           {allowOnce && (
             <PermissionActionButton
               label={t("permission.allowOnce")}
