@@ -8608,20 +8608,19 @@ function AcpmuxPane() {
                   return true;
                 }
                 const holder = composerHandle.current;
-                callNative("chat.send", { text, attachments, steer })
-                  .then(
-                    () => {
-                      rememberStart();
-                      promptLanded.current();
-                    },
-                    (error: unknown) => {
-                      cancelOpenInWindow();
-                      if (failedRowOf(error) || isTrustRefusal(error)) return;
-                      // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
-                      if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
-                      (composerHandle.current ?? holder)?.restore(text, attachments);
-                    },
-                  );
+                callNative("chat.send", { text, attachments, steer }).then(
+                  () => {
+                    rememberStart();
+                    promptLanded.current();
+                  },
+                  (error: unknown) => {
+                    cancelOpenInWindow();
+                    if (failedRowOf(error) || isTrustRefusal(error)) return;
+                    // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                    if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
+                    (composerHandle.current ?? holder)?.restore(text, attachments);
+                  },
+                );
                 return true;
               }
               // A new chat's prompt leaves the composer at once as a queued row, and what is sent
