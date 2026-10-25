@@ -309,8 +309,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // this launch's person key (a signed daemon takes it by this app's signature), so
             // the reconnected pane's allows keep working.
             guard startsDaemon else {
-                _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
-                await AcpmuxComputerUse.enroll(environment)
+                // An attached daemon keeps its owner's person key and Computer Use endpoint.
+                if !environment.isAttached {
+                    _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+                    await AcpmuxComputerUse.enroll(environment)
+                }
                 do {
                     return try await Self.verifiedEndpoint(environment)
                 } catch let refusal as AcpmuxServerPeer.Refusal {

@@ -186,11 +186,15 @@ final class QuitCoordinator {
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
-                await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
-                                                     bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                let acpmux = QuitAgents.environment(services)
+                // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
+                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                    await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
+                                                         bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
+                }
                 await services.home.chief.shutdownForEndSessions()
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
-                return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
+                return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CmuxNextCompat
 import Testing
@@ -58,7 +59,8 @@ struct AcpmuxAttachTests {
         #expect(attached.daemonArguments.isEmpty)
     }
 
-    /// A stand-in `acpmux` that records each launch; nothing listens on the attached socket.
+    /// A stand-in `acpmux` that records each launch, and the attached home with a crashed
+    /// daemon's `daemon.pid` (an owned host's reconnect would start one there).
     private static func fixture() throws -> (root: URL, environment: AcpmuxEnvironment) {
         let root = URL(fileURLWithPath: "/tmp/aat-\(UUID().uuidString.prefix(8))", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
@@ -71,7 +73,6 @@ struct AcpmuxAttachTests {
         let own = try #require(AcpmuxEnvironment.resolve(
             build: nil, bundledBinDirectory: bin, environment: ["ACPMUX_HOME": root.appendingPathComponent("own").path],
             executableOverride: nil, teamIdentifier: nil))
-        // A crashed daemon's pid file: an owned host's reconnect would start one here.
         let gone = Process()
         gone.executableURL = URL(fileURLWithPath: "/usr/bin/true")
         try gone.run()
@@ -90,5 +91,82 @@ struct AcpmuxAttachTests {
         await #expect(throws: AgentPaneHostError.daemonStopped) { try await host.prewarm() }
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("launched").path),
                 "an attached DEV build started a daemon in another app's home")
+    }
+
+    /// A running daemon of the attached home only answers status: the host sends no person key,
+    /// Computer Use enrollment, handoff or shutdown, and writes nothing to that home's log.
+    @Test func anAttachedHostOnlyReadsARunningDaemon() async throws {
+        let (root, environment) = try Self.fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let daemon = try RecordingDaemon(socketPath: environment.socketPath, home: environment.home.path)
+        defer { daemon.stop() }
+        let host = AcpmuxHost(resolve: { environment })
+
+        _ = try? await host.handshake(sessionId: nil)
+        _ = try? await host.reconnectHandshake(sessionId: "s")
+        #expect(!daemon.methods.isEmpty)
+        #expect(daemon.methods.allSatisfy { ["initialize", "_acpmux/status"].contains($0) }, "sent \(daemon.methods)")
+        #expect(!FileManager.default.fileExists(atPath: environment.home.appendingPathComponent("daemon.log").path))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("launched").path))
+    }
+}
+
+/// A unix socket served by this test process that records each request's method and answers
+/// with a status of `home`.
+nonisolated final class RecordingDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
+    private let descriptor: Int32
+    private let path: String
+    private let recorded = Mutex<[String]>([])
+    var methods: [String] { recorded.withLock { $0 } }
+
+    init(socketPath: String, home: String) throws {
+        path = socketPath
+        descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            buffer.copyBytes(from: socketPath.utf8)
+            buffer[socketPath.utf8.count] = 0
+        }
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard bound == 0, listen(descriptor, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
+        Thread.detachNewThread { [self] in
+            while true {
+                let client = accept(descriptor, nil, nil)
+                guard client >= 0 else { return }
+                Thread.detachNewThread { self.serve(client, home: home) }
+            }
+        }
+    }
+
+    private func serve(_ client: Int32, home: String) {
+        defer { close(client) }
+        var buffer = Data()
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = recv(client, &chunk, chunk.count, 0)
+            guard count > 0 else { return }
+            buffer += Data(chunk[0..<count])
+            while let newline = buffer.firstIndex(of: 0x0A) {
+                let line = Data(buffer[buffer.startIndex..<newline])
+                buffer.removeSubrange(buffer.startIndex...newline)
+                guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let id = object["id"] else { continue }
+                recorded.withLock { $0.append(object["method"] as? String ?? "") }
+                let result: [String: Any] = ["webUrl": "ws://127.0.0.1:9/?token=t", "pid": Int(getpid()), "build": "other",
+                                             "agentHosts": true, "home": home]
+                guard var data = try? JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": id, "result": result])
+                else { continue }
+                data.append(0x0A)
+                _ = data.withUnsafeBytes { send(client, $0.baseAddress, data.count, 0) }
+            }
+        }
+    }
+
+    func stop() {
+        shutdown(descriptor, SHUT_RDWR)
+        close(descriptor)
+        unlink(path)
     }
 }

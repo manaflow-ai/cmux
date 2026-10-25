@@ -43,6 +43,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// The daemon is another app's, reached through `CMUX_NEXT_ACPMUX_ATTACH`
     /// (AcpmuxEnvironment+Attach.swift): this app never starts, hands off or ends it.
     public var isAttached = false
+    /// This build's own home while attached (``logPath``); nil otherwise.
+    public var ownHome: URL?
 
     /// The Computer Use variables (AgentActivitySocketSource.Configuration).
     /// The spawn environment drops all three when inherited and takes only
@@ -74,7 +76,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         return launch == "deny" || disabled == "1"
     }
 
-    public var logPath: String { home.appendingPathComponent("daemon.log").path }
+    /// Where this app writes why it could not reach the daemon: its own home's `daemon.log`, so an
+    /// attached daemon's log (another app's home) gets no line from this app.
+    public var logPath: String { (ownHome ?? home).appendingPathComponent("daemon.log").path }
 
     /// Resolves the environment of `build` (nil: no build, the shared home),
     /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the

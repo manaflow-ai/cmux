@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 import Testing
@@ -9,9 +10,14 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct QuitAgentsAttachTests {
-    /// A home whose socket listens but never answers: an owned quit asks it to end its agents
-    /// and fails when it does not answer; an attached quit never asks.
-    private static func silentDaemon() throws -> (root: URL, environment: AcpmuxEnvironment, descriptor: Int32) {
+    nonisolated final class Connections: Sendable {
+        let count = Mutex(0)
+    }
+
+    /// A home whose socket accepts and counts connections but never answers: an owned quit
+    /// connects to end its agents and fails when it does not answer; an attached quit never connects.
+    private static func silentDaemon() throws -> (root: URL, environment: AcpmuxEnvironment, descriptor: Int32,
+                                                   connections: Connections) {
         let root = URL(fileURLWithPath: "/tmp/qaa-\(UUID().uuidString.prefix(8))", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         let home = root.appendingPathComponent("home", isDirectory: true)
@@ -37,18 +43,31 @@ struct QuitAgentsAttachTests {
             }
         }
         guard bound == 0, listen(descriptor, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
-        return (root, environment, descriptor)
+        let connections = Connections()
+        Thread.detachNewThread {
+            while true {
+                let client = accept(descriptor, nil, nil)
+                guard client >= 0 else { return }
+                connections.count.withLock { $0 += 1 }
+                Thread.detachNewThread { var byte: UInt8 = 0; while recv(client, &byte, 1, 0) > 0 {}; close(client) }
+            }
+        }
+        return (root, environment, descriptor, connections)
     }
 
     @Test func anAttachedQuitNeitherCountsNorEndsAgents() async throws {
-        let (root, own, descriptor) = try Self.silentDaemon()
-        defer { close(descriptor); try? FileManager.default.removeItem(at: root) }
+        let (root, own, descriptor, connections) = try Self.silentDaemon()
+        defer { shutdown(descriptor, SHUT_RDWR); close(descriptor); try? FileManager.default.removeItem(at: root) }
         let attached = own.attached(to: own.home)
 
         #expect(await QuitAgents.facts(attached) == .zero)
         #expect(await QuitAgents.end(attached).isEmpty)
+        #expect(connections.count.withLock { $0 } == 0, "an attached quit reached the other app's daemon")
+        #expect(QuitAgents.isAttached(attached, to: URL(fileURLWithPath: own.home.path + "/", isDirectory: true)))
+        #expect(!QuitAgents.isAttached(own, to: own.home))
         // The same daemon, owned: the quit asks it and reports that it did not answer.
         let owned = await QuitAgents.end(own)
         #expect(!owned.isEmpty)
+        #expect(connections.count.withLock { $0 } > 0)
     }
 }

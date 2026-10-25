@@ -35,6 +35,7 @@ nonisolated extension AcpmuxEnvironment {
     /// ``isAttached``: no host starts, hands off or ends that daemon.
     public func attached(to home: URL, uid: UInt32 = getuid()) -> AcpmuxEnvironment {
         var attached = self
+        attached.ownHome = ownHome ?? self.home
         attached.home = home
         attached.socketPath = Self.defaultSocketPath(home: home, uid: uid)
         attached.daemonArguments = []

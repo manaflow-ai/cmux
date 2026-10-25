@@ -21,6 +21,13 @@ enum QuitAgents {
         return own?.attached(to: home)
     }
 
+    /// Whether `environment` is attached to the daemon of `home`.
+    static func isAttached(_ environment: AcpmuxEnvironment?, to home: URL) -> Bool {
+        func canonical(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        guard let environment, environment.isAttached else { return false }
+        return canonical(environment.home) == canonical(home)
+    }
+
     /// Nil when acpmux did not answer in time (unknown, not zero). An attached
     /// daemon's agents are another app's: this quit neither counts nor ends them.
     static func facts(_ environment: AcpmuxEnvironment?) async -> QuitAgentFacts? {
