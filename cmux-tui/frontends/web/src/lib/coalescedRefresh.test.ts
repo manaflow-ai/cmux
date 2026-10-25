@@ -75,4 +75,62 @@ describe("createCoalescedRefresh", () => {
 
     expect(requests).toBe(2);
   });
+
+  it("starts a fresh bounded cycle for an invalidation during the follow-up", async () => {
+    const pending: Array<() => void> = [];
+    let snapshot = 0;
+    let latestState = 0;
+    const listWorkspaces = () => {
+      const nextSnapshot = ++snapshot;
+      return new Promise<number>((resolve) => pending.push(() => resolve(nextSnapshot)));
+    };
+    const queueRefresh = createCoalescedRefresh(async () => {
+      latestState = await listWorkspaces();
+    });
+
+    queueRefresh();
+    queueRefresh();
+    pending.shift()?.();
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(snapshot).toBe(2);
+
+    // The second request is already in flight when the final event arrives.
+    queueRefresh();
+    pending.shift()?.();
+    await flushMicrotasks();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await flushMicrotasks();
+    expect(snapshot).toBe(3);
+
+    pending.shift()?.();
+    await flushMicrotasks();
+    await flushMicrotasks();
+    expect(latestState).toBe(3);
+  });
+
+  it("cancels a deferred cycle after a late invalidation", async () => {
+    const pending: Array<() => void> = [];
+    let requests = 0;
+    const queueRefresh = createCoalescedRefresh(
+      () =>
+        new Promise<void>((resolve) => {
+          requests += 1;
+          pending.push(resolve);
+        }),
+    );
+
+    queueRefresh();
+    queueRefresh();
+    pending.shift()?.();
+    await flushMicrotasks();
+    await flushMicrotasks();
+    queueRefresh();
+    pending.shift()?.();
+    await flushMicrotasks();
+    queueRefresh.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(requests).toBe(2);
+  });
 });
