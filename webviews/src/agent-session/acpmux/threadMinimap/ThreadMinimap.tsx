@@ -268,7 +268,8 @@ export function ThreadMinimap({
   }, [scroller, sessionId]);
 
   /// Scrolls the transcript to turn `index`: smoothly on the measured curve when its row is mounted,
-  /// at once when it is not (or under Reduce Motion, or while scrubbing). A click or a bookmark jump
+  /// at once when it is not (or under Reduce Motion, or while scrubbing). It lands the top of the
+  /// prompt's row (its sent images, else its bubble) LANDING_OFFSET down. A click or a bookmark jump
   /// flashes the prompt's bubble where it lands. Returns where the scroll goes.
   const [jump] = useState(() => (index: number, how: Jump): number | undefined => {
     const node = scroller.current;
@@ -280,12 +281,16 @@ export function ThreadMinimap({
     const to = target();
     // The layout's tops are estimates for rows never drawn, so a long jump can land off its mark
     // once the rows it reaches mount and measure (297 px off for 50 turns up). Where it lands is then
-    // corrected from the bubble itself, frame by frame, until it holds.
+    // corrected from the prompt's row itself, frame by frame, until it holds. The row's top, not the
+    // bubble's: a prompt's sent images draw above its bubble, and a settle on the bubble slid the
+    // landing down past them (Leo, 2026-10-25: "it jumps all the way up to the attachment area ...
+    // Then it just sends me back down to the, like, only the text area"). The row's top does not
+    // move when its images load and it grows; that growth goes below it.
     const settle = () =>
       settleScroll(
         node,
         () => {
-          const box = bubbleOf(mountedRow(node, turn.id))?.getBoundingClientRect();
+          const box = mountedRow(node, turn.id)?.getBoundingClientRect();
           // Not drawn yet, or no layout to measure (a hidden pane).
           if (!box || box.height === 0) return undefined;
           return box.top - node.getBoundingClientRect().top - LANDING_OFFSET;
