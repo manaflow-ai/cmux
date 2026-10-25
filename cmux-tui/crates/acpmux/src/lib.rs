@@ -19,7 +19,9 @@ pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
+pub mod agent_link;
 pub mod agent_tools;
+pub mod beads;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
@@ -44,6 +46,7 @@ pub mod harness_admin;
 pub mod harness_config;
 pub mod harness_health;
 pub mod harness_limits;
+pub mod host_pressure;
 pub mod hub;
 #[cfg(windows)]
 mod job;
@@ -54,6 +57,7 @@ pub mod local_stream;
 pub mod login_env;
 pub mod mailbox;
 pub mod native;
+pub mod no_panic;
 pub mod offer_mcp;
 pub(crate) mod opencode_ask;
 #[cfg(windows)]
@@ -62,6 +66,7 @@ pub mod pairing;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
+pub mod placement;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;

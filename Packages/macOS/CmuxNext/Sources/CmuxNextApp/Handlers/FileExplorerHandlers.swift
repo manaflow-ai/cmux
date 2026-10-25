@@ -1,5 +1,6 @@
 import CmuxNextActions
 import Foundation
+import CmuxNextFilesUI
 
 /// The tree an explorer action runs on, and what the run needs from its window.
 struct FileExplorerRunTarget {
@@ -11,7 +12,7 @@ struct FileExplorerRunTarget {
 }
 
 /// The file explorer's actions (Open Selection, Open Selection (Finder Style),
-/// Open in cmux, Reveal in Finder, Copy Path, Copy Relative Path, Open With…,
+/// Open in cmux, Open as Text, Reveal in Finder, Copy Path, Copy Relative Path, Open With…,
 /// New File, New Folder, Rename, Move to Trash): keys, the explorer's own menu,
 /// the palette and `cmux action run` all run these on an explorer's selection:
 /// the right-clicked tree for a row's menu (its `explorer` argument), else the
@@ -45,6 +46,7 @@ enum FileExplorerHandlers {
         command("fileExplorerOpenSelection") { try await $0.openSelection() }
         command("fileExplorerOpenSelectionFinderAlias") { try await $0.openSelection() }
         command("fileExplorerOpenInCmux") { try $0.openInCmux() }
+        command("fileExplorerOpenAsText") { try $0.openAsText() }
         command("fileExplorerReveal") { try $0.revealInFinder() }
         command("fileExplorerCopyPath") { try $0.copyPath() }
         command("fileExplorerCopyRelativePath") { try $0.copyRelativePath() }

@@ -70,6 +70,12 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.linkTargetGone", "the linked item is gone: it was closed or deleted, or its machine isn't connected")
     }
 
+    /// A cloud group link (`cmux://group/grp_…`) whose group none of the workspaces of is open on
+    /// this Mac (plans/cmux-next/cloud-groups-DESIGN.md).
+    public static var cloudGroupNotOpenHere: String {
+        text("handlers.refusal.cloudGroupNotOpenHere", "none of this cloud group's workspaces is open on this Mac")
+    }
+
     /// A `cmux://agent/…` link while Debug Settings turned agent links off.
     public static var agentLinksOff: String {
         text("handlers.refusal.agentLinksOff", "agent links are turned off in this build")

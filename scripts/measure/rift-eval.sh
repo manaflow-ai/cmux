@@ -45,8 +45,11 @@ echo "== rift $RIFT_VERSION"
 mkdir -p "$work/rift-dl"
 base="https://github.com/anomalyco/rift/releases/download/$RIFT_VERSION"
 tarball="rift-$RIFT_VERSION-aarch64-apple-darwin.tar.gz"
-curl -fsSL -o "$work/rift-dl/$tarball" "$base/$tarball" && curl -fsSL -o "$work/rift-dl/SHA256SUMS" "$base/SHA256SUMS" || { echo "error: rift download failed"; exit 1; }
-( cd "$work/rift-dl" && grep " $tarball\$\| \*$tarball\$" SHA256SUMS | shasum -a 256 -c - ) || { echo "error: rift checksum mismatch"; exit 1; }
+# sha256 of the v0.0.13 aarch64-apple-darwin archive, from the release's SHA256SUMS.
+RIFT_SHA256="${RIFT_EVAL_SHA256:-4e5f6d8b5c8d8d0d91482b084d05587cd30c2e6b89a48c6bcb9bebf852a9d85a}"
+curl -fsSL -o "$work/rift-dl/$tarball" "$base/$tarball" || { echo "error: rift download failed"; exit 1; }
+got="$(shasum -a 256 "$work/rift-dl/$tarball" | awk '{print $1}')"
+[[ "$got" == "$RIFT_SHA256" ]] || { echo "error: rift checksum mismatch ($got)"; exit 1; }
 tar -xzf "$work/rift-dl/$tarball" -C "$work/rift-dl"
 rift_bin="$(find "$work/rift-dl" -type f -name rift -perm -u+x | head -1)"
 [[ -x "$rift_bin" ]] || { echo "error: no rift binary in $tarball"; exit 1; }

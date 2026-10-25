@@ -65,7 +65,7 @@ main() {
   # rest needs the Mac job or an artifact made at an older commit.
   remade() {
     case "$1" in
-      Packages/macOS/CmuxNext/ci-target-graph.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
+      Packages/macOS/CmuxNext/ci-target-graph.json | plans/cmux-next/daemon-capabilities.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
         | clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
       web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/*) ((actions_current)) ;;
       schemas/defaults/cmux-next.json) ((actions_current && settings_current)) ;;

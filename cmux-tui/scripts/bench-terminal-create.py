@@ -21,9 +21,12 @@ For each it records two numbers, in ms:
          first_printable_output, so it needs --spans): the keypress-to-first-
          text cost the app waits on, minus the app's own frame
 
-and, per live terminal, the processes and footprint it costs (host count,
-host RSS). Prints one CREATE line per op and metric, and writes JSON with
-every sample to --out. --max-p50-ms makes it a gate: exit 1 when any
+and, per live terminal, the processes and footprint it costs (terminal
+processes the daemon started and their RSS, and the daemon's own RSS).
+--host-model holder runs every terminal on the install's one holder
+(CMUX_TUI_TERMINAL_HOST_MODEL=holder) instead of a host process each; its
+first-text comes from the same mark. Prints one CREATE line per op and
+metric, and writes JSON with every sample to --out. --max-p50-ms makes it a gate: exit 1 when any
 `exec` p50 is above it (the failing-first perf test of new-terminal-100x).
 
   bench-terminal-create.py --bin target/release/cmux-tui --rounds 40
@@ -181,7 +184,8 @@ def disk_load(root, writers, stop):
 
 
 def host_pids(daemon_pid):
-    out = subprocess.run(["pgrep", "-P", str(daemon_pid), "-f", "__terminal-host"],
+    """The terminal processes the daemon started: a host per terminal, or the holder."""
+    out = subprocess.run(["pgrep", "-P", str(daemon_pid), "-f", "__terminal-host|__holder|cmux-holder"],
                          capture_output=True, text=True).stdout
     return [int(p) for p in out.split()]
 
@@ -243,8 +247,13 @@ def main():
     ap.add_argument("--spans", action="store_true", help="set CMUX_TUI_DEBUG_SPANS and keep the file")
     ap.add_argument("--gate-metric", default=" first-text",
                     help="the metric --max-p50-ms gates (suffix of the op name)")
+    ap.add_argument("--login", action="store_true",
+                    help="as the app: a frontend client (terminal-frontend-shell-integration-v1) and the "
+                         "account's HOME, so each shell starts through login(1)")
     ap.add_argument("--disk-load", type=int, default=0,
                     help="background writers that write and F_FULLFSYNC in a loop (a busy Mac's disk)")
+    ap.add_argument("--host-model", choices=("hosts", "holder"), default="hosts",
+                    help="hosts: a terminal host process per terminal; holder: the install's one holder")
     args = ap.parse_args()
 
     root = tempfile.mkdtemp(prefix="tc-", dir=args.root_dir)
@@ -265,7 +274,7 @@ def main():
         if k.startswith("CMUX_"):
             del env[k]
     env.update(
-        HOME=home,
+        HOME=os.environ["HOME"] if args.login else home,
         XDG_CONFIG_HOME=os.path.join(home, ".config"),
         XDG_STATE_HOME=os.path.join(home, ".local/state"),
         XDG_DATA_HOME=os.path.join(home, ".local/share"),
@@ -273,6 +282,8 @@ def main():
         CMUX_TUI_CONFIG=os.path.join(root, "config.json"),
         SHELL=shell,
     )
+    if args.host_model == "holder":
+        env["CMUX_TUI_TERMINAL_HOST_MODEL"] = "holder"
     spans_path = os.path.join(root, "spans.ndjson")
     if args.spans:
         env["CMUX_TUI_DEBUG_SPANS"] = spans_path
@@ -281,7 +292,8 @@ def main():
         [args.bin, "--headless", "--session", f"tc{os.getpid()}", "--socket", sock, "--state", state],
         stdout=log, stderr=subprocess.STDOUT, env=env, start_new_session=True,
     )
-    result = {"label": args.label, "platform": platform.platform(), "rounds": args.rounds, "ops": {}}
+    result = {"label": args.label, "platform": platform.platform(), "rounds": args.rounds,
+              "host_model": args.host_model, "ops": {}}
     failed = False
     try:
         deadline = time.time() + 30
@@ -292,6 +304,10 @@ def main():
                 try:
                     c = Conn(sock)
                     result["identify"] = must(c.call("identify"), "identify")
+                    if args.login:
+                        must(c.call("set-client-info", name="bench", kind="bench",
+                                    capabilities=["terminal-frontend-shell-integration-v1"]),
+                             "set-client-info")
                     break
                 except OSError:
                     pass
@@ -306,6 +322,9 @@ def main():
         base_pane, _ = pane_of(c, base["surface"])
         marker.wait(time.perf_counter())
         sized = {"cols": 80, "rows": 24}
+        # The app names the shell in each new tab's env; with the frontend
+        # capability that shell starts through login(1).
+        tab = dict(sized, env={"SHELL": shell}) if args.login else sized
         samples = {}
         followed = {}
 
@@ -326,10 +345,10 @@ def main():
 
         for i in range(args.warmup + args.rounds):
             counted = i >= args.warmup
-            data = create("new-tab", "new-tab", counted, pane=base_pane, terminal_id=uuid.uuid4().hex, **sized)
+            data = create("new-tab", "new-tab", counted, pane=base_pane, terminal_id=uuid.uuid4().hex, **tab)
             c.call("close-surface", surface=data["surface"])
             data = create("split right", "split", counted, pane=base_pane, dir="right",
-                          terminal_id=uuid.uuid4().hex, **sized)
+                          terminal_id=uuid.uuid4().hex, **tab)
             pane = data.get("pane") or pane_of(c, data["surface"])[0]
             c.call("close-pane", pane=pane, end_terminals=True)
             data = create("new-workspace", "new-workspace", counted, name=f"w{i}", **sized)
@@ -358,10 +377,12 @@ def main():
             if args.max_p50_ms is not None and name.endswith(args.gate_metric) and sm["p50"] > args.max_p50_ms:
                 failed = True
 
-        # Per-terminal cost: processes and RSS added by --live open terminals.
+        # Per-terminal cost: processes and RSS added by --live open terminals
+        # (a host each, or the growth of the one holder), and the daemon's.
         time.sleep(0.5)
         before = host_pids(daemon.pid)
         before_rss = rss_kb(before)
+        before_daemon = rss_kb([daemon.pid])
         live = []
         for _ in range(args.live):
             live.append(create("live", "new-tab", False, pane=base_pane, **sized))
@@ -372,10 +393,14 @@ def main():
             "terminals": args.live,
             "host_processes_added": len(added),
             "host_rss_kb_added": rss_kb(after) - before_rss,
+            "daemon_rss_kb_added": rss_kb([daemon.pid]) - before_daemon,
+            "terminal_processes": len(after),
         }
         result["per_terminal"] = cost
-        print(f"CREATE {args.label} per_terminal hosts={len(added)/max(1,args.live):.2f} "
-              f"rss_kb={cost['host_rss_kb_added']/max(1,args.live):.0f}", flush=True)
+        n = max(1, args.live)
+        print(f"CREATE {args.label} per_terminal hosts={len(added)/n:.2f} "
+              f"rss_kb={cost['host_rss_kb_added']/n:.0f} daemon_rss_kb={cost['daemon_rss_kb_added']/n:.0f} "
+              f"terminal_processes={len(after)}", flush=True)
         for d in live:
             c.call("close-surface", surface=d["surface"])
         c.close()

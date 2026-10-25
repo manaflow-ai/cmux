@@ -1141,12 +1141,13 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
-                match mux.commit_session_journal_events(
+                let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
-                ) {
+                );
+                match committed {
                     Ok(commits) => {
                         let terminal_events =
                             events.iter().filter(|e| e.lane() == JournalLane::Terminal).count();
@@ -1158,6 +1159,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                         // drops the last other owner after its receipt must not
                         // leave the final drop (and its session lease) to this
                         // thread.
+                        // A batch no request waits for (background events)
+                        // asks for its own flush; a request's reply does.
+                        if batch.iter().all(|queued| queued.completion.is_none()) {
+                            mux.request_registry_flush();
+                        }
                         drop((writer, mux));
                         complete_batch_success(&batch, commits);
                         break;

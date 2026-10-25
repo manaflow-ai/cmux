@@ -6,7 +6,6 @@ import React, { useContext, useEffect, useLayoutEffect, useRef, useState } from 
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
-  MAX_ATTACHMENTS,
   filesFrom,
   isImageFile,
   pastedImageFiles,
@@ -19,11 +18,12 @@ import {
 } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
-import { Close, FileDoc, ImageIcon } from "../conversation/icons";
+import { Close, FileDoc, ImageIcon, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
-import { intakeFiles } from "./intakeFiles";
+import { keptThumb } from "./imagePool";
+import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
 import { FADE_BAND_PX } from "../MarkdownField";
 import { useScrollEdges } from "../summary/scrollEdges";
@@ -37,14 +37,19 @@ const ATTACHMENT_LABELS = {
   tooLarge: "composer.tooLarge",
   unsupported: "composer.unsupported",
   imagesUnsupported: "composer.imagesUnsupported",
-  tooMany: "composer.tooMany",
   pastedText: "composer.pastedText",
   pastedLines: "transcript.pastedLines",
   editPasted: "composer.pastedText.edit",
+  cancelAttachment: "composer.cancelAttachment",
+  retryAttachment: "composer.retryAttachment",
 } as const satisfies Record<string, StringKey>;
 
 export function attachmentErrorText(error: AttachmentError, t: Translate): string {
   return t(ATTACHMENT_LABELS[error.reason], { name: error.name });
+}
+
+function intakeErrorText(error: IntakeError, t: Translate): string {
+  return "text" in error ? error.text : attachmentErrorText(error, t);
 }
 
 export type AttachmentIntakeOptions = {
@@ -105,8 +110,14 @@ export function appendAttachments(
 /// A chip shown the moment a file is pasted, dropped or chosen, while the composer reads, scales or
 /// saves it (intakeFiles.ts can take a large screenshot hundreds of ms): the chip it becomes, or
 /// the refusal's note, takes its place. Leo 2026-10-21: "ME PASTING IT DOESN'T JUST PASTE RIGHT
-/// INTO THE COMPOSER IMMEDIATELY".
-export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string };
+/// INTO THE COMPOSER IMMEDIATELY". It spins while it loads and its × cancels it; one that could not
+/// be attached stays, saying why (`failed`), with Retry (Leo, 2026-10-24: "why don't you put a
+/// spinner on the attachment rather than this placeholder that doesn't do anything... I can't even
+/// cancel these").
+export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string; failed?: string };
+
+/// What Retry needs of a pending chip: its file and how it came in.
+type PendingSource = { file: File; uploads: boolean };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
@@ -127,13 +138,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     dropRef.current = next;
     setDropState(next);
   });
-  const live = useRef({ options, t, held: attachments.length });
-  live.current = { options, t, held: attachments.length };
-  /// The files of every batch still being read, counted as soon as it comes in (before a render),
-  /// so a second paste meanwhile leaves room for the first one's chips.
-  const reading = useRef(0);
+  const live = useRef({ options, t });
+  live.current = { options, t };
   /// Each batch still being read, with the chat it belongs to (`scope`).
   const batches = useRef(new Set<{ scope?: string }>());
+  /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
+  /// read makes later is dropped.
+  const sources = useRef(new Map<string, PendingSource>());
+  /// Each intake chip's place in paste order (its gesture, then its file), so a chip ready first
+  /// still lands where it was pasted, across batches too.
+  const places = useRef(new Map<string, number>());
+  const gestures = useRef(0);
   const scope = options.scope;
   const lastScope = useRef(scope);
   // Before paint: a carried placeholder never leaves the strip for a frame.
@@ -150,46 +165,96 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
   const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind) => {
     if (files.length === 0) return;
-    const { options: current, t: translate, held } = live.current;
-    const ahead = reading.current;
+    const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
-    const shown: PendingAttachment[] = files
-      .slice(0, Math.max(0, MAX_ATTACHMENTS - held - ahead))
-      .map((file) => ({ id: crypto.randomUUID(), name: file.name, image: isImageFile(file), scope: batch.scope }));
-    const ids = new Set(shown.map((chip) => chip.id));
-    reading.current += files.length;
+    const shown: PendingAttachment[] = files.map((file) => ({
+      id: crypto.randomUUID(),
+      name: file.name,
+      image: isImageFile(file),
+      scope: batch.scope,
+    }));
+    shown.forEach((chip, index) => sources.current.set(chip.id, { file: files[index]!, uploads }));
+    const gesture = (gestures.current += 1);
     batches.current.add(batch);
-    if (shown.length) setPending((chips) => [...chips, ...shown]);
+    setPending((chips) => [...chips, ...shown]);
     const paths = current.localPaths;
-    // Their placeholders go in the same render as what they became (or when the read fails).
-    const read = () => {
-      reading.current -= files.length;
-      batches.current.delete(batch);
-      if (shown.length) setPending((chips) => chips.filter((chip) => !ids.has(chip.id)));
+    /// The chip each file became, by index, for its original's path arriving later.
+    const made: (string | undefined)[] = [];
+    const marked = new Set<number>();
+    // Each file's placeholder goes in the same render as what it became, the moment it is ready.
+    const settle = (index: number) => {
+      const id = shown[index]!.id;
+      if (!sources.current.delete(id)) return false;
+      setPending((chips) => chips.filter((chip) => chip.id !== id));
+      return true;
     };
-    let taken: Awaited<ReturnType<typeof intakeFiles>>;
-    try {
-      taken = await intakeFiles(files, {
-        held: held + ahead,
-        allowImages: current.allowImages,
-        ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
-        ...(uploads && current.upload ? { upload: current.upload } : {}),
+    const ready = (index: number, attachment: ComposerAttachment) => {
+      if (!settle(index)) return;
+      made[index] = attachment.id;
+      // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
+      const now = live.current.options;
+      if (batch.scope !== now.scope) {
+        if (batch.scope !== undefined) now.elsewhere?.(batch.scope, [attachment]);
+        return;
+      }
+      // In paste order, whichever file was ready first: before the first staged chip pasted after it.
+      const place = gesture * 100_000 + index;
+      places.current.set(attachment.id, place);
+      setAttachments((staged) => {
+        const at = staged.findIndex((chip) => (places.current.get(chip.id) ?? -1) > place);
+        if (at < 0 || staged.some((chip) => chip.id === attachment.id)) return appendAttachments(staged, [attachment]);
+        return [...staged.slice(0, at), attachment, ...staged.slice(at)];
       });
-    } catch (error) {
-      read();
-      throw error;
+    };
+    const failed = (index: number, error: IntakeError) => {
+      const id = shown[index]!.id;
+      if (!sources.current.has(id)) return;
+      marked.add(index);
+      const failed = intakeErrorText(error, live.current.t);
+      setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, failed } : chip)));
+    };
+    try {
+      await intakeFiles(
+        files,
+        {
+          allowImages: current.allowImages,
+          ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
+          ...(uploads && current.upload ? { upload: current.upload } : {}),
+          cancelled: (index) => !sources.current.has(shown[index]!.id) && !made[index],
+        },
+        {
+          ready,
+          failed,
+          original: (index, path, name) => {
+            const id = made[index];
+            setAttachments((staged) =>
+              staged.map((chip) => (chip.id === id ? { ...chip, originalPath: path, originalName: name } : chip)),
+            );
+          },
+        },
+      );
+    } finally {
+      batches.current.delete(batch);
+      // A file intake said nothing of (it threw) is not left loading.
+      shown.forEach((chip, index) => {
+        if (sources.current.has(chip.id) && !marked.has(index))
+          failed(index, { name: chip.name, reason: "unsupported" });
+      });
     }
-    read();
-    // The composer moved to another chat meanwhile: the chips are the chat's they were pasted in.
-    const now = live.current.options;
-    if (batch.scope !== now.scope) {
-      if (batch.scope !== undefined && taken.attachments.length) now.elsewhere?.(batch.scope, taken.attachments);
-      return;
-    }
-    setAttachments((staged) => appendAttachments(staged, taken.attachments));
-    const error = taken.error;
-    setAttachError(error && ("text" in error ? error.text : attachmentErrorText(error, translate)));
+  });
+  /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
+  const [cancel] = useState(() => (id: string) => {
+    sources.current.delete(id);
+    setPending((chips) => chips.filter((chip) => chip.id !== id));
+  });
+  /// A failed chip's Retry: its file is read again (and uploaded again when it was).
+  const [retry] = useState(() => (id: string) => {
+    const source = sources.current.get(id);
+    if (!source) return;
+    cancel(id);
+    // Without the paste's kind: the host's record of where its files are was for that gesture only.
+    void attach([source.file], source.uploads);
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
@@ -223,12 +288,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
+  /// The chips still loading (a failed one waits for its Retry or ×, not the send).
+  const loading = shown.filter((chip) => !chip.failed).length;
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
   return {
     attachments,
     setAttachments,
     pending: shown,
+    loading,
+    cancel,
+    retry,
     attachError,
     setAttachError,
     dropping,
@@ -277,6 +347,20 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
   target.dispatchEvent(new view.Event("input", { bubbles: true }));
 }
 
+/// Backspace with the caret at the prompt's start (`atStart`: nothing for the key to delete or
+/// lift there) takes back the last staged chip, as a chat composer's Backspace does, so a pasted
+/// image goes without reaching for its ×. A held key's repeat does not: holding Backspace to
+/// clear the prompt stops at its start.
+export function backspacedAttachment(
+  event: { key: string; repeat: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  atStart: boolean,
+  attachments: readonly ComposerAttachment[],
+): ComposerAttachment | undefined {
+  if (event.key !== "Backspace" || event.repeat || !atStart) return undefined;
+  if (event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return undefined;
+  return attachments[attachments.length - 1];
+}
+
 /// The staged attachments' chips over the prompt, with a refusal's note.
 export function AttachmentStrip({
   attachments,
@@ -285,10 +369,16 @@ export function AttachmentStrip({
   codex = false,
   onRemove,
   onExpand,
+  onCancel,
+  onRetry,
 }: {
   attachments: readonly ComposerAttachment[];
   /// Files still being read: a placeholder chip each, after the staged ones (PendingAttachment).
   pending?: readonly PendingAttachment[];
+  /// A pending chip's ×; unset, the chip has none.
+  onCancel?(id: string): void;
+  /// A failed chip's Retry; unset, the chip has none.
+  onRetry?(id: string): void;
   error?: string;
   codex?: boolean;
   onRemove(id: string): void;
@@ -320,7 +410,7 @@ export function AttachmentStrip({
         />
       ))}
       {pending.map((chip) => (
-        <PendingChip key={chip.id} chip={chip} />
+        <PendingChip key={chip.id} chip={chip} {...(onCancel ? { onCancel } : {})} {...(onRetry ? { onRetry } : {})} />
       ))}
       {error && <output className="acpmux-attachment-note">{error}</output>}
     </fieldset>
@@ -328,22 +418,54 @@ export function AttachmentStrip({
 }
 
 /// A file still being read: an image's tile in the shape of an image chip, or a file's chip with its
-/// name, marked busy. No ×: it is a chip (or a refusal's note) in a moment.
-function PendingChip({ chip }: { chip: PendingAttachment }) {
+/// name, with a spinner and a × that cancels it. One that could not be attached says why, with
+/// Retry.
+function PendingChip({
+  chip,
+  onCancel,
+  onRetry,
+}: {
+  chip: PendingAttachment;
+  onCancel?(id: string): void;
+  onRetry?(id: string): void;
+}) {
   const t = useT();
-  if (chip.image)
+  const name = chip.image ? imageLabel(t, { name: chip.name }) : chip.name;
+  const remove = onCancel && (
+    <button
+      type="button"
+      className="acpmux-attachment-remove"
+      aria-label={t(chip.failed ? ATTACHMENT_LABELS.removeAttachment : ATTACHMENT_LABELS.cancelAttachment, { name })}
+      onClick={() => onCancel(chip.id)}
+    >
+      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
+        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+  const kind = chip.image ? "acpmux-attachment-image" : "acpmux-attachment-file";
+  if (chip.failed)
     return (
-      <div
-        className="acpmux-attachment acpmux-attachment-image acpmux-attachment-pending"
-        aria-busy="true"
-        aria-label={imageLabel(t, { name: chip.name })}
-      >
-        <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+      <div className={`acpmux-attachment ${kind} acpmux-attachment-failed`} aria-label={name}>
+        <span
+          className="acpmux-attachment-failed-text"
+          /* tooltip-allow: the note is cut to the tile; the tooltip has all of it */ title={chip.failed}
+        >
+          {chip.failed}
+        </span>
+        {onRetry && (
+          <button type="button" className="acpmux-attachment-retry" onClick={() => onRetry(chip.id)}>
+            {t(ATTACHMENT_LABELS.retryAttachment)}
+          </button>
+        )}
+        {remove}
       </div>
     );
   return (
-    <div className="acpmux-attachment acpmux-attachment-file acpmux-attachment-pending" aria-busy="true">
-      <span>{chip.name}</span>
+    <div className={`acpmux-attachment ${kind} acpmux-attachment-pending`} aria-busy="true" aria-label={name}>
+      <Spinner loading size={16} className="acpmux-attachment-spinner" />
+      {!chip.image && <span>{chip.name}</span>}
+      {remove}
     </div>
   );
 }
@@ -363,7 +485,9 @@ function AttachmentChip({
   const language = usePaneLanguage();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
-  const [thumb, setThumb] = useState<{ url: string; width: number; height: number }>();
+  const [thumb, setThumb] = useState<{ url: string; width: number; height: number } | undefined>(() =>
+    keptThumb(attachment.id),
+  );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
   const isImage = attachment.kind === "image" && Boolean(attachment.data);
@@ -377,7 +501,7 @@ function AttachmentChip({
       ? t(ATTACHMENT_LABELS.pastedText)
       : attachment.name;
   useEffect(() => {
-    if (!image || !attachment.data) return;
+    if (!image || !attachment.data || keptThumb(attachment.id)) return;
     let live = true;
     void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((made) => {
       if (live) setThumb(made);
@@ -385,7 +509,7 @@ function AttachmentChip({
     return () => {
       live = false;
     };
-  }, [attachment.data, attachment.mimeType, image]);
+  }, [attachment.data, attachment.id, attachment.mimeType, image]);
   const remove = (
     <button
       type="button"

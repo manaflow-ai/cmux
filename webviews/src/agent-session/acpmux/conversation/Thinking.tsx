@@ -8,9 +8,10 @@
 // output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
 // ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
 // never "Thinking" while the agent is blocked on them.
-import { useContext, useEffect, useState } from "react";
+import { useContext, useLayoutEffect, useState } from "react";
 import { usePaneLanguage, useT } from "../i18n";
 import { BackgroundHint } from "./BackgroundHint";
+import { ShimmerText } from "./ShimmerText";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { useTicking, WorkingCountsContext, workingParts, workingTokens } from "./WorkingFor";
@@ -21,7 +22,10 @@ export const QUIET_MS = 1200;
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
 function useQuiet(key: string | undefined, ms = QUIET_MS): boolean {
   const [quiet, setQuiet] = useState(key === undefined);
-  useEffect(() => {
+  // The first streamed assistant chunk inserts the answer and changes `key` in the same commit.
+  // Hide the live line before that commit paints; an effect would leave one frame of "Thinking"
+  // underneath the first token. The timer remains an ordinary effect so it never blocks layout.
+  useLayoutEffect(() => {
     if (key === undefined) {
       setQuiet(true);
       return;
@@ -87,7 +91,7 @@ export function Thinking({
             ? t("tools.writingCommand")
             : t("tools.runningUnnamed")
         : doing);
-  // The turn's tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
+  // The turn's generated output tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).
   const language = usePaneLanguage();
@@ -102,7 +106,9 @@ export function Thinking({
           {t(WAITING_LABEL[waiting])}
         </output>
       ) : (
-        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
+        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>
+          {status ? label : <ShimmerText text={label} />}
+        </output>
       )}
       {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
       {showTokens && (
