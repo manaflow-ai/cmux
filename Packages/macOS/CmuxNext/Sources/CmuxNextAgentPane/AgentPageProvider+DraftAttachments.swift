@@ -1,6 +1,5 @@
 import CmuxNextPages
 import CmuxNextSettings
-import CmuxNextWakeups
 import Foundation
 
 extension AgentPageProvider {
@@ -15,30 +14,10 @@ extension AgentPageProvider {
             throw PageError.invalidParams(op)
         }
         let store = AgentPaneDraftAttachments.shared
-        // The page shows the draft it reads back, and waits for each write's answer.
-        let shown = WorkPriority.userVisible.taskPriority
         if method == "chat.draftAttachments.get" {
-            let ordered = body["ordered"] == .bool(true)
-            // An ordered reader decodes `{text, attachments}` even when no chat keeps anything here.
-            guard let store else { return ordered ? AgentPaneDraftAttachments.json(AgentPaneDraft()) : .array([]) }
-            if ordered {
-                let draft = await store.draft(for: session)
-                return await Task.detached(priority: shown) { AgentPaneDraftAttachments.json(draft) }.value
-            }
+            guard let store else { return .array([]) }
             let kept = await store.attachments(for: session)
-            return await Task.detached(priority: shown) { AgentPaneDraftAttachments.json(kept) }.value
-        }
-        if let value = body["draft"] {
-            if let store, let held = await store.keepOrdered(value, for: session) {
-                return .object(["held": .array(held.map(JSONValue.string))])
-            }
-            // A present draft is an explicit ordered write. A malformed one must not fall through
-            // to the legacy list path, which could erase an existing ordered draft.
-            if store == nil {
-                let valid = await Task.detached(priority: shown) { AgentPaneDraftAttachments.decodeDraft(value) != nil }
-                if await valid.value { return .object(["held": .array([])]) }
-            }
-            throw PageError.invalidParams(op)
+            return await Task.detached { AgentPaneDraftAttachments.json(kept) }.value
         }
         guard let list = body["attachments"], case .array = list else { throw PageError.invalidParams(op) }
         guard let store else { return .object(["held": .array([])]) }
