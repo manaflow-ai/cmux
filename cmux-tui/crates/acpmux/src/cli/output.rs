@@ -39,28 +39,20 @@ pub(crate) struct PromptId {
     /// The person's own send from a terminal: the machine it ran on (`_meta.acpmux.cliHost`,
     /// `cli/sender.rs`), which the transcript names under their prompt.
     pub cli_host: Option<String>,
-    /// `--attach`: the files' blocks, after the text (`attach.rs`).
-    pub attachments: Vec<Value>,
 }
 
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => Self {
-                id,
-                resend: true,
-                from_agent: None,
-                supersede: None,
-                cli_host: None,
-                attachments: Vec::new(),
-            },
+            Some(id) => {
+                Self { id, resend: true, from_agent: None, supersede: None, cli_host: None }
+            }
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
                 resend: false,
                 from_agent: None,
                 supersede: None,
                 cli_host: None,
-                attachments: Vec::new(),
             },
         }
     }
@@ -87,9 +79,7 @@ impl PromptId {
         if let Some(host) = &self.cli_host {
             mux["cliHost"] = json!(host);
         }
-        let mut prompt = vec![json!({"type": "text", "text": text})];
-        prompt.extend(self.attachments.iter().cloned());
-        json!({"sessionId": session, "prompt": prompt, "_meta": {"acpmux": mux}})
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
 
     /// The error for a connection that closed while this prompt was in

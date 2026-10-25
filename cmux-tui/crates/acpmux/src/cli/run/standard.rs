@@ -551,10 +551,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             from,
             status,
             supersede,
-            attach,
         } => {
-            // Read before the daemon is asked anything: a file past the cap sends nothing.
-            let attachments = crate::attach::blocks_from_paths(&attach)?;
             let client = connect(true).await?;
             if let Some(delivery) = status {
                 return super::send_async::status(&client, &delivery, json_out).await;
@@ -565,7 +562,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
-            prompt_id.attachments = attachments;
             // A message (--no-wait) steers; a send that waits for its reply queues.
             let steer = send_steers(steer, no_steer, no_wait);
             let text = arg_or_stdin(&prompt)?;
