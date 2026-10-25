@@ -437,7 +437,11 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     let send: AcpmuxSend | undefined;
     if (name === "reach") {
       let at = 1;
-      while (REACH_VALUES.has(words[at]?.text ?? "")) at += 2;
+      while (REACH_VALUES.has(words[at]?.text ?? "")) {
+        // A missing value, or one that looks like an option, is a line reach refuses.
+        if ((words[at + 1]?.text ?? "-").startsWith("-")) break;
+        at += 2;
+      }
       const rest = words.slice(at);
       const inner = rest.slice(1);
       if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
