@@ -50,7 +50,9 @@ public final class CloudDeviceID {
     }
 
     /// The id for a synchronous caller: the kept one, else a read on this thread (only before the launch
-    /// read ends).
+    /// read ends; accepted once, lead 2026-10-25). The read goes through the checked blocking seams
+    /// (``CloudPaths/loadOrCreateDeviceID()``), so the main-thread blocking detector names it if it ever
+    /// happens on main.
     ///
     /// - Returns: the id, `mac-<uuid>`.
     /// - Throws: the file error of the read.
