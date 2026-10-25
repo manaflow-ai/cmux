@@ -1,0 +1,49 @@
+import { describe, expect, test } from "bun:test";
+import path from "node:path";
+import { machineHealthBakeCommand, machineHealthFiles, machineHealthSmokeCommand, machineHealthSmokeProblems, MACHINE_HEALTH_SCRIPT } from "../scripts/cmux-vm-image/machine-health";
+import { runChild } from "./helpers/run-child";
+
+const MEM = 4_101_844_992;
+const healthy = (over: Record<string, string> = {}) =>
+  Object.entries({
+    timer: "active",
+    run: "0",
+    result: "success",
+    health: '{"schema": 1, "checkedAt": "2026-10-25T21:00:00Z", "problems": [], "fixed": []}',
+    scope: `8192 ${Math.floor(MEM * 0.7)} ${Math.floor(MEM * 0.8)}`,
+    memtotal: String(MEM),
+    usermanager: "OOMScoreAdjust=-900 MemoryMin=67108864",
+    userconf: "1",
+    ...over,
+  })
+    .map(([k, v]) => `${k}=${v}`)
+    .join("\n");
+
+describe("cmux-machine-health in the cmux VM image", () => {
+  test("the script's unit tests pass (fake host: DNS, disk, RAM, install)", async () => {
+    const result = await runChild("python3", ["-m", "unittest", "-v", "test_cmux_machine_health"], { cwd: path.dirname(MACHINE_HEALTH_SCRIPT), env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" }, timeout: 60_000 });
+    expect({ status: result.status, tail: result.stderr.trim().split("\n").at(-1) }).toEqual({ status: 0, tail: "OK" });
+  }, 70_000);
+
+  test("the bake installs through the script's own install and the smoke commands parse", async () => {
+    expect(machineHealthBakeCommand()).toStartWith("python3 /root/cmux-machine-health install && rm -f /root/cmux-machine-health");
+    expect(machineHealthFiles().map((f) => f.path)).toEqual(["/root/cmux-machine-health", "/usr/local/bin/cmux-machine-hygiene"]);
+    for (const command of [machineHealthBakeCommand(), machineHealthSmokeCommand("cmux")]) {
+      expect((await runChild("bash", ["-n"], { input: command })).status).toBe(0);
+    }
+  });
+
+  test("a healthy clone has no smoke problems", () => {
+    expect(machineHealthSmokeProblems(healthy())).toEqual([]);
+  });
+
+  test("each broken piece is named", () => {
+    expect(machineHealthSmokeProblems(healthy({ timer: "inactive" }))).toEqual(["timer: inactive"]);
+    expect(machineHealthSmokeProblems(healthy({ run: "1", result: "timeout" }))).toEqual(["one pass: exit 1, result timeout"]);
+    expect(machineHealthSmokeProblems(healthy({ health: "{" }))).toEqual(["health file: not JSON: {"]);
+    expect(machineHealthSmokeProblems(healthy({ health: '{"schema": 1, "checkedAt": "2026-10-25T21:00:00Z", "problems": [{"check": "dns"}], "fixed": []}' }))).toEqual(['health file problems: [{"check":"dns"}]']);
+    expect(machineHealthSmokeProblems(healthy({ scope: "max max max" }))[0]).toStartWith("session scope limits: pids.max max");
+    expect(machineHealthSmokeProblems(healthy({ usermanager: "OOMScoreAdjust=100 MemoryMin=0" }))).toEqual(["user manager: OOMScoreAdjust=100 MemoryMin=0"]);
+    expect(machineHealthSmokeProblems(healthy({ userconf: "0" }))).toEqual(["user.conf: DefaultOOMScoreAdjust=200 not in effect"]);
+  });
+});
