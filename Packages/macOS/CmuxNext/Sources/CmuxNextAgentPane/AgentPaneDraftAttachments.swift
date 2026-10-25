@@ -390,7 +390,9 @@ public final class AgentPaneDraftAttachments {
         var restoredIndices: [Int] = []
         var used = Set<Int>()
         for attachment in restored {
-            guard let index = original.indices.first(where: { !used.contains($0) && original[$0].id == attachment.id }) else {
+            // A duplicate id keeps its latest chip (``AgentPaneAttachmentFiles/moveOut(_:to:within:kept:)``),
+            // so that chip keeps the latest mark of its id.
+            guard let index = original.indices.last(where: { !used.contains($0) && original[$0].id == attachment.id }) else {
                 continue
             }
             used.insert(index)
@@ -421,9 +423,12 @@ public final class AgentPaneDraftAttachments {
         let previous = saved(in: folder)
         let kept = previous?.files ?? [:]
         let hasText = ordered && text?.isEmpty == false
-        // A chat past the limit keeps nothing rather than some of its chips.
+        // A chat past the limit keeps none of its chips rather than some; an ordered draft still
+        // keeps its typed text, with the marks of the chips it lost taken out below.
+        let noChips: (attachments: [AgentPaneWakeState.Attachment], files: [String: String], bytes: Int)? =
+            hasText ? ([], [:], 0) : nil
         guard (hasText || !attachments.isEmpty),
-              let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept),
+              let moved = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, within: limit, kept: kept) ?? noChips,
               (hasText || !moved.attachments.isEmpty) else {
             try? manager.removeItem(at: folder)
             return []

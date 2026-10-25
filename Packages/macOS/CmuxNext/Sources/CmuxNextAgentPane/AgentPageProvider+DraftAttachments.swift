@@ -15,8 +15,10 @@ extension AgentPageProvider {
         }
         let store = AgentPaneDraftAttachments.shared
         if method == "chat.draftAttachments.get" {
-            guard let store else { return .array([]) }
-            if body["ordered"] == .bool(true) {
+            let ordered = body["ordered"] == .bool(true)
+            // An ordered reader decodes `{text, attachments}` even when no chat keeps anything here.
+            guard let store else { return ordered ? AgentPaneDraftAttachments.json(AgentPaneDraft()) : .array([]) }
+            if ordered {
                 let draft = await store.draft(for: session)
                 return await Task.detached { AgentPaneDraftAttachments.json(draft) }.value
             }
