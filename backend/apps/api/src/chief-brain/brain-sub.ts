@@ -7,6 +7,7 @@ import { clipReply } from "./brain-text.ts"
 import { type ChildStart, childInput, childObject, childRunId, postReports, readChild, slotCounts, slotEnqueue, slotPump, CHILD_LOST_MS, archiveAndDrop, childReportText, forwardOutcomes, outcomeWhere, keepMs, turnWhereOf, type AgentOutcome, checkOutcomes, noteAgentCall, postOutcomes, queueOutcome, spawnMax, subagentActivity, takeReport } from "./brain-spawn.ts"
 import { openCloudWorkspace } from "./brain-spawn-workspace.ts"
 import { handStub, listHands } from "../hand-api.ts"
+import type { HandReply } from "../hand-wire.ts"
 import { type ChiefBrainDO, POST_RETRY_MS, HOST, brainName, type Admission } from "./brain-do.ts"
 
 /**
@@ -54,7 +55,7 @@ export function spawnHost(b: ChiefBrainDO) {
             return r.ok ? r.value : []
           },
           exec: async (hand, argv) => {
-            const r = await handStub(b.doEnv, hand).call(caller, "exec", { argv: [...argv], timeout_ms: 20_000 }, 35_000)
+            const r = (await handStub(b.doEnv, hand).call(caller, "exec", { argv: [...argv], timeout_ms: 20_000 }, 35_000)) as HandReply<unknown>
             if (!r.ok) return { exitCode: 1, stdout: "", stderr: r.error.message }
             const v = r.value as { exit_code?: number; exitCode?: number; stdout?: string; stderr?: string }
             return { exitCode: v.exit_code ?? v.exitCode ?? 0, stdout: v.stdout ?? "", stderr: v.stderr ?? "" }
