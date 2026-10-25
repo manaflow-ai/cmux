@@ -83,7 +83,7 @@ extension HomeService {
         chiefEngineObservation = Task { [weak self] in
             for await _ in ObservationStream({ [weak self] in self?.services.settings?.snapshot.homeChiefEngine }).dropFirst() {
                 guard let self, let connection = local.connection,
-                      local.supports(DaemonCapabilities.shared.workspaceKind) else { continue }
+                      local.supports(DaemonCapability.workspaceKind.rawValue) else { continue }
                 ensureHomeWorkspace(connection)
             }
         }
