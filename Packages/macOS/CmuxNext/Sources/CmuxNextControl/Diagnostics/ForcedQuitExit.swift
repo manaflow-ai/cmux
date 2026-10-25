@@ -29,13 +29,13 @@ public final class ForcedQuitExit {
     public init(limit: Duration = .milliseconds(160),
          prepare: @escaping @MainActor () -> Void,
          save: @escaping @MainActor () async -> Void,
-         armDeadline: @escaping (Duration) -> Void = { QuitDeadline(reason: "a forced quit began its Home cache write").arm(after: $0) },
-         end: @escaping @MainActor () -> Void = { exit(0) }) {
+         armDeadline: ((Duration) -> Void)? = nil,
+         end: (@MainActor () -> Void)? = nil) {
         self.limit = limit
         self.prepare = prepare
         self.save = save
-        self.armDeadline = armDeadline
-        self.end = end
+        self.armDeadline = armDeadline ?? { QuitDeadline(reason: "a forced quit began its Home cache write").arm(after: $0) }
+        self.end = end ?? { exit(0) }
     }
 
     /// Starts the exit once.
