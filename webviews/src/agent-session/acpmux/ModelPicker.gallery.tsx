@@ -195,6 +195,22 @@ const startedFork: ModelPickerProps = {
   fork: { to: () => undefined, ready: true },
 };
 
+/// A started chat with a busy Claude account rail: profile rows stay inside the available window
+/// and scroll instead of pushing the model menu off-screen.
+const manyProfiles: ModelPickerProps = {
+  ...startedFork,
+  profiles: {
+    claude: Array.from({ length: 24 }, (_, index) => ({
+      id: `claude-profile-${index + 1}`,
+      name: `Claude profile ${index + 1}`,
+    })),
+    "claude-work": Array.from({ length: 24 }, (_, index) => ({
+      id: `claude-work-profile-${index + 1}`,
+      name: `Claude work profile ${index + 1}`,
+    })),
+  },
+};
+
 const openQuick: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
@@ -207,6 +223,24 @@ const openQuickSlider: Play = async (ctx) => {
   await ctx.focus({ role: "menuitem", name: /^Effort/ });
   await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
+};
+
+const openManyProfiles: Play = async (ctx) => {
+  await openQuick(ctx);
+  await ctx.click({ role: "menuitem", name: /^Account/ });
+  await ctx.waitFor(() => {
+    const profile = ctx.document.querySelector<HTMLElement>(".acpmux-quick-profile");
+    const popup = profile?.closest<HTMLElement>(".acpmux-quick-menu");
+    if (!profile || !popup) return false;
+    const viewportHeight = ctx.document.defaultView?.innerHeight ?? 0;
+    const rect = popup.getBoundingClientRect();
+    return (
+      popup.querySelectorAll(".acpmux-quick-profile").length >= 20 &&
+      rect.height <= viewportHeight + 1 &&
+      rect.height <= popup.scrollHeight + 1 &&
+      popup.scrollHeight > popup.clientHeight + 1
+    );
+  });
 };
 
 export default componentEntry<GalleryProps>({
@@ -317,6 +351,8 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
       },
     },
+    // A full profile rail remains content-bounded and scrollable at a short viewport.
+    "quick-menu-many-profiles": { props: manyProfiles, play: openManyProfiles },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
     "quick-menu-rail": {
       props: quick,
