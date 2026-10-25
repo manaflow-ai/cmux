@@ -28,6 +28,25 @@ class BaseRedChecksTests(unittest.TestCase):
         finally:
             module.api = original
 
+    def test_completed_previous_tip_still_reads_failed_names(self):
+        original = module.api
+        try:
+            def fake_api(_base, _token, path):
+                if "/check-runs?" in path:
+                    return (
+                        b'{"check_runs":[{"name":"cmux-next checks (god files, concurrency, crash safety, l10n)",'
+                        b'"status":"completed","conclusion":"failure",'
+                        b'"details_url":"https://github.com/manaflow-ai/cmux/actions/runs/1/job/42"}]}'
+                    )
+                return b"- Main-thread concurrency (failure)\n"
+            module.api = fake_api
+            self.assertEqual(
+                module.base_reds("manaflow-ai/cmux", "before", "https://api.github.com", "token"),
+                {"Main-thread concurrency"},
+            )
+        finally:
+            module.api = original
+
 
 if __name__ == "__main__":
     unittest.main()

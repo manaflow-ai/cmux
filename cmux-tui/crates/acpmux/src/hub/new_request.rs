@@ -82,6 +82,11 @@ pub struct NewRequest {
     /// Keep the harness's own start mode (`start_mode.rs`): a handoff target
     /// of a source that is not in full access is never wider than it.
     pub keep_harness_mode: bool,
+    /// The acpmux session whose agent asked for this one, as the connection
+    /// proved it with its caller token (`Conn::caller`, never a request
+    /// value), and never the person. A start that names no policy or mode
+    /// inherits that session's, never wider (`start_mode.rs`, "Inherit").
+    pub starter: Option<String>,
     /// A route (`routes.rs`) bound to this chat before its harness first
     /// starts (`_meta.acpmux.route`, unix socket only): the chat's model
     /// provider from its first turn. Checked by the caller as a route id.

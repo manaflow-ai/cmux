@@ -48,8 +48,18 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private var sentFocusPane: FocusTopology.Pane? // this pane's topology part as last sent (I4)
     private var closeTabs: [(SurfaceID, String)] = [] // the tabs of the last apply: a closed tab's opener picks its successor (BrowserTabOpeners.closeRelations)
     private var remapsViewedTab = false // a newly selected tab lost its attention dot: map the strip once, after the apply
+    /// Its workspace draws nothing (`WorkspaceContentController.drawsNothing`): no strip observation runs and
+    /// no content is shown; `resume` maps the strip once and shows the selection then (PL-script A2).
+    private(set) var isSuspended = false
+    /// The window gives this pane's fullscreen page the whole screen (`WindowController+FullScreen`):
+    /// the strip hides with the rest of the window's chrome.
+    var presentsPage = false {
+        didSet { if presentsPage != oldValue { view.hidesStrip = snapshotHidesStrip || presentsPage } }
+    }
+    private var snapshotHidesStrip = false // the last snapshot's own choice, kept under `presentsPage`
+    private var windowController: WindowController? { view.window?.delegate as? WindowController }
     #if DEBUG
-    private var debugSnapshotRuns = 0
+    private(set) var debugSnapshotRuns = 0 // this pane's strip maps (`structure()`), read by tests
     #endif
 
     /// The strip. `structure()` reads no tab field (a confirm that draws the same applies nothing); `compose` adds `tabItems`.
@@ -78,6 +88,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.layoutPaneID = layoutPaneID
         self.services = services
         self.state = state
+        isSuspended = workspace?.drawsNothing == true // a pane made in a parked workspace starts suspended
         view = PaneContentView(stripModel: stripModel)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
@@ -120,6 +131,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // One snapshot now (the first frame), tracked; the stream brings the later ones. A trigger:
         // `apply` is also called outside the stream (`syncStripFromStore`) and compares with what it applied.
         tabItems.cancelAll() // a new record's tabs are new objects
+        guard !isSuspended else { // `resume` starts it: the strip is mapped once, when the workspace draws again
+            observation?.cancel(); observation = nil
+            return
+        }
         let (first, later) = ObservationStream.current({ [weak self] in ObservationTrigger(self?.structure()) })
         observation?.cancel(); observation = Task { [weak self] in
             for await structure in later {
@@ -136,7 +151,29 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     /// One tab's strip item changed (`tabItems`): apply it with the list as it is now (untracked).
-    private func tabItemChanged() { apply(compose(structure())) }
+    /// Suspended: `resume` maps the strip anyway.
+    private func tabItemChanged() {
+        guard !isSuspended else { return }
+        apply(compose(structure()))
+    }
+
+    /// Its workspace stopped drawing: the strip observation stops (a change marks nothing but the
+    /// store; `resume` reads it then) and no content is shown or made.
+    func suspend() {
+        guard !isSuspended else { return }
+        isSuspended = true
+        observation?.cancel(); observation = nil
+        tabItems.cancelAll() // a title or busy-dot change in a parked workspace maps no tab item
+        services.presentation.cancel(self)
+    }
+
+    /// Its workspace draws again: one strip map (the observation starts over, tracked), whose apply
+    /// shows the selection as it is now, with no page or surface made for a selection it passed.
+    func resume() {
+        guard isSuspended else { return }
+        isSuspended = false
+        observe()
+    }
 
     private func compose(_ structure: Snapshot, refresh: Bool = false) -> Snapshot {
         var result = structure
@@ -259,7 +296,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func apply(_ reported: Snapshot, force: Bool = false) {
         let snapshot = NewTabSuccession.order(reported, in: self)
         if force { view.stripView.discardPendingReorder() }
-        if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
+        snapshotHidesStrip = snapshot.hidesStrip
+        if view.hidesStrip != (snapshot.hidesStrip || presentsPage) { view.hidesStrip = snapshot.hidesStrip || presentsPage }
         if stripModel.showsSelectedFullWidth != snapshot.fullWidthTab { stripModel.showsSelectedFullWidth = snapshot.fullWidthTab }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items {
@@ -304,7 +342,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     /// Maps the strip again for a tab whose attention dot went (`setStripSelection`), once.
     func remapViewedTab() {
-        guard remapsViewedTab else { return }
+        guard remapsViewedTab, !isSuspended else { return }
         remapsViewedTab = false
         syncStripFromStore()
     }
@@ -366,6 +404,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     // MARK: Content
 
     func showSelected() {
+        guard !isSuspended else { return } // `resume`'s apply shows the selection then
         let key = stripModel.selectedID?.rawValue
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
@@ -394,6 +433,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }
         BenchSpans.measure("switch.invariant") { services.surfaceInvariant.noteChange() }
         BenchSpans.measure("switch.neighbors") { noteNeighbors() }
+        windowController?.revalidatePagePresentation() // a page that had the screen was switched away
     }
 
     /// Another pane took `key`'s view (the tab moved there) or its surface
@@ -405,6 +445,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         currentTabKey = nil
         view.detachContent(parks: parks)
         services.surfaceInvariant.noteChange()
+        windowController?.revalidatePagePresentation() // a page that had the screen moved away
     }
 
     /// The selected tab is a terminal that will draw a frame (not a dead one).
@@ -473,6 +514,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         self.presence = presence
         services.cache.setPresence(presence, presenter: self)
         noteNeighbors()
+        windowController?.revalidatePagePresentation() // a pane beside a page that has the screen
+        guard !isSuspended else { return services.surfaceInvariant.noteChange() }
         // Content destroyed while away re-attaches (daemon replay) as soon as
         // the pane nears the viewport, so it is ready before it scrolls in.
         if presence != .hidden, stripModel.selectedID != nil, currentTabKey == nil || !view.hostsContent {

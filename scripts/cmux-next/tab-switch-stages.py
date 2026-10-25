@@ -108,11 +108,12 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
-def strip_tabs():
-    """The focused strip's tabs as (id-or-label, center point in window coordinates)."""
+def strip_tabs(minimum=1):
+    """The focused strip's tabs as (id-or-label, center point in window coordinates): the first strip with at least
+    `minimum` tabs. Setup waits for each new tab with the default; it needed 5 before, so it never saw tab 2."""
     for strip in (rpc("debug.tab_drag") or {}).get("strips") or []:
         tabs = strip.get("tabs") or []
-        if len(tabs) >= 5:
+        if len(tabs) >= minimum:
             out = []
             for tab in tabs:
                 f = tab["frame"]
@@ -255,7 +256,7 @@ def main():
             row(f"setup: {name}", f"{index} tabs", f"{len(strip_tabs())}", False)
             return
         time.sleep(1.5)  # test harness: the page loads before the next tab
-    tabs = strip_tabs()
+    tabs = strip_tabs(5)
     print("tabs:", [t[0] for t in tabs], flush=True)
     # Warm: visit every tab once, slowly.
     for _ in range(len(tabs)):
@@ -267,7 +268,7 @@ def main():
     report["keys_forward"] = measure("Ctrl-Tab", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control"]}), n * opts.rounds)
     report["keys_back"] = measure("Ctrl-Shift-Tab", lambda i: rpc("debug.key", {"key": "tab", "modifiers": ["control", "shift"]}),
                                   n * opts.rounds)
-    tabs = strip_tabs()  # frames after the warm-up (a strip may relayout)
+    tabs = strip_tabs(5)  # frames after the warm-up (a strip may relayout)
     report["clicks"] = measure("click", lambda i: rpc("debug.mouse", {"action": "click", "x": tabs[i % n][1][0], "y": tabs[i % n][1][1]}),
                                n * opts.rounds)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "tabswitch-final.png")})

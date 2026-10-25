@@ -184,6 +184,7 @@ export function SubagentStatusList({
               <AgentLine
                 name={agent.name}
                 detail={agent.kind}
+                mark={agent.harness}
                 status={status}
                 state={t(subagentStatusLabel(agent, waiting))}
                 time={formatDuration(elapsed(agent, now))}

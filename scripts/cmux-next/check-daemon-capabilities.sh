@@ -4,7 +4,7 @@
 # its bundled daemon lacks.
 #
 # The app's list is plans/cmux-next/daemon-capabilities.json, exported from
-# DaemonCapabilities (Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/
+# enum DaemonCapability (Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/
 # Connection/DaemonEndpoint.swift) by DaemonCapabilityExportTests, which fails
 # when the file is stale:
 #   required, optional         the binary must serve every one (error)
@@ -192,14 +192,14 @@ if missing:
     failed = True
     print("check-daemon-capabilities: error: the bundled cmux-tui does not serve "
           + ", ".join(missing), file=sys.stderr)
-    print("  Every capability in DaemonCapabilities.required/optional must be served by the same-tree daemon.",
+    print("  Every capability in DaemonCapability.required/optional must be served by the same-tree daemon.",
           file=sys.stderr)
     print("  Land the daemon change on this branch, or remove the app's use of the capability.", file=sys.stderr)
 if now_served:
     failed = True
     print("check-daemon-capabilities: error: the bundled cmux-tui now serves "
           + ", ".join(now_served)
-          + "; move them from DaemonCapabilities.unservedByBundledDaemon to optional", file=sys.stderr)
+          + "; move them from the unservedByBundledDaemon arm of DaemonCapability.tier to optional", file=sys.stderr)
 if not failed:
     print(f"check-daemon-capabilities: PASS: {binary} serves all {len(needed)} needed capabilities "
           f"({len(served)} served)")

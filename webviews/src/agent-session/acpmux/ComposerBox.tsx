@@ -1,6 +1,7 @@
 import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
 import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from "./composer/attachmentIntake";
+import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
@@ -42,6 +43,11 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
+  /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
+  onCancelAttachment?(id: string): void;
+  onRetryAttachment?(id: string): void;
+  /// A staged chip dragged along the strip; unset, the box moves it in `attachments` itself.
+  onReorderAttachment?(id: string, index: number): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -89,6 +95,9 @@ export function ComposerBox({
   attachError,
   codex = false,
   onRemoveAttachment,
+  onCancelAttachment,
+  onRetryAttachment,
+  onReorderAttachment,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -160,6 +169,9 @@ export function ComposerBox({
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
           onRemove={onRemoveAttachment}
+          {...(onCancelAttachment ? { onCancel: onCancelAttachment } : {})}
+          {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
+          onReorder={onReorderAttachment ?? ((id, index) => setAttachments((current) => reordered(current, id, index)))}
           onExpand={pastedChips.expand}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
@@ -231,9 +243,9 @@ export function ComposerBox({
           </ComposerFoot>
         </ChromeArea>
       )}
-      {/* One place for both looks, so a look switched from the dots by keys keeps the same dots and
-          their focus (they would remount under the box and drop it): with the quiet row they draw
-          over its empty middle, with Codex's look in the band under the box (composerLook.css). */}
+      {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
+          radios and focus: with the quiet row they draw over its empty middle, with Codex's look
+          the host is positioned inside the box's dead-space row (composerLook.css). */}
       {bottom && (
         <div className="acpmux-composer-under" data-beside-foot={quietRow ? "" : undefined}>
           {bottom}

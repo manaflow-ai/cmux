@@ -220,18 +220,32 @@ class Stress:
 
     def show(self, workspace):
         """Shows `workspace` in the window (goToWorkspace); raises StressShapeError when it does not show."""
-        if self.focused_workspace() == workspace:
+        if self.window_showing(workspace):
             return
         self.action("goToWorkspace", {"workspace": workspace})
-        if not wait(lambda: self.focused_workspace() == workspace, 10, step=0.05):
+        if not wait(lambda: self.window_showing(workspace) is not None, 10, step=0.05):
             raise StressShapeError(f"workspace {workspace} never showed")
 
+    def window_showing(self, workspace, topology=None):
+        """The topology window that shows `workspace` (each window reports its own workspace and focused pane), or
+        None. Not the top-level focus: that is the ACTIVE window's, which another window (an open panel, a window
+        an earlier action left) can be while this one shows the workspace."""
+        return next((w for w in (topology or self.topology()).get("windows") or [] if w.get("workspace") == workspace), None)
+
     def focus_pane(self, pane_id):
-        """Focuses `pane_id`; raises StressShapeError when focus does not get there (a tab made next
-        would land in another pane, and the total would hide it)."""
+        """Focuses `pane_id` in the window that shows its workspace; raises StressShapeError when that window's
+        focused pane does not become it."""
         self.action("pane.focus", target=f"pane:{pane_id}")
-        if not wait(lambda: (self.topology().get("focus") or {}).get("pane") == pane_id, 10, step=0.05):
-            raise StressShapeError(f"focus never reached pane {pane_id}")
+
+        def focused():
+            topology = self.topology()
+            owner = next((w["id"] for w in topology.get("workspaces") or [] for p in self.panes(w) if p.get("id") == pane_id), None)
+            window = self.window_showing(owner, topology) if owner else None
+            return (window or {}).get("focused_pane") == pane_id or (topology.get("focus") or {}).get("pane") == pane_id
+        if not wait(focused, 10, step=0.05):
+            topology = self.topology()
+            raise StressShapeError(f"focus never reached pane {pane_id} (active focus {topology.get('focus')}, "
+                                   f"windows {[(w.get('key'), w.get('workspace'), w.get('focused_pane')) for w in topology.get('windows') or []]})")
 
     def tabs(self, workspace_id, pane_id):
         pane = next((p for p in self.panes(self.workspace(workspace_id)) if p.get("id") == pane_id), None)
@@ -243,13 +257,18 @@ class Stress:
         before = {t.get("id") for t in self.tabs(workspace_id, pane_id)}
         count = len(before)
         target = f"pane:{pane_id}"
+        # The new-tab actions (newSurface, openBrowser.*) take a tab target: the tab the new one opens
+        # beside, in that tab's pane. A pane target is refused (invalid_params), and no tab opens.
+        tabs = self.tabs(workspace_id, pane_id)
+        beside = next((t for t in tabs if t.get("selected")), tabs[-1] if tabs else None)
+        tab_target = f"tab:{beside['id']}" if beside and beside.get("id") else target
         fallback = False
         if kind == "terminal":
-            self.action("newSurface", target=target)
+            self.action("newSurface", target=tab_target)
         elif kind == "chromium":
-            self.action("openBrowser.chromium", {"url": self.pages.url()}, target=target)
+            self.action("openBrowser.chromium", {"url": self.pages.url()}, target=tab_target)
         elif kind == "webkit":
-            self.action("openBrowser.webkit", {"url": self.pages.url()}, target=target)
+            self.action("openBrowser.webkit", {"url": self.pages.url()}, target=tab_target)
         else:
             # The reply comes when the action has run. Only the app's typed refusal (an error with a code:
             # launch denied, a build without agent chats) falls back to the New Tab page; a reply that does not
@@ -260,7 +279,12 @@ class Stress:
                 self.chat_fallbacks += 1
                 fallback = True
                 self.action("newTab.page", target=target)
-        wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
+        appeared = wait(lambda: len(self.tabs(workspace_id, pane_id)) > count, 20, step=0.1)
+        if not appeared and kind in ("terminal", "chromium", "webkit"):
+            # No silent go-on: a run that measures a pane without the tab it asked for measures the wrong
+            # pane (the Command-pan bench over Chromium measured a terminal, 2026-10-24). A chat may still
+            # open late; the pane's mix check names it.
+            raise RuntimeError(f"{kind} tab did not appear in {pane_id} in 20 s (refusals: {self.refusals[-3:]})")
         new = [t.get("id") for t in self.tabs(workspace_id, pane_id) if t.get("id") not in before]
         self.made.setdefault(pane_id, []).append((kind, new[0] if len(new) == 1 else None, fallback))
 
@@ -320,13 +344,37 @@ class Stress:
         made = wait(lambda: next((p["id"] for p in self.panes(self.workspace(workspace)) if p["id"] not in before), None), 15, step=0.1)
         if not made:
             self.refusals.append(f"{verb} on {pane} made no pane")
+        else:
+            self.record_first(workspace, made)
         return made
+
+    def record_first(self, workspace, pane):
+        """Records `pane`'s first terminal (the tab a new pane comes with) as a tab this builder owns."""
+        tabs = wait(lambda: self.tabs(workspace, pane), 10, step=0.05) or []
+        first = next((t.get("id") for t in tabs if t.get("kind") == "terminal"), None)
+        if self.made.get(pane) and self.made[pane][0][0] == "terminal" and self.made[pane][0][1] == first:
+            return
+        self.made.setdefault(pane, []).insert(0, ("terminal", first, False))
+
+    def live_busy(self, measured):
+        """Busy ids that are still terminal tabs: in the measured workspace (busy_where measured) or in the
+        background workspaces (elsewhere)."""
+        places = [measured] if self.busy_where == "measured" else [self.workspace(w) for w in getattr(self, "background", [])]
+        terminals = {t.get("id") for w in places for p in self.panes(w) for t in p.get("tabs") or [] if t.get("kind") == "terminal"}
+        return sum(1 for tab in getattr(self, "busy", []) if tab in terminals)
+
+    def make_busy(self, tab_id):
+        """Starts the output loop in terminal `tab_id` and records it as a busy terminal."""
+        self.send(tab_id, BUSY_COMMAND)
+        self.busy = getattr(self, "busy", [])
+        self.busy.append(tab_id)
 
     def build_grid(self, workspace):
         """The measured workspace's panes: COLUMNS x ROWS plus the nested splits, each split aimed at
         its pane by id. Columns split balanced (halves, then quarters), so no column is ever narrower
         than a quarter of the window while the grid grows."""
         first = self.panes(self.workspace(workspace))[0]["id"]
+        self.record_first(workspace, first)
         # Halves, then quarters: [first, b] -> [first, c, b, d].
         b = self.split(workspace, first, "splitRight")
         c = self.split(workspace, first, "splitRight")
@@ -389,28 +437,26 @@ class Stress:
             for kind in order:
                 self.add_tab(workspace, pane, kind)
             self.log(f"stress: pane {index + 1}/{len(panes)} has {len(self.tabs(workspace, pane))} tabs")
-        busy = []
+        self.busy = []
         if self.busy_where == "measured":
             for pane in panes[:BUSY_TERMINALS]:
                 tabs = self.tabs(workspace, pane)
                 selected = next((t for t in tabs if t.get("kind") == "terminal" and t.get("selected")), None)
                 terminal = selected or next((t for t in reversed(tabs) if t.get("kind") == "terminal"), None)
                 if terminal:
-                    self.send(terminal["id"], BUSY_COMMAND)
-                    busy.append(terminal["id"])
+                    self.make_busy(terminal["id"])
         else:
             for other in getattr(self, "background", [])[-BUSY_TERMINALS:]:
                 for pane in self.panes(self.workspace(other)):
                     terminal = next((t for t in pane.get("tabs") or [] if t.get("kind") == "terminal"), None)
                     if terminal:
-                        self.send(terminal["id"], BUSY_COMMAND)
-                        busy.append(terminal["id"])
+                        self.make_busy(terminal["id"])
                         break
         self.action("goToWorkspace", {"workspace": workspace})
         wait(lambda: self.focused_workspace() == workspace, 20)
         if panes:
             self.focus_pane(panes[0])
-        self.measured, self.busy = workspace, busy
+        self.measured = workspace
         return workspace
 
     def build(self, check=True):
@@ -504,7 +550,7 @@ class Stress:
         for pane in self.panes(measured):
             tabs = {t.get("id"): t.get("kind") for t in pane.get("tabs") or []}
             asked = self.made.get(pane.get("id"), [])
-            got = {k: sum(1 for kind, _, _ in asked if kind == k) + (k == "terminal") for k in want}
+            got = {k: sum(1 for kind, _, _ in asked if kind == k) for k in want}
             wrong = [f"{kind} tab {tab} is {tabs.get(tab)}" for kind, tab, fallback in asked
                      if tab is None or tabs.get(tab) not in topology_kinds(kind, fallback)]
             if got != want or len(tabs) != 6 or wrong:
@@ -529,7 +575,7 @@ class Stress:
                 **window_on_screen(on_screen),
                 "grid_problems": grid_problems(window),
                 "measured_panes": len(self.panes(measured)), "measured_columns": len(columns) or None,
-                "measured_tabs": kinds, "busy_terminals": len(getattr(self, "busy", [])), "busy_where": self.busy_where,
+                "measured_tabs": kinds, "busy_terminals": self.live_busy(measured), "busy_where": self.busy_where,
                 "selected": self.selected,
                 "chromium_workspaces": sum(1 for pages in background if pages >= CHROMIUM_PER_WORKSPACE),
                 "chat_fallbacks": self.chat_fallbacks, "chat_fallback_ok": self.allow_chat_fallback, "refusals": self.refusals[:10], "layout_refusals": layout[:6],
@@ -609,7 +655,8 @@ def window_problem(reply):
     if not frame:
         return f"the app gave no window frame ({str(reply)[:120]})"
     if abs(frame[2] - WINDOW_SIZE[0]) > 1 or abs(frame[3] - WINDOW_SIZE[1]) > 1:
-        return f"the window is {frame[2:]} pt, not {list(WINDOW_SIZE)}: the display ({screen}) cannot hold STRESS"
+        return (f"the window is {frame[2:]} pt, not {list(WINDOW_SIZE)}: the display ({screen}) cannot hold STRESS "
+                f"(frame {frame}, visible frame {visible}, screen {reply.get('screen_frame')}). {display_advice(reply)}")
     if not visible:
         return None
     x, y, w, h = frame
@@ -619,6 +666,23 @@ def window_problem(reply):
         return (f"the window {frame} reaches past its screen (visible frame {visible}, screen "
                 f"{reply.get('screen_frame')}, {screen})")
     return None
+
+
+def display_advice(reply):
+    """What the display gave and the remedy: AppKit keeps a window inside its screen's visible frame (under the
+    menu bar, beside the Dock), so STRESS needs a visible frame of at least WINDOW_SIZE."""
+    visible, screen = reply.get("visible_frame"), reply.get("screen_frame")
+    if not visible or not screen:
+        return f"Run on a display whose visible frame is at least {WINDOW_SIZE[0]} x {WINDOW_SIZE[1]} pt."
+    sx, sy, sw, sh = screen
+    vx, vy, vw, vh = visible
+    gaps = {"bottom": vy - sy, "left": vx - sx, "right": (sx + sw) - (vx + vw)}
+    edge = max(gaps, key=gaps.get)
+    dock = f"the Dock at the {edge} takes {round(gaps[edge])} pt" if gaps[edge] > 4 else "the Dock is hidden"
+    return (f"Display {round(sw)} x {round(sh)} pt, visible frame {round(vw)} x {round(vh)} pt ({dock}). Remedy: a "
+            f"display whose visible frame is at least {WINDOW_SIZE[0]} x {WINDOW_SIZE[1]} pt: on the fleet a 1920x1200 "
+            f"virtual display (split-spring.sh --vdisplay=120 with vdisplay.m's WIDTHxHEIGHT argument; this script's "
+            f"--vdisplay asks for 1920x1200 itself).")
 
 
 def dock_overlap(reply):
@@ -682,7 +746,7 @@ class StressShapeError(RuntimeError):
 
 
 def start_vdisplay(hz, out, hold):
-    """A 1920 x 1080 virtual main display at `hz` (vdisplay.m, compiled here), held at most `hold` seconds
+    """A 1920 x 1200 virtual main display at `hz` (vdisplay.m, compiled here), held at most `hold` seconds
     (the helper ends by itself then, even when this script is killed); returns its process once it is
     ready and main, or raises StressShapeError with the helper's line."""
     import subprocess
@@ -699,7 +763,7 @@ def start_vdisplay(hz, out, hold):
     shutil.copy(os.path.join(root, "scripts/ci/frame-pacing/VDisplay-Info.plist"),
                 os.path.join(out, "vdisplay", "VDisplay.app", "Contents", "Info.plist"))
     log = open(os.path.join(out, "vdisplay", "out"), "w")
-    process = subprocess.Popen([binary, str(hz), str(int(hold)), "main"], stdout=log, stderr=subprocess.STDOUT)
+    process = subprocess.Popen(vdisplay_command(binary, hz, hold), stdout=log, stderr=subprocess.STDOUT)
     line = wait(lambda: next((l for l in open(log.name) if l.startswith(("ready", "error"))), None), 30, step=0.5)
     problem = vdisplay_problem(line)
     if problem:
@@ -708,6 +772,17 @@ def start_vdisplay(hz, out, hold):
                                f"({open(log.name).read()[-300:].strip()})")
     print(f"stress: virtual display {line.strip()}", flush=True)
     return process
+
+
+# The builder's virtual display: 1920 x 1200 leaves a visible frame over 1000 pt under the menu bar and a
+# bottom Dock (1920 x 1080 gave 965 pt: AppKit keeps windows inside the visible frame). A vdisplay.m without the
+# WIDTHxHEIGHT argument ignores it and makes 1920 x 1080; the window check then says so.
+VDISPLAY_SIZE = "1920x1200"
+
+
+def vdisplay_command(binary, hz, hold):
+    """The helper's argv: rate, hold, main, size."""
+    return [binary, str(hz), str(int(hold)), "main", VDISPLAY_SIZE]
 
 
 def vdisplay_problem(line):

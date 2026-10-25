@@ -11,6 +11,17 @@ dest="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}"
 src="${SRCROOT:?}"
 
 mkdir -p "$bin"
+# Remove files owned by this phase before copying the current source set, so
+# deleting or renaming a helper cannot leave an obsolete executable in a
+# reused DerivedData bundle. The cmux-tui outputs are owned by another phase.
+owned_bins=(
+  cmux-code-mode-mcp cmux-code-mode-run start-cmux-profiling submit-cmux-profile
+  cmux-code-mode-runner cmux-dev-shim-install cmux-code-mode-macos-profile
+  cmux-open-url open xdg-open
+)
+for name in "${owned_bins[@]}"; do
+  rm -f "$bin/$name"
+done
 # Provider executables (codex, claude, ...) are rejected by the "Reject
 # Bundled Provider Binaries" phase, never copied from here.
 for file in "$src/Resources/bin/"*; do
@@ -23,7 +34,7 @@ done
 code_mode="$dest/code-mode"
 mkdir -p "$code_mode/sdk"
 rsync -a --delete "$src/cmux-tui/bindings/typescript/src/" "$code_mode/sdk/src/"
-rsync -a "$src/cmux-tui/bindings/typescript/code-mode/" "$code_mode/sdk/code-mode/"
+rsync -a --delete "$src/cmux-tui/bindings/typescript/code-mode/" "$code_mode/sdk/code-mode/"
 cp "$src/cmux-tui/bindings/typescript/code-mode/mcp.mjs" "$code_mode/mcp.mjs"
 cp "$src/cmux-tui/bindings/typescript/code-mode/proxy.mjs" "$code_mode/sdk/code-mode/proxy.mjs"
 cp "$src/cmux-tui/spec/resource-operations-v2.json" "$code_mode/resource-operations-v2.json"

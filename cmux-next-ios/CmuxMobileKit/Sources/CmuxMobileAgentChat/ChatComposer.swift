@@ -288,8 +288,9 @@ struct ChatComposer: View {
                 }
             }
             // ACP `session/set_mode` over the link. The Mac accepts from the phone only the
-            // modes that still ask before running tools; a refused one comes back as the
-            // chat's error line.
+            // modes that still ask before running tools, and the harness's Full access mode
+            // when this phone's Full-access setting covers it (`ACPMode.phoneChoices`); a
+            // refused one comes back as the chat's error line.
             if !store.modes.isEmpty {
                 Section("Mode") {
                     ForEach(store.modes) { mode in

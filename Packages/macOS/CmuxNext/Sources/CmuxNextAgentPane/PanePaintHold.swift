@@ -57,7 +57,7 @@ public final class PanePaintHold {
             host.addSubview(incoming, positioned: .above, relativeTo: outgoing)
         }
         incoming.alphaValue = 0
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.mark(.holdBegin, view: incoming)
         #endif
         gated.whenFirstPainted { [weak self] in self?.end(token) }
@@ -104,7 +104,7 @@ public final class PanePaintHold {
         ended?()
         incoming?.alphaValue = 1
         CATransaction.commit()
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let incoming { ChatOpenTrace.shared.mark(.holdEnd, view: incoming) }
         #endif
         outgoing = nil

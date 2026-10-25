@@ -14,6 +14,7 @@ mod btw;
 mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
+pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
 mod cancel;
 mod catalog_reload;
@@ -35,10 +36,14 @@ mod idle;
 mod launch_roots;
 mod launchers;
 mod live_models;
+mod locate;
 pub mod media_handles;
 pub mod media_read;
+pub(crate) mod subagent_transcript;
+pub(crate) mod workflow_index;
 pub use handoff::{HANDOFF_OPERATIONS, MAX_CAPSULE_BYTES};
 pub use media_read::FEATURE as MEDIA_READ_FEATURE;
+pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
 pub(crate) mod model_availability;
@@ -53,12 +58,12 @@ mod paging;
 mod personal_stats;
 mod policy_mode;
 mod pool;
-mod prompt_images;
+pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
 mod queue;
 mod queue_edit;
-pub use digest::declared_sender;
+pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender};
 pub use queue::{QueuedPrompt, supersede::key as supersede_key};
 mod resolve;
 mod route_switch;
@@ -75,6 +80,8 @@ mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
+mod stalled_turn;
+pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
 mod shutdown;
@@ -115,8 +122,10 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
+mod subsession_results;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
@@ -279,6 +288,13 @@ pub struct PromptOptions {
     /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
     /// this key leave the queue, replaced by this one.
     pub supersede: Option<String>,
+    /// Validated display-only metadata from the app's ordered composer. It is persisted in the
+    /// mux record and never forwarded to the agent's ACP prompt.
+    pub display_parts: Option<Value>,
+    /// The paired machine whose Full-access setting covered the request that sent it
+    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
+    /// (`Hub::full_access_hold`).
+    pub full_access_device: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -433,6 +449,8 @@ pub struct Hub {
     pub pairing: Arc<crate::pairing::Pairing>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
+    /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
+    pub(crate) workflow_index: workflow_index::WorkflowIndex,
 }
 
 impl Hub {
@@ -456,6 +474,7 @@ impl Hub {
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
+        let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
             store,
@@ -508,6 +527,7 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
@@ -521,7 +541,7 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
-            briefs: dispatch::Briefs::open(),
+            briefs,
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -535,6 +555,7 @@ impl Hub {
             tokio::spawn(async move { h.peer_notice_loop().await });
             hub.watch_transfers();
             hub.watch_titles();
+            hub.watch_orphans();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -773,6 +794,12 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            heard_at: std::sync::atomic::AtomicI64::new(0),
+            stalled_recheck: AtomicU64::new(0),
+            open_tools: StdMutex::new(Default::default()),
+            stalled_counted: StdMutex::new(None),
+            stalled_gen: AtomicU64::new(0),
+            last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cb12b489fcaad8bfa7cd1979fdcc27eaff578f0f3540c961896abdc0c61eeea0";
+pub const ir_sha256 = "723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8386,6 +8386,7 @@ pub const SendRequest = struct {
     bytes: wire.Field(Base64) = .absent,
     expect_agent: wire.Field(SendExpectAgent) = .absent,
     expect_foreground: wire.Field([]const u8) = .absent,
+    flow: wire.Field(u64) = .absent,
     paste: ?bool = null,
     submit: ?bool = null,
     surface: wire.Field(Id) = .absent,

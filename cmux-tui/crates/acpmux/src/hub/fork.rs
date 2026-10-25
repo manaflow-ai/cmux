@@ -244,6 +244,7 @@ impl Hub {
             // The chat's own mode, model and effort, which the fork's agent is told again when it
             // loads (`replay_config`): an agent may answer session/fork with its defaults
             // instead (Codex), and the fork would then run another model than the chat.
+            mode_set_by_cmux: None,
             modes: parent_meta
                 .modes
                 .clone()

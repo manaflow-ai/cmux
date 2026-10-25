@@ -188,23 +188,33 @@ struct StreamedBrowserOverlay: View {
     }
 }
 
-/// The grid card: the last frame, else a globe.
+/// The grid card: the last frame, else a globe (an iPhone for a simulator tab).
 public struct StreamedBrowserCard: View {
     let model: StreamedBrowserModel
+    let placeholder: String
+    /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
+    let fit: Bool
 
-    public init(model: StreamedBrowserModel) { self.model = model }
+    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false) {
+        self.model = model
+        self.placeholder = placeholder
+        self.fit = fit
+    }
 
     public var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if let image = model.snapshot?.image {
+            if fit, let image = model.snapshot?.image {
+                Color.black
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+            } else if let image = model.snapshot?.image {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
                         .frame(width: geo.size.width,
                                height: geo.size.width * CGFloat(image.height) / CGFloat(max(1, image.width)))
                 }
             } else {
-                Image(systemName: "globe")
+                Image(systemName: placeholder)
                     .font(.system(size: 72, weight: .light))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

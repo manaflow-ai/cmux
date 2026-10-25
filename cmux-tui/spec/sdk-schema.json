@@ -10295,6 +10295,15 @@
       "nullable": false,
       "default": false,
       "capability": "send-expect-agent-v1"
+     },
+     "flow": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false,
