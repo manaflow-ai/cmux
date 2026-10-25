@@ -168,6 +168,14 @@
 }
 .acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }
 .acpmux-quick-sub .ui-submenu-chevron { margin-inline-start: auto; }
+/* New Tab's More models row shows the tab's other models under it (T3 Code's menu): its chevron
+   points down, and up while they show. */
+.acpmux-quick-disclosure .ui-submenu-chevron,
+.acpmux-quick-disclosure .ui-submenu-chevron:dir(rtl) { transform: translateY(-2px) rotate(135deg); }
+.acpmux-quick-disclosure[aria-expanded="true"] .ui-submenu-chevron { transform: translateY(1px) rotate(-45deg); }
+/* The shown models scroll in about six rows, so the rows after them (Effort, Account, Fast mode)
+   stay in view. */
+.acpmux-quick-more-list { min-inline-size: 0; margin: 0; border: 0; padding: 0; max-height: calc(6.5 * var(--ui-row-height)); overflow-y: auto; overscroll-behavior: contain; }
 /* Fast mode names its state where Effort and Account name theirs (Leo 2026-10-21): Off in secondary
    ink, On in the accent the checks use. The words replace the check. */
 .acpmux-quick-fast .ui-menu-check { display: none; }

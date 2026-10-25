@@ -8,6 +8,7 @@ import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
 import { ComposerContext } from "../ComposerContext";
+import { OnNewTab } from "../newTabComposer";
 import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
@@ -1339,7 +1340,7 @@ export function NewTabScreen(props: Props) {
         {...(browseProject ? { onBrowse: browseProject } : {})}
       />,
     );
-  return (
+  const page = (
     <ContextMenu
       className="nt-menu-host"
       items={
@@ -1542,6 +1543,8 @@ export function NewTabScreen(props: Props) {
       </div>
     </ContextMenu>
   );
+  // The chips' menus open down and drop their headings and key hints here (newTabComposer.ts).
+  return <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>;
 }
 
 /// The stage's widgets in runs: next to each other, Projects and Quick Actions share a cards

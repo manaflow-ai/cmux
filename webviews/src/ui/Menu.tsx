@@ -405,13 +405,28 @@ export interface MenuItemProps {
   children: ReactNode;
 }
 
-export function MenuItem({ className, disabled, shortcut, onSelect, children }: MenuItemProps) {
+export function MenuItem({
+  className,
+  disabled,
+  shortcut,
+  onSelect,
+  closeOnClick,
+  expanded,
+  children,
+}: MenuItemProps & {
+  /** False keeps the menu open after a click (a row that shows or hides rows of its own menu). */
+  closeOnClick?: boolean;
+  /** A disclosure row: whether the rows it controls show. */
+  expanded?: boolean;
+}) {
   const context = use(MenuContext);
   const handledClick = useRef(false);
   return (
     <BaseMenu.Item
       className={cx("ui-menu-item", className)}
       disabled={disabled}
+      {...(closeOnClick === undefined ? {} : { closeOnClick })}
+      {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
         if (disabled) return;
@@ -530,10 +545,11 @@ export function MenuRadioItem({
   );
 }
 
-export function MenuGroup({ label, children }: { label: string; children: ReactNode }) {
+/** No `label` draws no heading row: the menu's own label names the group. */
+export function MenuGroup({ label, children }: { label?: string; children: ReactNode }) {
   return (
     <BaseMenu.Group className="ui-menu-group">
-      <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>
+      {label && <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>}
       {children}
     </BaseMenu.Group>
   );
