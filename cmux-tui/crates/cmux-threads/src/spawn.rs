@@ -39,29 +39,42 @@ mod tests {
     use std::sync::mpsc;
 
     use crate::{
-        LiveQos, QosChange, ThreadInfo, ThreadQos, current, current_slot, set_current, snapshot,
-        spawn, with_qos,
+        LiveQos, QosChange, ThreadInfo, ThreadQos, current, current_slot, refused_changes,
+        set_current, snapshot, spawn, with_qos,
     };
 
     fn row(name: &str) -> Option<ThreadInfo> {
         snapshot().into_iter().find(|row| row.name == name)
     }
 
-    /// What `current()` reads after the calling thread asks for `qos`,
-    /// given it read `before` (Linux cannot lower nice unprivileged).
+    /// The calling thread's own registry row, read from inside the thread.
+    fn own_row() -> ThreadInfo {
+        let slot = current_slot().expect("spawned threads are registered");
+        row(slot.name()).expect("a registered thread has a row")
+    }
+
+    /// The nice value of the calling test thread. Threads it spawns start
+    /// there: a Linux thread inherits its creator's nice.
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    fn expected_live(qos: ThreadQos, before: LiveQos, may_lower: bool) -> LiveQos {
-        let LiveQos::Nice(before) = before else {
-            panic!("Linux reads a nice value, got {before:?}");
-        };
+    fn runner_nice() -> i32 {
+        match current() {
+            LiveQos::Nice(nice) => nice,
+            other => panic!("Linux reads a nice value, got {other:?}"),
+        }
+    }
+
+    /// The nice a thread that starts at `start` reads after it asks for
+    /// `qos` (an unprivileged thread cannot lower its nice).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn expected_nice(qos: ThreadQos, start: i32, may_lower: bool) -> i32 {
         let target = qos.linux_nice();
-        LiveQos::Nice(if target >= before || may_lower { target } else { before })
+        if target >= start || may_lower { target } else { start }
     }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     fn may_lower_to_zero() -> bool {
-        // Ask the kernel: a thread at nice 1 tries nice 0, as root or within
-        // RLIMIT_NICE that works.
+        // Ask the kernel: a thread at nice 10 or above tries nice 0; as root
+        // or within RLIMIT_NICE that works.
         spawn("cmux-threads-test-probe", ThreadQos::Background, || {
             set_current(ThreadQos::UserInteractive)
         })
@@ -73,20 +86,38 @@ mod tests {
 
     #[test]
     fn utility_thread_reads_utility() {
-        let before = current();
-        let live = spawn("cmux-threads-test-utility", ThreadQos::Utility, current)
-            .unwrap()
-            .join()
-            .unwrap();
+        const NAME: &str = "cmux-threads-test-utility";
+        let refused_before = refused_changes();
+        let (live, own) =
+            spawn(NAME, ThreadQos::Utility, || (current(), own_row())).unwrap().join().unwrap();
+        assert_eq!(own.declared, ThreadQos::Utility);
         #[cfg(target_vendor = "apple")]
         {
-            let _ = before;
+            let _ = refused_before;
             assert_eq!(live, LiveQos::Class(ThreadQos::Utility));
+            assert_eq!(own.effective, Some(ThreadQos::Utility));
+            assert_eq!(own.refused_changes, 0);
         }
         #[cfg(any(target_os = "linux", target_os = "android"))]
-        assert_eq!(live, expected_live(ThreadQos::Utility, before, may_lower_to_zero()));
+        {
+            let nice = expected_nice(ThreadQos::Utility, runner_nice(), may_lower_to_zero());
+            assert_eq!(live, LiveQos::Nice(nice));
+            if nice == ThreadQos::Utility.linux_nice() {
+                assert_eq!(own.effective, Some(ThreadQos::Utility));
+                assert_eq!(own.refused_changes, 0);
+            } else {
+                // The runner is above nice 5 and may not lower it: the
+                // thread keeps the runner's nice and records the refusal.
+                assert_eq!(own.effective, None);
+                assert_eq!(own.refused_changes, 1);
+                assert!(refused_changes() > refused_before);
+            }
+        }
         #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
-        assert_eq!((before, live), (LiveQos::Unknown, LiveQos::Unknown));
+        {
+            let _ = refused_before;
+            assert_eq!((live, own.effective), (LiveQos::Unknown, None));
+        }
     }
 
     #[test]
@@ -122,30 +153,53 @@ mod tests {
         assert_eq!(row(NAME), None);
     }
 
+    /// A thread's live QoS and registry row at one point.
+    type Reading = (LiveQos, ThreadInfo);
+
+    fn reading() -> Reading {
+        (current(), own_row())
+    }
+
     #[test]
     fn with_qos_restores_the_previous_qos() {
         let (before, inside, after) =
             spawn("cmux-threads-test-with-qos", ThreadQos::UserInitiated, || {
-                let before = current();
-                let inside = with_qos(ThreadQos::Background, current);
-                (before, inside, current())
+                let before = reading();
+                let inside = with_qos(ThreadQos::Background, reading);
+                (before, inside, reading())
             })
             .unwrap()
             .join()
             .unwrap();
-        assert_eq!(after, before);
+        assert_eq!(after.0, before.0);
+        assert_eq!(after.1.effective, before.1.effective);
         #[cfg(target_vendor = "apple")]
         {
-            assert_eq!(before, LiveQos::Class(ThreadQos::UserInitiated));
-            assert_eq!(inside, LiveQos::Class(ThreadQos::Background));
+            assert_eq!(before.0, LiveQos::Class(ThreadQos::UserInitiated));
+            assert_eq!(inside.0, LiveQos::Class(ThreadQos::Background));
+            assert_eq!(inside.1.effective, Some(ThreadQos::Background));
+            assert_eq!(after.1.effective, Some(ThreadQos::UserInitiated));
+            assert_eq!(after.1.refused_changes, 0);
         }
         #[cfg(any(target_os = "linux", target_os = "android"))]
         {
-            // Background raises nice to 10; going back needs the right to
-            // lower nice. Without it with_qos keeps the thread where it was.
-            let restorable = may_lower_to_zero() || before == LiveQos::Nice(10);
-            let expected = if restorable { LiveQos::Nice(10) } else { before };
-            assert_eq!(inside, expected);
+            // Without the right to lower nice, only a thread at nice 10
+            // already enters Background: below 10 the restore would need a
+            // decrease, above 10 entering is one. Otherwise with_qos keeps
+            // the thread where it was and counts the refusal.
+            let LiveQos::Nice(start) = before.0 else {
+                panic!("Linux reads a nice value, got {:?}", before.0);
+            };
+            let background = ThreadQos::Background.linux_nice();
+            if may_lower_to_zero() || start == background {
+                assert_eq!(inside.0, LiveQos::Nice(background));
+                assert_eq!(inside.1.effective, Some(ThreadQos::Background));
+                assert_eq!(after.1.refused_changes, before.1.refused_changes);
+            } else {
+                assert_eq!(inside.0, before.0);
+                assert_eq!(inside.1.effective, before.1.effective);
+                assert_eq!(inside.1.refused_changes, before.1.refused_changes + 1);
+            }
         }
         #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
         let _ = inside;
@@ -155,12 +209,12 @@ mod tests {
     fn with_qos_restores_after_a_panic() {
         let (before, after) =
             spawn("cmux-threads-test-with-qos-panic", ThreadQos::UserInitiated, || {
-                let before = current();
+                let before = (current(), own_row().effective);
                 let caught = std::panic::catch_unwind(|| {
                     with_qos(ThreadQos::Utility, || panic!("expected test panic"))
                 });
                 assert!(caught.is_err());
-                (before, current())
+                (before, (current(), own_row().effective))
             })
             .unwrap()
             .join()
@@ -176,26 +230,41 @@ mod tests {
         let handle = spawn(NAME, ThreadQos::UserInitiated, move || {
             let slot = current_slot().expect("spawned threads are registered");
             slot.request(ThreadQos::Utility);
+            let effective_before = own_row().effective;
             let change = set_current(ThreadQos::Background);
-            ready_tx.send(change).unwrap();
+            ready_tx.send((change, effective_before)).unwrap();
             finish_rx.recv().unwrap();
         })
         .unwrap();
-        let change = ready_rx.recv().unwrap();
+        let (change, effective_before) = ready_rx.recv().unwrap();
         let running = row(NAME).unwrap();
         assert_eq!(running.declared, ThreadQos::UserInitiated);
         assert_eq!(running.desired, ThreadQos::Utility);
-        #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+        #[cfg(target_vendor = "apple")]
         {
+            let _ = effective_before;
             assert_eq!(change, QosChange::Applied);
             assert_eq!(running.effective, Some(ThreadQos::Background));
+            assert_eq!(running.live, LiveQos::Class(ThreadQos::Background));
         }
-        #[cfg(target_vendor = "apple")]
-        assert_eq!(running.live, LiveQos::Class(ThreadQos::Background));
         #[cfg(any(target_os = "linux", target_os = "android"))]
-        assert_eq!(running.live, LiveQos::Nice(10));
+        {
+            // A runner above nice 10 that may not lower it stays there.
+            let nice = expected_nice(ThreadQos::Background, runner_nice(), may_lower_to_zero());
+            assert_eq!(running.live, LiveQos::Nice(nice));
+            if nice == ThreadQos::Background.linux_nice() {
+                assert_eq!(change, QosChange::Applied);
+                assert_eq!(running.effective, Some(ThreadQos::Background));
+            } else {
+                assert_eq!(change, QosChange::Refused);
+                assert_eq!(running.effective, effective_before);
+            }
+        }
         #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
-        assert_eq!(change, QosChange::Unsupported);
+        {
+            let _ = effective_before;
+            assert_eq!(change, QosChange::Unsupported);
+        }
         finish_tx.send(()).unwrap();
         handle.join().unwrap();
     }
@@ -210,18 +279,23 @@ mod tests {
         let (ready_tx, ready_rx) = mpsc::channel();
         let (finish_tx, finish_rx) = mpsc::channel::<()>();
         let handle = spawn(NAME, ThreadQos::Background, move || {
-            let refused_before = crate::refused_changes();
-            ready_tx.send((set_current(ThreadQos::UserInteractive), refused_before)).unwrap();
+            let before = own_row();
+            let process_before = refused_changes();
+            let change = set_current(ThreadQos::UserInteractive);
+            ready_tx.send((change, before, process_before)).unwrap();
             finish_rx.recv().unwrap();
         })
         .unwrap();
-        let (change, refused_before) = ready_rx.recv().unwrap();
+        let (change, before, process_before) = ready_rx.recv().unwrap();
         let running = row(NAME).unwrap();
         assert_eq!(change, QosChange::Refused);
-        assert!(crate::refused_changes() > refused_before);
-        assert_eq!(running.refused_changes, 1);
-        assert_eq!(running.effective, Some(ThreadQos::Background));
-        assert_eq!(running.live, LiveQos::Nice(10));
+        assert!(refused_changes() > process_before);
+        assert_eq!(running.refused_changes, before.refused_changes + 1);
+        assert_eq!(running.effective, before.effective);
+        // Background's nice, or the runner's when it is above that.
+        let nice = expected_nice(ThreadQos::Background, runner_nice(), false);
+        assert_eq!(running.live, LiveQos::Nice(nice));
+        assert_eq!(before.live, running.live);
         finish_tx.send(()).unwrap();
         handle.join().unwrap();
     }
