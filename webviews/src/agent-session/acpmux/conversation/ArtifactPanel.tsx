@@ -3,7 +3,7 @@
 // render frame (RenderCard.tsx), an origin of its own that allows no connection, so a document cannot
 // reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
 // pane on a dev server has no render frame, so there HTML and SVG show their source only.
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
@@ -53,6 +53,18 @@ export function ArtifactPanel({
   const t = useT();
   // The shown version by its text, not its place: a reply that finishes or a reload moves the list.
   const [shown, setShown] = useState(opened.code);
+  // Only the live choice follows revisions; choosing an older version stays put.
+  const previousOpened = useRef(opened);
+  const previous = previousOpened.current;
+  if (
+    opened.identity &&
+    previous.identity === opened.identity &&
+    (opened.revision ?? -Infinity) > (previous.revision ?? -Infinity)
+  ) {
+    if (shown === previous.code) setShown(opened.code);
+    previousOpened.current = opened;
+  }
+
   // A shown version that left the list falls back to the opened one's place, then to it alone.
   const at = (code: string) => versions.findIndex((version) => version.code === code);
   const found = at(shown) >= 0 ? at(shown) : at(opened.code);

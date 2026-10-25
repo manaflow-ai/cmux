@@ -17,7 +17,19 @@ import { entranceAllowed } from "../../shared/pageReveal";
 /// The card's chrome over plain lines: an open fence, or a closed one drawn plain (the highlighted
 /// card's chunk still loading, a fence over the highlight limits, a highlight past its budget). A
 /// closed fence keeps the highlighted card's Open preview, so the panel opens from either card.
-export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
+export function PlainCode({
+  code,
+  lang,
+  open = false,
+  artifactIdentity,
+  artifactRevision,
+}: {
+  code: string;
+  lang: string;
+  open?: boolean;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+}) {
   const t = useT();
   const lines = code.split("\n");
   // An open fence's trailing empty line is the newline before a line still arriving; drawing it
@@ -29,7 +41,7 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
         <CodeBrackets size={17} strokeWidth={1.2} />
         <span>{languageLabel(lang, t)}</span>
         <span className="cv-codeblock__actions">
-          {!open && <OpenPreview code={code} lang={lang} />}
+          <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
           <CopyButton text={code} label={t("code.copy")} />
         </span>
       </div>
@@ -50,7 +62,17 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
 const HANDOFF_LIMIT_MS = 1_000;
 
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
+export function CodeHandoff({
+  code,
+  lang,
+  artifactIdentity,
+  artifactRevision,
+}: {
+  code: string;
+  lang: string;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+}) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
   // A fence that closed while the chat was hidden (or as it shows again) hands over without the
@@ -95,9 +117,11 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
   }, [stage]);
   return (
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
-      {stage !== "done" && <PlainCode code={code} lang={lang} />}
+      {stage !== "done" && (
+        <PlainCode code={code} lang={lang} artifactIdentity={artifactIdentity} artifactRevision={artifactRevision} />
+      )}
       <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
-        <CodeBlock code={code} lang={lang} />
+        <CodeBlock code={code} lang={lang} artifactIdentity={artifactIdentity} artifactRevision={artifactRevision} />
       </div>
     </div>
   );
