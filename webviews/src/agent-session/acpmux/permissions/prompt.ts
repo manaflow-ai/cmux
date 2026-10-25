@@ -146,14 +146,14 @@ export function optionButtonLabel(option: PermissionOption, t: Translate, taken:
     option.kind?.toLowerCase() === "reject_always"
       ? t("permission.alwaysDeny")
       : kind === "allow_once"
-      ? t("permission.allowOnce")
-      : kind === "allow_always"
-        ? t("permission.alwaysAllow")
-        : kind === "allow_chat"
-          ? t("permission.allowChat")
-          : kind === "deny"
-            ? t("permission.deny")
-            : undefined;
+        ? t("permission.allowOnce")
+        : kind === "allow_always"
+          ? t("permission.alwaysAllow")
+          : kind === "allow_chat"
+            ? t("permission.allowChat")
+            : kind === "deny"
+              ? t("permission.deny")
+              : undefined;
   return label && !taken.has(label) ? label : name || option.id;
 }
 

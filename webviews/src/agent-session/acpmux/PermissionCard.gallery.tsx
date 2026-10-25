@@ -144,7 +144,7 @@ export default componentEntry<Props>({
       play: scopeOnce,
     },
     "scope-labelled": {
-      note: "Scope line variant B: under the buttons, named \"Scope: …\".",
+      note: 'Scope line variant B: under the buttons, named "Scope: …".',
       props: { permission: longRule, harness: "claude", scopeStyle: "labelled" },
     },
     "scope-front": {

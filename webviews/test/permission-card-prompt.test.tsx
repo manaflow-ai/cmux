@@ -255,7 +255,8 @@ test("the card labels the scoped target once, on its line, and every answer is d
 // Leo 2026-10-25: "the allow button, like this, it shouldn't be encompassing so much ... this other,
 // like, thing shouldn't be the same thing." Always allow held the whole session rule and the rule
 // repeated as a line under Deny.
-const RULE = "Allow Read(//Users/you/media/reel/**), Bash(rm -f /Users/you/media/reel/*.tmp), Bash(ffmpeg:*) for this session";
+const RULE =
+  "Allow Read(//Users/you/media/reel/**), Bash(rm -f /Users/you/media/reel/*.tmp), Bash(ffmpeg:*) for this session";
 test("a long rule shows once, on the scope line, never in a button, and describes Always allow", async () => {
   const card = await mount(
     bash({ permissionId: "rule", rule: RULE, scope: { kind: "directory", value: "/Users/you/media/reel" } }),
@@ -317,7 +318,8 @@ test("long agent labels get short buttons from their ACP kind, in one row, and t
 
 test("an extra option keeps a short agent name, else its kind's label, else its name", () => {
   const taken = new Set(["Allow once", "Always allow", "Deny"]);
-  const label = (name: string, kind?: string) => optionButtonLabel({ id: "o", name, kind, allow: false }, translate, taken);
+  const label = (name: string, kind?: string) =>
+    optionButtonLabel({ id: "o", name, kind, allow: false }, translate, taken);
   expect(label("Show me the plan", "custom")).toBe("Show me the plan");
   expect(label("No, continue without running it", "reject_always")).toBe("Always deny");
   // A kind another button already names keeps the agent's name, cut by the button.
