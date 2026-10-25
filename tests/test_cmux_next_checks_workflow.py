@@ -680,8 +680,9 @@ class PathRoutingStructure(unittest.TestCase):
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
         guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
-        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output.
-        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
+        # The session-only jobs read `(session_runner || gui_runner)`, the rest one output
+        # (the fast tier two: fast_runner, then runner).
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 10)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
