@@ -3,7 +3,7 @@
 import { type RefObject, useEffect, useRef } from "react";
 import type { ComposerAttachment } from "../attachments";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import { isLargePaste, pastedTextAttachment } from "../pastedText";
+import { isLargePaste, PASTE_FILE_CHARS, pastedTextAttachment, pastedTextFile } from "../pastedText";
 
 /// How long after Paste as Plain Text starts its paste still counts as that one: the menu's goes
 /// through the host (`pane.edit`), which runs the web view's own paste.
@@ -27,6 +27,9 @@ export function usePastedChips(
   attachments: RefObject<ComposerAttachment[]>,
   setAttachments: (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => void,
   field: RefObject<MarkdownFieldHandle | null>,
+  /// Attaches a file the way a pasted file is (attachmentIntake.tsx): a paste past PASTE_FILE_CHARS
+  /// goes as one. Unset, such a paste is a chip like any large one.
+  attachFile?: (file: File) => void,
 ) {
   /// Until when a paste goes in as it is: Paste as Plain Text just ran.
   const plainUntil = useRef(0);
@@ -60,6 +63,11 @@ export function usePastedChips(
     /// Makes pasted `text` a chip when it is huge; true when it did. A composer already holding the
     /// most chips takes the text as it is.
     take(text: string): boolean {
+      // Past what a prompt carries it is a file, Paste as Plain Text or not.
+      if (attachFile && text.length > PASTE_FILE_CHARS) {
+        attachFile(pastedTextFile(text));
+        return true;
+      }
       if (raw() || !isLargePaste(text)) return false;
       const chip = pastedTextAttachment(text);
       // Ahead of the render, so a second paste at once counts this one.

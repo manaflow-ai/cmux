@@ -1648,6 +1648,7 @@ export function Composer({
           field.current?.focus();
         }}
         onRetryAttachment={retry}
+        onPasteFile={(file) => void attach([file], true, "paste")}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
