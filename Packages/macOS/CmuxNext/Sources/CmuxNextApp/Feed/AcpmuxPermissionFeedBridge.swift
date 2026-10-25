@@ -64,7 +64,6 @@ final class AcpmuxPermissionFeedBridge {
 
     /// The acpmux this app runs: its socket, and the executable its server peer must be.
     private let environment: AcpmuxEnvironment
-    private var socket: String { environment.socketPath }
     private let owner: Owner
     private let isSignedIn: @MainActor () -> Bool
     /// This Mac's own install id (the `inst` claim of its install token).
@@ -113,9 +112,10 @@ final class AcpmuxPermissionFeedBridge {
 
     /// Connects on a socket whose server peer is checked on that very connection, before its
     /// first frame (``AcpmuxCheckedLine``): a listener that took the path never gets a proof.
+    /// No stat first: a missing socket fails the connect at once on the line's queue, and its
+    /// close reconnects with the backoff (a stat on the main actor can hang on a sleeping volume).
     private func connect() {
         reconnect = nil
-        guard FileManager.default.fileExists(atPath: socket) else { return scheduleReconnect() }
         let line = AcpmuxCheckedLine(environment: environment)
         connection = line
         line.start(send: Data(acpmuxRequest: 1, method: "initialize", params: [

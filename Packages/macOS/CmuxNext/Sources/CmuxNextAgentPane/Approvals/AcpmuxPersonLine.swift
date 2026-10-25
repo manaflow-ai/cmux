@@ -22,9 +22,10 @@ public final class AcpmuxPersonLine {
     }
 
     /// Connects, initializes and proves the person; nil when no acpmux answers. A connection
-    /// whose proof was refused still reads and denies (``isPerson`` is false).
+    /// whose proof was refused still reads and denies (``isPerson`` is false). A missing socket
+    /// fails the connect at once on the line's queue (no stat first, which would block the main
+    /// actor).
     public static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
-        guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
         let connection = AcpmuxPersonLine(environment: environment)
         connection.timer.schedule(after: deadline) { @MainActor [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {

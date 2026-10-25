@@ -20,6 +20,8 @@ final class ChatsFeed {
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
+    /// The read of the socket's path in flight (``SocketPathProbe``, off the main actor).
+    private var probe: Task<Void, Never>?
     private var requestID = 2
     /// The seq of the last index change in the mirror (acpmux numbers every change; the page
     /// names the last one it holds). Nil from a daemon that does not number them.
@@ -45,6 +47,7 @@ final class ChatsFeed {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
+        probe?.cancel()
         reconnect?.cancel()
         subscription?.cancel()
         directoryWatch?.cancel()
@@ -53,7 +56,7 @@ final class ChatsFeed {
     /// Starts one long-lived watch for the first live observer.
     func observe(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
         observers.append(({ [weak owner] in owner }, changed))
-        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
+        if subscription == nil, directoryWatch == nil, reconnect == nil, probe == nil { connect() }
     }
 
     /// Keeps the mirror current for the palette chats page and Open Chat while
@@ -62,9 +65,25 @@ final class ChatsFeed {
         observe(self) {}
     }
 
+    /// Reads the socket's path off the main actor (a stat can hang on a sleeping volume), then
+    /// subscribes, or waits for the socket. A newer read replaces one in flight: the folder event
+    /// that started it may have come after the older read's stat.
     private func connect() {
         reconnect = nil
-        guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
+        probe?.cancel()
+        let socket = socket, watching = watchedDirectory
+        probe = Task { [weak self] in
+            let found = await SocketPathProbe.read(socket: socket, folder: .nearestExisting, watching: watching)
+            guard let self, !Task.isCancelled else { return found.close() }
+            probe = nil
+            switch found {
+            case .present: subscribe()
+            case .absent(let folder, let descriptor): watchForSocket(in: folder, descriptor: descriptor)
+            }
+        }
+    }
+
+    private func subscribe() {
         directoryWatch?.cancel()
         directoryWatch = nil
         watchedDirectory = nil
@@ -218,17 +237,16 @@ final class ChatsFeed {
         }
     }
 
-    /// Waits for the socket path to appear by watching its nearest existing directory.
-    private func watchForSocket() {
-        var directory = (socket as NSString).deletingLastPathComponent
-        while !FileManager.default.fileExists(atPath: directory), directory != "/" {
-            directory = (directory as NSString).deletingLastPathComponent
+    /// Waits for the socket path to appear by watching its nearest existing directory, opened off
+    /// the main actor as `descriptor` (nil: not opened, or it is the directory watched already).
+    private func watchForSocket(in directory: String, descriptor: Int32?) {
+        guard directory != watchedDirectory else {
+            if let descriptor { close(descriptor) }
+            return
         }
-        guard directory != watchedDirectory else { return }
         directoryWatch?.cancel()
         directoryWatch = nil
-        let fd = open(directory, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard let fd = descriptor else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in Task { @MainActor in self?.connect() } }
         source.setCancelHandler { close(fd) }

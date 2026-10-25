@@ -38,6 +38,8 @@ public final class AgentTurnStateFeed {
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
     private var reconnect: Task<Void, Never>?
+    /// The read of the socket's path in flight (``SocketPathProbe``, off the main actor).
+    private var probe: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
@@ -65,13 +67,14 @@ public final class AgentTurnStateFeed {
     /// `install:<id>`: only its chat tabs read these states.
     public func start(localHost: @autoclosure () -> String?) {
         if !isMirror, turns.localHost == nil { turns.localHost = localHost() }
-        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
+        if subscription == nil, directoryWatch == nil, reconnect == nil, probe == nil { connect() }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
+            probe?.cancel()
             reconnect?.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
@@ -80,9 +83,25 @@ public final class AgentTurnStateFeed {
 
     // MARK: Watch
 
+    /// Reads the socket's path off the main actor (a stat can hang on a sleeping volume), then
+    /// watches, or waits for the socket. A newer read replaces one in flight: the folder event
+    /// that started it may have come after the older read's stat.
     private func connect() {
         reconnect = nil
-        guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
+        probe?.cancel()
+        let socket = socket, watching = watchedDirectory
+        probe = Task { [weak self] in
+            let found = await SocketPathProbe.read(socket: socket, folder: .nearestExisting, watching: watching)
+            guard let self, !Task.isCancelled else { return found.close() }
+            probe = nil
+            switch found {
+            case .present: subscribe()
+            case .absent(let folder, let descriptor): watchForSocket(in: folder, descriptor: descriptor)
+            }
+        }
+    }
+
+    private func subscribe() {
         directoryWatch?.cancel()
         directoryWatch = nil
         watchedDirectory = nil
@@ -208,18 +227,17 @@ public final class AgentTurnStateFeed {
 
     /// Waits for the socket to appear: watches the nearest directory on its
     /// path that exists (the daemon's home, else the folder it will be made
-    /// in) and connects on each change there. An event, not a poll.
-    private func watchForSocket() {
-        var directory = (socket as NSString).deletingLastPathComponent
-        while !FileManager.default.fileExists(atPath: directory), directory != "/" {
-            directory = (directory as NSString).deletingLastPathComponent
+    /// in) and connects on each change there. An event, not a poll. The directory was found and
+    /// opened off the main actor as `descriptor` (nil: not opened, or it is watched already).
+    private func watchForSocket(in directory: String, descriptor: Int32?) {
+        guard directory != watchedDirectory else {
+            if let descriptor { close(descriptor) }
+            return
         }
-        guard directory != watchedDirectory else { return }
         logger.info("agent turn states: waiting for the socket in \(directory, privacy: .public)")
         directoryWatch?.cancel()
         directoryWatch = nil
-        let fd = open(directory, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard let fd = descriptor else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
         source.setEventHandler { [weak self] in
             Task { @MainActor in self?.connect() }

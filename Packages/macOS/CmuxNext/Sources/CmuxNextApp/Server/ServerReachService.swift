@@ -37,7 +37,8 @@ final class ServerReachService {
     private let binary: URL?
     /// The app's own bundled `cmux` (overlay bridge and link reads).
     private let cli: URL?
-    private let local: @MainActor () -> ServerReachPlan.LocalServer?
+    /// This Mac as a possible placed server (``thisMac()``: a stat and configd reads, off the main actor).
+    private let local: @MainActor () async -> ServerReachPlan.LocalServer?
     /// This Mac's link (running or not) and its paired installs, or nil (no link).
     private let linkPeers: @MainActor () async -> ServerReachPlan.LinkPeers?
     /// Where `cmux link init` writes the link (watched while `link show`
@@ -58,7 +59,7 @@ final class ServerReachService {
     private(set) var policyDisabled = false
 
     init(machines: MachineRegistry, mainWork: MainWorkScheduler, call: @escaping Call, signedInUser: @escaping @MainActor () -> String?, paths: SSHPaths,
-         binary: URL?, local: @escaping @MainActor () -> ServerReachPlan.LocalServer? = { nil },
+         binary: URL?, local: @escaping @MainActor () async -> ServerReachPlan.LocalServer? = { nil },
          linkPeers: @escaping @MainActor () async -> ServerReachPlan.LinkPeers? = { nil }, cli: URL? = nil,
          linkSetupFile: String? = nil, makeWatcher: @escaping LocalServerSource.MakeWatcher = LocalServerSource.fileWatcher) {
         self.linkSetupFile = linkSetupFile
@@ -86,7 +87,7 @@ final class ServerReachService {
                 }
                 previous = user
                 if user != nil {
-                    self.restore(self.currentRecords())
+                    await self.restore(self.currentRecords())
                     self.refresh()
                 }
             }
@@ -103,7 +104,7 @@ final class ServerReachService {
                 let store = machines.local.store
                 return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
             }) {
-                self?.restore(records)
+                await self?.restore(records)
             }
         })
         // A server on this Mac connects only once the home daemon's identity
@@ -170,8 +171,9 @@ final class ServerReachService {
             guard !Task.isCancelled, signedInUser() == user else { return }
             let link = await linkPeers()
             watchLink(link?.watchedFiles ?? [linkSetupFile].compactMap { $0 })
+            let localServer = await local()
             guard !Task.isCancelled, signedInUser() == user else { return }
-            let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: local(), link: link)
+            let plan = ServerReachPlan.make(chiefs: chiefs, hosts: hosts, local: localServer, link: link)
             lastPlan = plan
             for name in plan.unroutable { logger.error("server \(name, privacy: .public): no route to its chief session") }
             await apply(plan.desired)
@@ -235,15 +237,28 @@ final class ServerReachService {
         }
     }
 
-    /// Restores servers the registry holds that this run has not seen.
-    func restore(_ records: [SessionRecord]) {
+    /// Restores servers the registry holds that this run has not seen. Only a `unix` record
+    /// needs this Mac's brain socket (``thisMac()``), read once, off the main actor; every check
+    /// of what this run has seen comes after that read.
+    func restore(_ records: [SessionRecord]) async {
         guard signedInUser() != nil else { return }
-        for record in records {
-            guard let fields = record.transport.flatMap(SSHService.fields), let reach = ServerReach(transportFields: fields),
-                  !removed.contains(reach.hostID), machines.server(reach.machineID) == nil else { continue }
+        let saved = records.compactMap { record -> (reach: ServerReach, connect: Bool)? in
+            guard let fields = record.transport.flatMap(SSHService.fields), let reach = ServerReach(transportFields: fields) else { return nil }
+            return (reach, fields["connect"] != "false")
+        }
+        var brainSocket: String?
+        if saved.contains(where: { entry in
+            if case .unix = entry.reach.route { return true }
+            return false
+        }) {
+            brainSocket = await local()?.brainSocket
+        }
+        guard signedInUser() != nil else { return }
+        for (reach, connect) in saved {
+            guard !removed.contains(reach.hostID), machines.server(reach.machineID) == nil else { continue }
             // A `unix` record restores only this Mac's own brain socket.
-            if case .unix(let path) = reach.route, path != local()?.brainSocket { continue }
-            add(reach, connect: fields["connect"] != "false")
+            if case .unix(let path) = reach.route, path != brainSocket { continue }
+            add(reach, connect: connect)
         }
     }
 
@@ -304,10 +319,11 @@ final class ServerReachService {
 
     /// This Mac as a possible placed server: every name it answers to
     /// (gethostname, LocalHostName, computer name) and the brain's daemon
-    /// socket, when one exists (a stat; nothing is read).
-    static func thisMac() -> ServerReachPlan.LocalServer? {
+    /// socket, when one exists (a stat; nothing is read). Off the main actor:
+    /// the stat and the configd reads can block.
+    @concurrent nonisolated static func thisMac() async -> ServerReachPlan.LocalServer? {
         let socket = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cmux/brains/chief/daemon/cmux.sock").path
-        guard FileManager.default.fileExists(atPath: socket) else { return nil }
+        guard FileManager.checked.fileExists(atPath: socket) else { return nil }
         var names: [String] = []
         var buffer = [CChar](repeating: 0, count: 256)
         if gethostname(&buffer, buffer.count) == 0 {

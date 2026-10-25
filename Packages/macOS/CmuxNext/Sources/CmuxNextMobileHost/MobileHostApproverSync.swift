@@ -98,9 +98,10 @@ final class MobileHostApproverSync {
         proven = false
     }
 
+    /// No stat first: a missing socket fails the connect at once on the line's queue, and its
+    /// close reconnects with the backoff (a stat on the main actor can hang on a sleeping volume).
     private func connect() {
         reconnect = nil
-        guard FileManager.default.fileExists(atPath: environment.socketPath) else { return scheduleReconnect() }
         let line = AcpmuxCheckedLine(environment: environment)
         connection = line
         proven = false

@@ -61,9 +61,10 @@ final class ChatSettingsPush {
         send()
     }
 
+    /// No stat first: a missing socket fails the connect at once on the connection's queue and
+    /// its close ends the attempt (a stat on the main actor can hang on a sleeping volume).
     private func send() {
-        guard connection == nil, let desired, desired != sent,
-              FileManager.default.fileExists(atPath: socket) else { return }
+        guard connection == nil, let desired, desired != sent else { return }
         let current = AgentActivityLineConnection(path: socket)
         connection = current
         current.start(send: desired.request, onLine: { [weak self] line in

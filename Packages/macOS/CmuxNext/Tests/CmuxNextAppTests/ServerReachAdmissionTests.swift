@@ -53,8 +53,8 @@ struct ServerReachAdmissionTests {
             let fields = reach.transportFields.merging(["connect": connect ? "true" : "false"]) { $1 }
             return .init(id: "remembered-session", transport: .object(fields.mapValues(JSONValue.string)), migrated: true)
         }
-        func restore(connect: Bool = true) throws -> ServerMachineSession {
-            service.restore([record(try reach(), connect: connect)])
+        func restore(connect: Bool = true) async throws -> ServerMachineSession {
+            await service.restore([record(try reach(), connect: connect)])
             return try #require(machines.servers.first)
         }
         func stop() {
@@ -63,9 +63,9 @@ struct ServerReachAdmissionTests {
         }
     }
 
-    @Test func savedRoutesKeepOfflineReconnectAndTemporaryPolicyReadmission() throws {
+    @Test func savedRoutesKeepOfflineReconnectAndTemporaryPolicyReadmission() async throws {
         let h = Harness(); defer { h.stop() }
-        let saved = try h.restore()
+        let saved = try await h.restore()
         #expect(saved.daemon.isStarting && saved.autoConnect)
         h.service.applyPolicy(disabled: true)
         #expect(!saved.daemon.isStarting)
@@ -75,7 +75,7 @@ struct ServerReachAdmissionTests {
 
     @Test func aFreshDirectoryReadRetiresTheOldInstallationAndAdmitsItsReplacement() async throws {
         let h = Harness(); defer { h.stop() }
-        let old = try h.restore()
+        let old = try await h.restore()
         h.install = "inst_after0001"
         await h.service.read()
         let current = try #require(h.machines.servers.first)
@@ -91,7 +91,7 @@ struct ServerReachAdmissionTests {
 
     @Test func anUnavailableDirectoryKeepsAnAlreadyAuthenticatedSavedRoute() async throws {
         let h = Harness(); defer { h.stop() }
-        let saved = try h.restore()
+        let saved = try await h.restore()
         h.fail = true
         await h.service.read()
         #expect(h.machines.servers.first === saved)
@@ -100,7 +100,7 @@ struct ServerReachAdmissionTests {
 
     @Test func freshAdmissionPreservesAnExplicitDisconnectPreference() async throws {
         let h = Harness(); defer { h.stop() }
-        let saved = try h.restore(connect: false)
+        let saved = try await h.restore(connect: false)
         await h.service.read()
         #expect(h.machines.servers.first === saved && !saved.autoConnect)
         #expect(!saved.daemon.isStarting)
@@ -108,7 +108,7 @@ struct ServerReachAdmissionTests {
 
     @Test func aCurrentDirectoryReadKeepsTheExistingSavedConnection() async throws {
         let h = Harness(); defer { h.stop() }
-        let saved = try h.restore()
+        let saved = try await h.restore()
         #expect(saved.daemon.isStarting)
         await h.service.read()
         #expect(h.machines.servers.first === saved)
@@ -120,7 +120,7 @@ struct ServerReachAdmissionTests {
         h.install = "inst_after0001"
         await h.service.read()
         let current = try #require(h.machines.servers.first)
-        h.service.restore([h.record(try h.reach())])
+        await h.service.restore([h.record(try h.reach())])
         #expect(h.machines.servers.first === current && current.reach.installID == h.install)
     }
 

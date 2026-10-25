@@ -24,7 +24,7 @@ extension ServerReachService {
             },
             paths: SSHPaths.standard(bundleID: services.environment.launch.bundleID),
             binary: binary,
-            local: { ServerReachService.thisMac() },
+            local: { await ServerReachService.thisMac() },
             linkPeers: { await ServerReachService.readLinkPeers(binary: cli) },
             cli: cli,
             linkSetupFile: cli.map { _ in

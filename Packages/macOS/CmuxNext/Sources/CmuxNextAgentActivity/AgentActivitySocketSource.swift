@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 import Network
@@ -59,6 +60,8 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var reconnect: Task<Void, Never>?
+    /// The read of the socket's path in flight (``SocketPathProbe``, off the main actor).
+    private var probe: Task<Void, Never>?
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private var followed: Set<String> = []
     private var lastSeq: [String: UInt64] = [:]
@@ -72,6 +75,7 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
+            probe?.cancel()
             reconnect?.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
@@ -105,12 +109,28 @@ public final class AgentActivitySocketSource: AgentActivitySource {
 
     // MARK: Subscription
 
+    /// Reads the socket's path off the main actor (a stat can hang on a sleeping volume), then
+    /// subscribes, or shows "not started" and waits for the socket. A newer read replaces one in
+    /// flight: the folder event that started it may have come after the older read's stat.
     private func connect() {
-        guard FileManager.default.fileExists(atPath: config.socketPath) else {
-            sink?(.connection(machine: config.machine, .notStarted))
-            watchForSocket()
-            return
+        probe?.cancel()
+        let socketPath = config.socketPath
+        let watching = directoryWatch == nil ? nil : (socketPath as NSString).deletingLastPathComponent
+        probe = Task { [weak self] in
+            let found = await SocketPathProbe.read(socket: socketPath, folder: .parent, watching: watching)
+            guard let self, !Task.isCancelled else { return found.close() }
+            probe = nil
+            switch found {
+            case .present:
+                subscribe()
+            case .absent(_, let descriptor):
+                sink?(.connection(machine: config.machine, .notStarted))
+                watchForSocket(descriptor: descriptor)
+            }
         }
+    }
+
+    private func subscribe() {
         directoryWatch?.cancel()
         directoryWatch = nil
         let connection = AgentActivityLineConnection(path: config.socketPath,
@@ -151,10 +171,13 @@ public final class AgentActivitySocketSource: AgentActivitySource {
     private func lost(_ connection: AgentActivityLineConnection) {
         guard subscription === connection else { return }
         subscription = nil
-        sink?(.connection(machine: config.machine, FileManager.default.fileExists(atPath: config.socketPath) ? .unreachable : .notStarted))
         reconnect?.cancel()
+        let socketPath = config.socketPath, machine = config.machine
         reconnect = Task { [weak self] in
-            guard var backoff = self?.backoff else { return }
+            // The socket file still there: its server stopped answering; gone: it was not started.
+            let present = await Self.socketExists(socketPath)
+            guard !Task.isCancelled, var backoff = self?.backoff else { return }
+            self?.sink?(.connection(machine: machine, present ? .unreachable : .notStarted))
             // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
             do { try await backoff.wait(owner: "agent-activity.reconnect") } catch { return }
             self?.backoff = backoff
@@ -162,13 +185,21 @@ public final class AgentActivitySocketSource: AgentActivitySource {
         }
     }
 
+    /// Whether a file is at the socket's path: a stat, off the main actor.
+    @concurrent nonisolated private static func socketExists(_ path: String) async -> Bool {
+        FileManager.checked.fileExists(atPath: path)
+    }
+
     /// Waits for the socket's directory to change (the host creates the
     /// socket there), then connects. Without the directory, retries with Backoff.
-    private func watchForSocket() {
-        guard directoryWatch == nil else { return }
-        let directory = (config.socketPath as NSString).deletingLastPathComponent
-        let fd = open(directory, O_EVTONLY)
-        guard fd >= 0 else {
+    /// The directory was opened off the main actor as `descriptor` (nil: it could not be, or it
+    /// is watched already).
+    private func watchForSocket(descriptor: Int32?) {
+        guard directoryWatch == nil else {
+            if let descriptor { close(descriptor) }
+            return
+        }
+        guard let fd = descriptor else {
             reconnect?.cancel()
             reconnect = Task { [weak self] in
                 guard var backoff = self?.backoff else { return }
