@@ -1,0 +1,99 @@
+{
+  "caption": "New Tab keeps its look dots beside the composer, and the access mode and model are there before your first message.",
+  "frameInterval": 0.5,
+  "launch_args": [
+    "--showcase"
+  ],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "A workspace",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--arg",
+        "name=Onboarding flow",
+        "--arg",
+        "cwd=/tmp",
+        "--arg",
+        "command=/bin/sh -c \"clear; exec sleep 900\"",
+        "--focus"
+      ],
+      "wait": 2.5
+    },
+    {
+      "title": "New Tab",
+      "cmux": [
+        "action",
+        "run",
+        "newTab.page",
+        "--focus"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "List the menus",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "open_menu",
+          "label": "?"
+        }
+      },
+      "wait": 1.0,
+      "optional": "probe",
+      "clip": true
+    },
+    {
+      "title": "Codex look",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".nt-look-dots [data-style='codex']"
+        }
+      },
+      "wait": 2.0,
+      "clip": true
+    },
+    {
+      "title": "Quick actions look",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "click",
+          "selector": ".nt-look-dots [data-style='claudeActions']"
+        }
+      },
+      "wait": 2.0,
+      "clip": true
+    },
+    {
+      "title": "Mode menu",
+      "rpc": {
+        "method": "debug.agent_pane",
+        "params": {
+          "action": "open_menu",
+          "label": "Mode"
+        }
+      },
+      "wait": 1.8,
+      "optional": "label probe",
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.25,
+    0.22,
+    0.7,
+    0.78
+  ]
+}

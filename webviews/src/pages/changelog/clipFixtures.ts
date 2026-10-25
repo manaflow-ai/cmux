@@ -2,6 +2,7 @@
 // An update span whose highlights carry their clips as the signed notes do (release-notes.py: the
 // `clip:` line, alt = the clip spec's caption), with the clips scripts/cmux-next/media/whats-new-clips.py
 // recorded on the fleet. Inlined, as the host inlines verified media.
+import digits from "../../gallery/fixtures/whats-new/clip-command-digits-select-tabs.webp?inline";
 import composer from "../../gallery/fixtures/whats-new/clip-persistent-goals-composer.webp?inline";
 import archive from "../../gallery/fixtures/whats-new/clip-sidebar-archive.webp?inline";
 import links from "../../gallery/fixtures/whats-new/clip-terminal-cmd-click-links.webp?inline";
@@ -31,6 +32,13 @@ const highlights: Highlight[] = [
       "New Tab keeps its look dots beside the composer, and the access mode and model are there before your first message.",
     ),
     action: { id: "palette.newAgentChat", title: "New Agent Chat" },
+  },
+  {
+    id: "command-digits-select-tabs",
+    category: "improved",
+    title: "⌘1…9 can switch tabs instead of workspaces",
+    body: "Set Command-1 to 9 Select to Tabs in Settings > Keyboard, and ⌘1…9 pick the focused pane's tabs while ⌃1…9 pick workspaces. Workspaces stays the default.",
+    media: clip(digits, "Set Command-1 to 9 Select to Tabs, and ⌘1…9 jump straight to the focused pane's tabs."),
   },
   {
     id: "terminal-cmd-click-links",

@@ -1,0 +1,134 @@
+{
+  "caption": "Right-click a workspace and choose Archive: it moves to the end of its group, dimmed, until you Unarchive it.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3
+    },
+    {
+      "title": "Billing API",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--arg",
+        "name=Billing API",
+        "--arg",
+        "command=sleep 600",
+        "--arg",
+        "focus=false"
+      ],
+      "wait": 1
+    },
+    {
+      "title": "Onboarding flow",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--arg",
+        "name=Onboarding flow",
+        "--arg",
+        "command=sleep 600",
+        "--arg",
+        "focus=false"
+      ],
+      "wait": 1
+    },
+    {
+      "title": "Release notes",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--arg",
+        "name=Release notes",
+        "--arg",
+        "command=sleep 600",
+        "--arg",
+        "focus=false"
+      ],
+      "wait": 1
+    },
+    {
+      "title": "Search index",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--arg",
+        "name=Search index",
+        "--arg",
+        "command=sleep 600",
+        "--arg",
+        "focus=false"
+      ],
+      "wait": 1
+    },
+    {
+      "title": "Design review",
+      "cmux": [
+        "action",
+        "run",
+        "newTab",
+        "--arg",
+        "name=Design review",
+        "--arg",
+        "command=sleep 600",
+        "--arg",
+        "focus=false"
+      ],
+      "wait": 1
+    },
+    {
+      "title": "Select the first",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.selectFirst"
+      ],
+      "wait": 0.5
+    },
+    {
+      "title": "Select the second",
+      "cmux": [
+        "action",
+        "run",
+        "nextSidebarTab"
+      ],
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Archive it",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.toggleArchive"
+      ],
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "Select another: the archived row stays last, dimmed",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.selectFirst"
+      ],
+      "wait": 2.5,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0,
+    0,
+    0.185,
+    0.33
+  ]
+}
