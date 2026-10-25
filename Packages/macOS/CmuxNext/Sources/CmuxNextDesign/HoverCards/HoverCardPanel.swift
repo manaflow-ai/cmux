@@ -399,7 +399,7 @@ extension HoverCardPanel {
         case .beside:
             // Right of the row; left of it when the screen ends first. Top-aligned, kept on screen.
             if origin.x + size.width > room.maxX {
-                origin.x = ((anchor.minX - HoverCardEscapeGeometry.rowGap) * scale).rounded(.up) / scale - size.width
+                origin.x = ((anchor.minX - HoverCardEscapeGeometry.edgeGap(scale: scale)) * scale).rounded(.up) / scale - size.width
                 isLeading = true
             }
             origin.x = clampX(origin.x)
@@ -435,8 +435,10 @@ extension HoverCardPanel {
         case .below: CGPoint(x: anchor.minX, y: up(anchor.minY - targetGap) - size.height)
         // The card's bottom edge on the tab's top edge (rounded down: into the tab).
         case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
-        // The card's leading edge `rowGap` past the row's trailing edge, top-aligned.
-        case .beside: CGPoint(x: down(anchor.maxX + HoverCardEscapeGeometry.rowGap), y: anchor.maxY - size.height)
+        // The card's leading edge one device pixel past the target's trailing edge, top-aligned: the
+        // sidebar row cards' gap (`HoverCardEscapeGeometry.edgeGap(scale:)`, Lawrence 2026-10-21 "horizontally
+        // only 1 pixel gap"), so the update card sits at the hover cards' gap (Lawrence 2026-10-19).
+        case .beside: CGPoint(x: down(anchor.maxX + HoverCardEscapeGeometry.edgeGap(scale: scale)), y: anchor.maxY - size.height)
         // Right of the row, its top on the row's top (before any clamp or flip the screen needs).
         case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale, alignment: rowAlignment).card.origin
         }
