@@ -205,7 +205,9 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         }
         // `download list [--limit N]`, `download [wait] [--id ID] [--path P] [--timeout-ms N]` (the old
         // CLI's verbs): the app's downloads, this tab's (`page`: every tab's).
-        ("download" | "downloads", _) => download(rest, &mut params, &mut timeout).ok_or_else(usage)??,
+        ("download" | "downloads", _) => {
+            download(rest, &mut params, &mut timeout).ok_or_else(usage)??
+        }
         ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
         ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),

@@ -58,7 +58,8 @@ fn drag_and_upload_reach_the_app() {
 
 #[test]
 fn upload_takes_a_chooser_wait() {
-    let (method, params) = page(&["upload", "#pick", "/tmp/a.txt", "--timeout-ms", "8000"]).unwrap();
+    let (method, params) =
+        page(&["upload", "#pick", "/tmp/a.txt", "--timeout-ms", "8000"]).unwrap();
     assert_eq!(method, "browser.page.upload");
     assert_eq!(params["files"], json!(["/tmp/a.txt"]));
     assert_eq!(params["timeout_ms"], json!(8000));

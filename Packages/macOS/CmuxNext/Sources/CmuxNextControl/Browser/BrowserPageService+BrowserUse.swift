@@ -35,9 +35,7 @@ extension BrowserPageService {
                 }
                 switch answer["chooser"]?.stringValue {
                 case "chosen"?:
-                    if let input = BrowserPageAgentInput.from(kind: .click, answer: value) {
-                        await engine.announce(Self.attributed(input, call), tabID: tab.id)
-                    }
+                    await engine.announce(Self.attributed(.from(kind: .click, answer: value), call), tabID: tab.id)
                     var result = Self.base(tab)
                     result["value"] = ["files": .array(files.map { .string($0.lastPathComponent) }), "chooser": true]
                     return .object(result)
