@@ -199,6 +199,30 @@ import Testing
         #expect(Self.resolve(t2.maxY + 40, sections, layout) == after, "below the open fold's group")
     }
 
+    @Test func anExternalTabDragKeepsItsUnfoldedResolverGeometry() throws {
+        let (list, window) = Self.list()
+        defer { window.close() }
+        list.external = SidebarListView.ExternalDrag(windowPoint: .zero, sourceMachine: .local)
+        #expect(!list.options(includeGap: false).foldsDone)
+    }
+
+    /// External tab drags keep each visible tab as a target even when its group ends in a Done fold.
+    @Test func aTabDragKeepsVisibleTargetsBeforeADoneFold() throws {
+        for open in [false, true] {
+            var member = Self.ws("g2", done: open)
+            member.tabs = [SidebarTab(id: TabID("t1"), title: "t1"), SidebarTab(id: TabID("t2"), title: "t2")]
+            let members = open ? [Self.ws("g1"), member] : [member, Self.ws("d", done: true)]
+            let (sections, layout) = Self.groupAtEnd(members, tabs: true, open: open)
+            for tab in [TabID("t1"), TabID("t2")] {
+                let row = try #require(layout.row(for: .tab(member.id, tab)))
+                #expect(DropResolver.resolveTabDrop(y: row.y + 1, base: layout, sections: sections,
+                                                    sourceMachine: .local, reordersTabRows: true) == .beforeTab(member.id, tab))
+                #expect(DropResolver.resolveTabDrop(y: row.y + row.height / 2, base: layout, sections: sections,
+                                                    sourceMachine: .local, reordersTabRows: true) == .intoWorkspace(member.id))
+            }
+        }
+    }
+
     /// Codex review: a group's drag slides its "Done (N)" row with it: the row is part of the lifted group (one level
     /// in, like its members), so the slot the drag maps the pointer through spans it on every frame.
     @Test func aGroupDragCarriesItsDoneRow() throws {
