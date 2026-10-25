@@ -227,6 +227,9 @@ mod early_calls;
 mod early_calls_tests;
 #[cfg(test)]
 mod edit_diff_tests;
+mod elicitation;
+#[cfg(test)]
+mod elicitation_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]
@@ -366,6 +369,9 @@ pub struct Translator {
     /// `updatedInput` (its permission reply schema), so an allow the hub
     /// did not rewrite hands the input back as it came.
     inputs: Mutex<HashMap<String, Value>>,
+    /// claude control request_id -> the MCP elicitation form it asked
+    /// (`elicitation.rs`), held until the answer.
+    elicitations: Mutex<HashMap<String, elicitation::Form>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -504,6 +510,7 @@ impl Translator {
             control_out: Mutex::new(HashMap::new()),
             suggestions: Mutex::new(HashMap::new()),
             inputs: Mutex::new(HashMap::new()),
+            elicitations: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
