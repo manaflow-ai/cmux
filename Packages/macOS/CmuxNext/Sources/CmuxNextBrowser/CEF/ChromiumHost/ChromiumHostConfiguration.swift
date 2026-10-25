@@ -13,8 +13,12 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
         self.arguments = arguments
     }
 
-    /// The host app embed-cef.sh puts beside the helpers of `layout` in Debug
-    /// builds (`<Product> Chromium Host.app`), or nil when this build has none.
+    /// The host embed-cef.sh puts into the app's own `Contents/MacOS` in Debug
+    /// builds (`<Product> Chromium Host`), or nil when this build has none.
+    ///
+    /// A second executable of the app, not an app of its own: Chromium gives
+    /// its sandboxed helpers read access to the browser process's main bundle
+    /// only, and the app is the bundle that holds the framework and the helpers.
     ///
     /// - Parameters:
     ///   - layout: The app's CEF runtime.
@@ -28,7 +32,7 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
         let helper = layout.helperApp.deletingPathExtension().lastPathComponent
         guard helper.hasSuffix(" Helper") else { return nil }
         let name = String(helper.dropLast(" Helper".count)) + " Chromium Host"
-        let executable = layout.frameworksDirectory.appending(path: "\(name).app/Contents/MacOS/\(name)")
+        let executable = layout.mainBundle.appending(path: "Contents/MacOS/\(name)")
         guard fileManager.isExecutableFile(atPath: executable.path) else { return nil }
         return ChromiumHostConfiguration(
             executable: executable,

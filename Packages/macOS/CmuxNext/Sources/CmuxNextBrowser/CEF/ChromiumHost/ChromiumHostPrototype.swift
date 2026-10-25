@@ -25,7 +25,7 @@ public final class ChromiumHostPrototype {
         self.makeConfiguration = makeConfiguration
     }
 
-    /// The bundled host of this app (`<App> Chromium Host.app`), its data under
+    /// The bundled host of this app (`Contents/MacOS/<App> Chromium Host`), its data under
     /// `<Application Support>/<bundle id>/ChromiumHost`.
     public static func bundledConfiguration(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
                                             fileManager: FileManager = .default) -> ChromiumHostConfiguration? {

@@ -29,19 +29,26 @@ the "not now" in [browser-isolation.md](browser-isolation.md). Paths: `S/` = `Pa
 ### 3.1 Processes
 
 ```
-cmux (app)                          <App> Chromium Host.app (new)              Chromium helpers (as today)
+cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host  Chromium helpers (as today)
   UI, layout, key router,             Chromium browser process                 Renderer, GPU, Utility, Plugin, Alerts
   tab model, omnibar, prompts,        CefInitialize + CefRunMessageLoop         children of the host
   CALayerHost per page        <-wire-> on ITS main thread                       sandboxed (helper_main.mm)
   supervisor (restart, restore)       page windows: input-less, no pixels
 ```
 
-- The host is a small app in `Contents/Frameworks/<Product> Chromium Host.app` with `LSUIElement`, its own bundle id
-  (`<app id>.chromium-host`) and `NSPrincipalClass ChromiumHostApplication` (the `CefAppProtocol` app). It loads the
-  app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one thread, so no zone race.
-  It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main bundle is the outer app
-  (`--main-bundle`, as in process), never the host's own small bundle: the helpers Chromium starts and sandboxes live
-  in the outer app (with the host's bundle the renderer ended at once and the host aborted, 2026-10-24). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
+- The host is a second executable of the app, `Contents/MacOS/<Product> Chromium Host` (changed 2026-10-24 from
+  `Contents/Frameworks/<Product> Chromium Host.app`): Chromium sandboxes its helpers with read access to the browser
+  process's main bundle (`content/browser/sandbox_parameters_mac.mm`: bundle-path = `base::apple::MainBundlePath()` =
+  `NSBundle.mainBundle`; CEF's `main_bundle_path` sets only the outer and framework bundles), and only the outer app
+  holds the framework and the helpers. As its own app every GPU, network and renderer helper failed to load the
+  framework (`cef_load_library: dlopen ...` in the helpers' stderr), and the host aborted ("GPU process isn't usable",
+  SIGABRT) on cmuxs-Mac-mini, cmuxs-Mac-mini-3 and cmux9s (macOS 27, CEF cmux.33); with `--no-sandbox` the same host
+  showed its page (step bbb82eeee4d6bf5d0b84dfe3). So the host shares the app's bundle id and Info.plist (it makes
+  itself an accessory app in code; `ChromiumHostApplication` is created before `NSApp`), and with them its code
+  identity for TCC and the keychain. A separate host identity needs a fork patch (bundle-path from the outer bundle);
+  decision 3. It loads the app's CEF framework from `Contents/Frameworks` with `cef_load_library` while it has one
+  thread, so no zone race. It uses the same five helper apps as today (`browser_subprocess_path`), and Chromium's main
+  bundle path is the outer app (`--main-bundle`). Prototype: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm`,
   bundled by `scripts/cmux-next/embed-cef.sh` (Debug only).
 - cmux no longer maps the framework. The shim becomes a client library of the wire (Swift, no CEF).
 - One host for every profile, as Chrome has one browser process. A host crash then reloads every Chromium page. One
@@ -146,7 +153,7 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
 
 - Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
   as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
-  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `<Product> Chromium Host.app`, Debug only,
+  shim's key nor the Chromium runtime pack's; bundled by `embed-cef.sh` as `Contents/MacOS/<Product> Chromium Host`, Debug only,
   signed by `sign-cef.sh`). One Chrome-style page per host.
   Its parent view sits in a transparent, click-through, floating window of the host at the pane's screen rect; its
   `-cmuxOcclusionRects` covers the page, so the fork's tracker never lets the page window take the mouse. It calls
@@ -259,4 +266,9 @@ build is about 1.6 h, packaging and the pin about a day); the fleet measure queu
 1. One host for every profile (a crash reloads every Chromium page; least memory), or one host per profile (a crash
    stays in one profile; about 60-90 MB more per extra profile).
 2. Release keychain: share an access group between cmux and the host (needs a provisioning change), or migrate
-   "Chromium Safe Storage" to the host once at first start.
+   "Chromium Safe Storage" to the host once at first start. (Moot while decision 3 keeps the host in the app's
+   identity: the host then is cmux for the keychain.)
+3. Host identity: keep the host a second executable of cmux.app (same bundle id and code identity: TCC prompts and the
+   keychain are cmux's, no fork patch; risks: two processes with one bundle id for LaunchServices and
+   `NSRunningApplication`, one shared defaults domain), or a fork patch so the sandbox's bundle-path is the outer
+   bundle and the host stays its own app (own identity, needs decision 2 and a TCC check).
