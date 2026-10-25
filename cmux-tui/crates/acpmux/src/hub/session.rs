@@ -131,6 +131,9 @@ pub struct Session {
     /// The hub clock's time before which a turn held at its stalled deadline is not looked at
     /// again (`stalled_turn.rs`); 0 for none.
     pub(super) stalled_recheck: AtomicU64,
+    /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
+    /// inside one gets longer before it counts as stalled.
+    pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or

@@ -814,7 +814,8 @@ pub struct Config {
     pub silent_turn_ms: Option<u64>,
     /// `stalledTurnMs`: how long a running turn may go with no sign of its model at work (as
     /// `silentTurnMs` counts them, also across a daemon restart) before acpmux ends it as failed,
-    /// `detail` `stalled` (`hub/stalled_turn.rs`). Only a turn nobody holds: no client attached,
+    /// `detail` `stalled` (`hub/stalled_turn.rs`); four times that inside a tool call that has
+    /// not ended. Only a turn nobody holds: no client attached,
     /// no permission waiting, and its recorded owner (a sub-session's parent, a `spawnedBy` tag)
     /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]

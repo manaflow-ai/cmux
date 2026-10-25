@@ -1,6 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. A running turn whose model went quiet for good.
 //!
-//! On huge-blue (2026-10-25) 77 Codex chats read `running` for a day: a broadcast woke old
+//! On huge-blue (2026-10-25) 72 Codex chats read `running` for a day: a broadcast woke old
 //! reviewers while the machine was out of processes and its network timed out, each Codex
 //! sent its model request and never heard back, and its app-server lived on with the turn
 //! open. Nothing ended those turns: the agent never answered, Stop could not end a turn an
@@ -9,11 +9,13 @@
 //! wrong, and a prompt queued behind such a turn waited forever.
 //!
 //! A turn that has shown no sign of its model at work (`tap.rs` `from_the_model`, as
-//! `silentTurnMs` counts them) for `stalledTurnMs` (default 6 h; 0 off) ends here as failed,
+//! `silentTurnMs` counts them) for `stalledTurnMs` (default 6 h; 0 off; four times that while
+//! one of its tool calls has not ended, so a long command that prints nothing is not cut off,
+//! and a tool that never ends does not hold the turn for good) ends here as failed,
 //! `detail` `stalled`, unless someone holds it: a client that shows the chat, a permission or
 //! secret waiting for the person, or its recorded owner (a sub-session's parent, the session a
 //! `spawnedBy` tag names) running or waiting on this daemon. The agent gets the cancel, and the
-//! turn ends at once through the forced end Stop uses (`cancel.rs`), so an agent that never
+//! turn ends right after through the forced end Stop uses (`cancel.rs`), so an agent that never
 //! answers still lets go of it. The session is then ready, its queue held as after any failed
 //! turn, and the idle harness exit (`idle.rs`) stops the agent after `idle_child` like any
 //! unused one; the next prompt resumes the chat. Nothing is closed and nothing is decided by
@@ -30,7 +32,44 @@ use super::*;
 /// How soon a turn held at its deadline (a client shows it, its owner is busy) is looked at again.
 const RECHECK: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// How many periods a turn quiet inside a tool call that has not ended gets: a long command
+/// that prints nothing is work, but a tool that never ends does not hold the turn for good.
+const OPEN_TOOL_PERIODS: u64 = 4;
+
+/// How long the stalled end waits for the agent to take the cancel before ending the turn anyway.
+const CANCEL_SEND: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Notes in `open` what one `session/update` says of the turn's tool calls: one starts, or ends
+/// (`completed`, `failed`).
+pub(super) fn track_tool(open: &mut std::collections::HashSet<String>, update: &Value) {
+    let kind = update.get("sessionUpdate").and_then(Value::as_str);
+    if !matches!(kind, Some("tool_call" | "tool_call_update")) {
+        return;
+    }
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return };
+    match update.get("status").and_then(Value::as_str) {
+        Some("completed" | "failed") => {
+            open.remove(id);
+        }
+        // A call starts pending when it says nothing; an update without a status changes none.
+        None if kind == Some("tool_call_update") => {}
+        _ => {
+            open.insert(id.to_owned());
+        }
+    }
+}
+
 impl Hub {
+    /// A `session/update` from `session`'s agent (`tap.rs`): its open tool calls follow it.
+    pub(super) fn note_tool_update(session: &Session, update: &Value) {
+        track_tool(&mut session.open_tools.lock().unwrap_or_else(|e| e.into_inner()), update);
+    }
+
+    /// A new turn, or a new agent for it: no tool call of it is open yet.
+    pub(super) fn forget_open_tools(session: &Session) {
+        session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
+    }
+
     /// `session`'s turn starts its stalled count: now, or at `heard_ms` (Unix ms), the last sign
     /// of its model an adopted host's log holds (`hosts.rs` `recover_work`).
     pub(super) fn watch_stalled_turn(&self, session: &Session, heard_ms: Option<u64>) {
@@ -65,10 +104,14 @@ impl Hub {
     }
 
     /// When `session`'s turn is due, on the hub clock (ns): a period after its model's last
-    /// sign, and not before a recheck.
+    /// sign (`OPEN_TOOL_PERIODS` inside a tool call that has not ended), and not before a
+    /// recheck. The sign may be from before this daemon started (negative): the period is added
+    /// first, so a turn quiet for longer than the daemon has run is due at once.
     fn stalled_due(session: &Session, period: u64) -> u64 {
-        let heard = session.heard_at.load(Ordering::Relaxed).saturating_add(period as i64);
-        (heard.max(0) as u64).max(session.stalled_recheck.load(Ordering::Relaxed))
+        let in_tool = !session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+        let period = if in_tool { period.saturating_mul(OPEN_TOOL_PERIODS) } else { period };
+        let due = session.heard_at.load(Ordering::Relaxed).saturating_add(period as i64);
+        (due.max(0) as u64).max(session.stalled_recheck.load(Ordering::Relaxed))
     }
 
     /// Ends every turn whose model has said nothing for `stalled` and that nobody holds.
@@ -95,13 +138,25 @@ impl Hub {
             session.stalled_recheck.store(now.saturating_add(period), Ordering::Relaxed);
             let answer =
                 json!({"stopReason": "cancelled", "_meta": {"acpmux": {"stalledMs": silent_ms}}});
-            session.steer_end.send_replace(Some((turn.turn_id, answer)));
-            // The agent is told to stop too, off this pass: a wedged host must not hold it.
+            // Off this pass, so a wedged host never holds the reaper: the agent of this very
+            // turn gets the cancel (bounded), then the turn ends whether it answered or not.
+            // Both only while that turn is still the one running.
             let session = session.clone();
+            let turn_id = turn.turn_id;
             tokio::spawn(async move {
-                let child = session.child.lock().await.clone();
-                if let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) {
-                    let _ = child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
+                let ours = |s: &Session| s.turn().is_some_and(|t| t.turn_id == turn_id);
+                let _ = tokio::time::timeout(CANCEL_SEND, async {
+                    let child = session.child.lock().await.clone();
+                    if ours(&session)
+                        && let (Some(child), Some(sid)) = (child, session.meta().agent_session_id)
+                    {
+                        let _ =
+                            child.notify(method::SESSION_CANCEL, json!({"sessionId": sid})).await;
+                    }
+                })
+                .await;
+                if ours(&session) {
+                    session.steer_end.send_replace(Some((turn_id, answer)));
                 }
             });
         }

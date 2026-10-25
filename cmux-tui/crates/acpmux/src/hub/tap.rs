@@ -80,6 +80,12 @@ impl Hub {
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            if matches!(dir, Direction::In)
+                && let Message::Notification { method, params: Some(p) } = msg
+                && method == crate::rpc::method::SESSION_UPDATE
+            {
+                Hub::note_tool_update(&tap_session, &p["update"]);
+            }
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
                 tap_session.heard_at.store(tap_hub.clock_now() as i64, Ordering::Relaxed);

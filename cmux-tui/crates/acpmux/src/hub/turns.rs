@@ -427,7 +427,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        // Its stalled count starts before it reads running (`stalled_turn.rs`).
+        // Its stalled count starts before it reads running, and again once its prompt is
+        // written (`stalled_turn.rs`).
+        Self::forget_open_tools(session);
         self.watch_stalled_turn(session, None);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
@@ -439,7 +441,10 @@ impl Hub {
             json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
-            || self.title_after_prompt(session),
+            || {
+                self.watch_stalled_turn(session, None);
+                self.title_after_prompt(session)
+            },
         )
         .await;
         // The account behind this harness is exhausted: move the session
@@ -462,6 +467,9 @@ impl Hub {
                 let turn = session.turn();
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
+                // A new agent: the old one's silence and tools are not its own.
+                Self::forget_open_tools(session);
+                self.watch_stalled_turn(session, None);
                 self.set_status(session, SessionStatus::Running);
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
@@ -493,12 +501,17 @@ impl Hub {
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
                         if let Some(sid2) = session.meta().agent_session_id {
-                            result = child2
-                                .request(
-                                    method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
-                                )
-                                .await;
+                            // Like the first prompt: Stop's and a stalled turn's forced end
+                            // (`cancel.rs`, `stalled_turn.rs`) end it too.
+                            result = super::steer_end::agent_prompt_hook(
+                                session,
+                                &child2,
+                                json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
+                                &turn_id,
+                                false,
+                                || self.watch_stalled_turn(session, None),
+                            )
+                            .await;
                         }
                     }
                     (Err(e2), _) => result = Err(e2),
