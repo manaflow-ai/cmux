@@ -7,7 +7,7 @@ import Testing
 /// window, as in Chrome: the sidebar, title row, tab strip and the main pane's gutter step aside, and
 /// the window enters macOS full screen. It stayed inside the pane, with the sidebar and tab strip
 /// beside it (2026-10-25). With another pane on screen it stays in its pane, as before.
-@MainActor @Suite(.serialized, .enabled(if: !NSScreen.screens.isEmpty, "the window fixture needs a display"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)))
 struct PageFullscreenWholeScreenTests {
     typealias Fixture = SidebarMultiViewWindowTests.Fixture
 
