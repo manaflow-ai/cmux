@@ -277,6 +277,10 @@ def _launch_startup_command_pty(startup_command: str, workspace_id: str, surface
     _must(bool(startup_command.strip()), "cmux ssh output missing ssh_terminal_startup_command for PTY fallback")
     env = dict(os.environ)
     env.pop("CMUX_SOCKET_PATH", None)
+    # The fallback stands in for a cmux terminal, which never passes this key
+    # down (cmux#22585); keeping the host's value would make the
+    # TERM_PROGRAM_VERSION assertion below depend on where the test runs.
+    env.pop("TERM_PROGRAM_VERSION", None)
     env["CMUX_WORKSPACE_ID"] = workspace_id
     env["CMUX_SURFACE_ID"] = surface_id
     env["CMUX_TAB_ID"] = workspace_id
@@ -637,8 +641,14 @@ def main() -> int:
                 f"ssh-env should propagate TERM_PROGRAM=ghostty when AcceptEnv allows it, got: {term_program!r}",
             )
 
+            # No cmux-tui terminal child gets TERM_PROGRAM_VERSION (cmux#22585:
+            # a child that reads a Ghostty version turns its own copy-on-select
+            # drag fallback off), so ssh-env has nothing to forward either.
             term_program_version = _read_probe_payload(client, surface_id, "printf '%s' \"${TERM_PROGRAM_VERSION:-}\"")
-            _must(bool(term_program_version), "ssh-env should propagate non-empty TERM_PROGRAM_VERSION")
+            _must(
+                not term_program_version,
+                f"ssh-env must not propagate TERM_PROGRAM_VERSION, got: {term_program_version!r}",
+            )
 
             tty_retry_token = f"CMUX_TTY_RETRY_{secrets.token_hex(6)}"
             client.send_surface(surface_id, f"echo {tty_retry_token}\n")
