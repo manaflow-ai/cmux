@@ -29,6 +29,7 @@ use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
 use super::github::{self, TokenAsk};
+use super::github_minter::Minter;
 use super::sender::{Answer, Backoff, OpRequest};
 use super::session::Session;
 use super::wire::{
@@ -305,6 +306,8 @@ struct Worker {
     clients: Vec<Client>,
     activity: Activity,
     live: Option<Live>,
+    /// GitHub token asks, off the poll loop (`github_minter.rs`).
+    github: Option<Minter<PosterHttp>>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     rng: SystemRandom,
@@ -343,6 +346,9 @@ impl Worker {
                 unsupported: false,
             },
             live: None,
+            github: Minter::spawn(wall_ms, log)
+                .map_err(|e| log(&format!("github minter: {e}")))
+                .ok(),
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             rng: SystemRandom::new(),
@@ -502,22 +508,35 @@ impl Worker {
                 Err(_) => closed.push(i),
             }
         }
-        // A GitHub token ask is answered on its own connection, before a
-        // client that already closed its write half is dropped.
+        // A GitHub token ask takes its connection to the minter, which
+        // answers it with one line and closes it: one ask per connection,
+        // and the poll loop never waits on a mint.
         let mut session_lines = Vec::new();
+        let mut asks: Vec<(usize, Result<TokenAsk, String>)> = Vec::new();
         for (i, line) in lines {
+            if asks.iter().any(|(asker, _)| *asker == i) {
+                continue;
+            }
             match github_ask(&line) {
-                Some(ask) => {
-                    let reply = self.github_token(ask);
-                    if let Some(client) = self.clients.get_mut(i) {
-                        let _ = write_reply(&mut client.stream, &reply);
-                    }
-                }
+                Some(ask) => asks.push((i, ask)),
                 None => session_lines.push(line),
             }
         }
+        closed.extend(asks.iter().map(|(i, _)| *i));
+        closed.sort_unstable();
+        closed.dedup();
+        let mut taken = Vec::new();
         for i in closed.into_iter().rev() {
-            self.clients.remove(i);
+            if i < self.clients.len() {
+                taken.push((i, self.clients.remove(i).stream));
+            }
+        }
+        for (i, ask) in asks {
+            if let (Some(minter), Some(pos)) =
+                (self.github.as_ref(), taken.iter().position(|(at, _)| *at == i))
+            {
+                minter.ask(ask, taken.swap_remove(pos).1);
+            }
         }
         for line in session_lines {
             let now = self.now();
@@ -528,22 +547,6 @@ impl Worker {
             }
             self.drive(reqs);
         }
-    }
-
-    /// One GitHub token ask (`github.rs`): minted by the API for this
-    /// machine's `vm` install. The journal gets the repo, permissions and
-    /// outcome only; the token is in the reply and nowhere else.
-    fn github_token(&mut self, ask: Result<TokenAsk, String>) -> Value {
-        let ask = match ask {
-            Ok(ask) => ask,
-            Err(why) => return github::refusal("request.invalid", &why),
-        };
-        let Some(live) = self.live.as_mut() else {
-            return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
-        };
-        let reply = github::reply_for(&live.client.github_token(&ask, wall_ms()));
-        log(&github::note_for(&ask, &reply));
-        reply
     }
 
     fn bind_now(&mut self) {
@@ -618,6 +621,12 @@ impl Worker {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
             log(&format!("heartbeat test override: {heartbeat} ms (dev only)"));
+        }
+        if let Some(minter) = self.github.as_ref() {
+            match github_client(&bound, &key) {
+                Ok(client) => minter.bound(client),
+                Err(e) => log(&format!("github minter: {e}")),
+            }
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -773,21 +782,19 @@ impl Worker {
     }
 }
 
+/// The minter's own client for the bound machine: the same install key,
+/// its own HTTPS poster and bearer cache.
+fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
+    let key = InstallKey::from_pkcs8(key.pkcs8(), &SystemRandom::new())?;
+    Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
+}
+
 /// The ask of a `{"github_token": {...}}` line (checked), or `None` for
 /// every other line (the session's).
 fn github_ask(line: &str) -> Option<Result<TokenAsk, String>> {
     let msg: Value = serde_json::from_str(line).ok()?;
     let ask = msg.get(github::REQUEST_KEY)?;
     Some(TokenAsk::from_json(ask))
-}
-
-/// One reply line on a client's (non-blocking) connection, bounded by 2 s.
-fn write_reply(stream: &mut UnixStream, reply: &Value) -> io::Result<()> {
-    stream.set_nonblocking(false)?;
-    stream.set_write_timeout(Some(Duration::from_secs(2)))?;
-    let written = stream.write_all(format!("{reply}\n").as_bytes());
-    stream.set_nonblocking(true)?;
-    written
 }
 
 /// Reads what is available; `Ok(false)` at end of stream.

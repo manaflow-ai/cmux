@@ -20,17 +20,20 @@
 //! I/O), [`session`] (inputs to requests, sans I/O), [`client`] (bind and
 //! auth over the [`client::Http`] and [`client::Store`] traits), [`github`]
 //! (GitHub tokens for the machine's git and `gh` over the agent socket),
+//! `github_minter` (the thread that mints them off the poll loop),
 //! `role` (the Linux worker).
 
 pub mod client;
 pub mod github;
+#[cfg(unix)]
+pub mod github_minter;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;
 pub mod session;
 pub mod wire;
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod github_tests;
 #[cfg(test)]
 mod tests;

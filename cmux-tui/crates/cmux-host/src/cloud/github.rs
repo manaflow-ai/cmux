@@ -127,22 +127,29 @@ pub fn refusal(code: &str, message: &str) -> Value {
     json!({ "ok": false, "error": { "code": code, "message": message } })
 }
 
-/// The reply line for the API's answer: the token and its expiry, or the
-/// API's error (code, message, HTTP status, `retry_after` when given).
-pub fn reply_for(answer: &Answer) -> Value {
+/// The reply line for the API's answer to `ask`: the token and its expiry,
+/// or the API's error (code, message, HTTP status, `retry_after` when given).
+/// A 200 that lacks a field of the contract, or names another repo, is a
+/// refusal, never a success.
+pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
     match answer {
         Answer::Http { status: 200, body } => {
             let token = body.field("token").as_str().filter(|t| !t.is_empty());
-            let expires = body.field("expires_at").as_str();
-            match (token, expires) {
-                (Some(token), Some(expires)) => json!({
+            let expires = body.field("expires_at").as_str().filter(|e| !e.is_empty());
+            let repo = body.field("repo").as_str().filter(|r| r.eq_ignore_ascii_case(&ask.repo));
+            let granted = body.field("permissions").as_object().filter(|p| !p.is_empty());
+            match (token, expires, repo, granted) {
+                (Some(token), Some(expires), Some(repo), Some(granted)) => json!({
                     "ok": true,
                     "token": token,
                     "expires_at": expires,
-                    "repo": body.field("repo"),
-                    "permissions": body.field("permissions"),
+                    "repo": repo,
+                    "permissions": granted,
                 }),
-                _ => refusal("integration.bad_answer", "the API answered without a token"),
+                _ => refusal(
+                    "integration.bad_answer",
+                    "the API's answer lacks a token, expiry, the repo or its permissions",
+                ),
             }
         }
         Answer::Http { status, body } => {

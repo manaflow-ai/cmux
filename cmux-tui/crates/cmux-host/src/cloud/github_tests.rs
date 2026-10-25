@@ -2,15 +2,17 @@
 //! request it sends (route, bearer, body), the reply line it builds, and
 //! that neither the journal note nor a refusal carries a token.
 
-use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
+use std::io::{BufRead, BufReader};
+use std::os::unix::net::UnixStream;
+use std::sync::{Arc, Mutex};
 
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use serde_json::{Value, json};
 
 use super::client::{CloudClient, Http};
 use super::github::{TOKEN_PATH, TokenAsk, note_for, reply_for};
+use super::github_minter::{Minter, answer};
 use super::sender::Answer;
 use super::wire::{Bound, Env};
 
@@ -28,11 +30,11 @@ struct State {
 }
 
 #[derive(Clone, Default)]
-struct Fake(Rc<RefCell<State>>);
+struct Fake(Arc<Mutex<State>>);
 
 impl Http for Fake {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
-        let mut st = self.0.borrow_mut();
+        let mut st = self.0.lock().unwrap();
         st.seen.push((url.to_owned(), bearer.map(str::to_owned), body.clone()));
         match url.strip_prefix(DEV).unwrap_or("") {
             "/v1/auth/challenge" => Ok((
@@ -89,15 +91,15 @@ fn minted() -> (u16, Value) {
 #[test]
 fn asks_the_token_route_as_the_vm_install_for_its_team() {
     let fake = Fake::default();
-    fake.0.borrow_mut().answers.push_back(minted());
+    fake.0.lock().unwrap().answers.push_back(minted());
     let mut c = client(&fake);
     let a = ask(json!({ "contents": "write" }));
     let answer = c.github_token(&a, T0);
-    let reply = reply_for(&answer);
+    let reply = reply_for(&a, &answer);
     assert_eq!(reply["ok"], true);
     assert_eq!(reply["token"], SECRET);
     assert_eq!(reply["expires_at"], "2026-10-25T02:00:00Z");
-    let st = fake.0.borrow();
+    let st = fake.0.lock().unwrap();
     let (url, bearer, body) = st.seen.last().unwrap().clone();
     assert_eq!(url, format!("{DEV}{TOKEN_PATH}"));
     assert_eq!(bearer.as_deref(), Some("bearer-1"), "the vm install's bearer, minted by the agent");
@@ -113,17 +115,18 @@ fn asks_the_token_route_as_the_vm_install_for_its_team() {
 #[test]
 fn a_policy_refusal_is_passed_through_without_a_bearer_retry() {
     let fake = Fake::default();
-    fake.0.borrow_mut().answers.push_back((
+    fake.0.lock().unwrap().answers.push_back((
         403,
         json!({ "error": { "code": "policy.denied", "message": "contents:write is over the grant" } }),
     ));
     let mut c = client(&fake);
-    let reply = reply_for(&c.github_token(&ask(json!({ "contents": "write" })), T0));
+    let a = ask(json!({ "contents": "write" }));
+    let reply = reply_for(&a, &c.github_token(&a, T0));
     assert_eq!(
         reply,
         json!({ "ok": false, "status": 403, "error": { "code": "policy.denied", "message": "contents:write is over the grant" } })
     );
-    let st = fake.0.borrow();
+    let st = fake.0.lock().unwrap();
     assert_eq!(st.tokens_minted, 1);
     assert_eq!(st.seen.iter().filter(|s| s.0.ends_with(TOKEN_PATH)).count(), 1);
 }
@@ -132,14 +135,15 @@ fn a_policy_refusal_is_passed_through_without_a_bearer_retry() {
 fn a_stale_bearer_is_dropped_and_retried_once() {
     let fake = Fake::default();
     {
-        let mut st = fake.0.borrow_mut();
+        let mut st = fake.0.lock().unwrap();
         st.answers.push_back((401, json!({ "error": { "code": "auth.required", "message": "" } })));
         st.answers.push_back(minted());
     }
     let mut c = client(&fake);
-    let reply = reply_for(&c.github_token(&ask(json!({ "contents": "read" })), T0));
+    let a = ask(json!({ "contents": "read" }));
+    let reply = reply_for(&a, &c.github_token(&a, T0));
     assert_eq!(reply["ok"], true);
-    let st = fake.0.borrow();
+    let st = fake.0.lock().unwrap();
     assert_eq!(st.tokens_minted, 2);
     assert_eq!(st.seen.last().unwrap().1.as_deref(), Some("bearer-2"));
 }
@@ -150,15 +154,16 @@ fn rate_limits_and_transport_errors_become_refusals() {
         status: 429,
         body: json!({ "error": { "code": "rate_limited", "message": "slow down" }, "retry_after": 30 }),
     };
-    let reply = reply_for(&limited);
+    let a = ask(json!({ "contents": "read" }));
+    let reply = reply_for(&a, &limited);
     assert_eq!(reply["error"]["code"], "rate_limited");
     assert_eq!(reply["retry_after"], 30);
-    assert_eq!(reply_for(&Answer::Transport)["error"]["code"], "integration.unreachable");
+    assert_eq!(reply_for(&a, &Answer::Transport)["error"]["code"], "integration.unreachable");
     // A 200 without a token is not a success.
     let empty = Answer::Http { status: 200, body: json!({ "expires_at": "x" }) };
-    assert_eq!(reply_for(&empty)["ok"], false);
+    assert_eq!(reply_for(&a, &empty)["ok"], false);
     let unknown = Answer::Http { status: 502, body: json!({}) };
-    assert_eq!(reply_for(&unknown)["error"]["code"], "http.502");
+    assert_eq!(reply_for(&a, &unknown)["error"]["code"], "http.502");
 }
 
 #[test]
@@ -183,4 +188,95 @@ fn asks_are_checked_before_they_reach_the_api() {
         TokenAsk::from_json(&line["github_token"]).unwrap(),
         ask(json!({ "contents": "write" }))
     );
+}
+
+#[test]
+fn an_auth_403_retries_with_a_fresh_bearer_once() {
+    let fake = Fake::default();
+    {
+        let mut st = fake.0.lock().unwrap();
+        st.answers
+            .push_back((403, json!({ "error": { "code": "auth.forbidden", "message": "" } })));
+        st.answers
+            .push_back((403, json!({ "error": { "code": "auth.forbidden", "message": "" } })));
+    }
+    let mut c = client(&fake);
+    let a = ask(json!({ "contents": "read" }));
+    let reply = reply_for(&a, &c.github_token(&a, T0));
+    assert_eq!(reply["error"]["code"], "auth.forbidden");
+    let st = fake.0.lock().unwrap();
+    assert_eq!(st.tokens_minted, 2, "one fresh bearer, then the answer stands");
+    assert_eq!(st.seen.iter().filter(|s| s.0.ends_with(TOKEN_PATH)).count(), 2);
+}
+
+#[test]
+fn a_200_must_carry_every_field_for_the_asked_repo() {
+    let a = ask(json!({ "contents": "write" }));
+    let full = || {
+        json!({ "token": SECRET, "expires_at": "2026-10-25T02:00:00Z", "repo": "manaflow-ai/cmux",
+                "permissions": { "contents": "write", "metadata": "read" } })
+    };
+    let reply = |body: Value| reply_for(&a, &Answer::Http { status: 200, body });
+    assert_eq!(reply(full())["ok"], true);
+    assert_eq!(reply(full())["permissions"]["metadata"], "read", "as granted");
+    for key in ["token", "expires_at", "repo", "permissions"] {
+        let mut body = full();
+        body.as_object_mut().unwrap().remove(key);
+        let out = reply(body);
+        assert_eq!(out["error"]["code"], "integration.bad_answer", "{key}");
+        assert!(!out.to_string().contains(SECRET));
+    }
+    let mut other = full();
+    other["repo"] = json!("manaflow-ai/other");
+    assert_eq!(reply(other)["ok"], false);
+}
+
+fn no_log(_: &str) {}
+fn fixed_now() -> u64 {
+    T0
+}
+
+/// One ask through the minter thread: the reply line on `ours`.
+fn ask_minter(minter: &Minter<Fake>, a: Result<TokenAsk, String>) -> Value {
+    let (ours, theirs) = UnixStream::pair().unwrap();
+    ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+    minter.ask(a, theirs);
+    let mut line = String::new();
+    BufReader::new(ours).read_line(&mut line).unwrap();
+    serde_json::from_str(&line).unwrap()
+}
+
+#[test]
+fn the_minter_answers_each_connection_off_the_poll_loop() {
+    let fake = Fake::default();
+    fake.0.lock().unwrap().answers.extend([minted(), minted()]);
+    let minter: Minter<Fake> = Minter::spawn(fixed_now, no_log).unwrap();
+    let a = ask(json!({ "contents": "write" }));
+    assert_eq!(ask_minter(&minter, Ok(a.clone()))["error"]["code"], "vm.unbound");
+    assert_eq!(ask_minter(&minter, Err("bad".to_owned()))["error"]["code"], "request.invalid");
+    minter.bound(client(&fake));
+    // A client gone before its reply does not stop the minter.
+    let (gone, theirs) = UnixStream::pair().unwrap();
+    drop(gone);
+    minter.ask(Ok(a.clone()), theirs);
+    let reply = ask_minter(&minter, Ok(a));
+    assert_eq!(reply["ok"], true);
+    assert_eq!(reply["token"], SECRET);
+}
+
+#[test]
+fn answer_logs_the_outcome_without_the_token() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LEAKED: AtomicBool = AtomicBool::new(false);
+    fn check(line: &str) {
+        if line.contains(SECRET) {
+            LEAKED.store(true, Ordering::SeqCst);
+        }
+    }
+    let fake = Fake::default();
+    fake.0.lock().unwrap().answers.push_back(minted());
+    let mut c = client(&fake);
+    let reply = answer(Some(&mut c), Ok(ask(json!({ "contents": "write" }))), T0, check);
+    assert_eq!(reply["token"], SECRET);
+    assert!(!LEAKED.load(Ordering::SeqCst));
 }
