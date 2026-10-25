@@ -6,10 +6,11 @@ import Foundation
 /// `Runtime.bindingCalled` event (`CEFAgentRelay.deliver` hands it here). A report emits
 /// `.verificationPageWaiting`. The binding is added again when a document commits and when it
 /// finishes, as the media bridge does, since a binding reaches only worlds that exist when it is
-/// added. Once per document, at `.finished` (after the detector's first check at
-/// DOMContentLoaded), the bridge also calls the detector's ready hook in the existing worlds, so
-/// a page found waiting before its binding existed reports then, with no timer in the page; a
-/// page that shows later reports at its next show.
+/// added. After each of those binding adds the bridge also calls the detector's ready hook in the
+/// existing worlds, so a page found waiting before its binding existed reports then, with no
+/// timer in the page: at `.committed` (a page whose load never ends) and at `.finished` (after
+/// the detector's first check at DOMContentLoaded). A page that shows later reports at its next
+/// show.
 final class CEFVerificationBridge {
     /// Weak: the tab owns the relay that owns this bridge.
     private weak var tab: CEFTab?
@@ -47,10 +48,10 @@ final class CEFVerificationBridge {
         CEFDocumentCall.run(Self.documentCalls(phase: state.phase), on: tab, browser: browser, label: "verification detector")
     }
 
-    /// The DevTools calls for a document that reached `phase`: the binding each time, the ready
-    /// call (two round trips) only once the document finished.
+    /// The DevTools calls for a document that reached `phase` (`.committed` or `.finished`): the
+    /// binding, then the ready call (two round trips).
     static func documentCalls(phase: BrowserLoadPhase) -> [CEFDocumentCall] {
-        phase == .finished ? [binding, readyCall] : [binding]
+        [binding, readyCall]
     }
 
     /// A `Runtime.bindingCalled` of the detector's binding from the main frame's world: emits the
