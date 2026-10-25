@@ -68,6 +68,9 @@ pub(super) struct PromptRun {
     pub(super) agent: Option<String>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`); an edit drops it.
     pub(super) supersede: Option<String>,
+    /// The paired machine whose Full-access setting covered its sender (`PromptOptions`); an
+    /// edit keeps it only from that machine.
+    pub(super) full_access_device: Option<String>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -87,6 +90,8 @@ pub(super) struct Slot<'a> {
     pub(super) agent: Option<&'a str>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
     pub(super) supersede: Option<&'a str>,
+    /// `PromptOptions::full_access_device`.
+    pub(super) full_access_device: Option<&'a str>,
     /// Set to the prompts it replaced when it queues (`enqueue`), for its acceptance.
     pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
 }
@@ -194,6 +199,7 @@ impl Hub {
                             provenance: p.provenance.cloned(),
                             agent: p.agent.map(str::to_owned),
                             supersede: p.supersede.map(str::to_owned),
+                            full_access_device: p.full_access_device.map(str::to_owned),
                         };
                         return Ok((turn_id, false, TurnGuard::new(guard, slot), Arc::new(run)));
                     }
@@ -332,6 +338,7 @@ impl Hub {
                     provenance: p.provenance.cloned(),
                     agent: p.agent.map(str::to_owned),
                     supersede: p.supersede.map(str::to_owned),
+                    full_access_device: p.full_access_device.map(str::to_owned),
                 }),
                 restored: false,
                 resume: false,
@@ -846,6 +853,9 @@ impl Hub {
                     provenance,
                     agent,
                     supersede,
+                    // A restored prompt names no machine: it does not run a chat out of its
+                    // policy's mode (`Hub::full_access_hold`).
+                    full_access_device: None,
                 }),
                 restored: true,
                 resume: true,

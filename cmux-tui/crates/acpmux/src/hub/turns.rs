@@ -258,6 +258,7 @@ impl Hub {
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             supersede: supersede.as_deref(),
+            full_access_device: opts.full_access_device.as_deref(),
             replaced: &replaced,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
@@ -280,13 +281,14 @@ impl Hub {
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
         let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let device = run.full_access_device.clone();
         let mut display_parts = run.display_parts.clone();
         // A pushed forum rule whose key moved on while it waited tells the current one.
         let mut provenance = run.provenance.clone();
         let pushed = self.forum_refresh_push(&prompt_id, &mut blocks, &mut provenance);
         let text = prompt_text(&blocks);
         if let Err(e) =
-            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
+            self.check_dispatch(session, control, trust_gate, device.as_deref(), &prompt_id, &turn_id, client).await
         {
             drop(guard);
             return Err(e);
@@ -376,7 +378,7 @@ impl Hub {
         // Starting the agent may have changed its mode (a spawn, a resume, a
         // pool claim, a replayed config): checked again before the prompt.
         if let Err(e) =
-            self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
+            self.check_dispatch(session, control, trust_gate, device.as_deref(), &prompt_id, &turn_id, client).await
         {
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
@@ -467,7 +469,15 @@ impl Hub {
                 let fallback = self.child_for(session).await;
                 let refusal = match &fallback {
                     Ok(_) => self
-                        .check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client)
+                        .check_dispatch(
+                            session,
+                            control,
+                            trust_gate,
+                            device.as_deref(),
+                            &prompt_id,
+                            &turn_id,
+                            client,
+                        )
                         .await
                         .err(),
                     Err(_) => None,

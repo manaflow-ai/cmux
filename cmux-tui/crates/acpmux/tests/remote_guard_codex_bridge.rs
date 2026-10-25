@@ -160,6 +160,10 @@ async fn bridge_chat(c: &mut Client, d: &Path) -> String {
     created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}")).to_owned()
 }
 
+fn prompt(s: &str) -> Value {
+    json!({"sessionId": s, "prompt": [{"type": "text", "text": "hi"}]})
+}
+
 fn full_access(s: &str) -> Value {
     json!({"sessionId": s, "modeId": "agent-full-access"})
 }
@@ -337,6 +341,15 @@ async fn a_paired_device_without_the_setting_stays_refused_while_one_with_it_is_
     assert!(r.get("error").is_none(), "with: {r}");
     let r = with.call("session/set_mode", full_access(&mine)).await;
     assert!(r.get("error").is_none(), "with, the other machine's chat: {r}");
+    // A chat in Full access by the setting is driven only by a request it covers: not the
+    // shared token, not the machine without it.
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    for (who, c) in [("the shared token", &mut web), ("without", &mut without)] {
+        let r = c.call("session/prompt", prompt(&mine)).await;
+        assert_eq!(r["error"]["data"]["reason"], "remote.full_access_device", "{who}: {r}");
+    }
+    let r = with.call("session/prompt", prompt(&mine)).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "with: {r}");
     // Nothing else: deny-all still holds a chat, and a chat started on this
     // machine keeps the mode its own policy holds.
     let locked = with
@@ -383,6 +396,9 @@ async fn turning_the_setting_off_or_revoking_the_machine_counts_for_its_next_req
     assert_eq!(mode_now(&hub, &s), "ask", "the chat is back in its policy's mode");
     let r = phone.call("session/set_mode", full_access(&s)).await;
     assert!(held(&r), "after off: {r}");
+    // The chat asks again, so the machine still drives it there.
+    let r = phone.call("session/prompt", prompt(&s)).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "after off, in ask: {r}");
     assert!(set_full_access(&mut person, &id, true).await.get("error").is_none());
     let r = phone.call("session/set_mode", full_access(&s)).await;
     assert!(r.get("error").is_none(), "on again: {r}");

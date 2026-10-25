@@ -316,10 +316,8 @@ impl Store {
             .position(|d| d.id == key && d.revoked_ms.is_none())
             .or_else(|| self.devices.iter().position(|d| d.name == key && d.revoked_ms.is_none()))
             .ok_or_else(|| {
-                RpcError::not_found(format!(
-                    "no paired machine {key:?}; see `cmux host ticket ls`"
-                ))
-                .with_data(json!({"reason": "not_found"}))
+                RpcError::not_found(format!("no paired machine {key:?}; see `cmux host ticket ls`"))
+                    .with_data(json!({"reason": "not_found"}))
             })?;
         let d = &mut self.devices[at];
         if on && d.role != Role::Client {

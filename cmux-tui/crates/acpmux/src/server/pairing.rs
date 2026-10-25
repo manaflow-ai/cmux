@@ -244,7 +244,9 @@ async fn set(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcEr
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::invalid_params("fullAccess (true or false) is required"))?;
     if on && !conn.is_person() {
-        return Err(crate::hub::person::person_required("letting a machine run chats in Full access"));
+        return Err(crate::hub::person::person_required(
+            "letting a machine run chats in Full access",
+        ));
     }
     let device = hub.pairing.set_full_access(key, on)?;
     let held_again = if on { 0 } else { hub.hold_policies_again().await };

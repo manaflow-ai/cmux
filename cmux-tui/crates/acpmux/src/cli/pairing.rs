@@ -76,7 +76,8 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
                     None => println!(
                         "Full access off for {name}{}",
                         match v["held_again"].as_u64() {
-                            Some(n) if n > 0 => format!("; {n} chat(s) back in their policy's mode"),
+                            Some(n) if n > 0 =>
+                                format!("; {n} chat(s) back in their policy's mode"),
                             _ => String::new(),
                         }
                     ),

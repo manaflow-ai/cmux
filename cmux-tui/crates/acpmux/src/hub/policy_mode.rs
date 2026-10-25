@@ -243,22 +243,11 @@ impl Hub {
     pub(crate) async fn hold_policies_again(self: &Arc<Self>) -> usize {
         let default = self.config.read().await.permission_policy;
         let table = self.web_modes();
-        // What `refuse_wider_mode` refuses: a mode that does not ask, under a narrower policy
-        // whose harness has a mode that keeps it.
-        let out_of_policy = |s: &Arc<Session>| {
-            let meta = s.meta();
-            if !meta.remote_origin {
-                return false;
-            }
-            let family = crate::web_modes::family_of(&meta);
-            let offered = super::start_mode::offered_ids(&meta);
-            narrow_policy(&meta, default)
-                .is_some_and(|policy| policy_mode(policy, &family, &offered).is_some())
-                && crate::web_modes::mode_of(&meta).is_some_and(|mode| {
-                    !super::start_mode::asks_in(&mode, &family, table.modes(&family))
-                })
-        };
-        let held: Vec<Arc<Session>> = self.sessions().into_iter().filter(out_of_policy).collect();
+        let held: Vec<Arc<Session>> = self
+            .sessions()
+            .into_iter()
+            .filter(|s| out_of_policy(&s.meta(), default, &table))
+            .collect();
         for s in &held {
             tracing::warn!(session = %s.id, "a machine's Full access ended: the chat goes back to its policy's mode");
             self.append(s, "mux", "full_access_ended", json!({}));
@@ -451,6 +440,24 @@ impl Hub {
         ))
         .with_data(json!({"reason": "policy_mode", "policy": policy.to_string()})))
     }
+}
+
+/// Whether a chat a remote connection started runs in a mode its narrower policy does not hold:
+/// what `refuse_wider_mode` refuses (a mode that does not ask, under a policy whose harness has
+/// a mode that keeps it), so only a paired machine's Full-access setting moves a chat there.
+pub(super) fn out_of_policy(
+    meta: &SessionMeta,
+    default: PermissionPolicy,
+    table: &crate::web_modes::WebModeTable,
+) -> bool {
+    if !meta.remote_origin {
+        return false;
+    }
+    let family = crate::web_modes::family_of(meta);
+    let offered = super::start_mode::offered_ids(meta);
+    narrow_policy(meta, default).is_some_and(|policy| policy_mode(policy, &family, &offered).is_some())
+        && crate::web_modes::mode_of(meta)
+            .is_some_and(|mode| !super::start_mode::asks_in(&mode, &family, table.modes(&family)))
 }
 
 /// What `Hub::set_for_full_access_device` sets.
