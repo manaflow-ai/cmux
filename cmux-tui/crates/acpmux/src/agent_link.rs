@@ -58,8 +58,7 @@ static WEB: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new
 /// The native link, at the start of the text or after what may stand before a URL. Group 1 is
 /// everything after `cmux://agent/`.
 static NATIVE: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(&format!(r"(?:^|[{END}(<\[])cmux://agent(?:/([^{END}]*))?(?:$|[{END}])"))
-        .ok()
+    regex::Regex::new(&format!(r"(?:^|[{END}(<\[])cmux://agent(?:/([^{END}]*))?(?:$|[{END}])")).ok()
 });
 
 /// The link in `text`, which may be the bare URL or a line that carries one (a PR footer's
