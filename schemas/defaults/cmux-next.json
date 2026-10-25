@@ -298,6 +298,8 @@
     "setting.appearance.machineColors": {},
     "setting.appearance.metrics.chromeFontSize": null,
     "setting.appearance.metrics.columnGap": null,
+    "setting.appearance.metrics.dividerHitWidth": null,
+    "setting.appearance.metrics.dividerThickness": null,
     "setting.appearance.metrics.sidebarWidth": null,
     "setting.appearance.metrics.tabMaxWidth": null,
     "setting.appearance.metrics.tabMinActiveWidth": null,
