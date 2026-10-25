@@ -266,7 +266,7 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
             opts.extra_env.clone(),
         ),
     };
-    let env = holder_environment(opts, std::env::vars_os().collect());
+    let env = holder_environment(&launch, opts, std::env::vars_os().collect());
     let env = env
         .into_iter()
         .map(|(key, value)| {
@@ -287,19 +287,16 @@ fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
     HolderCommand { spawn_argv, argv: launch.command, env, cwd }
 }
 
+/// The holder child's environment: the daemon's own, then the terminal
+/// identity, then the launch's injected values. `TERM_PROGRAM_VERSION` is
+/// dropped last, inherited values included, because cmux forwards TUI mouse
+/// reports instead of providing Ghostty's native selection path: a child that
+/// sees a Ghostty version turns its own copy-on-select fallback off.
 fn holder_environment(
+    launch: &crate::shell_integration::ShellLaunch,
     opts: &SurfaceOptions,
     inherited: BTreeMap<OsString, OsString>,
 ) -> BTreeMap<OsString, OsString> {
-    let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
-        Some(argv) => {
-            crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
-        }
-        None => crate::shell_integration::integrate_default_shell(
-            vec![platform::default_shell()],
-            opts.extra_env.clone(),
-        ),
-    };
     let mut env = inherited;
     env.insert("TERM".into(), opts.term.clone().into());
     env.insert("COLORTERM".into(), "truecolor".into());
@@ -350,15 +347,16 @@ mod tests {
 
     #[test]
     fn inherited_terminal_version_is_not_kept_for_holder_children() {
-        let opts = SurfaceOptions {
-            extra_env: vec![("TERM_PROGRAM_VERSION".into(), "1.3.2".into())],
-            ..SurfaceOptions::default()
+        let launch = crate::shell_integration::ShellLaunch {
+            command: vec!["/bin/zsh".to_string()],
+            env: vec![("TERM_PROGRAM_VERSION".to_string(), "1.3.2".to_string())],
         };
         let inherited =
             BTreeMap::from([(OsString::from("TERM_PROGRAM_VERSION"), OsString::from("1.3.2"))]);
 
-        let environment = holder_environment(&opts, inherited);
+        let environment = holder_environment(&launch, &SurfaceOptions::default(), inherited);
 
         assert!(!environment.contains_key(OsStr::new("TERM_PROGRAM_VERSION")));
+        assert_eq!(environment.get(OsStr::new("COLORTERM")), Some(&OsString::from("truecolor")));
     }
 }
