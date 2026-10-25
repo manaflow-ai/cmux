@@ -22,15 +22,47 @@
     "notification": "^notification_[0-9a-f]{32}$",
     "agent": "^agent_[0-9a-f]{32}$",
     "frontendProjection": "^projection_[0-9a-f]{32}$",
-    "sidebarView": "^sidebar_view_[0-9a-f]{32}$"
+    "sidebarView": "^sidebar_view_[0-9a-f]{32}$",
+    "workspaceGroup": "^grp_[0-9a-f]{32}$",
+    "tabGroup": "^tgrp_[0-9a-f]{32}$",
+    "savedTabGroup": "^saved_[0-9a-f]{32}$",
+    "screenGroup": "^sgrp_[0-9a-f]{32}$",
+    "savedScreenGroup": "^ssaved_[0-9a-f]{32}$",
+    "room": "^prof_[0-9a-f]{32}$",
+    "closed": "^closed_[0-9a-f]{32}$",
+    "stash": "^stash_[0-9a-f]{32}$",
+    "stashMember": "^member_[0-9a-f]{32}$",
+    "bookmark": "^bm_[0-9a-f]{32}$",
+    "pairingRequest": "^pairing_[0-9a-f]{32}$",
+    "stream": "^stream_[0-9a-f]{32}$",
+    "uuid": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
   },
+  "x-oracle-id-unpatterned": {
+    "surface": "daemon surface handle; only in snapshot.get tabs[].surface, a typed field",
+    "agentSession": "acpmux session id; only in typed fields of snapshot.get and the agents facet",
+    "intent": "app intent id; only in the typed intents.pending[].intent"
+  },
+  "x-oracle-open-keys": [
+    {"key": "^(.+_)?at_ms$|^since_ms$", "x-oracle-time": {"unit": "ms", "epoch": "fixture"}},
+    {
+      "key": "^(.+_)?revision$",
+      "x-oracle-volatile": {
+        "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+        "task": "p15-oracle-011"
+      }
+    },
+    {
+      "key": "^(.+_)?generation$",
+      "x-oracle-volatile": {"reason": "daemon process generation, a fresh random value per start", "task": "p15-oracle-011"}
+    }
+  ],
   "properties": {
     "schema": {"x-oracle-source": {"method": "oracle.runner", "path": "/schema"}, "const": "cmux.oracle.snapshot/v1"},
     "meta": {
       "x-oracle-source": {"method": "oracle.runner", "path": "/meta"},
       "type": "object",
       "additionalProperties": false,
-      "required": ["case", "step", "checkpoint", "product", "sha", "host", "clock", "capturedAtMs"],
+      "required": ["case", "step", "checkpoint", "product", "sha", "host", "clock", "capturedAtMs", "facets"],
       "properties": {
         "case": {
           "description": "corpus case id, suite/name",
@@ -62,7 +94,10 @@
         "host": {
           "x-oracle-source": {"method": "oracle.runner", "path": "/meta/host"},
           "type": "object",
-          "x-oracle-volatile": {"reason": "diff.py compares host before facets and refuses a cross-host pair", "task": "p15-oracle-011"},
+          "x-oracle-volatile": {
+            "reason": "diff.py compares host before facets and refuses a cross-host pair",
+            "task": "p15-oracle-011"
+          },
           "additionalProperties": false,
           "required": ["os", "arch", "model"],
           "properties": {
@@ -82,20 +117,51 @@
           "type": "integer",
           "minimum": 0,
           "x-oracle-volatile": {"reason": "wall clock of the capture", "task": "p15-oracle-011"}
+        },
+        "facets": {
+          "description": "facets the case asked for; each one is in /facets (an object or notComparable). check_snapshot_schema.py and diff.py refuse a snapshot that lacks one",
+          "x-oracle-source": {"method": "oracle.runner", "path": "/meta/facets", "from": "case requires.facets"},
+          "type": "array",
+          "x-oracle-order": "set",
+          "items": {
+            "type": "string",
+            "enum": [
+              "topology",
+              "daemon",
+              "focus",
+              "layout",
+              "sidebar",
+              "tabs",
+              "overlays",
+              "settings",
+              "intents",
+              "windows",
+              "history",
+              "notifications",
+              "agents",
+              "terminals",
+              "webviews",
+              "ax",
+              "crashes",
+              "liveObjects",
+              "invariants",
+              "switches"
+            ]
+          }
         }
       }
     },
     "facets": {
-      "description": "Facets the case asked for. A facet the build cannot give is notComparable, never absent and never pass.",
+      "description": "Facets the case asked for (meta.facets). A facet the build cannot give is notComparable, never absent and never pass.",
       "x-oracle-source": {"method": "oracle.runner", "path": "/facets"},
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "topology": {
-          "description": "Release topology: windows, workspaces, screens, panes, tabs, sessions.",
+          "description": "The snapshot.get result as is: sequence, generation, published_uptime_ns, tab_count and topology (ControlTopology.json). The runner sends no caller params, so caller and beside are absent.",
           "x-oracle-source": {
             "method": "snapshot.get",
-            "path": "/topology",
+            "path": "/",
             "v0": "snapshot.get",
             "provider": "ControlTopology.json",
             "task": "p15-oracle-033"
@@ -104,26 +170,17 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": [
-                "sequence",
-                "generation",
-                "published_uptime_ns",
-                "tab_count",
-                "loaded",
-                "daemon_state",
-                "daemon_failure",
-                "focus",
-                "windows",
-                "workspace_groups",
-                "workspaces",
-                "sessions"
-              ],
+              "required": ["sequence", "generation", "published_uptime_ns", "tab_count", "topology"],
               "properties": {
                 "sequence": {
                   "description": "daemon sequence the app had applied; pairs this cut with the daemon facet (I4)",
                   "x-oracle-source": {"method": "snapshot.get", "path": "/sequence"},
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "x-oracle-volatile": {
+                    "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+                    "task": "p15-oracle-011"
+                  }
                 },
                 "generation": {
                   "x-oracle-source": {"method": "snapshot.get", "path": "/generation"},
@@ -140,555 +197,604 @@
                   "minimum": 0,
                   "x-oracle-volatile": {"reason": "host uptime clock", "task": "p15-oracle-011"}
                 },
-                "tab_count": {"x-oracle-source": {"method": "snapshot.get", "path": "/tab_count"}, "type": "integer", "minimum": 0},
-                "loaded": {"x-oracle-source": {"method": "snapshot.get", "path": "/topology/loaded"}, "type": "boolean"},
-                "daemon_state": {"x-oracle-source": {"method": "snapshot.get", "path": "/topology/daemon_state"}, "type": "string"},
-                "daemon_failure": {
-                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/daemon_failure"},
-                  "type": ["string", "null"]
+                "tab_count": {
+                  "x-oracle-source": {"method": "snapshot.get", "path": "/tab_count"},
+                  "type": "integer",
+                  "minimum": 0
                 },
-                "focus": {
-                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus"},
+                "topology": {
+                  "description": "ControlTopology.json",
+                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology"},
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["window", "workspace", "pane", "tab"],
+                  "required": [
+                    "loaded",
+                    "daemon_state",
+                    "daemon_failure",
+                    "sequence",
+                    "focus",
+                    "windows",
+                    "workspace_groups",
+                    "workspaces",
+                    "sessions"
+                  ],
                   "properties": {
-                    "window": {
-                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/window"},
-                      "type": ["string", "null"],
-                      "x-oracle-id-kind": "window"
+                    "loaded": {"x-oracle-source": {"method": "snapshot.get", "path": "/topology/loaded"}, "type": "boolean"},
+                    "daemon_state": {
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/daemon_state"},
+                      "type": "string"
                     },
-                    "workspace": {
-                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/workspace"},
-                      "type": ["string", "null"],
-                      "x-oracle-id-kind": "workspace"
+                    "daemon_failure": {
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/daemon_failure"},
+                      "type": ["string", "null"]
                     },
-                    "pane": {
-                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/pane"},
-                      "type": ["string", "null"],
-                      "x-oracle-id-kind": "pane"
-                    },
-                    "tab": {
-                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/tab"},
-                      "type": ["string", "null"],
-                      "x-oracle-id-kind": "tab"
-                    }
-                  }
-                },
-                "windows": {
-                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows"},
-                  "type": "array",
-                  "x-oracle-order": "sequence",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["id", "key", "workspace", "workspaces", "key_window", "visible", "focused_pane"],
-                    "properties": {
-                      "id": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/id"},
-                        "type": "string",
-                        "x-oracle-id-kind": "window"
-                      },
-                      "key": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/key"},
-                        "type": "string",
-                        "x-oracle-volatile": {
-                          "reason": "the window's model key (a UUID); the same window as `id` in another encoding",
-                          "task": "p15-oracle-011"
-                        }
-                      },
-                      "workspace": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/workspace"},
-                        "type": ["string", "null"],
-                        "x-oracle-id-kind": "workspace"
-                      },
-                      "workspaces": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/workspaces"},
-                        "type": "array",
-                        "x-oracle-order": "sequence",
-                        "items": {"type": "string", "x-oracle-id-kind": "workspace"}
-                      },
-                      "key_window": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/key_window"},
-                        "type": "boolean"
-                      },
-                      "visible": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/visible"},
-                        "type": "boolean"
-                      },
-                      "focused_pane": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/focused_pane"},
-                        "type": ["string", "null"],
-                        "x-oracle-id-kind": "pane"
+                    "sequence": {
+                      "description": "the same daemon sequence as /sequence",
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sequence"},
+                      "type": "integer",
+                      "minimum": 0,
+                      "x-oracle-volatile": {
+                        "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+                        "task": "p15-oracle-011"
                       }
-                    }
-                  }
-                },
-                "workspace_groups": {
-                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups"},
-                  "type": "array",
-                  "x-oracle-order": "sequence",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["id", "name", "color", "collapsed"],
-                    "properties": {
-                      "id": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/id"},
-                        "type": "string",
-                        "x-oracle-id-kind": "workspaceGroup"
-                      },
-                      "name": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/name"},
-                        "type": "string"
-                      },
-                      "color": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/color"},
-                        "type": ["string", "null"]
-                      },
-                      "collapsed": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/collapsed"},
-                        "type": "boolean"
-                      }
-                    }
-                  }
-                },
-                "workspaces": {
-                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces"},
-                  "type": "array",
-                  "x-oracle-order": "sequence",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "key",
-                      "handle",
-                      "name",
-                      "title",
-                      "color",
-                      "icon",
-                      "group",
-                      "unread",
-                      "machine",
-                      "screens",
-                      "session"
-                    ],
-                    "properties": {
-                      "title": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/title"},
-                        "type": ["string", "null"]
-                      },
-                      "id": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/id"},
-                        "type": "string",
-                        "x-oracle-id-kind": "workspace"
-                      },
-                      "key": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/key"},
-                        "type": "string",
-                        "x-oracle-volatile": {
-                          "reason": "the workspace's model key; the same workspace as `id` in another encoding",
-                          "task": "p15-oracle-011"
+                    },
+                    "focus": {
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus"},
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["window", "workspace", "pane", "tab"],
+                      "properties": {
+                        "window": {
+                          "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/window"},
+                          "type": ["string", "null"],
+                          "x-oracle-id-kind": "window"
+                        },
+                        "workspace": {
+                          "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/workspace"},
+                          "type": ["string", "null"],
+                          "x-oracle-id-kind": "workspace"
+                        },
+                        "pane": {
+                          "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/pane"},
+                          "type": ["string", "null"],
+                          "x-oracle-id-kind": "pane"
+                        },
+                        "tab": {
+                          "x-oracle-source": {"method": "snapshot.get", "path": "/topology/focus/tab"},
+                          "type": ["string", "null"],
+                          "x-oracle-id-kind": "tab"
                         }
-                      },
-                      "handle": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/handle"},
-                        "type": "string"
-                      },
-                      "name": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/name"},
-                        "type": "string"
-                      },
-                      "color": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/color"},
-                        "type": ["string", "null"]
-                      },
-                      "icon": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/icon"},
-                        "type": ["string", "null"]
-                      },
-                      "group": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/group"},
-                        "type": ["string", "null"],
-                        "x-oracle-id-kind": "workspaceGroup"
-                      },
-                      "unread": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/unread"},
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "machine": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/machine"},
-                        "type": ["string", "null"],
-                        "x-oracle-id-kind": "machine"
-                      },
-                      "screens": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens"},
-                        "type": "array",
-                        "x-oracle-order": "sequence",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": ["id", "handle", "name", "zoomed_pane", "panes"],
-                          "properties": {
-                            "id": {
-                              "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/id"},
-                              "type": "string",
-                              "x-oracle-id-kind": "screen"
-                            },
-                            "handle": {
-                              "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/handle"},
-                              "type": "string"
-                            },
-                            "name": {
-                              "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/name"},
-                              "type": ["string", "null"]
-                            },
-                            "zoomed_pane": {
-                              "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/zoomed_pane"},
-                              "type": ["string", "null"],
-                              "x-oracle-id-kind": "pane"
-                            },
-                            "panes": {
-                              "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/panes"},
-                              "type": "array",
-                              "x-oracle-order": "sequence",
-                              "items": {
-                                "type": "object",
-                                "additionalProperties": false,
-                                "required": ["id", "handle", "name", "selected_tab", "tabs", "tab_groups", "column", "dock"],
-                                "properties": {
-                                  "id": {
-                                    "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/panes/*/id"},
-                                    "type": "string",
-                                    "x-oracle-id-kind": "pane"
+                      }
+                    },
+                    "windows": {
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows"},
+                      "type": "array",
+                      "x-oracle-order": "sequence",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["id", "key", "workspace", "workspaces", "key_window", "visible", "focused_pane"],
+                        "properties": {
+                          "id": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/id"},
+                            "type": "string",
+                            "x-oracle-id-kind": "window"
+                          },
+                          "key": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/key"},
+                            "type": "string",
+                            "x-oracle-volatile": {
+                              "reason": "the window's model key (a UUID); the same window as `id` in another encoding",
+                              "task": "p15-oracle-011"
+                            }
+                          },
+                          "workspace": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/workspace"},
+                            "type": ["string", "null"],
+                            "x-oracle-id-kind": "workspace"
+                          },
+                          "workspaces": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/workspaces"},
+                            "type": "array",
+                            "x-oracle-order": "sequence",
+                            "items": {"type": "string", "x-oracle-id-kind": "workspace"}
+                          },
+                          "key_window": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/key_window"},
+                            "type": "boolean"
+                          },
+                          "visible": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/visible"},
+                            "type": "boolean"
+                          },
+                          "focused_pane": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/windows/*/focused_pane"},
+                            "type": ["string", "null"],
+                            "x-oracle-id-kind": "pane"
+                          }
+                        }
+                      }
+                    },
+                    "workspace_groups": {
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups"},
+                      "type": "array",
+                      "x-oracle-order": "sequence",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["id", "name", "color", "collapsed"],
+                        "properties": {
+                          "id": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/id"},
+                            "type": "string",
+                            "x-oracle-id-kind": "workspaceGroup"
+                          },
+                          "name": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/name"},
+                            "type": "string"
+                          },
+                          "color": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/color"},
+                            "type": ["string", "null"]
+                          },
+                          "collapsed": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspace_groups/*/collapsed"},
+                            "type": "boolean"
+                          }
+                        }
+                      }
+                    },
+                    "workspaces": {
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces"},
+                      "type": "array",
+                      "x-oracle-order": "sequence",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "id",
+                          "key",
+                          "handle",
+                          "name",
+                          "title",
+                          "color",
+                          "icon",
+                          "group",
+                          "unread",
+                          "machine",
+                          "screens",
+                          "session"
+                        ],
+                        "properties": {
+                          "title": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/title"},
+                            "type": ["string", "null"]
+                          },
+                          "id": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/id"},
+                            "type": "string",
+                            "x-oracle-id-kind": "workspace"
+                          },
+                          "key": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/key"},
+                            "type": "string",
+                            "x-oracle-volatile": {
+                              "reason": "the workspace's model key; the same workspace as `id` in another encoding",
+                              "task": "p15-oracle-011"
+                            }
+                          },
+                          "handle": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/handle"},
+                            "type": "string"
+                          },
+                          "name": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/name"},
+                            "type": "string"
+                          },
+                          "color": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/color"},
+                            "type": ["string", "null"]
+                          },
+                          "icon": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/icon"},
+                            "type": ["string", "null"]
+                          },
+                          "group": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/group"},
+                            "type": ["string", "null"],
+                            "x-oracle-id-kind": "workspaceGroup"
+                          },
+                          "unread": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/unread"},
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "machine": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/machine"},
+                            "type": ["string", "null"],
+                            "x-oracle-id-kind": "machine"
+                          },
+                          "screens": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens"},
+                            "type": "array",
+                            "x-oracle-order": "sequence",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["id", "handle", "name", "zoomed_pane", "panes"],
+                              "properties": {
+                                "id": {
+                                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/id"},
+                                  "type": "string",
+                                  "x-oracle-id-kind": "screen"
+                                },
+                                "handle": {
+                                  "x-oracle-source": {
+                                    "method": "snapshot.get",
+                                    "path": "/topology/workspaces/*/screens/*/handle"
                                   },
-                                  "handle": {
-                                    "x-oracle-source": {
-                                      "method": "snapshot.get",
-                                      "path": "/topology/workspaces/*/screens/*/panes/*/handle"
-                                    },
-                                    "type": "string"
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/name"},
+                                  "type": ["string", "null"]
+                                },
+                                "zoomed_pane": {
+                                  "x-oracle-source": {
+                                    "method": "snapshot.get",
+                                    "path": "/topology/workspaces/*/screens/*/zoomed_pane"
                                   },
-                                  "name": {
-                                    "x-oracle-source": {
-                                      "method": "snapshot.get",
-                                      "path": "/topology/workspaces/*/screens/*/panes/*/name"
-                                    },
-                                    "type": ["string", "null"]
-                                  },
-                                  "selected_tab": {
-                                    "x-oracle-source": {
-                                      "method": "snapshot.get",
-                                      "path": "/topology/workspaces/*/screens/*/panes/*/selected_tab"
-                                    },
-                                    "type": ["string", "null"],
-                                    "x-oracle-id-kind": "tab"
-                                  },
-                                  "tabs": {
-                                    "x-oracle-source": {
-                                      "method": "snapshot.get",
-                                      "path": "/topology/workspaces/*/screens/*/panes/*/tabs"
-                                    },
-                                    "type": "array",
-                                    "x-oracle-order": "sequence",
-                                    "items": {
-                                      "description": "ControlTabInfo, or ControlPageTabInfo when kind is page",
-                                      "type": "object",
-                                      "additionalProperties": false,
-                                      "required": ["id", "kind", "title"],
-                                      "properties": {
-                                        "title": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/title"
-                                          },
-                                          "type": "string"
+                                  "type": ["string", "null"],
+                                  "x-oracle-id-kind": "pane"
+                                },
+                                "panes": {
+                                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/screens/*/panes"},
+                                  "type": "array",
+                                  "x-oracle-order": "sequence",
+                                  "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["id", "handle", "name", "selected_tab", "tabs", "tab_groups", "column", "dock"],
+                                    "properties": {
+                                      "id": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/id"
                                         },
-                                        "id": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/id"
-                                          },
-                                          "type": "string",
-                                          "x-oracle-id-kind": "tab"
+                                        "type": "string",
+                                        "x-oracle-id-kind": "pane"
+                                      },
+                                      "handle": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/handle"
                                         },
-                                        "kind": {
-                                          "description": "terminal, browser, agent, ... or page",
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/kind"
-                                          },
-                                          "type": "string"
+                                        "type": "string"
+                                      },
+                                      "name": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/name"
                                         },
-                                        "surface": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/surface",
-                                            "from": "ControlTabInfo.surface"
-                                          },
-                                          "type": "string",
-                                          "x-oracle-id-kind": "surface"
+                                        "type": ["string", "null"]
+                                      },
+                                      "selected_tab": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/selected_tab"
                                         },
-                                        "page": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/page"
-                                          },
-                                          "type": ["string", "null"]
+                                        "type": ["string", "null"],
+                                        "x-oracle-id-kind": "tab"
+                                      },
+                                      "tabs": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/tabs"
                                         },
-                                        "name": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/name"
-                                          },
-                                          "type": ["string", "null"]
-                                        },
-                                        "terminal": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/terminal"
-                                          },
-                                          "type": ["string", "null"],
-                                          "x-oracle-id-kind": "terminal"
-                                        },
-                                        "terminal_key": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/terminal_key"
-                                          },
-                                          "type": ["string", "null"],
-                                          "x-oracle-volatile": {
-                                            "reason": "the terminal's model key; the same terminal as `terminal` in another encoding",
-                                            "task": "p15-oracle-011"
+                                        "type": "array",
+                                        "x-oracle-order": "sequence",
+                                        "items": {
+                                          "description": "ControlTabInfo, or ControlPageTabInfo when kind is page",
+                                          "type": "object",
+                                          "additionalProperties": false,
+                                          "required": ["id", "kind", "title"],
+                                          "properties": {
+                                            "title": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/title",
+                                                "derive": "sha256"
+                                              },
+                                              "type": "string",
+                                              "description": "terminal titles come from the shell (OSC 0/2) and hold the cwd",
+                                              "pattern": "^sha256:[0-9a-f]{64}$",
+                                              "x-oracle-rewrite": "path"
+                                            },
+                                            "id": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/id"
+                                              },
+                                              "type": "string",
+                                              "x-oracle-id-kind": "tab"
+                                            },
+                                            "kind": {
+                                              "description": "terminal, browser, agent, ... or page",
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/kind"
+                                              },
+                                              "type": "string"
+                                            },
+                                            "surface": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/surface",
+                                                "from": "ControlTabInfo.surface"
+                                              },
+                                              "type": "string",
+                                              "x-oracle-id-kind": "surface"
+                                            },
+                                            "page": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/page"
+                                              },
+                                              "type": ["string", "null"]
+                                            },
+                                            "name": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/name"
+                                              },
+                                              "type": ["string", "null"]
+                                            },
+                                            "terminal": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/terminal"
+                                              },
+                                              "type": ["string", "null"],
+                                              "x-oracle-id-kind": "terminal"
+                                            },
+                                            "terminal_key": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/terminal_key"
+                                              },
+                                              "type": ["string", "null"],
+                                              "x-oracle-volatile": {
+                                                "reason": "the terminal's model key; the same terminal as `terminal` in another encoding",
+                                                "task": "p15-oracle-011"
+                                              }
+                                            },
+                                            "columns": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/columns"
+                                              },
+                                              "type": ["integer", "null"],
+                                              "minimum": 0
+                                            },
+                                            "rows": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/rows"
+                                              },
+                                              "type": ["integer", "null"],
+                                              "minimum": 0
+                                            },
+                                            "cwd": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/cwd"
+                                              },
+                                              "type": ["string", "null"],
+                                              "x-oracle-rewrite": "path"
+                                            },
+                                            "url": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/url"
+                                              },
+                                              "type": ["string", "null"],
+                                              "x-oracle-rewrite": "url"
+                                            },
+                                            "git_branch": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/git_branch"
+                                              },
+                                              "type": ["string", "null"]
+                                            },
+                                            "pinned": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/pinned"
+                                              },
+                                              "type": "boolean"
+                                            },
+                                            "dead": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/dead"
+                                              },
+                                              "type": "boolean"
+                                            },
+                                            "unread": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/unread"
+                                              },
+                                              "type": "boolean"
+                                            },
+                                            "tab_group": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/tab_group"
+                                              },
+                                              "type": ["string", "null"],
+                                              "x-oracle-id-kind": "tabGroup"
+                                            },
+                                            "agent_state": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/agent_state"
+                                              },
+                                              "type": ["string", "null"]
+                                            },
+                                            "agent": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/agent"
+                                              },
+                                              "type": ["string", "null"]
+                                            },
+                                            "agent_session": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/agent_session"
+                                              },
+                                              "type": ["string", "null"],
+                                              "x-oracle-id-kind": "agentSession"
+                                            },
+                                            "selected": {
+                                              "description": "page tabs only (ControlPageTabInfo)",
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/selected"
+                                              },
+                                              "type": "boolean"
+                                            }
                                           }
-                                        },
-                                        "columns": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/columns"
-                                          },
-                                          "type": ["integer", "null"],
-                                          "minimum": 0
-                                        },
-                                        "rows": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/rows"
-                                          },
-                                          "type": ["integer", "null"],
-                                          "minimum": 0
-                                        },
-                                        "cwd": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/cwd"
-                                          },
-                                          "type": ["string", "null"],
-                                          "x-oracle-rewrite": "path"
-                                        },
-                                        "url": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/url"
-                                          },
-                                          "type": ["string", "null"],
-                                          "x-oracle-rewrite": "url"
-                                        },
-                                        "git_branch": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/git_branch"
-                                          },
-                                          "type": ["string", "null"]
-                                        },
-                                        "pinned": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/pinned"
-                                          },
-                                          "type": "boolean"
-                                        },
-                                        "dead": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/dead"
-                                          },
-                                          "type": "boolean"
-                                        },
-                                        "unread": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/unread"
-                                          },
-                                          "type": "boolean"
-                                        },
-                                        "tab_group": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/tab_group"
-                                          },
-                                          "type": ["string", "null"],
-                                          "x-oracle-id-kind": "tabGroup"
-                                        },
-                                        "agent_state": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/agent_state"
-                                          },
-                                          "type": ["string", "null"]
-                                        },
-                                        "agent": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/agent"
-                                          },
-                                          "type": ["string", "null"]
-                                        },
-                                        "agent_session": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/agent_session"
-                                          },
-                                          "type": ["string", "null"],
-                                          "x-oracle-id-kind": "agentSession"
-                                        },
-                                        "selected": {
-                                          "description": "page tabs only (ControlPageTabInfo)",
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tabs/*/selected"
-                                          },
-                                          "type": "boolean"
                                         }
+                                      },
+                                      "tab_groups": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups"
+                                        },
+                                        "type": "array",
+                                        "x-oracle-order": "sequence",
+                                        "items": {
+                                          "type": "object",
+                                          "additionalProperties": false,
+                                          "required": ["id", "name", "color", "collapsed", "members"],
+                                          "properties": {
+                                            "id": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/id"
+                                              },
+                                              "type": "string",
+                                              "x-oracle-id-kind": "tabGroup"
+                                            },
+                                            "name": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/name"
+                                              },
+                                              "type": "string"
+                                            },
+                                            "color": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/color"
+                                              },
+                                              "type": ["string", "null"]
+                                            },
+                                            "collapsed": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/collapsed"
+                                              },
+                                              "type": "boolean"
+                                            },
+                                            "members": {
+                                              "x-oracle-source": {
+                                                "method": "snapshot.get",
+                                                "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/members"
+                                              },
+                                              "type": "array",
+                                              "x-oracle-order": "sequence",
+                                              "items": {"type": "string", "x-oracle-id-kind": "tab"}
+                                            }
+                                          }
+                                        }
+                                      },
+                                      "column": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/column"
+                                        },
+                                        "type": ["integer", "null"],
+                                        "minimum": 0
+                                      },
+                                      "dock": {
+                                        "x-oracle-source": {
+                                          "method": "snapshot.get",
+                                          "path": "/topology/workspaces/*/screens/*/panes/*/dock"
+                                        },
+                                        "type": ["string", "null"]
                                       }
                                     }
-                                  },
-                                  "tab_groups": {
-                                    "x-oracle-source": {
-                                      "method": "snapshot.get",
-                                      "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups"
-                                    },
-                                    "type": "array",
-                                    "x-oracle-order": "sequence",
-                                    "items": {
-                                      "type": "object",
-                                      "additionalProperties": false,
-                                      "required": ["id", "name", "color", "collapsed", "members"],
-                                      "properties": {
-                                        "id": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/id"
-                                          },
-                                          "type": "string",
-                                          "x-oracle-id-kind": "tabGroup"
-                                        },
-                                        "name": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/name"
-                                          },
-                                          "type": "string"
-                                        },
-                                        "color": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/color"
-                                          },
-                                          "type": ["string", "null"]
-                                        },
-                                        "collapsed": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/collapsed"
-                                          },
-                                          "type": "boolean"
-                                        },
-                                        "members": {
-                                          "x-oracle-source": {
-                                            "method": "snapshot.get",
-                                            "path": "/topology/workspaces/*/screens/*/panes/*/tab_groups/*/members"
-                                          },
-                                          "type": "array",
-                                          "x-oracle-order": "sequence",
-                                          "items": {"type": "string", "x-oracle-id-kind": "tab"}
-                                        }
-                                      }
-                                    }
-                                  },
-                                  "column": {
-                                    "x-oracle-source": {
-                                      "method": "snapshot.get",
-                                      "path": "/topology/workspaces/*/screens/*/panes/*/column"
-                                    },
-                                    "type": ["integer", "null"],
-                                    "minimum": 0
-                                  },
-                                  "dock": {
-                                    "x-oracle-source": {
-                                      "method": "snapshot.get",
-                                      "path": "/topology/workspaces/*/screens/*/panes/*/dock"
-                                    },
-                                    "type": ["string", "null"]
                                   }
                                 }
                               }
                             }
+                          },
+                          "session": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/session"},
+                            "type": ["string", "null"],
+                            "x-oracle-id-kind": "session"
                           }
                         }
-                      },
-                      "session": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/workspaces/*/session"},
-                        "type": ["string", "null"],
-                        "x-oracle-id-kind": "session"
                       }
-                    }
-                  }
-                },
-                "sessions": {
-                  "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions"},
-                  "type": "array",
-                  "x-oracle-order": "set",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["id", "qualifier", "machine", "machine_name", "session_name", "home", "state", "transport"],
-                    "properties": {
-                      "id": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/id"},
-                        "type": "string",
-                        "x-oracle-id-kind": "session"
-                      },
-                      "qualifier": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/qualifier"},
-                        "type": "string"
-                      },
-                      "machine": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/machine"},
-                        "type": "string",
-                        "x-oracle-id-kind": "machine"
-                      },
-                      "machine_name": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/machine_name"},
-                        "type": ["string", "null"]
-                      },
-                      "session_name": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/session_name"},
-                        "type": ["string", "null"]
-                      },
-                      "home": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/home"},
-                        "type": "boolean"
-                      },
-                      "state": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/state"},
-                        "type": "string"
-                      },
-                      "transport": {
-                        "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/transport"},
-                        "type": "string"
+                    },
+                    "sessions": {
+                      "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions"},
+                      "type": "array",
+                      "x-oracle-order": "set",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": ["id", "qualifier", "machine", "machine_name", "session_name", "home", "state", "transport"],
+                        "properties": {
+                          "id": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/id"},
+                            "type": "string",
+                            "x-oracle-id-kind": "session"
+                          },
+                          "qualifier": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/qualifier"},
+                            "type": "string"
+                          },
+                          "machine": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/machine"},
+                            "type": "string",
+                            "x-oracle-id-kind": "machine"
+                          },
+                          "machine_name": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/machine_name"},
+                            "type": ["string", "null"]
+                          },
+                          "session_name": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/session_name"},
+                            "type": ["string", "null"]
+                          },
+                          "home": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/home"},
+                            "type": "boolean"
+                          },
+                          "state": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/state"},
+                            "type": "string"
+                          },
+                          "transport": {
+                            "x-oracle-source": {"method": "snapshot.get", "path": "/topology/sessions/*/transport"},
+                            "type": "string"
+                          }
+                        }
                       }
                     }
                   }
@@ -721,7 +827,11 @@
                     "from": "resource_api::public_session_snapshot_with_journal_head"
                   },
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "x-oracle-volatile": {
+                    "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+                    "task": "p15-oracle-011"
+                  }
                 },
                 "session": {
                   "description": "session.snapshot result (ResourceSnapshot in cmux-tui/spec/resource-operations-v2.json)",
@@ -783,6 +893,33 @@
                           "description": "forward-compatible data (resource-operations-v2.json types)",
                           "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
                           "type": "object"
+                        },
+                        "platform": {
+                          "description": "MachinePlatform; sent only to catalog readers",
+                          "x-oracle-source": {"method": "session.snapshot", "path": "/machine/platform"},
+                          "type": ["object", "null"],
+                          "x-oracle-volatile": {
+                            "reason": "host OS and arch; diff.py compares the host before facets",
+                            "task": "p15-oracle-011"
+                          },
+                          "additionalProperties": false,
+                          "properties": {
+                            "os": {
+                              "x-oracle-source": {"method": "session.snapshot", "path": "/machine/platform/os"},
+                              "type": ["string", "null"]
+                            },
+                            "arch": {
+                              "x-oracle-source": {"method": "session.snapshot", "path": "/machine/platform/arch"},
+                              "type": ["string", "null"]
+                            }
+                          }
+                        },
+                        "capabilities": {
+                          "description": "sent only to catalog readers",
+                          "x-oracle-source": {"method": "session.snapshot", "path": "/machine/capabilities"},
+                          "type": "array",
+                          "x-oracle-order": "set",
+                          "items": {"type": "string"}
                         }
                       }
                     },
@@ -810,8 +947,13 @@
                         },
                         "revision": {
                           "x-oracle-source": {"method": "session.snapshot", "path": "/session/revision"},
-                          "type": "integer",
-                          "minimum": 0
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "x-oracle-decimal": true,
+                          "x-oracle-volatile": {
+                            "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+                            "task": "p15-oracle-011"
+                          }
                         },
                         "connected": {
                           "x-oracle-source": {"method": "session.snapshot", "path": "/session/connected"},
@@ -819,7 +961,7 @@
                         },
                         "extra": {
                           "description": "forward-compatible data (resource-operations-v2.json types)",
-                          "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                          "x-oracle-source": {"method": "session.snapshot", "path": "/session/extra"},
                           "type": "object"
                         }
                       }
@@ -858,7 +1000,7 @@
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/workspaces/*/extra"},
                             "type": "object"
                           }
                         }
@@ -897,13 +1039,46 @@
                             "type": "boolean"
                           },
                           "layout": {
-                            "description": "LayoutDocument; ids inside match x-oracle-id-patterns",
+                            "description": "LayoutDocument",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/layout"},
-                            "type": "object"
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["version", "screen_id", "active_pane_id", "zoomed_pane_id", "root"],
+                            "properties": {
+                              "version": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/layout/version"},
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "screen_id": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/layout/screen_id"},
+                                "type": "string",
+                                "x-oracle-id-kind": "screen"
+                              },
+                              "active_pane_id": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/layout/active_pane_id"},
+                                "type": "string",
+                                "x-oracle-id-kind": "pane"
+                              },
+                              "zoomed_pane_id": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/layout/zoomed_pane_id"},
+                                "type": ["string", "null"],
+                                "x-oracle-id-kind": "pane"
+                              },
+                              "root": {
+                                "description": "LayoutNode tree (leaf, split, stack, column, row, ...); open: ids by x-oracle-id-patterns, ratios by x-oracle-precision-default",
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/layout/root"},
+                                "type": "object"
+                              },
+                              "extra": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/layout/extra"},
+                                "type": "object"
+                              }
+                            }
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/extra"},
                             "type": "object"
                           }
                         }
@@ -929,7 +1104,7 @@
                             "x-oracle-id-kind": "screen"
                           },
                           "name": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/name"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/panes/*/name"},
                             "type": ["string", "null"]
                           },
                           "focused": {
@@ -942,7 +1117,7 @@
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/panes/*/extra"},
                             "type": "object"
                           }
                         }
@@ -968,7 +1143,7 @@
                             "x-oracle-id-kind": "pane"
                           },
                           "name": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/name"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/tabs/*/name"},
                             "type": ["string", "null"]
                           },
                           "index": {
@@ -986,13 +1161,14 @@
                             "enum": ["terminal", "browser", "conversation"]
                           },
                           "content_id": {
-                            "description": "terminal, browser or conversation id; relabeled by x-oracle-id-patterns",
+                            "description": "a terminal or browser id (ContentPublicId)",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/tabs/*/content_id"},
-                            "type": "string"
+                            "type": "string",
+                            "x-oracle-id-kind": ["terminal", "browser"]
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/tabs/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1008,8 +1184,11 @@
                         "required": ["id", "tab_id", "tab_ids", "title", "cols", "rows", "running", "lifecycle"],
                         "properties": {
                           "title": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/title"},
-                            "type": "string"
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/title", "derive": "sha256"},
+                            "type": "string",
+                            "description": "shell title (OSC 0/2); holds the cwd",
+                            "pattern": "^sha256:[0-9a-f]{64}$",
+                            "x-oracle-rewrite": "path"
                           },
                           "id": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/id"},
@@ -1047,27 +1226,54 @@
                             "type": "boolean"
                           },
                           "lifecycle": {
-                            "description": "TerminalLifecycle",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/lifecycle"},
-                            "type": "object"
+                            "type": "string",
+                            "enum": ["launching", "running", "exited"]
                           },
                           "stream_revision": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/stream_revision"},
-                            "type": "integer",
-                            "minimum": 0,
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "x-oracle-decimal": true,
                             "x-oracle-volatile": {
-                              "reason": "counts PTY output chunks, which depend on read timing",
+                              "reason": "coalesced PTY output counter; output chunking is not state",
                               "task": "p15-oracle-011"
                             }
                           },
                           "exit": {
                             "description": "TerminalExit",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/exit"},
-                            "type": "object"
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["outcome", "exited_at", "revision"],
+                            "properties": {
+                              "outcome": {
+                                "description": "TerminalExitOutcome: {kind: exit, code} | {kind: signal, signal, core_dumped} | {kind: unknown, reason}",
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/exit/outcome"},
+                                "type": "object"
+                              },
+                              "exited_at": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/exit/exited_at"},
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "x-oracle-decimal": true,
+                                "x-oracle-time": {"unit": "ms", "epoch": "fixture"}
+                              },
+                              "revision": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/exit/revision"},
+                                "type": "string",
+                                "pattern": "^(0|[1-9][0-9]*)$",
+                                "x-oracle-decimal": true,
+                                "x-oracle-volatile": {
+                                  "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+                                  "task": "p15-oracle-011"
+                                }
+                              }
+                            }
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/terminals/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1117,14 +1323,14 @@
                             "type": "boolean"
                           },
                           "source": {
-                            "description": "BrowserSource",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/browsers/*/source"},
-                            "type": "object"
+                            "type": "string",
+                            "enum": ["external", "launched"]
                           },
                           "status": {
-                            "description": "BrowserStatus",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/browsers/*/status"},
-                            "type": "object"
+                            "type": "string",
+                            "enum": ["starting", "live", "failed"]
                           },
                           "error": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/browsers/*/error"},
@@ -1135,13 +1341,27 @@
                             "type": "boolean"
                           },
                           "size": {
-                            "description": "Size",
+                            "description": "Size in cells",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/browsers/*/size"},
-                            "type": "object"
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["cols", "rows"],
+                            "properties": {
+                              "cols": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/browsers/*/size/cols"},
+                                "type": "integer",
+                                "minimum": 1
+                              },
+                              "rows": {
+                                "x-oracle-source": {"method": "session.snapshot", "path": "/browsers/*/size/rows"},
+                                "type": "integer",
+                                "minimum": 1
+                              }
+                            }
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/browsers/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1177,7 +1397,7 @@
                             "x-oracle-id-kind": "session"
                           },
                           "name": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/screens/*/name"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/name"},
                             "type": ["string", "null"]
                           },
                           "client_kind": {
@@ -1185,15 +1405,19 @@
                             "type": ["string", "null"]
                           },
                           "transport": {
-                            "description": "ClientTransport",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/transport"},
-                            "type": "object"
+                            "type": "string",
+                            "enum": ["unix", "websocket"]
                           },
                           "connected_seconds": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/connected_seconds"},
-                            "type": "number",
-                            "x-oracle-precision": 1,
-                            "x-oracle-time": {"unit": "s", "epoch": "fixture"}
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "x-oracle-decimal": true,
+                            "x-oracle-volatile": {
+                              "reason": "a duration of the runner's own connection, not state",
+                              "task": "p15-oracle-011"
+                            }
                           },
                           "attached_terminal_ids": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/attached_terminal_ids"},
@@ -1205,7 +1429,33 @@
                             "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/sizes"},
                             "type": "array",
                             "x-oracle-order": "set",
-                            "items": {"description": "ClientTerminalSize", "type": "object"}
+                            "items": {
+                              "description": "ClientTerminalSize",
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": ["terminal_id", "cols", "rows", "participating"],
+                              "properties": {
+                                "terminal_id": {
+                                  "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/sizes/*/terminal_id"},
+                                  "type": "string",
+                                  "x-oracle-id-kind": "terminal"
+                                },
+                                "cols": {
+                                  "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/sizes/*/cols"},
+                                  "type": ["integer", "null"],
+                                  "minimum": 1
+                                },
+                                "rows": {
+                                  "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/sizes/*/rows"},
+                                  "type": ["integer", "null"],
+                                  "minimum": 1
+                                },
+                                "participating": {
+                                  "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/sizes/*/participating"},
+                                  "type": "boolean"
+                                }
+                              }
+                            }
                           },
                           "self": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/self"},
@@ -1213,7 +1463,7 @@
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/clients/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1229,8 +1479,14 @@
                         "required": ["id", "session_id", "title", "body", "level", "created_at_ms", "unread", "read_by"],
                         "properties": {
                           "title": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/title"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "session.snapshot",
+                              "path": "/notifications/*/title",
+                              "derive": "sha256"
+                            },
+                            "type": "string",
+                            "description": "producer text (agent hooks, OSC 9/777 terminal output)",
+                            "pattern": "^sha256:[0-9a-f]{64}$"
                           },
                           "id": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/id"},
@@ -1243,12 +1499,24 @@
                             "x-oracle-id-kind": "session"
                           },
                           "subtitle": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/subtitle"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "session.snapshot",
+                              "path": "/notifications/*/subtitle",
+                              "derive": "sha256"
+                            },
+                            "type": "string",
+                            "description": "producer text (agent hooks, OSC 9/777 terminal output)",
+                            "pattern": "^sha256:[0-9a-f]{64}$"
                           },
                           "body": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/body"},
-                            "type": "string"
+                            "x-oracle-source": {
+                              "method": "session.snapshot",
+                              "path": "/notifications/*/body",
+                              "derive": "sha256"
+                            },
+                            "type": "string",
+                            "description": "producer text (agent hooks, OSC 9/777 terminal output)",
+                            "pattern": "^sha256:[0-9a-f]{64}$"
                           },
                           "level": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/level"},
@@ -1261,8 +1529,9 @@
                           },
                           "created_at_ms": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/created_at_ms"},
-                            "type": "number",
-                            "x-oracle-precision": 1,
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "x-oracle-decimal": true,
                             "x-oracle-time": {"unit": "ms", "epoch": "fixture"}
                           },
                           "unread": {
@@ -1273,11 +1542,11 @@
                             "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/read_by"},
                             "type": "array",
                             "x-oracle-order": "set",
-                            "items": {"type": "string"}
+                            "items": {"type": "string", "x-oracle-id-kind": "client"}
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/notifications/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1308,9 +1577,9 @@
                             "x-oracle-id-kind": "terminal"
                           },
                           "state": {
-                            "description": "AgentState",
                             "x-oracle-source": {"method": "session.snapshot", "path": "/agents/*/state"},
-                            "type": "object"
+                            "type": "string",
+                            "enum": ["working", "blocked", "idle", "done", "unknown"]
                           },
                           "source": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/agents/*/source"},
@@ -1319,8 +1588,9 @@
                           },
                           "updated_at_ms": {
                             "x-oracle-source": {"method": "session.snapshot", "path": "/agents/*/updated_at_ms"},
-                            "type": "number",
-                            "x-oracle-precision": 1,
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "x-oracle-decimal": true,
                             "x-oracle-time": {"unit": "ms", "epoch": "fixture"}
                           },
                           "source_session": {
@@ -1329,7 +1599,7 @@
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/agents/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1381,13 +1651,21 @@
                             "x-oracle-volatile": {"reason": "minted per daemon process start", "task": "p15-oracle-011"}
                           },
                           "projection_revision": {
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/frontend_projections/*/projection_revision"},
-                            "type": "integer",
-                            "minimum": 0
+                            "x-oracle-source": {
+                              "method": "session.snapshot",
+                              "path": "/frontend_projections/*/projection_revision"
+                            },
+                            "type": "string",
+                            "pattern": "^(0|[1-9][0-9]*)$",
+                            "x-oracle-decimal": true,
+                            "x-oracle-volatile": {
+                              "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+                              "task": "p15-oracle-011"
+                            }
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/frontend_projections/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1428,7 +1706,7 @@
                           },
                           "extra": {
                             "description": "forward-compatible data (resource-operations-v2.json types)",
-                            "x-oracle-source": {"method": "session.snapshot", "path": "/machine/extra"},
+                            "x-oracle-source": {"method": "session.snapshot", "path": "/sidebar_views/*/extra"},
                             "type": "object"
                           }
                         }
@@ -1447,13 +1725,18 @@
                         },
                         "revision": {
                           "x-oracle-source": {"method": "session.snapshot", "path": "/cursor/revision"},
-                          "type": "integer",
-                          "minimum": 0
+                          "type": "string",
+                          "pattern": "^(0|[1-9][0-9]*)$",
+                          "x-oracle-decimal": true,
+                          "x-oracle-volatile": {
+                            "reason": "counts commits, not state: coalescing a burst into one commit (the push's own goal) changes it with the same state, like topology.generation; the runner reads the raw value for its cut pairing",
+                            "task": "p15-oracle-011"
+                          }
                         }
                       }
                     },
                     "extra": {
-                      "description": "extra.state: tab_groups, workspace_groups, closed, sidebar_layout, ...",
+                      "description": "extra.state: tab_groups, saved_tab_groups, workspace_groups, workspace_placements, rooms, screen_groups, closed, workspace_status, workspace_checklist, window_records, sidebar_layout, sidebar. Open: x-oracle-id-patterns and x-oracle-open-keys apply",
                       "x-oracle-source": {"method": "session.snapshot", "path": "/extra"},
                       "type": "object"
                     }
@@ -1463,12 +1746,25 @@
                   "x-oracle-source": {"method": "settings.snapshot", "path": "/"},
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["revision", "schema_hash", "effective_sha256", "file", "managed", "policy", "diagnostics"],
+                  "required": [
+                    "revision",
+                    "schema_hash",
+                    "effective_sha256",
+                    "file_sha256",
+                    "managed",
+                    "policy",
+                    "diagnostics",
+                    "domains"
+                  ],
                   "properties": {
                     "revision": {
                       "x-oracle-source": {"method": "settings.snapshot", "path": "/revision"},
                       "type": "integer",
-                      "minimum": 0
+                      "minimum": 0,
+                      "x-oracle-volatile": {
+                        "reason": "settings.snapshot write counter; counts writes, not state",
+                        "task": "p15-oracle-011"
+                      }
                     },
                     "schema_hash": {"x-oracle-source": {"method": "settings.snapshot", "path": "/schema_hash"}, "type": "string"},
                     "effective_sha256": {
@@ -1476,10 +1772,11 @@
                       "type": "string",
                       "pattern": "^sha256:[0-9a-f]{64}$"
                     },
-                    "file": {
-                      "x-oracle-source": {"method": "settings.snapshot", "path": "/file"},
-                      "type": ["string", "null"],
-                      "x-oracle-rewrite": "path"
+                    "file_sha256": {
+                      "x-oracle-source": {"method": "settings.snapshot", "path": "/file", "derive": "sha256"},
+                      "type": "string",
+                      "description": "the parsed user file (effective.file_root), canonical JSON",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
                     },
                     "managed": {"x-oracle-source": {"method": "settings.snapshot", "path": "/managed"}},
                     "policy": {"x-oracle-source": {"method": "settings.snapshot", "path": "/policy"}},
@@ -1488,6 +1785,33 @@
                       "type": "array",
                       "x-oracle-order": "sequence",
                       "items": {}
+                    },
+                    "domains": {
+                      "description": "value domains the app published; null for one never published",
+                      "x-oracle-source": {"method": "settings.snapshot", "path": "/domains"},
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["themes", "font_families", "sounds"],
+                      "properties": {
+                        "themes": {
+                          "x-oracle-source": {"method": "settings.snapshot", "path": "/domains/themes"},
+                          "type": ["array", "null"],
+                          "x-oracle-order": "set",
+                          "items": {"type": "string"}
+                        },
+                        "font_families": {
+                          "x-oracle-source": {"method": "settings.snapshot", "path": "/domains/font_families"},
+                          "type": ["array", "null"],
+                          "x-oracle-order": "set",
+                          "items": {"type": "string"}
+                        },
+                        "sounds": {
+                          "x-oracle-source": {"method": "settings.snapshot", "path": "/domains/sounds"},
+                          "type": ["array", "null"],
+                          "x-oracle-order": "set",
+                          "items": {"type": "string"}
+                        }
+                      }
                     }
                   }
                 },
@@ -1702,7 +2026,10 @@
                             "type": "boolean"
                           },
                           "sidebarHidden": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/focus/windows/*/model/sidebarHidden"},
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/focus/windows/*/model/sidebarHidden"
+                            },
                             "type": "boolean"
                           },
                           "generation": {
@@ -1866,7 +2193,10 @@
                             "minimum": 0
                           },
                           "firstVisibleColumn": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/firstVisibleColumn"},
+                            "x-oracle-source": {
+                              "method": "debug.oracle.snapshot",
+                              "path": "/layout/screens/*/canvas/firstVisibleColumn"
+                            },
                             "type": "integer",
                             "minimum": 0
                           },
@@ -1900,7 +2230,7 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["hidden", "widthFraction", "selectedWorkspace", "filter", "rows"],
+              "required": ["hidden", "widthFraction", "selectedWorkspace", "filterSha256", "rows"],
               "properties": {
                 "hidden": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/hidden"}, "type": "boolean"},
                 "widthFraction": {
@@ -1914,9 +2244,11 @@
                   "type": ["string", "null"],
                   "x-oracle-id-kind": "workspace"
                 },
-                "filter": {
-                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/filter"},
-                  "type": ["string", "null"]
+                "filterSha256": {
+                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/filterSha256", "derive": "sha256"},
+                  "type": ["string", "null"],
+                  "description": "typed text",
+                  "pattern": "^sha256:[0-9a-f]{64}$"
                 },
                 "rows": {
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/sidebar/rows"},
@@ -2048,8 +2380,15 @@
                           ],
                           "properties": {
                             "title": {
-                              "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/title"},
-                              "type": "string"
+                              "x-oracle-source": {
+                                "method": "debug.oracle.snapshot",
+                                "path": "/tabs/panes/*/tabs/*/title",
+                                "derive": "sha256"
+                              },
+                              "type": "string",
+                              "description": "a terminal tab's title is a shell title",
+                              "pattern": "^sha256:[0-9a-f]{64}$",
+                              "x-oracle-rewrite": "path"
                             },
                             "tab": {
                               "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/tabs/panes/*/tabs/*/tab"},
@@ -2139,17 +2478,7 @@
                       "kind": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/stack/*/kind"},
                         "type": "string",
-                        "enum": [
-                          "palette",
-                          "dialog",
-                          "hoverCard",
-                          "findBar",
-                          "popover",
-                          "menu",
-                          "sheet",
-                          "toast",
-                          "refusalHud"
-                        ]
+                        "enum": ["palette", "dialog", "hoverCard", "findBar", "popover", "menu", "sheet", "toast", "refusalHud"]
                       },
                       "window": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/stack/*/window"},
@@ -2163,7 +2492,7 @@
                   "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/palette"},
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["open", "mode", "query", "topIds", "selectedIndex"],
+                  "required": ["open", "mode", "querySha256", "topIds", "selectedIndex"],
                   "properties": {
                     "open": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/palette/open"},
@@ -2173,9 +2502,15 @@
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/palette/mode"},
                       "type": ["string", "null"]
                     },
-                    "query": {
-                      "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/palette/query"},
-                      "type": ["string", "null"]
+                    "querySha256": {
+                      "x-oracle-source": {
+                        "method": "debug.oracle.snapshot",
+                        "path": "/overlays/palette/querySha256",
+                        "derive": "sha256"
+                      },
+                      "type": ["string", "null"],
+                      "description": "typed text",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
                     },
                     "topIds": {
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/palette/topIds"},
@@ -2214,9 +2549,19 @@
                   "required": ["target"],
                   "properties": {
                     "target": {
-                      "description": "hovered item id, relabeled by x-oracle-id-patterns",
+                      "description": "hovered item id; normalize takes the kind whose x-oracle-id-patterns entry matches",
                       "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/overlays/hoverCard/target"},
-                      "type": ["string", "null"]
+                      "type": ["string", "null"],
+                      "x-oracle-id-kind": [
+                        "window",
+                        "workspace",
+                        "workspaceGroup",
+                        "screen",
+                        "pane",
+                        "tab",
+                        "terminal",
+                        "browser"
+                      ]
                     }
                   }
                 },
@@ -2359,7 +2704,18 @@
                       },
                       "target": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/intents/pending/*/target"},
-                        "type": ["string", "null"]
+                        "type": ["string", "null"],
+                        "description": "the intent's target id; normalize takes the kind whose x-oracle-id-patterns entry matches",
+                        "x-oracle-id-kind": [
+                          "window",
+                          "workspace",
+                          "workspaceGroup",
+                          "screen",
+                          "pane",
+                          "tab",
+                          "terminal",
+                          "browser"
+                        ]
                       }
                     }
                   }
@@ -2530,8 +2886,15 @@
                     "required": ["kind", "title", "url", "workspace"],
                     "properties": {
                       "title": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/history/closed/*/title"},
-                        "type": "string"
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/history/closed/*/title",
+                          "derive": "sha256"
+                        },
+                        "type": "string",
+                        "description": "a closed terminal tab's title is a shell title",
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "x-oracle-rewrite": "path"
                       },
                       "kind": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/history/closed/*/kind"},
@@ -2711,8 +3074,15 @@
                     "required": ["terminal", "tab", "attach", "cols", "rows", "title", "cwd", "last24Sha256", "exitCode"],
                     "properties": {
                       "title": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/terminals/list/*/title"},
-                        "type": "string"
+                        "x-oracle-source": {
+                          "method": "debug.oracle.snapshot",
+                          "path": "/terminals/list/*/title",
+                          "derive": "sha256"
+                        },
+                        "type": "string",
+                        "description": "shell title (OSC 0/2); holds the cwd",
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "x-oracle-rewrite": "path"
                       },
                       "terminal": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/terminals/list/*/terminal"},
@@ -2745,9 +3115,14 @@
                         "x-oracle-rewrite": "path"
                       },
                       "last24Sha256": {
-                        "x-oracle-source": {"method": "terminal.screen.read", "path": "/lines", "derive": "sha256 of the last 24 lines"},
+                        "x-oracle-source": {
+                          "method": "terminal.screen.read",
+                          "path": "/text",
+                          "derive": "sha256 of the last 24 rows of /text split on newline, after the path rewrite"
+                        },
                         "type": "string",
-                        "pattern": "^sha256:[0-9a-f]{64}$"
+                        "pattern": "^sha256:[0-9a-f]{64}$",
+                        "x-oracle-rewrite": "path"
                       },
                       "exitCode": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/terminals/list/*/exitCode"},
@@ -2787,7 +3162,7 @@
                     "required": ["page", "tab", "pane", "route", "selection", "panels", "draftSha256"],
                     "properties": {
                       "page": {
-                        "description": "page kind (route id)",
+                        "description": "page kind (route id such as settings or app-store), a fixed name and not an instance id; tab and pane identify the instance",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/webviews/pages/*/page"},
                         "type": "string"
                       },
@@ -3084,7 +3459,10 @@
                   },
                   "type": "integer",
                   "minimum": 0,
-                  "x-oracle-volatile": {"reason": "checks run per frame; the count follows the host frame rate", "task": "p15-oracle-011"}
+                  "x-oracle-volatile": {
+                    "reason": "checks run per frame; the count follows the host frame rate",
+                    "task": "p15-oracle-011"
+                  }
                 }
               }
             },
@@ -3114,7 +3492,11 @@
                   "additionalProperties": {"type": "string"}
                 },
                 "hits": {
-                  "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/switches/hits", "from": "debug.oracle.switch_hits"},
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/switches/hits",
+                    "from": "debug.oracle.switch_hits"
+                  },
                   "type": "array",
                   "x-oracle-order": "set",
                   "items": {
@@ -3138,7 +3520,10 @@
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/switches/hits/*/count"},
                         "type": "integer",
                         "minimum": 0,
-                        "x-oracle-volatile": {"reason": "per-frame reads scale with the host frame rate", "task": "p15-oracle-011"}
+                        "x-oracle-volatile": {
+                          "reason": "per-frame reads scale with the host frame rate",
+                          "task": "p15-oracle-011"
+                        }
                       }
                     }
                   }
@@ -3174,24 +3559,40 @@
       "required": ["kind", "axis", "ratios", "pane", "children"],
       "properties": {
         "kind": {
-          "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/kind", "from": "LayoutModel node"},
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/kind",
+            "from": "LayoutModel node"
+          },
           "type": "string",
           "enum": ["split", "stack", "leaf", "column", "row"]
         },
         "axis": {
-          "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/axis", "from": "LayoutModel node"},
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/axis",
+            "from": "LayoutModel node"
+          },
           "type": ["string", "null"],
           "enum": ["horizontal", "vertical", null]
         },
         "ratios": {
           "description": "child shares, sum 1",
-          "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/ratios", "from": "LayoutModel node"},
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/ratios",
+            "from": "LayoutModel node"
+          },
           "type": "array",
           "x-oracle-order": "sequence",
           "items": {"type": "number", "x-oracle-precision": 0.001}
         },
         "pane": {
-          "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/pane", "from": "LayoutModel node"},
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/pane",
+            "from": "LayoutModel node"
+          },
           "type": ["string", "null"],
           "x-oracle-id-kind": "pane"
         },

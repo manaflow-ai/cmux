@@ -8,7 +8,29 @@
     "sha": "7b15dacf1ad0000000000000000000000000000a",
     "host": {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
     "clock": "virtual",
-    "capturedAtMs": 1761393600000
+    "capturedAtMs": 1761393600000,
+    "facets": [
+      "topology",
+      "daemon",
+      "focus",
+      "layout",
+      "sidebar",
+      "tabs",
+      "overlays",
+      "settings",
+      "intents",
+      "windows",
+      "history",
+      "notifications",
+      "agents",
+      "terminals",
+      "webviews",
+      "ax",
+      "crashes",
+      "liveObjects",
+      "invariants",
+      "switches"
+    ]
   },
   "facets": {
     "topology": {
@@ -16,130 +38,133 @@
       "generation": 7,
       "published_uptime_ns": 912345678000,
       "tab_count": 2,
-      "loaded": true,
-      "daemon_state": "connected",
-      "daemon_failure": null,
-      "focus": {
-        "window": "win_000000000000000000000000000000a1",
-        "workspace": "ws_000000000000000000000000000000b1",
-        "pane": "pane_000000000000000000000000000000d1",
-        "tab": "tab_000000000000000000000000000000e1"
-      },
-      "windows": [
-        {
-          "id": "win_000000000000000000000000000000a1",
-          "key": "6F1C2A4E-0B7D-4C1F-9E8A-3D2B1C0A9F8E",
+      "topology": {
+        "loaded": true,
+        "daemon_state": "connected",
+        "daemon_failure": null,
+        "sequence": 42,
+        "focus": {
+          "window": "win_000000000000000000000000000000a1",
           "workspace": "ws_000000000000000000000000000000b1",
-          "workspaces": ["ws_000000000000000000000000000000b1"],
-          "key_window": true,
-          "visible": true,
-          "focused_pane": "pane_000000000000000000000000000000d1"
-        }
-      ],
-      "workspace_groups": [],
-      "workspaces": [
-        {
-          "id": "ws_000000000000000000000000000000b1",
-          "key": "ws_000000000000000000000000000000b1",
-          "handle": "w1",
-          "name": "oracle",
-          "title": null,
-          "color": null,
-          "icon": null,
-          "group": null,
-          "unread": 0,
-          "machine": "machine_00000000000000000000000000000001",
-          "session": "session_00000000000000000000000000000002",
-          "screens": [
-            {
-              "id": "screen_000000000000000000000000000000c1",
-              "handle": "s1",
-              "name": null,
-              "zoomed_pane": null,
-              "panes": [
-                {
-                  "id": "pane_000000000000000000000000000000d1",
-                  "handle": "p1",
-                  "name": null,
-                  "selected_tab": "tab_000000000000000000000000000000e1",
-                  "tab_groups": [],
-                  "column": null,
-                  "dock": null,
-                  "tabs": [
-                    {
-                      "id": "tab_000000000000000000000000000000e1",
-                      "surface": "tab_000000000000000000000000000000e1",
-                      "kind": "terminal",
-                      "page": null,
-                      "title": "zsh",
-                      "name": null,
-                      "terminal": "term_000000000000000000000000000000f1",
-                      "terminal_key": "7",
-                      "columns": 80,
-                      "rows": 24,
-                      "cwd": "$ROOT/fixture",
-                      "url": null,
-                      "git_branch": null,
-                      "pinned": false,
-                      "dead": false,
-                      "unread": false,
-                      "tab_group": null,
-                      "agent_state": null,
-                      "agent": null,
-                      "agent_session": null
-                    }
-                  ]
-                },
-                {
-                  "id": "pane_000000000000000000000000000000d2",
-                  "handle": "p2",
-                  "name": null,
-                  "selected_tab": "tab_000000000000000000000000000000e2",
-                  "tab_groups": [],
-                  "column": null,
-                  "dock": null,
-                  "tabs": [
-                    {
-                      "id": "tab_000000000000000000000000000000e2",
-                      "surface": "tab_000000000000000000000000000000e2",
-                      "kind": "browser",
-                      "page": null,
-                      "title": "Fixture",
-                      "name": null,
-                      "terminal": null,
-                      "terminal_key": null,
-                      "columns": null,
-                      "rows": null,
-                      "cwd": null,
-                      "url": "$WEB/index.html",
-                      "git_branch": null,
-                      "pinned": false,
-                      "dead": false,
-                      "unread": false,
-                      "tab_group": null,
-                      "agent_state": null,
-                      "agent": null,
-                      "agent_session": null
-                    }
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ],
-      "sessions": [
-        {
-          "id": "session_00000000000000000000000000000002",
-          "qualifier": "local",
-          "machine": "machine_00000000000000000000000000000001",
-          "machine_name": null,
-          "session_name": null,
-          "home": true,
-          "state": "connected",
-          "transport": "unix"
-        }
-      ]
+          "pane": "pane_000000000000000000000000000000d1",
+          "tab": "tab_000000000000000000000000000000e1"
+        },
+        "windows": [
+          {
+            "id": "win_000000000000000000000000000000a1",
+            "key": "6F1C2A4E-0B7D-4C1F-9E8A-3D2B1C0A9F8E",
+            "workspace": "ws_000000000000000000000000000000b1",
+            "workspaces": ["ws_000000000000000000000000000000b1"],
+            "key_window": true,
+            "visible": true,
+            "focused_pane": "pane_000000000000000000000000000000d1"
+          }
+        ],
+        "workspace_groups": [],
+        "workspaces": [
+          {
+            "id": "ws_000000000000000000000000000000b1",
+            "key": "ws_000000000000000000000000000000b1",
+            "handle": "w1",
+            "name": "oracle",
+            "title": null,
+            "color": null,
+            "icon": null,
+            "group": null,
+            "unread": 0,
+            "machine": "machine_00000000000000000000000000000001",
+            "session": "session_00000000000000000000000000000002",
+            "screens": [
+              {
+                "id": "screen_000000000000000000000000000000c1",
+                "handle": "s1",
+                "name": null,
+                "zoomed_pane": null,
+                "panes": [
+                  {
+                    "id": "pane_000000000000000000000000000000d1",
+                    "handle": "p1",
+                    "name": null,
+                    "selected_tab": "tab_000000000000000000000000000000e1",
+                    "tab_groups": [],
+                    "column": null,
+                    "dock": null,
+                    "tabs": [
+                      {
+                        "id": "tab_000000000000000000000000000000e1",
+                        "surface": "tab_000000000000000000000000000000e1",
+                        "kind": "terminal",
+                        "page": null,
+                        "title": "sha256:a26e37654285af42c469d2b5274becb65b81b27a44455cf4d9faf6c43a0c456e",
+                        "name": null,
+                        "terminal": "term_000000000000000000000000000000f1",
+                        "terminal_key": "7",
+                        "columns": 80,
+                        "rows": 24,
+                        "cwd": "$ROOT/fixture",
+                        "url": null,
+                        "git_branch": null,
+                        "pinned": false,
+                        "dead": false,
+                        "unread": false,
+                        "tab_group": null,
+                        "agent_state": null,
+                        "agent": null,
+                        "agent_session": null
+                      }
+                    ]
+                  },
+                  {
+                    "id": "pane_000000000000000000000000000000d2",
+                    "handle": "p2",
+                    "name": null,
+                    "selected_tab": "tab_000000000000000000000000000000e2",
+                    "tab_groups": [],
+                    "column": null,
+                    "dock": null,
+                    "tabs": [
+                      {
+                        "id": "tab_000000000000000000000000000000e2",
+                        "surface": "tab_000000000000000000000000000000e2",
+                        "kind": "browser",
+                        "page": null,
+                        "title": "sha256:2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462",
+                        "name": null,
+                        "terminal": null,
+                        "terminal_key": null,
+                        "columns": null,
+                        "rows": null,
+                        "cwd": null,
+                        "url": "$WEB/index.html",
+                        "git_branch": null,
+                        "pinned": false,
+                        "dead": false,
+                        "unread": false,
+                        "tab_group": null,
+                        "agent_state": null,
+                        "agent": null,
+                        "agent_session": null
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "sessions": [
+          {
+            "id": "session_00000000000000000000000000000002",
+            "qualifier": "local",
+            "machine": "machine_00000000000000000000000000000001",
+            "machine_name": null,
+            "session_name": null,
+            "home": true,
+            "state": "connected",
+            "transport": "unix"
+          }
+        ]
+      }
     },
     "daemon": {
       "journalHead": 42,
@@ -158,7 +183,7 @@
           "machine_id": "machine_00000000000000000000000000000001",
           "name": "oracle",
           "generation": "g-1",
-          "revision": 42,
+          "revision": "42",
           "connected": true
         },
         "workspaces": [
@@ -217,7 +242,8 @@
             "index": 0,
             "focused": true,
             "content_kind": "terminal",
-            "content_id": "term_000000000000000000000000000000f1"
+            "content_id": "term_000000000000000000000000000000f1",
+            "extra": {"name_revision": "0", "name_source": "user"}
           },
           {
             "id": "tab_000000000000000000000000000000e2",
@@ -226,7 +252,8 @@
             "index": 0,
             "focused": true,
             "content_kind": "browser",
-            "content_id": "browser_000000000000000000000000000000f2"
+            "content_id": "browser_000000000000000000000000000000f2",
+            "extra": {"name_revision": "0", "name_source": "user"}
           }
         ],
         "terminals": [
@@ -234,13 +261,14 @@
             "id": "term_000000000000000000000000000000f1",
             "tab_id": "tab_000000000000000000000000000000e1",
             "tab_ids": ["tab_000000000000000000000000000000e1"],
-            "title": "zsh",
+            "title": "sha256:a26e37654285af42c469d2b5274becb65b81b27a44455cf4d9faf6c43a0c456e",
             "cwd": "$ROOT/fixture",
             "cols": 80,
             "rows": 24,
             "running": true,
-            "lifecycle": {"state": "running"},
-            "stream_revision": 19
+            "lifecycle": "running",
+            "stream_revision": "19",
+            "extra": {"last_output": {"at_ms": "1761393599000"}}
           }
         ],
         "browsers": [
@@ -250,11 +278,11 @@
             "url": "$WEB/index.html",
             "title": "Fixture",
             "loading": false,
-            "source": {"kind": "url"},
-            "status": {"state": "ready"},
+            "source": "launched",
+            "status": "live",
             "error": null,
             "frames_stalled": false,
-            "size": {"width": 640, "height": 480}
+            "size": {"cols": 80, "rows": 24}
           }
         ],
         "clients": [
@@ -263,14 +291,29 @@
             "session_id": "session_00000000000000000000000000000002",
             "name": "cmux-next",
             "client_kind": "app",
-            "transport": {"kind": "unix"},
-            "connected_seconds": 3,
+            "transport": "unix",
+            "connected_seconds": "3",
             "attached_terminal_ids": ["term_000000000000000000000000000000f1"],
-            "sizes": [{"terminal_id": "term_000000000000000000000000000000f1", "cols": 80, "rows": 24}],
+            "sizes": [
+              {"terminal_id": "term_000000000000000000000000000000f1", "cols": 80, "rows": 24, "participating": true}
+            ],
             "self": false
           }
         ],
-        "notifications": [],
+        "notifications": [
+          {
+            "id": "notification_00000000000000000000000000000005",
+            "session_id": "session_00000000000000000000000000000002",
+            "title": "sha256:bdee1730b2e98ea73378dbf8bff26518bbc1a338301b62519fcffab0d6c50ade",
+            "body": "sha256:8c5ab583e7c4e1f7c512f74e3802f2f1047231d3330636a624bb8b4158460b43",
+            "level": "info",
+            "terminal_id": "term_000000000000000000000000000000f1",
+            "created_at_ms": "1761393599500",
+            "unread": true,
+            "read_by": ["client_00000000000000000000000000000003"],
+            "extra": {"source": "cli"}
+          }
+        ],
         "agents": [],
         "frontend_projections": [
           {
@@ -280,21 +323,58 @@
             "frontend_id": "f-1",
             "window_id": "win_000000000000000000000000000000a1",
             "generation": "g-1",
-            "projection_revision": 5
+            "projection_revision": "5"
           }
         ],
         "sidebar_views": [],
-        "cursor": {"generation": "g-1", "revision": 42},
-        "extra": {"state": {"tab_groups": [], "workspace_groups": [], "closed": []}}
+        "cursor": {"generation": "g-1", "revision": "42"},
+        "extra": {
+          "state": {
+            "tab_groups": [],
+            "workspace_groups": [],
+            "closed": [
+              {
+                "id": "closed_00000000000000000000000000000006",
+                "kind": "tab",
+                "name": null,
+                "workspace_id": "ws_000000000000000000000000000000b1",
+                "pane_id": "pane_000000000000000000000000000000d1",
+                "index": 1,
+                "closed_at_ms": "1761393599700",
+                "screens": [
+                  {
+                    "name": null,
+                    "tabs": [
+                      {
+                        "kind": "terminal",
+                        "name": null,
+                        "cwd": "$ROOT/fixture",
+                        "url": null,
+                        "browser_profile_id": null,
+                        "pinned": false
+                      }
+                    ]
+                  }
+                ],
+                "window": null,
+                "member_count": 1
+              }
+            ],
+            "rooms": [
+              {"id": "default", "name": "Default", "index": 0, "follows": ["1ea03bb1-ffa7-453c-aeb8-4a535e880bd1"]}
+            ]
+          }
+        }
       },
       "settings": {
         "revision": 1,
         "schema_hash": "8c2f",
         "effective_sha256": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-        "file": "$HOME/.config/cmux/cmux-next.json",
-        "managed": null,
-        "policy": null,
-        "diagnostics": []
+        "file_sha256": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+        "managed": {},
+        "policy": {},
+        "diagnostics": [],
+        "domains": {"themes": null, "font_families": null, "sounds": null}
       },
       "oracle": {
         "switches": {"browserResize.layerHosting": "on"},
@@ -372,7 +452,7 @@
       "hidden": false,
       "widthFraction": 0.18,
       "selectedWorkspace": "ws_000000000000000000000000000000b1",
-      "filter": null,
+      "filterSha256": null,
       "rows": [
         {
           "kind": "workspace",
@@ -398,7 +478,7 @@
               "tab": "tab_000000000000000000000000000000e2",
               "kind": "browser",
               "url": "$WEB/index.html",
-              "title": "Fixture",
+              "title": "sha256:2ab25f10948b26d75da5b1623465c24e8ad39e11a3295c95c810e99dfa56e462",
               "loading": false,
               "canGoBack": false,
               "canGoForward": false,
@@ -414,7 +494,7 @@
     },
     "overlays": {
       "stack": [],
-      "palette": {"open": false, "mode": null, "query": null, "topIds": [], "selectedIndex": null},
+      "palette": {"open": false, "mode": null, "querySha256": null, "topIds": [], "selectedIndex": null},
       "dialog": {"specId": null},
       "hoverCard": {"target": null},
       "findBar": {"open": false, "pane": null, "querySha256": null, "matches": 0, "selected": null}
@@ -456,14 +536,18 @@
           "attach": "attached",
           "cols": 80,
           "rows": 24,
-          "title": "zsh",
+          "title": "sha256:a26e37654285af42c469d2b5274becb65b81b27a44455cf4d9faf6c43a0c456e",
           "cwd": "$ROOT/fixture",
           "last24Sha256": "sha256:9d33aaf454aa472d5b6fa0fb9f2d1aa4ab4ae80350a7f7d8abfb320bcd28cc74",
           "exitCode": null
         }
       ]
     },
-    "webviews": {"status": "not-comparable", "reason": "no app web page is open in this case", "task": "p15-oracle-215"},
+    "webviews": {
+      "status": "not-comparable",
+      "reason": "no app web page is open in this case",
+      "task": "p15-oracle-215"
+    },
     "ax": {
       "windows": [
         {
