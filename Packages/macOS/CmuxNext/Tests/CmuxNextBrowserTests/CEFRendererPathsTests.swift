@@ -113,6 +113,41 @@ import Testing
         #expect(Spy.scripts.allSatisfy { !$0.source.contains("cmuxMedia(") }, "a page-channel script posts through a DevTools binding")
     }
 
+    /// The spare window's about:blank placeholder is never shown, so Chromium never learned it was hidden and ran
+    /// its frames and timers at idle (visibilityState "visible", rAF ~98/s; fleet probe 4e065838, macOS 27). Its
+    /// page is frozen through DevTools as soon as its browser exists, on every fork: the renderer-path freeze
+    /// refuses a page Chromium counts visible. Another host's tab is not.
+    @Test(arguments: [Int32(24), 29]) func theSparePlaceholderIsFrozenWhenItsBrowserExists(forkAPI: Int32) throws {
+        let rig = try Rig(forkAPI: forkAPI)
+        defer { rig.close() }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "spare-\(UUID().uuidString)"), profile: .default), runtime: rig.runtime)
+        let blank = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
+        host.placeholder = blank
+        host.freezesPlaceholder = true
+        host.add(blank)
+        host.ensureCreated(blank)
+        let request = try #require(rig.runtime.pendingWindows.keys.first)
+        Spy.devToolsCalls = []
+        rig.runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
+        try #require(blank.browserID == 7)
+        #expect(Spy.devToolsCalls.filter { $0 == "Page.setWebLifecycleState" }.count == 1, "\(Spy.devToolsCalls)")
+        #expect(Spy.frozen.isEmpty, "the renderer-path freeze refuses a page Chromium counts visible")
+    }
+
+    @Test func aPlaceholderOfAHostThatDoesNotFreezeItStaysAwake() throws {
+        let rig = try Rig(forkAPI: 29)
+        defer { rig.close() }
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: rig.runtime)
+        let blank = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
+        host.placeholder = blank  // a popup host's placeholder: it closes when the popup moves in
+        host.add(blank)
+        host.ensureCreated(blank)
+        let request = try #require(rig.runtime.pendingWindows.keys.first)
+        Spy.devToolsCalls = []
+        rig.runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
+        #expect(!Spy.devToolsCalls.contains("Page.setWebLifecycleState"), "\(Spy.devToolsCalls)")
+    }
+
     // MARK: Rig
 
     @MainActor final class Rig {

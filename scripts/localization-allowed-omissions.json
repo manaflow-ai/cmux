@@ -2974,6 +2974,14 @@
       "de": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
+  "sidebar.remoteMachines.cpu": {
+    "class": "technical",
+    "source": "CPU %1$lld/%2$lld"
+  },
+  "sidebar.remoteMachines.resourcesLabel": {
+    "class": "format",
+    "source": "%1$@: %2$@"
+  },
   "sidebar.status.compactLabel": {
     "source": "Status: %@",
     "identityLocales": {

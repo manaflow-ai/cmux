@@ -83,7 +83,7 @@ public final class HomeSidebarSource {
     /// This Mac's marks changed here (a Mark as Unread or Read of a row no owner lists): other
     /// sources over the same account read them again (``reloadMarks()``).
     @ObservationIgnored public var onMarksChanged: () -> Void = {}
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG: conversations listed besides the store's (`debug.home.sidebar_fixture`).
     @ObservationIgnored public var debugRows: [InboxRow] = []
     /// DEBUG: team members listed besides the directory's (`debug.home.sidebar_fixture` `team`).

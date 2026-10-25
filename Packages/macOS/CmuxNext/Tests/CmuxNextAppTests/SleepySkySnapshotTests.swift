@@ -2,7 +2,6 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import Foundation
-import SwiftUI
 import Testing
 
 /// A picture of Sleepy Mode's still scene (Motion off: the sky at time 0), written to
@@ -16,7 +15,7 @@ import Testing
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = reduced }
         let frame = NSRect(x: 0, y: 0, width: 1280, height: 800)
-        let host = NSHostingView(rootView: SleepySceneView(workingAgents: { 0 }, wake: {}, lockMac: {}))
+        let host = SleepySceneView.hostView(workingAgents: { 0 }, wake: {}, lockMac: {})
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = host

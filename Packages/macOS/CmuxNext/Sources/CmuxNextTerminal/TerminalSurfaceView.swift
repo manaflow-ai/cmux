@@ -177,7 +177,8 @@ public final class TerminalSurfaceView: NSView {
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
-        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
+        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output",
+                                  frameLayer: layer.map(ObjectIdentifier.init))
         if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
