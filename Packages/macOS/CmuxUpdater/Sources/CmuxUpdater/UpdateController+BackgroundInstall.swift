@@ -9,12 +9,7 @@ extension UpdateController {
         get { driver.installsInBackground }
         set {
             driver.installsInBackground = newValue
-            guard newValue,
-                  defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey) else { return }
-            // Sparkle's silent installer cannot be replaced after a newer feed item arrives.
-            // Background mode owns the staged reply so StagedUpdateRefresh can re-check the
-            // feed at the user's click and install the newest build in one restart.
-            defaults.set(false, forKey: UpdateSettings.automaticallyUpdateKey)
+            guard newValue, disableSparkleSilentStagingIfNeeded() else { return }
             log.append("background install: disabled Sparkle silent staging; using the replaceable app-owned installer")
         }
     }
