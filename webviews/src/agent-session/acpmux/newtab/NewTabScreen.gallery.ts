@@ -639,6 +639,20 @@ export default agentPaneEntry({
           throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
       },
     },
+    "attachment-menu": {
+      note: "The New Tab composer keeps the chat composer's leading + attachment control: opening it exposes the same Attach option without moving the field.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button") !== null,
+        );
+        await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
+        const input = ctx.document.querySelector<HTMLInputElement>(".nt-pickers .acpmux-attach-input");
+        if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
+      },
+    },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
     // actions, from the page's own data. Projects: this Mac, then its recent projects, the one a chat
     // starts in checked. Needs you: the chats asking for input or that hit an error, each with ×.

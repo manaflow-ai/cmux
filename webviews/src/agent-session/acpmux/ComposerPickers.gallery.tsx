@@ -240,6 +240,9 @@ const openModel: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
   if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
     throw new Error("the model picker has no inline Fast bolt");
+  const headers = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .ui-menu-group-label")];
+  if (headers.some((node) => node.textContent?.trim()))
+    throw new Error("the compact model menu should not show a static session header");
 };
 
 const modelFocus: Play = async (ctx) => {
@@ -339,6 +342,8 @@ const morePicker: Play = async (ctx) => {
 const openMode: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  if (ctx.document.querySelector(".acpmux-access-heading"))
+    throw new Error("the permission menu should not show a static header");
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );

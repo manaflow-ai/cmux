@@ -131,6 +131,29 @@ const waitingSteers = () =>
     { isWorking: true },
   );
 
+// One steer Claude has not read yet, in a Claude Code chat under its own family name (Leo's
+// claude-sr2): it steers, so Send now and the X lead the steer's action row.
+const waitingSteerSr2 = () => {
+  const running = chat(
+    [
+      user("Add retries", 6),
+      assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+      user("Also keep the old flag working", 0.5, { steer: "waiting", steerPromptId: "p-steer" }),
+    ],
+    { isWorking: true },
+  );
+  return {
+    ...running,
+    summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
+};
+
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
@@ -911,6 +934,48 @@ export default agentPaneEntry({
           throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
       },
     },
+    "attachment-loading": {
+      note: "Leo, 2026-10-24: \"why don't you put a spinner on the attachment rather than this placeholder that doesn't do anything... I can't even cancel these\". A pasted screenshot is its chip as soon as its preview is made (in a worker), whatever its original's upload does; a file still uploading spins, and its × cancels it.",
+      snapshot: chat(finished),
+      nativeDelayMs: { "chat.upload.begin": 3_600_000 },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const png = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+          (char) => char.charCodeAt(0),
+        );
+        const files = [
+          new view.File([png], "Screenshot.png", { type: "image/png" }),
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+        ];
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pending .acpmux-attachment-spinner"));
+      },
+    },
+    "attachment-failed": {
+      note: "A file the composer could not attach stays in the strip saying why (here the app could not save it), with Retry and its ×, instead of a placeholder that never loads.",
+      snapshot: chat(finished),
+      native: { "chat.upload.begin": { nativeError: { code: "io", userMessage: "The disk is full." } } },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const files = [
+          // Not a picture after all: it goes as a file, and the app refuses it.
+          new view.File([new Uint8Array(64).fill(7)], "Screenshot.png", { type: "image/png" }),
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+        ];
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-failed").length === 2);
+      },
+    },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
       ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },
@@ -1203,6 +1268,36 @@ export default agentPaneEntry({
           if (!actions.previousElementSibling?.classList.contains("cv-user__bubble"))
             throw new Error("Send now action row is not under the bubble");
         }
+      },
+    },
+    // Leo, 2026-10-24: "where's the, like, X button? All I see is the send now. There's no, like,
+    // you know, sort of retract and send now."
+    "steer-waiting-x": {
+      note: "Play: hover a steer Claude has not read, in a Claude Code chat under its own family name (claude-sr2): Send now and the X (take it back to edit) lead its action row.",
+      snapshot: waitingSteerSr2(),
+      play: async (ctx) => {
+        await ctx.hover({ text: "Also keep the old flag working" });
+        const pending = ctx.document.querySelector(".cv-user__pending");
+        if (!pending?.querySelector(".cv-user__send-now")) throw new Error("no Send now on the waiting steer");
+        if (!pending.querySelector(".cv-user__take-back")) throw new Error("no X on the waiting steer");
+      },
+    },
+    // Leo, 2026-10-24: "after i clicked send now and it worked it should just disappear" and "with
+    // the animation as well".
+    "steer-send-now-leaves": {
+      note: "Play: Send now on a steer Claude has not read: acpmux says it worked, and Send now and the X fade and fold away while the steer still waits for Claude to read it. The action row keeps its line: the bubble, the row and the transcript do not move.",
+      snapshot: waitingSteerSr2(),
+      native: { "chat.queue.edit": { ok: true } },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Also keep the old flag working" });
+        const steer = ctx.find({ text: "Also keep the old flag working" }).closest(".cv-user");
+        const actions = steer?.querySelector<HTMLElement>(".cv-user__actions");
+        const before = actions?.getBoundingClientRect();
+        await ctx.click({ selector: ".cv-user__send-now" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-user__pending"));
+        const after = actions?.getBoundingClientRect();
+        if (!before || !after || before.top !== after.top || before.height !== after.height)
+          throw new Error("the steer's action row moved when Send now left");
       },
     },
     "steer-marks": {
