@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextPages
 import CmuxNextScreenshots
 import Testing
 import WebKit
@@ -195,6 +196,30 @@ import WebKit
         let list = HomeSidebarView(frame: NSRect(x: 4, y: 4, width: 60, height: 60))
         fixture.plain.addSubview(list)
         #expect(ScreenshotMask.read(fixture.window, rules: .app).regions.contains(list.convert(list.bounds, to: nil)))
+    }
+
+    /// The allow path: a listed app page is not covered, and the web view it holds is not covered
+    /// for being a web view (`Rules.app.isAppPage` and `read`'s `inAppPage`). Without this, a
+    /// rename of the page host type would mask Files, Diff and Keybindings with no test failing.
+    @Test func aListedAppPageAndItsWebViewAreNotCovered() throws {
+        let listed = try #require(PageWebView(descriptor: .files, routes: []))
+        #expect(ScreenshotMask.shownAppPages.contains(PageDescriptor.files.id))
+        #expect(!ScreenshotMask.covers(listed), "a listed app page is shown")
+        #expect(ScreenshotMask.Rules.app.isAppPage(listed), "a page view holds the app's own content")
+        let unlisted = try #require(PageWebView(descriptor: PageDescriptor(id: "cmux.not-checked", resource: "files",
+                                                                          namespaces: ["cmux.not-checked."]), routes: []))
+        #expect(ScreenshotMask.covers(unlisted), "a page nobody checked is masked")
+
+        // The page's own web view is reached through the page, so it is not masked on its own.
+        let fixture = fixture(onScreen: false)
+        defer { fixture.close() }
+        listed.frame = NSRect(x: 8, y: 8, width: 80, height: 80)
+        fixture.plain.addSubview(listed)
+        let regions = ScreenshotMask.read(fixture.window, rules: .app).regions
+        #expect(!regions.contains(listed.convert(listed.bounds, to: nil)), "the listed page itself is not masked")
+        for web in listed.subviews.compactMap({ $0 as? WKWebView }) {
+            #expect(!regions.contains(web.convert(web.bounds, to: nil)), "its web view is the page's own content")
+        }
     }
 
     /// The screen lags the view tree: a page shown for one run loop turn while the capture
