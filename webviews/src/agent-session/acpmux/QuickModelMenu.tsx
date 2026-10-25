@@ -368,12 +368,9 @@ export function QuickModelMenu({
       ]
     : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
-<<<<<<< HEAD
-=======
   // Keep the model menu's normal state as a compact list. A typed query remains labelled so the
   // filtered context is visible, while the static "Model · this session" caption adds no
   // information beyond the trigger and is intentionally omitted.
->>>>>>> 927beb5ce57fa (cmux NEXT composer: remove static menu headers)
   const modelRows = (
     <>
       <MenuRadioGroup
