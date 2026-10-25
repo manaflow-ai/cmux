@@ -236,3 +236,39 @@ test("a chat's key that no index lists is still pruned", async () => {
   expect(localStorage.getItem(`${PREFIX}chat-lost`)).toBeNull();
   expect(PANES_KEPT).toBe(200);
 });
+
+test("pruning from a stale index never drops a chat another pane saved since", async () => {
+  const { createInspectorStore, INSPECTOR_INDEX_KEY } = await page("");
+  const pane = (sessionId: string, storage: () => Storage = () => localStorage) => {
+    const store = createInspectorStore(storage);
+    store.bind(sessionId);
+    return store;
+  };
+  // Chat X, saved more than 30 days ago: due for pruning.
+  setSystemTime(new Date("2026-09-01T00:00:00Z"));
+  pane("chat-x");
+  // Pane A reads the index now: it lists X at that old time.
+  setSystemTime(new Date("2026-10-25T00:00:00Z"));
+  const staleIndex = localStorage.getItem(INSPECTOR_INDEX_KEY);
+  expect(staleIndex).toContain('"chat-x"');
+  const view: Storage = {
+    get length() {
+      return localStorage.length;
+    },
+    key: (index: number) => localStorage.key(index),
+    getItem: (key: string) => (key === INSPECTOR_INDEX_KEY ? staleIndex : localStorage.getItem(key)),
+    setItem: (key: string, value: string) => localStorage.setItem(key, value),
+    removeItem: (key: string) => localStorage.removeItem(key),
+    clear: () => localStorage.clear(),
+  };
+  // Pane B saves X fresh, closed, before pane A's save lands.
+  pane("chat-x").setOpen(false);
+  // Pane A saves, pruning from the index it read before B's save.
+  setSystemTime(new Date("2026-10-25T00:00:01Z"));
+  pane("chat-a", () => view).setOpen(true);
+
+  expect(localStorage.getItem(`${PREFIX}chat-x`)).not.toBeNull();
+  expect(pane("chat-x").current().open).toBe(false);
+  // X is listed again, so a later save still prunes it in turn.
+  expect(localStorage.getItem(INSPECTOR_INDEX_KEY)).toContain('"chat-x"');
+});

@@ -148,7 +148,9 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
   /// Saves `sessionId`'s state, and drops chats past the newest ``PANES_KEPT`` or older than
   /// ``PANE_DAYS`` from the index and their keys; never the pane's own (a clock set back, or a tie,
   /// must not drop the chat the pane shows). Only the small index is read and written again: a save
-  /// another pane's index write loses delays its pruning, it never loses a chat's state.
+  /// another pane's index write loses delays its pruning, and a chat another pane saved after this
+  /// pane read the index is never dropped (each chat's key carries its own time); neither loses a
+  /// chat's state.
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
     write(INSPECTOR_PANE_PREFIX + sessionId, JSON.stringify({ ...next, at: now }));
@@ -157,8 +159,19 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       .sort((a, b) => b[1] - a[1]);
     const kept: [string, number][] = [[sessionId, now]];
     for (const [id, at] of others) {
-      if (kept.length < PANES_KEPT && now - at < PANE_DAYS * 86_400_000) kept.push([id, at]);
-      else write(INSPECTOR_PANE_PREFIX + id, null);
+      if (kept.length < PANES_KEPT && now - at < PANE_DAYS * 86_400_000) {
+        kept.push([id, at]);
+        continue;
+      }
+      // The index this pane read may be stale: another pane may have saved this chat since. Its own
+      // key carries its `at`, so it goes only while that is still the one the index named; a chat
+      // saved since stays, listed with its new time (the next save prunes it, if it is still due).
+      const key = INSPECTOR_PANE_PREFIX + id;
+      const raw = read(key);
+      if (raw === null) continue;
+      const savedAt = (parse(raw) as Stored | undefined)?.at;
+      if (typeof savedAt === "number" && savedAt > at) kept.push([id, savedAt]);
+      else write(key, null);
     }
     write(INSPECTOR_INDEX_KEY, JSON.stringify(kept));
   };
