@@ -256,7 +256,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/subagents/AgentLine.tsx",
     "agent-session/acpmux/subagents/SubagentDoneLine.tsx",
     "agent-session/acpmux/subagents/restart.ts",
-    "agent-session/acpmux/subagents/trayDetail.ts",
   ],
   // The panel's looks (trayPanel.experiment.ts), on the two- and 118-agent panels.
   experiment: { definition: trayPanelLook, script: panelScript },
