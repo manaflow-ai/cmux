@@ -75,6 +75,11 @@ public final class ActionRegistry {
     /// between dispatches. The App installs it (`InputDispatchContext`: `sendEvent`'s event and the key router's own); the action
     /// signposts read it for a `user` run's `input_age_ms`. Nil (the default) records -1.
     @ObservationIgnored public var dispatchingInputEvent: @MainActor () -> NSEvent? = { nil }
+    /// Called when a run's ``ActionEffect`` changed something the next frame shows: ``ActionEffect/applied(_:)``
+    /// (a store intent included) or ``ActionEffect/waiting(_:_:)``. The App installs its input dispatch
+    /// context's `noteFrameExpected()`, so a key or click whose action applied an effect opens the scheduler's
+    /// input response (Chrome's `is_frame_expected_after_discrete_input`). Does nothing by default.
+    @ObservationIgnored public var effectExpectsFrame: @MainActor () -> Void = {}
     /// Times each run that does work (``ActionRunTiming``; `action.perform` / `action.commit`), and
     /// each gate (`action.gate`).
     let runTiming: any ActionRunTiming

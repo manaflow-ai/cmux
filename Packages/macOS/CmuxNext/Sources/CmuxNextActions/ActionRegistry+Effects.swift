@@ -54,8 +54,10 @@ extension ActionRegistry {
         case .done:
             return
         case .applied(let confirmation):
+            effectExpectsFrame()
             start(id, invocation, confirmation.send, rollback: confirmation.rollback)
         case .waiting(let reason, let work):
+            effectExpectsFrame()
             waitingRuns[canonicalID(for: id), default: [:]][reason, default: 0] += 1
             start(id, invocation, work, rollback: nil)
         case .refused(let reason, let quiet):
