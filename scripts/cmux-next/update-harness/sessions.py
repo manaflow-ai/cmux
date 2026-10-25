@@ -162,10 +162,11 @@ class Terminal:
         with open(self.file) as f:
             return [float(line) for line in f if line.strip()]
 
-    def check(self, root, click_unix, relaunched_unix):
+    def check(self, root, click_unix, relaunched_unix, handoff=True):
         """After the relaunch: the same terminal, the same process, counting through the swap."""
         # The handed-off daemon exits; the new one adopts the terminal hosts after it starts.
-        self.socket = wait_path("/", lambda _: self.daemon_socket(root, exclude=self.daemon_pids), 60) or self.socket
+        if handoff:
+            self.socket = wait_path("/", lambda _: self.daemon_socket(root, exclude=self.daemon_pids), 60) or self.socket
         listed = wait_path("/", lambda _: (lambda out: out if self.term in out else None)(self.list_quietly()), 30)
         same_terminal = listed is not None
         listed = listed or self.list_quietly()
@@ -186,7 +187,7 @@ class Terminal:
 class Agent:
     """One agent turn on acpmux's test agent that waits on a FIFO across the update."""
 
-    def __init__(self, acp_home, fake_agent, work, log):
+    def __init__(self, acp_home, fake_agent, work, log, configure=True):
         self.home = acp_home
         self.socket = os.path.join(acp_home, "acpmux.sock")
         self.gate = os.path.join(work, "agent-gate")
@@ -195,6 +196,8 @@ class Agent:
         self.harness_pid = None
         self.conn = None
         os.makedirs(acp_home, exist_ok=True)
+        if not configure:
+            return
         config = os.path.join(acp_home, "config.json")
         if os.path.exists(config):
             raise SystemExit(f"{config} exists: use a fresh tag")
@@ -245,21 +248,39 @@ class Agent:
         self.conn = conn
         if not self.wait_event(lambda e: "before-gate" in json.dumps(e) and e.get("kind") != "prompt", 30):
             raise SystemExit("the agent turn did not start")
-        self.harness_pid = self.host_record().get("harness_pid")
+        self.host_before = self.identity()
+        self.events_before = self.events()
+        self.harness_pid = self.host_before.get("harness_pid")
+        with open(os.path.join(self.home, "daemon.pid")) as f:
+            self.daemon_pid = int(f.read().strip())
         self.log("agent session", self.session, "harness pid", self.harness_pid)
 
-    def check(self, timeout=90):
+    def identity(self):
+        # The host record also contains controller credentials: never publish those.
+        record = self.host_record()
+        return {key: record.get(key) for key in ("session_id", "incarnation", "start_nonce", "host_pid", "harness_pid")}
+
+    def check(self, timeout=90, handoff=True):
         """After the relaunch: the same agent was adopted; released, its turn completes once."""
         alive_after = bool(self.harness_pid and alive(self.harness_pid))
-        adopted = self.wait_event(lambda e: e.get("kind") == "host_adopted", timeout)
+        adopted = self.wait_event(lambda e: e.get("kind") == "host_adopted", timeout) if handoff else None
+        host_after = self.identity()
+        with open(os.path.join(self.home, "daemon.pid")) as f:
+            daemon_after = int(f.read().strip())
         # The FIFO open blocks until the agent reads it: write from a thread with a deadline.
         writer = threading.Thread(target=lambda: open(self.gate, "w").write("go"), daemon=True)
         writer.start()
         writer.join(timeout)
         result = self.wait_event(lambda e: e.get("kind") == "turn_result", timeout)
         events = self.events()
+        if self.conn:
+            self.conn.close()
         return {
             "session": self.session, "harness_pid": self.harness_pid, "harness_alive_after_swap": alive_after,
+            "host_before": self.host_before, "host_after": host_after, "same_host": self.host_before == host_after,
+            "daemon_before": self.daemon_pid, "daemon_after": daemon_after,
+            "transcript_prefix_preserved": events[:len(self.events_before)] == self.events_before,
+            "turn_results": sum(e.get("kind") == "turn_result" for e in events),
             "host_adopted": bool(adopted), "gate_released": not writer.is_alive(),
             "turn_status": (result or {}).get("msg", {}).get("status"),
             "before_gate_chunks": sum(1 for e in events if "before-gate" in json.dumps(e) and e.get("kind") != "prompt"),
