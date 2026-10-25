@@ -313,7 +313,8 @@ impl Hub {
             // access unless the person picked or set otherwise. Soft.
             // A proven agent starter's instead, never wider (`start_mode.rs`, "Inherit").
             let start_mode = if mode_eligible {
-                self.start_mode_for(&session, starter.as_deref()).await
+                // Boxed, as the hold below: inline they outgrow a debug build's 2 MiB stack.
+                Box::pin(self.start_mode_for(&session, starter.as_deref())).await
             } else {
                 None
             };
@@ -332,17 +333,9 @@ impl Hub {
             // Never asking less than the starter as it is now (it may have narrowed or left full
             // access meanwhile, or the child's family has no mode that asks): an inherited policy
             // is narrowed to the starter's, and the harness moved, else refused.
-            let theirs =
-                starter.as_deref().and_then(|id| self.resolve(id).ok().filter(|s| s.id == id));
-            if let Some(theirs) = theirs.map(|s| s.meta()) {
-                if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
-                    let narrowed = self.effective_policy(&theirs).await;
-                    self.set_policy(&session, narrowed).await;
-                }
-                if mode_eligible {
-                    self.hold_mode(&theirs, &session).await?;
-                }
-            }
+            let starter = starter.as_deref();
+            Box::pin(self.hold_to_starter(&session, starter, inherits_policy, mode_eligible))
+                .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
             self.note_unenforced_policy(&session, default);
@@ -358,6 +351,28 @@ impl Hub {
             self.pool_note_used(&session);
         }
         Ok(session)
+    }
+
+    /// A chat `starter` started, held to it as it is now (`start_mode.rs`, "Inherit"): an
+    /// inherited policy (`inherits_policy`) laxer than the starter's is narrowed to it, and a
+    /// harness whose mode the inheritance chose (`mode_eligible`) moved, else refused.
+    async fn hold_to_starter(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        starter: Option<&str>,
+        inherits_policy: bool,
+        mode_eligible: bool,
+    ) -> Result<(), RpcError> {
+        let theirs = starter.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id));
+        let Some(theirs) = theirs.map(|s| s.meta()) else { return Ok(()) };
+        if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
+            let narrowed = self.effective_policy(&theirs).await;
+            self.set_policy(session, narrowed).await;
+        }
+        if mode_eligible {
+            self.hold_mode(&theirs, session).await?;
+        }
+        Ok(())
     }
 
     /// Every model id a profile can run: declared in config, then reported
