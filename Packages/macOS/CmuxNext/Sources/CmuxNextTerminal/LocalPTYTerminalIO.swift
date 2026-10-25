@@ -193,7 +193,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
         version: String? = GhosttyRuntime.version,
         home: String = NSHomeDirectory(),
-        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
     ) -> [String: String] {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
         if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
