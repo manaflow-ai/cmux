@@ -42,7 +42,7 @@ const highlights: Highlight[] = [
   },
   {
     id: "terminal-cmd-click-links",
-    category: "improved",
+    category: "fixed",
     title: "Command-click opens terminal links every time",
     body: "Hold Command over a link in any terminal to underline it, and click to open it. Links a program wrapped onto two rows open whole, and file:line opens at that line.",
     media: clip(

@@ -42,9 +42,11 @@ function firstParagraph(text: string): string {
   return text.split(/\n{2,}/)[0] ?? "";
 }
 
-/** The changes that show a clip: the hero first, then New and Improved in order. */
+/** The changes that show a clip: the hero first, then New, Improved and Fixed in order (a fix
+    with a clip shows it working; Security keeps its own list). */
 export function clipItems(view: ReleaseView): ReleaseItem[] {
-  const items = [...(view.hero ? [view.hero] : []), ...newsItems(view)];
+  const fixes = view.groups.find((g) => g.category === "fixed")?.items ?? [];
+  const items = [...(view.hero ? [view.hero] : []), ...newsItems(view), ...fixes];
   return items.filter((item, index) => item.media && items.indexOf(item) === index);
 }
 
@@ -56,7 +58,9 @@ export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }
   const lead = clips.length === 0 ? leadItems(view) : view.hero && !view.hero.media ? [view.hero] : [];
   const cards = newsItems(view).filter((item) => !lead.includes(item) && !clips.includes(item));
   const security = view.groups.filter((g) => g.category === "security");
-  const fixed = view.groups.find((g) => g.category === "fixed")?.items ?? [];
+  const fixed = (view.groups.find((g) => g.category === "fixed")?.items ?? []).filter(
+    (item) => !clips.includes(item),
+  );
   // When fixes are all the update's news, their list is open: one closed line would hide all of it.
   const onlyFixes = clips.length === 0 && lead.length === 0 && cards.length === 0 && security.length === 0;
   return (

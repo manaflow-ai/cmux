@@ -71,6 +71,17 @@ test("every change with a clip shows it with its caption; the rest of New and Im
   }
 });
 
+test("a fix with a clip shows it beside the others and leaves the Fixed line", () => {
+  const v = view(undefined, [
+    { category: "new", items: [item("n1", "new", { media: picture })] },
+    { category: "fixed", items: [item("f1", "fixed", { media: clip }), ...fixes] },
+  ]);
+  expect(clipItems(v).map((i) => i.id)).toEqual(["n1", "f1"]);
+  const doc = render(v);
+  expect([...doc.querySelectorAll(".cln-clip .cln-card-kind")].map((k) => k.textContent)).toEqual(["New", "Fixed"]);
+  expect(doc.querySelector("details.cln-fixed summary")?.textContent).toBe("Fixed23");
+});
+
 test("beside clips, a hero without one leads in words", () => {
   const doc = render(view(item("hero", "new"), [{ category: "new", items: [item("n1", "new", { media: picture })] }]));
   expect([...doc.querySelectorAll(".cln-lead-title")].map((l) => l.textContent)).toEqual(["Title hero"]);
