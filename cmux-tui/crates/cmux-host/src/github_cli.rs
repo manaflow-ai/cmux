@@ -384,6 +384,12 @@ pub fn gh_plan(
                 .to_owned(),
         );
     }
+    // `gh repo view HOST/owner/name` goes to HOST (gh sends GH_TOKEN to
+    // *.ghe.com too): a repo argument may name github.com only.
+    if rest.iter().any(|arg| other_host_repo(arg)) {
+        return Err("the token is for github.com: a HOST/owner/name argument must name github.com"
+            .to_owned());
+    }
     let mut named = None;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
@@ -443,6 +449,22 @@ fn url_arg_ok(arg: &str) -> bool {
         && ["github.com", "api.github.com", "uploads.github.com"]
             .iter()
             .any(|host| authority.eq_ignore_ascii_case(host))
+}
+
+/// Whether `arg` is `HOST/owner/name` with a HOST (dotted labels) other
+/// than github.com.
+fn other_host_repo(arg: &str) -> bool {
+    let mut parts = arg.split('/');
+    let (Some(host), Some(owner), Some(name), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return false;
+    };
+    let hostlike = host.contains('.')
+        && host.split('.').all(|label| {
+            !label.is_empty() && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        });
+    hostlike && !owner.is_empty() && !name.is_empty() && !host.eq_ignore_ascii_case("github.com")
 }
 
 fn origin_url() -> Option<String> {
@@ -706,6 +728,13 @@ mod tests {
         assert!(!url(&["api", "https://github.com.evil/x"]));
         assert!(!url(&["api", "HTTPS://evil.example.com"]));
         assert!(!url(&["api", "https://x@api.github.com/repos"]));
+        // HOST/owner/name positionals: github.com only.
+        assert!(!url(&["repo", "view", "evil.ghe.com/o/r"]));
+        assert!(!url(&["repo", "clone", "Evil.Example.com/o/r"]));
+        assert!(url(&["repo", "view", "github.com/o/r"]));
+        assert!(url(&["repo", "view", "o/r"]));
+        assert!(url(&["api", "repos/o/r"]));
+        assert!(url(&["gist", "create", "../a/b"]));
         let env = gh_plan(&strings(&["--", "pr", "list"]), Some("o/env"), &origin).unwrap();
         assert_eq!(
             (env.repo.as_str(), env.write, env.args),
