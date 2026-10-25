@@ -290,14 +290,18 @@ public final class FrameScheduler: NSObject {
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
-        // Clients activated during this frame tick next frame. Frame-locked clients first, every
-        // frame; then (only on the scheduler that holds the budget) the budgeted batches in class
-        // order, each only while its class may run (a held one stays active and ticks next frame:
-        // input pending, or the class's budget spent).
+        // Clients activated during this frame tick next frame. The input stage first (the window's
+        // FrameInputCoalescer), so the frame-locked clients see this frame's input; then those,
+        // every frame; then (only on the scheduler that holds the budget) the budgeted batches in
+        // class order, each only while its class may run (a held one stays active and ticks next
+        // frame: input pending, or the class's budget spent).
         let ticking = clients.values.filter(\.isActive)
         let order = budgetedOrder
         budget?.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval)
-        for client in ticking where !client.workClass.isBudgeted {
+        for client in ticking where client.workClass == .input {
+            fire(client, tick)
+        }
+        for client in ticking where client.workClass == .frame {
             fire(client, tick)
         }
         guard let budget else { return }
