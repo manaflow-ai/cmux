@@ -232,7 +232,8 @@ public final class FrameScheduler: NSObject {
     private static let motionRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
 
     @objc private func tick(_ link: CADisplayLink) {
-        frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp)
+        frameDidFire(timestamp: link.timestamp, refreshInterval: link.targetTimestamp - link.timestamp,
+                     targetTimestamp: link.targetTimestamp)
     }
 
     private func armStall(after delay: Duration = FrameScheduler.stallTimeout) {
@@ -265,27 +266,31 @@ public final class FrameScheduler: NSObject {
         }
         lastStall = FrameStall(startedAt: lastLinkFrame, detectedAt: mediaTime())
         ledger.record("FrameScheduler.\(name)", reason: "stalled frame")
-        deliver(timestamp: nil, refreshInterval: nil)
+        deliver(timestamp: nil, refreshInterval: nil, targetTimestamp: nil)
         guard !clients.isEmpty else { return }
         (link ?? makeLink())?.isPaused = false
         armStall()
     }
 
-    /// One display frame (the link's tick; tests call it directly).
-    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
+    /// One display frame (the link's tick; tests call it directly). `targetTimestamp`: when the frame
+    /// is shown (the link's); nil is `timestamp` plus `refreshInterval`.
+    public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil,
+                             targetTimestamp: CFTimeInterval? = nil) {
         lastLinkFrame = timestamp ?? mediaTime()
         stalls = 0
-        deliver(timestamp: timestamp, refreshInterval: refreshInterval)
+        deliver(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
         if clients.isEmpty { pause() } else { armStall() }
     }
 
-    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?) { // perf-hot: 0.5ms frame-tick (every frame)
+    private func deliver(timestamp: CFTimeInterval?, refreshInterval: Double?, // perf-hot: 0.5ms frame-tick (every frame)
+                         targetTimestamp: CFTimeInterval?) {
         frames &+= 1
-        let now = timestamp ?? CACurrentMediaTime()
+        let now = timestamp ?? mediaTime()
         let elapsed = lastTimestamp.map { now - $0 } ?? (1.0 / 60.0)
         lastTimestamp = now
         let tick = FrameTick(timestamp: now, elapsed: min(max(elapsed, 1.0 / 240.0), 1.0 / 30.0),
-                             rawElapsed: elapsed, refreshInterval: refreshInterval)
+                             rawElapsed: elapsed, refreshInterval: refreshInterval,
+                             targetTimestamp: targetTimestamp, sequence: frames)
         // Visible motion (not batch work) explains CPU use to the busy watchdog.
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)

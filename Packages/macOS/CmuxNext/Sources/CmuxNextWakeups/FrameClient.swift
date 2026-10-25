@@ -1,7 +1,10 @@
 public import AppKit
 import QuartzCore
 
-/// One frame delivered to a ``FrameClient``.
+/// One frame delivered to a ``FrameClient``: Chrome's `viz::BeginFrameArgs`
+/// (components/viz/common/frame_sinks/begin_frame_args.h), whose `frame_time`, `deadline`,
+/// `interval` and `sequence_number` are ``timestamp``, ``targetTimestamp``, ``refreshInterval``
+/// and ``sequence``.
 public struct FrameTick: Sendable {
     /// Display-link time of this frame (CACurrentMediaTime base).
     public var timestamp: CFTimeInterval
@@ -11,6 +14,24 @@ public struct FrameTick: Sendable {
     public var rawElapsed: Double
     /// The display's refresh period; nil for a synthesized (stalled) frame.
     public var refreshInterval: Double?
+    /// When the frame this tick builds is shown (the link's `targetTimestamp`, CACurrentMediaTime base);
+    /// ``timestamp`` for a synthesized frame. Sample a presented value (a spring, a `MotionPath`) at this
+    /// time, not at `CACurrentMediaTime()`: the main thread runs the tick late by a varying delay.
+    public var targetTimestamp: CFTimeInterval
+    /// The frame's number on its scheduler, from 1, one more each frame (stalled frames too): a gap
+    /// between two ticks a client saw is a frame it missed.
+    public var sequence: UInt64
+
+    /// A tick; `targetTimestamp` defaults to `timestamp` plus the refresh period (a synthesized frame: `timestamp`).
+    public init(timestamp: CFTimeInterval, elapsed: Double, rawElapsed: Double, refreshInterval: Double?,
+                targetTimestamp: CFTimeInterval? = nil, sequence: UInt64 = 0) {
+        self.timestamp = timestamp
+        self.elapsed = elapsed
+        self.rawElapsed = rawElapsed
+        self.refreshInterval = refreshInterval
+        self.targetTimestamp = targetTimestamp ?? timestamp + (refreshInterval ?? 0)
+        self.sequence = sequence
+    }
 }
 
 /// A reason to receive frames: an animation, a drag autoscroll, a settle
