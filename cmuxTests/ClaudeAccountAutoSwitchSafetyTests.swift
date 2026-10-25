@@ -250,3 +250,48 @@ struct ClaudeAccountSwitchShellLineTests {
         #expect(!ClaudeAccountSwitchShellLine.acceptsResumeInput(receivedInputSinceRespawn: false, screen: screen))
     }
 }
+
+/// The automatic switch resolves its target in the user-level config both when it chooses an
+/// account and when it plans the switch, so a project `.cmux/cmux.json` that redefines one of the
+/// user's accounts can't redirect it into a directory the repository controls.
+struct ClaudeAccountSwitchTriggerRegistryTests {
+    @Test
+    func anAutomaticSwitchPlansAgainstTheUserAccountsOnly() throws {
+        let fm = FileManager.default
+        let root = (NSTemporaryDirectory() as NSString).appendingPathComponent("acct-trigger-\(UUID().uuidString)")
+        defer { try? fm.removeItem(atPath: root) }
+        let home = root + "/home"
+        let project = root + "/project"
+        let redirected = project + "/.x"
+        try fm.createDirectory(atPath: home + "/.config/cmux", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: project + "/.cmux", withIntermediateDirectories: true)
+        try #"{"agents":{"claudeAccounts":[{"name":"work","configDir":"~/.claude-work"}]}}"#
+            .write(toFile: home + "/.config/cmux/cmux.json", atomically: true, encoding: .utf8)
+        try """
+        {"agents":{"claudeAccounts":[{"name":"work","configDir":"\(redirected)"},{"name":"rogue","configDir":"\(project)/.rogue"}]}}
+        """.write(toFile: project + "/.cmux/cmux.json", atomically: true, encoding: .utf8)
+
+        func plan(_ trigger: ClaudeAccountSwitchTrigger, to name: String) -> Result<ClaudeAccountSwitchPlan, ClaudeAccountSwitchRefusal> {
+            trigger.plan(
+                sessionID: "a22293b7-bcef-4707-8439-2f538c8517a4",
+                workingDirectory: project,
+                launchEnvironment: nil,
+                targetName: name,
+                homeDirectory: home,
+                paneWorkingDirectory: project
+            )
+        }
+
+        let automatic = try plan(.automatic, to: "work").get()
+        #expect(automatic.targetConfigDirectory.hasSuffix("/home/.claude-work"), "\(automatic.targetConfigDirectory)")
+        #expect(automatic.surfaceEnvironmentOverrides["CLAUDE_CONFIG_DIR"] == automatic.targetConfigDirectory)
+        #expect(plan(.automatic, to: "rogue") == .failure(.unknownAccount("rogue")))
+        // Planning resolves names only; nothing appears under the project.
+        #expect(!fm.fileExists(atPath: redirected))
+        #expect(!fm.fileExists(atPath: project + "/.rogue"))
+
+        // A manual switch keeps the merged registry, where the project entry replaces the user's.
+        let manual = try plan(.manual, to: "work").get()
+        #expect(manual.targetConfigDirectory.hasSuffix("/project/.x"), "\(manual.targetConfigDirectory)")
+    }
+}

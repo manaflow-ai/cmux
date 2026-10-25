@@ -459,7 +459,7 @@ Default: `false`. Toggle it from **Settings > Automation > Switch Claude Account
 
 Behavior notes:
 
-- Only accounts from your user-level `~/.config/cmux/cmux.json` are used automatically; a project's `.cmux/cmux.json` can't add an account to automatic switching or redirect one. An account whose config directory or `.claude.json` is missing is skipped (the default account's `.claude.json` is `~/.claude.json`).
+- Only accounts from your user-level `~/.config/cmux/cmux.json` are used automatically, both to choose the next account and to resolve its config directory for the switch. A project's `.cmux/cmux.json` can't add an account to automatic switching, and a project entry that reuses one of your account names doesn't change where an automatic switch goes. An account whose config directory or `.claude.json` is missing is skipped (the default account's `.claude.json` is `~/.claude.json`).
 - Accounts are tried in `agents.claudeAccounts` order, starting after the current one; the default `~/.claude` account comes first. An account that has already trusted the terminal's folder is preferred.
 - The account that hit its limit is skipped until it resets: at the time its limit message gives, or for five hours when the message gives none. `cmux claude-account list` shows until when.
 - Each switch shows a **Claude account: <from> → <to> (auto)** row in the sidebar and posts a notification.

@@ -14,16 +14,23 @@ extension Workspace {
     private static let claudeAccountSwitchProcessExitTimeout: Duration = .seconds(3)
 
     /// The Claude accounts registered for this pane: the user `cmux.json` plus the nearest
-    /// project `.cmux/cmux.json` above the pane's working directory.
+    /// project `.cmux/cmux.json` above the pane's working directory (see
+    /// ``ClaudeAccountSwitchTrigger/accountRegistry(homeDirectory:paneWorkingDirectory:)``).
     func claudeAccountRegistry(forPanelId panelId: UUID) -> ClaudeAccountRegistry {
-        ClaudeAccountRegistry.load(
+        claudeAccountRegistry(forPanelId: panelId, trigger: .manual)
+    }
+
+    /// The accounts a switch with `trigger` may use for this pane.
+    func claudeAccountRegistry(forPanelId panelId: UUID, trigger: ClaudeAccountSwitchTrigger) -> ClaudeAccountRegistry {
+        trigger.accountRegistry(
             homeDirectory: NSHomeDirectory(),
-            workingDirectory: resolvedTerminalStartupWorkingDirectory(
-                requestedWorkingDirectory: nil,
-                sourcePanelId: panelId
-            ),
-            sanitize: { try JSONCParser.preprocess(data: $0) }
+            paneWorkingDirectory: claudeAccountSwitchPaneWorkingDirectory(panelId)
         )
+    }
+
+    /// Where a project config for the pane is looked for.
+    private func claudeAccountSwitchPaneWorkingDirectory(_ panelId: UUID) -> String? {
+        resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory: nil, sourcePanelId: panelId)
     }
 
     /// The account the pane's Claude session runs under, or `nil` when the pane has no Claude
@@ -52,10 +59,7 @@ extension Workspace {
         guard !terminalRunsOnAnotherMachine(panelId) else { return .onAnotherMachine }
         guard !Self.isClaudeAccountSwitchInFlight(panelId: panelId) else { return .switching }
         guard let snapshot = cachedClaudeAgentSnapshot(panelId: panelId) else { return .missing }
-        let registry = ClaudeAccountRegistry.loadUserLevel(
-            homeDirectory: NSHomeDirectory(),
-            sanitize: { try JSONCParser.preprocess(data: $0) }
-        )
+        let registry = claudeAccountRegistry(forPanelId: panelId, trigger: .automatic)
         return .local(
             current: registry.account(forEnvironment: snapshot.launchCommand?.environment),
             registry: registry,
@@ -145,13 +149,15 @@ extension Workspace {
         }
 
         let plan: ClaudeAccountSwitchPlan
-        switch ClaudeAccountSwitchPlanner.plan(
+        // The trigger decides which accounts the target name resolves in: an automatic switch
+        // never plans against a project config (see ClaudeAccountSwitchTrigger).
+        switch trigger.plan(
             sessionID: snapshot.sessionId,
             workingDirectory: snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory,
             launchEnvironment: snapshot.launchCommand?.environment,
             targetName: name,
-            registry: claudeAccountRegistry(forPanelId: panelId),
-            homeDirectory: NSHomeDirectory()
+            homeDirectory: NSHomeDirectory(),
+            paneWorkingDirectory: claudeAccountSwitchPaneWorkingDirectory(panelId)
         ) {
         case .success(let planned):
             plan = planned
