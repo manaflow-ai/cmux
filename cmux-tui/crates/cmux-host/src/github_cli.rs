@@ -62,6 +62,8 @@ impl std::fmt::Debug for Minted {
 pub struct Refused {
     pub code: String,
     pub message: String,
+    /// Seconds, from a `rate_limited` answer.
+    pub retry_after: Option<u64>,
 }
 
 impl std::fmt::Display for Refused {
@@ -75,7 +77,33 @@ impl std::fmt::Display for Refused {
 }
 
 fn refused(code: &str, message: impl Into<String>) -> Refused {
-    Refused { code: code.to_owned(), message: message.into() }
+    Refused { code: code.to_owned(), message: message.into(), retry_after: None }
+}
+
+/// How long to wait before the one retry of a retryable refusal:
+/// `integration.unavailable` (the API could not check the team, SSO or
+/// install) and `busy` after 1 s, `rate_limited` after its `retry_after`
+/// when that is at most 10 s.
+pub fn retry_delay(e: &Refused) -> Option<Duration> {
+    match e.code.as_str() {
+        "integration.unavailable" | "busy" => Some(Duration::from_secs(1)),
+        "rate_limited" => e.retry_after.filter(|s| *s <= 10).map(Duration::from_secs),
+        _ => None,
+    }
+}
+
+/// [`ask_agent`], retried once after a retryable refusal.
+fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
+    match ask_agent(socket, ask) {
+        Err(e) => match retry_delay(&e) {
+            Some(delay) => {
+                std::thread::sleep(delay);
+                ask_agent(socket, ask)
+            }
+            None => Err(e),
+        },
+        ok => ok,
+    }
 }
 
 /// One ask over the agent socket: write the line, read the one reply.
@@ -103,10 +131,12 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
         return Ok(Minted { token: token.to_owned() });
     }
     let error = reply.field("error");
-    Err(refused(
+    let mut e = refused(
         error.field("code").as_str().unwrap_or("vm.agent_bad_answer"),
         error.field("message").as_str().unwrap_or(""),
-    ))
+    );
+    e.retry_after = reply.field("retry_after").as_u64();
+    Err(e)
 }
 
 fn perms(pairs: &[(&str, &str)]) -> Map<String, Value> {
@@ -126,7 +156,11 @@ pub enum GitOp {
 /// (the shell or `git-remote-https` between git and this helper).
 pub fn git_op_of(argv: &[String]) -> Option<GitOp> {
     let (program, rest) = argv.split_first()?;
-    if Path::new(program).file_name()? != "git" {
+    let name = Path::new(program).file_name()?;
+    if name == "git-lfs" {
+        return Some(lfs_op(rest.iter().find(|a| !a.starts_with('-'))));
+    }
+    if name != "git" {
         return None;
     }
     let mut it = rest.iter();
@@ -139,7 +173,9 @@ pub fn git_op_of(argv: &[String]) -> Option<GitOp> {
             }
             a if a.starts_with('-') => {}
             // `git remote-https …` is the transport between git and this helper.
-            a if a.starts_with("remote-") => return None,
+            // `git credential fill` is git-lfs asking: its caller decides.
+            a if a.starts_with("remote-") || a == "credential" => return None,
+            "lfs" => return Some(lfs_op(it.find(|a| !a.starts_with('-')))),
             "push" | "send-pack" => return Some(GitOp::Push),
             "fetch" | "clone" | "pull" | "ls-remote" | "fetch-pack" | "submodule" | "remote" => {
                 return Some(GitOp::Read);
@@ -148,6 +184,19 @@ pub fn git_op_of(argv: &[String]) -> Option<GitOp> {
         }
     }
     Some(GitOp::Unknown)
+}
+
+/// A git-lfs subcommand's operation: uploads (`pre-push`, `push`) write,
+/// downloads read.
+fn lfs_op(sub: Option<&String>) -> GitOp {
+    match sub.map(String::as_str) {
+        Some("pre-push" | "push") => GitOp::Push,
+        Some(
+            "fetch" | "pull" | "smudge" | "filter-process" | "checkout" | "clone" | "post-checkout"
+            | "post-merge",
+        ) => GitOp::Read,
+        _ => GitOp::Unknown,
+    }
 }
 
 /// The nearest `git` ancestor's operation (Linux `/proc`; up to 8 levels).
@@ -395,7 +444,7 @@ fn credential(args: &[String]) -> u8 {
     let workflows = std::env::var("CMUX_GITHUB_WORKFLOWS").is_ok_and(|v| v == "1");
     let socket = Path::new(AGENT_SOCKET);
     let (out, note) =
-        credential_get(&input, git_op(), workflows, &mut |ask| ask_agent(socket, ask));
+        credential_get(&input, git_op(), workflows, &mut |ask| ask_retrying(socket, ask));
     if let Some(note) = note {
         eprintln!("cmux github credential: {note}");
     }
@@ -412,7 +461,7 @@ fn gh(args: &[String]) -> u8 {
             return 2;
         }
     };
-    let minted = match ask_agent(Path::new(AGENT_SOCKET), &gh_ask(&plan.repo, plan.write)) {
+    let minted = match ask_retrying(Path::new(AGENT_SOCKET), &gh_ask(&plan.repo, plan.write)) {
         Ok(minted) => minted,
         Err(e) => {
             eprintln!("cmux github gh: {}: {e}", plan.repo);
@@ -659,10 +708,29 @@ mod tests {
         assert_eq!(op(&["git", "fetch", "origin"]), Some(GitOp::Read));
         assert_eq!(op(&["git", "clone", "https://github.com/o/r"]), Some(GitOp::Read));
         assert_eq!(op(&["git", "pull"]), Some(GitOp::Read));
-        assert_eq!(op(&["git", "credential", "fill"]), Some(GitOp::Unknown));
         assert_eq!(op(&["git", "remote-https", "origin", "https://github.com/o/r"]), None);
         assert_eq!(op(&["git-remote-https", "origin", "https://github.com/o/r"]), None);
         assert_eq!(op(&["/bin/sh", "-c", "cmux github credential get"]), None);
+        // git-lfs asks through `git credential fill`; its own subcommand decides.
+        assert_eq!(op(&["git", "credential", "fill"]), None);
+        assert_eq!(op(&["git-lfs", "fetch"]), Some(GitOp::Read));
+        assert_eq!(op(&["git", "lfs", "pull"]), Some(GitOp::Read));
+        assert_eq!(op(&["git-lfs", "filter-process"]), Some(GitOp::Read));
+        assert_eq!(op(&["git-lfs", "pre-push", "origin"]), Some(GitOp::Push));
+        assert_eq!(op(&["git", "lfs", "migrate"]), Some(GitOp::Unknown));
+    }
+
+    #[test]
+    fn only_retryable_refusals_are_retried() {
+        let with = |code: &str, retry_after| Refused { retry_after, ..refused(code, "") };
+        assert_eq!(
+            retry_delay(&with("integration.unavailable", None)),
+            Some(Duration::from_secs(1))
+        );
+        assert_eq!(retry_delay(&with("busy", None)), Some(Duration::from_secs(1)));
+        assert_eq!(retry_delay(&with("rate_limited", Some(3))), Some(Duration::from_secs(3)));
+        assert_eq!(retry_delay(&with("rate_limited", Some(60))), None);
+        assert_eq!(retry_delay(&with("policy.denied", None)), None);
     }
 
     #[test]
