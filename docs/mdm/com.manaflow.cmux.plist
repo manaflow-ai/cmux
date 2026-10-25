@@ -3630,7 +3630,7 @@
 			<key>pfm_default</key>
 			<string>left</string>
 			<key>pfm_description</key>
-			<string>Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it.</string>
+			<string>Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.</string>
 			<key>pfm_name</key>
 			<string>agentPane.display.environment.placement</string>
 			<key>pfm_range_list</key>

@@ -18533,7 +18533,7 @@
       },
       "help" : {
         "key" : "settings.agentPane.display.environment.help",
-        "text" : "Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it."
+        "text" : "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."
       },
       "kept_on_reset_all" : false,
       "key" : "agentPane.display.environment.placement",
