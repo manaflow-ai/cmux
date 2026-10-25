@@ -116,6 +116,28 @@ pub fn mode_refusal(id: &Value, current_mode: Option<&str>) -> Option<String> {
     )
 }
 
+/// `message` with every request marked `_meta.acpmux.requireFullAccess` (acpmux
+/// `server/remote_guard.rs`): what this filter refuses, sent on a phone's own acpmux
+/// credential, which acpmux runs only when that phone's Full-access setting (set on the
+/// Mac, off by default) covers it. None when a request has no params object to mark: it
+/// is refused here then.
+pub fn marked(message: &str) -> Option<String> {
+    let mut value: Value = serde_json::from_str(message).ok()?;
+    let requests: Vec<&mut Value> = match &mut value {
+        Value::Array(items) => items.iter_mut().collect(),
+        other => vec![other],
+    };
+    for request in requests {
+        if request.get("method").is_none() {
+            continue;
+        }
+        let meta = request.get_mut("params")?.as_object_mut()?.entry("_meta").or_insert_with(|| json!({}));
+        let acpmux = meta.as_object_mut()?.entry("acpmux").or_insert_with(|| json!({}));
+        acpmux.as_object_mut()?.insert("requireFullAccess".into(), Value::Bool(true));
+    }
+    Some(value.to_string())
+}
+
 fn mode_ok(mode: Option<&Value>) -> bool {
     mode.and_then(Value::as_str).is_some_and(|m| PHONE_MODES.contains(&m))
 }
@@ -208,6 +230,28 @@ mod tests {
             let r = json!({"jsonrpc": "2.0", "id": 3, "method": m, "params": {"sessionId": "s1"}});
             assert!(controlled_session(&r.to_string()).is_some(), "{m}");
         }
+    }
+
+    /// On a phone's own credential, what the filter refuses goes on marked, for acpmux to
+    /// run only when that phone's Full-access setting covers it.
+    #[test]
+    fn a_refused_request_is_marked_for_acpmux_to_decide() {
+        let marked_set: Value =
+            serde_json::from_str(&marked(&set_mode("agent-full-access")).unwrap()).unwrap();
+        assert_eq!(marked_set["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
+        assert_eq!(marked_set["params"]["modeId"], "agent-full-access");
+        let prompt = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt",
+                            "params": {"sessionId": "s", "prompt": [], "_meta": {"acpmux": {"via": "x"}}}});
+        let batch = Value::Array(vec![prompt, serde_json::from_str(&set_mode("agent")).unwrap()]);
+        let marked_batch: Value = serde_json::from_str(&marked(&batch.to_string()).unwrap()).unwrap();
+        for request in marked_batch.as_array().unwrap() {
+            assert_eq!(request["params"]["_meta"]["acpmux"]["requireFullAccess"], true, "{request}");
+        }
+        assert_eq!(marked_batch[0]["params"]["_meta"]["acpmux"]["via"], "x", "the rest of _meta stays");
+        // No params object to mark: not forwarded.
+        let bare = json!({"jsonrpc": "2.0", "id": 1, "method": "session/set_mode"});
+        assert_eq!(marked(&bare.to_string()), None);
+        assert_eq!(marked("not json"), None);
     }
 
     #[test]

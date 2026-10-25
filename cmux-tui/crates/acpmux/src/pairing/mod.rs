@@ -12,6 +12,12 @@
 //! - `daemon`: this daemon adds the new machine as its peer, at the URL the
 //!   new machine advertises, with a `client` credential the new machine
 //!   issued for this one.
+//! - `phone`: a phone paired with the Mac app, which the app's mobile host
+//!   (cmux-mobile-host) splices to this daemon. Never from a ticket: only
+//!   the person issues one (`_acpmux/pair_issue`), and the app holds it in
+//!   memory for that phone's link. Its connections are served as
+//!   `Origin::Web`, with every rule the shared dashboard token has, but they
+//!   name the phone, so its own Full-access setting (below) can cover them.
 //!
 //! A ticket is a bearer secret: single use, short-lived (15 minutes by
 //! default), revocable, and stored here only as its SHA-256. A device
@@ -27,7 +33,7 @@
 //! which is an attack vector you opt in to"). A chat a remote connection
 //! starts has the policy `ask` (`server/remote_guard.rs`), which holds it in
 //! a mode that asks (`hub/policy_mode.rs`). The person may let one `client`
-//! machine move such a chat out of it (not one held by deny-all, and not a
+//! machine or `phone` move such a chat out of it (not one held by deny-all, and not a
 //! chat started on this machine): `_acpmux/pair_set {id, fullAccess}`,
 //! on the unix socket only, and turning it on needs the person
 //! (`hub/person.rs`), so an agent on this machine cannot grant it to a
@@ -37,7 +43,10 @@
 //! machine) puts every chat out of its policy's mode back at once
 //! (`Hub::hold_policies_again`). It covers only a connection that
 //! presented that machine's own credential (`ConnAuth::Device`): the
-//! shared dashboard token, a peer token and a read-only machine never.
+//! shared dashboard token, a peer token and a read-only machine never. The
+//! mobile host marks what its own phone filter refuses
+//! (`_meta.acpmux.requireFullAccess`, `server/remote_guard.rs`): that runs only
+//! when the setting covers it.
 
 mod read_only;
 mod store;
@@ -74,6 +83,9 @@ pub enum Role {
     Client,
     /// The new machine lists and watches this daemon's sessions, nothing more.
     ReadOnly,
+    /// A phone the Mac app's mobile host serves: the Web's rules, named by its
+    /// own credential (module docs). Issued by the person only, never by a ticket.
+    Phone,
 }
 
 impl Role {
@@ -82,8 +94,14 @@ impl Role {
             "daemon" => Some(Self::Daemon),
             "client" => Some(Self::Client),
             "read-only" | "readonly" | "read_only" => Some(Self::ReadOnly),
+            "phone" => Some(Self::Phone),
             _ => None,
         }
+    }
+
+    /// A record of this role drives chats here, so its Full-access setting may be on.
+    pub fn drives_chats(self) -> bool {
+        matches!(self, Self::Client | Self::Phone)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -91,6 +109,7 @@ impl Role {
             Self::Daemon => "daemon",
             Self::Client => "client",
             Self::ReadOnly => "read-only",
+            Self::Phone => "phone",
         }
     }
 }
@@ -252,6 +271,22 @@ impl Pairing {
         let id = store::new_id("dv")?;
         let now = crate::store::now_ms();
         let device = self.change(|s| s.issue(name, role, &token, &id, None, now))?;
+        Ok((device, token))
+    }
+
+    /// Issue a phone's credential (`Role::Phone`, the person only): it
+    /// replaces a live phone record named `name` (whose open connections
+    /// close) and takes its Full-access setting, so the Mac app gets a fresh
+    /// credential each launch without the person turning the setting on again.
+    pub fn issue_phone(&self, name: &str) -> Result<(Device, String), RpcError> {
+        let token = random_secret()?;
+        let id = store::new_id("dv")?;
+        let now = crate::store::now_ms();
+        let (device, replaced) = self.change(|s| s.issue_phone(name, &token, &id, now))?;
+        if let Some(old) = replaced {
+            self.revoked_ids.lock().unwrap_or_else(|e| e.into_inner()).insert(old);
+            self.revoked.send_modify(|n| *n += 1);
+        }
         Ok((device, token))
     }
 
