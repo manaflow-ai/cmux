@@ -3,10 +3,12 @@
 // ALREADY FIXED THE FONTS. THE BOLT DOESN'T GO THERE"), measured on the real composer in Chromium
 // (the bolt's move into the model button is its own change, with its own tests):
 //   - the button is quiet text: no edge, ring or fill at rest; the effort one step back of the name;
-//     keyboard focus (a menu closed with Esc hands it back) draws the soft pill and a hairline, never
-//     the bright ring the capture showed;
-//   - the context ring sits on the row's grid: on the buttons' center line, its glyph after the effort
-//     with no margin of its own (13 px with the 8 px pill inset of #24138), not 17;
+//     keyboard focus (a menu closed with Esc hands it back) draws the soft pill, never the bright ring
+//     the capture showed, and the rule that narrows the shared ring to a hairline is read from the CSS
+//     (the gallery stage loads no pages/shared/desktop.css, so no shared ring reaches this page);
+//   - the context ring sits on the row's grid: on the buttons' center line, its glyph 15 px after the
+//     effort (the 8 px pill inset of #24138, the ring's padding and composerFooterShared.css's 2 px),
+//     not the 17 that read as a loose spinner;
 //   - the button, its labels and the mode use the composer's own font, the prompt's (the app's UI
 //     font), so a fallback can never come from the row itself;
 //   - the row keeps "Opus 5.5  Medium" while it fits (a 410 px composer: live-qa read "Opus Med" with
@@ -15,6 +17,7 @@
 // CI fails the file when it cannot launch (requireBrowserLane). Locally:
 // CMUX_BROWSER_TESTS=1 bun test test/composer-model-quiet.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
@@ -139,7 +142,10 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     const effort = await ink(page, `${BUTTON} .acpmux-model-detail:not(.acpmux-fit-label)`);
     expect(effort, "the effort sits one step back of the model's name").toBeLessThan(name - 8);
 
-    // Keyboard focus, as a menu closed with Esc leaves it: the pill and a hairline, never a ring.
+    // Keyboard focus, as a menu closed with Esc leaves it: the soft pill, never the bright ring the
+    // shot showed. The gallery stage loads no pages/shared/desktop.css, so the shared ring is not in
+    // this page at all and the outline measures 0 here; the test below reads the rule that narrows it
+    // to a hairline where the sheet is loaded (the app's pane).
     await page.keyboard.press("Shift");
     await page.locator(BUTTON).first().focus();
     expect(
@@ -153,9 +159,21 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     await page.close();
     expect(focus.filled, "keyboard focus draws the soft pill").toBe(true);
     expect(focus.border || focus.ring, "no border or shadow ring").toBe(false);
-    expect(focus.outline, "a hairline outline").toBeGreaterThan(0);
-    expect(focus.outline, "a hairline outline").toBeLessThanOrEqual(1);
+    expect(focus.outline, "never more than a hairline").toBeLessThanOrEqual(1);
     expect(focus.outlineAlpha, "in the row's quiet ink").toBeLessThanOrEqual(0.3);
+  });
+
+  test("the quiet model button narrows the shared focus ring to a hairline in its own ink", () => {
+    // Where pages/shared/desktop.css is loaded (the app's pane) its ring is 1.5 px at 48% with
+    // `!important`, which drew a bright box around bare text (Leo 2026-10-21). The button narrows the
+    // two tokens the ring reads, outside Increase Contrast, which keeps the shared ring.
+    const css = readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/composerLocation.css"), "utf8");
+    const block = css.match(
+      /@media not \(prefers-contrast: more\) \{[^}]*\.acpmux-composer-foot \.acpmux-model \.acpmux-picker-button:focus-visible \{([^}]*)\}/,
+    );
+    expect(block, "the quiet button's focus rule, outside Increase Contrast").not.toBeNull();
+    expect(block![1]).toMatch(/--cmux-focus-ring-width\s*:\s*1px/);
+    expect(block![1]).toMatch(/--cmux-focus-ring-color\s*:\s*color-mix\(in srgb, var\(--agent-text\) 22%/);
   });
 
   test("the context ring sits on the row's grid, its glyph after the effort with no margin of its own", async () => {
@@ -176,8 +194,10 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     }, BUTTON);
     await page.close();
-    // The button's 8 px pill inset (#24138) and the ring's own 5 px, no margin on top (was 17 px).
-    expect(grid.gap, "the ring's glyph follows the effort with no margin of its own").toBeLessThanOrEqual(14);
+    // The button's 8 px pill inset (#24138), the ring's own padding and the 2 px of
+    // composerFooterShared.css, which outranks composerLocation.css's legacy margin: 15 px, not the
+    // 17 that read as a loose spinner beside the button (Leo 2026-10-21).
+    expect(grid.gap, "the ring's glyph follows the effort with no margin of its own").toBeLessThanOrEqual(16);
     expect(grid.gap, "and never touches it").toBeGreaterThanOrEqual(6);
     expect(grid.centers, "on the buttons' center line").toBeLessThanOrEqual(0.5);
   });
@@ -257,10 +277,11 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       };
     });
 
-  // Frame widths: the composer is 36 px narrower (484 and 410 px; 264, 204 and 164 px). The row
-  // holds the harness's name too (ComposerHarness.tsx), so it has room for every whole label at 410
-  // px (about 65 px spare) and has run out at 264 px; 324 px sits on the boundary and is left out.
-  for (const width of [520, 446])
+  // Frame widths: the composer is 36 px narrower (484, 410 and 264 px; 204 and 164 px). Since #24938
+  // took the harness label out of the row it holds only the mode, the model button and the ring, so
+  // every whole label still fits a 264 px composer and the row has run out by 204 px; the widths
+  // between sit near that boundary, where the fonts decide it, and are left out.
+  for (const width of [520, 446, 300])
     test(`a ${width - 36} px composer keeps "Opus 5.5  Medium" and the mode's name: the row has room`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);
@@ -276,7 +297,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
       expect([shown.overlap, shown.outside, shown.overflow]).toEqual([false, false, false]);
     });
 
-  for (const width of [300, 240, 200])
+  for (const width of [240, 200])
     test(`a ${width - 36} px composer shortens whole units, only as the row runs out, and nothing overlaps`, async () => {
       const page = await open("quiet-chips", width);
       const shown = await row(page);

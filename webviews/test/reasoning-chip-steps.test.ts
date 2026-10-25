@@ -6,10 +6,10 @@
 //
 // These panes draw the button in the quiet row under the box, which takes no composer-width step
 // (#24151, composerRowFit.ts paneWidth): it keeps the full name while the row's measured room holds
-// it. At 400 px the harness's name, the model, its effort and "Bypass permissions" fill these rows to
-// within about 20 px of their room, so which form shows depends on the fonts (CI and huge-blue
-// differ there). That width checks the form the row's fit chose (`data-fit-effort`), whole; 760 px
-// (full) and 300 px (short) are well clear of the boundary.
+// it. At 400 px the model, its effort and "Bypass permissions" can fill these rows to within about
+// 20 px of their room, so which form shows depends on the fonts (CI and huge-blue differ there).
+// That width checks the form the row's fit chose (`data-fit-effort`), whole; 760 px (full) and
+// 300 px (short) are well clear of the boundary.
 //
 // The gallery's real panes in Chromium: `agent-pane.new-tab` (`reasoning-chip`) and
 // `agent-pane.composer` (`new-chat-reasoning`), and a New Tab whose agent reported its levels

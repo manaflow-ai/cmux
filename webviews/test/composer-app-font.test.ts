@@ -17,6 +17,7 @@ const SHEETS = [
   "styles.css",
   "composerLocation.css",
   "composerControls.css",
+  "composerFooterShared.css",
   "composerStates.css",
   "modelPicker.css",
   "dictation.css",

@@ -14,7 +14,7 @@
 //     row takes no composer-width step (composerRowFit.ts paneWidth): it holds the mode, the model
 //     button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
 //     2026-10-21 read "Opus Med" with about 250 px of the row free), and shortens the effort only
-//     when they do not.
+//     when they do not (below a 280 px pane: test/composer-model-quiet.test.ts measures it).
 //   - The in-box row (Debug Settings' plain footer off): every control in the box's one row, where
 //     the width steps still apply. First the button's effort shows the level's short name ("Med"),
 //     then the model its family ("Opus"), the access label goes, then the model its harness mark
@@ -109,19 +109,17 @@ await requireBrowserLane("composer-row-steps.test.ts", async () => {
 
   type Expected = { model: string; effort: string; access: string; mic: boolean };
   /** The quiet row under the box (the default look): no width takes a step; the row's measured room
-   *  does. With the harness's name in it (Claude Code), it keeps every whole label down to 400 px
-   *  (about 35 px spare), and at 300 and 280 px it has run out: the effort shows "Med" and the harness
-   *  its mark. 360 px sits within a few px of that boundary, so the fonts decide it; it is left out. */
-  const QUIET: Record<number, Expected> = {
-    ...Object.fromEntries(
-      [760, 520, 500, 460, 440, 400].map((width) => [
-        width,
-        { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
-      ]),
-    ),
-    300: { model: "Opus 5.5", effort: "Med", access: "Auto", mic: true },
-    280: { model: "Opus 5.5", effort: "Med", access: "Auto", mic: true },
-  };
+   *  does. Since #24938 took the harness label out of it, the row holds only the mode, the model
+   *  button and the context ring, so it keeps every whole label down to a 280 px pane (a 244 px
+   *  composer). Below that it does run out, which test/composer-model-quiet.test.ts measures
+   *  (204 and 164 px composers shorten whole units); every width here checks that nothing is cut,
+   *  ellipsized or overlapping while the row still has room. */
+  const QUIET: Record<number, Expected> = Object.fromEntries(
+    [760, 520, 500, 460, 440, 400, 300, 280].map((width) => [
+      width,
+      { model: "Opus 5.5", effort: "Medium", access: "Auto", mic: true },
+    ]),
+  );
   /** The in-box row (plain footer off): what each pane width shows (the composer is the pane less
    *  36 px): the model button's name, its effort (Fast on never adds a word to it), the access
    *  label, the mic (always). */
