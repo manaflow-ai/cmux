@@ -123,6 +123,9 @@ pub struct Session {
     /// requests, its harness's model lines; not its own bookkeeping, `tap.rs`
     /// `from_the_model`); a turn that hears none is silent (`silent_turn.rs`).
     pub(super) heard: AtomicU64,
+    /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
+    /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
+    pub(super) last_model_at: AtomicU64,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
@@ -267,6 +270,9 @@ pub(super) struct Applied {
     /// (`opencode_ask.rs`); false for an agent host reached again after a
     /// daemon restart, which a narrower policy restarts (`policy_mode.rs`).
     pub opencode_asks: bool,
+    /// The mode acpmux had put the last agent in (`SessionMeta::mode_set_by_cmux`):
+    /// marked again only once acpmux puts this agent in it (`restore_mode_mark`).
+    pub replay_mark: Option<String>,
 }
 
 /// `sessions` newest first. Each session's `updated_at` is read once: other

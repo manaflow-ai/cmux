@@ -17,8 +17,14 @@ public enum DaemonConnectionState: Sendable, Equatable {
 /// batches at most once per frame (`run(connection:scheduler:)`).
 @Observable @MainActor
 public final class DaemonStore: StateResourceQueries {
-    public internal(set) var workspaces: [WorkspaceModel] = []
+    public internal(set) var workspaces: [WorkspaceModel] = [] { didSet { adoptUnread() } }
     public internal(set) var groups: [WorkspaceGroupModel] = []
+    /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
+    @ObservationIgnored public internal(set) var unreadTabReads = 0
+    /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
+    /// count when one changes and assigned only when the sum changes: an observer of the badge
+    /// observes this one value, never the tabs.
+    public internal(set) var unreadTotals = UnreadTotals()
     /// Rooms in order (`profiles-v1`, home session only; the wire calls
     /// them profiles). Empty on a daemon without personal state.
     public internal(set) var profiles: [ProfileModel] = []
@@ -116,6 +122,8 @@ public final class DaemonStore: StateResourceQueries {
     /// Pending typed intents shown on top of the confirmed mirror
     /// (DaemonStore+Intents.swift).
     @ObservationIgnored var intentLog = IntentLog()
+    /// The open script-batch stage, if any (DaemonStore+Stage.swift).
+    @ObservationIgnored var stage: StoreStage?
     /// The one model of each pending split's provisional pane, by public pane id: every overlay
     /// restore shows it, and the daemon's pane takes it over in place (`confirmedPane`).
     @ObservationIgnored var provisionalPanes: [String: PaneModel] = [:]
@@ -263,6 +271,9 @@ public final class DaemonStore: StateResourceQueries {
     /// touched since, are applied, indexed and laid; a snapshot the memo cannot vouch for
     /// (``incrementalDiff(_:diff:)``) applies in full.
     func apply(snapshot tree: DaemonTree, diff: SnapshotDiff?) {
+        // A snapshot holds everything the daemon did: a staged batch shows first (every joined batch's
+        // part), then the snapshot.
+        stage?.commit(all: true)
         withOverlayLifted(snapshot: true) {
             if let diff = incrementalDiff(tree, diff: diff) {
                 applyTreeIncrementally(tree, touching: touchedWorkspaces(diff))

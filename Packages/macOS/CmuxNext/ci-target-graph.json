@@ -133,6 +133,7 @@
         "CmuxNextDesign",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
+        "CmuxNextIcons",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
@@ -241,6 +242,7 @@
         "CmuxNextAgentPermissions",
         "CmuxNextAgentQuestion",
         "CmuxNextAgentUpdates",
+        "CmuxNextAppCore",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -270,6 +272,7 @@
         "CmuxNextDevices",
         "CmuxNextDiff",
         "CmuxNextErrorJournal",
+        "CmuxNextFavicons",
         "CmuxNextFeed",
         "CmuxNextFiles",
         "CmuxNextFilesUI",
@@ -338,6 +341,19 @@
         "CmuxHomeCore",
         "CmuxHomeRender"
       ]
+    },
+    "CmuxNextAppCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppCore",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextBridge",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextSidebar"
+      ],
+      "packages": []
     },
     "CmuxNextAppPermissions": {
       "kind": "regular",
@@ -583,7 +599,8 @@
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
-        "CmuxNextRemoteFetch"
+        "CmuxNextRemoteFetch",
+        "CmuxNextWakeups"
       ],
       "packages": [],
       "reads": [
@@ -954,6 +971,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextFavicons": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFavicons",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextTabs"
+      ],
+      "packages": []
     },
     "CmuxNextFeed": {
       "kind": "regular",
@@ -1766,6 +1792,24 @@
       "path": "Packages/macOS/CmuxNext/Tests/Support/CmuxNextTestExitTrace",
       "targets": [],
       "packages": []
+    },
+    "CmuxNextUiLayerPreview": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUiLayerPreview",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextIcons"
+      ],
+      "packages": []
+    },
+    "CmuxNextUiLayerPreviewTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextUiLayerPreviewTests",
+      "targets": [
+        "CmuxNextUiLayerPreview"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextUpdater": {
       "kind": "regular",

@@ -460,6 +460,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Debug menu > Main-Thread Blocking (N) > Reset Counts (threading-model.md): zeroes the blocking
+            // detector's per-site counts. `BlockingCallsMenu` places the row in its submenu, so no `mainMenu`.
+            ActionDescriptor(
+                id: "debug.blockingCalls.reset",
+                title: String(localized: "action.debug.blockingCalls.reset", defaultValue: "Reset Main-Thread Blocking Counts",
+                              bundle: .module),
+                keywords: ["blocking", "main thread", "hang", "stall", "reset", "counts", "debug"],
+                category: .settings, symbol: "arrow.counterclockwise", surfaces: [.palette, .menu], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "appearance.customize",
                 title: String(localized: "action.appearance.customize", defaultValue: "Customize Appearance…", bundle: .module),

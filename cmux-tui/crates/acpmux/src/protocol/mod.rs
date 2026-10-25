@@ -232,6 +232,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_STEER, Request),
         untyped(method::MUX_BRIEFS, Request),
         untyped(method::MUX_REPORT, Request),
+        untyped(method::MUX_TASK_NEW, Request),
+        untyped(method::MUX_TASKS, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.
@@ -323,6 +325,9 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
         untyped("_acpmux/peers", Request),
+        untyped("_acpmux/peer_status", Request),
+        untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/place", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
@@ -331,6 +336,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
         untyped(method::MUX_PAIR_ISSUE, Request),
+        untyped(method::MUX_PAIR_SET, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),

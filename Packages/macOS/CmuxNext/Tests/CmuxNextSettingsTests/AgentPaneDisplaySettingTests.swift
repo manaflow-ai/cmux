@@ -65,6 +65,13 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: .object([:])) == .fallback)
     }
 
+    @Test func thePageFollowsMinimalMode() {
+        let on: JSONValue = .object(["sidebar": .object(["minimal": .bool(true), "density": .string("compact")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: on).values == ["sidebar.minimal": .bool(true)])
+        let bad: JSONValue = .object(["sidebar": .object(["minimal": .string("yes")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
+    }
+
     @Test(arguments: [
         "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
         "agentPane.display.inspector.placement",
@@ -73,7 +80,7 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))
     }
 
-    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", ""])
+    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", "sidebar.minimal", ""])
     func thePageMayWriteNoOtherKey(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == nil)
     }

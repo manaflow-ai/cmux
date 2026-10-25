@@ -14,6 +14,7 @@ mod btw;
 mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
+pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
 mod cancel;
 mod catalog_reload;
@@ -78,6 +79,7 @@ mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
 mod silent_turn;
+pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
 mod shutdown;
@@ -118,8 +120,10 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
+mod subsession_results;
 mod subsession_runs;
 mod subsession_send;
 pub mod subsessions;
@@ -284,6 +288,10 @@ pub struct PromptOptions {
     /// Validated display-only metadata from the app's ordered composer. It is persisted in the
     /// mux record and never forwarded to the agent's ACP prompt.
     pub display_parts: Option<Value>,
+    /// The paired machine whose Full-access setting covered the request that sent it
+    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
+    /// (`Hub::full_access_hold`).
+    pub full_access_device: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -780,6 +788,7 @@ impl Hub {
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),
             heard: AtomicU64::new(0),
+            last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
