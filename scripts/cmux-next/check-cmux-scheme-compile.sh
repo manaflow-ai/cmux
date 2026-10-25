@@ -49,10 +49,15 @@ bundle_id="${CMUX_NEXT_BUNDLE_ID:-}"
 code_sign_entitlements="${CMUX_NEXT_CODE_SIGN_ENTITLEMENTS:-}"
 auth_callback_scheme="${CMUX_NEXT_AUTH_CALLBACK_SCHEME:-}"
 browser_data_import="${CMUX_NEXT_BROWSER_DATA_IMPORT:-built-in}"
+# Build-mode overrides (the DEV Release channel; empty keeps the project's).
+compilation_cache="${CMUX_NEXT_COMPILATION_CACHE:-0}"
+swift_compilation_mode="${CMUX_NEXT_SWIFT_COMPILATION_MODE:-}"
 case "$configuration" in
   Debug|Release) ;;
   *) echo "check-cmux-scheme-compile: unsupported configuration '$configuration'" >&2; exit 2 ;;
 esac
+case "$compilation_cache" in 0|1) ;; *) echo "check-cmux-scheme-compile: CMUX_NEXT_COMPILATION_CACHE must be 0 or 1, not '$compilation_cache'" >&2; exit 2 ;; esac
+case "$swift_compilation_mode" in ""|wholemodule|singlefile) ;; *) echo "check-cmux-scheme-compile: unsupported CMUX_NEXT_SWIFT_COMPILATION_MODE '$swift_compilation_mode'" >&2; exit 2 ;; esac
 kept_path=0
 if [[ -n "${1:-}" ]]; then
   derived_data="$1"
@@ -116,27 +121,63 @@ build() {
     -destination 'platform=macOS,arch=arm64'
     -derivedDataPath "$derived_data"
     ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO
+    # This is a compile check; release packaging retains the project dSYM setting.
+    DEBUG_INFORMATION_FORMAT=dwarf
   )
   [[ -n "$bundle_id" ]] && xcode_args+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id")
   [[ -n "$code_sign_entitlements" ]] && xcode_args+=("CODE_SIGN_ENTITLEMENTS=$code_sign_entitlements")
   [[ -n "$auth_callback_scheme" ]] && xcode_args+=("CMUX_AUTH_CALLBACK_SCHEME=$auth_callback_scheme")
   # shellcheck disable=SC2016 # $(inherited) is an Xcode build setting, not a shell expansion
   [[ -n "$swift_import_flags" ]] && xcode_args+=("OTHER_SWIFT_FLAGS=\$(inherited) $swift_import_flags")
+  [[ -n "$swift_compilation_mode" ]] && xcode_args+=("SWIFT_COMPILATION_MODE=$swift_compilation_mode")
+  if (( use_cache )); then
+    while IFS= read -r setting; do xcode_args+=("$setting"); done < <(cmux_next_cas_settings)
+  fi
   CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 \
     "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild "${xcode_args[@]}" \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
+# The compilation cache only pays on a kept path (a fresh directory starts
+# with an empty cache); there it replaces the kept build products
+# (lib/compilation-cache.sh).
+use_cache=0
+if [[ "$compilation_cache" == 1 ]] && (( kept_path )); then
+  # shellcheck source-path=SCRIPTDIR source=lib/compilation-cache.sh
+  source "$repo_root/scripts/cmux-next/lib/compilation-cache.sh"
+  use_cache=1
+  # The cache keys hold this path: use its real path (no /tmp symlink).
+  mkdir -p "$derived_data" && derived_data="$(cd "$derived_data" && pwd -P)"
+  if ! cmux_next_cas_fresh_tree "$derived_data"; then
+    # Never build on leftover products: start over with nothing kept.
+    echo "::warning::could not empty $derived_data around its compilation cache; removing it whole"
+    rm -rf -- "$derived_data"
+    [[ ! -e "$derived_data" ]] || { echo "check-cmux-scheme-compile: cannot clear $derived_data; refusing to build on stale products" >&2; exit 1; }
+    mkdir -p "$derived_data"
+  fi
+fi
+echo "check-cmux-scheme-compile: compilation cache $( (( use_cache )) && echo on || echo off), SWIFT_COMPILATION_MODE=${swift_compilation_mode:-project}"
 SECONDS=0
-if (( kept_path )); then
+# A cache build starts from a fresh tree: like a fresh directory it has no
+# precompiled modules to guard or clear (and the guard would remove the cache).
+if (( kept_path && ! use_cache )); then
   # shellcheck source=scripts/ci/swiftpm-binary-module-guard.sh
   source "$repo_root/scripts/ci/swiftpm-binary-module-guard.sh"
   xcode_binary_module_guard "$repo_root" "$derived_data" -project cmux.xcodeproj -scheme cmux
 fi
 status=0
 build || status=$?
-if (( status && kept_path )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
+if (( status && use_cache )) && cmux_next_cas_failed "$log"; then
+  echo "::warning::the compilation cache failed (not the code); dropping it and building once more without it"
+  cmux_next_cas_drop "$derived_data"
+  cmux_next_cas_fresh_tree "$derived_data" \
+    || { echo "check-cmux-scheme-compile: cannot clear $derived_data after the cache failure" >&2; exit 1; }
+  use_cache=0
+  status=0
+  build || status=$?
+fi
+if (( status && kept_path && ! use_cache )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
   echo "check-cmux-scheme-compile: stale precompiled modules in $derived_data; removing them and building again"
   "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
   status=0
@@ -163,6 +204,8 @@ if (( status == 0 )) && [[ -n "$product_name" ]]; then
   done
   echo "check-cmux-scheme-compile: $product_name.app from $built_name.app"
 fi
+# Prune the cache whatever the build's outcome; it never changes the verdict.
+[[ "$compilation_cache" != 1 ]] || ! (( kept_path )) || cmux_next_cas_bound "$repo_root" "$derived_data"
 if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
   # Keep the final log beside DerivedData so the existing parser can report
   # Xcode's phase summary and cache remarks. Metrics are advisory: a parser or

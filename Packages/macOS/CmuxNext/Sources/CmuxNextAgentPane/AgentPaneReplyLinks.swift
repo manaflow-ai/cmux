@@ -39,8 +39,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
     /// becomes the host's drag only then, so page script alone never starts one.
     public var mouseHeld: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
-    /// Starts the host's drag of a real file out of the pane (the view's dragging session); false
-    /// when there is no pane to drag from.
+    /// Starts the host's drag of a real file out of the pane (the view's dragging session) in this
+    /// turn, with no read; false when there is no pane to drag from.
     public var startDrag: @MainActor (URL) -> Bool = { _ in false }
     /// The Quick Look panel's source for ``quickLookFile``.
     private let quickLook = AgentPaneQuickLook()
@@ -247,7 +247,11 @@ extension AgentPaneModel {
             }
         }
         let paths = replyPaths()
-        guard let resolved = paths.resolveImage(src) else { return Self.replyFailure(.pathInvalid) }
+        // A raster image may also come from the extra image roots (read-only displays); any other file
+        // the loader draws (an SVG, rebuilt without script or links; a PDF's first page) only from the
+        // pane's own roots, as before #24619 narrowed this to raster types.
+        let resolved = AgentPaneReplyPaths.isImagePath(src) ? paths.resolveImage(src) : paths.resolve(src)
+        guard let resolved else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)

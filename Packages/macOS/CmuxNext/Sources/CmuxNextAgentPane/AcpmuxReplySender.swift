@@ -1,7 +1,7 @@
 public import Foundation
 
 /// Sends a person's message to an acpmux session (`acpmux send --no-wait --no-steer --prompt-id
-/// <id> -- <session> <text>`: a Feed report's reply wakes its poster), off the main thread: the process start
+/// <id> -- <session> -`, the text on stdin: a Feed report's reply wakes its poster), off the main thread: the process start
 /// (fork and exec) and the wait for its exit run on this actor, and the caller is a view's action
 /// (plans/cmux-next/main-thread-budget.md). Only the result goes back to the main actor.
 ///
@@ -10,8 +10,11 @@ public import Foundation
 /// let sent = await sender.send(session: report.sender, text: reply, promptID: id, environment: feed.acpmuxEnvironment)
 /// ```
 ///
-/// The flags come first and `--` ends them, so a reply that starts with `-` (a Markdown bullet,
-/// `--quiet`) is the message, never a flag. The prompt id is the caller's: a reply that is sent
+/// The text never is an argument: acpmux reads a prompt from stdin when its text words are empty or
+/// exactly `-` (`arg_or_stdin`, even after `--`), so a reply of `-`, `--` or nothing would change
+/// how acpmux reads its input. The arguments end in `-` and the reply goes through stdin, byte for
+/// byte (acpmux trims trailing whitespace from a prompt read there). The flags come first and `--`
+/// ends them. The prompt id is the caller's: a reply that is sent
 /// again with the same id (its first send passed its deadline after acpmux may have queued it) is
 /// delivered once, because acpmux's outbox answers a repeated id with its first delivery.
 public actor AcpmuxReplySender {
@@ -42,13 +45,13 @@ public actor AcpmuxReplySender {
     public func send(session: String, text: String, promptID: String, environment: AcpmuxEnvironment?) async -> Bool {
         guard !session.isEmpty, !promptID.isEmpty, let environment else { return false }
         let variables = baseEnvironment.merging(environment.childEnvironment) { _, value in value }
-        let status = await launcher.run(environment.executable, arguments: Self.arguments(session: session, text: text, promptID: promptID),
-                                        environment: variables)
+        let status = await launcher.run(environment.executable, arguments: Self.arguments(session: session, promptID: promptID),
+                                        environment: variables, input: Data(text.utf8))
         return status == 0
     }
 
-    /// `acpmux send`'s arguments: every flag before `--`, the session and the text after it.
-    nonisolated static func arguments(session: String, text: String, promptID: String) -> [String] {
-        ["send", "--no-wait", "--no-steer", "--prompt-id", promptID, "--", session, text]
+    /// `acpmux send`'s arguments: every flag before `--`, then the session and `-` (the text comes on stdin).
+    nonisolated static func arguments(session: String, promptID: String) -> [String] {
+        ["send", "--no-wait", "--no-steer", "--prompt-id", promptID, "--", session, "-"]
     }
 }

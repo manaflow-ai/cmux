@@ -35,6 +35,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STEER,
     method::MUX_BRIEFS,
     method::MUX_REPORT,
+    // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
+    method::MUX_TASK_NEW,
+    method::MUX_TASKS,
+    // Resolving reads this daemon's own and mirrored session lists (`hub/locate.rs`).
+    method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
@@ -48,6 +53,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_START,
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
+    "_acpmux/peer_status",
+    "_acpmux/host_health",
+    "_acpmux/place",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,

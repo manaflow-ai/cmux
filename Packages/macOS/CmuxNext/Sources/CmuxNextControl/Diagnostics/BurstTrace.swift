@@ -104,7 +104,7 @@ public nonisolated final class BurstTrace: Sendable {
 
     /// Whether a recording runs (always false in a Release build). Mark sites check it before anything else.
     public var isArmed: Bool {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         armed.load(ordering: .relaxed)
         #else
         false
@@ -119,7 +119,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - input: The timestamp of the person's input event that ran the press (`NSEvent.timestamp`),
     ///     nil when none is known: the bench matches the mark to its press by it.
     public func mark(_ kind: Kind, input: Double?) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let event = Event(kind: kind, at: Self.now(), input: input)
         state.withLock { $0.append(event) }
@@ -133,7 +133,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - emptiesPane: Whether the close left the pane with no tab, so the pane closes too.
     ///   - input: The timestamp of the key event that ran it, as for ``mark(_:input:)``.
     public func closed(tabs: [String], emptiesPane: Bool, input: Double?) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let event = Event(kind: .closed, at: Self.now(), input: input, tabs: tabs, emptiesPane: emptiesPane)
         state.withLock { $0.append(event) }
@@ -150,7 +150,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - expectsEcho: Whether the daemon will echo it; a grid the PTY already has changes nothing and
     ///     is never echoed, so no ``Kind/gridEcho`` is looked for.
     public func gridSent(surface: UInt64, cols: Int, rows: Int, expectsEcho: Bool) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let event = Event(kind: .ptyGrid, at: Self.now(), surface: surface, cols: cols, rows: rows, expectsEcho: expectsEcho)
         let grid = Grid(cols: cols, rows: rows)
@@ -175,7 +175,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - cols: The announced grid's columns.
     ///   - rows: The announced grid's rows.
     public func gridAnnounced(surface: UInt64, cols: Int, rows: Int) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let at = Self.now()
         let grid = Grid(cols: cols, rows: rows)
@@ -194,7 +194,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///
     /// - Parameter surface: The daemon surface of the terminal.
     public func output(surface: UInt64) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let at = Self.now()
         state.withLock { state in
@@ -206,7 +206,7 @@ public nonisolated final class BurstTrace: Sendable {
 
     private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Clears the record and arms a new recording.
     func start() {
         state.withLock { $0 = State() }

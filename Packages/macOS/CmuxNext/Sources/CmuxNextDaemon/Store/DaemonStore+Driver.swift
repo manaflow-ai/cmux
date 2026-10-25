@@ -183,6 +183,9 @@ extension DaemonStore {
         let failure = await pump.value
         // Everything left: a frame asked for after this would find no driver.
         drain()
+        // What a script batch's stage still holds is this connection's, and a commit now could start a resync on
+        // it: dropped (held intents show again as pending); the next connection's snapshot is the truth.
+        stage?.discard()
         // The connection is gone: no echo or barrier will come for its commands.
         drainAppliedWaiters = true
         flushAppliedWaiters()

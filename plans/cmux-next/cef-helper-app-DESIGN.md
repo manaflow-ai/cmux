@@ -23,6 +23,8 @@ the "not now" in [browser-isolation.md](browser-isolation.md). Paths: `S/` = `Pa
 | Pages: a child `NSWindow` per page (fork `CmuxParentViewTracker`), or with fork API 26 the page's `DisplayCALayerTree` in a tracker-owned `CAContext` that cmux shows with a `CALayerHost` | `fork:libcef/browser/chrome/views/chrome_child_window_mac.mm:961-1006`, `S/CEFLayerHosting.swift`, `S/CEFHostedPageView.swift` | the context is made on `CGSMainConnectionID()` and the app gets only its id: this part already works across processes |
 | Shim ABI: 132 C exports, one event callback, 4 synchronous callbacks (key with an `NSEvent*`, focus request, window request, DevTools key), `NSView*` arguments (`create_window`, `devtools_set_placement`, `popup_window_attach`) | `S/Shim/cmux_cef_shim.h` | pointers and synchronous answers cannot cross a process |
 | Chromium's own UI (bubbles, `<select>`, autofill, JS dialogs, HTTP auth, file pickers, print preview, extension popups, DevTools windows, WebAuthn sheets) | Views widgets of the browser process | they are `NSWindow`s of the browser process |
+| Chromium's own main-thread blocking at launch and quit (blocking probe, PL-threading item 1 slice c, step 6ebef007, cmux20-bench, macOS 27.0, Debug at 91f2976c551; launch, settle and quit, no actions): `ChromeWebAppShortcutCopierMain` 23.2 ms (5120 `stat`/`access`/`fcntl` calls, longest 11.4 ms), `CefShutdown` 22.7 ms at quit (`waitpid`, `usleep`, longest 10.1 ms) | Chromium's browser-process code on cmux's main thread | host-process work: it leaves cmux's main thread with the browser process (no in-process change, lead 2026-10-25); the host must not add a synchronous wait on it at quit |
+| Chromium's child-process waits in the pump (the same probe, step 6ebef007): 32 `waitpid` calls, 19.3 ms of the 20.1 ms the probe gave the pump closure in `CEFRuntime.initialize` (`cmux_shim_do_work` -> `CefDoMessageLoopWork`), inside Chromium's own code (no symbols: the child is not named) | `CefDoMessageLoopWork` on cmux's main thread, today | one more measured reason for the host move: the pump's work, waits included, leaves cmux's main thread with the browser process |
 
 ## 3. Design
 
@@ -132,6 +134,28 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
 - Two code identities: keychain ACLs, TCC (camera, microphone, screen recording: the host asks, with its own name),
   passkey entitlements. Each needs a release check.
 - An accessory app that shows a window can become active; every host window must stay non-activating and off screen.
+
+### 3.7 Why page focus must not make a page window key (fork API 30, issue #24913)
+
+Today `CEFTab.grantFocus` calls `CefBrowserHost::SetFocus(true)`, and the fork makes the page's child window key
+(`makeKeyAndOrderFront:`). Every key-window change runs AppKit's key-state walk over both windows' view trees and,
+for a text-input first responder, activates the input method synchronously. The fuzzer found three 10 s main-thread
+stalls in that one call (DEV watchdog traps):
+
+- macOS 14.8.7 and 15.7.7 (seed 21, Hang B/C): `-[NSWindow makeKeyWindow]` > `_windowChangedKeyState` (about 20
+  view levels; the window holds every parked workspace's view tree, hidden) and KVO in `-[NSApplication _setKeyWindow:]`.
+- macOS 26.6.2 (seed 21, build of 0aeef9f4827, 2026-10-25): `SidebarNavigation.step` > `FocusEffectApplier.focusPage`
+  > `CEFTab.grantFocus` > `cmux_shim_set_focus` > CEF > `-[NSWindow makeKeyAndOrderFront:]` > `becomeKeyWindow` >
+  `NSAutoFillHeuristicController _windowDidBecomeKey:` > `-[NSTextInputContext activate]` > `IMKInputSession activate`
+  > `invocationAwaitXPCReply` (a nested run loop that waits for the input method server; the VM's server had stopped
+  answering 10 min before). A real Mac whose input method server hangs gets the same wait.
+
+cmux now makes at most one key change per focus request (1da8789d016: no reclaim into the cmux window first, none
+when the cmux window is key, no select from building a tab menu). The one change that remains is the grant itself.
+With `cmux_browser_set_embedder_active(id, bool)` (fork API 30) page focus becomes cmux's own first responder plus
+an active flag: no page window is ever key, so neither the key-state walk nor the input method activation of a key
+change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
+emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
 
 ## 4. Prototype (behind `browserHost.helperPrototype`, default off; the host app is in Debug builds only)
 

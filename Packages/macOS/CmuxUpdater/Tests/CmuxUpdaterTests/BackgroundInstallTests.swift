@@ -79,6 +79,16 @@ import Testing
         }
     }
 
+    /// Background mode owns the staged installer so the app can replace it when a newer feed
+    /// item arrives. A persisted Sparkle silent-install preference would bypass that replacement
+    /// path and make Restart to Update install an older build first.
+    @Test func backgroundModeDisablesSparkleSilentInstallPath() {
+        let harness = Harness(automaticDownloads: true)
+        #expect(harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+        harness.controller.installsUpdatesInBackground = true
+        #expect(!harness.defaults.bool(forKey: UpdateSettings.automaticallyUpdateKey))
+    }
+
     @Test func backgroundModeSkipsThePromptForAUserInitiatedCheckToo() {
         let harness = Harness()
         harness.controller.installsUpdatesInBackground = true

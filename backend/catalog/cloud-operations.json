@@ -4538,6 +4538,7 @@
         "github.repoScope",
         "github.requireOrgAdmin",
         "github.repoAllowList",
+        "github.allowWorkflows",
         "integrations.allowedProviders",
         "mcp.server",
         "mcp.remoteTransport",
@@ -6025,6 +6026,13 @@
                     }
                   }
                 }
+              },
+              "allow_workflows": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
               }
             }
           }
@@ -6219,6 +6227,28 @@
                       }
                     }
                   ]
+                }
+              },
+              "mode": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "PolicyMode"
+                }
+              }
+            }
+          }
+        },
+        "github.allowWorkflows": {
+          "required": false,
+          "type": {
+            "kind": "object",
+            "fields": {
+              "value": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
                 }
               },
               "mode": {
@@ -45138,6 +45168,9 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "allow_workflows": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -45251,6 +45284,13 @@
                       }
                     }
                   }
+                },
+                "allow_workflows": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
                 }
               }
             }
@@ -45350,6 +45390,9 @@
                     "type": "null"
                   }
                 ]
+              },
+              "allow_workflows": {
+                "type": "boolean"
               }
             },
             "additionalProperties": true
@@ -45432,6 +45475,9 @@
                         "type": "null"
                       }
                     ]
+                  },
+                  "allow_workflows": {
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -61459,6 +61505,22 @@
                 ],
                 "additionalProperties": true
               },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "integrations.allowedProviders": {
                 "type": "object",
                 "properties": {
@@ -62214,6 +62276,22 @@
                 ],
                 "additionalProperties": true
               },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
               "integrations.allowedProviders": {
                 "type": "object",
                 "properties": {
@@ -62715,6 +62793,7 @@
               "github.repoScope",
               "github.requireOrgAdmin",
               "github.repoAllowList",
+              "github.allowWorkflows",
               "integrations.allowedProviders",
               "mcp.server",
               "mcp.remoteTransport",
@@ -63010,6 +63089,22 @@
                         "maxItems": 500
                       }
                     ]
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"
@@ -63678,6 +63773,7 @@
               "github.repoScope",
               "github.requireOrgAdmin",
               "github.repoAllowList",
+              "github.allowWorkflows",
               "integrations.allowedProviders",
               "mcp.server",
               "mcp.remoteTransport",
@@ -63843,6 +63939,22 @@
                         "maxItems": 500
                       }
                     ]
+                  },
+                  "mode": {
+                    "$ref": "#/$defs/PolicyMode"
+                  }
+                },
+                "required": [
+                  "value",
+                  "mode"
+                ],
+                "additionalProperties": true
+              },
+              "github.allowWorkflows": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "boolean"
                   },
                   "mode": {
                     "$ref": "#/$defs/PolicyMode"

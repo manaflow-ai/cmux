@@ -63,7 +63,8 @@ import Testing
 @MainActor
 private final class MediaTime {
     private(set) var now: CFTimeInterval = 1000
-    var read: @MainActor () -> CFTimeInterval { { [unowned self] in self.now } }
+    // Strong, as MainFrameBudgetTests' BudgetClock: a stall timer can read it after its test returned.
+    var read: @MainActor () -> CFTimeInterval { { [self] in self.now } }
     func advance(seconds: Double) { now += seconds }
 }
 

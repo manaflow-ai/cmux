@@ -26,6 +26,13 @@ enum WindowHandlers {
             context.services.actionLatencyHUD.toggle(over: context.services.windows.active?.window)
             return .done
         })
+        // DEV and NIGHTLY (`isDebugOnly`): Debug menu > Main-Thread Blocking (N) > Reset Counts. Enabled only
+        // in a build that has the detector (Debug, `CMUX_BLOCKING_CHECKS`): elsewhere reset does nothing.
+        let blocking = context.services.blocking
+        registry.bindEffect("debug.blockingCalls.reset", isEnabled: { blocking.isCompiledIn }, effect: { _ in
+            blocking.resetCounts()
+            return .done
+        })
         registry.bind("about", run: { _ in
             context.activateApp()
             let credits = AboutPanelCredits(bundle: .main).credits

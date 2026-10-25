@@ -52,7 +52,7 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
     case keyToFrame
     /// One hop of a key press's flow across processes (a point event, not an interval), emitted only
-    /// while `CMUX_TRACE_FLOWS` is set (`TypingLatencyProbe`). Message: `hop=<hop> flow=<id>
+    /// while `CMUX_NEXT_TRACE_FLOWS` is set (`TypingLatencyProbe`). Message: `hop=<hop> flow=<id>
     /// age_us=<n>`, where `flow` is the id the app minted for the key press (the daemon's `send`
     /// request carries it) and `age_us` the key event's age at the hop, or -1.
     /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.

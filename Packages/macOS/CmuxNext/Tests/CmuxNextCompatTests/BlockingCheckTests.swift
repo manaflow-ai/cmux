@@ -58,6 +58,16 @@ struct BlockingCheckTests {
         }
     }
 
+    /// A process started from main-actor code stops a Debug build in trap mode (the 807 ms screen.close
+    /// stall of 2026-10-24 was a spawn on the main thread).
+    @Test func aProcessSpawnOnTheMainThreadTraps() async {
+        await #expect(processExitsWith: .failure) {
+            await BlockingViolationTable.$scoped.withValue(BlockingViolationTable(mode: .trap)) {
+                await MainActor.run { try? spawnTrue() }
+            }
+        }
+    }
+
     @Test func theTrapEnvironmentVariableTurnsTrapModeOn() async {
         await #expect(processExitsWith: .failure) {
             let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"])
@@ -126,6 +136,21 @@ struct BlockingCheckTests {
         #expect(sites.allSatisfy { $0.location.hasPrefix("CmuxNextCompatTests/BlockingCheckTests.swift:") })
         #expect(recorder.violations.map(\.kind) == [.fileIO, .fileIO, .syncWait, .socketRead])
         #expect(recorder.violations.allSatisfy { !$0.frames.isEmpty && $0.frames.count <= 8 })
+    }
+
+    /// A main-actor caller that starts a process is recorded, by either spawn seam; the same spawn off the
+    /// main thread is not.
+    @MainActor @Test func aProcessSpawnFromMainActorCodeIsRecorded() async throws {
+        let (table, recorder) = Self.recordingTable()
+        try BlockingViolationTable.$scoped.withValue(table) {
+            try spawnTrue()
+            try posixSpawnTrue()
+        }
+        try await BlockingViolationTable.$scoped.withValue(table) { try await spawnTrueOffMain() }
+        await table.flush()
+
+        #expect(BlockingDetector(table: table).sites.map(\.kind) == [.processSpawn, .processSpawn])
+        #expect(recorder.violations.count == 2)
     }
 
     /// 128 sites, then only counts: the 5 sites past the limit are never recorded. Batches stay under the
@@ -376,7 +401,8 @@ struct BlockingCheckTests {
         Thread {
             shared.mutex.withLock { _ in
                 held.signal()
-                release.wait()
+                // Bounded: a regression that never arms the release fails the test instead of deadlocking it.
+                _ = release.wait(timeout: .now() + .seconds(5))
             }
         }.start()
         waitUntilSignaled(held)  // the holder has the lock
@@ -419,6 +445,31 @@ private func blockingCallsOffTheMainThread() async {
     _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
     _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
     signaledSemaphore().blockingWait()
+}
+
+/// Starts `/usr/bin/true` through the `Process` spawn seam, from the caller's thread.
+private nonisolated func spawnTrue() throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+    try process.blockingRun()
+}
+
+/// Starts `/usr/bin/true` through the `posix_spawn` seam and reaps it.
+private nonisolated func posixSpawnTrue() throws {
+    var pid: pid_t = 0
+    let argv: [UnsafeMutablePointer<CChar>?] = [strdup("/usr/bin/true"), nil]
+    defer { argv.forEach { free($0) } }
+    let status = blockingPosixSpawn(&pid, "/usr/bin/true", nil, nil, argv, environ)
+    guard status == 0 else { throw POSIXError(POSIXErrorCode(rawValue: status) ?? .EIO) }
+    var exit: Int32 = 0
+    waitpid(pid, &exit, 0)
+}
+
+/// The same spawn on a thread of the global executor, in the caller's task (its task-local table applies).
+@concurrent
+private nonisolated func spawnTrueOffMain() async throws {
+    #expect(pthread_main_np() == 0)
+    try spawnTrue()
 }
 
 /// A mutex threads can share (a `Mutex` is not copyable, so a closure cannot capture it).

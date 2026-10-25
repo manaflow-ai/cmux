@@ -1985,12 +1985,12 @@
   },
   "dividerThickness": {
    "value": 1,
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:32 (ChromeTunables.dividerThickness)",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:107-109 (MetricTunables.dividerThickness)",
    "unit": "pt"
   },
   "dividerHitWidth": {
    "value": 7,
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:33 (ChromeTunables.dividerHitWidth)",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift:110-112 (MetricTunables.dividerHitWidth)",
    "unit": "pt"
   },
   "panePadding": {
