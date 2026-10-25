@@ -306,6 +306,10 @@ pub fn repair(doc: &mut Doc) -> bool {
         }
         if section.kind.machine().is_none() {
             section.host_group = false;
+            section.host_group_opt_out = false;
+        } else if section.host_group && section.host_group_opt_out {
+            // An explicit Remove wins over a contradictory grouped flag.
+            section.host_group = false;
         }
     }
     if sections.iter().any(|section| !order_key::is_valid(&section.order)) {

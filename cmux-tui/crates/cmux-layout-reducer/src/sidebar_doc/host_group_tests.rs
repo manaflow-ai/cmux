@@ -121,3 +121,21 @@ fn host_group_and_opt_out_cannot_both_be_set() {
         Err(Refusal::InvalidValue)
     );
 }
+
+#[test]
+fn repair_normalizes_invalid_host_group_flags() {
+    let (mut sections, items) = doc().to_parts();
+    let mini = machine_section_id("mini");
+    let mini_section = sections.iter_mut().find(|section| section.id == mini).unwrap();
+    mini_section.host_group = true;
+    mini_section.host_group_opt_out = true;
+    sections.iter_mut().find(|section| section.id == "sec_custom").unwrap().host_group_opt_out =
+        true;
+    let mut doc = Doc::from_parts(1, sections, items);
+    assert!(repair(&mut doc));
+    assert!(!doc.section(&mini).unwrap().host_group);
+    assert!(doc.section(&mini).unwrap().host_group_opt_out);
+    assert!(!doc.section("sec_custom").unwrap().host_group);
+    assert!(!doc.section("sec_custom").unwrap().host_group_opt_out);
+    check(&doc).unwrap();
+}
