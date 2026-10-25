@@ -372,12 +372,17 @@ export function ComposerQueue({
     });
   const canSendNow = (entry: QueuedEntry) => Boolean(sendNow && !entry.next && !sentNow.has(entry.id));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
-  // moved row keeps focus once acpmux's new order draws.
+  // moved row keeps focus once acpmux's new order draws. Past the first or last row shown, an
+  // agent's waiting message (drawn in the transcript) may still be its neighbour in the queue: it
+  // moves one place in the whole queue then.
+  const queueIndex = (entry: QueuedEntry) => queue.findIndex((q) => q.id === entry.id);
   const move =
     onChange &&
     ((entry: QueuedEntry, index: number) => {
-      const to = shown[index] && queue.findIndex((q) => q.id === shown[index].id);
-      if (to === undefined || to < 0) return;
+      const target = shown[index];
+      const from = queueIndex(entry);
+      const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
+      if (from < 0 || to < 0 || to >= queue.length) return;
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
@@ -477,12 +482,12 @@ export function ComposerQueue({
       ? [
           {
             ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
-            disabled: index === 0,
+            disabled: queueIndex(entry) <= 0,
             separatorBefore: true,
           },
           {
             ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
-            disabled: index === shown.length - 1,
+            disabled: queueIndex(entry) === queue.length - 1,
           },
         ]
       : []),

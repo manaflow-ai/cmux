@@ -137,6 +137,35 @@ test("a paused queue of agent messages alone still offers Resume", async () => {
   expect(host.querySelector(".acpmux-composer-queue")).toBeNull();
 });
 
+test("the person's prompt moves past an agent's waiting message in the whole queue", async () => {
+  const edits: unknown[] = [];
+  await show(
+    <ComposerQueue
+      queue={[agents[0], own(1), own(2), agents[1]] as never}
+      t={t}
+      onRemove={async () => true}
+      onChange={async (id, edit) => (edits.push([id, edit]), true)}
+    />,
+  );
+  const key = async (id: string, key: string) => {
+    const row = host.querySelector<HTMLElement>(`[data-prompt-id="${id}"]`)!;
+    row.focus();
+    await act(async () =>
+      row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, altKey: true, bubbles: true })),
+    );
+  };
+  // ⌥↑ on the first prompt shown: above the agent's message before it. ⌥↓ on the last: below the one after.
+  await key("p1", "ArrowUp");
+  await key("p2", "ArrowDown");
+  // ⌥↓ between the person's prompts still takes the next one's place.
+  await key("p1", "ArrowDown");
+  expect(edits).toEqual([
+    ["p1", { op: "move", index: 0 }],
+    ["p2", { op: "move", index: 3 }],
+    ["p1", { op: "move", index: 2 }],
+  ]);
+});
+
 const items = () =>
   [...dom.window.document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.textContent?.trim());
 const item = (label: string) =>

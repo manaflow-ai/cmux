@@ -1274,7 +1274,7 @@ const QueuedMessageRow = memo(
       />
     );
   },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
 );
 /// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
 const replyToMessage = (message: IncomingMessage, text: string) =>
@@ -9017,7 +9017,9 @@ function AcpmuxPane() {
       <ShortcutsContext.Provider value={shortcuts}>
         <section className="acpmux-shell" data-surface="quick">
           <QuickSurface
-            transcript={snapshot.rows.length > 0 || chatShellRuns.length > 0 ? transcript : undefined}
+            transcript={
+              snapshot.rows.length > 0 || chatShellRuns.length > 0 || queuedRows.length > 0 ? transcript : undefined
+            }
             asks={
               <>
                 {asks}

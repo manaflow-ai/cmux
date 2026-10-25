@@ -41,7 +41,8 @@ export function QueuedMessageCard({
   const t = useT();
   const queueing = useQueueing();
   const act = useContext(TurnActionsContext).queuedMessages?.();
-  const [steered, setSteered] = useState(false);
+  // Steer goes once: hidden from its reply until acpmux's next word on the message (a new row).
+  const [steeredAt, setSteeredAt] = useState<number>();
   // Opening draws the menu again, so its moves read where the message waits now.
   const [, setOpened] = useState(0);
   const queued = row.queuedMessage;
@@ -77,8 +78,8 @@ export function QueuedMessageCard({
         >
           {act &&
             !queued.next &&
-            !steered &&
-            item("composer.queueSteer", () => void act.steer(promptId).then((ok) => ok && setSteered(true), fail))}
+            steeredAt !== row.version &&
+            item("composer.queueSteer", () => void act.steer(promptId).then((ok) => ok && setSteeredAt(row.version), fail))}
           {act && item("composer.queueEditMessage", () => void act.edit(promptId, text, row.images ?? []).catch(fail))}
           {act?.sideChat &&
             !row.images?.length &&

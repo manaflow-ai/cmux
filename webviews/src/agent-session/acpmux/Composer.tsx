@@ -1138,7 +1138,7 @@ export function Composer({
       }
     }
     // ↑ on an empty prompt goes to the queue's last prompt (ComposerQueue.tsx has its keys).
-    if (event.key === "ArrowUp" && plain && !open && !text.trim() && snapshot.queue.length) {
+    if (event.key === "ArrowUp" && plain && !open && !text.trim() && ownQueue(snapshot.queue).length) {
       // The list draws at the top of the form, over the strip (ComposerQueue.tsx).
       const chat = form.current?.closest(".acpmux-main") ?? form.current;
       // A long queue's fold ("N more queued") sits under its rows, so ↑ reaches it first.
