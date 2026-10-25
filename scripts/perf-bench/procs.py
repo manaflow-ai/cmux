@@ -7,6 +7,9 @@
   ri_phys_footprint  (word 9): what Activity Monitor calls Memory
   ri_diskio_byteswritten (word 19): bytes the process wrote to disk (the disk-write rows)
 
+`power_assertions` reads `pmset -g assertions` for a pid set and `thermal_state` the Mac's thermal state
+(idle-budget.py records both per window).
+
 `proc_pidinfo(PROC_PIDTASKINFO)` adds the overhead counters of speed-of-sound-DESIGN.md:
 threads, Mach messages sent + received (IPC), Unix + Mach syscalls and context switches.
 
@@ -292,3 +295,58 @@ def _alive(pid: int) -> bool:
 
 def load_average() -> float:
     return os.getloadavg()[0]
+
+
+# `pmset -g assertions`, "Listed by owning process": one header line per assertion, then indented detail lines
+# (`Created for PID: N.` when a daemon such as powerd or runningboardd holds it on a process's behalf).
+_ASSERTION_RE = re.compile(r"^\s*pid (\d+)\((.*?)\): \[0x[0-9a-fA-F]+\] (\S+) (\S+)(?: named: \"(.*)\")?")
+_CREATED_FOR_RE = re.compile(r"Created for PID: (\d+)")
+
+
+def power_assertions(pids, text: str | None = None) -> list[dict]:
+    """The power assertions held by or created for a pid of `pids`: [{pid, process, type, name, held, line}].
+
+    `text` is `pmset -g assertions` output (read now when None). An assertion created for one of the pids by
+    another process counts for that pid."""
+    if text is None:
+        text = subprocess.run(["pmset", "-g", "assertions"], capture_output=True, text=True).stdout
+    wanted = set(pids)
+    found, current = [], None
+    for line in text.splitlines():
+        header = _ASSERTION_RE.match(line)
+        if header:
+            pid, process, held, kind, name = header.groups()
+            current = {"pid": int(pid), "process": process, "type": kind, "name": name or "",
+                       "held": held, "line": line.strip()[:240]}
+            found.append(current)
+            continue
+        if current is not None and line[:1] in ("\t", " ") and line.strip():
+            created = _CREATED_FOR_RE.search(line)
+            if created:
+                current["created_for"] = int(created.group(1))
+        else:
+            current = None
+    return [a for a in found if a["pid"] in wanted or a.get("created_for") in wanted]
+
+
+THERMAL_STATES = ("nominal", "fair", "serious", "critical")  # NSProcessInfoThermalState 0...3
+
+
+def thermal_state() -> str | None:
+    """The Mac's `ProcessInfo.processInfo.thermalState` now (system-wide, the value the app reads), or None."""
+    try:
+        objc = ctypes.CDLL("/usr/lib/libobjc.A.dylib")
+        ctypes.CDLL("/System/Library/Frameworks/Foundation.framework/Foundation")
+    except OSError:
+        return None
+    objc.objc_getClass.restype = ctypes.c_void_p
+    objc.objc_getClass.argtypes = [ctypes.c_char_p]
+    objc.sel_registerName.restype = ctypes.c_void_p
+    objc.sel_registerName.argtypes = [ctypes.c_char_p]
+    send_object = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)(("objc_msgSend", objc))
+    send_integer = ctypes.CFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_void_p)(("objc_msgSend", objc))
+    info = send_object(objc.objc_getClass(b"NSProcessInfo"), objc.sel_registerName(b"processInfo"))
+    if not info:
+        return None
+    state = send_integer(info, objc.sel_registerName(b"thermalState"))
+    return THERMAL_STATES[state] if 0 <= state < len(THERMAL_STATES) else None
