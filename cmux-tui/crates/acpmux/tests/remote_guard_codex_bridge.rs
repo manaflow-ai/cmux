@@ -181,6 +181,22 @@ async fn set_full_access(c: &mut Client, id: &str, on: bool) -> Value {
     c.call("_acpmux/pair_set", json!({"id": id, "fullAccess": on})).await
 }
 
+/// The person issues a phone's own credential (`_acpmux/pair_issue` role
+/// `phone`), as the Mac app does for a phone paired with its mobile host.
+async fn issue_phone(person: &mut Client, name: &str) -> (String, String) {
+    let r = person.call("_acpmux/pair_issue", json!({"name": name, "role": "phone"})).await;
+    let id = r["result"]["deviceId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    (id, r["result"]["token"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned())
+}
+
+/// What the Mac's mobile host sends for a phone's request its own phone
+/// filter refuses (cmux-mobile-host `acpmux_policy.rs`): run it only when a
+/// paired device's Full-access setting covers it.
+fn marked(mut params: Value) -> Value {
+    params["_meta"] = json!({"acpmux": {"requireFullAccess": true}});
+    params
+}
+
 /// The shared dashboard token names no machine, so no setting covers it: the
 /// chat it starts stays in a mode that asks. A paired machine with the
 /// setting off is held the same way; once the person turns it on, that
@@ -448,6 +464,114 @@ async fn only_the_person_turns_the_setting_on_for_a_client_machine() {
     let r = set_full_access(&mut person, "nobody", true).await;
     assert_eq!(r["error"]["data"]["reason"], "not_found", "{r}");
     assert!(!hub.pairing.full_access(&id) && !hub.pairing.full_access(&watcher.id));
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A phone pairs with the Mac app, whose mobile host (cmux-mobile-host)
+/// splices the phone's `acpmux` channel to this daemon. With the phone's own
+/// `phone` credential in place of the shared dashboard token, the connection
+/// is still the Web's (remote, every Web rule), but it names that phone, so
+/// the per-device setting covers it: off, the phone is refused Full access;
+/// on, it is allowed. A request the mobile host marks (what its phone filter
+/// refused before) runs only when the setting covers it, whatever the chat.
+#[tokio::test]
+async fn a_paired_phone_is_refused_full_access_without_its_setting_and_allowed_with_it() {
+    let d = dir("phone");
+    let hub = hub(&d);
+    let mut person = Client::person(&hub).await;
+    let (id, token) = issue_phone(&mut person, "phone-a").await;
+    let (_, other_token) = issue_phone(&mut person, "phone-b").await;
+    let mut phone = Client::device(&hub, &token, false);
+    let mut other = Client::device(&hub, &other_token, false);
+    let init = phone.call("initialize", json!({"protocolVersion": 1})).await;
+    let meta = &init["result"]["_meta"]["acpmux"];
+    assert_eq!(meta["origin"], "remote", "served as the Web, not as a peer: {init}");
+    assert_eq!((&meta["auth"], &meta["fullAccess"]), (&json!("device"), &json!(false)), "{init}");
+    let s = bridge_chat(&mut phone, &d).await;
+    let r = phone.call("session/set_mode", full_access(&s)).await;
+    assert!(held(&r), "setting off: {r}");
+    // A chat started on the Mac, out of the asking modes: the shared token may
+    // prompt it, but not with the mark, and neither may a phone without the setting.
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let mac = bridge_chat(&mut local, &d).await;
+    assert_ne!(mode_now(&hub, &mac), "ask");
+    let mut web = Client::new(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let r = web.call("session/prompt", prompt(&mac)).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "the shared token, unmarked: {r}");
+    // A brief steer (the mobile host cannot see its chat's mode, so it always marks one).
+    let steer = json!({"briefId": "b-none", "text": "go"});
+    for (who, c) in [("the shared token", &mut web), ("setting off", &mut phone)] {
+        let r = c.call("session/prompt", marked(prompt(&mac))).await;
+        assert_eq!(r["error"]["data"]["reason"], "remote.full_access_required", "{who}: {r}");
+        let r = c.call("session/set_mode", marked(full_access(&s))).await;
+        assert_eq!(r["error"]["data"]["reason"], "remote.full_access_required", "{who}: {r}");
+        let r = c.call("_acpmux/steer", marked(steer.clone())).await;
+        assert_eq!(r["error"]["data"]["reason"], "remote.full_access_required", "{who}: {r}");
+    }
+    assert!(set_full_access(&mut person, &id, true).await.get("error").is_none());
+    let init = phone.call("initialize", json!({"protocolVersion": 1})).await;
+    assert_eq!(init["result"]["_meta"]["acpmux"]["fullAccess"], true, "{init}");
+    let r = phone.call("session/set_mode", marked(full_access(&s))).await;
+    assert!(r.get("error").is_none(), "setting on: {r}");
+    assert_eq!(mode_now(&hub, &s), "agent-full-access");
+    for chat in [&s, &mac] {
+        let r = phone.call("session/prompt", marked(prompt(chat))).await;
+        assert_eq!(r["result"]["stopReason"], "end_turn", "setting on, {chat}: {r}");
+    }
+    let r = phone.call("_acpmux/steer", marked(steer.clone())).await;
+    assert!(err(&r).contains("no brief"), "setting on, the steer passes the gate: {r}");
+    // The other phone, without the setting, is still refused.
+    let theirs = bridge_chat(&mut other, &d).await;
+    let r = other.call("session/set_mode", full_access(&theirs)).await;
+    assert!(held(&r), "the other phone: {r}");
+    let r = other.call("session/prompt", marked(prompt(&mac))).await;
+    assert_eq!(r["error"]["data"]["reason"], "remote.full_access_required", "the other phone: {r}");
+    let r = other.call("session/prompt", prompt(&s)).await;
+    assert_eq!(r["error"]["data"]["reason"], "remote.full_access_device", "the other phone: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Only the person issues a phone's credential, and never through a ticket:
+/// it names the device the setting covers, so an agent on this Mac must not
+/// hold one. Issuing it again for the same phone (the Mac app does at each
+/// launch, holding it in memory only) ends the old credential and keeps the
+/// setting.
+#[tokio::test]
+async fn only_the_person_issues_a_phone_credential_and_a_new_one_ends_the_old() {
+    let d = dir("phone-issue");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let r = local.call("_acpmux/pair_issue", json!({"name": "phone-a", "role": "phone"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    let r = local
+        .call("_acpmux/pair_ticket_new", json!({"role": "phone", "url": "ws://127.0.0.1:9/"}))
+        .await;
+    assert!(err(&r).contains("phone"), "no ticket for a phone: {r}");
+    let mut person = Client::person(&hub).await;
+    let (old_id, old_token) = issue_phone(&mut person, "phone-a").await;
+    let mut old = Client::device(&hub, &old_token, false);
+    let s = bridge_chat(&mut old, &d).await;
+    assert!(set_full_access(&mut person, &old_id, true).await.get("error").is_none());
+    let r = old.call("session/set_mode", full_access(&s)).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let (new_id, new_token) = issue_phone(&mut person, "phone-a").await;
+    assert_ne!(new_id, old_id);
+    assert!(hub.pairing.device_for(&old_token).is_none(), "the old credential ended");
+    assert!(hub.pairing.full_access(&new_id), "the setting moved to the new credential");
+    assert!(!hub.pairing.full_access(&old_id));
+    let r = old.call("session/prompt", prompt(&s)).await;
+    assert_eq!(r["error"]["data"]["reason"], "remote.full_access_device", "the old one: {r}");
+    let mut phone = Client::device(&hub, &new_token, false);
+    let r = phone.call("session/prompt", marked(prompt(&s))).await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "the new one: {r}");
+    // A machine's name is not a phone's: issuing a phone credential never replaces it.
+    let laptop = hub.pairing.issue("laptop", Role::Client).unwrap().0;
+    let r = person.call("_acpmux/pair_issue", json!({"name": "laptop", "role": "phone"})).await;
+    assert_eq!(r["error"]["data"]["reason"], "name_taken", "{r}");
+    let list = person.call("_acpmux/pair_list", json!({})).await;
+    let rows = list["result"]["devices"].as_array().cloned().unwrap_or_default();
+    let row = rows.iter().find(|r| r["id"] == json!(laptop.id)).unwrap_or_else(|| panic!("{list}"));
+    assert!(row["revoked_at"].is_null(), "{row}");
     let _ = std::fs::remove_dir_all(&d);
 }
 

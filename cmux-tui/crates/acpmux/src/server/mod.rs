@@ -1446,7 +1446,10 @@ mod request_admission_tests {
         assert!(!request_uses_work_budget(crate::rpc::method::SESSION_RESUME));
         assert!(!request_uses_work_budget(crate::rpc::method::SESSION_FORK));
         assert!(!request_uses_work_budget(crate::rpc::method::MUX_ATTACH));
-        assert!(request_uses_work_budget("_acpmux/unknown"));
+        // A method no handler serves; built, not a literal, so the registry check
+        // (protocol::tests) does not read it as a served method.
+        let unknown = ["_acpmux", "unknown"].join("/");
+        assert!(request_uses_work_budget(&unknown));
 
         let slots = Semaphore::new(REQUEST_WORK_LIMIT);
         let _holds: Vec<_> = (0..REQUEST_WORK_LIMIT)

@@ -204,6 +204,15 @@ flight whose model has shown no sign for that long has stalled: `lane.stalledSin
 `turn.stalledSince`) say since when, and the lane's state stays `working`. A long build in
 one tool call is in flight, so it never stalls. It is checked when a summary is read, with
 no timer.
+`stalledTurnEndMs` (default 21600000, 6 h; 0 turns it off): a running turn whose model has
+shown no sign of work, counted the same way, for that long (four times that while one of its tool
+calls has not ended; also across a daemon restart: an adopted
+turn's count and start come from its log) ends as failed, `turn_result` `detail` `stalled`
+with `stalledMs` and `errorSource` `acpmux`. The agent gets the cancel and the turn ends even
+if it never answers. Only a turn nobody holds: no client that shows the chat, no permission or
+secret waiting, and its recorded owner (a sub-session's parent, the session a `spawnedBy` tag
+names) not running or waiting. The chat stays open and its idle agent exits as any unused one
+does; the next prompt resumes it.
 Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
 deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
 (default 30; 0 keeps them), checked at the daemon's start and daily.

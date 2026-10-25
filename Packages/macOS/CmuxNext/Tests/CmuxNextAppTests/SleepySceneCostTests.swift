@@ -2,7 +2,6 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import Foundation
-import SwiftUI
 import Testing
 
 /// Sleepy Mode's scene costs the main thread nothing per frame (every-action sweep, m27
@@ -23,10 +22,9 @@ import Testing
         _ = NSApplication.shared
         let screen = try #require(NSScreen.main)
         try #require(Motion.panes.animatesLoops, "loops are off on this host: only the still sky would show")
-        let scene = SleepySceneView(workingAgents: { 0 }, wake: {}, lockMac: {})
         let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentView = NSHostingView(rootView: scene)
+        window.contentView = SleepySceneView.hostView(workingAgents: { 0 }, wake: {}, lockMac: {})
         window.setFrame(screen.frame, display: true)
         window.orderFrontRegardless()
         defer { window.close() }

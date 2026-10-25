@@ -12,6 +12,7 @@
 // subagent?"), and a line that opens something ends in a chevron. A line with nothing to open is
 // a disabled button with no hover at all (subagents.css).
 import type { ReactNode } from "react";
+import { AgentMark, knownMark } from "../../shared/AgentMark";
 import { Tooltip } from "../../../ui/Tooltip";
 import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
@@ -28,6 +29,7 @@ export function AgentLine({
   state,
   time,
   icon = "agent.session",
+  mark,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
@@ -52,6 +54,8 @@ export function AgentLine({
   time?: string;
   /// `agent.session` for a subagent, `terminal` for a background command.
   icon?: string;
+  /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
+  mark?: string;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -79,6 +83,7 @@ export function AgentLine({
   expanded?: boolean;
 }) {
   const shimmer = waveProps(wave);
+  const brand = mark ? knownMark(mark, mark.split(/[-_/]/)[0]) : undefined;
   const button = (
     <button
       type="button"
@@ -98,7 +103,13 @@ export function AgentLine({
         style={shimmer.style}
         data-state={status}
       >
-        {working ? <Spinner size={iconSize} loading /> : <Icon name={icon} size={iconSize} row />}
+        {working ? (
+          <Spinner size={iconSize} loading />
+        ) : brand ? (
+          <AgentMark agent={brand} size={iconSize} />
+        ) : (
+          <Icon name={icon} size={iconSize} row />
+        )}
       </span>
       <span className="acpmux-summary-text">
         {kind && <span className="acpmux-agent-line__kind">{kind}</span>}
