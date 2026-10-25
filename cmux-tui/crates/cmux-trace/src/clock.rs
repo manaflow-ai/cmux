@@ -9,7 +9,7 @@
 //!
 //! The header of each ring names its domain ([`ClockDomain`]), so a decoder never mixes two.
 
-/// The clock a ring's `t_ns` values come from (header byte 21).
+/// The clock a ring's `t_ns` values come from (the header's `clock_domain`).
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClockDomain {
@@ -88,6 +88,43 @@ pub fn now_ns() -> u64 {
     unsafe { QueryPerformanceCounter(&mut count) };
     let ns = u128::from(count.unsigned_abs()) * 1_000_000_000 / u128::from(frequency);
     u64::try_from(ns).unwrap_or(u64::MAX)
+}
+
+/// The wall clock in ns since the Unix epoch: the header's `start_unix_ns` (display and the 3-day
+/// cleanup only, never a record time).
+pub fn unix_ns() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| u64::try_from(since.as_nanos()).unwrap_or(u64::MAX))
+}
+
+/// The clock that also counts sleep, in ns, read with a ring's start (`start_continuous_ns`):
+/// macOS `mach_continuous_time` (`CLOCK_MONOTONIC_RAW`), Linux `CLOCK_BOOTTIME`, 0 elsewhere.
+#[cfg(target_os = "macos")]
+pub fn continuous_ns() -> u64 {
+    const CLOCK_MONOTONIC_RAW: u32 = 4;
+    unsafe extern "C" {
+        fn clock_gettime_nsec_np(clock: u32) -> u64;
+    }
+    // SAFETY: CLOCK_MONOTONIC_RAW is a valid clock id; the call has no other preconditions.
+    unsafe { clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) }
+}
+
+/// The clock that also counts sleep, in ns, read with a ring's start (`start_continuous_ns`):
+/// macOS `mach_continuous_time` (`CLOCK_MONOTONIC_RAW`), Linux `CLOCK_BOOTTIME`, 0 elsewhere.
+#[cfg(target_os = "linux")]
+pub fn continuous_ns() -> u64 {
+    let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `now` is a valid out pointer for the call.
+    unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut now) };
+    (now.tv_sec as u64).saturating_mul(1_000_000_000).saturating_add(now.tv_nsec as u64)
+}
+
+/// The clock that also counts sleep, in ns, read with a ring's start (`start_continuous_ns`):
+/// macOS `mach_continuous_time` (`CLOCK_MONOTONIC_RAW`), Linux `CLOCK_BOOTTIME`, 0 elsewhere.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn continuous_ns() -> u64 {
+    0
 }
 
 /// The id of the current boot (macOS `kern.bootsessionuuid`, Linux `/proc/sys/kernel/random/boot_id`),
