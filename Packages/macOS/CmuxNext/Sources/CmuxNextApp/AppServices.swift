@@ -177,7 +177,7 @@ final class AppServices {
         guard let acpmux = AcpmuxEnvironment.resolve(build: environment.build, bundledBinDirectory: bin,
                                                      environment: ProcessInfo.processInfo.environment) else { return nil }
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
-                                logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
+                                logger: Logger(subsystem: "com.cmuxterm.app.next", category: "model-router"))
     }()
     /// Where agent cursors draw (plans/cmux-next/agent-cursor.md section 3).
     private(set) lazy var agentCursorVisibility = AgentCursorWiring.makeVisibility(services: self)
