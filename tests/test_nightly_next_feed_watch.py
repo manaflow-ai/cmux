@@ -290,6 +290,14 @@ class LegacyFeedTests(unittest.TestCase):
         self.assertEqual(posts, ["/actions/jobs/11/rerun"], "publish follows verify; publish-nightly is not touched")
         self.assertIn("verify-nightly-identity-legacy", message)
 
+    def test_reruns_a_failed_target_or_a_timed_out_job(self):
+        # A failed legacy-identity-target leaves the later legacy jobs skipped; a timeout is a failure.
+        for jobs, posted in (([{"id": 10, "name": "legacy-identity-target", "conclusion": "failure"},
+                               {"id": 13, "name": "sign-nightly-identity-legacy", "conclusion": "skipped"}], 10),
+                             ([{"id": 13, "name": "sign-nightly-identity-legacy", "conclusion": "timed_out"}], 13)):
+            _, posts = self.rerun(jobs=jobs)
+            self.assertEqual(posts, [f"/actions/jobs/{posted}/rerun"], jobs)
+
     def test_no_rerun_when_running_exhausted_not_failed_or_foreign(self):
         for run, jobs in (({"status": "in_progress"}, None), ({"run_attempt": 3}, None),
                           (None, [{"id": 12, "name": "publish-nightly-identity-legacy", "conclusion": "skipped"}]),

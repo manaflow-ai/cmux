@@ -42,7 +42,7 @@ CLASSIC_FEED_URL = "https://files.cmux.com/nightly/appcast-arm64.xml"
 # (7 hours on 2026-10-25, every legacy job 403'd on the Actions token's rate limit).
 LEGACY_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
 # Job ids from the nightly-next branch's nightly.yml, the copy those runs execute (main's differs).
-LEGACY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "publish-nightly-identity-legacy")
+LEGACY_JOBS = ("legacy-identity-target", "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "publish-nightly-identity-legacy")
 # Nightly freshness (rulebook): no feed more than 30 minutes behind; a legacy job's re-run takes ~15.
 LEGACY_MAX_LAG_MINUTES = 15.0
 LEGACY_MAX_ATTEMPTS = 3
@@ -318,7 +318,7 @@ def legacy_rerun(gh: GitHub, build: int) -> str:
         return f"run {url} is not a nightly-next nightly.yml run"
     if run.get("status") in ACTIVE:
         return f"its run {url} is still running"
-    failed = {job["name"]: job for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") == "failure"}
+    failed = {job["name"]: job for job in gh.jobs(run) if job.get("name") in LEGACY_JOBS and job.get("conclusion") in ("failure", "timed_out")}
     if not failed:
         return f"run {url} has no failed legacy job to re-run"
     if int(run.get("run_attempt") or 1) >= LEGACY_MAX_ATTEMPTS:
