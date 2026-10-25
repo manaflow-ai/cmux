@@ -106,4 +106,50 @@ struct RemoteMachinesSidebarTests {
                                                     ["name": "big-red", "connected": false], ["connected": true]]])
         #expect(peers == [AcpmuxPeerList.Peer(name: "cmux16", connected: true), AcpmuxPeerList.Peer(name: "big-red", connected: false)])
     }
+
+    /// Leo 2026-10-24: "how much RAM do you have before you start ... how much CPU utilization". Each peer row's
+    /// `health` (acpmux reads it every 60 s) becomes whole numbers, so a reading that moves by a fraction changes nothing.
+    @Test func peerListReadsEachMachinesRoomInWholeUnits() {
+        let health: [String: Any] = ["cpus": 32, "load": [11.6, 9.0, 8.0], "ram": ["freeBytes": 31_400_000_000, "totalBytes": 64_000_000_000],
+                                     "disk": ["freeBytes": 180_200_000_000], "pressure": ["ok": true, "cores": 32]]
+        var later = health
+        later["load"] = [12.2, 9.0, 8.0]
+        let peers = AcpmuxPeerList.peers(["peers": [["name": "huge-blue", "connected": true, "health": health, "healthAt": 1],
+                                                    ["name": "old", "connected": true, "health": ["unsupported": true]],
+                                                    ["name": "cmux16", "connected": true, "health": NSNull()]]])
+        let room = AcpmuxPeerList.Resources(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false)
+        #expect(peers.map(\.resources) == [room, nil, nil])
+        let again = AcpmuxPeerList.peers(["peers": [["name": "huge-blue", "connected": true, "health": later, "healthAt": 2]]])
+        #expect(again[0] == peers[0])
+        var hot = health
+        hot["load"] = [99.0]
+        hot["pressure"] = ["ok": false, "cores": 32]
+        let busy = AcpmuxPeerList.peers(["peers": [["name": "huge-blue", "connected": true, "health": hot]]])[0].resources
+        #expect(busy?.coresBusy == 32 && busy?.over == true)
+    }
+
+    @Test func anUnfoldedMachineSaysItsRoomFirstAndTheHeaderStyleNamesItsFreeRAM() {
+        let room = AcpmuxPeerList.Resources(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false)
+        let peers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true, resources: room),
+                     AcpmuxPeerList.Peer(name: "big-red", connected: false, resources: room)]
+        let machines = RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue")], peers: peers)
+        #expect(machines.first { $0.peer == "big-red" }?.resources == nil)
+        let rows = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue", "big-red"], pages: [:], resources: .row,
+                                              displayName: { _ in nil })
+        #expect(rows.map(\.info.title) == ["huge-blue", "31 GB free · 12/32 cores", "a", RemoteMachinesStrings.offline("big-red")])
+        #expect(rows[1].info.indent == 1)
+        // The room row does nothing on a click, and folded groups show no row.
+        let sidebar = RemoteMachinesSidebar(lanes: AgentLaneStore())
+        #expect(sidebar.activate(rows[1].item.id))
+        let folded = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .row, displayName: { _ in nil })
+        #expect(folded.count == 2)
+        let header = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .header, displayName: { _ in nil })
+        #expect(header.map(\.info.title) == ["huge-blue · 31 GB free", RemoteMachinesStrings.offline("big-red")])
+        let off = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue"], pages: [:], resources: .off, displayName: { _ in nil })
+        #expect(off.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.offline("big-red")])
+        var hot = room
+        hot.over = true
+        hot.diskFreeGB = 8
+        #expect(RemoteMachinesStrings.resources(hot) == "Busy · 31 GB free · 12/32 cores · 8 GB disk")
+    }
 }

@@ -32,6 +32,7 @@ public final class RemoteMachinesSidebar {
     private static let machinePrefix = prefix + "machine:"
     private static let morePrefix = prefix + "more:"
     private static let sessionPrefix = prefix + "session:"
+    private static let resourcesPrefix = prefix + "resources:"
 
     /// One chat row: only what it draws, so a lane's new step leaves it equal.
     public struct Chat: Hashable, Sendable {
@@ -48,6 +49,8 @@ public final class RemoteMachinesSidebar {
         public var online: Bool
         /// Its live chats, newest first.
         public var chats: [Chat]
+        /// Its room from acpmux's last reading (nil: unknown).
+        public var resources: AcpmuxPeerList.Resources?
     }
 
     /// What the App reaches: the daemon's peers (nil when it cannot say), a peer's display name,
@@ -115,7 +118,8 @@ public final class RemoteMachinesSidebar {
     public func rows() -> [SidebarTransientItem] {
         // A capture shows the first sample machine unfolded until a click folds or unfolds one.
         let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? ["linux-box"] : expanded
-        return Self.rows(machines: machines, expanded: shown, pages: pages, displayName: { [host] in host?.displayName($0) })
+        return Self.rows(machines: machines, expanded: shown, pages: pages, resources: SidebarTunables.remoteMachineResources.value,
+                         displayName: { [host] in host?.displayName($0) })
     }
 
     /// Runs a click on one of the rows; false for any other item. A header folds or unfolds its
@@ -126,6 +130,7 @@ public final class RemoteMachinesSidebar {
             if expanded.remove(peer) == nil { expanded.insert(peer) } else { pages[peer] = nil }
             return true
         }
+        if Self.suffix(raw, Self.resourcesPrefix) != nil { return true }
         if let peer = Self.suffix(raw, Self.morePrefix) {
             pages[peer, default: 1] += 1
             return true
@@ -145,8 +150,13 @@ public final class RemoteMachinesSidebar {
     }
 
     /// Three machines for captures: two reachable with chats in each state, one offline.
-    static let fixturePeers = [AcpmuxPeerList.Peer(name: "linux-box", connected: true), AcpmuxPeerList.Peer(name: "build-mac", connected: true),
-                               AcpmuxPeerList.Peer(name: "gpu-box", connected: false)]
+    static let fixturePeers = [
+        AcpmuxPeerList.Peer(name: "linux-box", connected: true,
+                            resources: .init(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false)),
+        AcpmuxPeerList.Peer(name: "build-mac", connected: true,
+                            resources: .init(ramFreeGB: 2, coresBusy: 12, cores: 12, diskFreeGB: 40, over: true)),
+        AcpmuxPeerList.Peer(name: "gpu-box", connected: false),
+    ]
     static var fixtureLanes: [AgentActivityLane] {
         let chats: [(String, String, AgentActivityLane.State, String)] = [
             ("linux-box", "sidebar", .working, "Sidebar rows keep their place"), ("linux-box", "review-1", .input, "Review the peer list"),
@@ -188,11 +198,12 @@ public final class RemoteMachinesSidebar {
             byPeer[peer, default: []].append(lane)
         }
         let online = Dictionary((peers ?? []).map { ($0.name, $0.connected) }, uniquingKeysWith: { first, _ in first })
+        let room = Dictionary((peers ?? []).map { ($0.name, $0.resources) }, uniquingKeysWith: { first, _ in first })
         let names = peers.map { $0.map(\.name) } ?? Array(byPeer.keys)
         return Set(names).map { peer in
             let isOnline = online[peer] ?? true
             let chats = isOnline ? (byPeer[peer] ?? []).sorted(by: newer).map(chat) : []
-            return Machine(peer: peer, online: isOnline, chats: chats)
+            return Machine(peer: peer, online: isOnline, chats: chats, resources: isOnline ? room[peer] ?? nil : nil)
         }
         // Reachable machines first, each part by name.
         .sorted { ($0.online ? 0 : 1, $0.peer) < ($1.online ? 0 : 1, $1.peer) }
@@ -218,7 +229,7 @@ public final class RemoteMachinesSidebar {
 
     @MainActor
     static func rows(machines: [Machine], expanded: Set<String>, pages: [String: Int],
-                     displayName: (String) -> String?) -> [SidebarTransientItem] {
+                     resources style: RemoteMachineResourcesStyle = .row, displayName: (String) -> String?) -> [SidebarTransientItem] {
         var items: [SidebarTransientItem] = []
         // The groups draw right after the top items (the App Store, else Channels, else Home), above the workspaces.
         var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref, SidebarLayoutDocument.homeRef,
@@ -230,11 +241,19 @@ public final class RemoteMachinesSidebar {
         }
         for machine in machines {
             let name = displayName(machine.peer) ?? machine.peer
-            var header = SidebarItemInfo(title: machine.online ? name : RemoteMachinesStrings.offline(name), symbol: "cloud", icon: .cloud,
+            let room = machine.online ? machine.resources : nil
+            let title = if let room, style == .header { RemoteMachinesStrings.named(name, RemoteMachinesStrings.ramFree(room.ramFreeGB)) }
+                else { name }
+            var header = SidebarItemInfo(title: machine.online ? title : RemoteMachinesStrings.offline(name), symbol: "cloud", icon: .cloud,
                                          badge: machine.online && !machine.chats.isEmpty ? machine.chats.count : nil, isMissing: !machine.online)
             header.activity = activity(machine.chats)
             add(machinePrefix + machine.peer, header)
             guard machine.online, expanded.contains(machine.peer) else { continue }
+            if let room, style == .row {
+                var row = SidebarItemInfo(title: RemoteMachinesStrings.resources(room), symbol: "gauge.with.dots.needle.33percent")
+                row.indent = 1
+                add(resourcesPrefix + machine.peer, row)
+            }
             let shown = pageSize * max(1, pages[machine.peer] ?? 1)
             for chat in machine.chats.prefix(shown) {
                 var row = SidebarItemInfo(title: chat.title, symbol: "bubble.left", brand: chat.harness)
@@ -261,6 +280,25 @@ enum RemoteMachinesStrings {
     static func offline(_ name: String) -> String {
         String(format: String(localized: "sidebar.remoteMachines.offline", defaultValue: "%@ · Offline", bundle: .module), name)
     }
+    /// A machine's room on one line that fits the sidebar: "31 GB free · 12/32 cores", led by "Busy"
+    /// when its own budget says it is over, and ending with its free disk only when that is low.
+    static func resources(_ r: AcpmuxPeerList.Resources) -> String {
+        var parts = [ramFree(r.ramFreeGB),
+                     String(format: String(localized: "sidebar.remoteMachines.cores", defaultValue: "%1$lld/%2$lld cores", bundle: .module),
+                            r.coresBusy, r.cores)]
+        if r.diskFreeGB < lowDiskGB {
+            parts.append(String(format: String(localized: "sidebar.remoteMachines.disk", defaultValue: "%lld GB disk", bundle: .module), r.diskFreeGB))
+        }
+        if r.over { parts.insert(String(localized: "sidebar.remoteMachines.overBudget", defaultValue: "Busy", bundle: .module), at: 0) }
+        return parts.joined(separator: " · ")
+    }
+    /// Free disk under this many GB shows on the row (lane hosts' usual floor in fleet-registry.json).
+    static let lowDiskGB = 20
+    static func ramFree(_ gb: Int) -> String {
+        String(format: String(localized: "sidebar.remoteMachines.ramFree", defaultValue: "%lld GB free", bundle: .module), gb)
+    }
+    /// A header with something after the machine's name.
+    static func named(_ name: String, _ detail: String) -> String { name + " · " + detail }
     /// The row under an unfolded group's last shown chat when it has more.
     static var showMore: String { String(localized: "sidebar.remoteMachines.showMore", defaultValue: "Show More", bundle: .module) }
 }
