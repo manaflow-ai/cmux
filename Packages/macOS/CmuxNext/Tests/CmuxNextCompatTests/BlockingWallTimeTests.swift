@@ -141,7 +141,8 @@ struct BlockingWallTimeTests {
             guard sites.map(\.kind) == [.processWait, .fileIO] else {
                 // 100 + 10 x the site count + 1 when the nested work ran on main + 2 when it overflowed.
                 let (ran, sawTable) = probe.read()
-                exit(100 + 10 * Int32(min(sites.count, 9)) + (ran ? 1 : 0) + (sawTable ? 2 : 0) + 0 * runResult)
+                _ = (ran, sawTable, runResult)
+                exit(100 + 10 * Int32(min(sites.count, 9)) + Int32(min(sites.first?.count ?? 0, 9)))
             }
             guard sites.map(\.count) == [1, 1] else { exit(4) }
             guard sites[0].totalNanos > 0 else { exit(5) }
