@@ -106,6 +106,8 @@ public final class IPhoneHostService {
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
     private(set) var knownPhones: [MobileHostKnownPhone] = []
+    /// ``knownPhones`` is the signed-in account's list, read since it signed in.
+    @ObservationIgnored private(set) var phonesRead = false
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
@@ -174,8 +176,9 @@ public final class IPhoneHostService {
         listing?.cancel()
         guard allowed, account != nil, let dependencies else {
             knownPhones = []
+            phonesRead = false
             phonesError = nil
-            return
+            return pushListedPhones()
         }
         let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL)
         // task-owner: stored in `listing`; a newer read cancels it
@@ -184,7 +187,9 @@ public final class IPhoneHostService {
                 let phones = try await directory.phones(token: dependencies.accessToken(false))
                 guard !Task.isCancelled else { return }
                 self?.knownPhones = phones
+                self?.phonesRead = true
                 self?.phonesError = nil
+                self?.pushListedPhones()
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.phonesError = IPhoneHostStrings.listFailed
@@ -196,14 +201,15 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
-        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
+        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
             await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
             // Its pairing goes too: its links and Face ID approvals stop at once.
             for deviceID in phone.deviceIDs { revokePhone(id: deviceID) }
-            knownPhones.removeAll { $0.id == id }
+            knownPhones.removeAll { $0.id == phone.id }
             phonesError = nil
+            pushListedPhones()
         } catch {
             logger.error("iPhone removal failed: \(String(describing: error), privacy: .public)")
             phonesError = IPhoneHostStrings.removeFailed
@@ -223,6 +229,7 @@ public final class IPhoneHostService {
             clearRemoval()
         }
         self.account = account
+        phonesRead = false
         loadPaired(signedOut: signedOut)
         reconcile()
         refreshPhones()
@@ -252,7 +259,7 @@ public final class IPhoneHostService {
             }) {
                 guard let self else { return }
                 if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
+                    approverSync = makeApproverSync(environment)
                 }
                 approverSync?.updateWorkspaceRoots(folders)
             }
@@ -277,7 +284,7 @@ public final class IPhoneHostService {
                     continue
                 }
                 if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
+                    approverSync = makeApproverSync(environment)
                 }
                 approverSync?.updateNewChatPicks(picks.params)
             }

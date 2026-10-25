@@ -1653,6 +1653,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
+                "CmuxNextMobile",
                 "CmuxNextNowPlaying",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
