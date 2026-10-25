@@ -80,6 +80,13 @@ final class ScreenContentView: NSView {
     var canvasState = ScreenCanvasState()
     /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
     var userMotionActive = false
+    /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
+    /// clears it (``displayFrameBegan()``).
+    var panPresentedInFrame = false
+    /// Strip pan events reduced but not shown yet: the next frame tick shows them in one presentation.
+    var panPresentationPending = false
+    /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
+    var panTicksLeft = 0
     /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
     /// moved or whose covers changed, not every pane).
     var stripClipsComputed = 0
