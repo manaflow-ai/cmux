@@ -121,6 +121,24 @@ import Testing
         #expect(diagnosed.suffix(2) == ["--cef-switch=enable-logging=stderr", "--cef-switch=v=1"])
     }
 
+    // Before the fix the host was Frameworks/<Product> Chromium Host.app: its NSBundle.mainBundle (the sandbox's
+    // bundle-path) did not hold the framework, and every sandboxed helper failed to load it.
+    @Test func theBundledHostIsASecondExecutableOfTheApp() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "chromium-host-layout-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let app = root.appending(path: "cmux DEV t.app")
+        let frameworks = app.appending(path: "Contents/Frameworks")
+        let layout = CEFRuntimeLayout(frameworksDirectory: frameworks, mainBundle: app,
+                                      helperApp: frameworks.appending(path: "cmux DEV t Helper.app"))
+        let host = app.appending(path: "Contents/MacOS/cmux DEV t Chromium Host")
+        try FileManager.default.createDirectory(at: host.deletingLastPathComponent(), withIntermediateDirectories: true)
+        #expect(ChromiumHostConfiguration.bundled(in: layout, rootCache: root, bundleIdentifier: "t", environment: [:]) == nil)
+        #expect(FileManager.default.createFile(atPath: host.path, contents: Data(), attributes: [.posixPermissions: 0o755]))
+        let configuration = try #require(ChromiumHostConfiguration.bundled(in: layout, rootCache: root, bundleIdentifier: "t",
+                                                                           environment: [:]))
+        #expect(configuration.executable.standardizedFileURL == host.standardizedFileURL)
+    }
+
     @Test func aHostThatStopsReadingEndsTheConnection() async throws {
         let launcher = ChromiumHostLauncher()
         // Never reads fd 3.

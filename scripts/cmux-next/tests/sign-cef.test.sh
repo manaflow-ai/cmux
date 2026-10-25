@@ -30,7 +30,8 @@ bundle() { # <dir> [host]: an app with the engine, the shim, three helpers and, 
   for helper in "app Helper" "app Helper (GPU)" "app Helper (Renderer)"; do
     mkdir -p "$fw/$helper.app/Contents/MacOS"
   done
-  if [[ "${2:-}" == host ]]; then mkdir -p "$fw/app Chromium Host.app/Contents/MacOS"; fi
+  mkdir -p "$1/app.app/Contents/MacOS"
+  if [[ "${2:-}" == host ]]; then : > "$1/app.app/Contents/MacOS/app Chromium Host"; fi
 }
 sign() { # <dir>: sign-cef.sh with identity "-"; its exit status
   CODESIGN_LOG="$1/codesign.log" PATH="$TMP/bin:/usr/bin:/bin" /bin/bash "$ROOT/scripts/cmux-next/sign-cef.sh" "$1/app.app" -
@@ -51,13 +52,13 @@ grep -q -- '--entitlements .*app Helper (Renderer).app$' <<<"$log" || fail "the 
 grep -q 'app Helper.app$' <<<"$log" || fail "the base helper was not signed: $log"
 if grep -q 'Chromium Host' <<<"$log"; then fail "a host app was signed in a bundle without one: $log"; fi
 
-# 2. With the host app (Debug): signed last, after its helpers, without entitlements.
+# 2. With the host (Debug, Contents/MacOS): signed last, after its helpers, without entitlements.
 mkdir "$TMP/debug"
 bundle "$TMP/debug" host
 status=0
 sign "$TMP/debug" || status=$?
 (( status == 0 )) || fail "sign-cef.sh exited $status for a bundle with the Chromium host app"
 last="$(tail -n 1 "$TMP/debug/codesign.log")"
-[[ "$last" == *"app Chromium Host.app" && "$last" != *--entitlements* ]] || fail "the host app was not signed last without entitlements: $last"
+[[ "$last" == *"Contents/MacOS/app Chromium Host" && "$last" != *--entitlements* ]] || fail "the host was not signed last without entitlements: $last"
 
 echo "sign-cef tests: ok"

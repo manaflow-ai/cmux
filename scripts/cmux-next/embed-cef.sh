@@ -5,7 +5,7 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework   (artifact)
 #   Contents/Frameworks/libcmux_cef_shim.dylib                  (CEFShim)
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
-#   Contents/Frameworks/<PRODUCT_NAME> Chromium Host.app        (Debug builds only, prototype;
+#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Debug builds only, prototype;
 #                                                                build-chromium-host.sh)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
@@ -323,48 +323,30 @@ for existing in "$frameworks"/*" Helper"*.app; do
   (( keep )) || rm -rf "$existing"
 done
 
-# 3b. The Chromium host app (prototype behind browserHost.helperPrototype,
-# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process in an
-# app of its own, which uses the helpers above for its child processes. Debug
-# builds only, so Release, RC and NIGHTLY bundles do not change.
-host_app="$frameworks/$product Chromium Host.app"
+# 3b. The Chromium host (prototype behind browserHost.helperPrototype,
+# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process as a
+# second executable of this app, Contents/MacOS/<Product> Chromium Host, which
+# uses the helpers above for its child processes. Not an app of its own:
+# Chromium sandboxes those helpers with read access to the browser process's
+# main bundle (sandbox_parameters_mac.mm, bundle-path = NSBundle.mainBundle,
+# which CEF's main_bundle_path does not change), and only the outer app holds
+# the framework and the helpers. From its own Frameworks/<Product> Chromium
+# Host.app every helper failed to load the framework and the host aborted
+# (2026-10-24). Debug builds only, so Release, RC and NIGHTLY bundles do not
+# change.
+rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
+host_binary="$app/Contents/MacOS/$product Chromium Host"
 if [[ -n "$host_out" ]]; then
-  host_name="$product Chromium Host"
-  host_binary="$host_app/Contents/MacOS/$host_name"
   host_stamp="$stamp_dir/chromium-host"
-  mkdir -p "$host_app/Contents/MacOS"
+  mkdir -p "$app/Contents/MacOS"
   # Signing rewrites the binary: compare the host build key, not the bytes.
   if [[ ! -f "$host_binary" || ! -f "$host_stamp" || "$(cat "$host_stamp")" != "$host_key $product" ]]; then
     rm -f "$host_binary"  # never overwrite a signed Mach-O in place
     cp "$host_out/cmux-chromium-host" "$host_binary"
     printf '%s' "$host_key $product" > "$host_stamp"
   fi
-  tmp_plist="$(mktemp)"
-  cat > "$tmp_plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleDisplayName</key><string>$host_name</string>
-  <key>CFBundleExecutable</key><string>$host_name</string>
-  <key>CFBundleIdentifier</key><string>$bundle_id.chromium-host</string>
-  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-  <key>CFBundleName</key><string>$host_name</string>
-  <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION:-1.0}</string>
-  <key>CFBundleVersion</key><string>${CURRENT_PROJECT_VERSION:-1}</string>
-  <key>LSEnvironment</key><dict><key>MallocNanoZone</key><string>0</string></dict>
-  <key>LSMinimumSystemVersion</key><string>$min_os</string>
-  <key>LSUIElement</key><string>1</string>
-  <key>NSPrincipalClass</key><string>ChromiumHostApplication</string>
-  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-</dict>
-</plist>
-PLIST
-  if ! cmp -s "$tmp_plist" "$host_app/Contents/Info.plist"; then mv "$tmp_plist" "$host_app/Contents/Info.plist"; else rm -f "$tmp_plist"; fi
 else
-  rm -rf "$host_app"
+  rm -f "$host_binary"
 fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"

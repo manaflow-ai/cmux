@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# embed-cef.sh puts the Chromium host app (prototype) into Debug builds only:
+# embed-cef.sh puts the Chromium host (prototype) into Debug builds only:
 # a Debug embed builds it with build-chromium-host.sh (not with the shim)
-# against the shim build and its artifact, and bundles
-# "<Product> Chromium Host.app" with its own bundle id; a Release embed never
-# builds it and removes one left by an earlier Debug build, so Release, RC and
-# NIGHTLY bundles carry no host app. A host that does not build leaves a Debug
+# against the shim build and its artifact, and puts it at
+# Contents/MacOS/<Product> Chromium Host (the app is Chromium's main bundle, so
+# the helpers' sandbox reaches the framework); it removes the earlier
+# Frameworks/<Product> Chromium Host.app. A Release embed never builds it and
+# removes one left by an earlier Debug build, so Release, RC and NIGHTLY
+# bundles carry no host. A host that does not build leaves a Debug
 # build without the host app (a warning), unless
 # CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1. Every build step is a stand-in (no
 # network, no compiler, no signing).
@@ -61,22 +63,16 @@ run_embed() { # <configuration> [VAR=value...]: embed-cef.sh's status, output in
 embed() { # <configuration> [VAR=value...]
   run_embed "$@" || fail "embed-cef.sh failed for $1: $(cat "$TMP/embed-$1.log")"
 }
-plist_value() { # <plist> <key>
-  if [[ -x /usr/libexec/PlistBuddy ]]; then
-    /usr/libexec/PlistBuddy -c "Print :$2" "$1"
-  else
-    /usr/bin/python3 -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1], "rb"))[sys.argv[2]])' "$1" "$2"
-  fi
-}
-host_app="$TMP/build/app.app/Contents/Frameworks/app Chromium Host.app"
+host_app="$TMP/build/app.app/Contents/MacOS/app Chromium Host"
+old_host_app="$TMP/build/app.app/Contents/Frameworks/app Chromium Host.app"
 
-# 1. Debug: the host app, built from the arm64 shim build, with its own bundle id.
+# 1. Debug: the host, built from the arm64 shim build, in Contents/MacOS; the earlier host app is removed.
+mkdir -p "$old_host_app/Contents/MacOS"
 embed Debug
-[[ -d "$host_app" ]] || fail "a Debug embed has no Chromium host app"
+[[ -f "$host_app" ]] || fail "a Debug embed has no Chromium host"
+[[ ! -e "$old_host_app" ]] || fail "a Debug embed keeps the earlier Frameworks/... Chromium Host.app"
 [[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "the host was not built once against the arm64 artifact and shim build: $(cat "$TMP/host-builds")"
-[[ "$(cat "$host_app/Contents/MacOS/app Chromium Host")" == "host binary" ]] || fail "the host app does not carry the host build"
-[[ "$(plist_value "$host_app/Contents/Info.plist" CFBundleIdentifier)" == test.app.chromium-host ]] || fail "host bundle id"
-[[ "$(plist_value "$host_app/Contents/Info.plist" CFBundleExecutable)" == "app Chromium Host" ]] || fail "host executable name"
+[[ "$(cat "$host_app")" == "host binary" ]] || fail "the host is not the host build"
 
 # 2. Release on the same bundle: no host build, and the Debug host app is gone.
 rm -f "$TMP/host-builds"
@@ -88,7 +84,7 @@ embed Release
 # 3. Debug with a host that does not build: the build still succeeds, says so,
 # and carries no host app (none left from step 1 either).
 embed Debug
-[[ -d "$host_app" ]] || fail "a Debug embed has no Chromium host app before the failing host"
+[[ -f "$host_app" ]] || fail "a Debug embed has no Chromium host before the failing host"
 : > "$TMP/host-fails"
 embed Debug
 [[ ! -e "$host_app" ]] || fail "a Debug embed whose host did not build keeps a host app"

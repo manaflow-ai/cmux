@@ -7,7 +7,7 @@ measures the same probe page twice:
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
            cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
            window (debug.mouse/debug.key `target: page`)
-  helper   `debug.chromium_host open`: the browser process is `<App> Chromium Host.app`, the page's pixels are the
+  helper   `debug.chromium_host open`: the browser process is `<App>.app/Contents/MacOS/<App> Chromium Host`, the page's pixels are the
            host's CAContext in a CALayerHost over the same pane, and cmux forwards its input over the wire
 
 Per mode:
