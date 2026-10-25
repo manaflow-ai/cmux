@@ -1038,6 +1038,10 @@ path = "tests/test_dev_release_product_key.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_dev_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
