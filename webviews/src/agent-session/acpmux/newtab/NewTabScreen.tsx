@@ -15,6 +15,7 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
+import type { UploadResult } from "../cloudUploads";
 import {
   AttachmentStrip,
   backspacedAttachment,
@@ -27,7 +28,7 @@ import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
-import { ArrowUpIcon } from "../ComposerPickers";
+import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon } from "../ComposerPickers";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -221,6 +222,8 @@ type Props = NewTabScreenActions & {
   /// On this Mac: where the files of the person's drop or paste are, so a folder or a file no prompt
   /// block takes goes with the first prompt as a link to it (the page has no upload to save one).
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
+  /// Saves files chosen from the New Tab plus menu when the session has no chat upload yet.
+  upload?(files: File[]): Promise<UploadResult>;
 };
 
 /// `/`, `/Users`, a home folder: never a chat's start folder (AgentPaneStartFolders drops them).
@@ -346,11 +349,13 @@ export function NewTabScreen(props: Props) {
     attachError,
     drop,
     dropLanded,
+    attach,
   } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => field.current?.closest(".acpmux-main") ?? null,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
+    ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
   const holdForAttachments = useSendWhenAttached(reading.length);
@@ -840,7 +845,7 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     if (!input || event.button !== 0 || event.target === input) return;
     // The mic and Send at the row's end (Claude Code's split) keep their own press.
-    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area")) return;
+    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area, .acpmux-newtab-plus")) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
     // the end of its text, a focused one keeps its caret and selection.
     event.preventDefault();
@@ -1007,9 +1012,45 @@ export function NewTabScreen(props: Props) {
       }
     : undefined;
   const Chips = props.chips;
+  const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
   const pill = template === "cards" && !chatBox;
+
+  const attachmentPicker = (
+    <>
+      <input
+        ref={chooser}
+        className="acpmux-attach-input"
+        type="file"
+        multiple
+        hidden
+        aria-label={t("composer.attach")}
+        onChange={(event) => {
+          const files = [...(event.currentTarget.files ?? [])];
+          // Clear the chooser so picking the same file again still fires change.
+          event.currentTarget.value = "";
+          void attach(files, true);
+        }}
+      />
+      <Picker
+        label={t("composer.add")}
+        tooltip={t("composer.addTooltip")}
+        className={`acpmux-composer-plus acpmux-newtab-plus${split ? " nt-split-plus" : ""}`}
+        button={<PlusIcon />}
+        align="start"
+        returnFocus={false}
+        sections={[
+          {
+            choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon /> }],
+            onPick: (id) => {
+              if (id === "attach") chooser.current?.click();
+            },
+          },
+        ]}
+      />
+    </>
+  );
   // Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent composer's
   // location strip; never the home ~ the tab inherited (cx-7fje0).
   const folderStrip = (
@@ -1087,6 +1128,7 @@ export function NewTabScreen(props: Props) {
   const pickers = (
     <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
       <div className="nt-pickers" data-footer-look={plainFooter ? "plain" : undefined} onPointerDownCapture={touch}>
+        {!split && attachmentPicker}
         {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
         switch is the one Enter reuses. */}
         {!split && Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
@@ -1097,10 +1139,14 @@ export function NewTabScreen(props: Props) {
           {!pill && (
             <button
               type="button"
-              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+              className={
+                text.trim() || attachments.length || reading.length
+                  ? "acpmux-send acpmux-send-ready nt-send"
+                  : "acpmux-send nt-send"
+              }
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
-              disabled={!text.trim()}
+              disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
               onClick={send}
             >
               <ArrowUpIcon />
@@ -1187,6 +1233,7 @@ export function NewTabScreen(props: Props) {
             Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
+            {split && attachmentPicker}
             {shell ? (
               <span className="nt-shell-glyph" aria-hidden="true">
                 !

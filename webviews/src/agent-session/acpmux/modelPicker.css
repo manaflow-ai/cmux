@@ -126,8 +126,8 @@
   margin: 4px var(--ui-row-padding-inline);
   border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
-/* The agent pane does not load src/ui/ui.css, so its rows carry their own flex line: the check and
-   the number key can only trail the label in one. */
+/* The agent pane does not load src/ui/ui.css. Model rows use an explicit trailing column, so every
+   shortcut digit stays right-aligned even when the names have different lengths. */
 .ui-menu-item.acpmux-quick-item {
   display: flex;
   align-items: center;
@@ -138,6 +138,19 @@
   border-radius: 8px;
   color: var(--agent-text);
   font-size: var(--text-control);
+}
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  column-gap: 8px;
+}
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) > .acpmux-quick-label {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
 }
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {
@@ -150,17 +163,32 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.acpmux-quick-label {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
 /* The check moves to the trailing edge, where the other rows show their number key. */
 .acpmux-quick-item .ui-menu-check {
-  order: 2;
-  width: auto;
-  margin-inline-start: auto;
-  padding-inline-start: 20px;
+  grid-column: 2;
+  grid-row: 1;
+  width: 24px;
+  margin: 0;
+  padding: 0;
+  justify-content: flex-end;
   color: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
   font-weight: 600;
 }
 .acpmux-quick-item .ui-menu-check:empty { display: none; }
-.acpmux-quick-item .ui-menu-shortcut { order: 3; color: var(--agent-muted); }
+.acpmux-quick-item .ui-menu-shortcut {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  padding: 0;
+  color: var(--agent-muted);
+  text-align: end;
+}
 .acpmux-quick-sub .acpmux-quick-value {
   margin-inline-start: auto;
   padding-inline-start: 20px;
@@ -168,6 +196,16 @@
 }
 .acpmux-quick-sub .acpmux-quick-value + .ui-submenu-chevron { margin-inline-start: 6px; }
 .acpmux-quick-sub .ui-submenu-chevron { margin-inline-start: auto; }
+/* The optional Effort slider keeps the submenu's glass surface compact while the native range
+   input remains the full hit target. Its custom thumb is endpoint-inclusive (composerControls.css). */
+.acpmux-quick-effort-slider {
+  width: min(232px, calc(100vw - 24px));
+  padding: var(--ui-popup-padding);
+}
+.acpmux-quick-effort-slider .acpmux-effort-track {
+  margin-top: 8px;
+  animation: none;
+}
 /* Fast mode names its state where Effort and Account name theirs (Leo 2026-10-21): Off in secondary
    ink, On in the accent the checks use. The words replace the check. */
 .acpmux-quick-fast .ui-menu-check { display: none; }
@@ -215,7 +253,6 @@
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
-.acpmux-quick-rail-initial { font-size: var(--text-control); font-weight: 600; }
 /* The list's floor gives way to the rail (a 32 px tab, its padding and hairline) in a narrow column. */
 .acpmux-quick-body { flex: 1; min-width: min(200px, calc(var(--available-width, 100vw - 24px) - 45px)); padding: 6px; }
 /* The list and the tallest tab's unseen rows share one grid cell: the list keeps that height while
