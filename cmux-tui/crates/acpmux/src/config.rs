@@ -812,6 +812,12 @@ pub struct Config {
     /// Default 90000; 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silent_turn_ms: Option<u64>,
+    /// `stalledTurnMs`: how long a running turn may go with no tool call in
+    /// flight and no sign of its model at work before its lane says it has
+    /// stalled (`lane.stalledSince`, `hub/views.rs`). A long build in one tool
+    /// call never stalls. Default 600000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
@@ -933,6 +939,14 @@ impl Config {
         match self.silent_turn_ms.unwrap_or(90_000) {
             0 => None,
             ms => Some(std::time::Duration::from_millis(ms)),
+        }
+    }
+
+    /// `stalledTurnMs`, or its 10 minute default; None when it is 0 (off).
+    pub fn stalled_turn(&self) -> Option<u64> {
+        match self.stalled_turn_ms.unwrap_or(600_000) {
+            0 => None,
+            ms => Some(ms),
         }
     }
 
