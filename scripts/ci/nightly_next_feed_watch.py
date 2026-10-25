@@ -41,6 +41,7 @@ CLASSIC_FEED_URL = "https://files.cmux.com/nightly/appcast-arm64.xml"
 # each cmux NEXT Nightly build, so a failed legacy job leaves it behind while FEED_URL looks current
 # (7 hours on 2026-10-25, every legacy job 403'd on the Actions token's rate limit).
 LEGACY_FEED_URL = "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+# Job ids from the nightly-next branch's nightly.yml, the copy those runs execute (main's differs).
 LEGACY_JOBS = ("sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "publish-nightly-identity-legacy")
 # Nightly freshness (rulebook): no feed more than 30 minutes behind; a legacy job's re-run takes ~15.
 LEGACY_MAX_LAG_MINUTES = 15.0
