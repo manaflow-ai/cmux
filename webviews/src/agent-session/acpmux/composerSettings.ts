@@ -1,4 +1,4 @@
-// `agentPane.showContextUsage` and `agentPane.showDictation` in cmux.json (Swift CmuxNextSettings
+// `agentPane.showContextUsage`, `agentPane.showDictation` and `agentPane.spellChecking` in cmux.json (Swift CmuxNextSettings
 // AgentPaneComposerSetting), pushed by the host as the `composer` event: whether every composer
 // (the chat's and the New Tab page's) shows its context usage ring and its dictation mic. Each
 // hides the macOS way (composerChrome.tsx): its right-click offers Hide, and a right-click on the
@@ -24,6 +24,7 @@ export type ReasoningSliderStyle = "accent" | "minimal";
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
+  spellChecking: boolean;
   reasoningSlider: boolean;
   reasoningSliderStyle: ReasoningSliderStyle;
   plainFooter: boolean;
@@ -34,6 +35,7 @@ export type ComposerSettings = {
 export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
+  spellChecking: false,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
   plainFooter: true,
@@ -44,6 +46,7 @@ const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
   | "showContextUsage"
   | "showDictation"
+  | "spellChecking"
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
@@ -57,6 +60,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
+    spellChecking: flag("spellChecking"),
     reasoningSlider: flag("reasoningSlider"),
     reasoningSliderStyle,
     plainFooter: flag("plainFooter"),
