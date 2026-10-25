@@ -17,6 +17,7 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
     let notSentLabel = ReportsBasketText.label(FeedStrings.reportsNotSent, size: TypeScale.caption)
     private lazy var notSentRow = ReportsBasketText.stack([notSentLabel])
     let field = ReportsBasketReplyField()
+    private lazy var fieldHeight = field.heightAnchor.constraint(equalToConstant: 22)
     let replyButton = NSButton(title: FeedStrings.reportsReply, target: nil, action: nil)
 
     init(item: FeedReport, draft: String, onDraft: @escaping (String) -> Void, onSend: @escaping () -> Void) {
@@ -49,6 +50,7 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
         text.widthAnchor.constraint(equalTo: body.widthAnchor, constant: -36).isActive = true
         notSentLabel.widthAnchor.constraint(equalTo: notSentRow.widthAnchor, constant: -28).isActive = true
         widthAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
+        fieldHeight.isActive = true
         // The text scrolls; the header and the reply row keep their size.
         ReportsBasketText.flexible(scroll, .vertical)
         update(item)
@@ -69,8 +71,19 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
     /// The field shows `draft` (the basket emptied it after a sent reply or a new selection).
     func setDraft(_ draft: String) {
         if field.stringValue != draft { field.stringValue = draft }
-        field.invalidateIntrinsicContentSize()
+        sizeField()
         updateButton()
+    }
+
+    /// Fits the reply field to its text at its width (one line to four).
+    private func sizeField() {
+        let height = field.height(forWidth: field.frame.width)
+        if height > 0, abs(fieldHeight.constant - height) > 0.5 { fieldHeight.constant = height }
+    }
+
+    override func layout() {
+        super.layout()
+        sizeField()
     }
 
     func setState(sending: Bool, notSent: Bool) {
@@ -94,7 +107,7 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
-        field.invalidateIntrinsicContentSize()
+        sizeField()
         onDraft(field.stringValue)
         updateButton()
     }
@@ -105,7 +118,8 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
     }
 }
 
-/// The reply field: rounded, wraps, and grows from one line to four.
+/// The reply field: rounded, wraps, and grows from one line to four (``ReportsBasketDetail`` sets
+/// its height from ``height(forWidth:)``; the field overrides nothing).
 final class ReportsBasketReplyField: NSTextField {
     static let maxLines = 4
 
@@ -128,20 +142,16 @@ final class ReportsBasketReplyField: NSTextField {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override var intrinsicContentSize: NSSize {
-        let one = super.intrinsicContentSize.height
-        guard let cell, bounds.width > 0 else { return NSSize(width: NSView.noIntrinsicMetric, height: one) }
+    /// The height that shows the text at `width`: one line to four.
+    func height(forWidth width: CGFloat) -> CGFloat {
+        guard let cell, width > 0 else { return 0 }
         // While editing, the text is the field editor's (the cell has the value from before the edit).
         let probe = cell.copy() as? NSCell ?? cell
         probe.stringValue = (currentEditor() as? NSTextView)?.string ?? stringValue
-        let wrapped = probe.cellSize(forBounds: NSRect(x: 0, y: 0, width: bounds.width, height: .greatestFiniteMagnitude)).height
-        let lines = CGFloat(Self.maxLines - 1) * TypeScale.bodyLineHeight
-        return NSSize(width: NSView.noIntrinsicMetric, height: min(max(wrapped, one), one + lines))
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        let widthChanged = newSize.width != frame.width
-        super.setFrameSize(newSize)
-        if widthChanged { invalidateIntrinsicContentSize() }
+        let tall = NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)
+        let wrapped = probe.cellSize(forBounds: tall).height
+        probe.stringValue = "X"
+        let one = probe.cellSize(forBounds: tall).height
+        return min(max(wrapped, one), one + CGFloat(Self.maxLines - 1) * TypeScale.bodyLineHeight)
     }
 }

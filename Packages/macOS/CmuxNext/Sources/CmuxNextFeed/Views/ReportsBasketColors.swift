@@ -31,13 +31,14 @@ struct ReportsBasketColors: Equatable {
 /// A hairline that disappears under `appearance.borders = none` (a 6 pt gap instead), the AppKit
 /// twin of the panel's `FeedHairline`.
 final class ReportsBasketHairline: NSView {
-    private var thickness: NSLayoutConstraint!
+    private let vertical: Bool
+    private lazy var thickness = (vertical ? widthAnchor : heightAnchor).constraint(equalToConstant: 1)
 
     init(vertical: Bool = false) {
+        self.vertical = vertical
         super.init(frame: .zero)
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
-        thickness = (vertical ? widthAnchor : heightAnchor).constraint(equalToConstant: 1)
         thickness.isActive = true
     }
 
