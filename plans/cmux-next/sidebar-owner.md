@@ -437,6 +437,7 @@ the gap, no row left out of place after drop or cancel).
 | [51b858dd146](https://github.com/manaflow-ai/cmux/commit/51b858dd146cb61717d632bada94e97d5f7c959d) | 10-19 13:25 | Leo's agents (Leo) | fix(cmux-next): running spinners draw bare, with no disc or ring behind them (#22047) |
 | [126426d9674](https://github.com/manaflow-ai/cmux/commit/126426d9674468f33ea7b6a0e47748e9a82a2b6a) | 10-19 13:02 | Leo's agents (Leo) | cmux-next sidebar: selected rows read as one selection in every theme (#21940) |
 | [2e9e3125d34](https://github.com/manaflow-ai/cmux/commit/2e9e3125d34ef20dd6eafcd51f118318ef3d4051) | 10-19 12:40 | Leo's agents (Leo) | Now Playing card: level bars and a filled Play/Pause (#21697) |
+| (this commit) | Group header and rail left padding (Lawrence 2026-10-25, msg 12385: "groups headers and rails need more left padding"): the bar and the rail keep `SidebarStyle.groupEdgePadding` (`horizontalInset - space1`: 4 pt compact, 6 pt comfortable) from the list's left edge, they sat at 0 and 2 pt. Set by ab905adeadd (lawrencecchen, 2026-10-23, rail on the bar's left edge) over fd82636690f (Leo, 2026-10-21, members flush, #23975). Members unchanged. `SidebarGroupEdgePaddingTests`. |
 
 
 ## Codex follow-up
