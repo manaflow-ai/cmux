@@ -8,7 +8,8 @@ SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts
 SHA = "a" * 64
 CLIP = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/sidebar-archive/0123456789ab.webp"
 HIGHLIGHT = "release-notes/next/highlights/sidebar-archive.md"
-TEXT = "title: Archive sidebar workspaces\ncategory: new\n{clip}\nRight-click a workspace and choose Archive.\n"
+TEXT = ("title: Archive sidebar workspaces\ncategory: new\naction: workspace.toggleArchive | Archive\n{clip}\n\n"
+        "Right-click a workspace and choose Archive.\n")
 
 
 def git(cwd, *args, env=None):
@@ -60,10 +61,14 @@ class ClipTests(unittest.TestCase):
         head = self.commit(f"clip: {CLIP} | {SHA}", "sidebar: archive (#1)")
         self.assertEqual(self.build(self.base, head)[0]["media"][0]["alt"], "Archive sidebar workspaces")
 
-    def test_a_clip_from_anywhere_else_stops_the_build(self):
+    def test_a_clip_from_anywhere_else_is_left_out_and_the_notes_still_build(self):
         for line in (f"clip: https://example.com/a.webp | {SHA}", f"clip: {CLIP}", f"clip: {CLIP} | xyz"):
             head = self.commit(line, "sidebar: archive (#1)")
-            self.assertNotEqual(self.build(self.base, head, check=False).returncode, 0, line)
+            done = self.build(self.base, head, check=False)
+            self.assertEqual(done.returncode, 0, line)
+            self.assertIn("left out", done.stderr)
+            with open(os.path.join(self.repo, "out", "2.json")) as f:
+                self.assertEqual(json.load(f)["highlights"][0]["media"], [], line)
 
     def test_a_clip_added_to_a_recent_highlight_comes_with_the_next_build(self):
         first = self.commit("", "sidebar: archive (#1)")
@@ -72,6 +77,13 @@ class ClipTests(unittest.TestCase):
         [again] = self.build(first, second)
         self.assertEqual(again["id"], "sidebar-archive")
         self.assertEqual(again["media"][0]["url"], CLIP)
+        # The What's New digest has it too, so the build passes the release gate.
+        with open(os.path.join(self.repo, "out", "2.json")) as f:
+            entries = json.load(f)["whatsNew"]["entries"]
+        self.assertEqual([e["id"] for e in entries], ["sidebar-archive"])
+        gate = subprocess.run([sys.executable, SCRIPT, "check", "--notes", os.path.join(self.repo, "out", "2.json")],
+                              cwd=self.repo, capture_output=True, text=True)
+        self.assertEqual(gate.returncode, 0, gate.stderr)
         # Nothing else changed in the highlight after that: the build after has no highlight.
         git(self.repo, "commit", "-q", "--allow-empty", "-m", "later")
         self.assertEqual(self.build(second, git(self.repo, "rev-parse", "HEAD")), [])

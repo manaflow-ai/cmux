@@ -22,8 +22,9 @@ matter (lines before the first blank line):
 
 A highlight's clip is its looping demo (scripts/cmux-next/media/whats-new-clips.py records it from
 release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over --pr-media's picture,
-and a clip added to a highlight of the last CLIP_REANNOUNCE_DAYS rides along with the next build, so
-an update that already listed the item shows it again with its clip (the page keeps the newest copy).
+and a clip added to a highlight of the last CLIP_REANNOUNCE_DAYS rides along with the next build (its
+highlights and its What's New digest), so an update that already listed the item shows it again with
+its clip (the page keeps one copy). A malformed clip line is left out with a report.
 
 The rest is the body (Markdown). A build with no new highlight file uses its
 user-facing summary for the What's New digest. Each commit is
@@ -209,7 +210,8 @@ def parse_highlight(path, text):
     if clip:
         item["media"] = [{"url": clip["url"], "sha256": clip["sha256"], "kind": "image", "alt": meta["title"]}]
     elif meta.get("clip"):
-        raise SystemExit(f"{path}: 'clip:' must be '{CLIP_PREFIX}ID/NAME.webp | SHA256' (whats-new-clips.py publish)")
+        # Left out, never a failed build: CI's whats-new-clips.py check holds the line to its shape.
+        print(f"{path}: 'clip:' is not '{CLIP_PREFIX}ID/NAME.webp | SHA256'; left out", file=sys.stderr)
     return item
 
 
@@ -340,13 +342,13 @@ def change_item(subject, author):
     return {k: v for k, v in item.items() if v is not None}
 
 
-def whats_new_digest(args):
+def whats_new_digest(args, also=()):
     """The What's New nightly digest of the same highlights (scripts/whats-new/digest.py),
     or None when it is empty or does not validate: the notes still publish."""
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "whats-new"))
     try:
         import digest, validate
-        document = digest.build(args.short, args.date, args.head, args.since)
+        document = digest.build(args.short, args.date, args.head, args.since, also=also)
     except (ImportError, ValueError, subprocess.CalledProcessError) as error:
         print(f"whats-new digest skipped: {error}", file=sys.stderr)
         return None
@@ -466,7 +468,8 @@ def build(args):
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
     added = set(p for p in added if p.endswith(".md"))
-    for path in sorted(added | set(reannounced(args.since, args.head, added))):
+    again = reannounced(args.since, args.head, added)
+    for path in sorted(added | set(again)):
         highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
         if highlight["media"]:
             clip_caption(highlight, args.head)
@@ -477,7 +480,7 @@ def build(args):
     # build whose notes never published loses no change to the build after it.
     notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
-    digest = whats_new_digest(args)
+    digest = whats_new_digest(args, again)
     if digest is None:
         digest = summary_whats_new_digest(args, notes["summary"])
     if digest is not None:
