@@ -787,6 +787,16 @@ describe("the tray tells the truth", () => {
       { subagent: "a" },
     );
     expect(fold.all().find((one) => one.id === "a")!.action).toBe("Grep retries");
+    expect(fold.all().find((one) => one.id === "a")!.actionShell).toBeUndefined();
+    // A shell call (ACP kind execute) marks its title as a command; a progress summary clears it.
+    feed(
+      { sessionUpdate: "tool_call", toolCallId: "t4", title: "git status", kind: "execute", status: "in_progress" },
+      { subagent: "a" },
+    );
+    expect(fold.all().find((one) => one.id === "a")!.actionShell).toBe(true);
+    feed({ sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", action: "find the bug" }] });
+    const after = fold.all().find((one) => one.id === "a")!;
+    expect([after.action, after.actionShell]).toEqual(["find the bug", undefined]);
   });
 
   test("a command shows its description, else the command without its cd and env prefixes", async () => {
@@ -1031,7 +1041,15 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       },
     ];
     const items = trayItems(
-      [agent("Reviewer", { startedAt: Date.now(), action: "FOO=1 bun test test/subagent-tray.test.tsx" })],
+      [
+        agent("Reviewer", {
+          startedAt: Date.now(),
+          action: "FOO=1 bun test test/subagent-tray.test.tsx",
+          actionShell: true,
+        }),
+        // A progress summary is words, lowercase or not: never "Running find the bug".
+        agent("Planner", { startedAt: Date.now() + 1, action: "find the bug in the fold" }),
+      ],
       [],
       chats,
       true,
@@ -1043,11 +1061,12 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       const details = [...root.querySelectorAll(".acpmux-summary-agent__kind")].map((node) => node.textContent);
       expect(details).toEqual([
         "Running bun test test/subagent-tray.test.tsx",
+        "find the bug in the fold",
         "Running sed -i '' 's/a/b/' broker.ts",
         "Check the card · Read AgentCard.tsx",
       ]);
       // The whole doing line is still the chat line's tooltip.
-      const chat = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")][1]!;
+      const chat = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")][2]!;
       expect(chat.title).toContain("cd /Users/you/Projects/checkouts/ws/broker");
     } finally {
       await done();

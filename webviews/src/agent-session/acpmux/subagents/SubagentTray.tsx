@@ -194,7 +194,13 @@ export const SubagentTray = memo(function SubagentTray({
       return (
         <AgentLine
           name={item.agent.name}
-          detail={(item.agent.state === "running" ? toolDetail(t, item.agent.action) : undefined) ?? item.agent.kind}
+          detail={
+            item.agent.state !== "running"
+              ? item.agent.kind
+              : item.agent.actionShell
+                ? toolDetail(t, item.agent.action)
+                : (item.agent.action ?? item.agent.kind)
+          }
           mark={item.agent.harness}
           status={subagentStatus(item.agent, waiting)}
           state={t(subagentStatusLabel(item.agent, waiting))}

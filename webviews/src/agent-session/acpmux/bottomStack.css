@@ -110,14 +110,11 @@
 }
 /* The tray never scrolls as a whole: its header and View all stay pinned and only its list scrolls
    (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane. */
-/* With View all, the tray keeps room for both pinned rows in a short pane: its list gives up its
-   height to nothing first, and neither the header nor View all is cut. */
-/* Clip, not hidden: a hidden box still scrolls when focus or a script moves into it. */
+/* In a short pane its list gives up its height to nothing first; past that the tray keeps the
+   stack's own one-row minimum, so the composer keeps its priority and the header, on top, is what
+   stays. Clip, not hidden: a hidden box still scrolls when focus or a script moves into it. */
 .acpmux-dock > .acpmux-running-tray {
   overflow: clip;
-}
-.acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
-  min-height: calc(2 * 28px + 2px + 2 * var(--cmux-hairline, 0.5px));
 }
 
 /* What joins the bottom stack rises out of the composer as it appears (Leo 2026-10-20, directional

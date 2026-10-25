@@ -85,17 +85,30 @@ const liveSession = (session: StartedSession) => session.state === "running" || 
 /// (their end is not known here), those with no creation time last.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
   const ended = agents.filter((agent) => agent.state !== "running");
-  const byId = new Map(ended.map((agent) => [agent.id, agent]));
-  const latest = new Map<string, number>();
+  // Each subtree's latest end, in one pass over a parent-to-children map (a loop is cut where it
+  // meets an agent already on the path).
+  const ids = new Set(ended.map((agent) => agent.id));
+  const children = new Map<string, Subagent[]>();
   for (const agent of ended) {
-    const end = agent.endedAt ?? agent.startedAt;
-    // Up the parent chain within what ended; a loop stops where it meets itself.
-    const seen = new Set<string>();
-    for (let at: Subagent | undefined = agent; at && !seen.has(at.id); at = byId.get(at.parent ?? "")) {
-      seen.add(at.id);
-      latest.set(at.id, Math.max(latest.get(at.id) ?? -Infinity, end));
-    }
+    if (agent.parent === null || !ids.has(agent.parent)) continue;
+    const under = children.get(agent.parent);
+    if (under) under.push(agent);
+    else children.set(agent.parent, [agent]);
   }
+  const latest = new Map<string, number>();
+  const visiting = new Set<string>();
+  const subtreeEnd = (agent: Subagent): number => {
+    const known = latest.get(agent.id);
+    if (known !== undefined) return known;
+    let end = agent.endedAt ?? agent.startedAt;
+    if (visiting.has(agent.id)) return end;
+    visiting.add(agent.id);
+    for (const child of children.get(agent.id) ?? []) end = Math.max(end, subtreeEnd(child));
+    visiting.delete(agent.id);
+    latest.set(agent.id, end);
+    return end;
+  };
+  for (const agent of ended) subtreeEnd(agent);
   ended.sort((a, b) => latest.get(b.id)! - latest.get(a.id)! || b.startedAt - a.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(ended).map(({ agent, depth }) => ({
     kind: "agent",

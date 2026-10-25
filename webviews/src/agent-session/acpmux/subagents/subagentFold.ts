@@ -36,6 +36,8 @@ export type Subagent = {
   /// The title of its latest tool call, or what the harness says it does now (Claude's progress
   /// summary or last tool; a workflow's current step).
   action?: string;
+  /// `action` is a shell call's title, the command as typed (its call's ACP kind is `execute`).
+  actionShell?: boolean;
   /// Tokens it has used and tool calls it has made so far (Claude's task progress).
   tokens?: number;
   toolUses?: number;
@@ -191,7 +193,13 @@ export class SubagentFold {
         this.latestCall.set(owner.id, call);
       }
       const newest = call === undefined || (this.latestCall.get(owner.id) ?? call) === call;
-      if (tool && update.title && newest) owner.action = String(update.title);
+      if (tool && update.title && newest) {
+        owner.action = String(update.title);
+        // A shell call's title is its command as typed (ACP kind `execute`); the tray says it in words.
+        const shell = update.kind === "execute" || (update.kind === undefined && owner.actionShell === true);
+        if (shell) owner.actionShell = true;
+        else delete owner.actionShell;
+      }
       const kind = update?.sessionUpdate;
       // The Agent call that spawned it is the parent's, not a step of its own.
       const spawnCall = typeof update?.toolCallId === "string" && this.spawnCalls.has(update.toolCallId);
@@ -576,7 +584,10 @@ export class SubagentFold {
     }
     // Claude's progress names its last tool when it has no summary: plumbing is never what it does.
     const action = text(change.action);
-    if (action && !isPlumbingName(action)) agent.action = action;
+    if (action && !isPlumbingName(action)) {
+      agent.action = action;
+      delete agent.actionShell;
+    }
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
     if (change.background === true) agent.background = true;
