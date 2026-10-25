@@ -1,0 +1,137 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { DNS_SMOKE_COMMAND, dnsCheckProblems, MACHINE_HEALTH_DIR, resolverBakeCommand } from "../scripts/cmux-vm-image/dns";
+import { runChild } from "./helpers/run-child";
+
+// cmux-dns-check runs against stubs of systemctl, journalctl, getent and tailscale on PATH and a
+// resolv.conf in a temp dir (CMUX_DNS_RESOLV_CONF, CMUX_DNS_STUB); the smoke runs it for real.
+const SCRIPT = path.join(MACHINE_HEALTH_DIR, "cmux-dns-check");
+const dirs: string[] = [];
+afterAll(() => {
+  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+});
+
+type Machine = {
+  link?: boolean;
+  resolvedActive?: boolean;
+  resolves?: string[];
+  tailscale?: { status: unknown; dnsLog?: string };
+};
+
+function stub(dir: string, name: string, body: string): void {
+  const file = path.join(dir, "bin", name);
+  writeFileSync(file, `#!/usr/bin/env bash\n${body}\n`);
+  chmodSync(file, 0o755);
+}
+
+async function check(machine: Machine, args: string[] = []) {
+  const dir = mkdtempSync(path.join(tmpdir(), "cmux-dns-check-"));
+  dirs.push(dir);
+  mkdirSync(path.join(dir, "bin"));
+  const stubFile = path.join(dir, "stub-resolv.conf");
+  writeFileSync(stubFile, "nameserver 127.0.0.53\n");
+  const resolv = path.join(dir, "resolv.conf");
+  if (machine.link ?? true) symlinkSync(stubFile, resolv);
+  else writeFileSync(resolv, "# written by tailscale\n");
+  const log = path.join(dir, "calls");
+  const ts = machine.tailscale;
+  stub(dir, "systemctl", [
+    `echo "systemctl $*" >> ${log}`,
+    'case "$1" in',
+    `  cat) [ "$2" = tailscaled.service ] && ${ts ? "exit 0" : "exit 1"} ;;`,
+    "  restart) exit 0 ;;",
+    `  is-active) ${machine.resolvedActive ?? true ? "exit 0" : "exit 3"} ;;`,
+    "  show) echo inv-1; exit 0 ;;",
+    "esac",
+    "exit 1",
+  ].join("\n"));
+  stub(dir, "journalctl", `[ "$4" = _SYSTEMD_INVOCATION_ID=inv-1 ] && printf '%s\\n' ${JSON.stringify(ts?.dnsLog ?? "")}`);
+  stub(dir, "getent", `for n in ${(machine.resolves ?? ["github.com"]).join(" ")}; do [ "$2" = "$n" ] && { echo "140.82.112.3 STREAM $n"; exit 0; }; done; exit 2`);
+  if (ts) {
+    writeFileSync(path.join(dir, "status.json"), JSON.stringify(ts.status));
+    stub(dir, "tailscale", `[ "$1 $2" = "status --json" ] && cat ${path.join(dir, "status.json")}`);
+  }
+  const result = await runChild("bash", [SCRIPT, "--timeout", "0", ...args], {
+    env: { PATH: `${path.join(dir, "bin")}:/usr/bin:/bin`, CMUX_DNS_RESOLV_CONF: resolv, CMUX_DNS_STUB: stubFile },
+    timeout: 30_000,
+  });
+  let calls: string[] = [];
+  try {
+    calls = readFileSync(log, "utf8").trim().split("\n");
+  } catch {
+    calls = [];
+  }
+  return { code: result.status, lines: result.stdout.trim().split("\n"), stdout: result.stdout, calls };
+}
+
+const LOGGED_IN = {
+  BackendState: "Running",
+  MagicDNSSuffix: "tail1234.ts.net",
+  CurrentTailnet: { MagicDNSEnabled: true },
+  Self: { DNSName: "huge-blue.tail1234.ts.net." },
+};
+const RESOLVED_MODE = "dns: [rc=resolved resolved=file nm=no ret=systemd-resolved]";
+
+describe("cmux-dns-check", () => {
+  test("parses, and the bake command parses", async () => {
+    expect((await runChild("bash", ["-n", SCRIPT])).status).toBe(0);
+    expect((await runChild("bash", ["-n"], { input: resolverBakeCommand() })).status).toBe(0);
+    expect(DNS_SMOKE_COMMAND).toBe("/usr/local/sbin/cmux-dns-check --restart");
+  });
+
+  test("a resolved machine without tailscale passes and skips the tailnet name with the reason", async () => {
+    const r = await check({});
+    expect(r.code).toBe(0);
+    expect(r.lines.some((l) => l.startsWith("PASS resolv.conf: "))).toBe(true);
+    expect(r.lines).toContain("PASS systemd-resolved: active");
+    expect(r.lines).toContain("PASS resolve github.com: 140.82.112.3");
+    expect(r.lines).toContain("SKIP resolve tailnet name: tailscale is not installed");
+    expect(dnsCheckProblems(r.code!, r.stdout)).toEqual([]);
+  });
+
+  test("--restart restarts resolved, then tailscaled, and resolves the machine's own MagicDNS name", async () => {
+    const r = await check({ resolves: ["github.com", "huge-blue.tail1234.ts.net"], tailscale: { status: LOGGED_IN, dnsLog: RESOLVED_MODE } }, ["--restart"]);
+    expect(r.code).toBe(0);
+    const restarts = r.calls.filter((c) => c.startsWith("systemctl restart"));
+    expect(restarts).toEqual(["systemctl restart systemd-resolved.service", "systemctl restart tailscaled.service"]);
+    expect(r.lines).toContain("PASS tailscale DNS mode: systemd-resolved");
+    expect(r.lines).toContain("PASS resolve tailnet name huge-blue.tail1234.ts.net: 140.82.112.3");
+    expect(dnsCheckProblems(r.code!, r.stdout)).toEqual([]);
+  });
+
+  test("without tailscaled --restart restarts only resolved and says why", async () => {
+    const r = await check({}, ["--restart"]);
+    expect(r.code).toBe(0);
+    expect(r.calls.filter((c) => c.startsWith("systemctl restart"))).toEqual(["systemctl restart systemd-resolved.service"]);
+    expect(r.lines).toContain("SKIP restart tailscaled: tailscaled is not installed");
+  });
+
+  test("the huge-blue breakage fails: a plain resolv.conf, tailscale in direct mode, nothing resolving", async () => {
+    const r = await check({ link: false, resolves: [], tailscale: { status: LOGGED_IN, dnsLog: "dns: [rc=unknown ret=direct]" } });
+    expect(r.code).toBe(1);
+    const problems = dnsCheckProblems(r.code!, r.stdout);
+    expect(problems.some((p) => /^resolv\.conf: .*resolv\.conf is not a link to .*stub-resolv\.conf$/.test(p))).toBe(true);
+    expect(problems).toContain("tailscale DNS mode: direct (tailscaled writes resolv.conf itself instead of using systemd-resolved)");
+    expect(problems).toContain("resolve github.com: no address within 0s");
+    expect(problems).toContain("resolve tailnet name huge-blue.tail1234.ts.net: no address within 0s");
+    expect(problems).toContain("no PASS for the resolv.conf link");
+  });
+
+  test("a stopped resolved fails; a logged-out or MagicDNS-off tailnet only skips its name", async () => {
+    expect((await check({ resolvedActive: false })).lines).toContain("FAIL systemd-resolved: not active");
+    const out = await check({ tailscale: { status: { BackendState: "NeedsLogin" }, dnsLog: RESOLVED_MODE } });
+    expect(out.code).toBe(0);
+    expect(out.lines).toContain("SKIP resolve tailnet name: not logged in to a tailnet (BackendState NeedsLogin)");
+    const off = await check({ tailscale: { status: { ...LOGGED_IN, CurrentTailnet: { MagicDNSEnabled: false } }, dnsLog: RESOLVED_MODE } });
+    expect(off.lines).toContain("SKIP resolve tailnet name: MagicDNS is off on this tailnet");
+    const quiet = await check({ tailscale: { status: { BackendState: "Stopped" } } });
+    expect(quiet.lines).toContain("SKIP tailscale DNS mode: this tailscaled run logged no DNS mode");
+  });
+
+  test("bad usage exits 2", async () => {
+    expect((await runChild("bash", [SCRIPT, "--bogus"])).status).toBe(2);
+    expect((await runChild("bash", [SCRIPT, "--timeout", "x"])).status).toBe(2);
+  });
+});
