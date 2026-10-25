@@ -354,9 +354,11 @@ async fn a_starter_that_narrows_while_its_child_starts_holds_the_child_to_it() {
         agent.ok("session/new", new_params(json!({"harness": "slow"}))).await
     });
     tokio::time::sleep(Duration::from_millis(500)).await;
+    // The person narrows the starter, and its harness leaves full access (this stand-in has no
+    // mode `policy_mode.rs` would move it to on its own).
     app.ok("_acpmux/set_policy", json!({"sessionId": parent, "policy": "ask"})).await;
-    let (parent_mode, _) = app.level(&parent).await;
-    assert_ne!(parent_mode, "full-access", "the starter left full access");
+    app.prompt(&parent, "set-mode: strict").await;
+    assert_eq!(app.level(&parent).await, ("strict".to_owned(), json!("ask")));
     let child = id(&start.await.unwrap());
     let (mode, policy) = app.level(&child).await;
     assert_eq!(policy, json!("ask"), "the starter's policy now");
