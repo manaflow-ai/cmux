@@ -24,7 +24,7 @@ bundle() { # <tui binary> <mode> [extra env...]
   local tui="$1" mode="$2"; shift 2
   env -u CMUX_NEXT_APP_HOST_BIN -u CMUX_NEXT_CLOUD_SERVER_BIN -u CMUX_NEXT_BROWSER_HOST_BIN \
     -u CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN -u CMUX_NEXT_TERMINAL_HOST_BIN -u CMUX_NEXT_HOLDER_BIN -u CMUX_TUI_CLIENT_LOCAL \
-    TARGET_BUILD_DIR="$TMP/app" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
+    TARGET_BUILD_DIR="$TMP/app" TARGET_TEMP_DIR="$TMP/temp" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
     SRCROOT="$ROOT" CONFIGURATION=Release CMUX_NEXT_TUI_MODE="$mode" CMUX_NEXT_TUI_BIN="$tui" \
     "$@" bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 \
     || { cat "$TMP/out" >&2; fail "bundle-cmux-tui.sh failed ($mode, $tui)"; }
@@ -37,6 +37,9 @@ cmp -s "$bin/cmux-agent-screen-detection" "$TMP/build/one/cmux-agent-screen-dete
   || fail "bundled detector is not the one beside cmux-tui"
 grep -qx "agent_screen_detection_sha256=$(sha "$TMP/build/one/cmux-agent-screen-detection")" "$bin/cmux-tui.version" \
   || fail "cmux-tui.version does not record the detector sha256: $(cat "$bin/cmux-tui.version")"
+
+# Xcode (TARGET_TEMP_DIR, as in the build phase) gets the phase's completion stamp, its declared output.
+[[ "$(cat "$TMP/temp/bundle-cmux-tui.stamp" 2>/dev/null)" == completed ]] || fail "no completion stamp in TARGET_TEMP_DIR"
 
 # Its own override wins over the sibling.
 bundle "$TMP/build/one/cmux-tui" tree CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN="$TMP/override-detector"
@@ -60,7 +63,7 @@ bundle "$TMP/build/one/cmux-tui" tree
 [[ -e "$bin/cmux-agent-screen-detection" ]] || fail "setup: tree mode did not bundle the detector"
 mkdir -p "$TMP/no-src" "$TMP/empty-cache"
 env -u CMUX_NEXT_TUI_BIN -u CMUX_TUI_CLIENT_LOCAL -u CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN \
-  TARGET_BUILD_DIR="$TMP/app" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
+  TARGET_BUILD_DIR="$TMP/app" TARGET_TEMP_DIR="$TMP/temp" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
   SRCROOT="$TMP/no-src" CONFIGURATION=Release CMUX_NEXT_TUI_MODE=pin CMUX_TUI_CLIENT_CACHE="$TMP/empty-cache" \
   bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 || { cat "$TMP/out" >&2; fail "keep-bundled run failed"; }
 grep -q 'keeping bundled' "$TMP/out" || { cat "$TMP/out" >&2; fail "setup: the keep-bundled path did not run"; }
