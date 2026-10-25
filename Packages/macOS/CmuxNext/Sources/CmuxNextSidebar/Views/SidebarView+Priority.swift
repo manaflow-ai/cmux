@@ -32,6 +32,12 @@ extension SidebarViewComponents {
     }
 
     func buildPriority() {
+        list.onPointerEventSeen = { [weak self] type, eventWindow in
+            self?.priorityPanelView.pointerEventSeen(type, in: eventWindow)
+        }
+        list.onPointerFocusLost = { [weak self] in
+            self?.priorityPanelView.pointerFocusLost()
+        }
         priorityButton.isHidden = true
         priorityButton.setAccessibilityIdentifier("cmux.sidebar.priority")
         priorityButton.onPress = { [weak self] in self?.priorityPanelView.onAction?(.toggleShown) }

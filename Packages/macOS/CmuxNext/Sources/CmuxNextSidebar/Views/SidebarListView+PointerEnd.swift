@@ -27,6 +27,7 @@ extension SidebarListViewComponents {
     func pointerFocusLost() {
         endPointerGesture()
         setHovered(nil)
+        onPointerFocusLost?()
     }
 
     /// The window stopped being key. With the left button still held, the press goes on: its drags and its release
@@ -48,6 +49,7 @@ extension SidebarListViewComponents {
     /// Returns true when the gesture ended now.
     @discardableResult
     func pointerEventSeen(_ type: NSEvent.EventType, in eventWindow: NSWindow?) -> Bool {
+        onPointerEventSeen?(type, eventWindow)
         guard holdsPointerGesture else { return false }
         switch type {
         case .leftMouseDown:

@@ -33,9 +33,6 @@ final class SidebarPriorityPanelView: NSView {
     private let ticker = DemandTimer(owner: "sidebar-priority-minute")
     /// The chat whose row the pointer drags: `placeRows` leaves that row where the pointer has it.
     private(set) var draggingID: String?
-    /// While a drag is live, focus loss and app pointer ends cancel it through the seam adapter.
-    private var dragObservation: SidebarPriorityDragEndMonitor?
-
     override init(frame: NSRect) {
         super.init(frame: frame)
         header.onPress = { [weak self] in self.map { $0.onAction?(.setCollapsed(!$0.panel.collapsed)) } }
@@ -223,11 +220,6 @@ final class SidebarPriorityPanelView: NSView {
 
     private func startDrag(_ id: String) {
         draggingID = id
-        dragObservation = SidebarPriorityDragEndMonitor(
-            window: window,
-            onEvent: { [weak self] type, eventWindow in self?.pointerEventSeen(type, in: eventWindow) },
-            onFocusLost: { [weak self] in self?.cancelDrag() }
-        )
     }
 
     /// A left press or release anywhere in the app during the drag (`dragMonitor`). A press: the
@@ -249,13 +241,13 @@ final class SidebarPriorityPanelView: NSView {
         }
     }
 
+    func pointerFocusLost() { cancelDrag() }
+
     /// Ends the live drag, if any, without placing anything: its row takes no more of this press
     /// and sits above the others no longer. The caller lays the rows out.
     private func stopDrag() {
         guard let id = draggingID else { return }
         draggingID = nil
-        dragObservation?.cancel()
-        dragObservation = nil
         if let row = rows[id] {
             row.endPress()
             row.layer?.zPosition = 0
