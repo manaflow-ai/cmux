@@ -34,7 +34,8 @@ enum HomeMapping {
 
     /// The thread roots among `items`, for `message(_:roots:)`: indexed by message id, a root's
     /// parts mapped only when a reply asks for it.
-    static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], summary: ConversationSummary?,
+    static func roots(in items: [TranscriptItem], aliases: [IdempotencyKey: ID], me: ParticipantID,
+                      summary: ConversationSummary?,
                       media: @escaping Media = { _ in nil }, links: @escaping Links = { _ in nil }) -> Roots {
         let wanted = Set(items.compactMap(\.threadRoot))
         guard !wanted.isEmpty else { return { _ in nil } }
@@ -44,7 +45,7 @@ enum HomeMapping {
         }
         let found = byID
         return { root in
-            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, summary: summary, media: media, links: links).owners) }
+            found.value(for: root).map { (id($0, aliases: aliases), projectedParts($0, me: me, summary: summary, media: media, links: links).owners) }
         }
     }
 
@@ -62,13 +63,11 @@ enum HomeMapping {
     static func message(_ item: TranscriptItem, aliases: [IdempotencyKey: ID], me: ParticipantID,
                         summary: ConversationSummary?, media: Media = { _ in nil }, links: Links = { _ in nil },
                         roots: Roots = { _ in nil }) -> Message {
-        let (parts, owners) = projectedParts(item, summary: summary, media: media, links: links)
+        let (parts, owners) = projectedParts(item, me: me, summary: summary, media: media, links: links)
         let messageID = id(item, aliases: aliases)
-        // A person's text shows as typed, and so does a part with mentions (their offsets index
-        // the text as written): only an agent's text is Markdown (MessagesLab's opt-in
-        // `Message.format`; plain by default, so a local send is plain before HomeStore has it).
-        let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
-        let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
+        // User prompts and agent replies share the same opt-in renderer. Mentions stay plain so
+        // their source offsets remain valid; every other message keeps its exact text source.
+        let format: MessageFormat = shouldRenderMarkdown(item, me: me, summary: summary) ? .markdown : .plain
         return Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
                 parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
@@ -81,10 +80,10 @@ enum HomeMapping {
     /// line that is only a URL is a link card in its place, the other lines
     /// stay one text bubble, a URL in a sentence gets no card. So the local
     /// send and the message HomeStore stores show the same bubbles.
-    static func projectedParts(_ item: TranscriptItem, summary: ConversationSummary?, media: Media = { _ in nil },
+    static func projectedParts(_ item: TranscriptItem, me: ParticipantID, summary: ConversationSummary?, media: Media = { _ in nil },
                                links: Links = { _ in nil }) -> (parts: [Part], owners: [Int]) {
         guard !item.isRetracted else { return ([], []) }
-        let markdown = isAgent(item.author, summary)
+        let markdown = shouldRenderMarkdown(item, me: me, summary: summary)
         var parts: [Part] = [], owners: [Int] = []
         for (i, p) in item.parts.enumerated() {
             let shown = self.parts(p, media: media, progress: item.attachmentProgress, markdown: markdown, links: links)
@@ -105,9 +104,8 @@ enum HomeMapping {
         owners[checked: projected] ?? projected // // crash program: checked (a projected index past the owners keeps its value)
     }
 
-    /// One HomeStore part as MessagesLab parts: a text part by Messages'
-    /// link rule (people's text with its URLs as link runs, an agent's as
-    /// Markdown per bubble); every other part is one part. Text with
+    /// One HomeStore part as MessagesLab parts: a text part by Messages' link rule; Markdown text
+    /// stays source text for the shared renderer, and every other part is one part. Text with
     /// mentions stays one bubble (the mention offsets index the whole text),
     /// and so does an agent's text with a fenced block (a split would cut it).
     static func parts(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
@@ -119,8 +117,7 @@ enum HomeMapping {
         return TextParts.parts(for: text).map { shown in
             switch shown {
             case let .text(t, _) where markdown:
-                let (rendered, runs) = HomeMarkdown.render(t)
-                return .text(rendered, runs: runs)
+                return .text(t, runs: [])
             case let .link(url, title, site, image, theme):
                 // A preview fetched before (this Mac's sends, taps) fills the card, as `.linkMetadata` did;
                 // otherwise the domain card (HomeStore's message is settled: no grey loading card).
@@ -155,19 +152,24 @@ enum HomeMapping {
         }
     }
 
-    /// Agents write Markdown (the Chief's replies); people's text is shown as typed.
+    /// Agents and the current user's prompts use the shared Markdown renderer.
     static func isAgent(_ author: ParticipantID, _ summary: ConversationSummary?) -> Bool {
         summary?.participants.first { $0.id == author }?.kind == .agent
     }
 
-    /// `markdown`: an agent's text part shows its Markdown styled (HomeMarkdown).
+    /// Whether a row may be rendered as Markdown while preserving mention offsets.
+    static func shouldRenderMarkdown(_ item: TranscriptItem, me: ParticipantID, summary: ConversationSummary?) -> Bool {
+        guard !item.parts.contains(where: { if case let .text(_, mentions) = $0 { return !mentions.isEmpty }; return false }) else { return false }
+        return item.author == me || isAgent(item.author, summary)
+    }
+
+    /// `markdown`: the text part stays source text for MessagesLab's Markdown layout.
     /// A part with mentions keeps its text as written (mention offsets index it).
     static func part(_ p: MessagePart, media: Media = { _ in nil }, progress: [String: Double] = [:], markdown: Bool = false,
                      links: Links = { _ in nil }) -> Part {
         switch p {
         case .text(let text, let mentions) where markdown && mentions.isEmpty:
-            let (shown, runs) = HomeMarkdown.render(text)
-            return .text(shown, runs: runs)
+            return .text(text, runs: [])
         case .text(let text, let mentions):
             return .text(text, runs: mentions.map {
                 TextRun(start: $0.start, length: $0.length, style: nil, link: nil, mention: $0.participant.rawValue, detected: nil)

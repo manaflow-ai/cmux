@@ -42,8 +42,8 @@ struct HomeDiff: Equatable {
         let newKeys = Set(new.map(\.key))
         if old.contains(where: { !newKeys.contains($0.key) }) { d.rebuild = true; return d }
         func id(_ i: TranscriptItem) -> ID { HomeMapping.id(i, aliases: aliases) }
-        let roots = HomeMapping.roots(in: new, aliases: aliases, summary: newSummary, media: media, links: links)
-        let oldRoots = HomeMapping.roots(in: old, aliases: aliases, summary: oldSummary, media: media, links: links)
+        let roots = HomeMapping.roots(in: new, aliases: aliases, me: me, summary: newSummary, media: media, links: links)
+        let oldRoots = HomeMapping.roots(in: old, aliases: aliases, me: me, summary: oldSummary, media: media, links: links)
         func msg(_ i: TranscriptItem) -> Message { HomeMapping.message(i, aliases: aliases, me: me, summary: newSummary, media: media, links: links, roots: roots) }
 
         // Older page: the new messages before the first shown one.
@@ -66,7 +66,7 @@ struct HomeDiff: Equatable {
                 // My send, already flying in the projection (status .sending).
                 let st = HomeMapping.status(item, me: me, summary: newSummary)
                 if let st, st != .sending { d.actions.append(.status(id(item), st)) }
-                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary), me: me, into: &d) }
+                if !item.reactions.isEmpty { react(from: [], to: item.reactions, id: id(item), owners: owners(item, newSummary, me), me: me, into: &d) }
             } else {
                 d.actions.append(.receive(msg(item)))
             }
@@ -91,7 +91,7 @@ struct HomeDiff: Equatable {
         if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
-        let split = owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count
+        let split = owners(o, oldSummary, me).count != o.parts.count || owners(n, newSummary, me).count != n.parts.count
         if o.editedAt != n.editedAt, !n.isRetracted, !split, let text = n.parts.compactMap({ if case .text(let t, _) = $0 { t } else { nil } }).first {
             d.actions.append(.edit(id, text))
         } else if o.parts != n.parts {
@@ -99,7 +99,7 @@ struct HomeDiff: Equatable {
         }
         let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
         if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
-        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), me: me, into: &d) }
+        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary, me), me: me, into: &d) }
         return true
     }
 
@@ -109,8 +109,8 @@ struct HomeDiff: Equatable {
     /// then `me` all the same, and the window view pops its badge and times it
     /// as a tapback (from the menu's input when chosen there, PaneTapback.swift).
     /// Which HomeStore part each MessagesLab part shows (`HomeMapping.projectedParts`).
-    private static func owners(_ item: TranscriptItem, _ summary: ConversationSummary?) -> [Int] {
-        HomeMapping.projectedParts(item, summary: summary).owners
+    private static func owners(_ item: TranscriptItem, _ summary: ConversationSummary?, _ me: ParticipantID) -> [Int] {
+        HomeMapping.projectedParts(item, me: me, summary: summary).owners
     }
 
     private static func react(from old: [CmuxHomeCore.Reaction], to new: [CmuxHomeCore.Reaction], id: ID, owners: [Int],

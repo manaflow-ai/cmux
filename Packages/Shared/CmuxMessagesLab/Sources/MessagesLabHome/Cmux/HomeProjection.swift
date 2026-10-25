@@ -237,7 +237,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         rebuilds += 1
         let pinned = store.state.ui.scroll.pinnedToBottom
         let anchor = demo.anchorProbe
-        let roots = HomeMapping.roots(in: shown, aliases: aliases, summary: shownSummary, media: core.media, links: core.links)
+        let roots = HomeMapping.roots(in: shown, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links)
         let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links, roots: roots) }
         let pendingLocal = store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
@@ -558,7 +558,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
               let message = item.messageID else { return }
         if case let .emoji(e) = kind { RecentEmoji.use(e) }  // MessagesLab 02519e9: recent emoji lead the menu and strip
         // A split text (Messages' link rule) is one HomeStore part.
-        let partIndex = HomeMapping.homeIndex(ref.partIndex, HomeMapping.projectedParts(item, summary: shownSummary).owners)
+        let partIndex = HomeMapping.homeIndex(ref.partIndex, HomeMapping.projectedParts(item, me: me, summary: shownSummary).owners)
         let intent = HomeIntent(op: .addReaction(message: message, conversation: conversation,
                                                  reaction: HomeMapping.kind(kind), partIndex: partIndex))
         let homeStore = self.homeStore
@@ -639,7 +639,7 @@ struct ProjectionCore {
         -> (Conversation, (start: Int, total: Int)) {
         shown = items
         self.summary = summary
-        let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
+        let roots = HomeMapping.roots(in: items, aliases: aliases, me: me, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
                                 messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) })

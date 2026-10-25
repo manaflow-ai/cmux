@@ -102,8 +102,10 @@ enum Reducer {
             let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
             var parts = d.attachments.map { Part.attachment($0) }
             if !text.isEmpty { parts += TextParts.parts(for: text) }
+            // cmux: a local prompt uses the same opt-in Markdown renderer as its
+            // HomeStore echo, so the queued/sent bubble does not change format.
             let m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
-                            replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [])
+                            replyTo: d.replyTo ?? s.ui.openThread, status: .sending, edits: nil, retractedAt: nil, reactions: [], format: text.isEmpty ? .plain : .markdown)
             s.conversation.messages.append(m)
             s.total += 1
             s.ui.draft = Draft(text: "", attachments: [], replyTo: nil)
