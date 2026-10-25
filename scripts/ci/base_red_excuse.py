@@ -147,18 +147,33 @@ LINT = re.compile(r"god[ -]?files?|l10n|locali[sz]ation|concurrency", re.IGNOREC
 # Per-run noise in what a step prints: mktemp names, a temporary folder's own name
 # (Python's mkdtemp: /tmp/cmux-prepush-foe40iki), and commit or object hashes.
 RUN_NOISE = re.compile(r"\btmp\.[A-Za-z0-9]{6,}|(?<=/tmp/)[^/\s'\"]+|(?<=/T/)[^/\s'\"]+|\b[0-9a-f]{7,40}\b")
-# A Python set of strings as a failed assertion prints it (`'X' not found in {...}`): its
-# order changes every run (PYTHONHASHSEED) and its items with the tree (every package
-# folder), so it is masked; what the assertion says is missing is still compared.
-STRING_SET = re.compile(r"\{'[^'\n]*'(?:, '[^'\n]*')*\}")
+# A Python set of strings an assertion says something is missing from (`'X' not found in
+# {...}`): its order changes every run (PYTHONHASHSEED) and its items with the tree (every
+# package folder), so it is masked there and only there; what is missing is still compared.
+STRING_SET = re.compile(r"(?<=not found in )\{'[^'\n]*'(?:, '[^'\n]*')*\}")
 # Why a red is still not the pull request's when its failed steps name only files it does
-# not change (outside_the_diff). A repository path or a bare file name, with an extension:
-PATH = re.compile(r"(?<![\w.+/-])(?:\.?/)?((?:[\w.+-]+/)*[\w+-][\w.+-]*\.[A-Za-z][A-Za-z0-9]{0,9})(?![\w/])")
-# Test runners' failures name the test file, not the file with the bug.
-TEST_MARK = re.compile(r"\bFAIL(?:ED)?\b|\(fail\)|\bnot ok\b|AssertionError|Traceback|panicked at|✘|✗")
-# Check code, workflows, baselines and allowlists decide what a check reports without
-# the report naming them: a pull request changing one is never excused by files.
-GUARDED = re.compile(r"^(?:scripts|\.github|tests|config)/|baseline|allowlist", re.IGNORECASE)
+# not change (outside_the_diff). A path token is taken whole; it names a file when it has a
+# folder and an extension, or is a bare file name with a source or config extension (so
+# docs.example.com is not one).
+TOKEN = re.compile(r"[^\s'\"`()<>\[\]{},;|=]+")
+FILE_EXTENSIONS = frozenset(
+    "swift m mm h c cc cpp hpp rs zig go py rb js mjs cjs jsx ts tsx mts cts css scss html vue svelte json "
+    "jsonc toml yaml yml plist xcstrings strings xib storyboard sh bash zsh md txt tsv csv lock lockb "
+    "xcconfig entitlements pbxproj resolved png jpg jpeg gif svg pdf ttf otf wasm".split())
+# Any line that says a test failed: it names the test, not the file with the bug.
+TEST_MARK = re.compile(r"\bfail(?:s|ed|ure|ing)?\b|\(fail\)|\bnot ok\b|assert|traceback|panick|✘|✗|\bexpected\b",
+                       re.IGNORECASE)
+# Any line that reports an error; each must name a file.
+ERRORISH = re.compile(r"##\[error\]|\berror\b|\bfatal\b|\bexception\b", re.IGNORECASE)
+# Check code, workflows, baselines and allowlists decide what a check reports without the
+# report naming them, and build inputs (manifests, lockfiles, project and tool config) change
+# what every file compiles to: a pull request changing one is never excused by files.
+GUARDED = re.compile(
+    r"^(?:scripts|\.github|tests|config)/|baseline|allowlist|(?:^|/)(?:package\.json|Package\.swift|"
+    r"Package\.resolved|Cargo\.toml|Cargo\.lock|go\.(?:mod|sum)|Makefile|project\.yml|Gemfile(?:\.lock)?|"
+    r"Podfile(?:\.lock)?|tsconfig[^/]*\.json|[^/]*\.config\.[cm]?[jt]s)$|\.(?:lock|lockb|toml|ya?ml|xcconfig|"
+    r"pbxproj|entitlements)$|-lock\.(?:json|ya?ml)$|\.xcodeproj/|\.xcworkspace/",
+    re.IGNORECASE)
 EXIT_LINE = re.compile(r"##\[error\]Process completed with exit code")
 RED_CHECK = re.compile(r"##\[error\]red check: ")
 # GitHub lists at most 3000 files of a pull request.
@@ -486,60 +501,82 @@ def touched(path: str, changed: set[str]) -> str | None:
     return None
 
 
+def file_paths(text: str) -> set[str]:
+    """The files a line names, each token taken whole (`assets/Foo@2x.png`, never `2x.png`)."""
+    found = set()
+    for token in TOKEN.findall(text):
+        token = re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
+        name = token.rsplit("/", 1)[-1]
+        if "." not in name.strip("."):
+            continue
+        extension = name.rsplit(".", 1)[-1].lower()
+        if ("/" in token and re.fullmatch(r"[a-z][a-z0-9]{0,9}", extension)) or extension in FILE_EXTENSIONS:
+            found.add(token)
+    return found
+
+
 def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
     """The files a red job's failed steps name, when none is one the pull request changes.
 
-    Raises Refused when a failed step cannot be pinned to files: a failing test (it names
-    the test, not where the bug is), an error line naming no file, or a step naming none.
-    A step's own script and env (its `##[group]Run` echo) count as named, and a pull request
-    changing check code, workflows, baselines or allowlists is never excused this way.
-    The summary step that only lists the other steps' reds (`red check: X`) is skipped."""
+    Raises Refused when a failed step cannot be pinned to files: any line saying a test
+    failed (it names the test, not where the bug is), an error line naming no file, or a
+    step naming none. A step's own script and env (its `##[group]Run` echo) count as named,
+    and a pull request changing check code, workflows, baselines, allowlists or build inputs
+    is never excused this way. The summary step that only lists the other steps' reds
+    (`red check: X`) is skipped."""
     name = job.get("name", "")
     if guarded := sorted(path for path in changed if GUARDED.search(path)):
-        raise Refused(f"it changes check code or a baseline ({guarded[0]}), which can move a finding "
-                      "without the finding naming it")
+        raise Refused(f"it changes check code, a baseline or a build input ({guarded[0]}), which can move "
+                      "a finding without the finding naming it")
     lines = step_lines(log)
     blocks = {step for step, _ in lines if step.startswith(f"{UNKNOWN_STEP} ")}
     if blocks and len(blocks) != ran_steps(job):
         raise Refused(f"its log names no steps and has {len(blocks)} `Run` groups for {ran_steps(job)} steps")
-    failed = {step["name"] for step in job.get("steps") or []
-              if step.get("conclusion") not in (None, "success", "skipped")}
+    # A log with no step names has blocks, not the API's step names: its red blocks are those that
+    # logged an error (each continue-on-error lint, and the step that fails the job, does).
+    failed = set() if blocks else {step["name"] for step in job.get("steps") or []
+                                   if step.get("conclusion") not in (None, "success", "skipped")}
     failed |= {step for step, raw in lines if "##[error]" in raw}
     echo: dict[str, list[str]] = {}
     output: dict[str, list[str]] = {}
-    grouped: set[str] = set()
+    in_echo: set[str] = set()
     for step, raw in lines:
         if step not in failed:
             continue
         text = ANSI.sub("", STAMP.sub("", raw.lstrip("﻿"))).strip()
-        if text.startswith("##[group]"):
-            grouped.add(step)
-            echo.setdefault(step, []).append(text[len("##[group]"):])
-        elif text.startswith("##[endgroup]"):
-            grouped.discard(step)
-        elif text and not WARNING.search(text):
-            (echo if step in grouped else output).setdefault(step, []).append(text)
+        if text.startswith("##[group]Run "):
+            in_echo.add(step)
+            echo.setdefault(step, []).append(text[len("##[group]Run "):])
+        elif text.startswith("##[endgroup]") and step in in_echo:
+            in_echo.discard(step)
+        elif text:
+            # Only a step's own `Run` echo is its script; a nested group (a script's own
+            # `##[group]test x: failed`) is output and is read like the rest.
+            (echo if step in in_echo else output).setdefault(step, []).append(text)
     named: list[str] = []
     pinned = 0
     for step in sorted(failed):
-        said = output.get(step, [])
-        errors = [text for text in said if ERROR.search(text) and not EXIT_LINE.search(text)]
+        said = [text for text in output.get(step, []) if not text.startswith("##[endgroup]")]
+        errors = [text for text in said if ERRORISH.search(text) and not EXIT_LINE.search(text)
+                  and not WARNING.search(text)]
         if errors and all(RED_CHECK.search(text) for text in errors):
-            continue
-        if any(any(pattern.search(text) for pattern in TESTS) or TEST_MARK.search(text) or CRASH.search(text)
-               for text in said):
-            raise Refused(f"step '{step}' failed a test, which names the test, not the file with the bug")
-        if unpinned := [text for text in errors if not PATH.search(text)]:
+            continue  # the summary step: each step it lists is judged on its own
+        if failing := [text for text in said
+                       if any(pattern.search(text) for pattern in TESTS) or TEST_MARK.search(text)
+                       or CRASH.search(text)]:
+            raise Refused(f"step '{step}' says a test failed ({failing[0][:160]}), which names the test, "
+                          "not the file with the bug")
+        if unpinned := [text for text in errors if not file_paths(text)]:
             raise Refused(f"step '{step}' has an error naming no file: {unpinned[0][:200]}")
-        paths = {found for text in said for found in PATH.findall(text)}
+        paths = {found for text in said for found in file_paths(text)}
         if not paths:
             raise Refused(f"step '{step}' failed naming no file")
-        for path in sorted(paths | {found for text in echo.get(step, []) for found in PATH.findall(text)}):
+        for path in sorted(paths | {found for text in echo.get(step, []) for found in file_paths(text)}):
             if hit := touched(path, changed):
                 raise Refused(f"step '{step}' names {path}, which this pull request changes ({hit})")
         pinned += 1
         # Name what the errors name; a step whose findings print no error line (NO-SWIFTUI) names them all.
-        named.extend(sorted({found for text in errors for found in PATH.findall(text)} or paths))
+        named.extend(sorted({found for text in errors for found in file_paths(text)} or paths))
     if not pinned:
         raise Refused(f"'{name}' has no failed step to pin to files")
     return named

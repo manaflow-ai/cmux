@@ -1053,6 +1053,9 @@ class AssertionNoise(unittest.TestCase):
         # What the assertion says is missing is still compared.
         other = excuse.printed(job, l10n_log(1, "AssertionError: 'Tests/E' not found in {'Sources/B'}"))
         self.assertNotIn("AssertionError: 'Tests/A' not found in {…}", other)
+        # Only the set an assertion says something is missing from: a lint finding's set is compared.
+        self.assertNotEqual(excuse.printed(job, l10n_log(1, "violations: {'new.swift'}")),
+                            excuse.printed(job, l10n_log(1, "violations: {'old.swift'}")))
 
 
 class LogOfARunStillGoing(unittest.TestCase):
@@ -1152,7 +1155,7 @@ class OutsideTheDiff(unittest.TestCase):
         for line in ("AssertionError: 'x' not found in Sources/A.swift", " FAIL  webviews/src/a.test.ts > renders",
                      "(fail) markdown table keys > webviews/src/table.ts [18.20ms]", ISSUE):
             self.gh.logs[1] = self.web_log(line)
-            with self.assertRaisesRegex(excuse.Refused, "failed a test"):
+            with self.assertRaisesRegex(excuse.Refused, "says a test failed"):
                 self.judge()
 
     def test_an_error_or_a_red_step_naming_no_file_blocks(self):
@@ -1167,7 +1170,7 @@ class OutsideTheDiff(unittest.TestCase):
         for path in ("scripts/cmux-next/no-swiftui-allowlist.txt", ".github/workflows/cmux-next.yml",
                      "Packages/macOS/CmuxNext/godfile-baseline.tsv"):
             self.files = [{"filename": path}]
-            with self.assertRaisesRegex(excuse.Refused, "check code or a baseline"):
+            with self.assertRaisesRegex(excuse.Refused, "check code, a baseline or a build input"):
                 self.judge()
 
     def test_a_job_no_base_commit_had_red_blocks(self):
@@ -1180,6 +1183,49 @@ class OutsideTheDiff(unittest.TestCase):
         self.files = [{"filename": f"f{index}.txt"} for index in range(excuse.MAX_PR_FILES)]
         with self.assertRaisesRegex(excuse.Refused, "which it changes is unknown"):
             self.judge()
+
+    # Review of #25036 (Codex, gpt-6-astra): each of these excused a red the PR may have caused.
+    def test_a_test_failure_inside_a_nested_group_still_blocks(self):
+        self.gh.logs[1] = self.web_log(CSS_ERROR, "##[group]bun test webviews/src/a.test.ts: exit 1",
+                                       "FAIL test/foo", "##[endgroup]")
+        with self.assertRaisesRegex(excuse.Refused, "says a test failed"):
+            self.judge()
+
+    def test_error_and_test_lines_are_recognised_in_any_case(self):
+        for lines in (("ERROR: compilation failed", "info: src/base.ts"),
+                      ("Fatal: the bundle is stale", "info: src/base.ts"),
+                      ("error: test Foo failed: src/base.ts",)):
+            self.gh.logs[1] = self.web_log(*lines)
+            with self.assertRaises(excuse.Refused):
+                self.judge()
+
+    def test_a_path_is_read_whole_and_a_host_name_is_no_file(self):
+        self.assertEqual(excuse.file_paths("missing assets/Foo@2x.png in the bundle"), {"assets/Foo@2x.png"})
+        self.assertEqual(excuse.file_paths("see docs.example.com or https://example.com/x"), set())
+        self.assertEqual(excuse.file_paths("Sources/A.swift:12:5: error: x; build.sh"), {"Sources/A.swift", "build.sh"})
+        self.gh.logs[1] = self.web_log("error: assets/Foo@2x.png is not in the asset catalog")
+        self.files = [{"filename": "webviews/assets/Foo@2x.png"}]
+        with self.assertRaisesRegex(excuse.Refused, "which this pull request changes"):
+            self.judge()
+
+    def test_a_pr_changing_a_build_input_blocks(self):
+        for path in ("webviews/package.json", "webviews/bun.lock", "Packages/macOS/CmuxNext/Package.swift",
+                     "webviews/vite.config.ts", "webviews/tsconfig.app.json", "cmux-tui/Cargo.toml"):
+            self.files = [{"filename": path}]
+            with self.assertRaisesRegex(excuse.Refused, "a build input"):
+                self.judge()
+
+    def test_a_log_served_without_step_names_is_judged_by_its_red_blocks(self):
+        # GitHub served the head's log under UNKNOWN STEP; the API's failed step (the summary) is no block.
+        self.gh.jobs[1]["steps"] = [{"name": name, "status": "completed", "conclusion": conclusion}
+                                    for name, conclusion in (("Set up job", "success"), ("No new SwiftUI", "success"),
+                                                             (AGGREGATE_STEP, "failure"), ("Complete job", "success"))]
+        self.gh.logs[1] = log(WEB, "UNKNOWN STEP", "##[group]Run scripts/cmux-next/check-no-swiftui.sh", "##[endgroup]",
+                              "NO-SWIFTUI: Packages/macOS/CmuxNext/Sources/A/View.swift: imports SwiftUI",
+                              "##[error]Process completed with exit code 1.",
+                              "##[group]Run failed=()", "##[endgroup]", "##[error]red check: No new SwiftUI",
+                              "##[error]Process completed with exit code 1.")
+        self.assertIn("View.swift", "\n".join(self.judge()))
 
     def test_the_checks_jobs_summary_step_is_not_a_finding(self):
         self.gh.logs[1] = "\n".join([self.web_log(CSS_ERROR), log(
