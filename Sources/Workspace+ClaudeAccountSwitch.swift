@@ -127,6 +127,10 @@ extension Workspace {
         guard let resumeCommand = resume.posixCommand(), let resumeInput = resume.typedInput() else {
             return .refused(.noClaudeSession)
         }
+        // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
+        // detached would keep writing this session while the resumed Claude continues it.
+        // Checked before the transcript is copied, so a refused switch changes nothing.
+        guard claudeAccountSwitchAgentsOwnedByPane(panelId) != nil else { return .agentNotOwnedByPane }
 
         let sync = ClaudeTranscriptAccountSync()
         let request = ClaudeTranscriptAccountSyncRequest(
@@ -152,16 +156,8 @@ extension Workspace {
             return .transcriptUnavailable
         }
 
-        let replacedAgents = ClaudeAccountSwitchReplacedAgents(
-            processes: (agentPIDKeysByPanelId[panelId] ?? []).compactMap { agentPIDProcessIdentitiesByKey[$0] }
-        )
-        // Restarting the pane stops only a Claude on the pane's own terminal; one in tmux or
-        // detached would keep writing this session while the resumed Claude continues it.
-        guard replacedAgents.ownership(
-            paneTTYDevice: terminalPanel(for: panelId)?.surface.controllingTTYDeviceIdentifier
-        ) != .notOwnedByPane else {
-            return .agentNotOwnedByPane
-        }
+        // Checked again with the agents recorded now: they may have changed during the copy.
+        guard let replacedAgents = claudeAccountSwitchAgentsOwnedByPane(panelId) else { return .agentNotOwnedByPane }
         let accountEnvironment = ClaudeAccountSwitchSurfaceEnvironment(
             plan: plan,
             workspaceEnvironment: workspaceEnvironment,
@@ -232,6 +228,19 @@ extension Workspace {
 #endif
             return preflight
         }
+    }
+
+    /// The pane's recorded agent processes, or `nil` when restarting the pane would not stop one
+    /// that is still running (see ``ClaudeAccountSwitchReplacedAgents/ownership(paneTTYDevice:)``).
+    @MainActor
+    private func claudeAccountSwitchAgentsOwnedByPane(_ panelId: UUID) -> ClaudeAccountSwitchReplacedAgents? {
+        let agents = ClaudeAccountSwitchReplacedAgents(
+            processes: (agentPIDKeysByPanelId[panelId] ?? []).compactMap { agentPIDProcessIdentitiesByKey[$0] }
+        )
+        let ownership = agents.ownership(
+            paneTTYDevice: terminalPanel(for: panelId)?.surface.controllingTTYDeviceIdentifier
+        )
+        return ownership == .notOwnedByPane ? nil : agents
     }
 
     /// The pane's Claude session: the Fork Conversation selection, then cached lifecycle and

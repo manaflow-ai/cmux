@@ -181,6 +181,26 @@ struct ClaudeAccountPaneEnvironmentTests {
         #expect(custom.restoreStartupInput(" cmux restore claude \(sessionID)\n") == " cmux restore claude \(sessionID)\n")
     }
 
+    /// Waking a hibernated Claude types the same restore verb, so it unsets the cleared keys too.
+    @Test
+    func hibernationWakeResumesWithTheClearedKeysUnset() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panel = try #require(workspace.focusedPanelId.flatMap { workspace.terminalPanel(for: $0) })
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionID,
+            workingDirectory: NSTemporaryDirectory(),
+            launchCommand: nil
+        )
+        #expect(panel.agentHibernationResumeStartupInput(agent) == " cmux restore claude \(sessionID)\n")
+
+        panel.claudeAccountEnvironment = defaultAccount
+
+        #expect(panel.agentHibernationResumeStartupInput(agent)
+            == " /usr/bin/env -u \(configKey) -u \(secureStorageKey) cmux restore claude \(sessionID)\n")
+    }
+
     @Test
     func relaunchedClaudePaneResumesWithTheClearedKeysUnset() throws {
         let defaultsName = "cmux-claude-account-restore-\(UUID().uuidString)"
