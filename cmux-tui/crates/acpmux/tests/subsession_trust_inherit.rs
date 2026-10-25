@@ -11,6 +11,8 @@
 //! - a chat in full access whose own folder nobody decided: a start under it still waits on a card;
 //! - a folder the person marked untrusted under the full-access chat's folder is refused;
 //! - a chat whose harness reports full access on its own (no mode cmux set) still waits on a card;
+//! - a chat whose launch command skips the checks, in no mode cmux set, still waits on a card;
+//! - a chat named through a link still waits on a card under the link's target;
 //! - a chat a Web client started still waits on a card.
 //!
 //! Stand-in agents (fake_agent.py). One test function: the settings file is read from this
@@ -163,6 +165,7 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "spoof/lanes",
         "spoof/child",
         "linked-target/lanes",
+        "skips/lanes",
         "elsewhere/lanes",
     ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
@@ -181,6 +184,8 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
         "harnesses": {
             // Offers a full-access mode, which a new chat starts in.
             "fake-full": fake("fake", json!({"FAKE_FULL_ACCESS": "1"})),
+            // Launched with a command that skips the checks, in no mode cmux set.
+            "skipper": {"argv": ["python3", FAKE, "--dangerously-skip-permissions"], "family": "fake"},
             // Starts in the sample harness's one mode, which asks.
             "fake-ask": fake("fake", json!({"FAKE_ASK_MODE": "1"})),
         },
@@ -231,6 +236,15 @@ async fn a_full_access_chat_lends_its_folder_trust_to_sub_sessions_under_it() {
     assert!(
         start_waits_on_a_card(&hub, &mut app, &linked, &root.join("linked-target/lanes")).await,
         "a folder named through a link lent its trust"
+    );
+
+    // A chat whose launch command skips the checks but runs in no full-access mode cmux set: the
+    // command stays in the record after a fallback to another profile, so it lends nothing.
+    decide("skips", "trusted");
+    let skips = app.new_session(&root.join("skips"), "skipper").await;
+    assert!(
+        start_waits_on_a_card(&hub, &mut app, &skips, &root.join("skips/lanes")).await,
+        "a launch command lent its folder's trust"
     );
 
     // Outside its folder it still asks.

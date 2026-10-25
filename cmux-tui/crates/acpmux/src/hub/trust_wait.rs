@@ -308,8 +308,8 @@ impl Hub {
     /// Whether a start in `cwd` (resolved) takes the trust of `parent`'s own folder instead of a
     /// card (Leo, 2026-10-24, on a card a chat in full access raised: "why did this even happen in
     /// the first place? I thought we bypassed this"). Only all of these: `parent` runs in full
-    /// access by cmux's own doing ([`full_access_by_cmux`]: its command, or a mode cmux set, never
-    /// one the harness claimed), outside a Web turn, and is no chat a Web client started
+    /// access by cmux's own doing ([`full_access_by_cmux`]: a mode cmux set, never one the
+    /// harness claimed), outside a Web turn, and is no chat a Web client started
     /// (`remote_origin`); `cwd` is the parent's own folder or under it, a folder recorded as it
     /// resolves (no link on the way); a decision trusts that folder for the parent's agent (a
     /// person's answer, the agent's own level, or a folder cmux made: never an auto-trust rule
@@ -450,13 +450,11 @@ impl Hub {
     }
 }
 
-/// Whether chat `m` runs in full access by cmux's own doing: its profile's command skips the checks,
-/// or its mode is a full-access mode cmux set itself (`SessionMeta::mode_set_by_cmux`). A mode the
-/// harness reported on its own (`current_mode_update`) is not enough: the agent controls that.
+/// Whether chat `m` runs in full access by cmux's own doing: its mode is a full-access mode cmux set
+/// itself (`SessionMeta::mode_set_by_cmux`). A mode the harness reported on its own
+/// (`current_mode_update`) is not enough, since the agent controls that, and neither is a launch
+/// command that skips the checks, which a fallback to another profile leaves behind in the record.
 pub(super) fn full_access_by_cmux(m: &SessionMeta) -> bool {
-    if super::subsession_guard::argv_full_access(&m.harness_argv).is_some() {
-        return true;
-    }
     let set = m.mode_set_by_cmux.as_deref();
     set.is_some_and(|mode| super::start_mode::FULL_ACCESS_MODES.contains(&mode))
         && crate::web_modes::mode_of(m).as_deref() == set
