@@ -136,4 +136,61 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     expect(await belowView(page)).toBeLessThanOrEqual(2);
     await page.close();
   });
+
+  test("a small upward wheel before a stream snapshot releases bottom follow", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });
+    await installPaintedFrames(page);
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+    await page.waitForFunction(() => "__showRows" in window);
+
+    const history = Array.from({ length: 18 }, (_, index) => [
+      row(`history-user-${index}`, "user", `Prompt ${index}`),
+      row(`history-answer-${index}`, "assistant", paragraph(index)),
+    ]).flat();
+    let text = paragraph(18);
+    const current = [...history, row("stream", "assistant", text, { version: 1, streaming: true })];
+    await show(page, current);
+    await frames(page, 3);
+    expect(await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop)).toBeGreaterThan(
+      0,
+    );
+
+    // A viewer at the bottom follows the same stream update.
+    text += `\n\n${paragraph(19)}`;
+    await show(page, [...history, row("stream", "assistant", text, { version: 2, streaming: true })]);
+    await frames(page, 2);
+    expect(await belowView(page)).toBeLessThanOrEqual(2);
+
+    // The capture listener updates rows before the browser delivers the scroll event. A two-pixel
+    // wheel is below the stray-scroll deadband, but it is still an intentional move up and must
+    // release following before the streamed layout pass can pin the view back to the bottom.
+    text += `\n\n${paragraph(20)}\n\n${paragraph(21)}`;
+    const next = [...history, row("stream", "assistant", text, { version: 3, streaming: true })];
+    const left = await page.evaluate((rows) => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const target = Math.max(0, node.scrollTop - 2);
+      node.addEventListener(
+        "wheel",
+        () => {
+          node.scrollTop = target;
+          (window as unknown as { __showRows(rows: unknown): void }).__showRows(rows);
+        },
+        { capture: true, once: true },
+      );
+      node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -2 }));
+      return target;
+    }, next);
+    await frames(page, 3);
+    expect(
+      Math.abs((await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop)) - left),
+    ).toBeLessThanOrEqual(1);
+    expect(
+      await page.evaluate(() => {
+        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        return node.scrollHeight - node.clientHeight - node.scrollTop;
+      }),
+    ).toBeGreaterThan(20);
+    await page.close();
+  });
 });
