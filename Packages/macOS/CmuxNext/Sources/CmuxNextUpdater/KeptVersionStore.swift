@@ -24,8 +24,10 @@ nonisolated public struct KeptVersionStore: Sendable {
         let target = folder.appending(path: bundle.lastPathComponent)
         // Cloned under a name `list()` never reads, then renamed: a keep cut
         // short (the app exits for the update while it runs) never leaves a
-        // partial bundle that looks like a rollback target.
-        let partial = folder.appending(path: "." + bundle.lastPathComponent + ".partial")
+        // partial bundle that looks like a rollback target. The name is this
+        // keep's own, so a second keep of the same build (the install's, after
+        // quit cut the first) never renames the other's unfinished clone.
+        let partial = folder.appending(path: "." + bundle.lastPathComponent + ".partial-" + UUID().uuidString)
         // APFS clone of the whole tree; a plain copy where cloning fails
         // (another volume, an old file system).
         if clonefile(bundle.path, partial.path, 0) != 0 {

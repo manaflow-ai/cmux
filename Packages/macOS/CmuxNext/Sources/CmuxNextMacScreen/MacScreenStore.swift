@@ -55,6 +55,8 @@ public final class MacScreenStore {
     /// Deletes every link-pairing Keychain item of this build (tests replace it).
     @ObservationIgnored let removeLinkPairings: @Sendable () -> Void
     @ObservationIgnored private var linkPairingsRemoved = false
+    /// The lanes refused the file's read (quit shut them down): nothing is saved over a file never read.
+    @ObservationIgnored private var readRefused = false
     @ObservationIgnored private let work: BackgroundWork
     /// Saves land in call order on the files lane.
     @ObservationIgnored private let writes: OrderedWrites
@@ -95,7 +97,9 @@ public final class MacScreenStore {
                         return try? JSONDecoder().decode(File.self, from: data)
                     }
                 } catch {
-                    return  // the lanes refused the read (quit shut them down): not loaded, nothing saved over the file
+                    // The lanes refused the read (quit shut them down): not loaded, nothing saved over the file.
+                    self?.readRefused = true
+                    return
                 }
                 guard let self else { return }
                 if let stored {
@@ -138,6 +142,7 @@ public final class MacScreenStore {
 
     /// Writes the file off the main thread, in order.
     private func save() {
+        guard !readRefused else { return }
         let contents = File(hubDeviceName: hubDeviceName, deviceNames: deviceNames, linkPairingsRemoved: linkPairingsRemoved)
         guard let data = try? JSONEncoder().encode(contents) else { return }
         writes.save(data, to: file)
