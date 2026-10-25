@@ -13,6 +13,7 @@ import {
   keepChangesFresh,
   refreshChanges,
   resetChangesStatuses,
+  stableUrls,
   withHeader,
 } from "../src/agent-session/acpmux/inspector/changesStatus";
 import { rowState } from "../src/agent-session/acpmux/inspector/ChangesSection";
@@ -225,4 +226,19 @@ test("an open list registers again each minute while the chat is quiet, and stop
   jest.advanceTimersByTime(2 * REGISTER_EVERY_MS);
   await Promise.resolve();
   expect(registers).toEqual([urls, urls]);
+});
+
+test("a transcript update that names the same pull requests keeps the list the page registered, with no new array", () => {
+  const pr = (number: number) => ({ url: `https://github.com/acme/a/pull/${number}` });
+  const first = stableUrls(undefined, [pr(1), pr(2)]);
+  expect(first).toEqual(["https://github.com/acme/a/pull/1", "https://github.com/acme/a/pull/2"]);
+  // A streamed reply rebuilds the summary: new objects, the same pull requests in the same order.
+  expect(stableUrls(first, [pr(1), pr(2)])).toBe(first);
+  // A new one, or a new order, is a new list.
+  const grown = stableUrls(first, [pr(1), pr(2), pr(3)]);
+  expect(grown).not.toBe(first);
+  expect(grown).toHaveLength(3);
+  expect(stableUrls(grown, [pr(2), pr(1), pr(3)])).not.toBe(grown);
+  // None: one shared empty list.
+  expect(stableUrls(undefined, undefined)).toBe(stableUrls(first, []));
 });
