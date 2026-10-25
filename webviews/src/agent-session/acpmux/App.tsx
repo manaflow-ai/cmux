@@ -5597,6 +5597,7 @@ function AcpmuxPane() {
   /// The Quick Composer panel (`"surface": "quick"` in the host's ready reply) or a tab's pane.
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const quick = surface === "quick";
+  const environmentPlacement = useChatDisplay().environmentPlacement;
   /// The header's tools in the pane's tab row, while the App offers one (header/tabRow.ts).
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
@@ -7495,21 +7496,25 @@ function AcpmuxPane() {
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
-  // The header's Environment line (header/EnvironmentLine.tsx): machine · folder · branch, opening
-  // the Inspector at Environment while the Inspector is on, else the chat folder's Files tree.
+  // The Environment line (header/EnvironmentLine.tsx): machine · folder · branch, opening the
+  // Inspector at Environment while the Inspector is on, else the chat folder's Files tree. It is
+  // kept below the tab row so the chat tools never move when the line is shown or hidden.
   // Called while the header draws, after `localCwd` and `runSplitAction` below are set.
-  const environmentLine = (compact: boolean) => (
+  const environmentLine = () => (
     <EnvironmentLine
       summary={snapshot.summary}
       machineName={machineName}
       peerKinds={snapshot.peerKinds}
-      compact={compact}
       onOpen={environmentOpener(
         inspector.reveal,
         localCwd ? () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle") : undefined,
       )}
     />
   );
+  // Keep the row out of a new/loading chat until the daemon has reported a cwd or branch. The
+  // render site calls `environmentLine()` only after the local folder and split handlers below
+  // have been initialized, avoiding a transient render-time TDZ for a started chat.
+  const hasEnvironment = Boolean(snapshot.summary?.cwd || snapshot.summary?.branch);
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -9265,15 +9270,9 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
-                  <ChatHeaderStatus status={header.status} detail={header.detail}>
-                    {!inTabRow && environmentLine(false)}
-                  </ChatHeaderStatus>
+                  <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {environmentLine(true)}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"
@@ -9359,6 +9358,15 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
+                {!header.status && environmentPlacement !== "off" && hasEnvironment && (
+                  <div
+                    className="acpmux-environment-row"
+                    data-placement={environmentPlacement}
+                    data-tab-row={inTabRow ? "" : undefined}
+                  >
+                    {environmentLine()}
+                  </div>
+                )}
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
