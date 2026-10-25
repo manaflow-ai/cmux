@@ -22,6 +22,13 @@ struct WebSwapGateTests {
         #expect(WebSwapGate.app(pagesShown: true, active: false, idle: 0, blocked: nil) == .askPages)
     }
 
+    @Test func justLeftTheFrontWaitsOutTheGrace() {
+        // A switch away while the pages answered: the swap still waits the grace from it.
+        #expect(WebSwapGate.app(pagesShown: true, active: false, idle: 0, blocked: nil, away: 1)
+            == .later(after: .milliseconds(2001), reason: "grace"))
+        #expect(WebSwapGate.app(pagesShown: true, active: false, idle: 0, blocked: nil, away: 3) == .askPages)
+    }
+
     @Test func aSheetOrMenuWaitsAndLooksAgain() {
         #expect(WebSwapGate.app(pagesShown: true, active: true, idle: 600, blocked: "app.sheet")
             == .later(after: WebSwapGate.retry, reason: "app.sheet"))

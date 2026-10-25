@@ -37,6 +37,8 @@ public final class WebUpdates {
     @ObservationIgnored var looking = false
     /// What held the pending update at the last look (`updates.web.status` `waiting_for`).
     @ObservationIgnored var heldBy: String?
+    /// When cmux last left the front (nil while it is there): the grace runs from it.
+    @ObservationIgnored var resignedAt: ContinuousClock.Instant?
     /// Counts handoffs, so a look's page answers apply only to the update they were asked for.
     @ObservationIgnored var pendingGeneration = 0
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
@@ -96,6 +98,7 @@ public final class WebUpdates {
         // task-owner: the app's activation events, for the life of the app
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didResignActiveNotification) {
+                self?.resignedAt = .now
                 self?.updater?.noteBackground()
                 self?.scheduleSafePoint()
             }
@@ -103,6 +106,7 @@ public final class WebUpdates {
         // task-owner: the app's activation events, for the life of the app
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didBecomeActiveNotification) {
+                self?.resignedAt = nil
                 self?.updater?.noteActivation()
                 self?.scheduleSafePoint()
             }

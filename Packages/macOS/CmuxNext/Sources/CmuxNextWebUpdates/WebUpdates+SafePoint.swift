@@ -47,7 +47,7 @@ extension WebUpdates {
                || views.map(\.url) != documents || views.contains(where: \.isLoading) {
                 decision = .later(after: .seconds(1), reason: "page.changed")
             }
-            // Input or a sheet that came while the pages answered still holds it.
+            // Input, a sheet or a switch away that came while the pages answered still holds it.
             if decision == .swap {
                 let again = appDecision()
                 if case .later = again { decision = again }
@@ -66,8 +66,9 @@ extension WebUpdates {
     }
 
     private func appDecision() -> WebSwapGate.Decision {
-        WebSwapGate.app(pagesShown: !WebBundleServedViews.shared.shown.isEmpty, active: NSApp.isActive,
-                        idle: Self.idleSeconds(), blocked: Self.appBlocked())
+        let away = resignedAt.map { WebSwapGate.seconds(.now - $0) } ?? .infinity
+        return WebSwapGate.app(pagesShown: !WebBundleServedViews.shared.shown.isEmpty, active: NSApp.isActive,
+                               idle: Self.idleSeconds(), blocked: Self.appBlocked(), away: away)
     }
 
     /// What modal the app has open: a modal window, a sheet, a menu or drag being tracked.

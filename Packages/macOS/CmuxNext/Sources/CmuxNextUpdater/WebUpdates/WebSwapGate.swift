@@ -28,11 +28,18 @@ nonisolated public enum WebSwapGate {
 
     /// The app's half. `pagesShown`: a served page shows a document. `active`: cmux is in the
     /// front. `idle`: seconds since the last input event. `blocked`: what modal the app has open (a
-    /// sheet, a modal window, a menu being tracked), nil when none.
-    public static func app(pagesShown: Bool, active: Bool, idle: TimeInterval, blocked: String?) -> Decision {
+    /// sheet, a modal window, a menu being tracked), nil when none. `away`: seconds since cmux left
+    /// the front (infinite when it never was there).
+    public static func app(
+        pagesShown: Bool, active: Bool, idle: TimeInterval, blocked: String?, away: TimeInterval = .infinity
+    ) -> Decision {
         guard pagesShown else { return .swap }
         if let blocked { return .later(after: retry, reason: blocked) }
-        if active {
+        if !active {
+            let left = seconds(grace) - away
+            // Just switched away (and maybe back): the grace runs out first.
+            if left > 0 { return .later(after: .milliseconds(Int(left * 1000) + 1), reason: "grace") }
+        } else {
             let quiet = seconds(quietInput)
             // Due when the quiet period ends, at least a second out (input may have just landed).
             if idle < quiet { return .later(after: .milliseconds(Int(max(1, quiet - idle) * 1000)), reason: "input") }
