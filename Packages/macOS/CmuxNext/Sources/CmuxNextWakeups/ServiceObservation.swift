@@ -101,7 +101,7 @@ public final class ServiceObservation<Value> {
         withObservationTracking {
             read()
         } onChange: { @Sendable [weak self] in
-            MainDelivery().run { self?.trackedValueWillChange() }
+            MainDelivery().run { [weak self] in self?.trackedValueWillChange() }
         }
     }
 

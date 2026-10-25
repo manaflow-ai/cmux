@@ -1,5 +1,4 @@
 import CmuxNextWakeups
-import CmuxNextWakeupsTestSupport
 import Foundation
 import Observation
 import Testing
@@ -181,7 +180,7 @@ private struct Fixture {
 
     init() {
         let budget = MainFrameBudget(input: input, uptimeNanos: clock.read)
-        work = MainWorkScheduler.testing(budget: budget, clock: ManualClock()) { _ in ServiceFakeLink() }
+        work = MainWorkScheduler.testing(budget: budget) { _ in ServiceFakeLink() }
     }
 
     /// One display frame, a frame period after the last.
