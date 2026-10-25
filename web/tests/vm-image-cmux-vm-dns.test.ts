@@ -155,6 +155,18 @@ describe("cmux-dns-check", () => {
     expect(r.lines).toContain("PASS tailscale DNS mode: systemd-resolved");
   });
 
+  test("a starting tailscaled fails after the deadline; an unknown or missing state fails", async () => {
+    const starting = await check({ tailscale: { status: { BackendState: "Starting" }, dnsLog: RESOLVED_MODE } });
+    expect(starting.code).toBe(1);
+    expect(starting.lines).toContain("FAIL resolve tailnet name: tailscaled is still starting (BackendState Starting)");
+    const unknown = await check({ tailscale: { status: { BackendState: "Weird" }, dnsLog: RESOLVED_MODE } });
+    expect(unknown.lines).toContain("FAIL resolve tailnet name: unknown BackendState 'Weird'");
+    const missing = await check({ tailscale: { status: {}, dnsLog: RESOLVED_MODE } });
+    expect(missing.lines).toContain("FAIL resolve tailnet name: unknown BackendState None");
+    const machineAuth = await check({ tailscale: { status: { BackendState: "NeedsMachineAuth" }, dnsLog: RESOLVED_MODE } });
+    expect(machineAuth.code).toBe(0);
+  });
+
   test("a timeout with a leading zero is decimal", async () => {
     const r = await check({}, ["--timeout", "08"]);
     expect(r.code).toBe(0);

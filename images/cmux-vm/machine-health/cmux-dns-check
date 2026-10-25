@@ -130,10 +130,14 @@ if ! command -v tailscale >/dev/null 2>&1; then
 elif [ "$tailscaled_state" = stopped ]; then
   skip "resolve tailnet name: tailscaled is installed but not running"
 else
-  # Valid logged-out or MagicDNS-off states skip ("!"); a status that cannot be read or parsed fails ("?").
-  if ! status="$(timeout 10 tailscale status --json 2>/dev/null)"; then
-    self_name="?tailscale status --json failed"
-  elif ! self_name="$(printf '%s' "$status" | python3 -c '
+  # A logged-out or MagicDNS-off machine skips ("!"); a status that cannot be read or parsed, or a
+  # state tailscale does not document, fails ("?"); a starting tailscaled ("~", right after
+  # --restart) is asked again until the deadline.
+  end=$((SECONDS + timeout))
+  while :; do
+    if ! status="$(timeout 10 tailscale status --json 2>/dev/null)"; then
+      self_name="?tailscale status --json failed"
+    elif ! self_name="$(printf '%s' "$status" | python3 -c '
 import json, sys
 try:
     s = json.load(sys.stdin)
@@ -141,18 +145,26 @@ except ValueError:
     print("?tailscale status --json gave no JSON"); sys.exit()
 if not isinstance(s, dict):
     print("?tailscale status --json gave no status object"); sys.exit()
-if s.get("BackendState") != "Running":
-    print("!not logged in to a tailnet (BackendState %s)" % s.get("BackendState")); sys.exit()
+state = s.get("BackendState")
+if state in ("NoState", "Starting"):
+    print("~tailscaled is still starting (BackendState %s)" % state); sys.exit()
+if state in ("NeedsLogin", "NeedsMachineAuth", "Stopped", "InUseOtherUser"):
+    print("!not logged in to a tailnet (BackendState %s)" % state); sys.exit()
+if state != "Running":
+    print("?unknown BackendState %r" % (state,)); sys.exit()
 tailnet = s.get("CurrentTailnet") or {}
 if not s.get("MagicDNSSuffix") or tailnet.get("MagicDNSEnabled") is False:
     print("!MagicDNS is off on this tailnet"); sys.exit()
 name = ((s.get("Self") or {}).get("DNSName") or "").rstrip(".")
 print(name or "!this machine has no MagicDNS name")
 ')"; then
-    self_name="?could not parse tailscale status (python3)"
-  fi
+      self_name="?could not parse tailscale status (python3)"
+    fi
+    case "$self_name" in "~"*) [ "$SECONDS" -lt "$end" ] && { sleep 1; continue; } ;; esac
+    break
+  done
   case "$self_name" in
-    ""|"?"*) fail "resolve tailnet name: ${self_name#?}" ;;
+    ""|"?"*|"~"*) fail "resolve tailnet name: ${self_name#?}" ;;
     "!"*) skip "resolve tailnet name: ${self_name#!}" ;;
     *) if addr="$(resolve "$self_name")"; then pass "resolve tailnet name $self_name: $addr"; else fail "resolve tailnet name $self_name: no address within ${timeout}s"; fi ;;
   esac
