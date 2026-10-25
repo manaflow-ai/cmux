@@ -2,6 +2,9 @@ import { expect, test } from "bun:test";
 import {
   INLINE_ATTACHMENT_MARK,
   bindMarks,
+  decodeInlineId,
+  inlineCopyId,
+  inlineCopyParent,
   inlineToken,
   inlineTokenIds,
   orderedByMarks,
@@ -9,6 +12,7 @@ import {
   placeInline,
   promptBlocks,
   promptText,
+  linkAttachment,
   withoutInlineTokens,
   type ComposerAttachment,
 } from "./attachments";
@@ -110,7 +114,7 @@ test("bare marks come back as each placed attachment's own token, in order", () 
 test("a prompt bound again and sent goes in the order it came back in", () => {
   const back = bindMarks(`one${MARK}two${MARK}three`, [image("x"), image("y")]);
   const placed = placeInline(back.text, back.attachments);
-  expect(placed.text).toBe(`one${MARK}two${MARK}three`);
+  expect(placed.text).toBe(`one${inlineToken("x")}two${inlineToken("y")}three`);
   expect(placed.attachments.map((attachment) => [attachment.id, attachment.inline])).toEqual([
     ["x", true],
     ["y", true],
@@ -137,7 +141,7 @@ test("a sent draft places its attachments in the text's order, by id, the strip'
     strip(image("b")),
   ]);
   // A token whose attachment is gone goes as nothing; a second token of one id goes as nothing.
-  expect(sent.text).toBe(`a${MARK}mn${MARK}z`);
+  expect(sent.text).toBe(`a${inlineToken("b")}mn${inlineToken("a")}z`);
   expect(sent.attachments.map((attachment) => [attachment.id, attachment.inline])).toEqual([
     ["b", true],
     ["a", true],
@@ -187,4 +191,60 @@ test("placed recordings and pasted text keep their blocks' shapes at their marks
     { type: "text", text: "then" },
     { type: "text", text: "lines", _meta: { cmux: { pasted: true } } },
   ]);
+});
+
+const blockShape = (blocks: ReturnType<typeof promptBlocks>) =>
+  blocks.map((block) => (block.type === "text" ? block.text : block.type === "resource_link" ? block.uri : block.type));
+
+// Review (Codex): a link chip's id is `link:` and its path, which may hold `/`, spaces, `%` and `~`.
+test("a file link placed in the text goes at its place and comes back to it", () => {
+  const link = linkAttachment("/tmp/my file~1 100%.pdf", false);
+  const draft = `read ${inlineToken(link.id)} now`;
+  // The token holds nothing markdown reads as syntax, and gives the whole id back.
+  expect(draft.slice(6, -5)).toMatch(/^[A-Za-z0-9.%-]+$/);
+  expect(inlineTokenIds(draft)).toEqual([link.id]);
+  const sent = placeInline(draft, [link]);
+  expect(sent.attachments.map((attachment) => [attachment.id, attachment.inline])).toEqual([[link.id, true]]);
+  expect(blockShape(promptBlocks(sent.text, sent.attachments))).toEqual([
+    "read ",
+    "file:///tmp/my%20file~1%20100%25.pdf",
+    " now",
+  ]);
+  // Back to edit, and sent again: the same draft each time.
+  const back = bindMarks(sent.text, sent.attachments);
+  expect(back.text).toBe(draft);
+  expect(bindMarks(back.text, sent.attachments).text).toBe(draft);
+  expect(placeInline(back.text, back.attachments).text).toBe(sent.text);
+});
+
+test("drafts written before ids were encoded still read", () => {
+  const uuid = "0b6c1f3e-6f0a-4c55-9a43-3f2d1c0e9b7a";
+  expect(inlineToken(uuid)).toBe(`${MARK}${uuid}${MARK}`);
+  expect(inlineTokenIds(`a${MARK}${uuid}~abcd1234${MARK}b`)).toEqual([`${uuid}~abcd1234`]);
+  expect(decodeInlineId("100%zz")).toBe("100%zz");
+});
+
+// Review (Codex): the person's own U+FFFC beside a placed attachment is their text, and never moves
+// the attachment or takes its place.
+test("the person's U+FFFC stays text beside a placed attachment", () => {
+  const one = strip(image("one"));
+  const draft = `a${MARK}b ${MARK}word${inlineToken("one")} c${inlineToken("gone")}`;
+  const sent = placeInline(draft, [one]);
+  expect(sent.text).toBe(`a${MARK}b ${MARK}word${inlineToken("one")} c`);
+  expect(sent.attachments.map((attachment) => [attachment.id, attachment.inline])).toEqual([["one", true]]);
+  expect(blockShape(promptBlocks(sent.text, sent.attachments))).toEqual([`a${MARK}b ${MARK}word`, "image", " c"]);
+  expect(promptText(sent.text, sent.attachments)).toBe(`a${MARK}b ${MARK}word c`);
+  expect(bindMarks(sent.text, sent.attachments).text).toBe(sent.text);
+});
+
+test("a copy's id keeps the whole id it was copied from", () => {
+  const path = "link:/tmp/a~b.pdf";
+  const copy = inlineCopyId(path);
+  expect(copy).toMatch(/^link:\/tmp\/a~b\.pdf~copy-[0-9a-f]{8}$/);
+  expect(inlineCopyParent(copy)).toBe(path);
+  expect(inlineCopyParent(inlineCopyId(copy))).toBe(copy);
+  const uuid = "0b6c1f3e-6f0a-4c55-9a43-3f2d1c0e9b7a";
+  expect(inlineCopyParent(`${uuid}~abcd1234`)).toBe(uuid);
+  expect(inlineCopyParent(path)).toBeUndefined();
+  expect(inlineCopyParent("link:/tmp/x~deadbeef")).toBeUndefined();
 });
