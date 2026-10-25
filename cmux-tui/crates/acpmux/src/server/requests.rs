@@ -896,6 +896,21 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
+            // Files sent with the message (`acpmux send --attach`): saved in the session's
+            // uploads, and what the agent gets put in their place (`attach.rs`).
+            if crate::attach::any(&blocks) {
+                let id = s.id.clone();
+                let prompt_id = mux_meta(&params)
+                    .and_then(|m| m.get("promptId"))
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                blocks = tokio::task::spawn_blocking(move || {
+                    crate::attach::receive(&id, prompt_id.as_deref(), web, &mut blocks)
+                        .map(|()| blocks)
+                })
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))??;
+            }
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // Sent from inside another session (its proven caller token) with none of its own:
             // that session's message, so the receiver's transcript does not show it as the person's.

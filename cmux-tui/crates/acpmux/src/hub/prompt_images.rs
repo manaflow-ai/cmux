@@ -26,7 +26,7 @@ const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
-fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
     let at = |offset: usize, magic: &[u8]| bytes.get(offset..offset + magic.len()) == Some(magic);
     if at(0, b"\x89PNG\r\n\x1a\n") {
         return Some("image/png");
@@ -142,13 +142,8 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
             let id = named["id"].as_str()?;
             let path = dir().join(id);
             if !path.is_file() {
-                let written = std::fs::create_dir_all(dir()).and_then(|()| {
-                    // Written aside and renamed, so a reader never sees half an image.
-                    let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
-                    std::fs::write(&partial, &bytes)?;
-                    std::fs::rename(&partial, &path)
-                });
-                if let Err(e) = written {
+                // Owner-only, written aside and renamed, so a reader never sees half an image.
+                if let Err(e) = crate::agent_tools::write_private(&path, &bytes) {
                     tracing::warn!("cannot keep a prompt image: {e}");
                     return None;
                 }

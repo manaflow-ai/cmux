@@ -157,6 +157,8 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                     d.state = State::Delivered;
                     d.error = None;
                     d.accepted = Some(accepted);
+                    // Settled: its record keeps no attachment bytes (`attach.rs`).
+                    crate::attach::strip(&mut d.request);
                 });
                 return;
             }
@@ -169,6 +171,9 @@ async fn deliver(hub: &Arc<Hub>, id: &str) {
                         _ => State::Failed,
                     };
                     d.error = Some(error);
+                    if d.settled() {
+                        crate::attach::strip(&mut d.request);
+                    }
                 });
                 let Some(secs) = delay else { return };
                 tokio::time::sleep(Duration::from_secs(*secs)).await;
