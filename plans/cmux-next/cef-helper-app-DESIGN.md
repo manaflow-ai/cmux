@@ -133,6 +133,28 @@ daemon talks CDP to the host through `--remote-debugging-pipe`), crash reports (
   passkey entitlements. Each needs a release check.
 - An accessory app that shows a window can become active; every host window must stay non-activating and off screen.
 
+### 3.7 Why page focus must not make a page window key (fork API 30, issue #24913)
+
+Today `CEFTab.grantFocus` calls `CefBrowserHost::SetFocus(true)`, and the fork makes the page's child window key
+(`makeKeyAndOrderFront:`). Every key-window change runs AppKit's key-state walk over both windows' view trees and,
+for a text-input first responder, activates the input method synchronously. The fuzzer found three 10 s main-thread
+stalls in that one call (DEV watchdog traps):
+
+- macOS 14.8.7 and 15.7.7 (seed 21, Hang B/C): `-[NSWindow makeKeyWindow]` > `_windowChangedKeyState` (about 20
+  view levels; the window holds every parked workspace's view tree, hidden) and KVO in `-[NSApplication _setKeyWindow:]`.
+- macOS 26.6.2 (seed 21, build of 0aeef9f4827, 2026-10-25): `SidebarNavigation.step` > `FocusEffectApplier.focusPage`
+  > `CEFTab.grantFocus` > `cmux_shim_set_focus` > CEF > `-[NSWindow makeKeyAndOrderFront:]` > `becomeKeyWindow` >
+  `NSAutoFillHeuristicController _windowDidBecomeKey:` > `-[NSTextInputContext activate]` > `IMKInputSession activate`
+  > `invocationAwaitXPCReply` (a nested run loop that waits for the input method server; the VM's server had stopped
+  answering 10 min before). A real Mac whose input method server hangs gets the same wait.
+
+cmux now makes at most one key change per focus request (1da8789d016: no reclaim into the cmux window first, none
+when the cmux window is key, no select from building a tab menu). The one change that remains is the grant itself.
+With `cmux_browser_set_embedder_active(id, bool)` (fork API 30) page focus becomes cmux's own first responder plus
+an active flag: no page window is ever key, so neither the key-state walk nor the input method activation of a key
+change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
+emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
+
 ## 4. Prototype (behind `browserHost.helperPrototype`, default off; the host app is in Debug builds only)
 
 - Host: `shim/browser_host_main.mm` (built by `scripts/cmux-next/build-cef-shim.sh` as `cmux-chromium-host`, bundled by
