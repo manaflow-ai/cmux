@@ -33,6 +33,8 @@ export type SubsessionReply = {
   reply?: string;
   /// What it waited on the person for, when it did (the row's `waitingOn`).
   waiting?: SessionWaiting;
+  /// It waits for a run slot (the row's `waitsForSlot`): it has not started.
+  slot?: true;
   harness?: string;
 };
 
@@ -118,7 +120,11 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
         const waiting =
           state === "input" ? sessionWaiting({ waitingOn: row.waitingOn, waitingPrompt: asked }) : undefined;
         const harness = text(row.harness);
-        const more = { ...(waiting && { waiting }), ...(harness && { harness }) };
+        const more = {
+          ...(waiting && { waiting }),
+          ...(harness && { harness }),
+          ...(row.waitsForSlot === true && { slot: true as const }),
+        };
         return [{ sessionId: id, ...(name && { name }), state, ...(reply && { reply }), ...more }];
       });
       // A row it cannot read (no id, no state) is not left out: the generic row shows what came back.

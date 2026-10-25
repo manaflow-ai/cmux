@@ -57,7 +57,7 @@ function SessionCard({
   harness?: string;
   model?: string;
   /// Its state as the call read it, for a session the list does not have.
-  fallback?: Pick<SubsessionReply, "state" | "waiting">;
+  fallback?: Pick<SubsessionReply, "state" | "waiting" | "slot">;
   children?: ReactNode;
 }) {
   const t = useT();
@@ -71,8 +71,9 @@ function SessionCard({
     <AgentCard
       name={live?.name ?? name}
       harness={listed ?? harness}
-      model={model}
+      model={live?.model ?? model}
       state={state}
+      slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}

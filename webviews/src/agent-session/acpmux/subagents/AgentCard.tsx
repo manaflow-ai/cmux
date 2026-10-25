@@ -20,11 +20,13 @@ export type AgentCardProps = {
   doing?: string;
   /// Messages waiting behind its running turn.
   queued?: number;
+  /// It waits for a run slot: it has not started, whatever its state says.
+  slot?: boolean;
   onOpen?: () => void;
   children?: ReactNode;
 };
 
-export function AgentCard({ name, harness, model, state, doing, queued, onOpen, children }: AgentCardProps) {
+export function AgentCard({ name, harness, model, state, doing, queued, slot, onOpen, children }: AgentCardProps) {
   const t = useT();
   // A profile names its family first (`claude-sr2`): its family's mark when it has none.
   const mark = harness ? knownMark(harness, harness.split(/[-_/]/)[0]) : undefined;
@@ -37,9 +39,9 @@ export function AgentCard({ name, harness, model, state, doing, queued, onOpen, 
         <span className="cv-agent-card__name">{name}</span>
         {model && <span className="cv-agent-card__model">{model}</span>}
         {state && (
-          <span className="cv-agent-card__state" data-state={state}>
+          <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
             {state === "working" && <Spinner size={12} loading />}
-            {t(SUBSESSION_STATE_LABEL[state])}
+            {slot ? t("subsession.state.slot") : t(SUBSESSION_STATE_LABEL[state])}
             {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
           </span>
         )}

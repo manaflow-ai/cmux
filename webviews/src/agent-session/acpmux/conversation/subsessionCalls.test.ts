@@ -253,3 +253,10 @@ test("a row that says no state, or one unreadable row among good ones, keeps the
     sessions: [{ sessionId: "s-2", state: "working" }],
   });
 });
+
+test("a row waiting for a run slot says so", () => {
+  const rows = { sessions: [{ sessionId: "s-q", shortName: "queued", state: "idle", waitsForSlot: true }] };
+  expect(subsessionCall(codex("list_sessions", {}, rows))).toMatchObject({
+    sessions: [{ sessionId: "s-q", state: "done", slot: true }],
+  });
+});
