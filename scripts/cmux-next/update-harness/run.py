@@ -461,6 +461,8 @@ def main():
     acp_home = os.path.join(os.environ["HOME"], ".acpmux/builds", "com.cmuxterm.app.debug." + re.sub(r"[^a-z0-9]+", ".", slug.lower()).strip("."))
     terminals, agents = [], []
     try:
+        # A CI timeout or cancellation must enter the same ownership-scoped teardown.
+        TagTeardown(v1, acpmux_home=acp_home, log=log).install()
         public_key = run(["swift", os.path.join(HERE, "keys.swift"), "generate", keys])
         run(["/usr/bin/ditto", a.app, v1])
         run(["/usr/bin/ditto", a.app, v2])
