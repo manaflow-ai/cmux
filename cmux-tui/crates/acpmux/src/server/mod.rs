@@ -1394,7 +1394,6 @@ pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
-mod remote_new_hint;
 mod requests;
 mod routes;
 mod secrets;

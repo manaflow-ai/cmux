@@ -16,18 +16,58 @@
 //! on an older build names no `reason` (its message is read instead) and judged the mode
 //! before the folder: its way out is HOST's own CLI in the shell's own folder.
 
-use super::remote_guard::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 
+/// Why a remote `session/new` was refused, in `data.reason`: the daemon that forwarded it
+/// turns each into a command that works (below).
+pub(crate) const POLICY_REFUSED: &str = "remote.policy_refused";
+pub(crate) const MODE_REFUSED: &str = "remote.mode_refused";
+pub(crate) const CWD_MISSING: &str = "remote.cwd_missing";
+pub(crate) const CWD_OUTSIDE_ROOTS: &str = "remote.cwd_outside_roots";
+
+/// `remote_guard::check_inner`. A refused remote `session/new` (`remote.*`) says how this
+/// daemon served the caller (`data.servedAs`: `peer` or `remote`), for the forwarding
+/// daemon's hint.
+pub(in crate::server) async fn check(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    origin: crate::server::Origin,
+    auth: crate::server::ConnAuth,
+    m: &str,
+    params: &mut Value,
+) -> Result<(), RpcError> {
+    let peer = super::control_of(origin, auth, params) == crate::hub::Control::Peer;
+    let mut result = super::check_inner(hub, origin, auth, m, params).await;
+    if m == crate::rpc::method::SESSION_NEW
+        && origin.web_class()
+        && let Err(e) = &mut result
+        && let Some(Value::Object(data)) = &mut e.data
+        && data.get("reason").and_then(Value::as_str).is_some_and(|r| r.starts_with("remote."))
+    {
+        data.insert("servedAs".into(), Value::from(if peer { "peer" } else { "remote" }));
+    }
+    result
+}
+
+/// `peer`'s answer to the `session/new` `p` this daemon forwarded for `params`, a refusal
+/// explained.
+pub(in crate::server) async fn new_on(
+    peer: &crate::peer::Peer,
+    params: &Value,
+    p: Value,
+) -> Result<Value, RpcError> {
+    let method = crate::rpc::method::SESSION_NEW;
+    peer.request(method, p).await.map_err(|e| explain(peer, params, e))
+}
+
 /// `e`, with `data.host`, `data.try` (and `data.runOn` when it runs on HOST) and the command
 /// at the end of its message, when it is one of the refusals above; any other error unchanged.
-pub(super) fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
+fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     let Some(reason) = reason_of(&e) else { return e };
     let data = e.data.as_ref();
     // `peer` or `remote`; an older peer does not say.
     let served = data.and_then(|d| d.get("servedAs")).and_then(Value::as_str);
-    // A folder inside its roots the peer checked for this start (`remote_guard::try_cwd`).
+    // A folder inside its roots the peer checked for this start (`peer_folder::outside_told`).
     let try_cwd = data.and_then(|d| d.get("tryCwd")).and_then(Value::as_str);
     let ssh = crate::peer::ssh_target(&peer.url).ok().map(|t| t.destination);
     let mut run_on = None;
