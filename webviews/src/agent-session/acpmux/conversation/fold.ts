@@ -151,8 +151,7 @@ export function useFold(open: boolean, animates: () => boolean = always, fadeIn 
     // height again, content that loaded meanwhile included.
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
-    const fromOpacity =
-      open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
+    const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     node.style.overflow = "hidden";
