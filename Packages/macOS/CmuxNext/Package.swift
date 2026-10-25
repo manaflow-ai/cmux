@@ -34,6 +34,8 @@ import PackageDescription
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
 //   CmuxNextFeatures -> Compat, swift-atomics (base::FeatureList: the feature registry and the immutable
 //     resolved snapshot the App builds once; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
+//   CmuxNextInputCore -> Compat, swift-atomics (input latency: event kinds, stages, open-slot table, closed-slot
+//     ring, buckets; no AppKit; plans/cmux-next/chrome-parity/p04-input.md section 3)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -1383,6 +1385,22 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFeatures",
                 .product(name: "Atomics", package: "swift-atomics"),
             ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Input latency core (plans/cmux-next/chrome-parity/p04-input.md, section 3 (I)): Chromium's
+        // EventMetrics for cmux: event kinds, stages, the lock-free open-slot table any thread
+        // stamps, the closed-slot ring and the histogram buckets. Pure: no AppKit.
+        .target(
+            name: "CmuxNextInputCore",
+            dependencies: [
+                "CmuxNextCompat",
+                .product(name: "Atomics", package: "swift-atomics"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextInputCoreTests",
+            dependencies: ["CmuxNextInputCore"],
             swiftSettings: daemonSwiftSettings
         ),
         .target(
