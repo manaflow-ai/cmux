@@ -193,6 +193,7 @@ enum CloudHandlers {
             }
             let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
             let api = services.cloud.api, machineID = session.machineID, cloud = services.cloud
+            let unavailable = CloudStrings.desktopUnavailable(title)
             services.remoteViewPages.personOpens(record.url)
             WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
                 guard let pane = terminal.pane else { return }
@@ -200,11 +201,11 @@ enum CloudHandlers {
                     // The machine's `cmux-rd` host: started on its display :1 (loopback only), and its
                     // session token fetched over the signed-in Cloud API into memory.
                     let started = try await api.exec(machineID, command: Self.desktopRdStart)
-                    guard started.exitCode == 0 else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+                    guard started.exitCode == 0 else { throw ActionFailure(message: unavailable) }
                     let file = try await api.readFile(machineID, path: Self.desktopRdTokenPath)
                     let token = Data(base64Encoded: file.dataBase64).map { String(decoding: $0, as: UTF8.self) }?
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    guard token.count == 64 else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+                    guard token.count == 64 else { throw ActionFailure(message: unavailable) }
                     await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
                 }
                 _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)

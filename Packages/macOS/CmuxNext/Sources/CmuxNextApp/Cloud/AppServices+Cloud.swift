@@ -10,6 +10,7 @@ import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
 import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
+import Foundation
 import Observation
 
 extension AppServices {
