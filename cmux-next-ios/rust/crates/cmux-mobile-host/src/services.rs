@@ -76,7 +76,7 @@ pub async fn serve(
         "echo" => echo(&sender, receiver).await,
         "daemon" => daemon(&config, &peer, &args, &sender, receiver).await,
         "chief" => chief(&config, &peer, &sender, receiver).await,
-        "acpmux" => acpmux(&config, &sender, receiver).await,
+        "acpmux" => acpmux(&config, &peer.device_id, &sender, receiver).await,
         "file" => file(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
@@ -566,7 +566,14 @@ pub(crate) type AcpmuxSocket =
 
 /// Opens the acpmux loopback WebSocket with its bearer token.
 pub(crate) async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
+    connect_acpmux_as(target, None).await
+}
+
+/// `connect_acpmux` with `credential` (a phone's own acpmux credential) in place of the
+/// dashboard token.
+async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> Result<AcpmuxSocket, Refusal> {
     let (url, token) = acpmux_endpoint(target)?;
+    let token = credential.map(str::to_owned).or(token);
     let mut request = url.into_client_request().map_err(|e| Refusal::new("unavailable", e.to_string()))?;
     if !request.uri().host().is_some_and(is_loopback_host) {
         return Err(Refusal::new("forbidden", "acpmux listener is not on loopback"));
@@ -585,23 +592,28 @@ pub(crate) async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket
 
 /// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
 /// carries one WebSocket text message in each direction.
+///
+/// A phone the app gave its own acpmux credential (`control::phone_credential`) connects
+/// with it, so acpmux knows which phone it is (still a Web connection, with every Web
+/// rule). What `acpmux_policy` refuses then goes on marked, and acpmux runs it only when
+/// that phone's Full-access setting (Settings > Devices on the Mac, off by default)
+/// covers it. Without a credential, or when acpmux refuses it, the dashboard token and
+/// the refusal here stay as they were.
 async fn acpmux(
     config: &ServiceConfig,
+    phone: &str,
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    let socket = match (connect_acpmux(&config.acpmux).await, &config.acpmux) {
-        (Ok(socket), _) => socket,
-        // Supervised: the app's acpmux may have restarted on another port.
-        // Ask the app once and retry with what it sends.
-        (Err(refusal), AcpmuxTarget::Supplied(endpoint)) if refusal.code == "unavailable" => {
-            let mut endpoint = endpoint.clone();
-            endpoint.borrow_and_update();
-            control::emit(&control::Event::NeedAcpmux);
-            let _ = tokio::time::timeout(ACPMUX_WAIT, endpoint.changed()).await;
-            connect_acpmux(&config.acpmux).await?
-        }
-        (Err(refusal), _) => return Err(refusal),
+    let credential = control::phone_credential(phone);
+    let own = match credential.as_deref() {
+        Some(credential) => connect_acpmux_as(&config.acpmux, Some(credential)).await.ok(),
+        None => None,
+    };
+    let as_phone = own.is_some();
+    let socket = match own {
+        Some(socket) => socket,
+        None => connect_dashboard(&config.acpmux).await?,
     };
     let (mut ws_sink, mut ws_source) = socket.split();
     let mut message = MessageAssembler::default();
@@ -623,6 +635,14 @@ async fn acpmux(
                             }
                             None => None,
                         },
+                    };
+                    // On the phone's own credential acpmux decides by its Full-access setting.
+                    let (text, refused) = match (refused, as_phone) {
+                        (Some(answer), true) => match crate::acpmux_policy::marked(&text) {
+                            Some(marked) => (marked, None),
+                            None => (text, Some(answer)),
+                        },
+                        (refused, _) => (text, refused),
                     };
                     if let Some(answer) = refused {
                         if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
@@ -654,6 +674,22 @@ async fn acpmux(
     }
     let _ = ws_sink.close().await;
     Ok(())
+}
+
+/// The acpmux WebSocket on the dashboard token. Supervised, the app's acpmux may have
+/// restarted on another port: ask the app once and retry with what it sends.
+async fn connect_dashboard(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
+    match (connect_acpmux(target).await, target) {
+        (Ok(socket), _) => Ok(socket),
+        (Err(refusal), AcpmuxTarget::Supplied(endpoint)) if refusal.code == "unavailable" => {
+            let mut endpoint = endpoint.clone();
+            endpoint.borrow_and_update();
+            control::emit(&control::Event::NeedAcpmux);
+            let _ = tokio::time::timeout(ACPMUX_WAIT, endpoint.changed()).await;
+            connect_acpmux(target).await
+        }
+        (Err(refusal), _) => Err(refusal),
+    }
 }
 
 /// A session's current mode (`_acpmux/info` `currentModeId`) over hostd's own
