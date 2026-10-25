@@ -1,0 +1,632 @@
+# p01-process: the process model (final spec)
+
+Program: (1) Chromium's browser process moves out of cmux into the Chromium Host, a second executable of cmux.app (F2, item 4 at full scope: fork API 30 focus, IME, cursor, find, native UI drawn from data, drag, accessibility, visibility, display, crash page and restart, hang detection, launch, update). (2) Terminals: one holder process keeps every PTY and a byte ring for each; a small pool of VT parsers (threads first, then sandboxed processes) replaces one process plus 2-4 threads per terminal (F6). (3) The daemon owns the state and the app only draws. One app-daemon connection with streams replaces one connection per view. An app crash ends no shell, no page, no agent CDP session and no long-lived child.
+
+Base: `/Users/lawrence/fun/wt/chrome-parity` at 772cdfc45ac (origin/feat-cmux-next). All counts below are from `rg`/`grep`/`git` on that commit.
+
+Path names used in this spec:
+
+- CEFS = `Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF`
+- HOST = `Packages/macOS/CmuxNext/ChromiumHost` (exists after task 001 lands pl-cefhost-d3)
+- CORE = `cmux-tui/crates/cmux-tui-core/src`
+- APP = `Packages/macOS/CmuxNext/Sources`
+- SHIMH = `CEFS/Shim/cmux_cef_shim.h`
+
+How the 3 reviews were applied: every missing task that the reviews named was checked in the code (paths exist, counts re-run) and is in the task table, merged where two reviews proposed the same work. Every real problem is fixed in the task it names. Section 9 lists what was dropped or merged, each with its reason.
+
+---
+
+## 1. Chrome reference
+
+Each item names the Chromium source. The cmux design copies it or beats it, and says where it differs.
+
+1. **Process split for stability.** `docs/process_model_and_site_isolation.md`: separate processes limit "the impact of a renderer process crash or hang". Single-process mode "cannot survive any crash in renderer process code". Chrome keeps a spare `RenderProcessHost` with a live, unlocked renderer and no document (`content/browser/renderer_host/spare_render_process_host_manager.h`), and a soft process limit from physical memory. cmux: the Chromium Host is a separate process; it relies on content's spare RPH (not a spare page); the renderer-sharing policy moves with the host unchanged.
+2. **Rule of 2.** `docs/security/rule-of-2.md`: pick no more than 2 of untrustworthy input, unsafe language, high privilege. Parsers of untrusted input go to a sandboxed utility process that returns a well-formed IPC reply (Data Decoder Service). cmux: terminal output is untrusted, Ghostty's VT parser plus Kitty graphics is unsafe code. Today the daemon (all sessions) and the app (all TCC grants, keychain) both parse it. Target: sandboxed VT workers parse; the app draws from the workers' screens (task 241) and never parses bytes. Until 241 lands, the app keeps Rule-of-2 exposure; this spec says so and does not claim the protection is complete.
+3. **Services.** `docs/mojo_and_services.md`: `ServiceProcessHost::Launch<Iface>()`, "All services must specify a sandbox", calls queue before the connection exists. cmux: the VT worker and the Chromium Host each have one owner, a typed wire, a queue before ready, and restart by the owner. Pre-init calls of the shim queue in the client (class `preinit`).
+4. **Out-of-process NSViews (remote_cocoa).** `content/common/render_widget_host_ns_view.mojom`: `RenderWidgetHostNSView` (browser to view, 27 methods, "No synchronous communication is allowed in this direction") and `RenderWidgetHostNSViewHost` (view to browser, 40 methods), plus `PopupMenuRunner.Hide`. Chrome allows 5 `[Sync]` calls (`SyncGetFirstRectForRange`, `SyncGetCharacterIndexAtPoint`, `SyncIsSpeaking`, `SyncIsWidgetForMainFrame`, `GetRenderWidgetAccessibilityToken`) and answers firstRect from cached composition bounds first. The window half is `components/remote_cocoa/common/native_widget_ns_window_host.mojom` (OnVisibilityChanged, OnWindowOcclusionChanged, OnWindowDisplayChanged, OnWindowKeyStatusChanged, SetRemoteAccessibilityTokens) plus `alert`, `menu`, `select_file_dialog`, `text_input_host`, `application.mojom`. cmux copies the message set and beats it on sync: 0 sync calls; firstRect and characterIndex come only from rects the host pushes ahead. Pixels cross as a CAContext id in a `CALayerHost` (`ui/accelerated_widget_mac/display_ca_layer_tree.mm`). Counts are computed from mojom texts vendored at the fork's Chromium revision (task 059), not from constants.
+5. **One ordered pipe for a view.** `RenderWidgetHostNSViewHost` carries focus (`OnFirstResponderChanged`), bounds (`OnBoundsInWindowChanged`) and input (`ForwardKeyboardEventWithCommands`, `RouteOrProcessMouseEvent`) on one FIFO pipe. cmux has two channels (shm input ring, control socket), so every input frame carries the control seq it was written after, and the host applies it only after that seq (task 092).
+6. **GPU process crash policy.** `content/browser/gpu/gpu_process_host.cc`: `kForgiveGpuCrashMinutes = 5`, `GetFallbackCrashLimit() = 3`, `IsSessionEnding()` spends nothing, a process that failed to initialize is not counted as an ordinary crash (`did_fail_initialize_`). cmux copies this for the host restart, with a separate "cannot start" state.
+7. **Sad tab and hang.** `chrome/browser/ui/sad_tab.h` in the same tab. Renderer hang: `RenderWidgetHostImpl::RendererIsUnresponsive` after `kHungRendererDelay` = 15 s on desktop (`components/input/input_constants.h`), timer stopped on `WasHidden` (`StopInputEventAckTimeout`), Kill ends only that renderer. cmux copies this per tab (task 072). Separately, the host's own UI thread gets a 2 s banner (measured at host dispatch, not renderer ack), because a host UI-thread stall freezes every page.
+8. **HangWatcher.** `base/threading/hang_watcher.h`: watcher thread, `WatchHangsInScope`, `kDefaultHangWatchTime = 10 s`, `RecordHang()` calls `base::debug::DumpWithoutCrashing()`; it polls every `kHangWatcherMonitoringPeriod` (10 s). cmux copies the scopes and the dump, reports UI-thread hangs > 250 ms to the hang pipeline, and beats it on idle: the watcher parks with no deadline while no scope is active.
+9. **Crash capture.** `components/crash/core/app/crashpad_mac.mm`: every process crash becomes a Crashpad minidump with all thread stacks. cmux: CEF crashpad in the host with no upload, local dumps in `debug.crashes`, URLs stripped (task 226).
+10. **Input priority and coalescing.** `BrowserTaskType::kUserInput` (`content/public/browser/browser_task_traits.h`). The browser forwards input at once; `MouseWheelEventQueue` coalesces only events queued behind an unacked one; the renderer's `MainThreadEventQueue` coalesces to rAF. cmux copies this: ack-based coalescing (the first move or wheel leaves at once), dispatch on `cmux_shim_post_user_input_task` (fork API 30). Mojo on macOS uses Mach ports (`mojo/core/channel_mac.cc`), which pass the sender's QoS; the cmux doorbell is a Mach port for the same reason.
+11. **IPC bounds.** `mojo/public/cpp/bindings/lib/message_quota_checker.cc` only reports an over-quota pipe (DumpWithoutCrashing, UMA). The kill is for a malformed message (`bad_message::ReceivedBadMessage`). cmux copies both: a bad frame ends the child; an over-quota queue coalesces state ops by key and reports a counter; only the person's Reload or a 60 s hard ceiling ends the host.
+12. **Disconnect handlers.** A mojo `Remote` disconnect drops or default-invokes pending callbacks (`mojo::WrapCallbackWithDefaultInvokeIfNotRun`). cmux: every pending token and native-UI sheet resolves with `.hostGone` in the exit turn (task 091).
+13. **Visibility and occlusion.** `WebContents::WasHidden`/`WasOccluded`, `content/browser/web_contents/web_contents_occlusion_checker_mac.mm`. Background tabs get rAF 0/s and timer throttling. cmux pushes visibility from its own windows (task 220); a detached page is otherwise always "visible".
+14. **Screen info.** `RenderWidgetHostNSViewHost::OnScreenInfosChanged`, `OnWindowDisplayChanged`: begin-frames come from the display that shows the view. cmux pushes SCREEN_INFO (task 221).
+15. **Process priority.** The browser is the foreground app and sets each child's priority through its task port (`base::Process::SetPriority`, MachPortRendezvous). cmux: an LSUIElement host is a background app to macOS, so it holds `NSActivityUserInitiated | NSActivityLatencyCritical` while cmux is active (task 222).
+16. **Secure input.** `ui/base/cocoa/secure_password_input.h` (`ScopedPasswordInputEnabler`): the frontmost process enables secure event input for password fields. cmux is the frontmost process, so cmux does it (task 230).
+17. **Session restore.** `SerializedNavigationEntry` carries `encoded_page_state` (scroll, form values). cmux restores PageState, not only URLs (task 093).
+18. **Site isolation.** Two sites never share a process when one could read the other's data. cmux: VT worker shards never mix trust classes (task 142). Everything a worker sends is validated, and a bad message kills it (task 141).
+19. **Browser owns state.** The browser process is the only authority; renderers and GPU restart from it. cmux: the daemon is the authority; holder and workers are restartable children; the app keeps caches and view state and reattaches after its own crash (holder for shells, Chromium Host for pages, daemon for CDP and long-lived children). Here cmux goes past Chrome, where a browser crash ends every tab.
+20. **Sandbox profiles.** Chrome's utility Seatbelt profiles deny `mach-lookup` and `iokit-open` by default and apply the parent-compiled policy before untrusted input (`SeatbeltExecClient/Server`). cmux's worker profile does the same (task 133); Linux uses seccomp-bpf plus landlock (task 211).
+
+---
+
+## 2. cmux today (772cdfc45ac)
+
+Chromium (F2):
+
+- Pin `cef-154.0.28-cmux.28`, `"cmux_cef_api_version": 24` (`scripts/cmux-next/cef-manifest.json`). **No fork release at API >= 30 exists**: no commit in any ref sets it (`git log --all -S'"cmux_cef_api_version": 30'` is empty). The only newer pin is origin/pl-cef-layer-cmux33-pin-2 (02ad34b45da, API 27, staging, arm64 only, 1,408 commits behind). API 30 exists only as fork builds tested by `scripts/measure/cef-embedder.sh` (helper-input-queue, helper-wheel-phase, helper-ime, helper-ax-token, helper-drag-source, helper-detached).
+- CEF runs on cmux's main thread: `CEFMessagePump.swift`, `CEFPumpSchedule.swift`, `CEFPumpTimer`, `CEFPumpCrossThreadGate`, `CEFPumpStats`; `CmuxApplication` conforms to `CefAppProtocol`; target `CmuxNextMallocZone` exists only for the in-process zone race.
+- SHIMH has **143** `CMUX_SHIM_EXPORT` functions (`grep -c` gives 144 because it counts the `#define` at line 28); **95** return `int`. Enum `cmux_shim_event_kind_t` (SHIMH lines 30-191) has **48** event kinds (`CMUX_SHIM_CONTEXT_INITIALIZED = 1` .. `CMUX_SHIM_FILE_DIALOG = 48`); the separate `cmux_shim_devtools_command_t` has 5 values. One event callback `(kind, browser, request, a, b, s1, s2)`. 6 callback typedefs (4 synchronous on main: `key_fn`, `window_request_fn`, `focus_request_fn`, `password_reveal_fn`) and inline function-pointer parameters (`post_user_input_task`, `text_input_watch`, `set_drag_source_handler`, devtools key handler). NSView* arguments: `create_window`, `devtools_set_placement`, `popup_window_attach`. Pre-init exports: `set_new_tab_page_url`, `set_default_search`, `set_chrome_policy_id`, `set_extension_developer_mode`, `page_scheme_add`/`_first_party`/`_dynamic`, `add_native_messaging_dir`. No visibility or occlusion export (`rg 'was_hidden|occlu' SHIMH` = 0).
+- Swift: **175** `shim?.X(` sites in **49** files (CEFRuntime.swift 23, CEFTab.swift 15, CEFDevToolsController 10, CEFRuntime+Events 9, CEFPaneHost 9, CEFDownloads 9). About 99-121 of them use the return value.
+- Child-window coupling outside the shim: 56 files match `childWindows|addChildWindow|CefNSWindow|isPageWindow|pageWindow|ChromiumPageWindow` (for example `CEFTab+Visibility.swift`, `CmuxNextDesign/Overlay/WindowOverlayHost.swift`, `CmuxNextFocus/ChildWindowKeyRule.swift`, `CmuxNextApp/Focus/DebugKey.swift`).
+- Host prototype on tip: `CEFS/ChromiumHost/` has 8 Swift files (Configuration, Connection, Frame, Launcher, PageView, Prototype, RestartPolicy, Session) and `Packages/macOS/CmuxNext/CEFShim/src/chromium_host_wire.h`. Not landed: origin/pl-cefhost (7bbabfa026b, +35, 159 behind), origin/pl-cefhost-bench2 (ce1036c136e, +36), origin/pl-cefhost-d3 (7ed18574b1a, +39).
+- No crash dump handler anywhere (`rg crashpad` hits only `CmuxNextCompat/Process/ChildSignalDefaults.swift` and its test).
+- A browser-process CHECK ends cmux. An app crash ends every page.
+
+Terminals (F6):
+
+- Default: one `cmux-tui __terminal-host` per terminal. Heavy fleet session: 392 processes, 172 hosts, 3,300 threads, daemon 797 threads, 7.8 MB per hidden terminal, 3 VT parses per byte.
+- Holder: crate `cmux-holder` (one `poll` set, not kqueue; `RING_BYTES = 1 << 20` at holder.rs:30). Off by default. Default-on heads: pl-daemon-holder-6 (454518e270a, 1,779 behind), -12 (29d0ad14529), **-13 (6ca4e325e31, 745 behind)**. perf-lead row 239: holder default-on is blocked by the spawn-side close-on-exec race; `scripts/cmux-next/raw-spawn-baseline.tsv` still lists **168 lines in 67 files** (cmux-tui 47 files, cmux-tui-core 16, cmux-pty 2, cmux-tui-platform 2).
+- Per-object daemon threads (`rg 'name\(format!\("[^"]*\{(id|terminal_id|surface_id|stream_id|name|worker_index)\}'` = 31 sites): `surface-{id}-reader/-wait/-host`, `terminal-exit-detach-{terminal_id}` (sleep-retry loop), `terminal-adopt-{terminal_id}`, `template-complete-{terminal_id}`, `browser-surface-{id}-events/-worker/-bootstrap`, `cmux-remote-pty-{id}`, `cmux-remote-pty-wait-{id}`, `role-{name}-wait`, and others.
+- Per-connection threads: `mux-conn` (server/listen.rs:416), `mux-line-out` (line_connection.rs:46), `mux-events-out` (cmd_subscribe.rs:68). Per-attach: `mux-attach-out`, `mux-render-attach-out`, `mux-attach-notifications`, 8 `mux-resource-*`/`mux-snapshot-attach-out` sites.
+- cmux-tui crates: 285 `thread::Builder::new()` and 301 `thread::spawn(` sites outside tests; 0 set a QoS.
+- VT state: 55 CORE files reference `ghostty_vt::` (181 references).
+
+App to daemon:
+
+- 8 `LineTransport(` sites: TerminalAttachment.swift:113, AgentSessionAttachClient.swift:247, LoopbackForwardClient.swift:105, SessionJournalRead.swift:26, DaemonSocketMemory.swift:35, SessionEnding.swift:88, DaemonConnection.swift:213, DaemonConnection+Commands.swift:361.
+- Output is base64 in JSON. The app's Ghostty parses again (`GHOSTTY_SURFACE_IO_MANUAL_MIRROR`).
+- **D3 is built, not landed**: origin/pl-conn-d3-land2 (b2671fb77fb, +26 commits, +6,538 lines, 325 behind) has attach streams, binary frames (`attach_frames.rs`, `AttachFrameHeader.swift`), per-stream lanes (`stream_lanes.rs`), a daemon-side shm output ring (`surface/output_ring.rs`, `TerminalOutputRingMapping.swift`), `TerminalStreamReader.swift` and `WireSplitter.swift`. It does not touch `cmux-remote` (SSH bridge).
+
+State:
+
+- `UserDefaults`: **172** hits in **88** files (not 152). 85 files write under Application Support (bookmarks, visit log, downloads, site zoom, profiles, incognito ledger, tasks).
+- 35 app files spawn processes (`= Process()|posix_spawn(`); long-lived ones die with the app: `AgentPaneShell.swift` shell runs, `LocalRemoteBrowserHost.swift` (one host per remote tab), `VSCodeServeWebProcessLauncher.swift`.
+- acpmux: 5-8 processes and 40-80 threads per chat (acpmux-audit finding 10).
+
+---
+
+## 3. Target design
+
+```
+cmux app (UI only: layout, input routing, drawing, view state)
+  |-- 1 socket per daemon: client-minted streams, binary frames, per-stream lanes, person-first lane (D3)
+  |     cmux-tui daemon = the only authority: session tree, sidebar, terminal model, journal, agent CDP, long-lived children
+  |       |-- cmux-holder (1 per install): every PTY master, parent of shells, 1 MiB ring per terminal, no VT
+  |       |-- VT parse: phase A vt-pool threads in the daemon (2 groups: visible USER_INITIATED, hidden UTILITY)
+  |       |             phase B cmux-vt-worker x N (sandboxed, sharded by trust class), screens in seqlock pages
+  |       |-- one mux-io thread for all connections, one child-exit watcher, one pty-writer
+  |       |-- daemon-owned children: shell-mode runs, 1 remote-browser host, VS Code serve-web, acpmux helper (1 per chat)
+  |       `-- provider link from the Chromium Host (agent CDP goes daemon <-> host, never through the app)
+  |-- daemon output ring (D3) mapped read-only; the app copies [last,end) once, then validates (no base64, no JSON)
+  |     end state (241): the app draws from worker screen pages and parses no terminal bytes
+  `-- <Product> Chromium Host (second executable in Contents/MacOS, same bundle id, LSUIElement, posix_spawn, App-Nap-exempt while cmux is active)
+        = Chromium's browser process: CefInitialize + CefRunMessageLoop on its own main thread, crashpad, HangWatcher-style scopes
+        `-- Chromium helpers (renderer, GPU, utility)
+```
+
+### 3.1 Chromium Host wire
+
+- **Input channel**: shm SPSC ring per direction, 4,096 frames of 64 bytes (existing `chromium_host_wire.h` layout) plus a **Mach-port doorbell** (QoS override passes from the writer). The writer is one atomic release-store and a non-blocking send, only when the reader is parked. Each frame carries `seq` and `ctl_seq`.
+- **Ordering**: the host dispatches an input frame only after the control reader has applied `ctl_seq`. IME, edit-command, focus, embedder-active and geometry ops carry an input seq barrier (task 092).
+- **Coalescing (ack-based)**: a move or wheel frame leaves at once when none is in flight. While one is unacked, later ones coalesce into one slot (latest move, summed wheel per phase), sent on the ack. Keys and clicks are never dropped or coalesced.
+- **Ack**: the host acks a seq when it dispatches it on its UI thread (`cmux_shim_post_user_input_task`). Renderer handling is not the ack.
+- **Control channel**: socket pair, `u32 len | u16 op | u16 flags | u32 token | TLV`. SCM_RIGHTS up to 4 fds. Payloads over 64 KiB go as sealed anonymous shm fds. An anonymous XPC endpoint carries only CA fence ports.
+- **Bounds**: a malformed frame ends the host. Over-quota (256 KiB or 4,096 messages pending) does not end the host: state ops coalesce by key (latest geometry, focus, visibility, screen info per page), moves and wheel use the coalesced slot, keys and clicks wait in a cmux-side queue, and a counter reports the excess. The host is ended only by the person's Reload or a 60 s hard ceiling. cmux's main thread never blocks on either channel.
+
+### 3.2 Remote shim (machine-generated, Jarred's method)
+
+- `plans/cmux-next/chromium-host-ops.json` classifies every export and event kind. Classes: `post` (void-like; a caller that reads its result is refused), `mirror` (served from a main-thread cache refreshed in the same per-frame batch as its events; posts that change a mirror key mark it pending or apply it optimistically), `async` (token + REPLY), `mint` (client-minted ids), `policy` (sync callbacks become pushed policy + events), `view` (NSView* args go to `ChromiumHostPageView`), `local` (function-pointer args; hand-written client code), `preinit` (queued in the client, applied in order before `CefInitialize`). **There is no `sync` class**; the generator refuses one, refuses a function-pointer argument outside `local`/`policy`, and refuses a `post` export whose Swift caller binds or compares its result.
+- `scripts/cmux-next/gen-chromium-host-wire.py` emits: (a) `HOST/src/generated/host_dispatch.inc`; (b) `HOST/client/generated/remote_shim.inc`, the same `cmux_shim_*` ABI and `cmux_shim_abi_id` for `libcmux_cef_shim_remote.dylib`; (c) Swift op ids and decoders as instance-surface types (namespace lint). Counts come from parsing SHIMH; the done check is N/N for the computed N (143 exports, 48 event kinds today).
+- `CEFShimLibrary` loads the remote dylib in host mode. Only async, mint, view, local and result-reading sites change; `--swift-sites` lists them; each is a line item in tasks 021-028.
+- Events are batched to main once per frame under `MainWorkClass.visible`. Every pending token resolves with `.hostGone` on exit (task 091).
+
+### 3.3 Page view in cmux (remote_cocoa one for one)
+
+`ChromiumHostPageView`: CALayerHost on the host's CAContext id; the host's page window is detached (API 30) and never ordered in. Focus = cmux first responder + `set_embedder_active`. Keys: KeyRouter decides first in `CmuxApplication.sendEvent`; unhandled keys come back as async KEY_UNHANDLED. IME: NSTextInputClient in cmux, composition ops to the host, the host pushes TEXT_INPUT_STATE (type, selection text with about 100 characters of context, composition range, per-char rects, caret rect) after each change; 0 sync IPC. Secure event input for password fields is enabled by cmux. Cursor from `OnCursorChange`. Accessibility: remote tokens exchanged once. Drag in and out. Find. Edit commands, dictation, Look Up. Resize fence (one frame maximum). Visibility and occlusion pushed (hidden pages: rAF 0/s). SCREEN_INFO pushed (vsync from the display that shows the page). Swipe and pinch from WHEEL_ACK. Fullscreen, pointer lock and keyboard lock done by cmux. Native UI from data: `<select>`, date/time and `<datalist>` popups, color, autofill and password suggestions, permissions, JS dialogs, HTTP auth, file pickers, certificate errors, beforeunload, context menus, printing, device choosers, screen-share picker, external protocol, Web Share, PiP; extension popups, side panel, DevTools and window.open popups as hosted contexts. A fork kill switch suppresses and reports any Views widget that would order a visible host window. In host mode no page is a child window: overlay reorder panels, divider mouse catchers, page-window key reclaim and child-window snapshots are in-process-only code.
+
+### 3.4 Supervision
+
+`ChromiumHostSupervisor` (one host for all profiles; built once in AppServices). posix_spawn on BackgroundWork `.system`, never main. Exit via kqueue NOTE_EXIT + `waitid(WNOWAIT)`. Crash: each hosted tab shows `ChromiumCrashPageView` in the exit turn, pending tokens resolve, then restart and restore each tab from the daemon's frontend-browser-history-v1 record with PageState. Restart budget = Chrome GPU rule (5 min forgive, limit 3, session end free), and a death before CONTEXT_INITIALIZED goes to "cannot start" with a reason and no retry loop. Hangs: host UI-thread banner at 2 s (Wait, Reload Chromium); renderer hang per tab at 15 s (Wait, Kill page); both timers stop while hidden. Host hang reports > 250 ms to the hang pipeline, dump at 10 s. Crashpad dumps for host and helpers. Helper exits reported. App crash: the host keeps pages for 30 s and is adopted by the relaunched app over a socket that checks audit token + code signature (same team ID and designated requirement) and wire + fork API versions (behind `browserHost.survivesAppCrash`). Quit with beforeunload uses `.terminateLater` and the host's reply. Sparkle and Chromium runtime updates restart the host at a quiet point. In-process CEF stays as a fallback backend until Release parity; in host mode the app never maps the framework or runs the pump.
+
+### 3.5 Terminals
+
+- Holder default-on (pl-daemon-holder-13 re-cut) only after the raw-spawn baseline is empty (tasks 200-202).
+- Phase A: vt-pool threads replace `surface-{id}-reader`; exits come from holder EXIT frames; one `child-exit` watcher for every daemon child; one `pty-writer` with a key lane; one `mux-io` thread for all connections; per-attach and per-object threads become jobs or streams. Parse tasks are sliced (64 KiB or 1 ms) and requeued, so a hidden flood never delays a visible chunk by more than one slice.
+- Phase B (behind `CMUX_TUI_VT_WORKERS=process`, DEV default at the end of 72 h when its rows pass): sandboxed `cmux-vt-worker` processes, shards by trust class (local, SSH/remote/cloud, agent-fetched), screens and terminal modes in seqlock pages (key encoding never hops to a worker), events validated by a bad_message rule, prologue snapshots and DA/DSR answers from the shard owner, content-addressed binary with a wire version, seccomp + landlock on Linux.
+- App: D3 lands (streams, frames, lanes, daemon ring). The app reads the ring with copy-then-validate. End state: the app draws from worker screen pages (task 241 spike, then build behind a flag).
+- Hidden terminals free their app surface after 30 s.
+
+### 3.6 Schedule (72 h)
+
+| Hours | Work |
+|---|---|
+| 0-6 | 001, 002 prerequisites (200-202), 003 staging pin, 004, 010, 011, 081, 126 (land D3), 151, 238, 180, 231, fork tasks 170-176 and 227 start |
+| 6-12 | 005 baseline, 012-015, 040, 041, 092, 120, 203, 207, 208, 160; **fork release train 178 cut by hour 12** |
+| 12-36 | 016-028, 030-034, 042-055, 059, 220-225, 060-070, 080-093, 121-125, 133, 139, 204-206, 209, 235-237 |
+| 36-60 | 100 (DEV default-on), 134-142, 210, 211, 226-234, 150, 152, 239, 240, 241 spike |
+| 60-72 | 101-104, 137, 140, 161, all done checks light and STRESS; NIGHTLY only via task 104 when its rows pass |
+
+---
+
+## 4. Rules for every task in this program
+
+1. No synchronous call from cmux to the host, the holder, a worker or the daemon on the main thread. No waiting lock on main (the mirror cache is main-owned).
+2. Every wire is bounded. A malformed frame ends the child; a full queue coalesces or reports, and never blocks cmux.
+3. Every new thread or queue declares its QoS and is listed in `plans/cmux-next/threading-model.md`. Check with `process-model-census.py --threads` against that doc plus `rg -n '\.name\(' ` over Rust and ObjC++ sources, not with `guardrails.py` (its thread-doc rule reads Swift only).
+4. **No new CI job, CI step, perf-gate row or CI test** (Lawrence 2026-10-23). Generator checks, census, benches and `tests/qos_sites.sh` run in the agent's own fleet loop (`cmux-ci run`, `cmux-ci build`) and the existing pre-push hook only. A new `tests/test_*.py` is listed in `tests/test-execution.toml`.
+5. Each fix gets a regression test that fails without it; the agent runs it on the fleet before and after and writes both results in the commit.
+6. No compile or test on the person's Mac. Fleet only.
+7. `python3 scripts/cmux-next/prepush-gate.py` before every push; no `--no-verify`.
+8. Risk tiers: `risk:high` with a `Review (<reviewer>): SHIP at <sha>` receipt for 002 (shell parenting), 087 (updater), 088 (signing and notarization), 133/134/211 (sandbox policy), 150 (adoption socket), 233 (provider credential). User-visible high-tier behavior stays behind `browserHost.helper` or `browserHost.survivesAppCrash` or `CMUX_TUI_VT_WORKERS`.
+9. User-facing strings go through the cmux-localization audit (tasks 061-064, 072, 082, 084, 228, 229).
+10. Generated Swift uses instance-surface types (namespace lint). `ChromiumHostInputRing.write`, the event batch drain, the ring reader and the vt-pool dispatch carry `// perf-hot:` markers with rows in `scripts/cmux-next/perf-hot-benches.json`.
+11. One live lease per shared CEFS file (task 180). Agents do not edit a CEFS file without its lease.
+12. Branches are landed with `scripts/merge-main.sh`-style merges, never a rebase over others' work.
+13. In the 72 h, host mode and VT worker processes default on in **DEV only**. NIGHTLY needs task 104.
+14. Do not hand-edit generated files (SDK bindings from D3, settings schema); regenerate.
+
+---
+
+## 5. Done checks
+
+All run on the fleet (aws-m4pro on macOS 26 and 27, cmux20-bench and minis for GUI rows, Tart via `scripts/cmux-next/os-matrix.sh` for 14 and 15), light and STRESS (`perf-stress-session.py`), with host, macOS, Hz and sha recorded in perf-lead.md.
+
+1. `python3 scripts/cmux-next/gen-chromium-host-wire.py --check` exits 0: N/N exports (N computed from SHIMH, 143 today) classified and implemented on both sides; M/M event kinds (48 today) forwarded and decoded; 0 `sync`; 0 function-pointer args outside `local`/`policy`; `--check-return-use` 0 post results read.
+2. `gen-chromium-host-wire.py --check-view-parity` exits 0 against the mojoms vendored at the fork's Chromium revision (render_widget_host_ns_view.mojom 27 + 40 + PopupMenuRunner.Hide, native_widget_ns_window_host.mojom and the other remote_cocoa/common mojoms): each method maps to an op or has a written not-needed reason.
+3. Host mode, 10 Chromium tabs: `vmmap <app pid> | grep -c 'Chromium Embedded Framework'` == 0 and `sample <pid> 5 | grep -c CefDoMessageLoopWork` == 0.
+4. `chromium-host-bench.py --kill-host --signals TRAP,SEGV,ABRT,KILL`: cmux pid unchanged; crash page within 1 frame of the exit event; every tab back at its last committed URL with scroll and form text (PageState) within 2000 ms; 4th crash in 5 min leaves Reload; a host that dies before CONTEXT_INITIALIZED shows "cannot start" with 0 retries; each crash leaves a minidump with symbolized frames and no URL; terminal key-to-frame p99 <= 16.7 ms during the kill.
+5. `--stall 50/100`: host page scrolls at 120 Hz with 0 dropped frames; the same after 10 min idle with cmux frontmost (no App Nap regression).
+6. Key and click to page paint at 120 Hz: p50 <= 8.3 ms, p99 <= 16.7 ms, p95 <= in-process p95 + 1.0 ms. First wheel event of a gesture leaves cmux in < 0.5 ms.
+7. Ordering row: 10,000 keys interleaved with focus changes, IME commits and resizes across 2 pages; every key lands on the page that was active when it was written; IME text order equals send order.
+8. `--ime` on 14, 15, 26, 27: Kotoeri compose and commit, dead key, emoji picker, dictation 100% pass; firstRect < 0.1 ms; `debug.chromium_host ime_sync_requests` == 0; secure event input on while a password field has focus and off after blur, crash, close.
+9. `--ax`: page view has remote AX children; the probe h1 is readable.
+10. `--native-ui`: 100% pass for select, date/time popup, datalist, color, autofill, password suggestion, permission (camera, mic, location, notifications), alert, confirm, prompt, HTTP auth, file picker, certificate error, beforeunload, print, extension popup, DevTools docked and undocked, window.open popup, device chooser, screen share, external protocol, Web Share, PiP, fullscreen, pointer lock, keyboard lock, swipe back; the host is never frontmost and has 0 visible windows (CGWindowList owner = host pid with alpha > 0) across all rows.
+11. `--hang 5000` (host UI thread blocked): banner at 2000 +/- 100 ms; cmux main-thread turn p99 <= 4 ms during the hang; `while(true){}` in a page gives only the per-tab prompt (15 s), never the host banner; no hang timer armed while hidden; host hangs > 250 ms appear in the hang reports.
+12. `bench_idle.py --scenarios app-hidden,app-visible,workspace-hidden --chromium-tabs 10`: app main <= 0.5 wake/s; app + daemon + holder + VT workers + Chromium Host browser process <= 1.0/s; renderers and GPU reported as their own row; hidden pages 0 rAF/s and `document.visibilityState == "hidden"`.
+13. `python3 scripts/cmux-next/process-model-census.py --session heavy` (150 workspaces, 172 terminals): `__terminal-host` == 0; holder == 1; VT workers <= 4 (+1 per extra trust class); Chromium Host == 1; daemon threads <= 64 steady, and peak <= 64 during an agent CLI burst of 200 calls and during a daemon restart (sampled every 50 ms); cmux-owned threads excluding Chromium helpers <= 400; RSS per hidden terminal across all roles <= 1.5 MB with shared mappings counted once (per-role budgets set by task 005).
+14. `rg -n 'name\(format!\("[^"]*\{(id|terminal_id|surface_id)\}' cmux-tui/crates/cmux-tui-core/src` lists only sites in the hosts opt-out module; census shows 0 per-terminal threads with 172 terminals.
+15. On the fleet: `cargo test -p cmux-holder --test spawn_race` (10,000 receive-plus-spawn iterations, 0 leaked fds) on macOS 26 and 27; `cargo test -p cmux-tui --test holder_terminals --test vt_worker_restart --test vt_worker_bad_message`: SIGKILL of holder or daemon kills 0 shells and digests are equal; SIGKILL of one VT worker restores its 16 terminals within 100 ms while other shards' echo p99 <= 5 ms; a crash corpus that kills ghostty-vt kills only one shard.
+16. VT worker sandbox: after setup, `open()`, `fork()`, `socket(AF_INET)` and `bootstrap_look_up("com.apple.pasteboard.1")` fail (macOS); `open`/`socket`/`execve` fail with seccomp (Linux).
+17. perf-10x-lifecycle part=daemon: new-tab terminal send-to-reply p95 < 2 ms; split p95 < 2 ms; read-screen p95 < 1 ms with process workers.
+18. split-latency-bench.py step 4: attach handshakes per split == 0; `rg -n 'LineTransport\(' APP/CmuxNextDaemon/Terminal APP/CmuxNextDaemon/AgentSession` == 0.
+19. bench-typing.py, 10 printing terminals (STRESS) + an agent CLI flood: terminal key-to-frame p50 <= 8.3 ms, p99 <= 16.7 ms; app-side output copies <= 1 per chunk, 0 base64, 0 JSON (`debug.terminal`); agent composer key-to-frame p99 <= 16.7 ms in host mode.
+20. kill -9 of the app, then relaunch (`browserHost.survivesAppCrash` on): every terminal screen within 300 ms of first frame; every Chromium page with no reload (`performance.timeOrigin` unchanged via CDP); an agent CDP session stays alive; a 60 s shell-mode command keeps running; 3 remote tabs reattach with one remote-browser host; VS Code keeps its URL.
+21. acpmux stress.tree, 27 chats: <= 3 processes and <= 12 threads per chat; 0 daemon connections per tool call after the first.
+22. Thread doc: every new label (chromium-host control reader, input doorbell, supervisor exit, hang watcher, vt-pool-v-N, vt-pool-h-N, holder-link, child-exit, pty-writer, mux-io, browser-runtime) is in threading-model.md with its QoS; census QoS column matches.
+
+---
+
+## 6. Machine queues
+
+Each hit is one line item of the named tasks. After task 011, Q1-Q4 come from the generator.
+
+- **Q1 shim exports (143)**: `grep -oE 'CMUX_SHIM_EXPORT [^(]*\bcmux_shim_[a-z0-9_]+' SHIMH | grep -oE 'cmux_shim_[a-z0-9_]+$'`; live queue `gen-chromium-host-wire.py --check --list-missing` (export, class, missing side). Tasks 010-020.
+- **Q2 event kinds (48)**: `sed -n '/typedef enum {/,/} cmux_shim_event_kind_t;/p' SHIMH | grep -oE 'CMUX_SHIM_[A-Z0-9_]+ = [0-9]+'`. Tasks 013, 016, 017.
+- **Q3 Swift call sites (175 in 49 files)**: `rg -n '\bshim\??\.[a-zA-Z]+\(' APP --glob '!**/CEFShimLibrary.swift'`, filtered by `--swift-sites` (async, mint, view, local, result-read). Tasks 021-028; leases from task 180.
+- **Q3b result reads**: `gen-chromium-host-wire.py --check-return-use`. Tasks 011, 021-027.
+- **Q4 callbacks and function pointers**: `rg -n 'typedef .*\(\*cmux_shim_[a-z_]+_fn\)|\(\*[a-z_]+\)\(' SHIMH`. Tasks 014b, 030-034.
+- **Q5 remote_cocoa parity**: `--check-view-parity --list-unmapped`. Tasks 040-055, 059, 220, 221, 230, 234.
+- **Q6 native UI rows**: `chromium-host-bench.py --native-ui --list-failing`. Tasks 060-070, 228, 229.
+- **Q7 per-object daemon threads**: `rg -n 'name\(format!\("[^"]*\{(id|terminal_id|surface_id|stream_id|name|worker_index)\}' cmux-tui/crates --glob '!**/tests/**'` (31 sites) plus `process-model-census.py --threads --by-name`. Tasks 120, 121, 205, 206.
+- **Q7b per-connection and per-attach threads**: `rg -n 'name\("mux-(conn|line-out|events-out|attach-out|render-attach-out|attach-notifications|resource-[a-z-]+|snapshot-attach-out)"' CORE`. Tasks 125, 203, 204.
+- **Q7c child waits**: `rg -n 'name\((format!\()?"[^"]*(-wait|-reaper|-reap|-exit)' cmux-tui/crates --glob '!**/tests/**' --glob '!*_tests.rs'`. Task 207.
+- **Q8 hosted terminal path**: `rg -ln '__terminal-host|spawn_host_runtime' cmux-tui/crates --glob '!**/tests/**'`. Task 138.
+- **Q9 per-view connections**: `rg -n 'LineTransport\(' APP` (8 sites; DaemonConnection, SessionEnding, DaemonSocketMemory, SessionJournalRead, LoopbackForwardClient and Commands one-shot stay). Tasks 126, 127, 236.
+- **Q10 in-process CEF in host mode**: `rg -ln 'CEFMessagePump|CEFPumpSchedule|CEFPumpTimer|CEFPumpCrossThreadGate|doWork\(|CefAppProtocol|CmuxNextMallocZone' APP`. Tasks 034, 101, 102.
+- **Q10b child-window machinery**: `rg -l 'childWindows|addChildWindow|CefNSWindow|isPageWindow|pageWindow|ChromiumPageWindow' APP --glob '!**/*Tests*'` (56 files). Tasks 220, 223, 224, 028.
+- **Q11 UserDefaults (172 in 88 files)**: `rg -n 'UserDefaults' APP --glob '!**/*Tests*'`. Task 151.
+- **Q11b app file stores (85 files)**: `rg -l 'applicationSupportDirectory|\.applicationSupport|Application Support' APP --glob '!**/*Tests*'`. Task 238.
+- **Q11c app child processes (35 files)**: `rg -l '= Process\(\)|posix_spawn\(' APP --glob '!**/*Tests*'`, filtered to processes that outlive one request. Task 239.
+- **Q12 QoS of process-model threads**: `rg -n 'thread::Builder::new\(\)|thread::spawn\(' cmux-tui/crates/cmux-holder/src CORE/holder_runtime CORE/vt_pool* cmux-tui/crates/cmux-vt-worker`. Task 139.
+- **Q13 fork batch**: tasks 170-176 and 227 in one release at fork API 31, task 178.
+- **Q14 raw spawns (168 lines, 67 files)**: rows of `scripts/cmux-next/raw-spawn-baseline.tsv`; `check-no-raw-spawn.py`. Tasks 200-202.
+- **Q15 VT state access (55 files, 181 refs)**: `rg -n 'ghostty_vt::' CORE --glob '!**/tests/**' --glob '!*_tests.rs'`; live queue `vt-state-access.py --check`. Tasks 208, 209, 135.
+- **Q16 deferred-event failures**: tests that fail with `CMUX_CEF_DEFER_EVENTS=1`. Task 231 (one fix item each, before 021-028).
+
+---
+
+## 7. Risks and decisions
+
+Decisions taken in this spec (each can be overridden in one reply):
+
+- CEF pin upload. Decision: one R2 release (task 178) at hour 12; until then, staging pins only (task 003). Reply `I upload to R2 at hour 12` or `stage only for all 72 h` (with `stage only`, the done checks prove only staging builds, and DEV default-on slips).
+- VT parsing. terminal-host-model-DESIGN.md records Lawrence's decision D (2026-10-23: "the daemon parses; the holder keeps only raw output"). Decision: phase A (in-daemon pool, option D) is the default; phase B (sandboxed workers, option E) is behind `CMUX_TUI_VT_WORKERS=process` and on in DEV only when its rows pass. The holder still keeps only raw output. Reply `keep option D only, drop workers` or `workers in DEV behind the flag`.
+- Holder ring to the app (old tasks 130, 132) is dropped from the 72 h. D3's daemon ring is used. The end state is task 241 (the app draws screens, not bytes). Reply `restore holder-to-app ring` or `keep the D3 ring and task 241`.
+- Host mode default: DEV only in the 72 h, NIGHTLY by task 104 after all rows pass. Reply `NIGHTLY at hour 72 regardless` or `NIGHTLY only after task 104 rows pass`.
+
+Risks:
+
+1. Fork turnaround: about 1.6 h per cold build plus about 1 day for packaging and pin. Only one release fits. Anything missing from 170-176 and 227 at hour 12 waits past the 72 h; its feature stays off in host mode, and host mode stays off in NIGHTLY.
+2. The generated remote shim is the main bet. 95 int returns and about 99-121 result-reading sites shrink the "no change" part. Task 011's `--check-return-use` output at hour 10 decides: if more than 60 Swift sites need rewrites, re-plan 021-027 sizes before hour 12.
+3. Two Chromium backends for one release (in-process fallback). REVIEW-STANDARD.md dislikes two paths; chosen for release risk; deletion is a follow-up after Release default-on (task 102).
+4. Same bundle id for the host: LaunchServices, `open -b`, Quit AppleEvents and the defaults domain can confuse the two processes. Identity rows in chromium-host-bench.py are the only check.
+5. CALayerHost, CAContext and NSAccessibilityRemoteUIElement are SPI. 14 and 15 only in Tart; VM timing is not perf evidence.
+6. The adoption socket (task 150) and the provider credential (task 233) are new local attack surfaces. Both check audit token and code signature, and both need risk:high receipts.
+7. D3 lands 325 commits behind with generated SDK bindings; conflicts must be regenerated, not hand-merged. Owner PL-conn (OWNERS) must be told.
+8. VT workers (phase B) touch 55 files of VT state access; if task 208 finds more than 20 `async` rows on request paths, phase B stays off in DEV and only phase A ships.
+9. App-side Ghostty keeps parsing untrusted bytes until task 241. A VT or Kitty bug can end cmux until then.
+10. The fleet measure queue waited 4 h or more on 2026-10-24; GUI rows need lit displays (cmux20-bench, minis). Measurement can become the critical path; benches are batched per build.
+11. Hundreds of agents on one branch collide on CEFS files shared with the API 29 renderer-sharing, layer-hosting and capture programs. Task 180 leases mitigate this.
+12. Holder wire: the holder outlives updates. This spec adds no holder wire change (130/132 dropped), so `cmux-holder-v3` adoption is unchanged.
+13. acpmux (task 240) and app children (task 239) cross into other owners' areas; tell the owners in OWNERS.md before editing.
+
+---
+
+## 8. Owned paths
+
+`Packages/macOS/CmuxNext/ChromiumHost/`, `Packages/macOS/CmuxNext/CEFShim/src/`, `CEFS/` (with task 180 leases), `APP/CmuxNextBrowser/Core/BrowserHostTunables.swift`, `APP/CmuxNextBrowser/Engine/BrowserPagePrint.swift`, `APP/CmuxNextBrowser/Engine/BrowserHibernationSupport.swift`, `APP/CmuxNextApp/` (CEF users, Focus, BrowserHost, Crash, Control/Debug*, InputVerification, Windows, UpdaterService+App.swift), `APP/CmuxNextDesign/Overlay/`, `APP/CmuxNextDesign/Windows/NSWindow+Snapshot.swift`, `APP/CmuxNextLayout/Views/`, `APP/CmuxNextFocus/`, `APP/CmuxNextDaemon/`, `APP/CmuxNextDaemonService/`, `APP/CmuxNextTerminal/`, `APP/CmuxNextPages/`, `APP/CmuxNextAgentPane/`, `APP/CmuxNextRemoteBrowser/LocalHost/`, `APP/CmuxNextVSCodeServer/`, `APP/CmuxNextChromiumWarmup/`, `APP/CmuxNextChromiumRuntime/`, `APP/CmuxNextCrashReporting/`, `cmux-tui/crates/cmux-holder/`, `cmux-tui/crates/cmux-vt-worker/` (new), `cmux-tui/crates/cmux-process/`, `cmux-tui/crates/cmux-pty/`, `cmux-tui/crates/cmux-tui-platform/`, `cmux-tui/crates/cmux-tui-util/src/qos.rs`, `CORE/` (holder_runtime, vt_pool, vt_worker_runtime, surface, server, mux, browser, terminal_host_runtime), `cmux-tui/crates/cmux-tui/src/` (raw-spawn rows, tests), `cmux-tui/crates/cmux-remote/src/`, `cmux-tui/crates/cmux-browser-host/src/`, `cmux-tui/crates/acpmux/`, `scripts/cmux-next/` (gen-chromium-host-wire.py, chromium-host-bench.py, process-model-census.py, vt-state-access.py, cef-manifest.json, embed-cef.sh, build-chromium-host.sh, sign-cef.sh, raw-spawn-baseline.tsv, tests/), `scripts/sign-cmux-bundle.sh`, `plans/cmux-next/` (chromium-host-ops.json, chromium-host-view-parity.json, vt-worker-state-access.json, vendored mojoms, threading-model.md, perf-lead.md, cef-helper-app-DESIGN.md, terminal-host-model-DESIGN.md, state-placement.md, OWNERS.md, COORDINATION.md), fork repo (`include/cef_cmux.h`, `libcef/browser/`).
+
+---
+
+## 9. Review resolution (dropped, merged, corrected)
+
+| Item | Resolution | Reason |
+|---|---|---|
+| 003 "bump to newest release with API >= 30" | Redefined: staging pin of the current fork API 30 build | No such release exists (git log -S empty). |
+| 003b (review 2) | Merged into 178 | One release train at API 31 by hour 12; two serial releases do not fit. |
+| 004b (review 2) | Merged into 005 | Per-role split and budgets are a baseline measurement. |
+| 011b, 014b, 016b, 041b | 011b into 011; 014b, 016b kept; 041b merged with review 3's 092 as 092 | Same work. |
+| 056, 057, 058, 071, 090, 070b | 056 into 220; 057 into 221; 058 split into 228, 229, 234; 071 into 222; 090 into 226; 070b into 233 | Two reviews proposed the same work. |
+| 122 | Dropped, subsumed by 207 | One child-exit watcher for every daemon child covers terminal children. |
+| 128, 129 | Dropped, inside 126 | pl-conn-d3-land2 already has frames, the decoder and WireSplitter. |
+| 130, 132 | Dropped from 72 h | Conflicts with D3's offsets and ring, needs holder wire v5 and CUT/CAN correction frames; 241 is the better end state. Reopen only if trace.py shows the daemon hop > 1 ms p99 on echo after D3. |
+| 131 "parse straight from the mapping, ring_copies == 0" | Corrected: copy, then validate | The writer can overwrite the ring during a parse; a torn read cannot be undone. |
+| 135 | Kept, plus 208, 209 | Screen reads alone do not cover 55 files of VT access or the key encoders. |
+| Counts 144/47/152/68 | Corrected to 143/48/172 and computed mojom counts | Re-run on 772cdfc45ac. |
+| 002 on pl-daemon-holder-6 | Corrected to pl-daemon-holder-13 (6ca4e325e31), depends on 200-202 | Newer re-cut; perf-lead row 239 spawn race. |
+| Holder "kqueue" wording | Corrected | cmux-holder uses one `poll` set. |
+| Overflow ends host | Corrected | Chrome only reports quota; Wait must work in a long hang. |
+| 2 s hang kills all tabs | Corrected (084 host only, 072 per tab 15 s) | Chrome kHungRendererDelay, per-renderer kill. |
+| Per-frame coalescing | Corrected to ack-based | Holding the first event costs up to 8.3 ms. |
+| Pipe doorbell | Corrected to Mach port | Pipes carry no QoS override. |
+| Spare page | Corrected to content's spare RPH | Chrome keeps a process, not a document. |
+| guardrails thread-doc done check | Corrected to census + rg | guardrails.py reads Swift only. |
+| 087 `CmuxNextApp/Updates/*` | Corrected to `UpdaterService+App.swift`, `Control/DebugUpdater.swift`, `CmuxNextUpdater` | The path does not exist. |
+| 100 NIGHTLY | DEV only; NIGHTLY is task 104 | NIGHTLY ships to users. |
+
+---
+
+## 10. Task table
+
+Summary (id, size, queue, depends on). Details follow.
+
+| id | title | size | queue | depends on |
+|---|---|---|---|---|
+| 001 | Land Chromium host branches | M | - | - |
+| 002 | Holder default-on (pl-daemon-holder-13) | S | - | 200,201,202 |
+| 003 | Staging pin of fork API 30 build | S | Q13 | - |
+| 004 | Process census tool | M | - | - |
+| 005 | Baseline + per-role budgets | S | - | 001,004 |
+| 010 | chromium-host-ops.json | M | Q1 | - |
+| 011 | Generator and checks | L | Q1,Q3b | 010 |
+| 012 | Control channel | L | - | 001 |
+| 013 | Host links real shim + dispatch | L | Q1,Q2 | 011,012 |
+| 014 | Remote shim dylib | L | Q1 | 011,012 |
+| 014b | Local class (function pointers) | M | Q4 | 011,014 |
+| 015 | CEFShimLibrary backend switch | M | - | 014 |
+| 016b | Main-thread mirror cache, read-your-writes | M | Q1 | 014 |
+| 016 | Mirror: navigation, windows, counts | M | Q1,Q2 | 013,016b |
+| 017 | Mirror: site, ssl, extensions, prefs | M | Q1 | 016 |
+| 018 | Async replies for out-params | M | Q1,Q3 | 013 |
+| 019 | Client-minted ids | M | Q3 | 013 |
+| 020 | Large payloads in shm | S | - | 012 |
+| 021-027 | Q3 site families | M/L | Q3 | 018,019,231,180 (+per row) |
+| 028 | CmuxNextApp CEF users | M | Q3,Q10b | 023,223 |
+| 030-034 | Policies, pump removal | S/M | Q4,Q10 | per row |
+| 040 | ChromiumHostPageView | M | Q5 | 001 |
+| 041 | Input ring + Mach doorbell | L | Q5 | 001 |
+| 092 | Ordered input (ctl_seq barrier) | M | Q5 | 041,012 |
+| 042 | Ack-based coalescing + user-input queue | M | Q5 | 041,092,003 |
+| 043-055 | View parity rows | S-L | Q5 | per row |
+| 059 | Vendored mojoms, widened parity | M | Q5 | 055 |
+| 060-070 | Native UI rows | S-L | Q6 | per row |
+| 072 | Per-tab renderer unresponsive | M | - | 084 |
+| 080-093 | Supervision | S-L | - | per row |
+| 100-104 | Default-on, cleanup, docs, NIGHTLY | S/M | Q10 | per row |
+| 120-142 | Terminals | S-L | Q7,Q8,Q9,Q12 | per row |
+| 150-152 | App crash survival, state audit | M/L | Q11 | per row |
+| 160-161 | Bench rows, results | L/S | Q6 | per row |
+| 170-178 | Fork batch + release train | S-L | Q13 | per row |
+| 180 | CEFS file leases | S | Q3 | 010 |
+| 200-211 | Spawn sweep, thread collapse, VT workers | M/L | Q7,Q14,Q15 | per row |
+| 220-241 | Gaps from reviews | S-L | various | per row |
+
+### Foundation
+
+**001 Land the Chromium host branches.** Files: origin/pl-cefhost (7bbabfa026b), origin/pl-cefhost-bench2 (ce1036c136e), origin/pl-cefhost-d3 (7ed18574b1a); `HOST/src/browser_host_main.mm`, `HOST/src/chromium_host_wire.h`, `CEFS/ChromiumHost/*.swift`, `scripts/cmux-next/embed-cef.sh`, `scripts/cmux-next/build-chromium-host.sh`, `plans/cmux-next/cef-helper-app-DESIGN.md`. Change: merge the three heads (merge-main style, no rebase); the wire header moves from `CEFShim/src` to `ChromiumHost/src`; `browserHost.helperPrototype` stays off. Acceptance: all 39 d3 commits reachable; `CEFShim/src/chromium_host_wire.h` gone; `HOST/src/chromium_host_wire.h` equals pl-cefhost-d3's copy; ChromiumHostDefaultOffTests present; prepush-gate clean. Test: `cmux-ci build cmux --ref SHA`; `cmux-ci run --class isolated` ChromiumHostFrameTests, ChromiumHostProcessTests, ChromiumHostSessionTests, ChromiumHostDefaultOffTests; `scripts/cmux-next/tests/*chromium-host*.test.sh`.
+
+**002 Holder default-on after the spawn sweep and dogfood (risk:high).** Files: origin/pl-daemon-holder-13 (6ca4e325e31), `CORE/holder_runtime.rs`, `scripts/measure/holder-dogfood.sh`. Change: run holder-dogfood.sh on aws-m4pro-9, cmuxs-Mac-mini-3, cmux12s on the 13 re-cut; merge it; `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` opts out for one release. Acceptance: `holder_runtime::enabled()` true unless env is `hosts`; dogfood log 0 lost shells, PTY peak <= base; raw-spawn-baseline.tsv is header-only. Test: `cargo test -p cmux-holder --test spawn_race` (10,000 multithreaded receive+spawn, 0 leaked fds) on macOS 26 and 27; `cargo test -p cmux-tui --test holder_terminals --test new_terminal_first_text --test terminal_host_recovery`; census light `__terminal-host == 0`.
+
+**003 Staging pin of the fork's API 30 build.** Files: `scripts/cmux-next/cef-manifest.json` (staging), `scripts/cmux-next/cef-pin-staging.sh`. Change: stage the current fork head (API 30: detached hosting, embedder_active, post_user_input_task, wheel phases, text_input_watch, AX token, drag source) through cef-pin-staging.sh, arm64 and x86_64, no R2 upload. Unblocks host work until 178. Acceptance: staging manifest `cmux_cef_api_version >= 30`; `scripts/measure/cef-embedder.sh` passes every helper-* case on that ref; debug.cef reports forkAPIVersion >= 30 in a staging fleet build. Test: `cmux-ci build cmux` on the staging pin; `split-spring.sh --suite=cef-pin-staging`; check-first-chromium.py.
+
+**004 Process census tool.** Files: `scripts/cmux-next/process-model-census.py` (new), `scripts/cmux-next/tests/process-model-census.test.sh` (new), `scripts/cmux-next/perf-stress-session.py`. Change: find the tagged app pid; walk descendants plus daemon, holder, VT workers, Chromium Host and helpers by executable path. Per role: processes, threads, thread-name histogram, thread QoS (proc_pidinfo), RSS, phys_footprint, per-hidden-terminal memory with shared mappings (rings) counted once. `--session light|heavy`, `--json`, `--threads --by-name`, `--sample-ms 50 --during agent-burst|daemon-restart` for peaks, `--check-thread-doc threading-model.md`. Acceptance: JSON keys `roles.{app,daemon,holder,vt_worker,terminal_host,chromium_host,chromium_helper}.{processes,threads,rss_mb,peak_threads}`, `threads_by_name`, `per_hidden_terminal_mb`; test on a canned ps fixture passes. Test: shell test (portable); run on aws-m4pro-6 at base.
+
+**005 Baseline and per-role budgets.** Files: `scripts/cmux-next/chromium-host-bench.py`, `plans/cmux-next/perf-lead.md`. Change: on the fleet record in-process pump share, idle wakes with 10 tabs, key-to-paint, stall 9a, census heavy, and the per-role memory split (ring, VT state, app surface per role). Set per-role budgets that sum to the program targets. Acceptance: perf-lead.md section 5 has one row per number, light and STRESS, with host, macOS, Hz, sha, and a per-role budget table. Test: fleet measure queue (cmux20-bench, cmuxs-Mac-mini-3).
+
+**180 File ownership leases for shared CEFS files.** Files: `plans/cmux-next/COORDINATION.md`, `plans/cmux-next/OWNERS.md`. Change: one live lease per CEFS file in Q3 and per file of tasks 030-034, 046, 048, 064, 069; the lease queue comes from `--swift-sites --by-file`. Tell the API 29, layer-hosting and capture program owners. Acceptance: each Q3 file has exactly one live lease; no two open tasks list the same CEFS file. Test: none (coordination doc).
+
+### Generator and wire
+
+**010 chromium-host-ops.json.** Files: `plans/cmux-next/chromium-host-ops.json` (new), SHIMH. Change: one entry per export: `{name, class: post|mirror|async|mint|policy|view|local|preinit, args, returns, result_used_by[], mirror_key, refresh_events[], pending_keys[], reply_event, reason}`; one entry per event kind `{kind, refreshes[]}`. char* returns are mirror or async; create_window, tab_add, tab_duplicate, popup ids are mint; the callbacks are policy; function-pointer exports are local; the 8 pre-init exports are preinit; load, prepare_application, do_work are local. No sync. Acceptance: validates against the generator schema; names equal the header's export list (diff by 011). Test: `gen-chromium-host-wire.py --check`.
+
+**011 gen-chromium-host-wire.py and its checks.** Files: `scripts/cmux-next/gen-chromium-host-wire.py` (new), `scripts/cmux-next/tests/gen-chromium-host-wire.test.sh` (new). Change: parse SHIMH (ignore `#define`), compute counts, emit `HOST/src/generated/host_dispatch.inc`, `HOST/client/generated/remote_shim.inc`, `CEFS/ChromiumHost/Generated/ChromiumHostOps.swift` (instance-surface types). Checks: `--check` (complete, no sync, generated files current, refuses function-pointer args outside local/policy), `--list-missing`, `--swift-sites [--by-file]`, `--check-return-use` (a post export whose Swift caller binds, guards, compares or returns the result fails), `--check-view-parity`. No CI job. Acceptance: two runs byte-identical; fixture with an unclassified export fails; fixture `guard shim?.x() == 1` on a post export fails; fixture `(*fn)` arg in a post export fails; the real header passes after 010. Test: the shell test (portable, no build).
+
+**012 Control channel (C++ and Swift).** Files: `HOST/src/chromium_host_control.h` (new), `HOST/src/chromium_host_control.cc` (new), `CEFS/ChromiumHost/ChromiumHostControlChannel.swift` (new), `HOST/tests/chromium_host_control_test.cpp` (new), `plans/cmux-next/threading-model.md`. Change: socket pair; `u32 len | u16 op | u16 flags | u32 token | TLV (i32, i64, f64, bytes, str)`; SCM_RIGHTS up to 4 fds. Non-blocking writer from any thread. Bad length or bad TLV ends the host. Over quota (256 KiB or 4,096 pending): coalesce state ops by `(op, browser)` key, queue keys and clicks cmux-side, count `debug.chromium_host quota_excess`; never block; host ended only by Reload or a 60 s ceiling. Reader thread `com.cmuxterm.chromium-host.control` (QoS userInitiated) resumes replies off main and batches events to main once per frame. Host side posts batches with `CefPostTask(TID_UI)`. Acceptance: golden frame equal in C++ and Swift; a bad length ends the connection; a reader that never reads leaves cmux unblocked and coalesces geometry to 1 pending per page; label in threading-model.md. Test: ChromiumHostControlChannelTests; chromium_host_control_test.cpp via `scripts/cmux-next/tests/chromium-host-wire.test.sh`.
+
+**013 Host links the real shim and dispatches generated ops.** Files: `HOST/src/browser_host_main.mm`, `HOST/src/host_dispatch.mm` (new), `scripts/cmux-next/build-chromium-host.sh`. Change: link `CEFShim/src/shim_*.mm`; apply queued `preinit` ops in order, then `cmux_shim_initialize` with an event_fn that forwards the 7-tuple as EVENT; MIRROR pushes before the EVENT that refreshes them; replace the prototype's one-page model with `host_dispatch.inc`; `CefRunMessageLoop`. Acceptance: prototype one-page paths gone; every op has a case; `-Werror` build; a `page_scheme_add` sent before initialize serves `cmux-page://` in the host. Test: `cmux-ci build cmux`; chromium-host-bench.py smoke (page shows, key, click).
+
+**014 Remote shim dylib with the same ABI.** Files: `HOST/client/remote_shim.mm` (new), `HOST/client/remote_shim_mirror.h` (new), `build-chromium-host.sh`, `embed-cef.sh`. Change: `libcmux_cef_shim_remote.dylib` from `remote_shim.inc`; same `cmux_shim_abi_id`; `cmux_remote_shim_attach(ctl_fd, in_ring, out_ring)`/`detach`; post returns at once; mirror reads go to the 016b cache; mint ids from `1<<20`; preinit queued until attach; initialize stores event_fn, never calls schedule_fn; do_work is a no-op. Acceptance: `nm -gU` lists the same 143 `cmux_shim_` symbols as the real shim; `rg 'wait|cond_|semaphore' HOST/client/generated` == 0. Test: `scripts/cmux-next/tests/remote-shim-abi.test.sh` (new); `cmux-ci build`.
+
+**014b Local class: function-pointer exports in the client.** Files: `HOST/client/remote_shim_local.mm` (new), `plans/cmux-next/chromium-host-ops.json`. Change: hand-written client code for `post_user_input_task` (no-op in host mode: the host dispatches), `browser_text_input_watch` (callback fed by TEXT_INPUT_STATE), `set_drag_source_handler` (fed by DRAG_START), devtools key handler, `password_reveal_fn` (fed by REPLY), and initialize's `schedule_fn`, `key_fn`, `window_request_fn`, `focus_request_fn` (unused in host mode; policies in 030-033). Callbacks run on main in the event batch. Acceptance: every export with a `(*` parameter is class `local` with a reason; the generator emits no marshaller for them. Test: remote-shim-abi.test.sh; ChromiumHostMirrorTests text-input row.
+
+**015 CEFShimLibrary loads the remote shim in host mode.** Files: `CEFS/CEFShimLibrary.swift`, `CEFS/CEFRuntime.swift`, `CEFS/CEFRuntimeSource.swift`, `APP/CmuxNextBrowser/Core/BrowserHostTunables.swift`. Change: `BrowserBackend` `.inProcess` | `.host`. In `.host`, `CEFRuntime.start` asks the supervisor (080) for wire fds, attaches, then initializes; it never resolves the framework path or runs the pump. `browserHost.helper` replaces `helperPrototype`, default off until 100. Acceptance: unit test with a fake supervisor asserts `CEFLoadedLibrary` is never built in `.host`; ABI id check unchanged. Test: CEFRuntimeBackendTests (new) on the fleet.
+
+**016b Main-thread mirror cache with read-your-writes.** Files: `HOST/client/remote_shim_mirror.h`, `CEFS/ChromiumHost/ChromiumHostControlChannel.swift`. Change: MIRROR updates apply on main in the same per-frame batch as their EVENTs; no lock on the read path (main-only access, asserted). Each post with `pending_keys` sets a pending override keyed by token (optimistic value where the JSON gives one, otherwise a pending marker); the host's ack clears it. Acceptance: code reading shows no lock on read; test calls `go_back` then reads `tab_navigation_state` in the same turn and gets the pending state, never the old value. Test: ChromiumHostMirrorTests.
+
+**016 Mirror: navigation, windows, counts.** Files: `plans/cmux-next/chromium-host-ops.json`, `HOST/src/host_mirror.mm` (new). Change: producers for tab_navigation_entries, tab_navigation_state, tab_window_id, window_count, live_browser_count, foreign_browser_count, navigation_restore_supported, refreshed on ADDRESS, LOAD_START, TAB_EVENT, AFTER_CREATED, BEFORE_CLOSE. Acceptance: each key lists its refresh events; Swift test reads tab_navigation_state right after LOAD_START and gets the new entry. Test: ChromiumHostMirrorTests (host process, file:// probe pages).
+
+**017 Mirror: site, ssl, side panel, extensions, omnibox, prefs.** Files: `HOST/src/host_mirror.mm`, ops JSON. Change: ssl_status, side_panel_state, ext_actions, ext_commands, ext_list, omnibox_keywords, pref_get (watched, PREF_CHANGED), fork_api_version, `*_available` flags (feature detection is mirror, never post). Acceptance: every char* export is mirror or async; `--check` passes. Test: ChromiumHostMirrorTests.
+
+**018 Async replies for out-parameter calls.** Files: `CEFS/CEFReplyWaiters.swift`, ops JSON. Change: about 30 out-parameter calls (password_list, passkeys_list, visit_cookies, content_setting, context_proxy_state, renderer_client_ids, password_entry_size, password_export, ...) become token + REPLY on CMUX_SHIM_REPLY; generic typed await keyed by token, resumed off main. Acceptance: `--swift-sites` lists 0 synchronous out-parameter sites. Test: CEFReplyWaitersTests; bench passwords and cookies rows.
+
+**019 Client-minted browser and window ids.** Files: `CEFS/CEFRuntime+Windows.swift`, `CEFS/CEFPaneHost.swift`, `HOST/src/host_dispatch.mm`. Change: create_window, tab_add, tab_duplicate and popup ids minted by cmux; host maps client id to Chromium id for every op and event; the stand-in shows in the key's turn. Acceptance: no Swift path waits for an id; events arrive with the minted id. Test: ChromiumHostMintTests; cef-tab-bench.py new tab cold and warm.
+
+**020 Large payloads in shared memory.** Files: `HOST/src/chromium_host_control.cc`, `CEFS/ChromiumHost/ChromiumHostControlChannel.swift`. Change: payloads over 64 KiB go as a sealed anonymous shm fd (shm_open + unlink) via SCM_RIGHTS: page_resource_respond bodies, PNG captures, favicons, PDFs, drag images, cursor images. Acceptance: a 10 MB resource round-trips; no socket message over 64 KiB. Test: ChromiumHostControlChannelTests large-payload case.
+
+**231 Deferred-event mode in the in-process backend.** Files: `CEFS/CEFRuntime+Events.swift`, `CEFS/CEFRuntime.swift`. Change: `CMUX_CEF_DEFER_EVENTS=1` queues every event_fn call to the next main turn and serves mirror-class reads from an event-refreshed cache, as the remote shim will. Run CmuxNextBrowserTests and CmuxNextAppTests in that mode; each failure is a Q16 item fixed before 021-028. Acceptance: both suites pass with the env set; the failing-test queue is in the PR. Test: `cmux-ci run --class isolated` with the env, both suites.
+
+**021 Q3 sites: CEFRuntime.swift and CEFRuntime+*.swift.** Files: CEFRuntime.swift (23), +Events (9), +Site (8), +ProfileProxy, +PasswordImport, +ContextMenu, +Windows, +PageResources, +Favicon, +CookieImport. Change: each async, mint, view, local or result-reading hit takes the async or mint form; post and mirror sites stay. Acceptance: `--swift-sites` and `--check-return-use` list 0 hits in these files. Test: CmuxNextBrowserTests; chromium-host-bench.py smoke in both backends. Depends: 018, 019, 231, 180.
+
+**022 Q3 sites: CEFTab and extensions.** Files: CEFTab.swift (15), +Events (6), +LoadingBackground, +UserClose, +Freeze, +BackForwardList, +Processes, +PasswordFill, +Focus. Change/acceptance as 021. Test: CmuxNextBrowserTests; bench navigation rows. Depends: 018, 019, 231, 180.
+
+**023 Q3 sites: pane host, popups, side panel, layer hosting.** Files: CEFPaneHost.swift (9), +PopupWindows (5), +Popups (3), +Duplicate, +Show, CEFSidePanelController.swift, CEFLayerHosting.swift, CEFOrphanTabs.swift (4). Change: view sites use ChromiumHostPageView (context id from CONTEXT); others as 021. Acceptance: 0 hits; `rg passUnretained` on host-path code in these files == 0. Test: CmuxNextBrowserTests; bench split, close, switch rows. Depends: 019, 040, 231, 180.
+
+**024 Q3 sites: DevTools.** Files: CEFDevToolsController.swift (10), CEFDevToolsWindow.swift, CEFDevToolsLayout.swift, CEFTab+DevToolsHosting.swift. Change: devtools_set_placement becomes hosted-context placement; devtools_call async; key handler is policy (033). Acceptance: 0 hits; DevTools docked and undocked in host mode. Test: bench --native-ui devtools rows. Depends: 018, 066, 180.
+
+**025 Q3 sites: passwords and passkeys.** Files: CEFEngine+Passwords.swift (7), +PasswordImport, +Passkeys, CEFPasswordPrompts.swift, CEFPasswordPolicy.swift, ChromiumPasswordList.swift, ChromiumPasswordWrite.swift. Change: as 021; password reveal is a REPLY on the control channel only, never logged or traced. Acceptance: 0 hits; `rg` shows the reveal op excluded from ChromiumHostControlChannel logging and trace. Test: CEFPasswordTests; bench passwords row. Depends: 018, 014b, 180.
+
+**026 Q3 sites: extensions, omnibox, default search.** Files: CEFExtensionBackend.swift (5), CEFExtensionPrompts.swift, CEFOmniboxKeywords.swift (5), CEFDefaultSearch.swift, BrowserExtensionStore.swift. Change/acceptance as 021. Test: bench extensions and omnibox rows. Depends: 017, 018, 180.
+
+**027 Q3 sites: downloads, cookies, browsing data, bookmarks, agents, misc.** Files: CEFDownloads.swift (9), CEFEngine+BrowsingData.swift, CEFBookmarkBridge.swift, CEFAgentRelay.swift, CEFAgentURLGuard.swift, CEFSignInCallbacks.swift, CEFWindowRequests.swift, ChromiumNetError.swift, CEFEngine.swift, CEFForkFeatures.swift, `APP/CmuxNextBrowser/Engine/BrowserHibernationSupport.swift`, `APP/CmuxNextBrowser/Engine/BrowserPagePrint.swift`. Change as 021. Acceptance: `--swift-sites` and `--check-return-use` 0 hits anywhere in APP. Test: CmuxNextBrowserTests full. Depends: 018, 019, 180.
+
+**028 CmuxNextApp users of CEF types work with both backends.** Files: `APP/CmuxNextApp/ChromiumRuntimeService.swift`, `BrowserTabService.swift`, `Pages/Chromium/ChromiumPageHost.swift`, `Windows/ChildPageGeometry.swift`, `Control/DebugCEF.swift`, and the other CmuxNextApp files that reference CEF types. Change: remove in-process assumptions (page windows, child geometry, synchronous counts); ChildPageGeometry unused in host mode. Acceptance: `rg -l 'childWindow|addChildWindow' APP/CmuxNextApp` hits only code under `backend == .inProcess`. Test: CmuxNextAppTests. Depends: 023, 223.
+
+### Policies
+
+**030 Key callback becomes cmux-first routing plus async KEY_UNHANDLED.** Files: `CEFS/CEFRuntime+Events.swift`, `CEFShim/src/shim_client.mm`, `CEFS/ChromiumHost/ChromiumHostPageView.swift`. Change: host OnPreKeyEvent never calls cmux; KeyRouter decides in `CmuxApplication.sendEvent`; unhandled keys return KEY_UNHANDLED with the seq; cmux re-dispatches to menus. Acceptance: key_fn NULL in host mode; Cmd-W, Cmd-T, Cmd-L work with page focus; page preventDefault on Cmd-K keeps it. Test: bench keys rows; KeyRouter tests. Depends: 013, 092.
+
+**031 Window request becomes a pushed policy.** Files: `CEFS/CEFWindowPolicy.swift`, `CEFS/CEFWindowRequests.swift`, `CEFShim/src/shim_windows.mm`. Change: cmux pushes WindowRequestPolicy; host decides in-navigation and reports WINDOW_REQUEST_RESULT {kind, minted id, opener}. Acceptance: window_request_fn unset in host mode; window.open, target=_blank, chrome.windows.create rows pass. Test: chromium-popups-live.py; bench popup rows. Depends: 013, 019.
+
+**032 Focus request through embedder-active.** Files: `CEFS/CEFTab+Focus.swift`, `CEFShim/src/shim_browser.mm`. Change: host allows OnSetFocus only for the browser marked active. Acceptance: background-pane navigation does not take focus; focused pane gets focus after load. Test: bench focus rows. Depends: 046.
+
+**033 DevTools key handler as a policy.** Files: `CEFS/CEFRuntime+Events.swift`, `CEFS/CEFDevToolsController.swift`. Change: as 030 for DevTools. Acceptance: devtools key_fn NULL in host mode; Cmd-Option-I toggles. Test: bench devtools rows. Depends: 030.
+
+**034 Pump removed in host mode.** Files: `CEFS/CEFMessagePump.swift`, `CEFS/CEFPumpSchedule.swift`, `CEFS/CEFRuntime.swift`. Change: no CEFMessagePump in host mode; pump types internal to the in-process backend. Acceptance: unit test `.host` asserts no CEFPumpTimer; done check 3. Test: CEFRuntimeBackendTests. Depends: 015.
+
+### View parity
+
+**040 ChromiumHostPageView for every tab.** Files: `CEFS/ChromiumHost/ChromiumHostPageView.swift`, `CEFS/CEFHostedPageView.swift`. Change: one hosted view: CALayerHost (context id from CONTEXT), geometry on presented-rect change (P8), background fill, crash overlay slot, first responder. Acceptance: one view type; no NSWindow per page in cmux. Test: bench pixels row; cef-layer-verify.py. Depends: 001.
+
+**041 Input ring with a Mach-port doorbell.** Files: `HOST/src/chromium_host_input_ring.h` (new), `CEFS/ChromiumHost/ChromiumHostInputRing.swift` (new), `HOST/src/browser_host_main.mm`. Change: 4,096 x 64-byte frames in shm passed at spawn; writer stores frame, release-stores tail, sends a Mach message on a send-once doorbell only when the reader is parked; the host reader thread (`chromium-host.input`, USER_INTERACTIVE) waits in a kevent workloop on the port. `// perf-hot:` on write. A full ring: keys and clicks spill to the cmux-side queue (012), never block. Acceptance: writer has no lock and no blocking call (code reading); C++/Swift layout golden test; perf-hot row added. Test: ChromiumHostInputRingTests (process pair, 1M frames, 0 loss, order kept); input-hop p99 under STRESS with the host UI thread busy. Depends: 001.
+
+**092 One ordered input stream (ctl_seq barrier).** Files: `HOST/src/chromium_host_wire.h`, `HOST/src/browser_host_main.mm`, `HOST/src/chromium_host_control.cc`, `CEFS/ChromiumHost/ChromiumHostInputRing.swift`. Change: every input frame carries the control seq written before it; the host holds it until that seq is applied. IME, edit-command, focus, embedder-active and geometry ops carry the input seq they follow and are applied after it. Acceptance: code reading shows both checks; test interleaves 10,000 keys with focus changes, IME commits and resizes across 2 pages; each key lands on the active page, IME order equals send order. Test: ChromiumHostInputRingTests ordering case; bench click-after-resize row. Depends: 041, 012.
+
+**042 Ack-based coalescing and the user-input queue.** Files: `CEFS/ChromiumHost/ChromiumHostPageView.swift`, `HOST/src/browser_host_main.mm`. Change: a move or wheel leaves at once if none is in flight; later ones coalesce into one slot (latest move, summed wheel per phase) sent on the ack; keys and clicks pass at once; the host dispatches with `cmux_shim_post_user_input_task`, wheel with `cmux_shim_browser_send_wheel` phase and momentum, and acks at dispatch. Acceptance: at most 1 move and 1 wheel in flight per page (counter); first wheel of a gesture leaves cmux in < 0.5 ms; momentum works. Test: bench scroll pacing and key rows. Depends: 041, 092, 003.
+
+**043 IME client: NSTextInputClient in the page view.** Files: `CEFS/ChromiumHost/ChromiumHostPageView+TextInput.swift` (new), `CEFS/ChromiumHost/ChromiumHostTextInputState.swift` (new). Change: setMarkedText, insertText, unmarkText, selectedRange, markedRange, attributedSubstring (from pushed selection text), firstRectForCharacterRange, characterIndexForPoint, validAttributesForMarkedText, doCommandBySelector; geometry only from pushed state; ops ime_set_composition, ime_commit_text, ime_finish, ime_cancel ride the ordered stream (092). Acceptance: no method sends and waits (code reading); `ime_sync_requests` stays 0. Test: bench --ime on 14/15 (Tart) and 26/27. Depends: 040, 044, 092, 170, 178.
+
+**044 Host pushes text-input state ahead.** Files: `CEFShim/src/shim_browser.mm`, `HOST/src/host_text_input.mm` (new). Change: from `browser_text_input_watch` and the fork's composition-bounds callback, send TEXT_INPUT_STATE {type, flags, selection range, selection text with about 100 chars before and after (Chrome kExtraCharsBeforeAndAfterSelection), composition range, per-char rects, caret rect} after each change (SetTextInputState + SetCompositionRangeInfo + SetTextSelection). Acceptance: <= 1 state message per IME keystroke; rects in page-view coordinates. Test: bench --ime candidate-window pixel row. Depends: 013, 170, 178.
+
+**045 Cursor from OnCursorChange.** Files: `CEFShim/src/shim_client.mm`, `CEFS/ChromiumHost/ChromiumHostPageView.swift`. Change: CURSOR {type, custom PNG as shm + hotspot}; cmux sets NSCursor over the page view. Acceptance: text, link, resize and custom cursors show in the bench cursor row. Test: bench cursor row. Depends: 013, 020.
+
+**046 Focus through embedder-active.** Files: `HOST/src/browser_host_main.mm`, `CEFS/CEFTab+Focus.swift`, `CEFS/ChromiumHost/ChromiumHostPageView.swift`. Change: focus = first responder + `set_embedder_active(id,1)`, blur 0, on the ordered stream; remove `Emulation.setFocusEmulationEnabled`. Acceptance: `rg setFocusEmulationEnabled HOST CEFS/ChromiumHost` == 0; host never frontmost. Test: bench focus and identity rows. Depends: 003, 013, 092.
+
+**047 Edit commands, services, dictation, Look Up.** Files: `CEFS/ChromiumHost/ChromiumHostPageView.swift`, `HOST/src/host_dispatch.mm`. Change: copy:, cut:, paste:, pasteAndMatchStyle:, selectAll:, undo:, redo:, centerSelectionInVisibleArea:, startSpeaking: map to ExecuteEditCommand ops; Look Up uses the pushed selection; speaking state pushed. Acceptance: Edit menu rows pass; dictation inserts text. Test: bench edit rows. Depends: 043.
+
+**048 Find in host mode.** Files: `CEFS/CEFFindRequests.swift`, `CEFS/ChromiumHost/ChromiumHostPageView.swift`. Change: Cmd-F/G/Shift-G via find and stop_finding; FIND_RESULT drives the find pill. Acceptance: match count and highlight in the host page. Test: bench find row. Depends: 021.
+
+**049 Remote accessibility.** Files: `CEFS/ChromiumHost/ChromiumHostPageView+Accessibility.swift` (new), `APP/CmuxNextApp/CmuxApplication.swift`, `HOST/src/host_dispatch.mm`. Change: on first AX access cmux sends its window and view tokens; host calls `cmux_shim_browser_accessibility_token` and pushes the page token; accessibilityChildren returns a remote element. Acceptance: done check 9; VoiceOver reads the heading. Test: bench --ax on 26/27; os-matrix 14/15. Depends: 040, 003.
+
+**050 Drag in.** Files: `CEFS/ChromiumHost/ChromiumHostPageView+Drag.swift` (new), `CEFS/CEFFileDragRelay.swift`. Change: NSDraggingDestination sends DragTarget enter/over/leave/drop with file URLs, text, URL pasteboard; last async operation mask used. Acceptance: file drop on `<input type=file>` and a drop zone work. Test: bench drag-in row. Depends: 172, 178.
+
+**051 Drag out.** Files: `CEFS/ChromiumHost/ChromiumHostPageView+Drag.swift`, `CEFShim/src/shim_browser.mm`. Change: DRAG_START {data, image shm, offset} starts an NSDraggingSession; end calls drag_source_ended; re-enter uses drag_target_enter_source. Acceptance: link and image drag to Finder or a terminal works. Test: bench drag-out row. Depends: 050, 014b.
+
+**052 Resize fence with a one-frame deadline.** Files: `CEFS/ChromiumHost/ChromiumHostResizeFence.swift` (new), `HOST/src/host_resize.mm` (new), `CEFS/CEFResizeSyncDeadline.swift`. Change: per resize transaction a CA fence port plus geometry seq over the anonymous XPC endpoint; host commit joins it; cmux holds at most one frame, otherwise shows the last frame on the pushed background color. Acceptance: no stretched frame; main-thread wait <= 1 frame (counter). Test: cef-resize-sync-bench.py in host mode. Depends: 173, 178.
+
+**053 Detached page window, geometry on change only.** Files: `HOST/src/browser_host_main.mm`. Change: `set_detached_hosting(1)` per browser; prototype floating window removed; geometry applied only when changed. Acceptance: CGWindowList 0 on-screen host windows; geometry frames <= 1 per moving page per frame. Test: bench identity and geometry rows. Depends: 003, 013.
+
+**054 Mouse parity.** Files: `CEFS/ChromiumHost/ChromiumHostPageView.swift`. Change: force click, magnifyWithEvent, smartMagnify, buttons 3 and 4, TOOLTIP {text}. Acceptance: each mojom method has a row in the parity JSON. Test: bench mouse rows; --check-view-parity. Depends: 042.
+
+**055 chromium-host-view-parity.json.** Files: `plans/cmux-next/chromium-host-view-parity.json` (new), `scripts/cmux-next/gen-chromium-host-wire.py`. Change: every method of render_widget_host_ns_view.mojom mapped to an op or event or a not-needed reason; `--check-view-parity` fails on unmapped. Acceptance: all mapped. Test: --check-view-parity. Depends: 011.
+
+**059 Vendored mojoms and widened parity.** Files: `plans/cmux-next/remote_cocoa_mojom/` (new: render_widget_host_ns_view.mojom, native_widget_ns_window_host.mojom, native_widget_ns_window.mojom, text_input_host.mojom, alert.mojom, menu.mojom, select_file_dialog.mojom, application.mojom at the fork's Chromium 154 revision, with the git hash), parity JSON, generator. Change: counts computed from the vendored texts; each file's sha stored so upstream drift shows. Acceptance: --check-view-parity counts methods from the files, not constants; every method mapped or reasoned. Test: --check-view-parity. Depends: 055.
+
+**220 Page visibility and occlusion pushed to the host.** Files: SHIMH, `CEFShim/src/shim_browser.mm`, `CEFS/CEFTab+Visibility.swift`, `CEFS/ChromiumHost/ChromiumHostPageView.swift`, `HOST/src/host_dispatch.mm`, ops JSON. Change: export `cmux_shim_browser_set_page_visibility(id, visible|hidden|occluded)` (post); page view sends it on window entry/exit, workspace hide/show, minimize, NSApp hide, `NSWindowDidChangeOcclusionStateNotification`; host calls WasHidden and the fork occlusion call (227); CEFTab+Visibility uses the page view's state, not childWindows, on the host path. Acceptance: fake-wire test records visible to hidden on a workspace switch and back; `rg childWindows CEFTab+Visibility.swift` hits only in-process code. Test: bench visibility row; bench_idle `workspace-hidden` with 10 tabs: hidden pages rAF 0/s, visibilityState hidden. Depends: 013, 040, 227, 178.
+
+**221 Display, scale, color space and vsync follow the cmux window.** Files: `CEFS/ChromiumHost/ChromiumHostPageView.swift`, `HOST/src/host_dispatch.mm`, fork `chrome_child_window_mac.mm`. Change: SCREEN_INFO {CGDirectDisplayID, backing scale, color space ICC hash, maximumFramesPerSecond, work area} on viewDidMoveToWindow, backing change, NSWindowDidChangeScreen, screen-parameter change; host places the detached window on that display (fork item in 227) so begin-frames tick at its rate. Acceptance: 120 rAF/s on a 120 Hz panel; 60 within 2 frames after moving to 60 Hz; devicePixelRatio equals backing scale; sharp in 1 frame after a 1x to 2x move. Test: bench display row on cmux20-bench with an external display. Depends: 040, 053, 227, 178.
+
+**230 Secure event input and the caret accessory.** Files: `CEFS/ChromiumHost/ChromiumHostPageView+TextInput.swift`, `CEFS/ChromiumPageTextAccessory.swift`. Change: when TEXT_INPUT_STATE type is password, cmux calls EnableSecureEventInput, balanced on blur, hide, crash, close; hide the macOS 14+ caret accessory on cmux's NSTextInputClient. Acceptance: unit test with a fake state: IsSecureEventInputEnabled true with focus, false after blur, crash, close; no caret bubble on 14 (os-matrix capture). Test: bench password-focus row; os-matrix 14/15. Depends: 043, 044.
+
+**234 Swipe and zoom gestures from WHEEL_ACK.** Files: `CEFS/CEFSwipeNavigation.swift`, `CEFS/CEFZoom.swift`, `HOST/src/host_dispatch.mm`. Change: host sends WHEEL_ACK {seq, consumed_x, consumed_y, overscroll} from Chromium's gesture ack (GestureScrollEventAck, DidOverscroll); swipe decides from it, no probe round trip; rubber-band follows. Acceptance: swipe back works on a page that does not scroll horizontally and not on one that does; 0 control requests per gesture. Test: bench swipe and pinch rows. Depends: 042.
+
+### Native UI from data
+
+**060 `<select>` popups drawn by cmux.** Files: `CEFS/ChromiumHost/ChromiumHostPopupMenu.swift` (new), `CEFShim/src/shim_browser.mm`. Change: POPUP_MENU {token, items, bounds, font size, right aligned, selected} shows NSMenu at bounds; reply index or null; PopupMenuRunner.Hide closes it. Acceptance: select row passes; host never frontmost. Test: bench --native-ui select. Depends: 171, 178, 013.
+
+**061 Autofill and password suggestions.** Files: `CEFS/ChromiumHost/ChromiumHostSuggestions.swift` (new), `CEFShim/src/shim_password_core.mm`. Change: SUGGESTIONS {token, anchor rect, rows} in a cmux list panel with keyboard navigation; ACCEPT, REMOVE, DISMISS ops. Acceptance: autofill and password rows pass; localization audit. Test: bench --native-ui autofill, password. Depends: 172, 178.
+
+**062 Every permission prompt from data.** Files: `CEFS/CEFPermissionPrompts.swift`, `CEFShim/src/shim_permissions.mm`. Change: PERMISSION_PROMPT for every `cef_permission_request_types_t` plus media access (camera, mic, screen); CmuxDialogSpec prompt; permission_continue reply. Acceptance: camera, mic, notifications, location rows pass; no Chromium bubble; localization audit. Test: bench permission rows on 26/27; os-matrix 14/15. Depends: 013.
+
+**063 JS dialogs and HTTP auth.** Files: `CEFShim/src/shim_client.mm`, `CEFS/CEFTab+Prompts.swift`. Change: OnJSDialog sends JS_DIALOG {token, kind, message, default}; GetAuthCredentials sends AUTH {token, host, realm}; CmuxDialogSpec reply. Acceptance: alert, confirm, prompt, HTTP-auth rows; localization audit. Test: bench --native-ui. Depends: 013.
+
+**064 File picker, certificate errors, beforeunload, unresponsive.** Files: `CEFS/CEFTab+CertificateWarnings.swift`, `CEFS/CEFTab+UserClose.swift`, `CEFS/ChromiumHost/ChromiumHostFiles.swift` (new). Change: FILE_DIALOG, certificate, BEFORE_UNLOAD and RENDER_UNRESPONSIVE events over the wire; chosen files sent as paths. Acceptance: 4 rows pass; localization audit. Test: bench --native-ui. Depends: 021.
+
+**065 Printing.** Files: `APP/CmuxNextBrowser/Engine/BrowserPagePrint.swift`, `HOST/src/host_dispatch.mm`. Change: PrintToPDF to shm PDF; NSPrintOperation on a PDFDocument in cmux. Acceptance: print row; no Chromium print preview window. Test: bench --native-ui print. Depends: 020.
+
+**066 Hosted widgets.** Files: `CEFS/ChromiumHost/ChromiumHostWidgetHost.swift` (new), `CEFS/CEFPaneHost+PopupWindows.swift`, `CEFS/CEFSidePanelController.swift`. Change: WIDGET_CONTEXT {widget id, kind, owner, bounds} as a CALayerHost in a cmux NSPanel or pane view, input forwarded like a page; also InitAsPopup widgets (date/time pickers, `<datalist>`) anchored at their rect. Acceptance: extension popup, side panel, DevTools docked and undocked, popup, date and datalist rows. Test: bench --native-ui; chromium-popups-live.py. Depends: 173, 178, 040.
+
+**067 Passkeys and WebAuthn.** Files: `CEFS/ChromiumPasskey.swift`, `CEFS/CEFEngine+Passkeys.swift`. Change: WEBAUTHN {token, request} from the fork delegate; ASAuthorizationController in cmux. Acceptance: passkey sign-in row on 26/27. Test: bench --native-ui passkey. Depends: 175, 178.
+
+**068 Report visible host windows.** Files: `HOST/src/browser_host_main.mm`. Change: observe NSWindowDidBecomeVisible for host windows; order out any with alpha > 0 and report UNEXPECTED_WINDOW {class, title hash}. Acceptance: bench reports 0 unexpected windows through all native-ui rows. Test: bench --native-ui --list-failing. Depends: 013.
+
+**069 Context menus and downloads in host mode.** Files: `CEFS/CEFRuntime+ContextMenu.swift`, `CEFS/CEFDownloads.swift`. Change: CONTEXT_MENU JSON + context_menu_done, DOWNLOAD_* + download_continue over the wire; fix what fails. Acceptance: context menu and download rows. Test: bench --native-ui. Depends: 021.
+
+**070 First-party cmux-page:// pages through the host.** Files: `CEFS/CEFPageResponse.swift`, `CEFS/CEFPageSchemes.swift`, `APP/CmuxNextApp/BrowserHost/AppBrowserHost.swift`. Change: PAGE_RESOURCE requests and shm bodies over the wire; scheme registration is preinit. (Agent CDP is task 233.) Acceptance: Home and Settings load in host mode. Test: tests/browser-parity subset; check-first-chromium.py. Depends: 020, 013.
+
+**228 Native UI rows the design missed.** Files: `CEFS/ChromiumHost/ChromiumHostChoosers.swift` (new), `CEFS/ChromiumHost/ChromiumHostWidgetHost.swift`, `scripts/cmux-next/chromium-host-bench.py`. Change: `<input type=color>` shows NSColorPanel in cmux with live color replies; Bluetooth, USB, HID, Serial choosers as a CmuxDialogSpec list; getDisplayMedia picker in cmux with ScreenCaptureKit; external protocol confirm; navigator.share via NSSharingServicePicker; video and document PiP as hosted widget contexts in a cmux NSPanel; each as a --native-ui row. Acceptance: each row passes with 0 visible host windows; localization audit. Test: bench --native-ui on 26/27; os-matrix 14/15 for TCC rows. Depends: 227, 178, 066.
+
+**229 HTML fullscreen, pointer lock, keyboard lock.** Files: `CEFS/CEFTab+Events.swift`, `CEFS/ChromiumHost/ChromiumHostPageView.swift`. Change: FULLSCREEN enter/exit makes cmux zoom the page view (no host window); pointer lock = NSCursor.hide + CGAssociateMouseAndMouseCursorPosition(false) in cmux with raw deltas in the ring; keyboard lock routes reserved keys to the page while held (Ghostty-reserved keys unchanged); Escape always exits. Acceptance: fullscreen video, pointer-lock game, keyboard-lock rows; Escape exits each; cursor stays in the page. Test: bench fullscreen and lock rows. Depends: 227, 178, 042.
+
+**232 cmux's own Chromium pages within the key budget.** Files: `APP/CmuxNextPages/PageWebView+Chromium.swift`, `APP/CmuxNextPages/PageWebView+ChromiumMenu.swift`, `APP/CmuxNextApp/Pages/Chromium/ChromiumPageHost.swift`, `APP/CmuxNextAgentPane/AgentPanePageHost.swift`, `CEFS/CEFPageMessage.swift`, `CEFS/CEFDocumentScripts.swift`. Change: batch page-channel (cmuxPost) messages per frame; dynamic resources over shm; composer typing has no round trip. Acceptance: agent composer key-to-frame p99 <= 16.7 ms in host mode, light and STRESS; Home first frame <= in-process + 1 frame. Test: bench-typing.py agent-pane row; browser-parity subset in host mode. Depends: 070, 020.
+
+### Supervision
+
+**080 ChromiumHostSupervisor.** Files: `CEFS/ChromiumHost/ChromiumHostSupervisor.swift` (new), `ChromiumHostSession.swift`, `ChromiumHostLauncher.swift`. Change: built once in AppServices; posix_spawn on BackgroundWork `.system`; kqueue NOTE_EXIT + waitid(WNOWAIT) on `chromium-host.supervisor` (utility); owns fds, attach, restart. Acceptance: 0 posix_spawn on main (blocking detector); one host serves 2 profiles. Test: ChromiumHostSessionTests; bench profiles row. Depends: 015.
+
+**081 Restart budget (Chrome GPU rule) and cannot-start state.** Files: `CEFS/ChromiumHost/ChromiumHostRestartPolicy.swift`. Change: forgive 1 crash per 5 min, limit 3, quit/logout/update free; a death before CONTEXT_INITIALIZED goes to `cannotStart(reason: exit code, codesign check)` with no retry loop; injected Clock. Acceptance: fake clock: 3 crashes in 4 min means ended; crashes at 0, 6, 12 min keep restarting; 1 startup failure gives cannotStart with 0 retries. Test: ChromiumHostRestartPolicyTests. Depends: -.
+
+**091 Pending replies resolve on host exit.** Files: `CEFS/CEFReplyWaiters.swift`, `CEFS/ChromiumHost/ChromiumHostControlChannel.swift`, `ChromiumHostSupervisor.swift`. Change: on EOF or exit every outstanding token (async, POPUP_MENU, JS_DIALOG, AUTH, PERMISSION, WEBAUTHN, SUGGESTIONS) resumes `.hostGone` in the same turn; shown sheets close. Acceptance: fake channel, 50 mixed tokens, EOF: 50 resume, 0 leaks. Test: CEFReplyWaitersTests; bench --kill-host with an open alert and select. Depends: 018, 080.
+
+**082 Crash page for host and renderer death.** Files: `CEFS/ChromiumCrashPageView.swift` (new), `CEFS/CEFTab+Events.swift`, `CEFS/ChromiumHost/ChromiumHostPageView.swift`. Change: in the exit turn every hosted tab clears its context and shows the crash page (localized message, Reload, reason); same view for RENDER_TERMINATED in both backends. Acceptance: crash page within 1 frame; localization audit. Test: bench --kill-host; chrome://crash row. Depends: 080, 091.
+
+**083 Restore every tab after a host restart.** Files: `ChromiumHostSupervisor.swift`, `CEFS/CEFTab+RestoredHistory.swift`. Change: tab_restore_navigation from frontend-browser-history-v1 in every window and profile; hidden and hibernated tabs restore on show; POST never replayed. Acceptance: 20 tabs in 3 windows back within 2 s after SIGKILL. Test: bench --kill-host restore row. Depends: 082.
+
+**093 Restore with PageState.** Files: `HOST/src/host_mirror.mm`, `CEFS/CEFTab+RestoredHistory.swift`, CORE frontend-browser-history-v1 record, fork `include/cef_cmux.h` (encoded page state export if absent, part of 227). Change: host pushes each committed entry's encoded page state at idle to the daemon record; restore feeds it back. Acceptance: record has page_state per entry; restored tab keeps scroll and typed `<input>` text. Test: bench --kill-host restore row with scroll and form checks. Depends: 083, 178.
+
+**084 Host hang detection.** Files: `CEFS/ChromiumHost/ChromiumHostHangMonitor.swift` (new), `HOST/src/host_hang_watcher.mm` (new). Change: cmux arms one DemandTimer only while a seq is unacked (ack at host dispatch); at 2 s a banner "Chromium is busy" with Wait and Reload Chromium; no timer while hidden. Host: WatchHangsInScope-style deadline per UI task; the watcher parks with no deadline while no scope is active; UI-thread hangs > 250 ms go to the hang-report pipeline tagged host; at 10 s DumpWithoutCrashing-style dump. Acceptance: no timer with no outstanding input (idle wakes unchanged); done check 11; localization audit. Test: bench --hang 5000. Depends: 041, 226.
+
+**072 Per-tab renderer unresponsive.** Files: `ChromiumHostHangMonitor.swift`, `CEFS/CEFTab+Events.swift`, `CEFS/CEFTab+UserClose.swift`. Change: RENDER_UNRESPONSIVE after 15 s shows Wait or Kill page for that tab only (unresponsive_reply); stopped while hidden. Acceptance: `while(true){}` gives the per-tab prompt, never the host banner. Test: bench --renderer-hang row. Depends: 084.
+
+**085 Host crash records in debug.crashes.** Files: `APP/CmuxNextApp/Crash/AppRunMarker+Chromium.swift`, `ChromiumHostSupervisor.swift`. Change: per exit: signal, exit code, last 20 lines of chromium-host.log, CEF version, fork API; no URLs. Acceptance: debug.crashes lists the host crash with its signal after SIGTRAP. Test: bench --kill-host. Depends: 080.
+
+**226 Minidumps for the host, helpers and VT workers.** Files: `HOST/src/browser_host_main.mm`, `scripts/cmux-next/embed-cef.sh`, `APP/CmuxNextCrashReporting/CrashReporter.swift`, `cmux-tui/crates/cmux-vt-worker/src/main.rs`. Change: CEF crashpad handler started by the host (crash_reporter.cfg, empty ServerURL); dumps in the cmux crash directory; consent-gated pipeline as app crashes; URLs and titles stripped; workers via the existing Rust crash path. Acceptance: host SIGSEGV and chrome://crash each give a symbolized stack in debug.crashes; test greps dump metadata for no URL or title. Test: bench --kill-host SEGV and renderer crash row; vt_worker_restart poison-pill leaves a dump. Depends: 085.
+
+**225 Chromium helper monitoring in host mode.** Files: `CEFS/CEFChildProcessMonitor.swift`, `CEFS/ChromiumHelperProcess.swift`, `CEFS/CEFRuntime+Crashes.swift`, `CEFS/CEFTab+Processes.swift`. Change: host watches its children and forwards HELPER_EXIT {pid, type, signal}; renderer_client_ids from the mirror. Acceptance: SIGKILLed GPU and renderer helpers each make one debug.crashes record; tab process list shows host-child pids. Test: bench helper-kill rows. Depends: 080.
+
+**086 Launch off the critical path.** Files: `APP/CmuxNextChromiumWarmup/*`, `CEFS/CEFSpareWindow.swift`. Change: host starts after the first frame when Chromium is the default engine, else on first Chromium tab; rely on content's spare RenderProcessHost (verify enabled); no spare CefBrowser unless a measured number shows the spare RPH misses the target (write the number). Acceptance: cold launch to first frame unchanged (<= 300 ms); first Chromium tab visible < 100 ms with a warm host. Test: bench_launch.py; cef-tab-bench.py. Depends: 080.
+
+**087 Quit, app update and runtime update with the host (risk:high).** Files: `ChromiumHostSupervisor.swift`, `APP/CmuxNextApp/UpdaterService+App.swift`, `APP/CmuxNextApp/Control/DebugUpdater.swift`, `APP/CmuxNextUpdater/*`, `CEFS/CEFShutdownSequence.swift`. Change: quit uses `.terminateLater`; host runs try_close_all and replies; Stay keeps cmux running; no wait past the quit deadline. Before Sparkle replaces the bundle, end the host; restart after relaunch. A Chromium runtime update from ChromiumRuntimeStore restarts the host at idle and restores tabs. Acceptance: quit with an unsaved-form page shows beforeunload and Stay keeps cmux; an update keeps the page URL; a runtime update is used after an idle restart. Test: update-keeps-sessions bench; bench quit and runtime-update rows. Depends: 080, 083.
+
+**088 Release signing for the host executable (risk:high).** Files: `scripts/cmux-next/sign-cef.sh`, `scripts/sign-cmux-bundle.sh`, `scripts/cmux-next/embed-cef.sh`. Change: host in Release, nested code signed before the app, hardened runtime, no JIT entitlement, notarized with the app. Acceptance: `codesign --verify --deep --strict` passes; spctl accepts; sign-cef.test.sh passes. Test: release-rails dry run; os-matrix 14/15 launch. Depends: 001.
+
+**089 TCC attribution on 14/15/26/27.** Files: `scripts/cmux-next/chromium-host-bench.py`. Change: rows: camera, mic, location, Local Network (LAN IP fetch), Screen Recording (getDisplayMedia), Bluetooth prompts name cmux; keychain "Chromium Safe Storage" read with no prompt. Acceptance: rows pass on 4 OS versions. Test: os-matrix 14,15; fleet 26, 27. Depends: 062, 088, 228.
+
+**222 Host scheduling: no App Nap while cmux is active.** Files: `HOST/src/browser_host_main.mm`, `ChromiumHostLauncher.swift`, `ChromiumHostSupervisor.swift`, `plans/cmux-next/threading-model.md`. Change: APP_ACTIVITY {active, visible} op; while cmux is active or shows a Chromium page, host holds `beginActivityWithOptions(NSActivityUserInitiated | NSActivityLatencyCritical)`; ends when cmux hides; host main thread QOS_CLASS_USER_INTERACTIVE; spawn sets `posix_spawnattr_set_qos_class_np(USER_INTERACTIVE)` and never a QoS clamp. Acceptance: no `posix_spawnattr_set_qos_clamp_np` (code reading); host logs its activity state; threading-model row. Test: bench --stall and key rows after 10 min idle with cmux frontmost (no p99 regression); taskinfo shows foreground role while active. Depends: 080.
+
+**223 Child-window machinery off in host mode.** Files: `APP/CmuxNextDesign/Overlay/WindowOverlayHost.swift`, `ContentChildPanel.swift`, `ChildWindowPolicy.swift`, `APP/CmuxNextLayout/Views/DividerMouseCatchers.swift`, `LayoutRootView+Scroll.swift`, `APP/CmuxNextFocus/ChildWindowKeyRule.swift`, `APP/CmuxNextApp/Focus/FocusEffectApplier.swift`, `KeyWindowRole.swift`, `KeyRouter+NewTabInput.swift`, `APP/CmuxNextApp/Windows/WindowOverlayLayer.swift`, `CEFS/ChromiumPageWindowMain.swift`, `CEFS/ChromiumWindowGuard.swift`, `APP/CmuxNextDesign/Windows/NSWindow+Snapshot.swift`. Change: gate each on `backend == .inProcess`; in host mode overlays draw in the window's view tree and snapshots paint the engine's page image over the page view. Acceptance: Q10b hits in these files are under in-process branches; `debug.overlay reorders_per_event == 0`; 0 DividerMouseCatcher panels in host mode. Test: CmuxNextAppTests, CmuxNextDesignTests; bench focus and identity rows; media tour of overlays over a host page. Depends: 040, 046.
+
+**224 Debug input injection drives host pages.** Files: `APP/CmuxNextApp/Focus/DebugKey.swift`, `APP/CmuxNextApp/InputVerification/DebugMouse+Page.swift`, `InputInvariants+World.swift`, `APP/CmuxNextApp/Control/DebugWindowList.swift`, `DebugLayers.swift`, `DebugCEF.swift`. Change: debug.key and debug.mouse target ChromiumHostPageView through sendEvent; world model counts host contexts; debug.cef reports pump-free state, wire counters (ime_sync_requests, ring depth, unacked seq, quota_excess) and context ids. Acceptance: bench keys, click, IME rows run unchanged with `--modes helper`; DebugKey has no page-window path in `.host`. Test: bench smoke in both modes. Depends: 040, 160.
+
+**233 Agent CDP daemon to host directly (risk:high).** Files: `APP/CmuxNextApp/BrowserHost/AppDevToolsRelay.swift`, `CEFS/CEFAgentRelay.swift`, `HOST/src/host_provider_link.mm` (new), `cmux-tui/crates/cmux-browser-host/src/provider_link.rs`, `ChromiumHostSupervisor.swift`. Change: supervisor gives the host a daemon-minted provider credential; host opens its own provider link and relays raw DevTools for agent-ready tabs off its UI thread; cmux keeps marking and agent-ready UI via events. Acceptance: 1,000 CDP msg/s on a host tab adds 0 cmux main-thread turns (trace.py) and terminal key-to-frame p99 <= 16.7 ms; cmux browser repl drives a host tab after app kill -9 with survivesAppCrash on. Test: browser-use-perf bench in host mode; bench --kill-app with an agent session. Depends: 070, 080.
+
+**150 The Chromium Host survives an app crash (risk:high).** Files: `HOST/src/browser_host_main.mm`, `ChromiumHostSupervisor.swift`. Change: behind `browserHost.survivesAppCrash`; on wire EOF without quit the host keeps pages 30 s and listens on `<root cache>/chromium-host.sock` (0600); both sides check the peer audit token and code signature (team ID, designated requirement); HELLO carries wire and fork API versions, a mismatch makes the host save history and quit; adoption gives new fds, re-pushes mirrors, re-hosts the same context ids; no adoption in 30 s means quit. Acceptance: app SIGKILL, relaunch, performance.timeOrigin unchanged; an unsigned client is refused; a version mismatch restores through history; a non-adopted host ends at 30 s. Test: bench --kill-app. Depends: 080.
+
+**152 App relaunch reattaches with no visible rebuild.** Files: `APP/CmuxNextDaemonService/DaemonService.swift`, `APP/CmuxNextApp/AppDelegate.swift`. Change: on launch attach to the running daemon, map rings, adopt the host before each window's first frame; terminals show snapshots in one layout. Acceptance: done check 20 screens within 300 ms. Test: bench_launch.py --after-kill. Depends: 131, 150.
+
+### Default-on and cleanup
+
+**100 Host mode on by default in DEV.** Files: `APP/CmuxNextBrowser/Core/BrowserHostTunables.swift`, `Packages/macOS/CmuxNext/Tests/*/ChromiumHostDefaultOffTests.swift`. Change: `browserHost.helper` true in DEV; NIGHTLY and Release false; default test inverted for DEV. Acceptance: all host done checks pass on a DEV fleet build pinned to 178 (PR shows receipts). Test: every host done check, light and STRESS. Depends: 021-027, 043, 044, 046, 049, 053, 060, 062, 063, 082, 083, 084, 092, 178, 220, 223, 224, 230.
+
+**104 Host mode on in NIGHTLY.** Files: `BrowserHostTunables.swift`, ChromiumHostDefaultOffTests. Change: NIGHTLY true after every --native-ui and --ime row passes on a 178 build; Release false until 2 Nightly weeks with no host regression. Acceptance: PR links the passing rows on the 178 pin. Test: bench --native-ui and --ime on 14/15/26/27. Depends: 100, 228, 229, 089.
+
+**101 The app never maps the CEF framework in host mode.** Files: `CEFS/CEFLoadedLibrary.swift`, `CEFS/CEFFrameworkPrefetch.swift`, `APP/CmuxNextChromiumRuntime/*`. Change: prefetch and dlopen only in the host; download and verify stay in cmux. Acceptance: done check 3 vmmap 0. Test: census plus vmmap row. Depends: 100.
+
+**102 In-process CEF reachable only through the in-process backend.** Files: Q10 hits: `CEFS/CEFMessagePump.swift`, `CEFPumpSchedule.swift`, `CEFPumpTimer.swift`, `CEFPumpCrossThreadGate.swift`, `CEFPumpStats.swift`, `APP/CmuxNextApp/CmuxApplication.swift`. Change: move behind InProcessCEFBackend; deleting them with CmuxNextMallocZone and CefAppProtocol is a stated follow-up after Release default-on. Acceptance: each Q10 file referenced only from InProcessCEFBackend (rg). Test: CmuxNextBrowserTests. Depends: 100.
+
+**103 Docs: threading model, F2, OWNERS.** Files: `plans/cmux-next/threading-model.md`, `perf-lead.md`, `cef-helper-app-DESIGN.md`, `OWNERS.md`. Change: main is not the CEF UI thread in host mode; register all new labels with QoS; F2 status with numbers. Acceptance: `process-model-census.py --check-thread-doc` passes. Test: census check. Depends: 100.
+
+**160 chromium-host-bench.py rows as pass/fail.** Files: `scripts/cmux-next/chromium-host-bench.py`. Change: `--kill-host --signals`, `--kill-app`, `--stall`, `--hang`, `--renderer-hang`, `--ime`, `--ax`, `--native-ui --list-failing`, ordering, visibility, display, identity, helper-kill, quit, runtime-update, and the terminal typing probe across a kill, each with done-check thresholds. Acceptance: each row prints PASS or FAIL with its number; --list-failing feeds Q6. Test: run on aws-m4pro and cmux20-bench. Depends: 001.
+
+**161 Results in perf-lead.md and the design record.** Files: `plans/cmux-next/perf-lead.md`, `plans/cmux-next/terminal-host-model-DESIGN.md`. Change: before/after rows for every done check; terminal-host-model records phase A (decision D) as default and phase B (E-process) behind the flag, with the Rule-of-2 reasoning, the app-side gap until 241, and why the holder-to-app ring was dropped. Acceptance: each done check has a number. Test: none. Depends: 100, 137, 241.
+
+### Terminals
+
+**200 Raw-spawn sweep: cmux-tui-core, cmux-pty, cmux-tui-platform.** Files: `scripts/cmux-next/raw-spawn-baseline.tsv`, the 16 cmux-tui-core files, `cmux-tui/crates/cmux-pty/src/lib.rs`, `cmux-pty/src/macos.rs`, the 2 cmux-tui-platform files. Change: `std::process::{Command, Stdio}` to `cmux_process::{Command, Stdio}` (posix_spawn + POSIX_SPAWN_CLOEXEC_DEFAULT on macOS); needed fds via `Command::inherit_fd`; pre_exec replaced by new_session or process_group; delete these baseline rows. Acceptance: check-no-raw-spawn.py 0 lines for these crates; rows deleted; no new pre_exec. Test: `cargo test -p cmux-holder --test spawn_race` on macOS 26/27; `cargo test -p cmux-tui --test holder_terminals`. Depends: -.
+
+**201 Raw-spawn sweep: cmux-tui cli/, bin/, test_exec.rs.** Files: baseline TSV, `cmux-tui/crates/cmux-tui/src/cli/**`, `src/bin/**`, `src/test_exec.rs`. Change: as 200. Acceptance: 0 lines there; rows removed. Test: `cargo test -p cmux-tui` on macOS 26 and Linux. Depends: -.
+
+**202 Raw-spawn sweep: rest of cmux-tui.** Files: baseline TSV, `cmux-tui/src/{link,remote_host,config,build_adopt,machine_agent,local_owner,plugin_manager,devices,ui}/**`, `machine_provider_transport.rs`, `machine_provider_runtime.rs`, `local_owner.rs`, `plugin_manager.rs`, `codex_wrapper.rs`, `claude_wrapper.rs`, `remote_cli.rs`, `config.rs`. Change: as 200. Acceptance: baseline TSV is header-only; check-no-raw-spawn.py clean. Test: `cargo test -p cmux-tui` on macOS 26, 27, Linux. Depends: -.
+
+**120 VT pool threads replace per-terminal readers (holder terminals).** Files: `CORE/vt_pool.rs` (new), `CORE/holder_runtime/sink.rs`, `CORE/surface/holder_spawn.rs`, `CORE/surface/spawn.rs`. Change: holder-link thread (USER_INITIATED) pushes DATA into per-shard bounded queues with credit as today's ACK; shards parse under the terminal lock, confirm parsed offset, publish; parse slices of 64 KiB or 1 ms, requeued; holder terminals no longer spawn `surface-{id}-reader`. `// perf-hot:` on dispatch. Acceptance: census 0 `surface-*-reader` with 172 holder terminals; `a_holder_killed_holding_unparsed_output_or_mid_sequence_loses_no_byte` passes. Test: `cargo test -p cmux-tui --test holder_terminals`; census heavy. Depends: 002.
+
+**124 Visible and hidden thread groups.** Files: `CORE/vt_pool.rs`. Change: visible group N = min(4, P-cores/2) threads `vt-pool-v-N` at USER_INITIATED; hidden group 1-2 threads `vt-pool-h-N` at UTILITY; a terminal moves group on visibility change keeping order by parsed offset; hidden terminals produce no frame work until shown. Acceptance: 10 hidden floods leave focused echo p99 <= 5 ms; a 64 MiB hidden flood delays a visible chunk by at most one slice (test). Test: bench-typing.py STRESS; pool unit tests. Depends: 120.
+
+**121 Child exit from holder EXIT frames.** Files: `CORE/surface/spawn.rs`, `CORE/holder_runtime/terminal.rs`. Change: exit from EXIT {status, end} after parse reaches end; no `surface-{id}-wait` for holder terminals. Acceptance: final output visible before exit (existing test); 0 `surface-*-wait` in census. Test: `cargo test -p cmux-tui` exit and final-output tests. Depends: 120.
+
+**207 One child-exit watcher for every daemon child.** Files: `cmux-tui/crates/cmux-process/src/child.rs`, `cmux-process/src/exit_watcher.rs` (new), and the Q7c sites: `cmux-host/src/proc_roles/spawn.rs:211`, `cmux-tui-platform/src/unix_process_scope.rs:196`, `cmux-tui-hooks/src/lib.rs:1014`, `cmux-tui/src/local_owner.rs:824`, `cmux-tui/src/cli/chief/launch.rs:265`, `CORE/chief_brains.rs:1027`, `journal_plugin.rs:459`, `holder_runtime/service.rs:562`, `journal_ingress.rs:453`, `mux/terminal_reap.rs:727`, `surface/spawn.rs:433`, `terminal_host_runtime/sys/unix/spawned_host.rs:35`, `terminal_host_runtime/shared/host_shared/lifecycle.rs:127`, `server/resource_waits.rs:255`. Change: `ExitWatcher`: one `child-exit` thread (UTILITY), one kqueue EVFILT_PROC (pidfd + epoll on Linux), `register(pid, callback)`; Child::wait and wait_timeout use it; every child-wait thread registers instead. (Replaces old task 122.) Acceptance: Q7c lists only non-child waits, each with a reason in the PR; a child that exits before registration is still reaped (spawn_apple test). Test: `cargo test -p cmux-process -p cmux-tui` on macOS 26/27 and Linux. Depends: 200.
+
+**123 One PTY writer thread.** Files: `CORE/pty_write.rs`, `CORE/pty_input_room.rs`. Change: per-terminal queues on non-blocking masters; one `pty-writer` (USER_INITIATED) polls POLLOUT for terminals with pending bytes; key bytes in a priority lane. Acceptance: no blocking write on a request path; a flood into one terminal does not delay a key to another (test). Test: `cargo test -p cmux-tui` pty_write tests; bench-typing.py. Depends: 120.
+
+**126 Land D3: attach streams, binary frames, stream lanes, daemon output ring.** Files: origin/pl-conn-d3-land2 (b2671fb77fb, 26 commits): `CORE/server/{attach_frames,stream_lanes,cmd_attach,attach_lifecycle,connection_scheduler,bounded_outbound,message_writer,terminal_snapshot}.rs`, `CORE/surface/output_ring.rs`, `APP/CmuxNextDaemon/Connection/*`, `APP/CmuxNextDaemon/Terminal/*`, generated SDK bindings. Change: merge-main-style merge onto the program branch; regenerate bindings on conflict, never hand-merge; tell PL-conn (OWNERS). Acceptance: identify advertises attach-streams-v1 and attach-frames-v1; two attaches on one connection get correctly tagged READY snapshots; stream_lanes tests pass. Test: `cargo test -p cmux-tui attach_streams attach_frames stream_lanes`; CmuxNextDaemonTests (TerminalStreamReader, WireSplitter, BranchTerminalStreams); stream-attach-bench.py. Depends: -.
+
+**235 Person-first lane on the shared connection.** Files: `CORE/server/connection_scheduler.rs`, `CORE/server/stream_lanes.rs`, `APP/CmuxNextDaemon/Connection/DaemonConnection.swift`. Change: verify D3's per-stream lanes against app-daemon-connection-DESIGN 3.3 and add a person-input lane (keys, pastes, focus from views) that runs before automation lanes. Acceptance: stream A send blocked, stream B echo and a control reply arrive within 5 ms; an automation flood on control does not delay a view key (p99 <= 5 ms). Test: `cargo test -p cmux-tui` lanes; bench-typing.py STRESS with an agent CLI flood. Depends: 126.
+
+**127 App side: no per-view connection.** Files: `APP/CmuxNextDaemon/Terminal/TerminalAttachment.swift`, `APP/CmuxNextDaemon/Connection/DaemonConnection.swift`, `APP/CmuxNextDaemon/Terminal/TerminalEventQueue.swift`. Change: finish what D3 leaves: TerminalAttachment has no LineTransport; per-stream bounded queues; overflow drops that stream's output and sends snapshot-request. Acceptance: `rg 'LineTransport\(' APP/CmuxNextDaemon/Terminal` == 0; split-latency step 4 handshakes == 0. Test: CmuxNextDaemonTests; split-latency-bench.py. Depends: 126, 235.
+
+**131 App ring reader: copy, then validate.** Files: `APP/CmuxNextTerminal/TerminalOutputLane.swift`, `APP/CmuxNextDaemon/Terminal/TerminalOutputRingMapping.swift`, `CORE/surface/output_ring.rs`. Change: copy [last, end) from D3's daemon ring into the lane buffer (one memcpy, two spans on wrap), re-read oldest with acquire; if oldest > last drop the copy and send snapshot-request; parse the copy. `// perf-hot:` on the read. Acceptance: `debug.terminal` <= 1 copy per chunk, 0 base64, 0 JSON; lap-flood test 0 digest mismatches, each lap caught gives a snapshot-request; 10,000-line flood digest equals the frames path. Test: TerminalRingReaderTests lap case; bench-typing.py STRESS. Depends: 126.
+
+**125 Per-attach threads become the connection's outbound queue.** Files: `CORE/server/cmd_attach.rs`, `attach_lifecycle.rs`, `line_connection.rs`. Change: mux-attach-out, mux-render-attach-out, mux-attach-notifications replaced by bounded_outbound round-robin over streams. Acceptance: daemon threads do not grow with views (172 terminals, 24 views: <= 64). Test: `cargo test -p cmux-tui` attach tests; census heavy. Depends: 126.
+
+**203 One mux-io thread for all connections.** Files: `CORE/server/listen.rs`, `line_connection.rs`, `cmd_subscribe.rs`, `bounded_outbound.rs`, `connection_scheduler.rs`. Change: one `mux-io` (USER_INITIATED) with kqueue (epoll on Linux) over all connection fds: non-blocking reads into per-connection splitters, requests to scheduler lanes, BoundedOutbound drained on EVFILT_WRITE; write-timeout and close rules kept. Acceptance: `rg 'name\("mux-(conn|line-out|events-out)"' cmux-tui/crates` == 0; 200 idle CLI connections add <= 2 threads; label in threading-model.md. Test: `cargo test -p cmux-tui` server and attach suites; census heavy and agent-burst peak; perf-10x-lifecycle daemon p95 not worse. Depends: 126.
+
+**204 Per-attach resource threads through the outbound queue.** Files: `CORE/server/resource_attach.rs`, `terminal_snapshot.rs`, `session_event_stream.rs`, `journal_stream.rs`, `conversation_events.rs`. Change: the 8 `mux-resource-*`/`mux-snapshot-attach-out` producers push to BoundedOutbound as streams. Acceptance: `rg 'name\("mux-(resource-[a-z-]+|snapshot-attach-out)"' CORE` == 0; 24 views + 4 subscriptions add 0 threads. Test: `cargo test -p cmux-tui` resource_attach, session events, journal stream; census heavy. Depends: 125.
+
+**205 Per-terminal transient threads become jobs and deadlines.** Files: `CORE/mux/terminal_exit.rs`, `CORE/mux/terminal_adoption.rs`, `CORE/mux/terminal_work.rs`, `CORE/mux/deadline_fanout.rs`. Change: adoption and template completion as jobs on mux-terminal-work (bounded); detach retry as a deadline, not sleep. Acceptance: `rg 'format!\("(terminal-exit-detach|terminal-adopt|template-complete)-' cmux-tui/crates` == 0; `rg thread::sleep CORE/mux/terminal_exit.rs` == 0; peak threads in a 172-terminal restart <= 64. Test: `cargo test -p cmux-tui --test terminal_host_recovery --test holder_terminals`; census restart row. Depends: 120.
+
+**206 Daemon browser surfaces: no threads per surface.** Files: `CORE/browser/worker.rs`, `CORE/mux/browser_providers.rs`, `CORE/browser/runtime.rs`. Change: one `browser-runtime` event thread demultiplexes CdpEvent by surface; a small worker pool with an ordered lane per surface; bootstrap as a job. Acceptance: `rg 'browser-surface-\{id\}' cmux-tui/crates` == 0; 20 surfaces add <= 2 threads. Test: `cargo test -p cmux-tui` browser runtime and navigation_hold. Depends: -.
+
+**138 Hosted terminal path frozen behind the opt-out.** Files: Q8 hits: `CORE/terminal_host_runtime/**`, `CORE/surface.rs:901`, `CORE/surface/hosted_reader.rs`, `CORE/surface/rehost.rs`. Change: hosted spawns reachable only with `CMUX_TUI_TERMINAL_HOST_MODEL=hosts`; adoption of existing hosts stays; deletion is a follow-up. Acceptance: default env spawns 0 `__terminal-host` across create, split, restore. Test: `cargo test -p cmux-tui --test terminal_host_mode`. Depends: 002.
+
+**139 QoS for process-model threads.** Files: `cmux-tui/crates/cmux-tui-util/src/qos.rs` (new), Q12 sites, `tests/qos_sites.sh` (new, run in the agent loop, not CI), `plans/cmux-next/threading-model.md`. Change: `pthread_set_qos_class_self_np` on macOS (no-op on Linux): holder-link, visible pool, pty-writer, mux-io USER_INITIATED; hidden pool, child-exit, journal UTILITY. Acceptance: every Q12 site sets a QoS; doc rows updated. Test: census QoS column. Depends: 120.
+
+**140 Hidden terminals hold no app surface.** Files: `APP/CmuxNextTerminal/TerminalSession.swift`, `APP/CmuxNextTerminal/TerminalSurfaceView.swift`. Change: after a 30 s hidden grace free the Ghostty surface (renderer, IO threads, atlases), keep the stream offset; on show rebuild from snapshot + ring tail in one layout. Acceptance: census per_hidden_terminal_mb <= 1.5 (with 005's per-role budget); show to first frame < 16 ms. Test: census heavy; workspace switch bench. Depends: 131.
+
+**208 Classify every daemon reader of VT state.** Files: `plans/cmux-next/vt-worker-state-access.json` (new), `scripts/cmux-next/vt-state-access.py` (new), Q15 files (55, 181 refs). Change: one row per access site: page (field named), async (off key paths), in-worker, dead; script diffs rg against the JSON. Acceptance: `vt-state-access.py --check` 0 unclassified; every page row names its field. Test: the script (portable). Depends: -.
+
+**133 cmux-vt-worker crate (risk:high).** Files: `cmux-tui/crates/cmux-vt-worker/` (new: main.rs, shard.rs, screen_page.rs, sandbox.rs), `cmux-tui/Cargo.toml`. Change: std + libc + ghostty-vt process; Seatbelt profile compiled by the daemon and applied before the first ring byte: deny default, deny mach-lookup, iokit-open, sysctl-write, process-fork/exec, network*, file-read* except /usr/lib and the dyld cache; later rings only as fds; maps rings read-only; parses its shard; publishes screens and terminal modes into seqlock pages; events on a socket. Acceptance: after sandbox `open()`, `fork()`, `socket(AF_INET)`, `bootstrap_look_up("com.apple.pasteboard.1")` fail; screen pages equal the in-daemon parser on a corpus. Test: `cargo test -p cmux-vt-worker` on macOS 26/27. Depends: 120, 208.
+
+**209 Terminal modes in the screen page; key encoding never hops.** Files: `cmux-vt-worker/src/screen_page.rs`, `CORE/server/protocol_key.rs`, `CORE/surface/mouse_input.rs`, `CORE/server/cmd_terminal_io.rs`. Change: page publishes Kitty keyboard flag stack, DECCKM, DECKPAM, bracketed paste, mouse tracking and format, focus reporting, alt screen, cursor; encoders read with seqlock retry. Acceptance: with process workers `debug.vt worker_requests_on_key == 0`; encoder tests pass with page-backed modes. Test: `cargo test -p cmux-tui` key and mouse encoding in both VT modes; bench-typing.py STRESS. Depends: 133, 208.
+
+**134 Daemon broker for VT worker processes (risk:high).** Files: `CORE/vt_worker_runtime.rs` (new), `CORE/vt_pool.rs`. Change: behind `CMUX_TUI_VT_WORKERS=process`: spawn N workers via cmux_process, assign shards, relay ring advances, write validated DA/DSR answers, restart dead workers; reseed from holder prologue + ring tail; strike rule per shard. Acceptance: worker kill restores within 100 ms; poison pill crashing twice in 10 s restores from prologue only. Test: `cargo test -p cmux-tui --test vt_worker_restart`. Depends: 133.
+
+**210 Prologue snapshots and DA/DSR from the shard owner; RESIZE nudge.** Files: `CORE/vt_pool.rs`, `CORE/holder_runtime/sink.rs`, `cmux-vt-worker/src/shard.rs`, `plans/cmux-next/terminal-host-model-DESIGN.md`. Change: the shard owner makes the holder SNAPSHOT (<= 128 KiB VT replay at the parsed offset after 64 KiB idle or every 2 MiB) and does `HolderSink::confirm_parsed`; after a daemon restart a same-size RESIZE nudge redraws full-screen programs. Acceptance: the holder replay-race test passes in pool and process modes; vim redraws after daemon SIGKILL (new test). Test: `cargo test -p cmux-tui --test holder_terminals --test vt_worker_restart`. Depends: 120, 134.
+
+**135 Screen reads from worker pages, no hop.** Files: `CORE/server/terminal_snapshot.rs`, `CORE/vt_worker_runtime.rs`. Change: read-screen, snapshot, agent reads copy from the seqlock page with bounds checks; scrollback pages requested asynchronously. Acceptance: read-screen p95 < 1 ms with process workers. Test: perf-10x-lifecycle part=daemon; agent read bench. Depends: 134, 141.
+
+**141 Worker output is untrusted (bad_message rule).** Files: `CORE/vt_worker_runtime.rs`, `CORE/server/terminal_snapshot.rs`, `cmux-vt-worker/src/screen_page.rs`, `cmux-tui/crates/cmux-tui/tests/vt_worker_bad_message.rs` (new). Change: validate each event (terminal id in shard, length bound, UTF-8 titles and cwd, DA/DSR from the fixed answer set, OSC 52 through existing policy); bounds-check cols, rows, cell count, history ref against mapping size; violation kills the worker and reseeds. Acceptance: fuzzed pages and frames never cause an out-of-bounds read; each bad frame ends the worker with reason bad_message. Test: `cargo test --test vt_worker_bad_message`; 10 min cargo fuzz on the page reader. Depends: 134.
+
+**142 Shard by trust class.** Files: `CORE/vt_pool.rs`, `CORE/vt_worker_runtime.rs`. Change: trust key (local, SSH/remote/cloud, agent-fetched) in shard choice; one class per worker; spill to an extra worker above the cap; unmap a ring when its terminal moves. Acceptance: 8 local + 4 SSH with N = 2 gives 0 mixed workers; debug.vt mapped-segment list never mixes classes. Test: census heavy mixed session; vt_worker_restart. Depends: 134.
+
+**211 Ship cmux-vt-worker like cmux-holder (risk:high).** Files: `cmux-tui/crates/cmux-tui-platform/src/host_exe.rs`, `cmux-vt-worker/src/sandbox.rs`, `scripts/cmux-next/build-cmux-tui-client.sh`, `scripts/sign-cmux-bundle.sh`, `scripts/ci/cmux-tui-rust-check.sh` (build only, no new CI step). Change: bundle `bin/cmux-vt-worker`, hardened runtime; run from a content-addressed copy (`host-exe/<sha256>/`); HELLO wire version, mismatch falls back to pool threads; Linux seccomp-bpf (deny open/openat/socket/execve after setup) plus landlock where supported. Acceptance: 133's sandbox test passes on Linux too; an update that swaps the bundle keeps shards live or falls back with 0 lost screens. Test: `cargo test -p cmux-vt-worker` on macOS 26/27 and Linux; app-update test in holder_terminals extended. Depends: 133.
+
+**136 vt_worker_restart integration test.** Files: `cmux-tui/crates/cmux-tui/tests/vt_worker_restart.rs` (new). Change: 16 terminals in one shard, SIGKILL, digests; other shards' echo during restart; poison pill; ghostty-vt crash corpus kills one shard only. Acceptance: red without the broker's reseed, green with it. Test: cargo test on the fleet. Depends: 134.
+
+**137 VT worker processes default on in DEV.** Files: `CORE/vt_worker_runtime.rs`. Change: process mode default in DEV after its rows pass; threads mode fallback for one release; off elsewhere. Acceptance: census DEV vt_worker processes == N (+ trust spill). Test: census heavy; holder_terminals; bench-typing. Depends: 135, 136, 141, 142, 209, 210, 211.
+
+**241 The app draws terminal screens, not bytes (spike, then build).** Files: `APP/CmuxNextTerminal/TerminalOutputLane.swift`, `APP/CmuxNextDaemon/Terminal/TerminalOutputRingMapping.swift`, `cmux-vt-worker/src/screen_page.rs`, `plans/cmux-next/terminal-host-model-DESIGN.md`. Change: spike feeding the app's Ghostty surface from the published screen page and damage list (cells, styles, cursor, images by reference) instead of bytes; if feasible inside the 72 h, build behind a flag; otherwise record the measured gap and plan. Acceptance: spike numbers in the design doc; if built, VT parses per byte == 1 and a crash corpus ends only one shard while the app runs. Test: bench-typing.py STRESS in both modes; VT fuzz crash corpus. Depends: 133, 131.
+
+**236 AgentSessionAttachClient becomes a stream.** Files: `APP/CmuxNextDaemon/AgentSession/AgentSessionAttachClient.swift`, `APP/CmuxNextDaemon/Connection/LineTransport.swift`. Change: agent panes use a stream with a bounded queue on DaemonConnection, no own socket or reader thread. Acceptance: `rg 'LineTransport\(' APP/CmuxNextDaemon/AgentSession` == 0; 10 agent panes add 0 app threads. Test: CmuxNextDaemonTests agent session attach; census app threads. Depends: 127.
+
+**237 SSH bridge carries binary frames.** Files: `cmux-tui/crates/cmux-remote/src/mux_codec.rs`, `mux_lanes.rs`, `services.rs`. Change: read 0xFF messages by header; all frames of a stream on one lane; keep `stream` on send. Acceptance: app over SSH negotiates attach-frames-v1; remote flood digests equal local. Test: `cargo test -p cmux-remote`; remote split-latency bench. Depends: 126.
+
+### State placement and children
+
+**151 Audit of UserDefaults (Q11).** Files: `plans/cmux-next/state-placement.md`, Q11 hits (172 in 88 files). Change: classify each hit view state (stays) or shared state (moves to the daemon, follow-up with owner). Acceptance: 172 rows with class. Test: none (doc). Depends: -.
+
+**238 Audit of app file stores (Q11b).** Files: `plans/cmux-next/state-placement.md`, the 85 Q11b files (BookmarkService, BrowserVisitLog, BrowserDownloadHistory, SiteZoomLevels, BrowserProfileService, IncognitoWorkspaceLedger, WorkspaceBackgroundStore, TasksPageService, ...). Change: classify each as view cache or shared state (follow-up to move into the daemon). Acceptance: 85 rows with class and owner. Test: none (doc). Depends: -.
+
+**239 Long-lived app children move under the daemon.** Files: `APP/CmuxNextAgentPane/AgentPaneShell.swift`, `APP/CmuxNextRemoteBrowser/LocalHost/LocalRemoteBrowserHost.swift`, `APP/CmuxNextVSCodeServer/VSCodeServeWebProcessLauncher.swift`, matching daemon job and supervisor code in CORE. Change: shell-mode runs become daemon jobs (stream read, stop by id); one daemon-owned remote-browser host for all remote tabs; serve-web supervised by the daemon. Acceptance: done check 20 rows for these; 1 remote-browser host for 3 tabs. Test: app-crash survival bench row; census. Depends: -.
+
+**240 acpmux: one MCP helper per chat.** Files: `cmux-tui/crates/acpmux/src/agent_tools.rs`, `acpmux/src/agent_host/host.rs`, `acpmux/src/cli/entry.rs`, `cmux-tui/crates/cmux-tui/src/cli/mcp.rs`, `cmux-tui/src/cli/mcp/*.rs`. Change: one MCP helper per chat on a current_thread runtime; fixed tool lists in the server spec; start on first call; one persistent daemon connection; host exit and record watch on the runtime. Acceptance: done check 21. Test: `cargo test -p acpmux --test agent_tools --test agent_host`; acpmux stress bench. Depends: -.
+
+### Fork batch (Q13)
+
+**170 Fork: windowed IME exports and composition bounds.** Files: fork `libcef/browser/browser_platform_delegate.cc:411-432`, `libcef/browser/chrome/views/chrome_child_window_mac.mm`, `include/cef_cmux.h`; SHIMH. Change: ime_set_composition, ime_commit_text, ime_finish_composing, ime_cancel for detached pages via the remote-presentation IME path, plus a composition-bounds callback; shim exports with the API check. Acceptance: fork unit test; host bench IME rows on a 178 build. Test: `cmux-ci build cef`, then bench. Depends: -.
+
+**171 Fork: popup menu handler for `<select>`.** Files: fork popup_menu path (RenderWidgetHostViewMac::ShowPopupMenu), `include/cef_cmux.h`. Change: `cmux_browser_set_popup_menu_handler` with {items, bounds, font size, right aligned, selected} and a reply call; Hide. Acceptance: select row on a 178 build. Test: `cmux-ci build cef`. Depends: -.
+
+**172 Fork: suggestion handler; drag target in detached mode.** Files: fork autofill embedder delegate, `libcef/browser/browser_platform_delegate.cc:434-453`. Change: embedder suggestion handler; DragTarget* for detached pages. Acceptance: autofill, password, drag-in rows. Test: `cmux-ci build cef`. Depends: -.
+
+**173 Fork: layer hosting for any widget; resize fence port.** Files: fork `chrome_child_window_mac.mm`, `include/cef_cmux.h`. Change: context id for every Views widget with a WebContents (extension popup, side panel, DevTools, InitAsPopup widgets); fence-port variant of resize sync. Acceptance: hosted-widget rows; resize fence bench. Test: `cmux-ci build cef`. Depends: -.
+
+**175 Fork: WebAuthn platform authenticator delegate.** Files: fork device/fido/mac embedder delegate. Change: iCloud Keychain request to the embedder. Acceptance: passkey row. Test: `cmux-ci build cef`. Depends: -.
+
+**176 Fork: no visible Views window in detached mode.** Files: fork ui/views/cocoa or libcef views. Change: any widget that would order a visible NSWindow is not shown and is reported. Acceptance: 0 unexpected windows in native-ui rows. Test: `cmux-ci build cef`. Depends: -.
+
+**227 Fork batch additions.** Files: fork `include/cef_cmux.h`, `libcef/browser` (OpenColorChooser, RunBluetoothChooser/ChooserController, DesktopMediaPicker, PictureInPictureWindowManager, RequestPointerLock/RequestKeyboardLock), SHIMH. Change: embedder handlers (data out, answer by token) for color, device choosers, desktop media; PiP and document-PiP in any-widget hosting; pointer and keyboard lock delegate; detached-page visibility and occlusion calls (220); per-display placement of the never-ordered-in window (221); encoded page state per entry (093). Acceptance: cef_cmux.h exports each behind API 31; fork unit tests pass. Test: `cmux-ci build cef`, then bench rows of 220, 221, 228, 229. Depends: -.
+
+**178 One fork release train at API 31 and the pin.** Files: `scripts/cmux-next/cef-manifest.json`, `scripts/cmux-next/publish-cef-r2.sh`, `scripts/cmux-next/cef-pin-staging.sh`, fork `include/cef_cmux.h`. Change: one release with the API 30 cases, 170-176, 227, the API 29 renderer-sharing paths and the PL-cef-layer cmux.34 capture, cut by hour 12; arm64 and x86_64 plus debug assets to R2; pin once. Acceptance: `cmux_cef_api_version >= 31`, both arches and debug assets; sha256 equal R2 objects; cef-embedder.sh passes every API 30 case; check-first-chromium.py passes. Test: `cmux-ci build cef`; `cmux-ci build cmux`; cef-embedder.sh on a measure worker; cef-pin-staging suite. Depends: 170, 171, 172, 173, 175, 176, 227.
