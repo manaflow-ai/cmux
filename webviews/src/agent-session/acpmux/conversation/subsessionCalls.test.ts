@@ -232,3 +232,10 @@ test("each sub-session call is its own card, between the calls around it", () =>
   // The two list_sessions calls still fold into one MCP line.
   expect(groups[3]).toMatchObject({ type: "mcp", items: [{ tool: list }, {}] });
 });
+
+test("a row with no lane yet reads its state from its status dot", () => {
+  const rows = { sessions: [{ sessionId: "s-new", shortName: "new", state: null, indicator: "working" }] };
+  expect(subsessionCall(codex("list_sessions", {}, rows))).toMatchObject({
+    sessions: [{ sessionId: "s-new", state: "working" }],
+  });
+});

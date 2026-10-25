@@ -127,9 +127,10 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
   }
 }
 
-/// A family row's state (`subsession_row`): its lane, `working`, `input`, `failed`, `lost` or `idle`.
+/// A family row's state (`subsession_row`): its lane, `working`, `input`, `failed`, `lost` or `idle`,
+/// else (a session with no lane yet) its status dot, as the session list reads one (subsessionState).
 function rowState(row: Record<string, unknown>): SubsessionReply["state"] {
-  switch (row.state) {
+  switch (row.state ?? row.indicator) {
     case "working":
       return "working";
     case "input":
