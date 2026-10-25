@@ -86,7 +86,9 @@ extension CEFTab {
                 if error.engineShowsPage { reachedFirstRealPage() }
             }
         case .address(_, let url):
+            let before = state
             machine.apply(.urlChanged(URL(string: url)))
+            lookAgainAtMedia(after: before)
         case .title(_, let title):
             offerTitle(title.isEmpty ? nil : title)
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }

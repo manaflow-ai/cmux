@@ -290,6 +290,13 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     // MARK: Internals shared with the delegate extension
 
+    /// The web view's address changed (KVO): a navigation's, or a same-document one's.
+    private func addressChanged(_ url: URL?) {
+        let before = state
+        apply(.urlChanged(url))
+        lookAgainAtMedia(after: before)
+    }
+
     func apply(_ event: BrowserNavigationEvent) {
         if case .titleChanged = event {
             // This title replaces one still waiting (the commit's authoritative read), which must not land after it.
@@ -403,7 +410,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     private func observeWebView() {
         observations = [
             webView.observe(\.url, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.apply(.urlChanged(webView.url)) }
+                MainDelivery().run { self?.addressChanged(webView.url) }
             },
             webView.observe(\.title, options: [.new]) { @Sendable [weak self] webView, _ in
                 MainDelivery().run { self?.offerTitle(webView.title) }

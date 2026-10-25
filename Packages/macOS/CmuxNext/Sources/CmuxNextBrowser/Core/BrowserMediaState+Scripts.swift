@@ -22,8 +22,9 @@ import Foundation
 /// bridge calls ``readyHook`` after a binding add (`CEFMediaBridge`), or at
 /// the next natural event. A paused element the
 /// page removes (its events fire on a detached node no listener here sees)
-/// reports null at the next natural event: a media event, or the page
-/// showing again.
+/// reports null at the next natural event: a media event, the page showing
+/// again, or the tab's look-again call after a same-document navigation
+/// (``lookAgainScript``).
 nonisolated extension BrowserMediaState {
     /// WebKit's message handler and Chromium's binding.
     static let channel = "cmuxMedia"
@@ -44,7 +45,8 @@ nonisolated extension BrowserMediaState {
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
           // What the last look found playing, and the one-second look-again while it plays (`follow`).
           let playing = false, ticks = 0, ticker = 0;
-          // The element last reported: the page showing again checks it is still in the document.
+          // The element last reported, weakly (a removed element is not kept alive): the page
+          // showing again checks it is still in the document.
           let held = null;
           // This document's id: the tab keeps one report per frame.
           const frame = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -100,7 +102,7 @@ nonisolated extension BrowserMediaState {
             if (!send(state)) return;
             last = key;
             reported = true;
-            held = element;
+            held = new WeakRef(element);
           };
           // Metadata changes fire no event: look again every second while what this frame reported
           // plays (every third look sends it again with its position). Nothing else keeps a timer,
@@ -146,8 +148,11 @@ nonisolated extension BrowserMediaState {
           // waits, looks again. One check per show, no DOM watch.
           addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') return;
-            if (pending || (reported && held && !held.isConnected)) schedule();
+            const shown = held && held.deref();
+            if (pending || (reported && !(shown && shown.isConnected))) schedule();
           }, true);
+          // The tab's look-again call (a same-document navigation may have removed the element).
+          document.addEventListener('cmux-media-look', schedule, true);
           for (const type of ['seeked', 'ratechange']) {
             addEventListener(type, () => { seeked = true; schedule(); }, true);
           }
@@ -184,6 +189,19 @@ nonisolated extension BrowserMediaState {
           }, true);
         })();
         """#
+    }
+
+    /// The tab's one look-again call to the observer (any isolated world; the event crosses
+    /// worlds on the shared DOM): it looks at the frame's media once and reports what changed.
+    static let lookAgainScript = "(() => { document.dispatchEvent(new CustomEvent('cmux-media-look')); return true; })()"
+
+    /// Whether an address change from `before` to `after` needs the observer to look again: a
+    /// same-document navigation (pushState, a fragment) of a page that shows media may have
+    /// removed the element, whose events then fire where no listener hears them. A new load's
+    /// address (provisional; its commit clears the media) and a page with no media need nothing,
+    /// so an idle page costs nothing.
+    static func looksAgain(from before: BrowserTabState, to after: BrowserTabState) -> Bool {
+        after.media != nil && before.url != after.url && after.phase != .provisional
     }
 
     /// The page-world recorder of `mediaSession` action handlers.
@@ -295,6 +313,13 @@ extension BrowserTab {
         let script = BrowserMediaCommand.pictureInPicture.script
         guard case .string(let answer)? = try? await evaluate(script.source, world: script.world, gesture: .agent) else { return nil }
         return BrowserPictureInPicture(rawValue: answer)
+    }
+
+    /// After an address change from `before`: the observer looks again once when the page
+    /// navigated within its document while it showed media (``BrowserMediaState/looksAgain(from:to:)``).
+    func lookAgainAtMedia(after before: BrowserTabState) {
+        guard BrowserMediaState.looksAgain(from: before, to: state) else { return }
+        Task { _ = try? await evaluate(BrowserMediaState.lookAgainScript, world: .isolated, gesture: .cmux) }
     }
 
     /// After the page's media report: a document or frame that has not
