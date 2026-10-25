@@ -40,10 +40,10 @@ import Testing
         return (window, controller)
     }
 
-    private func item(_ n: Int, _ author: ParticipantID, _ parts: [MessagePart], replyTo: PartRef? = nil) -> TranscriptItem {
+    private func item(_ n: Int, _ author: ParticipantID, _ parts: [MessagePart], replyTo: CmuxHomeCore.PartRef? = nil, threadRoot: MessageID? = nil) -> TranscriptItem {
         TranscriptItem(key: IdempotencyKey("k\(n)"), seq: Seq(n), author: author, parts: parts,
                        createdAt: Date(timeIntervalSince1970: 1_800_000_000 + Double(n)), delivery: .committed,
-                       replyTo: replyTo, messageID: MessageID("msg_\(n)"))
+                       replyTo: replyTo, threadRoot: threadRoot, messageID: MessageID("msg_\(n)"))
     }
 
     private func titles(_ menu: NSMenu?) -> [String] {
@@ -95,16 +95,16 @@ import Testing
         let items = [
             item(1, Self.me, [.attachment(png)]),
             item(2, Self.chief, [.text("Looking at it now.")]),
-            item(3, Self.me, [.text("Is the second button cut off?")], replyTo: PartRef(message: MessageID("msg_1"), partIndex: 0)),
+            item(3, Self.me, [.text("Is the second button cut off?")], replyTo: CmuxHomeCore.PartRef(message: MessageID("msg_1"), partIndex: 0), threadRoot: MessageID("msg_1")),
         ]
         let (window, controller) = controller(items)
         defer { window.close() }
-        let demo = try #require(controller.demo)
+        let demo = try #require(controller.demo as MessagesWindowView?)
         var centre: CGPoint?
         for case let cell as RowCell in demo.collection.visibleCells {
-            guard case .threadPreview? = cell.spec?.kind else { continue }
-            let r = cell.convert(cell.bounds, to: controller.host)
-            centre = CGPoint(x: r.minX + Fixture.leftEdge + 20, y: r.midY)
+            guard let spec = cell.spec, case let .threadPreview(pv) = spec.kind else { continue }
+            let r = cell.convert(cell.bounds, to: demo)
+            centre = CGPoint(x: pv.outgoing ? r.minX + spec.metrics.rightEdge - 20 : r.minX + Fixture.leftEdge + 20, y: r.midY)
         }
         let p = try #require(centre, "the reply shows no quoted picture")
         let menu = controller.menu(at: p)
@@ -112,5 +112,28 @@ import Testing
         let shown = titles(menu)
         #expect(shown.contains(Strings.menuCopy), "\(shown)")
         #expect(shown.contains(CmuxStrings.saveAttachmentAs), "\(shown)")
+    }
+
+    private func rightClick() -> NSEvent {
+        NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+    }
+
+    @Test func aPictureInTheMessageBoxHasCopySaveAsAndRemove() {
+        let a = MessagesLabHome.Attachment(id: "p1", kind: "image", fileName: "p1.png", mimeType: "image/png", byteSize: 1,
+                                           asset: nil, poster: nil, width: 40, height: 30, durationSeconds: nil, transfer: .done)
+        let attachment = ComposeInlineAttachment(a, scale: 2)
+        let view = ComposeInlineAttachmentView(attachment)
+        defer { withExtendedLifetime(attachment) {} }
+        let shown = titles(view.menu(for: rightClick()))
+        #expect(shown.contains(Strings.menuCopy), "\(shown)")
+        #expect(shown.contains(CmuxStrings.saveAttachmentAs), "\(shown)")
+        #expect(shown.contains(CmuxStrings.removeAttachment), "\(shown)")
+    }
+
+    @Test func theReplyCardOnTheMessageBoxCopiesTheQuote() {
+        let card = ReplyQuoteCardView()
+        let shown = titles(card.menu(for: rightClick()))
+        #expect(shown == [Strings.menuCopy, "", CmuxStrings.replyQuoteRemove], "\(shown)")
     }
 }
