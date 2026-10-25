@@ -139,6 +139,20 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
               onKeyDown={searchKeys}
               aria-controls="keys-table"
             />
+            {searchRecording && snap.text && (
+              // The recorded keys go; the search records on.
+              <button
+                type="button"
+                className="keys-icon-button keys-search-clear"
+                aria-label={t("keybindings.page.clearKeys")}
+                title={t("keybindings.page.clearKeys")}
+                // The field keeps the focus (the app records the keys, never the field).
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => store.setText("")}
+              >
+                <Icon name="close" />
+              </button>
+            )}
             {searchRecording && (
               // The mode, inside the field; how to leave it on hover.
               <span className="keys-search-badge" title={t("keybindings.page.recordingExit")} aria-hidden="true">
