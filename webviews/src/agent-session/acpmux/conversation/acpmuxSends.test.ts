@@ -177,6 +177,7 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("reach --help host acpmux send x y")).toBeUndefined();
     expect(acpmuxSend("reach --list host acpmux send x y")).toBeUndefined();
     expect(acpmuxSend("reach --timeout 20 --help acpmux send x y")).toBeUndefined();
+    expect(acpmuxSend("reach --timeout --help host acpmux send x y")).toBeUndefined();
     // A wrapper's option that does not run the command (help, env -S) is not looked through.
     expect(acpmuxSend("timeout --help 10 acpmux send x y")).toBeUndefined();
     expect(acpmuxSend("env -S 'acpmux send x y'")).toBeUndefined();
