@@ -104,6 +104,40 @@ import Testing
         #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the start")
     }
 
+    /// A split's spring retargeted mid-flight (the window resizes while it springs, 95870e0f9d5): the
+    /// terminal sends the grid of its new rest size at the retarget, not its held size plus the change
+    /// against the pane's live size, and the landing sends nothing more (two resizes in all).
+    @Test(arguments: [Self.pair, Self.stack])
+    func aSplitRetargetedMidSpringSendsTheNewRestGridAtTheRetargetAndNothingAtTheLanding(split: SplitNode) async throws {
+        let screen = Screen(.leaf("p1"), terminal: "p1")
+        defer { screen.close() }
+        try #require(screen.surface.surface != nil, "libghostty created no surface")
+        _ = await screen.grids()
+
+        screen.show(split)
+        let atStart = await screen.grids()
+        for _ in 1...3 {
+            #expect(screen.root.advanceFrame(1.0 / 120), "the split stopped springing within 3 frames")
+            screen.root.layoutSubtreeIfNeeded()
+        }
+        screen.window.setContentSize(NSSize(width: 1600, height: 1000))
+        screen.root.layoutSubtreeIfNeeded()
+        // The retargeted spring's next frame presents the new rest size (`announceRest`).
+        #expect(screen.root.advanceFrame(1.0 / 120), "the resize snapped the spring to its end")
+        screen.root.layoutSubtreeIfNeeded()
+        let atRetarget = await screen.grids()
+        let frames = screen.settle()
+        let atLanding = await screen.grids()
+        // The grid `ghostty_surface_fit_grid` gives the surface at the size it landed at: the new rest size.
+        let final = try #require(screen.restGrid)
+
+        #expect(frames > 3, "the retargeted split did not spring")
+        #expect(atStart.count == 1 && atStart != [final], "the key's turn asked for \(atStart); the retarget must change the grid")
+        #expect(atRetarget == [final], "the retarget asked for \(atRetarget), not the new rest grid \(final)")
+        #expect(atLanding.isEmpty, "the landing asked for \(atLanding) after the retarget")
+        #expect(atStart.count + atRetarget.count + atLanding.count == 2, "the PTY was resized \(atStart + atRetarget + atLanding)")
+    }
+
     /// Cmd-W: the terminal that grows into the closed pane's space sends its final grid in the key's turn.
     @Test(arguments: [Self.pair, Self.stack])
     func aCloseSendsTheGrowingTerminalsFinalGridAtTheStartAndNothingAtTheLanding(tree: SplitNode) async throws {
