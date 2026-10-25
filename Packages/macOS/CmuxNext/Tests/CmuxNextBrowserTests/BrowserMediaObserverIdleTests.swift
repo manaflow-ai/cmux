@@ -22,10 +22,14 @@ import Testing
     function fire(type, target) { (listeners[type] || []).forEach(function (f) { f({ type: type, target: target }); }); runTimeouts(); }
     var window = this, top = this, frames = { length: 0 }, navigator = {}, location = { href: 'https://example.com/' };
     var media = [];
+    var docListeners = {};
     var document = {
-      title: 'A page', pictureInPictureElement: null, visibilityState: 'visible', addEventListener: function () {},
+      title: 'A page', pictureInPictureElement: null, visibilityState: 'visible',
+      addEventListener: function (type, f) { (docListeners[type] = docListeners[type] || []).push(f); },
+      dispatchEvent: function (e) { (docListeners[e.type] || []).forEach(function (f) { f(e); }); return true; },
       querySelectorAll: function (s) { return /video|audio/.test(s) ? media : []; },
     };
+    function CustomEvent(type, init) { this.type = type; this.detail = init ? init.detail : null; }
     function video(playing) {
       return { tagName: 'VIDEO', paused: !playing, ended: false, currentTime: 12, duration: 60, muted: false, volume: 1,
                playbackRate: 1, isConnected: true };
@@ -112,6 +116,20 @@ import Testing
         #expect(Self.posts(context) == 3)
         #expect(context.evaluateScript("lastReport() === null").toBool())
         #expect(context.evaluateScript("observers.length").toInt32() == 0)
+    }
+
+    /// A same-document navigation (pushState) that removed the paused element: the tab's one
+    /// look-again call sends null, so the card, whose Play button would do nothing, goes. Before,
+    /// it stayed until the next media event or the next show.
+    @Test func aLookAgainAfterASameDocumentNavigationRemovedThePausedElementReportsNull() throws {
+        let context = try Self.context()
+        context.evaluateScript("var v = video(false); media = [v]; fire('pause', v);")
+        #expect(Self.posts(context) == 1)
+        context.evaluateScript("media = []; v.isConnected = false;")
+        context.evaluateScript("document.dispatchEvent(new CustomEvent('cmux-media-look')); runTimeouts();")
+        #expect(Self.posts(context) == 2, "the look-again call sent nothing")
+        #expect(context.evaluateScript("lastReport() === null").toBool())
+        #expect(Self.timers(context) == 0)
     }
 
     /// A frame whose binding never comes (an iframe made after the last binding add) keeps no
