@@ -113,8 +113,12 @@ final class PaneOverlayView: NSView {
         if changed { layoutLayers() }
     }
 
+    /// The scale the layers were last laid out for (a canvas zoom is no scale change, #24998).
+    private var backingScale = BackingScaleChange()
+
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard backingScale.isChange(to: window?.backingScaleFactor) else { return }
         layoutLayers()
     }
 

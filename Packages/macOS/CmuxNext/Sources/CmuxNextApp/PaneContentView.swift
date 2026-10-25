@@ -226,8 +226,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         hidesStrip ? 0 : PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 
+    /// The scale the band height was last snapped for (a canvas zoom is no scale change, #24998).
+    private var backingScale = BackingScaleChange()
+
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard backingScale.isChange(to: window?.backingScaleFactor) else { return }
         refreshBandHeight()
         needsLayout = true
     }

@@ -91,6 +91,8 @@ public final class BrowserChromeView: NSView {
         return isToolbarHidden ? 0 : currentToolbarHeight
     }
     private var observation: ObservationLoop?
+    /// The scale the scale-snapped values were last applied for (`viewDidChangeBackingProperties`).
+    private var backingScale = BackingScaleChange()
     /// Prompts have their own loop: a state change (a title, progress) does not re-render the prompt
     /// bar, and a new prompt does not re-run the rest of the chrome.
     private var promptObservation: ObservationLoop?
@@ -421,6 +423,8 @@ public final class BrowserChromeView: NSView {
     /// A move to a screen with another scale snaps the toolbar gap again.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        // A canvas zoom sends this every frame with the scale unchanged (#24998).
+        guard backingScale.isChange(to: window?.backingScaleFactor) else { return }
         // Every scale-snapped value, not only the row height: the omnibar's top was computed
         // before the view had a window, at the main screen's scale (1 pt off on a 1x display).
         density.reapply()

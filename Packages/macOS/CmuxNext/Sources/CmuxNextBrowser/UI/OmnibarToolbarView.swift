@@ -29,6 +29,8 @@ public final class OmnibarToolbarView: ArrowCursorView {
     private let forward: ChromeIconButton?
     private let reload: ChromeIconButton?
     private var hasButtons: Bool { back != nil }
+    /// The scale the omnibar's top was last snapped for (`viewDidChangeBackingProperties`).
+    private var backingScale = BackingScaleChange()
 
     public static let backIdentifier = "omnibar.toolbar.back"
     public static let forwardIdentifier = "omnibar.toolbar.forward"
@@ -107,6 +109,8 @@ public final class OmnibarToolbarView: ArrowCursorView {
     /// A move to a screen with another scale snaps the omnibar's top again.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        // A canvas zoom sends this every frame with the scale unchanged (#24998).
+        guard backingScale.isChange(to: window?.backingScaleFactor) else { return }
         density.reapply()
     }
 

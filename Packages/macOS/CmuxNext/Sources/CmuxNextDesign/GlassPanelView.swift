@@ -84,8 +84,12 @@ public final class GlassPanelView: NSView {
         applyColors()
     }
 
+    /// The scale the shape was last applied for (a canvas zoom is no scale change, #24998).
+    private var backingScale = BackingScaleChange()
+
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        guard backingScale.isChange(to: window?.backingScaleFactor) else { return }
         applyShape()
     }
 
