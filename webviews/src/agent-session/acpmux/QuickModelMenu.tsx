@@ -1,4 +1,4 @@
-import React, { Fragment, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { SearchIcon, type Choice } from "./ComposerPickers";
@@ -230,6 +230,7 @@ export function QuickModelMenu({
   // On New Tab, More models is a row that shows the tab's other models in place, as T3 Code's
   // model menu does, not a submenu: the rail tab it was opened on.
   const [moreFor, setMoreFor] = useState<string | undefined>();
+  const moreListId = useId();
   // Reset as the menu opens, in render: the composer re-renders while it is open (a streaming
   // reply), and an effect on the families would throw away the tab and the typed filter.
   const [wasOpen, setWasOpen] = useState(open);
@@ -510,6 +511,7 @@ export function QuickModelMenu({
               className="acpmux-quick-item acpmux-quick-sub acpmux-quick-disclosure"
               closeOnClick={false}
               expanded={moreShown}
+              {...(moreShown ? { controls: moreListId } : {})}
               onSelect={() => setMoreFor(moreShown ? undefined : tab)}
             >
               <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
@@ -518,7 +520,12 @@ export function QuickModelMenu({
           )}
           {/* Its own short scroll area, so Effort, Account and Fast mode stay in view under it. */}
           {moreShown && shown && (
-            <fieldset className="acpmux-quick-more-list" aria-label={t("picker.moreModels")}>
+            <fieldset
+              id={moreListId}
+              className="acpmux-quick-more-list"
+              aria-label={t("picker.moreModels")}
+              data-single={shown.more.length === 1 ? "" : undefined}
+            >
               <MenuRadioGroup
                 value={currentValue}
                 onValueChange={(value) => {

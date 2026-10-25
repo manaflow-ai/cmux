@@ -1598,7 +1598,7 @@ export function NewTabScreen(props: Props) {
       </div>
     </ContextMenu>
   );
-  // The chips' menus open down and drop their headings and key hints here (newTabComposer.ts).
+  // The chips' menus open down and drop their key hints here (newTabComposer.ts).
   return <OnNewTab.Provider value={true}>{page}</OnNewTab.Provider>;
 }
 

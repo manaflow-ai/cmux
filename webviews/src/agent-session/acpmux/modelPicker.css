@@ -264,29 +264,36 @@
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
 .acpmux-quick-layout { display: flex; align-items: stretch; min-height: 0; max-height: var(--available-height, none); }
 /* New Tab's menu opens down from the middle of the page: it stops well short of the window's bottom
-   edge (at most 360 px). The menu itself never scrolls: each box down to the list is a column that
-   may shrink, and only the shown More models rows give up their height and scroll, so the models,
-   Effort, Account and Fast mode always show. */
+   edge (at most 360 px). */
 .acpmux-quick-newtab,
 .acpmux-quick-newtab .acpmux-quick-layout {
   max-height: min(360px, calc(var(--available-height, 100vh) - 24px));
 }
-.acpmux-quick-newtab { display: flex; flex-direction: column; overflow: hidden; }
-.acpmux-quick-newtab .acpmux-quick-layout { flex: 0 1 auto; min-height: 0; overflow: hidden; }
-.acpmux-quick-newtab :is(.acpmux-quick-body, .acpmux-quick-list) {
+/* With the rail, each box down to the list is a column that may shrink, and the shown More models
+   rows give up their height first and scroll, so the models, Effort, Account and Fast mode stay in
+   view. Only when the rows that do not shrink still do not fit (a short window, every row there)
+   does the list beside the rail scroll as a whole: no row is ever out of reach. */
+.acpmux-quick-railed.acpmux-quick-newtab { display: flex; flex-direction: column; overflow: hidden; }
+.acpmux-quick-railed.acpmux-quick-newtab .acpmux-quick-layout { flex: 0 1 auto; min-height: 0; overflow: hidden; }
+.acpmux-quick-railed.acpmux-quick-newtab .acpmux-quick-body {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  overflow: hidden;
+  overflow-y: auto;
 }
-.acpmux-quick-newtab :is(.acpmux-quick-body, .acpmux-quick-list) > * { flex: none; }
-.acpmux-quick-newtab .acpmux-quick-body > .acpmux-quick-list { flex: 0 1 auto; }
-.acpmux-quick-newtab .acpmux-quick-list > .acpmux-quick-more-list {
+.acpmux-quick-railed.acpmux-quick-newtab .acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }
+.acpmux-quick-railed.acpmux-quick-newtab :is(.acpmux-quick-body, .acpmux-quick-list) > * { flex: none; }
+.acpmux-quick-railed.acpmux-quick-newtab .acpmux-quick-body > .acpmux-quick-list { flex: 0 1 auto; }
+.acpmux-quick-railed.acpmux-quick-newtab .acpmux-quick-list > .acpmux-quick-more-list {
   flex: 0 1 auto;
   min-height: calc(2 * var(--ui-row-height));
   /* The shown rows take the menu's width and never set it: opening them keeps the width, and a long
      name ends in "…" (its tooltip names it whole). */
   contain: inline-size;
+}
+/* One shown model keeps its one row: never an empty row under it. */
+.acpmux-quick-railed.acpmux-quick-newtab .acpmux-quick-list > .acpmux-quick-more-list[data-single] {
+  min-height: var(--ui-row-height);
 }
 .acpmux-quick-rail,
 .acpmux-quick-body { overflow-y: auto; }

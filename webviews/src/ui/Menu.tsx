@@ -428,12 +428,15 @@ export function MenuItem({
   onSelect,
   closeOnClick,
   expanded,
+  controls,
   children,
 }: MenuItemProps & {
   /** False keeps the menu open after a click (a row that shows or hides rows of its own menu). */
   closeOnClick?: boolean;
   /** A disclosure row: whether the rows it controls show. */
   expanded?: boolean;
+  /** A disclosure row: the id of the rows it shows and hides. */
+  controls?: string;
 }) {
   const context = use(MenuContext);
   const handledClick = useRef(false);
@@ -443,6 +446,7 @@ export function MenuItem({
       disabled={disabled}
       {...(closeOnClick === undefined ? {} : { closeOnClick })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
+      {...(controls ? { "aria-controls": controls } : {})}
       {...(closeOnClick === false ? { "data-keeps-open": "" } : {})}
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
