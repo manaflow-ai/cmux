@@ -15,14 +15,22 @@ struct BranchTerminalStreamsTests {
         static let command = "list-clients"
     }
 
-    private func clientCount(_ h: BranchDaemonHarness) async throws -> Int {
+    /// The daemon's per-view terminal connections (`list-clients` entries named like a view's own
+    /// connection, `cmux-next-terminal`). Only these count: other clients (a shell's `cmux` call in
+    /// a test terminal) come and go on their own.
+    private func viewConnectionCount(_ h: BranchDaemonHarness) async throws -> Int {
+        let clients: [JSONValue]
         switch try await h.connection.request(ListClients()) {
-        case .array(let clients): return clients.count
+        case .array(let entries): clients = entries
         case .object(let fields):
-            if case .array(let clients)? = fields["clients"] { return clients.count }
-            return 0
+            guard case .array(let entries)? = fields["clients"] else { return 0 }
+            clients = entries
         default: return 0
         }
+        return clients.filter { client in
+            guard case .object(let fields) = client, case .string(let name)? = fields["name"] else { return false }
+            return name == "cmux-next-terminal"
+        }.count
     }
 
     /// Output of `view` until `text` shows, or the stream ends.
@@ -47,14 +55,14 @@ struct BranchTerminalStreamsTests {
             let carrier = try #require(try await h.connection.terminalStreams(device: device),
                                        "the branch daemon serves attach-streams-v1")
             #expect(carrier.frames, "a local connection negotiates binary frames")
-            let clientsBefore = try await clientCount(h)
+            let viewConnectionsBefore = try await viewConnectionCount(h)
             let views = try await [first, second].asyncMap { surface in
                 try await TerminalAttachment.attach(
                     carrier: carrier, target: .init(surface: surface, generation: h.identity.generation),
                     size: CellSize(cols: 80, rows: 24), claimGeometry: true)
             }
-            // No connection per view: the daemon still counts the same clients.
-            #expect(try await clientCount(h) == clientsBefore)
+            // No connection per view: no view opened a connection of its own.
+            #expect(try await viewConnectionCount(h) == viewConnectionsBefore)
             #expect(views[0].stream != views[1].stream)
             #expect(views.allSatisfy { $0.stream != nil })
 
@@ -76,6 +84,14 @@ struct BranchTerminalStreamsTests {
             #expect(after.contains("still-44") && afterEnd == nil, "the other view stopped: \(after.debugDescription)")
             #expect(carrier.transport.strayStreamMessages == 0)
             views[1].detachNow()
+
+            // The count is not vacuous: a view on a connection of its own is counted.
+            let own = try await TerminalAttachment.attach(
+                endpoint: h.endpoint, target: .init(surface: second, generation: h.identity.generation),
+                size: CellSize(cols: 80, rows: 24), claimGeometry: false)
+            defer { own.detachNow() }
+            #expect(try await viewConnectionCount(h) == viewConnectionsBefore + 1,
+                    "list-clients does not show a view's own connection")
         }
     }
 }
