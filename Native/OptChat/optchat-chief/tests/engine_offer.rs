@@ -73,7 +73,8 @@ fn harnesses() -> Value {
             "codex": {"kind": "acp", "argv": ["codex-acp"], "family": "codex"},
             "opencode": {"kind": "acp", "argv": ["opencode", "acp"], "family": "opencode",
                          "displayName": "OpenCode", "icon": "opencode",
-                         "capabilities": {"effort": ["low", "high"], "resume": true, "permissionModes": true},
+                         // `none` is an effort acpmux takes and a Chief set does not.
+                         "capabilities": {"effort": ["low", "none", "high"], "resume": true, "permissionModes": true},
                          "auth": {"login": "opencode auth login"},
                          "unavailable": "opencode is not on PATH"},
             "unii": {"kind": "acp", "argv": ["/Applications/cmux.app/acpmux", "uniichat-agent"],
@@ -383,6 +384,8 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
             .is_some_and(|r| r.contains("opencode is not on PATH")),
         "{opencode:#}"
     );
+    // `none` is dropped: a set refuses it, and the picker never offers what a
+    // set refuses.
     assert_eq!(opencode["capabilities"]["efforts"], json!(["low", "high"]));
     assert_eq!(opencode["capabilities"]["resume"], true);
     assert_eq!(opencode["capabilities"]["permissionModes"], true);
@@ -409,6 +412,52 @@ fn the_engine_answer_offers_every_harness_with_what_it_supports() {
         "UniiChat: one chat that never ends (uniichat.com)"
     );
     assert_eq!(unii["unavailable"], false);
+}
+
+/// Every offered row is one a set would take: a harness acpmux gained after
+/// this Chief started is listed unavailable, with how to get it, rather than
+/// offered for a set that answers `unknown_harness`; and a declared effort a
+/// set refuses is left out rather than offered for an `invalid_effort`.
+#[test]
+fn an_offer_never_names_a_harness_or_effort_a_set_would_refuse() {
+    use optchat_chief::acpmux::Family;
+    let dir = tempfile::tempdir().unwrap();
+    // The brain read only these at its start; acpmux lists unii and the rest now.
+    let mut brain = brain(
+        dir.path(),
+        &[("claude-sr", Family::Claude), ("codex", Family::Codex)],
+    );
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let offered = answer["offered"]["harnesses"].as_array().unwrap();
+    let by_id = |id: &str| offered.iter().find(|h| h["id"] == id).unwrap();
+
+    // Still listed, so the picker can say why, and still never offered as runnable.
+    let unii = by_id("unii");
+    assert_eq!(unii["unavailable"], true, "{unii:#}");
+    assert!(
+        unii["unavailableReason"]
+            .as_str()
+            .is_some_and(|r| r.contains("after this Chief started")),
+        "{unii:#}"
+    );
+    assert_eq!(by_id("codex")["unavailable"], false, "{answer:#}");
+
+    let set = |harness: Option<&str>, effort: Option<&str>| EngineRequest::Set {
+        harness: harness.map(str::to_owned),
+        model: None,
+        effort: effort.map(str::to_owned),
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        reactions: Default::default(),
+    };
+    // The reason the row gives is the refusal the set would answer.
+    let refused = engine(&mut brain, set(Some("unii"), None));
+    assert_eq!(refused["error"]["code"], "unknown_harness", "{refused:#}");
+    // And the effort the offer dropped is the one the set refuses.
+    let invalid = engine(&mut brain, set(None, Some("none")));
+    assert_eq!(invalid["error"]["code"], "invalid_effort", "{invalid:#}");
 }
 
 /// The reaction classifier's fields (a416): a set saves them in engine.json,

@@ -11,6 +11,11 @@
 //! `chiefFamily` is the layout the Chief gives it (claude, codex, other),
 //! which decides the speeds. A terminal-only harness never runs a Chief
 //! turn and is not listed.
+//!
+//! A row never offers what `chief.engine.set` would refuse, since the picker
+//! acts on this list: a harness the brain did not read at its start is marked
+//! unavailable ("restart the Chief"), because the set checks the start-up
+//! families; and a declared effort the set does not take is left out.
 
 use std::collections::BTreeMap;
 
@@ -18,8 +23,13 @@ use serde_json::{Map, Value, json};
 
 use crate::acpmux::Family;
 
-/// The rows for an `_acpmux/harnesses` answer.
-pub(super) fn offered_harnesses(answer: &Value) -> Vec<Value> {
+/// The rows for an `_acpmux/harnesses` answer. `started_with` is the families
+/// the brain read at its start (``Settings::families``), which is what a set
+/// checks a harness against; empty means the set checks nothing.
+pub(super) fn offered_harnesses(
+    answer: &Value,
+    started_with: &BTreeMap<String, Family>,
+) -> Vec<Value> {
     let Some(profiles) = answer.get("harnesses").and_then(Value::as_object) else {
         return Vec::new();
     };
@@ -49,7 +59,15 @@ pub(super) fn offered_harnesses(answer: &Value) -> Vec<Value> {
     let mut rows: Vec<Value> = profiles
         .iter()
         .filter(|(_, p)| p.get("kind").and_then(Value::as_str) != Some("terminal"))
-        .map(|(id, p)| row(answer, id, p, catalog_names.get(id.as_str()).copied()))
+        .map(|(id, p)| {
+            row(
+                answer,
+                id,
+                p,
+                catalog_names.get(id.as_str()).copied(),
+                started_with,
+            )
+        })
         .collect();
     rows.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
     // Two profiles under one name keep apart by their ids.
@@ -69,7 +87,13 @@ pub(super) fn offered_harnesses(answer: &Value) -> Vec<Value> {
     rows
 }
 
-fn row(answer: &Value, id: &str, profile: &Value, catalog_name: Option<&str>) -> Value {
+fn row(
+    answer: &Value,
+    id: &str,
+    profile: &Value,
+    catalog_name: Option<&str>,
+    started_with: &BTreeMap<String, Family>,
+) -> Value {
     let str_of = |key: &str| {
         profile
             .get(key)
@@ -80,7 +104,15 @@ fn row(answer: &Value, id: &str, profile: &Value, catalog_name: Option<&str>) ->
     // reason, a Claude adapter that is not acpmux's, a route with no profile.
     let plan = crate::harness_gate::plan(answer, id);
     let chief_family = plan.family;
-    let reason = plan.admitted.err();
+    // A set checks the harness against the families this brain read at its
+    // start, so a harness acpmux gained since would be refused with
+    // `unknown_harness`. Say that here instead of offering a row the picker
+    // cannot switch to.
+    let reason = plan.admitted.err().or_else(|| {
+        (!started_with.is_empty() && !started_with.contains_key(id)).then(|| {
+            format!("acpmux gained {id} after this Chief started; restart the Chief to run on it")
+        })
+    });
     let family = str_of("family").unwrap_or(family_name(chief_family));
     let display = str_of("displayName").or(catalog_name).unwrap_or(id);
 
@@ -91,18 +123,28 @@ fn row(answer: &Value, id: &str, profile: &Value, catalog_name: Option<&str>) ->
             capabilities.insert(key.clone(), value.clone());
         }
     }
-    // The efforts the profile declares, else every one a set accepts.
-    let efforts = declared
+    // The efforts the profile declares, less any a set would refuse
+    // (`invalid_effort`); none left, or none declared, offers every one a set
+    // accepts.
+    let efforts: Vec<Value> = declared
         .and_then(|c| c.get("effort"))
         .and_then(Value::as_array)
-        .filter(|e| !e.is_empty())
+        .into_iter()
+        .flatten()
+        .filter(|e| {
+            e.as_str()
+                .is_some_and(|e| super::engine_control::EFFORTS.contains(&e))
+        })
         .cloned()
-        .unwrap_or_else(|| {
-            super::engine_control::EFFORTS
-                .iter()
-                .map(|e| json!(e))
-                .collect()
-        });
+        .collect();
+    let efforts = if efforts.is_empty() {
+        super::engine_control::EFFORTS
+            .iter()
+            .map(|e| json!(e))
+            .collect()
+    } else {
+        efforts
+    };
     capabilities.insert("efforts".into(), Value::Array(efforts));
     let speeds: Vec<&str> = crate::engine::SPEEDS
         .iter()
