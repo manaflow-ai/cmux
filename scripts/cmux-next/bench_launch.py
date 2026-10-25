@@ -45,8 +45,9 @@ Use from a bench:
     finally:
         app.stop()                        # debug.quit, then the tag's daemons (tag_teardown.py)
 
-A bench writes each measured series as one `cmux-perf-result/v1` line through ``BenchApp.record`` (the build,
-host, display Hz, resolved features and safe mode filled in; scripts/perf-lab/perf_result.py loaded by file path):
+A bench writes each measured series as one `cmux-perf-result/v1` file through ``BenchApp.record`` (the build,
+host, display Hz, and the launch's resolved features and safe mode filled in; scripts/perf-lab/perf_result.py loaded
+by file path). It may record after ``stop()``: the features are the snapshot ``launch()`` read.
 
     app.record("tab-switch", "key_to_frame_ms", "ms", samples, better="lower", engine="chromium",
                target_ref="tab-switch-p95")
@@ -234,11 +235,22 @@ def info_plist(app):
 
 # The text check-no-bench-hooks.sh finds in a bench build's main executable (BenchHooksMarker.swift).
 BENCH_HOOKS_MARKER = b"CMUX_BENCH_HOOKS_BUILD"
+# result-v1's build.measure_version (schemas/perf/result-v1.schema.json): bump it when what BenchApp.record measures,
+# or how, changes, so a step in a series can be told from a harness change. An edit that measures the same is no bump.
+PERF_LAB_MEASURE_VERSION = 1
+# The configs each kind of bundle can be. A bench-hooks executable is `bench` or `bench-checks` (bench plus
+# CMUX_BLOCKING_CHECKS, task 147), and nothing in it tells the two apart.
+BUNDLE_CONFIGS = {"debug": ("debug",), "bench-hooks": ("bench", "bench-checks"), "release": ("release",)}
 
 
-def build_config(app, binary):
-    """result-v1's build config of the bundle: `bench` when its main executable carries the bench-hooks marker,
-    `debug` when Xcode's `<name>.debug.dylib` is beside it (a Debug build keeps its code there), else `release`."""
+class RecordError(RuntimeError):
+    """``BenchApp.record`` cannot describe a result truthfully (no build sha, an ambiguous config, a host it cannot
+    read, no features snapshot of the launch), so it writes nothing."""
+
+
+def bundle_kind(app, binary):
+    """`debug` when Xcode's `<name>.debug.dylib` is beside the main executable (a Debug build keeps its code there),
+    `bench-hooks` when the executable carries the bench-hooks marker, else `release`."""
     if glob.glob(os.path.join(app, "Contents/MacOS/*.debug.dylib")):
         return "debug"
     import mmap
@@ -246,39 +258,44 @@ def build_config(app, binary):
         if os.fstat(f.fileno()).st_size == 0:
             return "release"
         with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
-            return "bench" if data.find(BENCH_HOOKS_MARKER) >= 0 else "release"
+            return "bench-hooks" if data.find(BENCH_HOOKS_MARKER) >= 0 else "release"
+
+
+def build_config(app, binary, stated=None):
+    """result-v1's build config of the bundle. `stated` (the caller's, for example the story runner's) must be one
+    the bundle can be; a bench-hooks bundle needs it, since `bench` and `bench-checks` results never share a series."""
+    kind = bundle_kind(app, binary)
+    allowed = BUNDLE_CONFIGS[kind]
+    if stated is None and len(allowed) == 1:
+        return allowed[0]
+    if stated is None:
+        raise RecordError(f"bench-launch: {app} is a bench-hooks build: pass build_config='bench' or 'bench-checks'")
+    if stated not in allowed:
+        raise RecordError(f"bench-launch: build_config={stated!r}, but {app} is a {kind} bundle "
+                          f"({' or '.join(allowed)})")
+    return stated
 
 
 def build_sha(app, environ=None):
-    """The commit the app was built from: its Info.plist `CMUXCommit` (nightly and release builds), else the fleet
-    step's `CMUX_CI_SHA`, else this checkout's HEAD (a DEV build carries no CMUXCommit; a fleet step builds and
-    measures the same checkout). Exits when none answers: a result without its build cannot be placed in a
-    series."""
+    """The full commit the app was built from: its Info.plist `CMUXCommit` (the daily DEV, nightly and release builds
+    stamp it; a short one is resolved in this checkout), else the fleet step's `CMUX_CI_SHA` (the step builds the
+    ref it measures). Never this checkout's HEAD: a bundle built from another commit would land on the wrong point of
+    its series. Raises RecordError when neither names a commit."""
     environ = os.environ if environ is None else environ
-    sha = info_plist(app).get("CMUXCommit") or environ.get("CMUX_CI_SHA")
-    if not sha:
+    sha = str(info_plist(app).get("CMUXCommit") or environ.get("CMUX_CI_SHA") or "").strip().lower()
+    if re.fullmatch(r"[0-9a-f]{40}", sha):
+        return sha
+    if re.fullmatch(r"[0-9a-f]{7,39}", sha):
         try:
-            sha = subprocess.run(["git", "-C", ROOT, "rev-parse", "HEAD"], capture_output=True, text=True,
-                                 timeout=30).stdout.strip()
+            full = subprocess.run(["git", "-C", ROOT, "rev-parse", "--verify", "--quiet", f"{sha}^{{commit}}"],
+                                  capture_output=True, text=True, timeout=30).stdout.strip()
         except (OSError, subprocess.TimeoutExpired):
-            sha = ""
-    if not sha:
-        raise SystemExit(f"bench-launch: no build sha: {app} has no CMUXCommit, CMUX_CI_SHA is unset and {ROOT} is "
-                         "not a git checkout")
-    return sha
-
-
-def measure_version(paths):
-    """A digest of the measuring code (this file, bench_env, perf_result and the bench script): it changes exactly
-    when the harness does, so a step in a series can be told from a harness change. Missing files are skipped."""
-    digest = hashlib.sha256()
-    for path in paths:
-        try:
-            with open(path, "rb") as f:
-                digest.update(os.path.basename(path).encode() + b"\0" + f.read())
-        except OSError:
-            continue
-    return digest.hexdigest()[:16]
+            full = ""
+        if re.fullmatch(r"[0-9a-f]{40}", full):
+            return full
+        raise RecordError(f"bench-launch: build sha {sha} of {app} is not one commit of {ROOT}")
+    raise RecordError(f"bench-launch: no build sha: {app} has no CMUXCommit and CMUX_CI_SHA is "
+                      + (f"{sha!r}, not a commit" if sha else "unset"))
 
 
 def main_display_hz():
@@ -303,13 +320,20 @@ def main_display_hz():
 
 
 def host_record(chip, memory_bytes, macos, macos_build, display_hz):
-    """result-v1's host block. The fingerprint is sha256 of (chip, macOS build, Hz, memory); the class, the host part
-    of a series key, is chip + memory + Hz without the macOS build, so an OS update is a step inside one series."""
-    memory_gb = round((memory_bytes or 0) / 2**30)
-    fingerprint = hashlib.sha256("\0".join(str(v) for v in (chip, macos_build, display_hz, memory_bytes)).encode())
-    slug = re.sub(r"[^a-z0-9]+", "-", (chip or "unknown").lower()).strip("-")
-    return {"fingerprint": fingerprint.hexdigest()[:16], "class": f"{slug}-{memory_gb}gb-{display_hz or 0}hz",
-            "chip": chip, "macos": macos, "macos_build": macos_build, "display_hz": display_hz}
+    """result-v1's host block: the fingerprint is the schema's sha256 of (chip, macOS build, Hz, memory), and the class
+    is the store's series-key host part (store.host_class: chip + memory + Hz, no macOS build, so an OS update is a
+    step inside one series). Raises RecordError (env-invalid) when chip, memory or Hz is unknown: zeros would make a
+    series of their own."""
+    missing = [name for name, value in (("chip", chip), ("memory", memory_bytes), ("display Hz", display_hz))
+               if not value]
+    if missing:
+        raise RecordError(f"bench-launch: env-invalid: this host's {', '.join(missing)} could not be read")
+    store = load_by_path("perf_lab_store", os.path.join(PERF_LAB, "store.py"))
+    hz = int(round(display_hz))
+    fingerprint = hashlib.sha256("\0".join(str(v) for v in (chip, macos_build, hz, memory_bytes)).encode())
+    return {"fingerprint": fingerprint.hexdigest(),
+            "class": store.host_class(chip=chip, memory_gb=round(memory_bytes / 2**30), display_hz=hz),
+            "chip": chip, "macos": macos, "macos_build": macos_build, "display_hz": hz}
 
 
 def read_host():
@@ -326,20 +350,21 @@ def read_host():
                        out("/usr/bin/sw_vers", "-buildVersion") or None, main_display_hz())
 
 
-def features_from(reply):
-    """({name: {state, source}}, features_hash, safe_mode) from a `features.list` reply ({"features": [{name, state,
-    source}], "features_hash"?, "safe_mode"?}), or None when the app has no such method (before
-    p12-perf-process-096) or did not answer."""
-    if not isinstance(reply, dict) or reply.get("error") or not isinstance(reply.get("features"), list):
+def features_snapshot(reply):
+    """result-v1's (features, features_hash, safe_mode) from the app's `features.list` reply ({"features": [{name,
+    state, source}], "features_hash", "safe_mode"}), each as the app reports it. A build without the method (before
+    p12-perf-process-096) has no feature registry: ({}, None, None). None for any other answer (no socket, an
+    error): the snapshot is unknown."""
+    if not isinstance(reply, dict):
+        return None
+    error = reply.get("error")
+    if isinstance(error, dict) and error.get("code") == "method_not_found":
+        return {}, None, None
+    if error or not isinstance(reply.get("features"), list):
         return None
     features = {f["name"]: {"state": f.get("state"), "source": f.get("source")}
                 for f in reply["features"] if isinstance(f, dict) and f.get("name")}
-    digest = reply.get("features_hash") or hashlib.sha256(json.dumps(features, sort_keys=True).encode()).hexdigest()[:16]
-    return features, digest, reply.get("safe_mode", "unknown")
-
-
-# What a result says when the app reports no features (no features.list yet, or the app is not running).
-NO_FEATURES = ({}, None, "unknown")
+    return features, reply.get("features_hash"), reply.get("safe_mode")
 
 
 def socket_candidates(tag):
@@ -809,17 +834,20 @@ class BenchApp:
     and the window list: its failure reports carry `socket_only` and `gui_session`, and its crash or exit is
     reported as such, not as no-gui-session. A bench that measures frames never passes it.
     For ``record``: `perf_session` is result-v1's session (light, stress or corpus:<id>), `host` reads the host block
-    (default ``read_host``) and `perf_result` is the writer module (default scripts/perf-lab/perf_result.py, loaded
-    by file path); tests pass their own.
+    (default ``read_host``; tests pass their own), `build_config` states the config of a bench-hooks bundle (`bench`
+    or `bench-checks`, checked against the bundle) and `run` is the perf_result.Run every result of this BenchApp
+    names (default a new one at the first record; a controller attempt passes its own id).
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
-                 fresh_state=True, perf_session="light", host=None, perf_result=None):
+                 fresh_state=True, perf_session="light", host=None, build_config=None, run=None):
         self.perf_session = perf_session
         self.read_host = host or read_host
-        self.perf_result = perf_result
-        self._build = self._host = self._features = None
+        self.build_config = build_config
+        self.run = run
+        self._build = self._host = None
+        self.features = None  # the last launch's features.list snapshot (features_snapshot), read once it answered
         self.low_power_mode_ok = low_power_mode_ok
         self.fresh_state = fresh_state
         self.app = os.path.realpath(app).rstrip("/")
@@ -899,33 +927,47 @@ class BenchApp:
         return rpc_at(self.socket, method, params, timeout)
 
     def record(self, story, metric, unit, samples, better, engine, target_ref=None):
-        """Writes one `cmux-perf-result/v1` line (perf_result.write_ndjson) into the out folder and returns the Result.
+        """Writes one `cmux-perf-result/v1` file (perf_result.write_ndjson) into the out folder; returns its path.
 
-        The build (sha, config, measure_version), the host block with its display Hz, the resolved features and the
-        safe-mode state are filled in here, so no bench reads them on its own. The features come from the app's
-        `features.list` once per run (the snapshot is immutable after launch), read while the app runs; when the app
-        has no such method or is not running the result says ``NO_FEATURES``. Raises
-        what perf_result.validate raises on a bad result (empty samples, no unit, an unknown engine)."""
-        writer = self.perf_result or load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+        The build (sha, config, PERF_LAB_MEASURE_VERSION), the host block with its display Hz, and the last launch's
+        resolved features and safe-mode state are filled in here, so no bench reads them on its own. `target_ref` is a
+        targets.json id or a perf_result.TargetRef. Raises RecordError when this BenchApp has no features snapshot
+        (record before launch, or the app did not answer features.list) or no build or host it can name, and
+        perf_result.ResultError on an invalid result (empty samples, an unknown unit or engine); either way nothing
+        is written."""
+        writer = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+        if self.features is None:
+            raise RecordError(f"bench-launch: {self.tag} has no features.list snapshot: record() needs a launch() whose "
+                              "app answered it, and writes no result without its features")
         if self._build is None:
-            caller = getattr(sys.modules.get("__main__"), "__file__", None)  # the bench script
-            code = [os.path.abspath(__file__), bench_env.__file__, writer.__file__] + ([caller] if caller else [])
-            self._build = {"sha": build_sha(self.app), "config": build_config(self.app, self.binary),
-                           "measure_version": measure_version(code)}
+            self._build = writer.Build(sha=build_sha(self.app), config=build_config(self.app, self.binary,
+                                                                                    self.build_config),
+                                       measure_version=PERF_LAB_MEASURE_VERSION)
         if self._host is None:
-            self._host = self.read_host()
-        if self._features is None and self.process is not None and self.process.poll() is None:
-            reply = self.rpc("features.list", timeout=10)
-            if not (isinstance(reply, dict) and reply.get("unreachable")):  # an answer, even "no such method", is final
-                self._features = features_from(reply) or NO_FEATURES
-        features, features_hash, safe_mode = self._features or NO_FEATURES
+            self._host = writer.Host.from_dict(self.read_host())
+        if self.run is None:
+            self.run = writer.Run.start()
+        if isinstance(target_ref, str):
+            target_ref = writer.TargetRef(target=target_ref)
+        features, features_hash, safe_mode = self.features
         result = writer.Result(story=story, metric=metric, unit=unit, better=better, samples=list(samples),
-                               target_ref=target_ref, build=dict(self._build), host=dict(self._host), engine=engine,
-                               session=self.perf_session, features=dict(features), features_hash=features_hash,
-                               safe_mode=safe_mode, attachments=[])
-        writer.validate(result)
-        writer.write_ndjson(self.out, [result])
-        return result
+                               build=self._build, host=self._host, engine=engine, session=self.perf_session,
+                               run=self.run, target_ref=target_ref,
+                               features={name: writer.Feature(**value) for name, value in features.items()},
+                               features_hash=features_hash, safe_mode=safe_mode)
+        return writer.write_ndjson(self.out, [result], repo_root=ROOT)  # validates first; writes nothing if invalid
+
+    def read_features(self):
+        """The launched app's features.list snapshot (``features_snapshot``), or None with a warning when it gave no
+        usable answer. The snapshot is immutable after launch, so one read stands for the whole process."""
+        reply = self.rpc("features.list", timeout=10)
+        snapshot = features_snapshot(reply)
+        if snapshot is None:
+            note(f"bench-launch: WARNING: {self.tag} gave no features.list snapshot ({json.dumps(reply)[:300]}); "
+                 "record() refuses until a launch reads one")
+        elif snapshot == ({}, None, None):
+            note(f"bench-launch: {self.tag} has no feature registry (no features.list): results record no features")
+        return snapshot
 
     def state_root(self):
         """The tag's saved state: `~/Library/Application Support/cmux/tags/<tag>` (BuildIdentity
@@ -952,7 +994,9 @@ class BenchApp:
 
         `on_start(process)` runs right after the spawn (a script's own PID list for its cleanup). On a
         failure the report is printed to stdout (a fleet step log is stdout only), then LaunchError is raised.
+        Once `ready` answers, the app's features.list snapshot is read into ``features`` (for ``record``).
         """
+        self.features = None  # an earlier launch's snapshot never describes this process
         session = self.gui_session = self.session()
         if not session["ok"] and not self.socket_only:
             # Without the console session the display does not tick (frame numbers mean nothing); say so now
@@ -1014,6 +1058,7 @@ class BenchApp:
                 if isinstance(last, dict) and not last.get("error") and (ready != "debug.windows" or last.get("windows")):
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
+                    self.features = self.read_features()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()

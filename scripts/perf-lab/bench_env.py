@@ -2,9 +2,10 @@
 """Every switch a bench app gets, and the Swift line that reads it.
 
 `bench_launch.BenchApp` starts every lab bench app with these values: no focus taken, the automation socket, a mock
-agent pane, an isolated Chief, scratch config files, no update check, no telemetry or hang report, and feature
-safe mode off. A switch nothing reads measures nothing, so each entry names its read site, and `--check` (and
-`scripts/cmux-next/tests/test_bench_launch.py`) proves that file still names it.
+agent pane, an isolated Chief, scratch config files, no update check, and no telemetry or hang report. A switch
+nothing reads measures nothing, so each entry names its read site, and `--check` (and
+`scripts/cmux-next/tests/test_bench_launch.py`) proves that file still names it. A switch is listed only once its
+reader exists: the task that adds the reader (for example safe mode off, p12-perf-process-094) adds the entry.
 
 Kinds:
 - `env`: the launch sets the variable to `value`.
@@ -13,13 +14,9 @@ Kinds:
   example `crash-ends-app-gate.py` with `CMUX_NEXT_DEV_SENTRY=1`, passes it explicitly).
 - `config`: a cmux-next.json key the launch writes into the bench's config, under any value the bench sets itself.
 
-`pending` names the task that adds the read site: until it lands its file does not exist, and when it lands the
-file must name the switch.
-
 The app strips at launch every inherited `CMUX*` variable that is not `CMUX_NEXT_*`
-(`LaunchIdentity.inheritedKeys`), so a `CMUX_` switch works only when its reader captures it before
-`LaunchIdentity.stripInheritedEnvironment` (as `CloudAuth.captureLaunchEnvironment` does). `stripped_at_launch`
-says which names that rule removes.
+(`LaunchIdentity.inheritedKeys`), so `--check` refuses an env switch with such a name: the app would delete it
+before its reader runs. Name a bench switch `CMUX_NEXT_*`.
 
     python3 -I scripts/perf-lab/bench_env.py            # the table
     python3 -I scripts/perf-lab/bench_env.py --json     # the table as JSON
@@ -45,7 +42,6 @@ class Switch:
     value: object
     why: str
     read_site: str
-    pending: str = None
 
     def token(self):
         """The text the read site must contain: the variable name, or a config key's last component."""
@@ -65,12 +61,6 @@ SWITCHES = (
            SWIFT + "CmuxNextAgentPane/AcpmuxEnvironment.swift"),
     Switch("SHELL", "env", "/bin/zsh", "the shell terminals start (a fleet step has none)",
            SWIFT + "CmuxNextTerminal/LocalPTYTerminalIO.swift"),
-    Switch("CMUX_FEATURES_SAFE_MODE", "env", "off",
-           "lab runs measure the resolved features, never a crash-streak fallback (bench builds only)",
-           SWIFT + "CmuxNextFeatures/FeatureSafeMode.swift", pending="p12-perf-process-094"),
-    Switch("CMUX_NEXT_NOTES_FETCH", "env", "off",
-           "no release-notes or flags.json fetch: no network in a measured run",
-           SWIFT + "CmuxNextUpdater/FlagsDocumentFetch.swift", pending="p12-perf-process-093"),
     Switch("CMUX_NEXT_CONFIG_FILE", "env-launch", None, "a scratch cmux-next.json (the config below)",
            SWIFT + "CmuxNextSettings/CmuxConfigFile.swift"),
     Switch("CMUX_NEXT_GHOSTTY_CONFIG", "env-launch", None, "an empty Ghostty config, not the account's",
@@ -134,23 +124,23 @@ def stripped_at_launch(name):
 
 
 def read_site_problems(root=ROOT):
-    """One line per switch whose read site does not name it (a pending one only once its file exists)."""
+    """One line per switch that measures nothing: an unknown kind, a read site that is missing or does not name it,
+    or an env name the app strips at launch."""
     problems = []
     for s in SWITCHES:
         if s.kind not in KINDS:
             problems.append(f"{s.name}: unknown kind {s.kind}")
             continue
-        path = os.path.join(root, s.read_site)
+        if s.kind.startswith("env") and stripped_at_launch(s.name):
+            problems.append(f"{s.name}: LaunchIdentity strips inherited CMUX_* names that are not CMUX_NEXT_*")
         try:
-            with open(path, encoding="utf-8") as f:
+            with open(os.path.join(root, s.read_site), encoding="utf-8") as f:
                 text = f.read()
         except FileNotFoundError:
-            if not s.pending:
-                problems.append(f"{s.name}: read site {s.read_site} does not exist")
+            problems.append(f"{s.name}: read site {s.read_site} does not exist")
             continue
         if s.token() not in text:
-            problems.append(f"{s.name}: {s.read_site} does not read {s.token()}"
-                            + (f" ({s.pending} landed without it)" if s.pending else ""))
+            problems.append(f"{s.name}: {s.read_site} does not read {s.token()}")
     return problems
 
 
@@ -175,8 +165,7 @@ def main(argv=None):
         return 0
     for row in rows:
         value = "" if row["value"] is None else f"={json.dumps(row['value'])}"
-        pending = f"  [pending {row['pending']}]" if row["pending"] else ""
-        print(f"{row['kind']:<10} {row['name']}{value}  ({row['read_site']}){pending}\n           {row['why']}")
+        print(f"{row['kind']:<10} {row['name']}{value}  ({row['read_site']})\n           {row['why']}")
     return 0
 
 
