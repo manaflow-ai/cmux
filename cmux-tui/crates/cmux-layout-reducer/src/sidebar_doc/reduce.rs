@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::archive::{archive, archived_side, unarchive};
 use super::check;
 use super::doc::{Doc, ListEntry};
 use super::model::*;
@@ -277,6 +278,8 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
         Op::Move { items, to } => place(tx, items, to),
         Op::Pin { items } => pin(tx, items),
         Op::Unpin { items } => unpin(tx, items),
+        Op::Archive { items } => archive(tx, items),
+        Op::Unarchive { items } => unarchive(tx, items),
         Op::ItemAdd { item, to } => add_item(tx, item, to, mint),
         Op::ItemRemove { id } => {
             let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
@@ -489,7 +492,7 @@ fn add_item(
 
 /// The two entries around the place `to` names among the siblings that do
 /// not move: `(low, high)` (either absent at an end).
-fn neighbors(
+pub(super) fn neighbors(
     doc: &Doc,
     to: &Target,
     moved: &HashSet<ItemId>,
@@ -598,6 +601,15 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             }
         }
     }
+    // Archived items list last (archiving-DESIGN.md): a run that mixes both
+    // goes in two steps, and each keeps to its side.
+    let (archived, unarchived): (Vec<ItemId>, Vec<ItemId>) =
+        moved.iter().cloned().partition(|id| tx.doc.item(id).is_some_and(Item::archived));
+    if !archived.is_empty() && !unarchived.is_empty() {
+        place(tx, &unarchived, to)?;
+        return place(tx, &archived, to);
+    }
+    let archived = !archived.is_empty();
     if let Some(group) = &to.parent {
         // A group lists its pinned members first (pinning-DESIGN.md): a run
         // that mixes both goes in two steps, and each keeps to its side.
@@ -613,9 +625,11 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             return place(tx, &unpinned, to);
         }
         let to = pinned_side(tx.doc, to, group, &moved_set, !pinned.is_empty())?;
+        let to = archived_side(tx.doc, &to, &moved_set, archived)?;
         return place_run(tx, &moved, &moved_set, &to);
     }
-    place_run(tx, &moved, &moved_set, to)
+    let to = archived_side(tx.doc, to, &moved_set, archived)?;
+    place_run(tx, &moved, &moved_set, &to)
 }
 
 /// `to` moved to the pinned (or unpinned) side of `group`'s members.
@@ -784,6 +798,8 @@ fn ensure_pinned_section(tx: &mut Tx) {
 /// group, marked pinned, after the group's other pinned members. Any other
 /// item goes to the end of the Pinned band; [`place`] remembers where it was.
 fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    // A pin is not archived: it comes back first.
+    unarchive(tx, ids)?;
     let mut moving = Vec::new();
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;

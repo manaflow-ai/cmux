@@ -23,6 +23,7 @@ import { backgroundCommands, processesOf } from "../src/agent-session/acpmux/ins
 import type { SessionSummary, SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { SubagentStatusList } from "../src/agent-session/acpmux/summary/SubagentStatusList";
 import { SummaryBody } from "../src/agent-session/acpmux/summary/SummaryBody";
+import { WorkflowSummaryRow } from "../src/agent-session/acpmux/summary/WorkflowSummary";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -270,6 +271,30 @@ const text = (html: string) =>
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+test("unavailable workflow resume refuses visibly and leaves Run again available", async () => {
+  const container = installDom();
+  const requests: boolean[] = [];
+  await render(
+    container,
+    <WorkflowSummaryRow
+      workflow={{ id: "node", title: "Review", state: "paused", phases: [], agents: [] }}
+      actions={{
+        onDraftWorkflow: (resume) => {
+          requests.push(resume);
+          return !resume;
+        },
+      }}
+    />,
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-workflow__row")!.click());
+  const button = (label: string) =>
+    [...container.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent === label)!;
+  await act(async () => button("Resume").click());
+  expect(container.textContent).toContain("This workflow can’t be resumed");
+  await act(async () => button("Run again").click());
+  expect(requests).toEqual([true, false]);
+});
 
 test("the running turn's line counts the started chats that run", () => {
   const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: 0 };

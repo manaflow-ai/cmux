@@ -9,6 +9,8 @@ export const FALLBACK_LINK_SCHEME = "cmux";
 const SCHEME = /^[A-Za-z][A-Za-z0-9+.-]*$/;
 /// What a link can carry as a session or turn id (CmuxNextActions `DeepLink`): nothing to escape.
 const TOKEN = /^[A-Za-z0-9._-]{1,200}$/;
+/// What an outside harness can publish as its session id (DeepLink.isAgentSession).
+export const AGENT_SESSION_TOKEN = /^(?!\.+$)[A-Za-z0-9._:-]{1,256}$/;
 
 let scheme: string | undefined;
 

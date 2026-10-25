@@ -20,10 +20,10 @@
 /* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Plain glass keeps the tooltip's frosted glass (desktop.css --tooltip-*), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass{--glass-tint:var(--tooltip-tint,var(--surface-popup));--glass-backdrop:var(--tooltip-blur,blur(20px) saturate(1.4))}
-.acpmux-pr-card__body{display:grid;gap:7px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.acpmux-pr-card__body{display:grid;gap:8px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
-.acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__state{font-weight:600}
 .acpmux-pr-card__status .acpmux-pr-card__checks{display:inline-flex}
 /* The card's owner/repo#N is the pull request's link, drawn as every link in the pane (.cv-link): blue, faintly underlined, solidly on hover. */
@@ -52,7 +52,7 @@
 .acpmux-pr-card__monogram[data-tone="4"]{background:color-mix(in srgb,var(--agent-ansi-5,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="5"]{background:color-mix(in srgb,var(--agent-ansi-6,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__when{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-card__branches{display:flex;align-items:center;gap:5px;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
+.acpmux-pr-card__branches{display:flex;align-items:center;gap:4px;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-pr-card__branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;color:var(--agent-muted)}
 .acpmux-pr-card__decision{font-weight:500}
@@ -60,9 +60,9 @@
 .acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}
 .acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px}
 .acpmux-pr-card__changes{min-width:0}
-.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 7px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:5px;color:inherit}
-.acpmux-pr-card__breakdown{display:inline-flex;flex-wrap:wrap;align-items:center;gap:3px 0;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__breakdown{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 0;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__kind{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
 .acpmux-pr-card__kindName{color:var(--agent-muted);font-weight:500}
 .acpmux-pr-card__separator{margin-inline:5px;color:var(--agent-border)}

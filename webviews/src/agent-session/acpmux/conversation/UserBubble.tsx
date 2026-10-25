@@ -1,8 +1,8 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
 // desktop's): the read receipt (one check once acpmux has it, two once the agent read it, "Read by
 // Claude Code" on hover), the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), a dot, then Copy, Retry and Fork from here, each naming itself on hover, then cmux's Edit
-// where the chat can fork before the prompt, then More (its right-click menu). No Pin here: an
+// hover), a dot, then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
+// is gone; its menu remains on right-click. No Pin here: an
 // answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
@@ -20,7 +20,7 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
+import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
@@ -29,7 +29,6 @@ import {
   forkWithFeedback,
   MessageCopy,
   MessageDot,
-  MessageMore,
   MessageTime,
   PromptRetry,
   ReadReceipt,
@@ -102,6 +101,7 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
                 className="cv-user__version-count"
                 aria-label={t("message.versionCount", { index: branch.index + 1, total: branch.sessions.length })}
               >
+                {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
                 {branch.index + 1}/{branch.sessions.length}
               </span>
               <button
@@ -120,11 +120,6 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
           <MessageTime at={row.at} className="cv-user__time" />
           <MessageDot />
           <MessageCopy text={row.text ?? text} />
-          {/* Not while it is still on its way: a second send would duplicate it. */}
-          {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-          {forkThrough !== undefined && (
-            <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
-          )}
           {through !== undefined && (
             <button
               type="button"
@@ -136,7 +131,11 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
               <Pencil size={ROW_ICON} />
             </button>
           )}
-          <MessageMore rowId={row.id} />
+          {/* Not while it is still on its way: a second send would duplicate it. */}
+          {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
+          {forkThrough !== undefined && (
+            <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+          )}
         </div>
       )}
     </>

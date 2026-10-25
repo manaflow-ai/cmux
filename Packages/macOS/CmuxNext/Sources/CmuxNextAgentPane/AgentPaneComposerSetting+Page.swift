@@ -10,7 +10,7 @@ public import CmuxNextSettings
 /// whether Esc stops a turn on a double press (``AgentPaneTunables/escapeStopDoublePress``). None of
 /// the last four is a setting: each is read here, on the pane's side, each time the event is made.
 extension AgentPageEvent {
-    /// The composer's settings: `{showContextUsage, showDictation, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
+    /// The composer's settings: `{showContextUsage, showDictation, spellChecking, reasoningSlider, reasoningSliderStyle, plainFooter, modelMenu, harnessSwitch, escapeDoublePress}`.
     public static func composer(_ setting: AgentPaneComposerSetting) -> AgentPageEvent {
         AgentPageEvent(kind: "composer", value: setting.pageValueWithLook)
     }

@@ -1,7 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
 //! turn (`update` its prompt, or its text, which keeps its images; `move` it, `send_now` or
 //! `interrupt`), or `resume` the prompts a failed turn holds (`queue.rs` `pause_queue`; any of
-//! the queue's prompts names it). Every change is a record in the log, so a new daemon rebuilds
+//! the queue's prompts names it), or `withdraw` a steer the agent has not read yet. Every change is a record in the log, so a new daemon rebuilds
 //! the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 
 use super::queue::PromptRun;
@@ -14,6 +14,12 @@ const STEP_NOW_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 // `_acpmux/prompt_withdraw`, a queue change too (here: `hub/mod.rs` is at its size budget).
 #[path = "withdraw.rs"]
 mod withdraw;
+
+/// The Full-access machine an edited prompt keeps (`PromptRun::full_access_device`): its own,
+/// only when the edit comes from that same machine.
+fn same_device(run: Option<&str>, editor: Option<&str>) -> Option<String> {
+    run.filter(|d| editor == Some(*d)).map(str::to_owned)
+}
 
 /// The stricter of two controls: an edit never runs a prompt under looser rules than either
 /// the prompt's sender's or the editor's.
@@ -88,6 +94,7 @@ impl Hub {
         params: &Value,
         control: Control,
         trust_gate: bool,
+        device: Option<&str>,
     ) -> Result<Value, RpcError> {
         let prompt_id = params
             .get("promptId")
@@ -95,6 +102,8 @@ impl Hub {
             .filter(|p| !p.is_empty())
             .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
         let op = params.get("op").and_then(Value::as_str).unwrap_or_default();
+        // A chat in Full access by a machine's setting: that machine only (`full_access_hold`).
+        self.full_access_hold(&session.meta(), control, device)?;
         // The queue moves as it is (`transfer_out.rs`).
         if session.moving().is_some() {
             return Err(super::queue::moving_error());
@@ -103,7 +112,7 @@ impl Hub {
         reply["ok"] = match op {
             "update" => {
                 let edit = Edit::parse(params)?;
-                json!(self.update_queued(session, prompt_id, edit, control, trust_gate))
+                json!(self.update_queued(session, prompt_id, edit, control, trust_gate, device))
             }
             "move" => {
                 let index = params
@@ -113,9 +122,9 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize))
             }
             "send_now" => {
-                let sent = match self.send_queued_now(session, prompt_id, control)? {
+                let sent = match self.send_queued_now(session, prompt_id, control, device)? {
                     Some(sent) => Some(sent),
-                    None => self.step_now(session, prompt_id, control).await?,
+                    None => self.step_now(session, prompt_id, control, device).await?,
                 };
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
@@ -126,8 +135,9 @@ impl Hub {
                 json!(sent.is_some())
             }
             "resume" => json!(self.resume_queue(session)),
+            "withdraw" => json!(self.withdraw_steer(session, prompt_id, control).await?),
             _ => {
-                let e = "op must be update, move, send_now, interrupt or resume";
+                let e = "op must be update, move, send_now, interrupt, resume or withdraw";
                 return Err(RpcError::invalid_params(e));
             }
         };
@@ -154,6 +164,7 @@ impl Hub {
         edit: Edit,
         control: Control,
         trust_gate: bool,
+        device: Option<&str>,
     ) -> bool {
         let (turn_id, run, text) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -166,12 +177,14 @@ impl Hub {
             let text = prompt_text(&blocks);
             q.run = Arc::new(PromptRun {
                 blocks,
+                display_parts: None,
                 control: stricter(q.run.control, control),
                 trust_gate: q.run.trust_gate || trust_gate,
                 // The person rewrote it: it is no longer the sender's message.
                 provenance: None,
                 agent: None,
                 supersede: None,
+                full_access_device: same_device(q.run.full_access_device.as_deref(), device),
             });
             q.preview = short_text(&text, 200);
             (q.turn_id.clone(), q.run.clone(), text)
@@ -181,6 +194,17 @@ impl Hub {
         let images = super::prompt_images::keep(&run.blocks);
         if !images.is_empty() {
             msg["images"] = Value::Array(images);
+        }
+        let inline_parts = super::prompt_images::inline_parts(
+            &run.blocks,
+            msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
+            run.display_parts.as_ref(),
+        );
+        if !inline_parts.is_empty() {
+            msg["inlineParts"] = Value::Array(inline_parts);
+        }
+        if let Some(display_parts) = &run.display_parts {
+            msg["displayParts"] = display_parts.clone();
         }
         super::session::mark_pasted(&mut msg, &run.blocks);
         self.append(session, "mux", "queue_updated", msg);
@@ -220,6 +244,7 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
+        device: Option<&str>,
     ) -> Result<Option<&'static str>, RpcError> {
         if session.turn().is_some() && session.steering.load(Ordering::SeqCst) {
             let Some(waiting) = session.queue().into_iter().find(|q| q.prompt_id == prompt_id)
@@ -228,7 +253,8 @@ impl Hub {
             };
             // The steer runs under the stricter rules of the prompt and of who sent it now.
             let control = stricter(waiting.run.control, control);
-            self.check_steer(session, control)?;
+            let device = same_device(waiting.run.full_access_device.as_deref(), device);
+            self.check_steer(session, control, device.as_deref())?;
             {
                 let mut queue =
                     session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -237,11 +263,13 @@ impl Hub {
                 };
                 let run = PromptRun {
                     blocks: q.run.blocks.clone(),
+                    display_parts: q.run.display_parts.clone(),
                     control,
                     trust_gate: q.run.trust_gate,
                     provenance: q.run.provenance.clone(),
                     agent: q.run.agent.clone(),
                     supersede: q.run.supersede.clone(),
+                    full_access_device: device,
                 };
                 (q.run, q.steer) = (Arc::new(run), true);
             }
@@ -282,6 +310,7 @@ impl Hub {
         session: &Arc<Session>,
         prompt_id: &str,
         control: Control,
+        device: Option<&str>,
     ) -> Result<Option<&'static str>, RpcError> {
         let waiting = session
             .steer_now
@@ -292,7 +321,7 @@ impl Hub {
         if !waiting {
             return Ok(None);
         }
-        self.check_steer(session, control)?;
+        self.check_steer(session, control, device)?;
         let child = session.child.lock().await.clone();
         let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
             return Ok(Some("steer"));
@@ -301,5 +330,38 @@ impl Hub {
         let answer = tokio::time::timeout(STEP_NOW_WAIT, ask).await;
         let stopped = matches!(&answer, Ok(Ok(v)) if v["interrupted"] == true);
         Ok(Some(if stopped { "now" } else { "steer" }))
+    }
+
+    /// `withdraw`: takes back a steer the agent has not read yet (the X on its row), so the
+    /// person can edit it. The agent drops it from its queue (Claude Code's
+    /// `cancel_async_message`, `MUX_STEER_WITHDRAW`), and the steer's `session/prompt` records
+    /// `steer_withdrawn` (`steer_end.rs`). False once the agent read it, or when its agent cannot
+    /// take one back.
+    async fn withdraw_steer(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+        control: Control,
+    ) -> Result<bool, RpcError> {
+        let waiting = session
+            .steer_now
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .waiting
+            .contains(prompt_id);
+        if !waiting {
+            return Ok(false);
+        }
+        // Who may steer may take one back; taking it back raises no turn's control.
+        self.web_control_check(session, control)?;
+        let child = session.child.lock().await.clone();
+        let (Some(child), Some(sid)) = (child, session.meta().agent_session_id) else {
+            return Ok(false);
+        };
+        // No timeout: the drop is already on its way, so only the agent's answer (or its end)
+        // says whether the steer was taken back.
+        let params = json!({"sessionId": sid, "promptId": prompt_id});
+        let answer = child.request(method::MUX_STEER_WITHDRAW, params).await;
+        Ok(matches!(&answer, Ok(v) if v["withdrawn"] == true))
     }
 }

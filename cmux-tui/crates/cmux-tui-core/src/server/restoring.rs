@@ -89,6 +89,9 @@ impl BoundSocket {
     /// Accept clients on this socket while the owner restores its session;
     /// they are served once the session is attached.
     pub fn serve_restoring(self) -> anyhow::Result<RestoringServer> {
+        // Key-press flow marks start here, before the first request (`CMUX_TRACE_FLOWS`): every
+        // server, the headless daemon's own bind (cmux-tui main) included, accepts through this.
+        cmux_flow_trace::init();
         let slot = Arc::new(SessionSlot::restoring());
         let shutdown = Arc::new(AtomicBool::new(false));
         let (path, listener) = self.into_parts();

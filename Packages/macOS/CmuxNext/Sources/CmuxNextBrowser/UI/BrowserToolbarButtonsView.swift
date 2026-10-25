@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 
@@ -146,17 +147,14 @@ public final class BrowserToolbarButtonsView: NSStackView {
     public func present(_ menu: NSMenu, from button: BrowserToolbarButton, themed: Bool = false) {
         refresh()
         if themed { menu.themeRows(in: themeScope.fullStrength) }
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self, let anchor = self.anchor(for: button) else { return }
-                // Pressed while the menu is open, normal again when it closes (Chrome).
-                let pressed = anchor as? ChromeIconButton
-                pressed?.isMenuOpen = true
-                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
-                pressed?.isMenuOpen = false
-            }
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self, let anchor = self.anchor(for: button) else { return }
+            // Pressed while the menu is open, normal again when it closes (Chrome).
+            let pressed = anchor as? ChromeIconButton
+            pressed?.isMenuOpen = true
+            self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
+            pressed?.isMenuOpen = false
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// The view a popup of `button` opens under: the button, More when it is
