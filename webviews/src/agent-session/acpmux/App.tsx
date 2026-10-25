@@ -5831,7 +5831,7 @@ function AcpmuxPane() {
     () => (subagentTray ? finishedTrayItems(trayAgents, childSessions) : []),
     [subagentTray, trayAgents, childSessions],
   );
-  // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
+  // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({
     summary: snapshot.summary,
