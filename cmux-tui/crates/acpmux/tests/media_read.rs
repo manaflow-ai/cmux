@@ -264,9 +264,11 @@ async fn media_of_a_peers_chat_is_read_on_the_peer() {
     assert_eq!(ca.read(&remote, "out/clip.mp4", 400).await, ("video/mp4".into(), clip()));
     // The link carries every client's reads: a handle is its own client's, and one client's
     // full table leaves room on the link for another's.
-    let mut held = Vec::new();
-    for _ in 0..acpmux::hub::media_handles::MAX_HANDLES {
+    // The open above is still held: it counts as one of this client's places.
+    let mut held = vec![opened["result"]["handle"].clone()];
+    while held.len() < acpmux::hub::media_handles::MAX_HANDLES {
         let opened = ca.open(&remote, "out/clip.mp4").await;
+        assert!(opened["result"]["handle"].is_string(), "{opened}");
         held.push(opened["result"]["handle"].clone());
     }
     assert_eq!(reason(&ca.open(&remote, "out/clip.mp4").await), "media.handles");
@@ -275,6 +277,38 @@ async fn media_of_a_peers_chat_is_read_on_the_peer() {
     let theirs = other.open(&remote, "out/clip.mp4").await;
     assert_eq!(theirs["result"]["size"], clip().len(), "{theirs}");
     assert_eq!(ca.range(&remote, &held[0], 0, 10).await["result"]["offset"], 0);
+}
+
+/// A range the peer refuses before its reader sees it (here its guard: the local client asks for a
+/// device's Full access, which no device proved) still closes the handle there. Otherwise each
+/// such range would leave one of the link's places taken, and opens enough times over would
+/// fill the peer.
+#[tokio::test]
+async fn media_a_range_the_peer_refuses_early_still_closes_its_handle_there() {
+    let b = hub();
+    let dir = home().join(format!("media-peer-refused-{}", std::process::id()));
+    let auth = PeerAuth::create(&dir).unwrap();
+    let peer_token = std::fs::read_to_string(acpmux::server::peer_auth::token_path(&dir)).unwrap();
+    let listener = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let auth = WsAuth { local_app: None, peer: Some(Arc::new(auth)) };
+    tokio::spawn(serve_ws_with(b.clone(), listener, "tok".into(), auth));
+    let mut cb = client(&b, Origin::Local);
+    let remote = cb.new_session("far-refused", &chat_folder("peer-refused")).await;
+    let a = hub();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(&a, Origin::Local);
+    for round in 0..=acpmux::hub::media_handles::MAX_OPEN {
+        let opened = ca.open(&remote, "out/clip.mp4").await;
+        let handle = &opened["result"]["handle"];
+        assert!(handle.is_string(), "round {round}: {opened}");
+        let params = json!({"sessionId": remote, "handle": handle, "offset": 0, "length": 10,
+                            "_meta": {"acpmux": {"requireFullAccess": true}}});
+        let refused = ca.call(method::MUX_MEDIA_RANGE, params).await;
+        assert!(refused.get("error").is_some(), "round {round}: {refused}");
+    }
 }
 
 /// A peer from before the reader (it lists no `mediaRead`): it counts the media calls it gets.
