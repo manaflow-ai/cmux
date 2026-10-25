@@ -6,6 +6,7 @@ import { agentDisplayName } from "./agents";
 import { seedLastPicks, useLastPick } from "./lastPick";
 import { ArrowUpIcon } from "./ComposerPickers";
 import { useComposerLook } from "./composerLook";
+import { useComposerSettings } from "./composerSettings";
 import type { AcpmuxSnapshot } from "./model";
 import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
@@ -337,6 +338,7 @@ export function NewTabPage({
   onInputReady,
 }: Props) {
   const t = useT();
+  const { spellChecking } = useComposerSettings();
   // The classic template is a New Tab page too: what it opens (the project chooser, its menus)
   // appears at once; exits keep their fades (newtab/noEntryMotion.ts).
   useNoEntryMotion();
@@ -621,7 +623,7 @@ export function NewTabPage({
               value={text}
               aria-controls="acpmux-omni"
               aria-activedescendant={selected >= 0 ? `acpmux-omni-${selected}` : undefined}
-              spellCheck={kind === "agent"}
+              spellCheck={spellChecking && kind === "agent"}
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(event) => edit(event.target.value)}
