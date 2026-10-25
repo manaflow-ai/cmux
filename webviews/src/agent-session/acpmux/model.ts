@@ -545,7 +545,9 @@ export type AcpmuxSnapshot = {
     /// `setup`, the part the agent took before the conversation (its system prompt, tools and
     /// memory), when the harness reports it (`_meta.acpmux.setup`).
     usage?: { used: number; size: number; setup?: number };
-    /// What the context holds by category, as Claude Code's /context reports it.
+    /// What the context holds by category, as Claude Code's /context said after the last turn
+    /// (acpmux `contextBreakdown`); unset for other harnesses. Each list holds at most 50 rows,
+    /// the largest.
     contextBreakdown?: AcpmuxContextBreakdown;
     host?: string;
     peer?: string;
@@ -612,6 +614,10 @@ export type AcpmuxSnapshot = {
   /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
   /// so a remote browser still cannot answer.
   answersTrust?: boolean;
+  /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
+  /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so the Inspector's Connectors offer
+  /// Reconnect.
+  reconnectsMcp?: boolean;
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;

@@ -6,7 +6,8 @@
 // - Where it runs: the Environment's rows, the machine, the folder, the repository, the branch or
 //   worktree (EnvironmentSection); then Context, how much of the context window the chat used, with a
 //   bar, open the token counts; then Connectors, the MCP servers its harness loaded, with how many
-//   need reconnecting. Context and Connectors are one row each until opened.
+//   need reconnecting, each failed one with a Reconnect where acpmux reconnects it (ConnectorsSection).
+//   Context and Connectors are one row each until opened.
 // - What it made: Changes, the pull requests it opened, touched or named, in any repository
 //   (ChangesSection); Outputs, the files, artifacts and links it produced (OutputsSection).
 // - What it runs: Subagents, each running subagent and started chat on its own line, the ended ones
@@ -62,6 +63,7 @@ import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
+import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
@@ -221,6 +223,7 @@ export function useChatInspector({
   onUncover,
   beside,
   wide = false,
+  onReconnectMcp,
 }: {
   snapshot: AcpmuxSnapshot;
   /// A view has the pane in the chat's place (App.tsx: a turn's diff in place, the event Inspector):
@@ -271,6 +274,8 @@ export function useChatInspector({
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent whose own view the pane shows: the Inspector lists its things, not the chat's.
   subagent?: SubagentScope;
+  /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
+  onReconnectMcp?: (server: string) => Promise<unknown>;
 }): {
   on: boolean;
   button?: ReactNode;
@@ -381,6 +386,7 @@ export function useChatInspector({
         onOpenImage={onOpenImage}
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
+        onReconnectMcp={onReconnectMcp}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
         scope={subagent}
@@ -426,6 +432,7 @@ function InspectorPresence({
   onOpenImage,
   onOpenFolder,
   onSaveEnvironment,
+  onReconnectMcp,
   onOpenDocument,
   onShowCall,
   scope,
@@ -462,6 +469,7 @@ function InspectorPresence({
   onOpenImage?: (src: string, alt: string) => void;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
+  onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent it lists, while the pane shows one's own view.
@@ -602,6 +610,7 @@ function InspectorPresence({
         onOpenFolder={onOpenFolder}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
+        onReconnectMcp={onReconnectMcp}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
@@ -776,6 +785,7 @@ export function ChatInspector({
   onOpenDocument,
   remoteControl,
   onSaveEnvironment,
+  onReconnectMcp,
   onOpenFolder,
   onShowCall,
   banner,
@@ -828,6 +838,8 @@ export function ChatInspector({
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onSaveEnvironment?: () => Promise<unknown> | void;
+  /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
+  onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Opens one of the chat's folders in the Files tree beside the chat.
   onOpenFolder?: (path: string) => void;
   /// Shows the Bash call that started a background command in the transcript: what its row opens
@@ -960,23 +972,7 @@ export function ChatInspector({
           : t("rail.connected", { count: mcp.filter((server) => server.status === "connected").length }),
       )}
     >
-      <ul className="acpmux-chat-inspector-list">
-        {mcp.map((server) => (
-          <li key={server.name} className="acpmux-chat-inspector-row">
-            <Icon name="extension" size={12} row />
-            <span className="acpmux-chat-inspector-row__name">{server.name}</span>
-            <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
-              {t(
-                server.status === "failed"
-                  ? "chatInspector.connectors.needsReconnect"
-                  : server.status === "pending"
-                    ? "rail.connectorPending"
-                    : "composer.envConnected",
-              )}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} />
     </InspectorSection>
   );
   const changes = pullRequests.length > 0 && (
