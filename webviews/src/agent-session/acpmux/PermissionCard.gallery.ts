@@ -9,6 +9,7 @@ import { agentPaneEntry } from "../../gallery/format";
 import { activity, chat, CWD, row, tool, user } from "../../gallery/fixtures/acpmux";
 import type { Play } from "../../gallery/play";
 import type { AcpmuxPermission } from "./model";
+import { SHORTCUT_ACTIONS } from "./shortcuts";
 
 /// Leo's ask: Claude Code's Bash call with its long session rule on Always allow.
 const ffmpeg: AcpmuxPermission = {
@@ -60,8 +61,19 @@ const rows = (permission: AcpmuxPermission) => [
   row("permission", 0, { permission }),
 ];
 const trusted = { "acp.trust.get": { cwd: CWD, level: "trusted" } };
+/// The app's default keycaps, pushed as the host pushes them (CmuxNextAgentPane AgentPaneShortcuts).
+const keycaps = {
+  [SHORTCUT_ACTIONS.permissionAllowOnce]: "⌥⌘1",
+  [SHORTCUT_ACTIONS.permissionAllowChat]: "⌥⌘2",
+  [SHORTCUT_ACTIONS.permissionDeny]: "⌥⌘3",
+};
 const shown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-ask .acpmux-permission-buttons"));
+  const page = ctx.document.defaultView as unknown as {
+    cmuxAcpmuxBridge?: { applyShortcuts?(labels: Record<string, string>): void };
+  } | null;
+  page?.cmuxAcpmuxBridge?.applyShortcuts?.(keycaps);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-ask .acpmux-permission-action-shortcut"));
 };
 
 export default agentPaneEntry({
