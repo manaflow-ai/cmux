@@ -94,6 +94,7 @@ async function mount(start: {
     id: string;
     name: string;
     family?: string;
+    models?: { id: string; name: string }[];
     unavailable?: string;
     probeFailed?: boolean;
     folder?: { folder: string; state: "enabled" | "needs-enable" | "needs-trust" | "error" };
@@ -120,7 +121,9 @@ async function mount(start: {
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     }))
-    .concat((start.extra ?? []).map((entry) => ({ family: entry.id, ...entry, models: [] }))) as Snapshot["catalog"];
+    .concat(
+      (start.extra ?? []).map((entry) => ({ family: entry.id, ...entry, models: entry.models ?? [] })),
+    ) as Snapshot["catalog"];
   const sent: Sent[] = [];
   let session = 0;
   function Host() {
@@ -357,6 +360,26 @@ test("a non-current folder profile keeps its Enable action outside the harness r
   expect(enable).not.toBeUndefined();
   await act(async () => enable?.click());
   expect(enabled).toEqual(["/Users/me/app:machine-profile"]);
+});
+
+test("Starred keeps folder models out of the harness rail", async () => {
+  dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify(["machine-model"]));
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        models: [{ id: "machine-model", name: "Machine model" }],
+        folder: { folder: "/Users/me/app", state: "enabled" },
+      },
+    ],
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-mp-rail-list [aria-label='Starred']")!.click());
+  expect(rows().map((row) => row.dataset.key)).not.toContain("model:machine-model");
 });
 
 // Debug Settings' "Allow switching harness in a started chat" (off by default): on, a started
