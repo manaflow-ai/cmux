@@ -12,7 +12,7 @@ import CmuxNextWakeupsTestSupport
     typealias Base = UpdateStagedYieldsToNewerTests
 
     /// `DisableAutoUpdate`, switchable while the test runs.
-    final class Policy: @unchecked Sendable {
+    nonisolated final class Policy: @unchecked Sendable {
         private let lock = NSLock()
         private var disabled = false
         var disablesUpdates: Bool {
