@@ -33,6 +33,7 @@ extension WebUpdates {
         guard pending != nil, !looking else { return }
         looking = true
         defer { looking = false }
+        let generation = pendingGeneration
         var decision = appDecision()
         if decision == .askPages {
             let views = WebBundleServedViews.shared.shown
@@ -53,6 +54,8 @@ extension WebUpdates {
             }
         }
         guard pending != nil else { return }
+        // Another update was handed over while the pages answered: look again for that one.
+        if generation != pendingGeneration { decision = .later(after: .zero, reason: "update.new") }
         switch decision {
         case .swap, .askPages:
             applyPending()

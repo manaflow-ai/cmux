@@ -114,6 +114,9 @@ public final class WebUpdater {
     @ObservationIgnored private var writing: Task<Void, Never>?
     /// Whether `updates.web` was read yet (before it, `channel` is only the off default).
     @ObservationIgnored private var followed = false
+    /// Counts ``follow(_:)`` calls, so a check that a channel change (even one changed back) ran
+    /// during books the next read at once.
+    @ObservationIgnored private var follows = 0
 
     public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
 
@@ -173,6 +176,7 @@ public final class WebUpdater {
         guard !followed || channel != self.channel else { return }
         followed = true
         self.channel = channel
+        follows += 1
         etag = nil
         nextCheck.cancel()
         // The launch check, then at most one state write, after the writes queued before it.
@@ -221,14 +225,14 @@ public final class WebUpdater {
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         phase = .checking
         _ = await launchTree()
-        let channel = channel
+        let channel = channel, follows = follows
         lastCheck = Date()
         // Each check books the next one, so a check started by hand pushes the schedule back; a
         // channel changed during the check reads its own pointer at once.
         defer {
             if self.channel != .off {
                 let next = foreground ? interval : backgroundInterval
-                nextCheck.schedule(after: self.channel == channel ? next : .zero) { @MainActor [weak self] in await self?.check() }
+                nextCheck.schedule(after: self.follows == follows ? next : .zero) { @MainActor [weak self] in await self?.check() }
             }
         }
         do {

@@ -37,6 +37,8 @@ public final class WebUpdates {
     @ObservationIgnored var looking = false
     /// What held the pending update at the last look (`updates.web.status` `waiting_for`).
     @ObservationIgnored var heldBy: String?
+    /// Counts handoffs, so a look's page answers apply only to the update they were asked for.
+    @ObservationIgnored var pendingGeneration = 0
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 
@@ -132,6 +134,10 @@ public final class WebUpdates {
     func ready(_ tree: URL?, version: WebUpdatePointer?) {
         pending = .some(tree)
         pendingVersion = version
+        // A new handoff: what held the last one says nothing about it, and a look asking the
+        // pages now asked about the last one (``look()`` checks the generation).
+        pendingGeneration += 1
+        heldBy = nil
         scheduleSafePoint()
     }
 
