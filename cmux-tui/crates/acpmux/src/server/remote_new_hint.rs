@@ -3,49 +3,55 @@
 //! 2026-10-24: "we improve the instructions and the error messages and the hints"). The
 //! peer's rules (`remote_guard.rs`) stay as they are; only the way out is named:
 //!
-//! - a policy that skips asking, from a peer that serves this daemon as a remote Web client:
-//!   the same start on HOST itself (`ssh HOST 'acpmux new ...'`), where its own unix socket
-//!   accepts it;
-//! - a mode at a remote start: the same start without it (the session runs in the
-//!   harness's asking mode there);
-//! - a folder outside the peer's roots: the same start in the first root the peer named,
-//!   else with no folder (a scratch folder), else on HOST itself.
+//! - from a peer that serves this daemon as a remote Web client (`data.servedAs`), or a
+//!   policy that skips asking: the same start on HOST itself, where its own unix socket
+//!   accepts it (`ssh -- DEST '...'` for an `ssh://` peer; else the command with
+//!   `data.runOn: HOST`), with its folder made first;
+//! - from a peer that serves it as a peer, a folder outside its roots: the same start in the
+//!   first root the peer named, else with no folder (a scratch folder made there).
 //!
-//! A peer on an older build names no `reason`: its message is read instead.
+//! A mode is never taken at a remote start, nor by HOST's own CLI (not the person), so no
+//! suggestion keeps one: the session starts in the harness's asking mode. The peer judges a
+//! new session's folder before its policy and mode, so one refusal covers every field. A peer
+//! on an older build names no `reason`: its message is read instead.
 
 use super::remote_guard::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 use std::path::Path;
 
-/// `e`, with `data.host` and `data.try` and the command at the end of its message, when it
-/// is one of the refusals above; any other error unchanged.
+/// `e`, with `data.host`, `data.try` (and `data.runOn` when it runs on HOST) and the command
+/// at the end of its message, when it is one of the refusals above; any other error unchanged.
 pub(super) fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     let Some(reason) = reason_of(&e) else { return e };
-    let start = Start::of(params);
-    let roots = e.data.as_ref().and_then(|d| d.get("roots")).and_then(Value::as_array);
+    let data = e.data.as_ref();
+    let served_as_peer = match data.and_then(|d| d.get("servedAs")).and_then(Value::as_str) {
+        Some(served) => served == "peer",
+        // An older peer does not say: what it said at the last handshake.
+        None => peer.served_as_peer(),
+    };
+    let roots = data.and_then(|d| d.get("roots")).and_then(Value::as_array);
     let first_root = roots.and_then(|r| r.first()).and_then(Value::as_str);
-    let hint = suggest(&start, reason, peer.served_as_peer(), first_root);
-    let (command, why) = match hint {
+    let ssh = crate::peer::ssh_target(&peer.url).ok().map(|t| t.destination);
+    let mut run_on = None;
+    let (command, why) = match suggest(&Start::of(params), reason, served_as_peer, first_root) {
         Hint::Here(start) => (start.command(Some(&peer.name)), String::new()),
-        Hint::OnHost(start, mkdir) => {
-            let inner = start.command(None);
-            let inner = match (&start.cwd, mkdir) {
-                (Some(cwd), true) => format!("mkdir -p {} && {inner}", quote(cwd)),
-                _ => inner,
-            };
+        Hint::OnHost(start) => {
             let then = start
                 .name
                 .as_ref()
                 .map(|n| format!(", then reach it from here as {}/{n}", peer.name))
                 .unwrap_or_default();
-            let served = if peer.served_as_peer() {
+            let served = if served_as_peer {
                 String::new()
             } else {
                 format!(" ({} serves this daemon as a remote client, not as a peer)", peer.name)
             };
+            if ssh.is_none() {
+                run_on = Some(peer.name.clone());
+            }
             (
-                format!("ssh {} {}", peer.ssh_destination(), quote(&inner)),
+                on_host(ssh.as_deref(), &start.on_host_command()),
                 format!("{served}: run it on {} itself{then}", peer.name),
             )
         }
@@ -58,7 +64,19 @@ pub(super) fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> 
     data["reason"] = json!(reason);
     data["host"] = json!(peer.name);
     data["try"] = json!(command);
+    if let Some(host) = run_on {
+        data["runOn"] = json!(host);
+    }
     RpcError::new(e.code, message).with_data(data)
+}
+
+/// `inner` as run on the peer's machine: through ssh to `dest` (an `ssh://` peer's checked
+/// destination, after `--` so it is never read as an option), else as it is, for that machine.
+fn on_host(dest: Option<&str>, inner: &str) -> String {
+    match dest {
+        Some(dest) => format!("ssh -- {} {}", quote(dest), quote(inner)),
+        None => inner.to_owned(),
+    }
 }
 
 /// The refusal's reason, from its data or, from a peer on an older build, its message.
@@ -142,44 +160,45 @@ impl Start {
         words.push("-d".to_owned());
         words.join(" ")
     }
+
+    /// `command` for HOST's own shell, its folder made first.
+    fn on_host_command(&self) -> String {
+        let new = self.command(None);
+        match &self.cwd {
+            Some(cwd) => format!("mkdir -p {} && {new}", quote(cwd)),
+            None => new,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
 enum Hint {
     /// `acpmux new --host HOST ...` from here.
     Here(Start),
-    /// `ssh HOST 'acpmux new ...'`, first making the folder when the flag says so.
-    OnHost(Start, bool),
+    /// The start on HOST itself.
+    OnHost(Start),
 }
 
 /// The start that works after `reason`. A peer that serves this daemon as a remote Web
 /// client takes only its own roots (which it does not name) and asking policies, so the
-/// way out there is HOST's own CLI; a mode is dropped either way, since HOST's CLI is not
-/// the person and may not start one that skips asking either.
+/// way out there is HOST's own CLI. A mode is dropped either way.
 fn suggest(start: &Start, reason: &str, served_as_peer: bool, first_root: Option<&str>) -> Hint {
-    let mut next = start.clone();
-    if reason == MODE_REFUSED {
-        next.mode = None;
-    }
-    if !served_as_peer {
-        return Hint::OnHost(next, reason == CWD_MISSING);
+    let mut next = Start { mode: None, ..start.clone() };
+    if !served_as_peer || reason == POLICY_REFUSED {
+        return Hint::OnHost(next);
     }
     match reason {
-        POLICY_REFUSED => Hint::OnHost(next, false),
         CWD_OUTSIDE_ROOTS => {
             let leaf = start.cwd.as_deref().and_then(|c| Path::new(c).file_name());
             next.cwd = first_root.map(|root| match leaf {
                 Some(leaf) => Path::new(root).join(leaf).to_string_lossy().into_owned(),
                 None => root.to_owned(),
             });
-            Hint::Here(next)
         }
-        CWD_MISSING => {
-            next.cwd = None;
-            Hint::Here(next)
-        }
-        _ => Hint::Here(next),
+        CWD_MISSING => next.cwd = None,
+        _ => {}
     }
+    Hint::Here(next)
 }
 
 /// `text` as one POSIX shell word: unchanged when it holds only characters no shell reads
@@ -214,21 +233,36 @@ mod tests {
     #[test]
     fn each_refusal_suggests_a_start_the_peer_takes() {
         let s = start();
-        // From a peer that serves us as a peer: a folder in its first root, or none.
+        // From a peer that serves us as a peer: a folder in its first root, or none; never
+        // a mode.
         let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, true, Some("/home/cmux/Projects"))
         else {
             panic!()
         };
         assert_eq!(next.cwd.as_deref(), Some("/home/cmux/Projects/x"));
+        assert_eq!(next.mode, None);
         let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, true, None) else { panic!() };
         assert_eq!(next.cwd, None);
         let Hint::Here(next) = suggest(&s, MODE_REFUSED, true, None) else { panic!() };
         assert_eq!((next.mode, next.policy.as_deref()), (None, Some("approve-all")));
-        // A policy it refused, or anything from a peer that serves us as Web: on the host.
-        assert!(matches!(suggest(&s, POLICY_REFUSED, true, None), Hint::OnHost(_, false)));
-        let Hint::OnHost(next, mkdir) = suggest(&s, MODE_REFUSED, false, None) else { panic!() };
-        assert!(next.mode.is_none() && !mkdir);
-        assert!(matches!(suggest(&s, CWD_MISSING, false, None), Hint::OnHost(_, true)));
+        // A policy it refused, or anything from a peer that serves us as Web: on the host,
+        // its folder made first, with no mode.
+        assert!(matches!(suggest(&s, POLICY_REFUSED, true, None), Hint::OnHost(_)));
+        let Hint::OnHost(next) = suggest(&s, CWD_MISSING, false, None) else { panic!() };
+        assert_eq!(
+            next.on_host_command(),
+            "mkdir -p /home/cmux/hb-acpmux/x && acpmux new -m codex/gpt-6 -n lane --cwd /home/cmux/hb-acpmux/x --policy approve-all -d"
+        );
+    }
+
+    #[test]
+    fn a_start_on_the_host_goes_through_ssh_only_for_an_ssh_peer() {
+        let inner = "mkdir -p /x && acpmux new -d";
+        assert_eq!(
+            on_host(Some("leo@huge-blue"), inner),
+            "ssh -- leo@huge-blue 'mkdir -p /x && acpmux new -d'"
+        );
+        assert_eq!(on_host(None, inner), inner);
     }
 
     #[test]

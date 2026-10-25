@@ -144,8 +144,33 @@ fn refused(what: &str) -> RpcError {
 }
 
 /// Check (and canonicalize the folder fields of) a request from a
-/// connection that is not the unix socket.
+/// connection that is not the unix socket. A refused remote `session/new` says how this daemon
+/// served the caller (`data.servedAs`: `peer` or `remote`), for the forwarding daemon's hint
+/// (`remote_new_hint.rs`).
 pub(super) async fn check(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    m: &str,
+    params: &mut Value,
+) -> Result<(), RpcError> {
+    let served = match control_of(origin, auth, params) {
+        crate::hub::Control::Peer => "peer",
+        _ => "remote",
+    };
+    let mut result = check_inner(hub, origin, auth, m, params).await;
+    if m == method::SESSION_NEW
+        && origin.web_class()
+        && let Err(e) = &mut result
+        && let Some(Value::Object(data)) = &mut e.data
+        && data.get("reason").and_then(Value::as_str).is_some_and(|r| r.starts_with("remote."))
+    {
+        data.insert("servedAs".into(), Value::from(served));
+    }
+    result
+}
+
+async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
     auth: super::ConnAuth,
@@ -248,8 +273,15 @@ pub(super) async fn check(
             return Err(refused("an import from outside acpmux's bundle directory"));
         }
     }
+    // A new session's folder is judged first, so one refusal names every field the caller
+    // must change; nothing is made for a start the policy or mode check refuses anyway.
+    let mut deferred = None;
     if web {
-        web_only(m, params, control_of(origin, auth, params) == crate::hub::Control::Peer)?;
+        let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
+        match web_only(m, params, peer) {
+            Err(e) if m == method::SESSION_NEW => deferred = Some(e),
+            other => other?,
+        }
         // A remote-origin session (a Web device, or a peer) never resumes a
         // local harness session (REMOTE-FLOOR v3, D13).
         if m == method::SESSION_NEW
@@ -296,17 +328,20 @@ pub(super) async fn check(
         if let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) {
             let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
             let canonical = match canonical_dir(cwd).await {
-                Some(canonical) => canonical,
+                Some(canonical) => Some(canonical),
                 None if peer_new => {
-                    let made = make_inside_root(cwd, roots.as_deref().unwrap_or_default()).await;
+                    let roots = roots.as_deref().unwrap_or_default();
+                    let made = make_inside_root(cwd, roots, deferred.is_none()).await;
                     made.map_err(|e| e.unwrap_or_else(|| outside("cwd")))?
                 }
                 None => return Err(folder_refused("cwd")),
             };
-            if !inside(&canonical) {
-                return Err(outside("cwd"));
+            if let Some(canonical) = canonical {
+                if !inside(&canonical) {
+                    return Err(outside("cwd"));
+                }
+                params.set("cwd", Value::String(canonical));
             }
-            params.set("cwd", Value::String(canonical));
         } else if web && m == method::SESSION_NEW {
             // An absent cwd means the home directory, which is never a root. A proven
             // peer (the owner's own daemon) gets a scratch folder named after the
@@ -314,8 +349,10 @@ pub(super) async fn check(
             if control_of(origin, auth, params) != crate::hub::Control::Peer {
                 return Err(outside("cwd"));
             }
-            let scratch = peer_scratch(params).await?;
-            params.set("cwd", Value::String(scratch));
+            if deferred.is_none() {
+                let scratch = peer_scratch(params).await?;
+                params.set("cwd", Value::String(scratch));
+            }
         }
         if let Some(dirs) = params.get("additionalDirectories").filter(|v| !v.is_null()) {
             let list = dirs.as_array().ok_or_else(|| folder_refused("additionalDirectories"))?;
@@ -332,6 +369,9 @@ pub(super) async fn check(
             }
             params.set("additionalDirectories", Value::Array(out));
         }
+    }
+    if let Some(e) = deferred {
+        return Err(e);
     }
     // The folder-trust question is the user's: a remote browser cannot answer
     // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
@@ -833,9 +873,14 @@ fn folder_refused(field: &str) -> RpcError {
 }
 
 /// A proven peer's missing `cwd` that lies inside a root once its nearest existing folder is
-/// resolved: made (owner-only) and returned canonical. `Err(None)`: it would lie outside every
-/// root, so nothing is made; `Err(Some(_))`: it is no absolute path, or the make failed.
-async fn make_inside_root(cwd: &str, roots: &[PathBuf]) -> Result<String, Option<RpcError>> {
+/// resolved: made (owner-only) when `make`, and returned canonical; `Ok(None)` when it would
+/// be made but `make` is off. `Err(None)`: it would lie outside every root, so nothing is
+/// made; `Err(Some(_))`: it is no absolute path, or the make failed.
+async fn make_inside_root(
+    cwd: &str,
+    roots: &[PathBuf],
+    make: bool,
+) -> Result<Option<String>, Option<RpcError>> {
     let path = Path::new(cwd);
     if !path.is_absolute() {
         return Err(Some(folder_refused("cwd")));
@@ -851,105 +896,68 @@ async fn make_inside_root(cwd: &str, roots: &[PathBuf]) -> Result<String, Option
         }
     }
     let Some((ancestor, found)) = base else { return Err(None) };
-    let rest = path.strip_prefix(ancestor).map_err(|_| None)?;
+    let rest = path.strip_prefix(ancestor).map_err(|_| None)?.to_path_buf();
     // Only plain names below the folder that exists: a `..` or `.` there is not followed.
     if !rest.components().all(|c| matches!(c, std::path::Component::Normal(_))) {
         return Err(None);
     }
-    let target = found.join(rest);
+    let target = found.join(&rest);
     if !inside(&target) {
         return Err(None);
     }
-    let made = {
-        let target = target.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&target)
-        })
-        .await
-    };
+    if !make {
+        return Ok(None);
+    }
+    let made = tokio::task::spawn_blocking(move || make_below(&found, &rest)).await;
     if !matches!(made, Ok(Ok(()))) {
         return Err(Some(folder_refused("cwd")));
     }
-    // Resolved again: a link put in its way meanwhile cannot lead out of the root.
+    // Resolved again: the folder made is the one checked.
     let canonical =
         canonical_dir(&target.to_string_lossy()).await.ok_or(Some(folder_refused("cwd")))?;
-    if inside(Path::new(&canonical)) { Ok(canonical) } else { Err(None) }
+    if inside(Path::new(&canonical)) { Ok(Some(canonical)) } else { Err(None) }
 }
 
-/// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
-/// temporary `scratch/<name>` directory, one per session name (a lane's `-n`),
-/// else one per request. It must stay outside `~/.acpmux`: remote Claude's
-/// Seatbelt rejects hidden children of the home directory as settings or
-/// programs, even though the peer is trusted.
-async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
-    let name = params
-        .pointer("/_meta/acpmux/name")
-        .or_else(|| params.get("name"))
-        .and_then(Value::as_str)
-        .map(scratch_name)
-        .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
-    let dir = peer_scratch_root()?.join(name);
-    let made = {
-        let dir = dir.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            builder.create(&dir)
-        })
-        .await
+/// Make each name of `rest` below `base`, one folder at a time through descriptors that
+/// never follow a link: a link (dangling or not) or a file in the way fails the make, so
+/// no folder is ever made outside `base`.
+#[cfg(unix)]
+fn make_below(base: &Path, rest: &Path) -> std::io::Result<()> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    let open = |at: libc::c_int, name: &std::ffi::CStr| {
+        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC;
+        // SAFETY: `name` is a NUL-terminated path and `at` a descriptor this function holds
+        // (or AT_FDCWD); the returned descriptor is owned by the OwnedFd below.
+        let fd = unsafe { libc::openat(at, name.as_ptr(), flags) };
+        if fd < 0 {
+            Err(std::io::Error::last_os_error())
+        } else {
+            // SAFETY: `fd` was just opened and nothing else owns it.
+            Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+        }
     };
-    let failed = |why: String| {
-        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    let c = |bytes: &[u8]| {
+        std::ffi::CString::new(bytes).map_err(|_| std::io::Error::other("a NUL in the path"))
     };
-    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
-    crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
-    canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+    let mut dir = open(libc::AT_FDCWD, &c(base.as_os_str().as_bytes())?)?;
+    for part in rest.components() {
+        let name = c(part.as_os_str().as_bytes())?;
+        // SAFETY: as above; mkdirat never follows a link in the last component.
+        if unsafe { libc::mkdirat(dir.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
+            let e = std::io::Error::last_os_error();
+            if e.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(e);
+            }
+        }
+        dir = open(dir.as_raw_fd(), &name)?;
+    }
+    Ok(())
 }
 
-fn peer_scratch_root() -> Result<PathBuf, RpcError> {
-    static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
-    ROOT.get_or_init(|| {
-        let uid = {
-            #[cfg(unix)]
-            {
-                unsafe { libc::getuid() }.to_string()
-            }
-            #[cfg(not(unix))]
-            {
-                "user".to_owned()
-            }
-        };
-        let root = std::env::temp_dir()
-            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
-        let mut builder = std::fs::DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-        builder.create(&root).map_err(|e| format!("{}: {e}", root.display())).and_then(|_| {
-            crate::config::private_state_dir(&root).map(|_| root).map_err(|e| e.to_string())
-        })
-    })
-    .clone()
-    .map_err(|e| {
-        RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
-    })
-}
-
-/// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything
-/// else is `-`, and no name of dots only.
-fn scratch_name(name: &str) -> String {
-    let n: String = name
-        .chars()
-        .take(80)
-        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '-' })
-        .collect();
-    if n.chars().all(|c| c == '.') { String::new() } else { n }
+#[cfg(not(unix))]
+fn make_below(_base: &Path, _rest: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::other("folders are made for a peer on unix only"))
 }
 
 /// `told`: the configured roots, said only to a proven peer (the owner's own daemon), with

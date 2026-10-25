@@ -107,6 +107,11 @@ async fn each_remote_new_refusal_names_its_reason_and_a_peer_hears_the_allowed_r
     let mut web = C::open(&hub, Origin::Web);
     let r = web.call(method::SESSION_NEW, new(json!({"policy": "approve-all"}), Some(&root))).await;
     assert_eq!(reason(&r), "remote.policy_refused", "{r}");
+    assert_eq!(r["error"]["data"]["servedAs"], "remote", "{r}");
+    // The folder is judged first, so one refusal names every field to change.
+    let both = new(json!({"policy": "approve-all"}), Some(&root.join("missing")));
+    let r = web.call(method::SESSION_NEW, both).await;
+    assert_eq!(reason(&r), "remote.cwd_missing", "{r}");
     let r = web.call(method::SESSION_NEW, new(json!({"mode": "yolo"}), Some(&root))).await;
     assert_eq!(reason(&r), "remote.mode_refused", "{r}");
     let r = web.call(method::SESSION_NEW, new(json!({}), Some(&root.join("missing")))).await;
@@ -121,6 +126,7 @@ async fn each_remote_new_refusal_names_its_reason_and_a_peer_hears_the_allowed_r
     let mut peer = C::open(&hub, Origin::Peer);
     let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&outside))).await;
     assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    assert_eq!(r["error"]["data"]["servedAs"], "peer", "{r}");
     assert_eq!(r["error"]["data"]["roots"][0], json!(root), "{r}");
     let message = r["error"]["message"].as_str().unwrap();
     assert!(message.contains(&root.to_string_lossy().into_owned()), "{message}");
@@ -147,6 +153,22 @@ async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused
     let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&outside.join("z")))).await;
     assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
     assert!(!outside.join("y").exists() && !outside.join("z").exists());
+
+    // A link inside the root, dangling or not, is never followed to make a folder.
+    let gone = outside.join("gone");
+    std::os::unix::fs::symlink(&gone, root.join("dangling")).unwrap();
+    std::os::unix::fs::symlink(&outside, root.join("out")).unwrap();
+    for asked in [root.join("dangling").join("child"), root.join("out").join("child")] {
+        let r = peer.call(method::SESSION_NEW, new(json!({}), Some(&asked))).await;
+        assert!(r["error"].is_object(), "{asked:?}: {r}");
+    }
+    assert!(!gone.exists() && !outside.join("child").exists());
+
+    // Nothing is made for a start refused anyway (a mode at a remote start).
+    let later = root.join("later");
+    let r = peer.call(method::SESSION_NEW, new(json!({"mode": "yolo"}), Some(&later))).await;
+    assert_eq!(reason(&r), "remote.mode_refused", "{r}");
+    assert!(!later.exists());
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&outside);
 }
@@ -190,8 +212,11 @@ async fn approve_all_refused_by_a_peer_that_serves_us_as_web_says_to_run_it_on_t
     let r = ca.call(method::SESSION_NEW, new(meta, Some(&root))).await;
     assert_eq!(reason(&r), "remote.policy_refused", "{r}");
     assert_eq!(r["error"]["data"]["host"], "b", "{r}");
+    // A `ws://` peer may have no ssh: the command is for B itself (an `ssh://` peer's goes
+    // through `ssh -- DEST`, unit tested in `remote_new_hint.rs`).
+    assert_eq!(r["error"]["data"]["runOn"], "b", "{r}");
     let want = format!(
-        "ssh 127.0.0.1 'acpmux new -m fake -n lane-1 --cwd {} --policy approve-all -d'",
+        "mkdir -p {0} && acpmux new -m fake -n lane-1 --cwd {0} --policy approve-all -d",
         root.display()
     );
     assert_eq!(tried(&r), want, "{r}");
@@ -241,6 +266,27 @@ async fn a_folder_outside_the_peers_roots_names_one_inside_and_that_one_works() 
     let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
     let on_b = b.sessions().into_iter().find(|s| s.id == id).expect("the session lives on B");
     assert_eq!(on_b.meta().cwd, inside);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&outside);
+}
+
+#[tokio::test]
+async fn a_mode_and_a_folder_outside_the_roots_are_both_fixed_by_one_suggestion() {
+    let root = scratch("both");
+    let outside = scratch("both-outside");
+    let (a, b) = pair("both", true, &root).await;
+    let mut ca = C::open(&a, Origin::Local);
+    let meta = json!({"peer": "b", "harness": "fake", "name": "lane-4", "mode": "yolo"});
+    let r = ca.call(method::SESSION_NEW, new(meta, Some(&outside.join("w")))).await;
+    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
+    let inside = root.join("w");
+    let want = format!("acpmux new --host b -m fake -n lane-4 --cwd {} -d", inside.display());
+    assert_eq!(tried(&r), want, "{r}");
+
+    let meta = json!({"peer": "b", "harness": "fake", "name": "lane-4"});
+    let r = ca.call(method::SESSION_NEW, new(meta, Some(&inside))).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
+    assert!(b.sessions().iter().any(|s| s.id == id && s.meta().cwd == inside));
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&outside);
 }
