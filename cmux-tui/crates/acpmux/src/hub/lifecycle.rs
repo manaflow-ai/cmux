@@ -27,10 +27,16 @@ impl Hub {
             env: session_env,
             workspace_id,
             keep_harness_mode,
+            starter,
             route,
             subsession,
             disallowed_tools,
         } = req;
+        // The proven agent session that asked for this one, as it is now; never for a remote one.
+        let starter = starter
+            .filter(|_| !remote)
+            .and_then(|id| self.resolve(&id).ok().filter(|s| s.id == id))
+            .map(|s| s.id.clone());
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
         // Resolution is a lookup, never a guess: preset → head (family or
@@ -44,7 +50,13 @@ impl Hub {
             return Err(terminal_harness_refusal(agent));
         }
         let family = crate::config::derive_family(agent, &profile);
-        let policy = policy.or(defaults.policy);
+        // No policy asked: a starter's own policy, or the defaults' when that is narrower
+        // (`start_mode.rs`, "Inherit"). A starter with none of its own leaves the defaults.
+        let policy = match (policy, starter.as_deref().and_then(|id| self.own_policy(id))) {
+            (Some(asked), _) => Some(asked),
+            (None, Some(theirs)) => Some(super::start_mode::narrowest(defaults.policy, theirs)),
+            (None, None) => defaults.policy,
+        };
         // `${model}` in argv or env: the model is a spawn parameter, not a
         // set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
@@ -293,12 +305,23 @@ impl Hub {
             }
             // The permission mode a new chat starts in (start_mode.rs): full
             // access unless the person picked or set otherwise. Soft.
-            let start_mode = if mode_eligible { self.start_mode(&session).await } else { None };
-            if let Some(mode) = start_mode
-                && let Err(err) = self.set_mode(&session, &mode).await
-            {
-                tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
-                self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
+            // A proven agent starter's instead, never wider (`start_mode.rs`, "Inherit").
+            let start_mode = if mode_eligible {
+                self.start_mode_for(&session, starter.as_deref()).await
+            } else {
+                None
+            };
+            if let Some(mode) = start_mode {
+                match self.set_mode(&session, &mode).await {
+                    Ok(_) => {
+                        let starter = starter.as_deref();
+                        self.inherited_full_access_is_cmux_only_if_theirs(&session, starter);
+                    }
+                    Err(err) => {
+                        tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
+                        self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
+                    }
+                }
             }
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;

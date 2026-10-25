@@ -780,9 +780,13 @@ async fn dispatch_request(
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
-                keep_harness_mode: hub
-                    .keeps_harness_mode(conn.is_person(), conn.caller(), &params)
-                    .await,
+                keep_harness_mode: hub.keeps_harness_mode(&params).await,
+                // The proven agent session that asks (`start_mode.rs`, "Inherit"): never the
+                // person, a peer or a Web connection, which have no caller.
+                starter: conn
+                    .caller()
+                    .filter(|_| !conn.is_person() && !conn.origin.web_class())
+                    .map(str::to_owned),
                 route,
                 subsession: None,
                 disallowed_tools,

@@ -195,6 +195,15 @@ answer locally. Rules sit above the policy and match tool kind, title, and
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 
+A session you start from inside your own session (`acpmux new|run`, a local
+`dispatch`, `--parent`, `start_session`) inherits your policy and mode when you
+pass neither: your policy, and your mode (or, on another harness family, the
+same level: full access, asking, or its own mode). It never runs wider than
+you: a wider `--mode` is refused. A start from a plain shell with no session
+gets the defaults. Some requests still ask in full access, because the harness
+raises them itself (Claude Code's guard on an `rm` whose target it cannot
+resolve): your policy answers those, and `ask` sends them to a person.
+
 ## 6. Other machines
 
 Sessions on peers show as `host/name` and every command takes that form.
