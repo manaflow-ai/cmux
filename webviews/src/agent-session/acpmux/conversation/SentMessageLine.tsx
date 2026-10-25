@@ -9,7 +9,16 @@
 // target opens its chat beside this one when the session list knows it (by id, or by `name`,
 // `host/name` or `host:name`); otherwise it is plain text. A shell call that also ran other
 // commands says so ("· and 2 more commands"), its whole command behind Raw: no work is hidden.
-import { type KeyboardEvent, type ReactNode, useContext, useId, useMemo, useState, useSyncExternalStore } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCall, SendState } from "./acpmuxSends";
@@ -53,9 +62,10 @@ const snapshot = () => look;
 /// name, on that host for `host/name` or `host:name` (a basket such as `reports:leo` is no chat).
 export function targetChat(store: SubsessionStore, target: string, sessionId?: string): string | undefined {
   if (sessionId) return store.get(sessionId) || store.harness(sessionId) ? sessionId : undefined;
-  // A peer's chat is listed as `host/name` (acpmux hub/peers.rs).
+  // A peer's chat is listed as `host/name` (acpmux hub/peers.rs); a send may name a chat by its id.
   const listed = store.find(target);
   if (listed) return listed;
+  if (store.get(target) || store.harness(target)) return target;
   const split = /^([^/:]+)[/:](.+)$/.exec(target);
   if (!split) return undefined;
   const id = store.find(`${split[1]}/${split[2]}`) ?? store.find(split[2]!);
@@ -102,6 +112,10 @@ export function SentMessageLine({
   const shape = useSyncExternalStore(subscribe, snapshot, snapshot);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const [rawShown, setRawShown] = useState(rawOpen);
+  // A send that fails while it shows opens its Raw then: the output says why.
+  useEffect(() => {
+    if (rawOpen) setRawShown(true);
+  }, [rawOpen]);
   const [reveal, setReveal] = useState(0);
   // Find in Chat opens the row and its Raw: the match may be in the command or its output.
   useFindReveal(

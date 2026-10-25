@@ -162,12 +162,12 @@ function Raw({ tool }: { tool: Tool }) {
   );
 }
 
-function McpDetails({ tool }: { tool: Tool }) {
+function McpDetails({ tool, reveal = 0 }: { tool: Tool; reveal?: number }) {
   const id = useId();
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
   return (
-    <McpCallDetails id={id} call={call} raw={mcpRawName(tool, call)} output={tool.output} strip={false} reveal={0} />
+    <McpCallDetails id={id} call={call} raw={mcpRawName(tool, call)} output={tool.output} strip={false} reveal={reveal} />
   );
 }
 
@@ -201,7 +201,7 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
       detail={call.delivery && deliveryText(t, call.delivery)}
       disclosureKey={`send:${tool.id}`}
       targetSession={call.sessionId}
-      raw={() => <McpDetails tool={tool} />}
+      raw={(reveal) => <McpDetails tool={tool} reveal={reveal} />}
     />
   );
 }

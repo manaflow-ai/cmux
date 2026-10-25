@@ -163,7 +163,8 @@ test("a compound command's send says the other work, which stays behind Raw", as
   expect(container.querySelector(".cv-shell")?.textContent).toContain("git fetch -q");
 });
 
-const chats = () => listed({ name: "coord-deputy" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
+const chats = () =>
+  listed({ name: "coord-deputy", harness: "claude" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
 
 test("the target opens its chat when the session list has it, without opening the row", async () => {
   const opened: string[] = [];
@@ -186,4 +187,21 @@ test("a target the session list does not have is plain text", async () => {
   const container = await line(bash("acpmux send reports:leo 'hi'"), chats());
   expect(container.querySelector(".cv-sent__target")).toBeNull();
   expect(container.querySelector(".cv-sent")!.textContent).toContain("Sent message to reports:leo");
+});
+
+test("a target that is a listed chat's id opens that chat", async () => {
+  const opened: string[] = [];
+  const container = await line(bash("acpmux send s0 'hi'"), chats(), opened);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-sent__target")!.click());
+  expect(opened).toEqual(["s0"]);
+});
+
+test("a send that fails while open shows its Raw", async () => {
+  const command = "acpmux send perf-lane 'Profile it.'";
+  const container = await line(bash(command, { status: "in_progress" }));
+  await act(async () => container.querySelector<HTMLElement>(".cv-sent")!.click());
+  expect(container.querySelector(".cv-shell")).toBeNull();
+  const failed = bash(command, { status: "failed", output: "Exit code 4\nacpmux: no_session" });
+  await act(async () => root!.render(<AcpmuxSendLine tool={failed} send={acpmuxSendCall(failed)!} />));
+  expect(container.querySelector(".cv-shell")?.textContent).toContain("no_session");
 });
