@@ -384,12 +384,17 @@ impl<'a> PaletteResolver<'a> {
         self.resolve(spec, self.default_fg)
     }
 
+    /// The default background stays unpainted (`Color::Reset`) so the host
+    /// terminal's own background shows through, notably over ssh.
     fn resolve_bg(&self, spec: ColorSpec) -> Color {
-        self.resolve(spec, self.default_bg)
+        match spec {
+            ColorSpec::Default => Color::Reset,
+            other => self.resolve(other, self.default_bg),
+        }
     }
 
     fn blank_style(&self) -> Style {
-        Style::default().fg(rgb_color(self.default_fg)).bg(rgb_color(self.default_bg))
+        Style::default().fg(rgb_color(self.default_fg)).bg(Color::Reset)
     }
 }
 
