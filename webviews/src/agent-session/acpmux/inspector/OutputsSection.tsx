@@ -33,11 +33,14 @@ export function outputArtifacts(rows: readonly AcpmuxRow[]): OutputArtifact[] {
     seen.add(call.html);
     found.push({ key: `render:${page.first}`, title: call.title || documentName(artifact) || undefined, artifact });
   }
-  const replies = rows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : []));
-  for (const artifact of chatDocuments(replies)) {
-    if (seen.has(artifact.code)) continue;
+  for (const artifact of chatDocuments(rows)) {
+    if (!artifact.path && seen.has(artifact.code)) continue;
     seen.add(artifact.code);
-    found.push({ key: `document:${found.length}`, title: documentName(artifact) || undefined, artifact });
+    found.push({
+      key: `document:${found.length}`,
+      title: documentName(artifact) || artifact.path?.split(/[\\/]/).at(-1) || undefined,
+      artifact,
+    });
   }
   return found;
 }

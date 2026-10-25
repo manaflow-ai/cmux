@@ -64,6 +64,23 @@ export default agentPaneEntry({
       snapshot: reply("Mock the Pro plan card", `A first pass:\n\n${fence("html", page)}`),
       play: open,
     },
+    "html-three-versions": {
+      note: "Three rewrites of one HTML artifact: opens at 1/3 and steps to the final version at 3/3. HTML stays source-only outside the bundled render frame.",
+      snapshot: chat(
+        [1, 2, 3].flatMap((version) => [
+          user(`Revise the weather page: version ${version}`, 10 - version * 2),
+          assistant(fence("html", `<title>Weather</title><h1>Forecast</h1><p>Version ${version}</p>`), 9 - version * 2),
+          summary(9 - version * 2, { status: "completed", durationMs: 12_000 }),
+        ]),
+      ),
+      play: async (ctx) => {
+        await open(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact-version")?.textContent === "1/3");
+        await ctx.click({ role: "button", name: "Next version" });
+        await ctx.click({ role: "button", name: "Next version" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-artifact-version")?.textContent === "3/3");
+      },
+    },
     versions: {
       note: "The chat rewrote the notes: the panel opens on the first and steps to the rewrite with < 1/2 >.",
       snapshot: chat([

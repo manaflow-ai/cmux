@@ -4306,11 +4306,7 @@ function AcpmuxPane() {
   const artifactVersionList = useMemo(
     () =>
       artifact && artifactRows
-        ? (renderVersions(pages, artifact) ??
-          artifactVersions(
-            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-            artifact,
-          ))
+        ? (renderVersions(pages, artifact) ?? artifactVersions(artifactRows, artifact))
         : undefined,
     [artifact, artifactRows, pages],
   );

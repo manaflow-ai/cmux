@@ -302,3 +302,28 @@ test("the panel names the document, copies when saving fails, and hands focus ba
   expect(window.document.activeElement).toBe(opener);
   opener.remove();
 });
+
+test("a detected JSX artifact stays source-only even in a pane with a render frame", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const hadLocation = "location" in scope;
+  const previousLocation = scope.location;
+  scope.location = { protocol: "cmux-agent:" };
+  try {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    act(() =>
+      root!.render(
+        <ArtifactPanel artifact={{ kind: "jsx", lang: "jsx", code: "const App = () => <div/>;" }} onClose={() => {}} />,
+      ),
+    );
+    expect(host.querySelector("iframe")).toBeNull();
+    expect(host.querySelector(".cv-codeblock")).not.toBeNull();
+    expect(button("Preview")).toBeUndefined();
+  } finally {
+    act(() => root?.unmount());
+    root = undefined;
+    if (hadLocation) scope.location = previousLocation;
+    else delete scope.location;
+  }
+});

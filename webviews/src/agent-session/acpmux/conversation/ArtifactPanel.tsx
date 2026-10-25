@@ -59,7 +59,7 @@ export function ArtifactPanel({
   const list = found >= 0 ? versions : [opened];
   const index = Math.max(0, found);
   const artifact = list[index]!;
-  const previews = artifact.kind === "markdown" || canRender();
+  const previews = artifact.kind === "markdown" || (artifact.kind !== "jsx" && canRender());
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
