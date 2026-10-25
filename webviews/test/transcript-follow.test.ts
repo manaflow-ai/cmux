@@ -181,6 +181,7 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 }, hasTouch: true });
     await installPaintedFrames(page);
+    if (process.env.CMUX_TOUCH_CAPTURE?.includes("dark")) await page.emulateMedia({ colorScheme: "dark" });
     await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
     await page.waitForFunction(() => "__showRows" in window);
     await page.evaluate(() => (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(true));
@@ -199,6 +200,9 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     await page.touchscreen.tap(box.x + 12, box.y + 120);
     await frames(page, 3);
     const moved = (await bottom()) - before;
+    if (process.env.CMUX_TOUCH_CAPTURE) {
+      console.log(`TOUCH_CAPTURE_${process.env.CMUX_TOUCH_CAPTURE}=${(await page.screenshot()).toString("base64")}`);
+    }
     console.log(`touch tap reserved-room movement: ${moved}px`);
     expect(Math.abs(moved)).toBeLessThanOrEqual(1);
     await page.close();
