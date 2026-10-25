@@ -40,3 +40,5 @@ pub mod stdio;
 pub mod task;
 pub mod uniichat_agent;
 pub mod worktree;
+#[cfg(test)]
+mod steer_reply_tests;

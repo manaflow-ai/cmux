@@ -483,6 +483,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         on_permission,
                         stall_secs: args.stall,
                         retries: args.retries,
+                        steer: false,
                     };
                     show();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
@@ -516,6 +517,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     on_permission,
                     stall_secs: args.stall,
                     retries: args.retries,
+                    steer: false,
                 };
                 show();
                 return stream_prompt(
@@ -563,7 +565,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
             // A message (--no-wait) steers; a send that waits for its reply queues.
-            let steer = send_steers(steer, no_steer, no_wait);
+            let steer = send_steers(steer, no_steer, no_wait, prompt_id.from_agent.is_some());
             let text = arg_or_stdin(&prompt)?;
             if no_wait {
                 return super::send_async::queue(
@@ -606,7 +608,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 eprintln!("queued behind {}", parts.join(" and "));
             }
-            let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
+            let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0, steer };
             if quiet || json_out {
                 let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
                 if json_out {
@@ -865,7 +867,7 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
 /// minutes for it to end), while a send that waits for its reply queues: a steer is answered
 /// `steered` as soon as the agent reads it, before the reply. A steer never stops a turn: the
 /// agent reads it at its next tool boundary, and to an agent that does not steer it queues.
-fn send_steers(steer: bool, no_steer: bool, no_wait: bool) -> bool {
+fn send_steers(steer: bool, no_steer: bool, no_wait: bool, _agent: bool) -> bool {
     !no_steer && (steer || no_wait)
 }
 
@@ -879,10 +881,20 @@ mod tests {
     use super::send_steers;
 
     #[test]
-    fn send_steers_messages_by_default_and_queues_waiting_sends() {
-        assert!(send_steers(false, false, true), "--no-wait steers by default");
-        assert!(!send_steers(false, true, true), "--no-steer opts out");
-        assert!(!send_steers(false, false, false), "a send that waits queues");
-        assert!(send_steers(true, false, false), "--steer steers a waiting send");
+    fn send_steers_messages_by_default_and_queues_the_persons_waiting_sends() {
+        assert!(send_steers(false, false, true, false), "--no-wait steers by default");
+        assert!(!send_steers(false, true, true, false), "--no-steer opts out");
+        assert!(!send_steers(false, false, false, false), "the person's send that waits queues");
+        assert!(send_steers(true, false, false, false), "--steer steers a waiting send");
+    }
+
+    /// Leo, 2026-10-25: "I don't know why these things are queued up." An agent's send steers
+    /// whether or not it waits for the reply; `--no-steer` still queues it.
+    #[test]
+    fn an_agents_send_steers_by_default_even_when_it_waits() {
+        assert!(send_steers(false, false, false, true), "an agent's waiting send steers");
+        assert!(send_steers(false, false, true, true), "and so does its --no-wait send");
+        assert!(!send_steers(false, true, false, true), "--no-steer opts out");
+        assert!(!send_steers(false, true, true, true), "--no-steer opts out with --no-wait too");
     }
 }

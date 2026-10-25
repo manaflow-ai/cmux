@@ -241,6 +241,9 @@ pub(crate) struct CollectOpts {
     /// Seconds without any update after the prompt before `prompt_stalled`; 0 disables.
     pub stall_secs: u64,
     pub retries: u32,
+    /// Into a running turn of an agent that steers (`_meta.acpmux.steer`): an agent's send, by
+    /// default (`run/standard.rs` `send_steers`).
+    pub steer: bool,
 }
 
 pub(crate) struct CollectResult {
@@ -867,7 +870,7 @@ pub(crate) async fn last_replies(
 }
 
 #[cfg(test)]
-mod prompt_tests {
+pub(crate) mod prompt_tests {
     use super::*;
     use crate::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
     use std::collections::BTreeMap;
@@ -877,8 +880,8 @@ mod prompt_tests {
         daemon_with_env(BTreeMap::new()).await
     }
 
-    /// `daemon` with extra environment for the fake agent.
-    async fn daemon_with_env(
+    /// `daemon` with extra environment for the fake agent; its socket is `d.sock` in the dir.
+    pub(crate) async fn daemon_with_env(
         env: BTreeMap<String, String>,
     ) -> (Arc<crate::hub::Hub>, Arc<Client>, cmux_unix_socket::TestDir) {
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
