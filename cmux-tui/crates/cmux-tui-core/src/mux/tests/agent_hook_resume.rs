@@ -176,3 +176,61 @@ fn a_restart_keeps_whose_wait_it_is() {
     drop(reopened);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// `claude`, with the time the hook helper observed each hook (`observed_at_ms`).
+fn claude_at<'a>(
+    mux: &'a Mux,
+    terminal_id: &TerminalPublicId,
+) -> impl Fn(&str, &str, u64, Value) + 'a {
+    let terminal = terminal_id.to_string();
+    move |event, key, observed_at_ms, mut native| {
+        native["session_id"] = serde_json::json!("claude-session-1");
+        let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(&terminal),
+            native,
+        )
+        .unwrap();
+        crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+        mux.append_journal_ingress(&ingress, "test", key).unwrap();
+    }
+}
+
+/// Claude's hooks run `async`, so the journal can take them out of order. The pre-tool hook
+/// of the call that asked for approval, landing after its permission request, does not end
+/// the wait; neither does another tool of a parallel batch finishing during it. The post-tool
+/// hook of the approved tool, observed after the request, does.
+#[test]
+fn a_late_or_parallel_tool_hook_does_not_end_the_wait() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let append = claude_at(&mux, &terminal_id);
+    let blocked = (AgentState::Blocked, "blocked".to_string());
+
+    append("SessionStart", "o-1", 1_000, serde_json::json!({}));
+    append("UserPromptSubmit", "o-2", 1_001, serde_json::json!({"prompt": "edit it"}));
+    append("PermissionRequest", "o-3", 1_011, serde_json::json!({"tool_name": "Edit"}));
+    append("PreToolUse", "o-4", 1_010, serde_json::json!({"tool_name": "Edit"}));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked, "the late pre-tool hook");
+    append("PostToolUse", "o-5", 1_020, serde_json::json!({"tool_name": "Grep"}));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked, "a parallel tool finished");
+
+    append("PostToolUse", "o-6", 5_000, serde_json::json!({"tool_name": "Edit"}));
+    assert_eq!(
+        states(&mux, surface.id, &terminal_id),
+        (AgentState::Working, "working".to_string()),
+        "the approved tool ran"
+    );
+
+    // A denied approval runs no post-tool hook: the agent's next tool start ends the wait.
+    append("PermissionRequest", "o-7", 6_000, serde_json::json!({"tool_name": "Bash"}));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked);
+    append("PreToolUse", "o-8", 9_000, serde_json::json!({"tool_name": "Read"}));
+    assert_eq!(
+        states(&mux, surface.id, &terminal_id),
+        (AgentState::Working, "working".to_string()),
+        "the agent went on after a denial"
+    );
+}
