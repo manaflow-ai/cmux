@@ -57,11 +57,11 @@ export function parseDesign(hash: string): ChangelogDesign {
   return design === "journal" || design === "rail" || design === "digest" ? design : "ledger";
 }
 
-/** The update's news layout the route names (`news=stack|grid|lead`); alternate by default. */
+/** The update's news layout the route names (`news=alternate|stack|lead`); grid by default. */
 export function parseNewsLayout(hash: string): NewsLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const news = new URLSearchParams(query).get("news");
-  return news === "stack" || news === "grid" || news === "lead" ? news : "alternate";
+  return news === "alternate" || news === "stack" || news === "lead" ? news : "grid";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */

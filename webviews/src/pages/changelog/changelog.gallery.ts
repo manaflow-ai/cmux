@@ -71,9 +71,9 @@ export default changelogPageEntry({
       notes: journalNotes,
     },
     "clips-alternate": {
-      note: "What's New after an update, each change with its clip (Leo 2026-10-24: \"it's like you're not even showing anything properly off\"). Alternate (default): the clip beside its words, sides taking turns. Clips recorded on the fleet by whats-new-clips.py, at their own size.",
+      note: "What's New after an update, each change with its clip (Leo 2026-10-24: \"it's like you're not even showing anything properly off\"). Alternate: the clip beside its words, sides taking turns. Clips recorded on the fleet by whats-new-clips.py, at their own size.",
       notes: clipNotes,
-      route: `#/?${clipRoute}`,
+      route: `#/?news=alternate&${clipRoute}`,
     },
     "clips-stack": {
       note: "The same update, Stack: one change after another, the clip on top and its caption under it.",
@@ -81,9 +81,9 @@ export default changelogPageEntry({
       route: `#/?news=stack&${clipRoute}`,
     },
     "clips-grid": {
-      note: "The same update, Grid: two-up glass cards, the clip on top.",
+      note: "The same update, Grid (default): two-up glass cards, the clip on top.",
       notes: clipNotes,
-      route: `#/?news=grid&${clipRoute}`,
+      route: `#/?${clipRoute}`,
     },
     "clips-lead": {
       note: "The same update in the lead row the clips replaced (before): up to three changes side by side, each clip boxed to 16:10 and cut.",

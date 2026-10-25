@@ -51,7 +51,7 @@ export function clipItems(view: ReleaseView): ReleaseItem[] {
 }
 
 export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }) {
-  const layout = ctx.news ?? "alternate";
+  const layout = ctx.news ?? "grid";
   const clips = layout === "lead" ? [] : clipItems(view);
   // Without clips (or in the old layout) the lead row stays as it was; beside clips, only a hero
   // with none leads, in words.

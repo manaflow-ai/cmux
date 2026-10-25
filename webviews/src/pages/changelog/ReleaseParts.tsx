@@ -17,7 +17,7 @@ export interface PartsContext {
   onTry: (action: string) => void;
   /** Each change is a wide row with its whole description and its picture beside it (the Ledger). */
   rowMedia?: boolean;
-  /** How the update's news shows its clips (SpanNews.tsx); alternate when unset. */
+  /** How the update's news shows its clips (SpanNews.tsx); grid when unset. */
   news?: NewsLayout;
 }
 

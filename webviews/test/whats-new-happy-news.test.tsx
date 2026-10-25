@@ -54,7 +54,7 @@ test("every change with a clip shows it with its caption; the rest of New and Im
   expect(clipItems(v).map((i) => i.id)).toEqual(["hero", "n2", "i1", "i2"]);
   for (const layout of ["alternate", "stack", "grid", undefined] as const) {
     const doc = render(v, layout);
-    expect(doc.querySelector(".cln-clips")?.className).toBe(`cln-clips cln-clips-${layout ?? "alternate"}`);
+    expect(doc.querySelector(".cln-clips")?.className).toBe(`cln-clips cln-clips-${layout ?? "grid"}`);
     const clips = [...doc.querySelectorAll(".cln-clip")];
     expect(clips.map((c) => c.querySelector(".cln-clip-title")?.textContent)).toEqual([
       "Title hero",
@@ -159,11 +159,11 @@ test("a fix keeps its Learn more link", () => {
   expect(doc.querySelector<HTMLAnchorElement>(".cln-fixed .cl-row-link")?.href).toBe("https://cmux.com/docs/fix");
 });
 
-test("the route names the news layout; alternate by default", async () => {
+test("the route names the news layout; grid by default", async () => {
   const { parseNewsLayout } = await import("../src/pages/changelog/store");
-  expect(parseNewsLayout("")).toBe("alternate");
-  expect(parseNewsLayout("#/?from=1&to=2&news=grid")).toBe("grid");
+  expect(parseNewsLayout("")).toBe("grid");
+  expect(parseNewsLayout("#/?from=1&to=2&news=alternate")).toBe("alternate");
   expect(parseNewsLayout("#/?news=stack")).toBe("stack");
   expect(parseNewsLayout("#/?news=lead")).toBe("lead");
-  expect(parseNewsLayout("#/?news=bogus")).toBe("alternate");
+  expect(parseNewsLayout("#/?news=bogus")).toBe("grid");
 });
