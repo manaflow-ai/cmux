@@ -292,7 +292,7 @@ class WakeupAuditTests(unittest.TestCase):
         rules = {(h["rule"], h["shape"], h["status"]) for h in hits}
         for expected in (("timeline-view", "loop", "hit"), ("did-update", "loop", "hit"),
                          ("active-always", "oneshot", "hit"), ("sleep", "loop", "hit"),
-                         ("loop-that-can-spin", "loop", "hit"), ("timer", "oneshot", "escaped")):
+                         ("loop-that-can-spin", "loop", "hit"), ("timer", "loop", "escaped")):
             self.assertIn(expected, rules)
         self.assertEqual(sum(h["rule"] == "sleep" for h in hits), 1)  # not the string
 
@@ -360,6 +360,351 @@ class WakeupAuditTests(unittest.TestCase):
         result = self.audit.run("--lang", "zig")
         self.assertEqual(result.returncode, 2)
         self.assertIn("unknown --lang zig", result.stderr)
+
+
+class FocusedFixtureTests(unittest.TestCase):
+    """One small source per case, in a fixture repository with nothing else in it."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        fixture(self.root, periodic=[{"owner": "Lease.renewal", "period_s": 60, "why": "lease expires at 120 s"}])
+        for rel in ("lib.rs", "ticker.rs", "support.rs", "pathed_tests.rs", "deeper.rs", "tests/nested.rs"):
+            (self.root / "cmux-tui/crates/demo/src" / rel).unlink()
+        self.audit = Audit(self.root)
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def rust(self, text: str, rel: str = "lib.rs") -> list[dict]:
+        write(self.root, f"cmux-tui/crates/demo/src/{rel}", text)
+        return self.audit.at(f"demo/src/{rel}", "--lang", "rust")
+
+    def swift(self, text: str) -> list[dict]:
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Case.swift", text)
+        return self.audit.at("CmuxNextApp/Case.swift", "--lang", "swift")
+
+    def shapes(self, hits: list[dict]) -> dict[tuple[int, str], str]:
+        return {(h["line"], h["rule"]): h["shape"] for h in hits}
+
+    # cfg(test) on a field, a variant or a struct-literal field ends at that field ------------------------
+
+    def test_cfg_test_struct_field_does_not_hide_the_impl_after_it(self) -> None:
+        hits = self.rust("""\
+            struct W {
+                c: std::sync::Condvar,
+                #[cfg(test)]
+                o: Option<u8>,
+            }
+            impl W {
+                fn run(&self, g: std::sync::MutexGuard<'_, ()>) {
+                    loop {
+                        let _ = self.c.wait_timeout(g, std::time::Duration::from_millis(50));
+                    }
+                }
+            }
+            """)
+        self.assertEqual([(h["line"], h["rule"], h["shape"]) for h in hits], [(9, "wait-timeout", "loop")])
+
+    def test_cfg_test_last_field_without_comma_does_not_hide_the_impl_after_it(self) -> None:
+        hits = self.rust("""\
+            struct Q { cv: std::sync::Condvar, #[cfg(test)] hook: Option<u8> }
+            impl Q {
+                fn w(&self, rx: std::sync::mpsc::Receiver<u8>) {
+                    let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
+                }
+            }
+            """)
+        self.assertEqual([(h["line"], h["rule"]) for h in hits], [(4, "recv-timeout")])
+
+    def test_cfg_test_enum_variants_do_not_hide_the_impl_after_them(self) -> None:
+        hits = self.rust("""\
+            enum E {
+                Real,
+                #[cfg(test)]
+                Probe { n: u8 },
+                #[cfg(test)]
+                Tuple(u8),
+            }
+            impl E {
+                fn w(&self, rx: std::sync::mpsc::Receiver<u8>) {
+                    let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
+                }
+            }
+            """)
+        self.assertEqual([(h["line"], h["rule"]) for h in hits], [(10, "recv-timeout")])
+
+    def test_cfg_test_struct_literal_field_does_not_hide_the_next_function(self) -> None:
+        hits = self.rust("""\
+            fn make() -> Q {
+                Q {
+                    #[cfg(test)]
+                    hook: None,
+                    real: 1,
+                }
+            }
+            fn later(rx: std::sync::mpsc::Receiver<u8>) {
+                let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
+            }
+            #[cfg(test)]
+            fn only_in_tests(rx: std::sync::mpsc::Receiver<u8>) {
+                let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
+            }
+            """)
+        self.assertEqual([(h["line"], h["rule"]) for h in hits], [(9, "recv-timeout")])
+
+    def test_mod_declared_after_a_cfg_test_field_is_audited(self) -> None:
+        write(self.root, "cmux-tui/crates/demo/src/worker.rs", "pub fn w() { std::thread::sleep(std::time::Duration::ZERO); }\n")
+        self.rust("""\
+            struct S {
+                #[cfg(test)]
+                probe: u8,
+            }
+            mod worker;
+            """)
+        self.assertEqual([h["rule"] for h in self.audit.at("demo/src/worker.rs", "--lang", "rust")], ["thread-sleep"])
+
+    # loop vs oneshot: a wait in a branch that leaves the loop is not on the looping path ---------------------
+
+    def test_try_wait_poll_with_wait_in_the_kill_arm_is_a_loop(self) -> None:
+        hits = self.rust("""\
+            fn probe(mut child: std::process::Child) -> bool {
+                loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => return status.success(),
+                        Ok(None) => {
+                            std::thread::sleep(std::time::Duration::from_millis(5));
+                        }
+                        _ => {
+                            let _ = child.kill();
+                            let _ = child.wait();
+                            return false;
+                        }
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(3, "try-wait"): "loop", (6, "thread-sleep"): "loop"})
+
+    def test_recv_timeout_poll_with_join_only_on_exit_paths_is_a_loop(self) -> None:
+        hits = self.rust("""\
+            fn run(rx: std::sync::mpsc::Receiver<u8>, writer: std::thread::JoinHandle<()>) -> anyhow::Result<()> {
+                loop {
+                    if done() {
+                        let _ = writer.join();
+                        return Ok(());
+                    }
+                    if late() {
+                        let _ = writer.join();
+                        anyhow::bail!("timed out");
+                    }
+                    match rx.recv_timeout(std::time::Duration::from_millis(10)) {
+                        Ok(_) => {
+                            let _ = writer.join();
+                            return Ok(());
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(11, "recv-timeout"): "loop"})
+
+    def test_untimed_wait_on_the_looping_path_keeps_oneshot(self) -> None:
+        hits = self.rust("""\
+            fn pump(rx: std::sync::mpsc::Receiver<u8>, deadline: Option<std::time::Duration>) {
+                loop {
+                    match deadline {
+                        Some(d) => {
+                            let _ = rx.recv_timeout(d);
+                        }
+                        None => {
+                            let _ = rx.recv();
+                        }
+                    }
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(5, "recv-timeout"): "oneshot"})
+
+    def test_read_of_a_stream_with_a_read_timeout_is_not_an_event(self) -> None:
+        hits = self.rust("""\
+            use std::io::Read;
+            fn answer(mut stream: std::net::TcpStream) {
+                let mut chunk = [0u8; 64];
+                loop {
+                    stream.set_read_timeout(Some(std::time::Duration::from_millis(50))).ok();
+                    if stream.read(&mut chunk).is_err() {
+                        continue;
+                    }
+                }
+            }
+            fn blocking(mut stream: std::net::TcpStream) {
+                let mut chunk = [0u8; 64];
+                loop {
+                    let _ = stream.read(&mut chunk);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(5, "read-timeout"): "loop", (15, "thread-sleep"): "oneshot"})
+
+    def test_rpc_read_and_a_changed_query_are_not_events(self) -> None:
+        hits = self.rust("""\
+            fn pump(connection: &mut Connection, done: &Done) {
+                loop {
+                    let _ = connection.read(Operation::List, json!({"limit": 50}));
+                    if done.changed() || late() {
+                        break;
+                    }
+                    std::thread::sleep(POLL);
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {(7, "thread-sleep"): "loop"})
+
+    def test_swift_loop_after_a_statement_is_a_loop(self) -> None:
+        hits = self.swift("""\
+            func poll() async {
+                let interval = Duration.seconds(1)
+                while !Task.isCancelled {
+                    let x = 1
+                    if x > 0 {
+                        try? await Task.sleep(for: interval)
+                    }
+                }
+            }
+            func drain() async {
+                var n = 0
+                repeat {
+                    n += 1
+                    try? await Task.sleep(for: .seconds(1))
+                } while true
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {
+            (3, "loop-that-can-spin"): "loop", (6, "sleep"): "loop",
+            (12, "loop-that-can-spin"): "loop", (14, "sleep"): "loop", (15, "loop-that-can-spin"): "loop",
+        })
+
+    def test_swift_repeating_timers_are_loops(self) -> None:
+        hits = self.swift("""\
+            import Foundation
+            final class Clock {
+                let a = Timer(timeInterval: 1, repeats: true) { _ in }
+                let b = Timer.scheduledTimer(withTimeInterval: 1,
+                                             repeats: true) { _ in }
+                let c = Timer.publish(every: 1, on: .main, in: .common)
+                let d = Timer(timeInterval: 1, repeats: false) { _ in }
+                func source(t: DispatchSourceTimer) {
+                    t.schedule(deadline: .now(), repeating: .seconds(1))
+                    t.schedule(deadline: .now(), repeating: .never)
+                }
+            }
+            """)
+        self.assertEqual(self.shapes(hits), {
+            (3, "timer"): "loop", (4, "timer"): "loop", (6, "timer"): "loop", (7, "timer"): "oneshot",
+            (9, "timer"): "loop", (10, "timer"): "oneshot",
+        })
+
+    # Escapes --------------------------------------------------------------------------------------------------
+
+    def test_escape_needs_a_reason_and_may_continue_on_the_next_comment_line(self) -> None:
+        hits = self.rust("""\
+            fn a(rx: std::sync::mpsc::Receiver<u8>) {
+                // wakeup-allow: deadline
+                let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
+            }
+            fn b(rx: std::sync::mpsc::Receiver<u8>) {
+                // wakeup-allow: deadline
+                // the handshake answers within 2 s or the peer is gone
+                let _ = rx.recv_timeout(std::time::Duration::from_secs(2));
+            }
+            """)
+        self.assertEqual([(h["line"], h["status"]) for h in hits], [(3, "no-reason"), (8, "escaped")])
+        strict = self.audit.run("--lang", "rust", "--strict")
+        self.assertEqual(strict.returncode, 1)
+        self.assertIn("lib.rs:3: recv-timeout (oneshot) no-reason deadline", strict.stdout)
+        self.assertNotIn("lib.rs:8:", strict.stdout)
+
+    def test_escape_inside_a_string_literal_does_not_count(self) -> None:
+        hits = self.rust("""\
+            fn a() {
+                std::thread::sleep(std::time::Duration::from_secs(1)); let _ = "wakeup-allow: debug x";
+            }
+            """)
+        self.assertEqual([(h["line"], h["status"]) for h in hits], [(2, "hit")])
+
+    def test_escape_above_a_multi_line_statement_covers_its_continuation_line(self) -> None:
+        hits = self.rust("""\
+            fn a(rx: std::sync::mpsc::Receiver<u8>) {
+                // wakeup-allow: deadline the reply comes within 1 s or the peer is gone
+                let r = rx
+                    .recv_timeout(std::time::Duration::from_secs(1));
+                let s = rx
+                    .recv_timeout(std::time::Duration::from_secs(1));
+            }
+            """)
+        self.assertEqual([(h["line"], h["status"]) for h in hits], [(4, "escaped"), (6, "hit")])
+
+    def test_periodic_escape_without_an_owner_is_unlisted(self) -> None:
+        hits = self.rust("""\
+            fn a() {
+                // wakeup-allow: periodic
+                std::thread::sleep(std::time::Duration::from_secs(60));
+            }
+            """)
+        self.assertEqual([(h["status"], h["escape"]) for h in hits], [("periodic-unlisted", "periodic (no owner)")])
+
+    def test_one_unlisted_periodic_escape_alone_fails_strict(self) -> None:
+        source = """\
+            fn a() {
+                loop {
+                    // wakeup-allow: periodic OWNER every 60 s
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                }
+            }
+            """
+        self.rust(source.replace("OWNER", "Unlisted.renewal"))
+        strict = self.audit.run("--lang", "rust", "--strict")
+        self.assertEqual(strict.returncode, 1, strict.stdout)
+        self.assertEqual(strict.stdout.count("wakeup-audit: cmux-tui"), 1)
+        self.assertIn("periodic-unlisted periodic Unlisted.renewal", strict.stdout)
+        self.rust(source.replace("OWNER", "Lease.renewal"))
+        listed = self.audit.run("--lang", "rust", "--strict")
+        self.assertEqual(listed.returncode, 0, listed.stdout + listed.stderr)
+
+    def test_strict_queue_keeps_the_four_columns(self) -> None:
+        self.rust("""\
+            fn a(rx: std::sync::mpsc::Receiver<u8>) {
+                let _ = rx.recv_timeout(std::time::Duration::from_secs(1));
+                std::thread::sleep(std::time::Duration::from_secs(1)); // wakeup-allow: because short
+            }
+            """)
+        result = self.audit.run("--lang", "rust", "--strict", "--queue")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.stdout.splitlines(), [
+            "rust:demo/lib\tcmux-tui/crates/demo/src/lib.rs:2\trecv-timeout\toneshot",
+            "rust:demo/lib\tcmux-tui/crates/demo/src/lib.rs:3\tthread-sleep\toneshot",
+        ])
+
+    # Q13 ------------------------------------------------------------------------------------------------------
+
+    def test_demand_sync_finds_the_paren_when_after_is_on_the_next_line(self) -> None:
+        write(self.root, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Toast.swift", """\
+            @MainActor final class Toast {
+                private let timer = DemandTimer(owner: "toast")
+                func show() {
+                    timer.schedule(
+                        after: .seconds(2)
+                    ) { @MainActor [weak self] in self?.hide() }
+                }
+                func hide() {}
+            }
+            """)
+        lines = self.audit.run("--queue", "demand-sync").stdout.splitlines()
+        self.assertEqual(lines, ["swift:CmuxNextApp\tPackages/macOS/CmuxNext/Sources/CmuxNextApp/Toast.swift:4\t"
+                                 "demand-sync\toneshot"])
 
 
 if __name__ == "__main__":

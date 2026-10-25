@@ -15,14 +15,19 @@ animation in the code that runs while the app is idle:
 The Swift rules are check-concurrency.sh's WAKEUP_RULES (read from that file, one definition), plus
 TimelineView(.periodic / .animation), NSWindow.didUpdateNotification and `.activeAlways`.
 
-A hit is escaped by `wakeup-allow: <word> <reason>` on its line or in the comment block directly above.
-The word is one of deadline|backoff|bounded|cli-only|fixture|debug|periodic. `periodic <owner>` must name
-an owner in idle-budget.json `allowed_periodic` ([{owner, period_s, why}]). `--strict` exits 1 on any
-unescaped hit, any other escape word, and any periodic escape whose owner is not listed.
+A hit is escaped by a comment `wakeup-allow: <word> <reason>` on its statement's lines or in the comment
+block directly above the statement (text inside a string literal is not an escape). The word is one of
+deadline|backoff|bounded|cli-only|fixture|debug|periodic. `periodic <owner>` must name an owner in
+idle-budget.json `allowed_periodic` ([{owner, period_s, why}]); the other words need a reason after them.
+`--strict` exits 1 on any unescaped hit, any other escape word, an escape with no reason, and any periodic
+escape whose owner is missing or not listed.
 
-Each hit has a shape. `loop`: it sits in a loop (or is a repeating source) whose path has no untimed
-blocking wait, so it wakes the process on a period: make it an event, a deadline or MaintenanceClock.
-`oneshot`: a single deadline (an escape is allowed when its code shape matches).
+Each hit has a shape. `loop`: it sits in a loop (or is a repeating source: an interval, `repeats: true`,
+`Timer.publish`, `repeating:` other than `.never`) and the path that loops again has no untimed blocking
+wait, so it wakes the process on a period: make it an event, a deadline or MaintenanceClock. A wait in a
+branch that leaves the loop (`return`, `break`, `throw`) is not on that path, nor is a read of a stream the
+same function makes non-blocking or gives a read timeout. `oneshot`: a single deadline (an escape is allowed
+when its code shape matches).
 
 Modes:
   (none)               counts per language and rule
@@ -47,8 +52,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 LANGS = ("swift", "swift-shared", "rust", "web")
 ESCAPE_WORDS = ("deadline", "backoff", "bounded", "cli-only", "fixture", "debug", "periodic")
-ESCAPE = re.compile(r"wakeup-allow:\s*([^\s,;:.()]*)\s*([^\s,;:()]*)")
-COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+ESCAPE = re.compile(r"wakeup-allow:\s*([^\s,;:.()]*)(.*)")
 # idle-budget.json: at most this many periodic owners, none faster than this (p14-energy.md D1).
 PERIODIC_MAX = 6
 PERIODIC_MIN_S = 15
@@ -82,7 +86,7 @@ class Hit:
     line: int
     rule: str
     shape: str
-    status: str  # hit | escaped | bad-escape | periodic-unlisted
+    status: str  # hit | escaped | bad-escape | no-reason | periodic-unlisted
     escape: str = ""
     text: str = field(default="", repr=False)
 
@@ -140,11 +144,21 @@ WEB_RULES = [
 ]
 
 # Untimed blocking waits: a loop that holds one of these wakes on an event, not on a period.
+# A stream read takes its buffer (`.read(&mut buf)`, `.read(buf)`): not `RwLock::read()` or an RPC `.read(op, args)`.
+# A watch's `.changed()` is awaited, selected (`=>`) or passed on, not a `done.changed() ||` query.
 RUST_EVENT = re.compile(
-    r"\.recv\(\)|\.accept\(\)|\.read(?:_exact|_line|_to_end|_to_string)?\(|\.next\(\)\s*\.await|\.changed\(\)"
+    r"\.recv\(\)|\.accept\(\)|\.read(?:_exact|_line|_to_end|_to_string)?\((?=\s*(?:&\s*mut\b|\w+\s*\)))"
+    r"|\.next\(\)\s*\.await|\.changed\(\)(?=\s*(?:\.await|=>|,|\)))"
     r"|\.notified\(\)|\.wait\(\s*\w*\s*\)|\.join\(\)|\.incoming\(\)|\.recv_many\(")
 SWIFT_EVENT = re.compile(r"\bfor\s+(try\s+)?await\b|\bawait\b[^\n]*\.(next|value|receive|read|accept)\(|"
                          r"\bwith(Checked|Unsafe)(Throwing)?Continuation\b")
+# A statement that leaves the loop: a wait in its branch is not on the path that loops again.
+RUST_EXIT = re.compile(r"\b(?:return|break)\b|\bprocess::exit\(|\b(?:panic|unreachable|bail)!")
+SWIFT_EXIT = re.compile(r"\b(?:return|break|throw)\b|\bfatalError\(")
+# A `.read(` of a stream that has a read timeout or is non-blocking returns on a period: it is not an event.
+RUST_READ = re.compile(r"\.read(?:_exact|_line|_to_end|_to_string)?\($")
+RUST_TIMED_READ = re.compile(r"set_read_timeout\(\s*Some\b|set_nonblocking\(\s*true\b|O_NONBLOCK|\bWouldBlock\b"
+                             r"|\bTimedOut\b")
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -272,6 +286,7 @@ class Block:
     open: int
     close: int
     kind: str  # loop | boundary | plain
+    function: bool = False  # a boundary that is a function body (`fn`, `func`, `init`)
 
 
 _RUST_LOOP = re.compile(r"\bloop\s*$|^(?:'\w+\s*:\s*)?(?:while\b|for\b.*\bin\b)", re.S)
@@ -279,6 +294,20 @@ _RUST_BOUNDARY = re.compile(r"\bfn\b|\|[^|]*\|\s*(?:->\s*[^{]+)?$|\|\|\s*$|\basy
 _SWIFT_LOOP = re.compile(r"^(?:\w+\s*:\s*)?(?:while\b|repeat\s*$|for\b.*\bin\b)", re.S)
 _SWIFT_CONTROL = re.compile(r"^(?:if|else|guard|switch|case|default|do|catch|defer|while|for|repeat)\b|\belse\s*$|"
                             r"\belse\s+if\b", re.S)
+_SWIFT_FUNCTION = re.compile(r"\b(?:func|init|deinit)\b")
+_RUST_FUNCTION = re.compile(r"\bfn\b")
+# A Swift line that continues the expression of the line above (or a line above that it continues).
+_SWIFT_CONTINUES = re.compile(r"^(?:\.|&&|\|\||\?\?|[,)\]=+*/<>-]|->|where\b|throws\b|rethrows\b|async\b)")
+_SWIFT_CONTINUED = re.compile(r"(?:[(\[,.=+*/<>-]|&&|\|\||\?\?|->)$")
+
+
+def swift_statement(header: str) -> str:
+    """The last statement of a Swift block header: statements end at a line break, not only at `;`."""
+    lines = [line.strip() for line in header.split("\n") if line.strip()]
+    first = len(lines) - 1
+    while first > 0 and (_SWIFT_CONTINUES.match(lines[first]) or _SWIFT_CONTINUED.search(lines[first - 1])):
+        first -= 1
+    return "\n".join(lines[max(first, 0):])
 
 
 def blocks(code: str, lang: str) -> list[Block]:
@@ -291,9 +320,12 @@ def blocks(code: str, lang: str) -> list[Block]:
             header = code[boundary:at].strip()
             if lang == "rust":
                 kind = "loop" if _RUST_LOOP.search(header) else "boundary" if _RUST_BOUNDARY.search(header) else "plain"
+                function = kind == "boundary" and bool(_RUST_FUNCTION.search(header))
             else:
+                header = swift_statement(header)
                 kind = "loop" if _SWIFT_LOOP.search(header) else "plain" if _SWIFT_CONTROL.search(header) else "boundary"
-            stack.append(Block(boundary, at, len(code), kind))
+                function = kind == "boundary" and bool(_SWIFT_FUNCTION.search(header))
+            stack.append(Block(boundary, at, len(code), kind, function))
             out.append(stack[-1])
         elif c == "}" and stack:
             stack.pop().close = at
@@ -301,14 +333,53 @@ def blocks(code: str, lang: str) -> list[Block]:
     return out
 
 
-def shape(at: int, code: str, all_blocks: list[Block], event: re.Pattern[str]) -> str:
-    """`loop` when the innermost loop around `at`, inside the same function or closure, has no untimed wait."""
-    enclosing = sorted((b for b in all_blocks if b.header_start <= at <= b.close), key=lambda b: -b.open)
+def _leaves(code: str, block: Block, inside: list[Block], exits: re.Pattern[str], lang: str) -> bool:
+    """The last statement of `block` (its nested blocks blanked) leaves the loop: return, break, throw, exit."""
+    body = list(code[block.open + 1:block.close])
+    for b in inside:
+        if block.open < b.open and b.close <= block.close:
+            body[b.open - block.open - 1:b.close - block.open] = " " * (b.close - b.open + 1)
+    statements = re.split(r";" if lang == "rust" else r"[;\n]", "".join(body))
+    last = next((part for part in reversed(statements) if part.strip()), "")
+    return bool(exits.search(last))
+
+
+def _on_looping_path(e: int, at: int, code: str, loop: Block, inside: list[Block], lang: str) -> bool:
+    """The event at `e` runs on the path that goes round `loop` again: not in a branch (one without `at`)
+    that ends by leaving the loop, and not in an unbraced `=> return ...` arm."""
+    exits = RUST_EXIT if lang == "rust" else SWIFT_EXIT
+    for b in inside:
+        if b.open < e < b.close and not b.open < at < b.close and _leaves(code, b, inside, exits, lang):
+            return False
+    statement = max([code.rfind(c, loop.header_start, e) for c in ";{},"] + [loop.header_start - 1])
+    return not exits.search(code, statement + 1, e)
+
+
+def _timed_read(e: int, code: str, all_blocks: list[Block]) -> bool:
+    """The function around `e` gives its stream a read timeout or non-blocking mode, or handles WouldBlock."""
+    functions = [b for b in all_blocks if b.function and b.open < e < b.close]
+    scope = max(functions, key=lambda b: b.open) if functions else Block(0, 0, len(code), "boundary", True)
+    return bool(RUST_TIMED_READ.search(code, scope.open, scope.close))
+
+
+def shape(at: int, code: str, all_blocks: list[Block], lang: str) -> str:
+    """`loop` when the innermost loop around `at`, inside the same function or closure, has no untimed wait on
+    the path that loops again."""
+    # The `while` of Swift's `repeat { } while c` belongs to the loop that closes just before it.
+    repeat = [b for b in all_blocks if b.kind == "loop" and b.close < at and not code[b.close + 1:at].strip()]
+    enclosing = repeat + sorted((b for b in all_blocks if b.header_start <= at <= b.close), key=lambda b: -b.open)
+    event = RUST_EVENT if lang == "rust" else SWIFT_EVENT
     for b in enclosing:
         if b.kind == "boundary" and at > b.open:
             return "oneshot"
         if b.kind == "loop":
-            return "oneshot" if event.search(code, b.header_start, b.close) else "loop"
+            inside = [c for c in all_blocks if b.open < c.open < b.close]
+            for m in event.finditer(code, b.header_start, b.close):
+                if lang == "rust" and RUST_READ.search(m.group()) and _timed_read(m.start(), code, all_blocks):
+                    continue
+                if _on_looping_path(m.start(), at, code, b, inside, lang):
+                    return "oneshot"
+            return "loop"
     return "oneshot"
 
 
@@ -324,6 +395,33 @@ _MOD_ITEM = re.compile(r"\bmod\s+(\w+)\s*([;{])")
 _PATH_ATTR = re.compile(r"#\[\s*path\s*=\s*\"([^\"]+)\"\s*\]")
 _ITEM_START = re.compile(r"[;{}][^;{}]*$")
 _BRACE = re.compile(r"[{}]")
+_PAREN = re.compile(r"[()]")
+# An item (its range ends at its body or `;`), as opposed to a field, a variant, an argument, a match arm or a
+# statement (whose range also ends at a `,` or at the `}` / `)` of the list it is in).
+_ITEM_KEYWORD = re.compile(r"\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:(?:unsafe|async|const|default|extern(?:\s+\"[^\"]*\")?)\s+)*"
+                           r"(?:fn|impl|mod|struct|enum|union|trait|const|static|type|use|let|macro_rules!|extern\s+crate)\b")
+_ITEM_PUNCT = re.compile(r"[()\[\]{};,]")
+
+
+def attributed_end(code: str, j: int) -> int:
+    """The end of the item, field, variant, argument, arm or statement that starts at `j`, after its
+    attributes. A `{` at depth 0 is its body; `;` ends it; outside an item a depth-0 `,` ends it too, and a
+    depth-0 `}`, `)` or `]` closes the list it is in, so it ends just before."""
+    item = bool(_ITEM_KEYWORD.match(code, j))
+    depth = 0
+    for m in _ITEM_PUNCT.finditer(code, j):
+        c = m.group()
+        if c in "([{":
+            if c == "{" and depth == 0:
+                return matching_brace(code, m.start()) + 1
+            depth += 1
+        elif c in ")]}":
+            if depth == 0:
+                return m.start()
+            depth -= 1
+        elif depth == 0 and (c == ";" or not item):
+            return m.end()
+    return len(code)
 
 
 @dataclass(frozen=True)
@@ -348,11 +446,7 @@ def rust_modules(code: str, raw: str, path: Path) -> RustModules:
             j = m.end()
             while a := _ATTR.match(code, j):
                 j = a.end()
-            brace, semi = code.find("{", j), code.find(";", j)
-            if semi >= 0 and (brace < 0 or semi < brace):
-                ranges.append((m.start(), semi + 1))
-            elif brace >= 0:
-                ranges.append((m.start(), matching_brace(code, brace) + 1))
+            ranges.append((m.start(), attributed_end(code, j)))
     inline = [(m.group(1), m.end() - 1, matching_brace(code, m.end() - 1))
               for m in _MOD_ITEM.finditer(code) if m.group(2) == "{"]
     children = []
@@ -367,11 +461,11 @@ def rust_modules(code: str, raw: str, path: Path) -> RustModules:
     return RustModules(ranges, children)
 
 
-def matching_brace(code: str, open_: int) -> int:
-    """Index of the `}` that closes the `{` at `open_` (the end of the text when unbalanced)."""
+def matching_brace(code: str, open_: int, pair: re.Pattern[str] = _BRACE) -> int:
+    """Index of the `}` (or `)` with `pair` _PAREN) that closes the one at `open_` (the end when unbalanced)."""
     depth = 0
-    for m in _BRACE.finditer(code, open_):
-        depth += 1 if m.group() == "{" else -1
+    for m in pair.finditer(code, open_):
+        depth += 1 if m.group() in "({" else -1
         if depth == 0:
             return m.start()
     return len(code)
@@ -461,26 +555,66 @@ def sources(repo: Path, lang: str) -> list[tuple[str, Path]]:
 # Audit
 
 
-def escape_of(lines: list[str], index: int) -> re.Match[str] | None:
-    """The wakeup-allow escape on the line, or in the comment block directly above it."""
-    if m := ESCAPE.search(lines[index]):
-        return m
-    j = index - 1
-    while j >= 0 and COMMENT_ONLY.match(lines[j]):
-        if m := ESCAPE.search(lines[j]):
-            return m
+# A line that continues the statement of the line above it, by its start or by the end of the line above.
+_CONTINUES = re.compile(r"^\s*(?:\.|\?|&&|\|\||[,)\]=+*/<>-])")
+_CONTINUED = re.compile(r"(?:[(\[,.=+*/<>-]|&&|\|\|)\s*$")
+
+
+@dataclass(frozen=True)
+class Lines:
+    """One file's raw lines, its lines with comments and strings blanked, and with only comments blanked."""
+    raw: list[str]
+    code: list[str]
+    comments: list[str]
+
+    def is_comment(self, j: int) -> bool:
+        return not self.code[j].strip() and bool(self.raw[j].strip())
+
+    def escapes(self, j: int) -> list[re.Match[str]]:
+        """wakeup-allow escapes written in a comment on line j (not inside a string literal)."""
+        return [m for m in ESCAPE.finditer(self.raw[j]) if self.comments[j][m.start()] == " "]
+
+
+def escape_of(lines: Lines, index: int) -> tuple[re.Match[str], str] | None:
+    """The escape on the lines of the hit's statement or in the comment block directly above the statement,
+    and the comment line after it (where a reason may go on)."""
+    first = index
+    while first > 0:
+        above = first - 1
+        while above > 0 and lines.is_comment(above):
+            above -= 1
+        if not (_CONTINUES.match(lines.code[first]) or _CONTINUED.search(lines.code[above])) or \
+                not lines.code[above].strip():
+            break
+        first = above
+    candidates = list(range(first, index + 1))
+    j = first - 1
+    while j >= 0 and lines.is_comment(j):
+        candidates.append(j)
         j -= 1
+    for j in candidates:
+        if found := lines.escapes(j):
+            following = lines.raw[j + 1] if j + 1 < len(lines.raw) and lines.is_comment(j + 1) else ""
+            return found[0], following
     return None
 
 
-def judge(escape: re.Match[str] | None, periodic_owners: set[str]) -> tuple[str, str]:
+def judge(escape: tuple[re.Match[str], str] | None, periodic_owners: set[str]) -> tuple[str, str]:
     if escape is None:
         return "hit", ""
-    word, owner = escape.group(1), escape.group(2).rstrip(".")
+    m, following = escape
+    word, rest = m.group(1), m.group(2).strip().rstrip("*/").strip()
+    # The reason may go on to the next comment line.
+    more = re.sub(r"^\s*(?://+|/?\*+)\s*", "", following).strip()
     if word not in ESCAPE_WORDS:
         return "bad-escape", word
-    if word == "periodic" and owner not in periodic_owners:
-        return "periodic-unlisted", f"periodic {owner}".strip()
+    if word == "periodic":
+        owner = rest.split()[0].rstrip(".,;:") if rest else ""
+        if owner not in periodic_owners:
+            return "periodic-unlisted", f"periodic {owner or '(no owner)'}"
+        return "escaped", word
+    if not (rest or more):
+        return "no-reason", word
     return "escaped", word
 
 
@@ -491,12 +625,11 @@ def audit_file(repo: Path, lang: str, group: str, path: Path, rules: list[Rule],
         return []
     mlang = "css" if path.suffix == ".css" else "web" if lang == "web" else "rust" if lang == "rust" else "swift"
     code = mask(raw, mlang) if code is None else code
-    lines = raw.split("\n")
     starts = [0] + [m.end() for m in re.finditer("\n", code)]
     tree = blocks(code, mlang) if mlang in ("rust", "swift") else []
-    event = RUST_EVENT if mlang == "rust" else SWIFT_EVENT
     rel = path.relative_to(repo).as_posix()
-    with_strings = mask(raw, mlang, strings=False) if any(r.in_strings and r.literal in raw for r in rules) else code
+    with_strings = mask(raw, mlang, strings=False)
+    lines = Lines(raw.split("\n"), code.split("\n"), with_strings.split("\n"))
     found: dict[tuple[int, str], int] = {}
     for rule in rules:
         text = with_strings if rule.in_strings else code
@@ -510,9 +643,23 @@ def audit_file(repo: Path, lang: str, group: str, path: Path, rules: list[Rule],
     for (index, rule_id), at in sorted(found.items()):
         rule = next(r for r in rules if r.id == rule_id)
         status, word = judge(escape_of(lines, index), periodic_owners)
-        kind = "loop" if rule.repeating else shape(at, code, tree, event)
-        hits.append(Hit(lang, group, rel, index + 1, rule.id, kind, status, word, lines[index].strip()))
+        kind = "loop" if rule.repeating or repeating_timer(rule, code, at) else \
+            shape(at, code, tree, mlang) if tree else "oneshot"
+        hits.append(Hit(lang, group, rel, index + 1, rule.id, kind, status, word, lines.raw[index].strip()))
     return hits
+
+
+_REPEATING_TIMER = re.compile(r"\bTimer\.publish\b|\brepeating:\s*\.(?!never\b)")
+
+
+def repeating_timer(rule: Rule, code: str, at: int) -> bool:
+    """A Swift timer that repeats: `Timer.publish(every:)`, `repeating:` other than `.never`, `repeats: true`."""
+    if rule.id != "timer":
+        return False
+    if _REPEATING_TIMER.match(code, at):
+        return True
+    paren = code.find("(", at, at + 40)
+    return paren >= 0 and bool(re.search(r"\brepeats:\s*true\b", code[paren:matching_brace(code, paren, _PAREN)]))
 
 
 def periodic_owners(budget: Path) -> tuple[set[str], list[str]]:
@@ -558,7 +705,7 @@ def audit(repo: Path, langs: list[str], budget: Path) -> tuple[list[Hit], list[s
 # ---------------------------------------------------------------------------------------------------------------
 # Q13: DemandTimer closures on the main actor that never await (a sync overload runs them in the callout).
 
-_SCHEDULE = re.compile(r"\.schedule(?:IfIdle)?\(\s*after:")
+_SCHEDULE = re.compile(r"\.schedule(?:IfIdle)?(\()\s*after:")
 
 
 def demand_sync(repo: Path) -> list[Hit]:
@@ -571,7 +718,7 @@ def demand_sync(repo: Path) -> list[Hit]:
         code = mask(raw, "swift")
         starts = [0] + [m.end() for m in re.finditer("\n", code)]
         for m in _SCHEDULE.finditer(code):
-            body = _closure_after_call(code, m.end() - len("after:") - 1)
+            body = _closure_after_call(code, m.start(1))
             if not body:
                 continue
             open_, close = body
@@ -647,14 +794,14 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if args.strict and hits else 0
 
     hits, problems = audit(repo, langs, args.budget or repo / "scripts/cmux-next/idle-budget.json")
-    failing = {"hit", "bad-escape", "periodic-unlisted"} if args.strict else {"hit"}
+    failing = {"hit", "bad-escape", "no-reason", "periodic-unlisted"} if args.strict else {"hit"}
     open_hits = [h for h in hits if h.status in failing]
     if args.json:
         print(json.dumps({"counts": _counts(hits), "budget_problems": problems, "hits": [asdict(h) for h in hits]},
                          indent=1))
     elif args.queue:
         for hit in open_hits:
-            print(queue_line(hit) + (f"\t{hit.status} {hit.escape}" if hit.status != "hit" else ""))
+            print(queue_line(hit))
     else:
         for lang, counts in _counts(hits).items():
             states = ", ".join(f"{k} {v}" for k, v in counts["status"].items())
