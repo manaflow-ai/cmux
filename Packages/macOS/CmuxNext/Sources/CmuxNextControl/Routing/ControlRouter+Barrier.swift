@@ -32,7 +32,13 @@ extension ControlRouter {
             throw ControlError.invalidParams(ControlStrings.text("control.error.afterShape",
                                                                  "after must be a sequence number from an earlier reply or \"sync\""))
         }
-        guard let snapshot = await snapshots.snapshot(reflecting: sequence, deadline: deadline) else {
+        // The App's store knows a read waits for `sequence` while it does (a script's stage holds none of
+        // it); a read the published snapshot already covers waits for nothing.
+        let covered = snapshots.current.reflects(ControlSequenceBarrier(home: sequence))
+        let endWait = covered ? nil : await barrierWait?(sequence)
+        let reflecting = await snapshots.snapshot(reflecting: sequence, deadline: deadline)
+        await endWait?()
+        guard let snapshot = reflecting else {
             var error = ControlError.timeout(method, after: .zero)
             error.data = ["method": .string(method), "after": JSONValue.number(Double(sequence)),
                           "sequence": JSONValue.number(Double(snapshots.current.topology.daemonSequence))]
