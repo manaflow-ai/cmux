@@ -1,7 +1,5 @@
 import AppKit
-
-/// How long a launch image may stay when its page never reports a first frame.
-let paneLaunchImageLimit: Duration = .seconds(3)
+import CmuxNextLaunch
 
 extension PaneContentView {
     /// Draws `image` (an agent page's last frame, `AgentPaneLaunchImages`)
@@ -20,7 +18,7 @@ extension PaneContentView {
         launchImageView = view
         LaunchImageHold.shared.began()
         DebugTimings.markLaunch("agent_pane.launch_image_shown")
-        launchImageDeadline.schedule(after: paneLaunchImageLimit) { @MainActor [weak self] in self?.clearLaunchImage() }
+        launchImageDeadline.schedule(after: LaunchImageHold.imageLimit) { @MainActor [weak self] in self?.clearLaunchImage() }
     }
 
     /// Removes the launch image (the page painted, or the pane shows another tab).
