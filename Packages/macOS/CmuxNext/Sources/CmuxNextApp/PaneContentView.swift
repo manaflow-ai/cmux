@@ -199,7 +199,10 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     // MARK: PaneContentChrome
 
-    var paneFramesContent: Bool { !(hostsContent && content is AgentPaneView) }
+    var paneFramesContent: Bool {
+        let kept = paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
+        return !((kept ?? (hostsContent ? content : nil)) is AgentPaneView)
+    }
 
     /// The hosted content's own header, if it reports one (a browser's
     /// toolbar does not: it is inside the content area).
@@ -263,6 +266,12 @@ final class PaneContentView: NSView, PaneContentChrome {
         guard chrome != reportedChrome else { return }
         reportedChrome = chrome
         onPaneHeaderHeightChange?()
+    }
+
+    /// A first-paint hold ended: framing follows the view that became visible in this transaction.
+    func refreshContentFrame() {
+        applyCornerRadius()
+        reportHeaderIfChanged()
     }
 
     /// Swaps the hosted content view. Returns the previous one. Focus is
