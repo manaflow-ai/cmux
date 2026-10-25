@@ -200,6 +200,29 @@ test("Save hands the document to the host's save panel under its title, and says
   expect(button("Save")).toBeUndefined();
 });
 
+test("Open in browser pane hands the current artifact to the native bridge", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const opened: [string, string, string][] = [];
+  const code = "<html><title>Pricing</title><body>Hi</body></html>";
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <ArtifactPanel
+        artifact={{ kind: "html", lang: "html", code }}
+        onClose={() => {}}
+        onOpenInBrowser={async (text, suggestedName, kind) => {
+          opened.push([text, suggestedName, kind]);
+          return true;
+        }}
+      />,
+    ),
+  );
+  await act(async () => button("Open in browser pane")!.click());
+  expect(opened).toEqual([[code, "Pricing", "html"]]);
+});
+
 // A document's versions (cx-ncc.64, Claude parity): a reply that rewrites a document the chat already
 // has (same kind, same title) is its next version; the panel steps between them.
 test("a document's versions are the chat's documents of its kind and title, oldest first", async () => {
