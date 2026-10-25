@@ -46,19 +46,20 @@ const WEB_PATH: &str = "/deeplink/agent";
 const END: &str = r#"\s)>\]"'`"#;
 
 /// The web link: `cmux.com` (or `www.`), an optional locale (`/zh-CN`), then exactly
-/// `/deeplink/agent`, its query, and the end of the URL. Group 1 is the query.
-static WEB: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+/// `/deeplink/agent`, its query, and the end of the URL. Group 1 is the query. None only if the
+/// pattern did not compile, which `the_schema_vectors_read_the_same_here` would show.
+static WEB: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(|| {
     regex::Regex::new(&format!(
         r"(?:^|[{END}(<\[])https://(?:www\.)?cmux\.com(?:/[a-z]{{2}}(?:-[A-Z]{{2}})?)?{WEB_PATH}/?(?:\?([^{END}]*))?(?:$|[{END}])"
     ))
-    .expect("the web link pattern")
+    .ok()
 });
 
 /// The native link, at the start of the text or after what may stand before a URL. Group 1 is
 /// everything after `cmux://agent/`.
-static NATIVE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+static NATIVE: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(|| {
     regex::Regex::new(&format!(r"(?:^|[{END}(<\[])cmux://agent(?:/([^{END}]*))?(?:$|[{END}])"))
-        .expect("the native link pattern")
+        .ok()
 });
 
 /// The link in `text`, which may be the bare URL or a line that carries one (a PR footer's
@@ -66,7 +67,7 @@ static NATIVE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
 /// host or path, a session name); an error naming what is wrong when it holds one that names no
 /// session.
 pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
-    if let Some(found) = NATIVE.captures(text) {
+    if let Some(found) = NATIVE.as_ref().and_then(|re| re.captures(text)) {
         let rest = found.get(1).map_or("", |m| m.as_str());
         let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
         let mut segments = path.split('/');
@@ -78,7 +79,7 @@ pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
             [("harness", Some(harness)), ("session", session)].map(|(k, v)| (k, v.map(decode)));
         return Some(build(required, query));
     }
-    let query = WEB.captures(text)?.get(1).map_or("", |m| m.as_str());
+    let query = WEB.as_ref()?.captures(text)?.get(1).map_or("", |m| m.as_str());
     let named = |key: &str| pairs(query).into_iter().filter(|(k, _)| k == key).collect::<Vec<_>>();
     let mut required = Vec::new();
     for key in ["harness", "session"] {
@@ -204,6 +205,7 @@ mod tests {
     /// and a link the page and the app refuse is refused here.
     #[test]
     fn the_schema_vectors_read_the_same_here() {
+        assert!(WEB.is_some() && NATIVE.is_some(), "a link pattern does not compile");
         let schema: Value = serde_json::from_str(SCHEMA).unwrap();
         for v in schema["vectors"].as_array().unwrap() {
             let name = v["name"].as_str().unwrap();
