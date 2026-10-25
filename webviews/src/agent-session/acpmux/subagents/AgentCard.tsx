@@ -38,7 +38,7 @@ export function AgentCard({ name, harness, model, state, doing, queued, onOpen, 
         {model && <span className="cv-agent-card__model">{model}</span>}
         {state && (
           <span className="cv-agent-card__state" data-state={state}>
-            {state === "working" && <Spinner size={12} />}
+            {state === "working" && <Spinner size={12} loading />}
             {t(SUBSESSION_STATE_LABEL[state])}
             {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
           </span>

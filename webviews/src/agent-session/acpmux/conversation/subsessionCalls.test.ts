@@ -243,3 +243,13 @@ test("a row with no lane yet reads its state from its status dot", () => {
 test("a list whose rows cannot be read keeps the generic row", () => {
   expect(subsessionCall(codex("list_sessions", {}, { sessions: [{ name: "no id" }] }))).toBeUndefined();
 });
+
+test("a row that says no state, or one unreadable row among good ones, keeps the generic row", () => {
+  expect(subsessionCall(codex("list_sessions", {}, { sessions: [{ sessionId: "s-1" }] }))).toBeUndefined();
+  const mixed = { sessions: [{ sessionId: "s-1", state: "working" }, { name: "no id" }] };
+  expect(subsessionCall(codex("list_sessions", {}, mixed))).toBeUndefined();
+  const byStatus = { sessions: [{ sessionId: "s-2", state: null, status: "running" }] };
+  expect(subsessionCall(codex("list_sessions", {}, byStatus))).toMatchObject({
+    sessions: [{ sessionId: "s-2", state: "working" }],
+  });
+});

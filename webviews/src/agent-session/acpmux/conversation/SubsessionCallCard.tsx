@@ -36,7 +36,7 @@ function RunningLine({ children }: { children: ReactNode }) {
   return (
     <div className="cv-tool cv-subsession is-live">
       <span className="cv-tool__icon">
-        <Spinner size={16} />
+        <Spinner size={16} loading />
       </span>
       <span className="cv-tool__text">{children}</span>
     </div>
@@ -216,7 +216,7 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
         aria-controls={open ? id : undefined}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className="cv-tool__icon">{call.running ? <Spinner size={16} /> : <Envelope />}</span>
+        <span className="cv-tool__icon">{call.running ? <Spinner size={16} loading /> : <Envelope />}</span>
         <span className="cv-tool__text">
           {call.running ? t("subsession.sending", { name, text: first }) : t("subsession.to", { name, text: first })}
           {call.delivery && <span className="cv-tool__detail">{` · ${deliveryText(t, call.delivery)}`}</span>}

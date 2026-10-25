@@ -779,7 +779,9 @@ function activityStepHeight(item: AcpmuxActivity): number {
           0,
         ) + TOOL_ROW_HEIGHT,
       );
-    if (subsession.tool === "start" && subsession.prompt) return 120;
+    // A start's card, its doing line while it starts, and its prompt (cut like a reply).
+    if (subsession.tool === "start" && subsession.prompt)
+      return cardHeight("working") + replyHeight(subsession.prompt) + TOOL_ROW_HEIGHT;
     return 40;
   }
   switch (tool.kind) {
