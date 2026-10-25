@@ -534,7 +534,7 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 010 | oracle-DESIGN.md, OWNERS row, plan links | M | 0-6 | - | |
 | 011 | Snapshot schema v1 | M | 0-4 | - | |
 | 012 | Case schema v1 (requires, waitFor, allow_crashes) | M | 0-4 | - | |
-| 013 | normalize.py + stdlib validator | L | 2-8 | 011 | |
+| 013 | normalize.py + stdlib validator | L | 2-8 | 011, 012 | |
 | 014 | diff.py first divergence + host check | M | 4-10 | 013 | |
 | 015 | Expectations.d with Chrome keywords + linter | M | 4-10 | - | |
 | 016 | Baseline store, two-pass fallback, classes | M | 4-10 | 013 | |
@@ -711,12 +711,19 @@ Acceptance: each number has its rg/jq command next to it. Test: `python3 scripts
 Change: all facets of section 3A with `x-oracle-order`, `x-oracle-volatile` (+reason), `x-oracle-id-kind`, precision, source method.
 Acceptance: every field names its source method. Test: `python3 -I scripts/cmux-next/oracle/normalize.py --validate` on the example.
 
-**012 Case schema v1.** Files: `schemas/oracle/case-v1.schema.json`, two example fixtures. Change: manifest fields + `requires`,
+**012 Case schema v1.** Files: `schemas/oracle/case-v1.schema.json`, two example fixtures, `schemas/oracle/fixtures/case-v1-mutations.json`,
+`scripts/cmux-next/oracle/case_checks.py`. Change: manifest fields + `requires`,
 `switches`, `platforms`, `allow_crashes`, step ops of 3D, `waitFor`, `checkpoint`. Rejects unknown fields, duplicate step ids,
-a mutating step without target, any non-loopback URL. Acceptance: duplicate-id error names the step. Test: `oracle.py check` on fixtures.
+a mutating step without target or receipt, any non-loopback URL. The checks JSON Schema cannot state (`x-oracle-unique`,
+`x-oracle-step-ref`, `x-oracle-crash-scope`) run in the stdlib `case_checks.py`. Acceptance: duplicate-id error names the step
+(`duplicate step id "split-right": /steps/1/id repeats /steps/0/id`). Test: `python3 -I scripts/cmux-next/oracle/case_checks.py --selftest`
+(the mutation table on both layers); `oracle.py check` on fixtures once 017 lands.
 
-**013 normalize.py.** Change: section 3C, `--explain`, stdlib validator. Acceptance: stable under key-order and id permutation; no
-rule drops a field without `x-oracle-volatile`. Test: selftest 30 property cases.
+**013 normalize.py.** Change: section 3C, `--explain`, stdlib validator. The validator covers case-v1 too: its JSON Schema subset
+reports each refusal with the def's `x-oracle-error` text when there is one, then calls `case_checks.check_case` (012) for
+`x-oracle-unique`, `x-oracle-step-ref` and `x-oracle-crash-scope`. Acceptance: stable under key-order and id permutation; no
+rule drops a field without `x-oracle-volatile`; every entry of `schemas/oracle/fixtures/case-v1-mutations.json` gives its layer's
+result with jsonschema absent. Test: selftest 30 property cases, plus that table (the duplicate-id entry's error names the id).
 
 **014 diff.py.** Change: first (step, checkpoint, pointer, a, b) per case + divergent count; divergence.json; applies
 expected_differences; refuses host/OS mismatch (`host-mismatch`). Acceptance: first divergence only; explained differences labeled.
@@ -731,7 +738,7 @@ Test: selftest 20 parser cases, including a split-directory set equal to a combi
 `rebaseline --run DIR [--only-changed] [--platform]`, `optimize`; differential suites never get reviewed baselines.
 Acceptance: never writes Timeout or uncertain checkpoints. Test: selftest case where the generic arm baseline beats a platform base baseline.
 
-**017 oracle.py CLI.** Subcommands gen, check (--coverage, --stale), run (--product, --suite, --switch, --arm, --shard i/n, --jobs,
+**017 oracle.py CLI.** Subcommands gen, check (--coverage, --stale; normalize.py's validator plus `case_checks.py` on every case), run (--product, --suite, --switch, --arm, --shard i/n, --jobs,
 --repeat, --retry-limit, --shuffle --seed, --batch-limit, --out), diff, confirm, select, bisect, rebaseline, report, minimize,
 switches, route, coverage, selftest. Retry policy of 3G. Acceptance: shards cover each case once; Flaky never passes the comparison.
 Test: VM dry run over 4 shards.

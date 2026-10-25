@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cmux.com/schemas/oracle/case-v1",
   "title": "cmux oracle case v1",
-  "description": "One behavior case of the oracle corpus (tests/oracle/corpus/<suite>/<case>.json; plans/cmux-next/chrome-parity/p15-oracle.md section 3D). It is the ui-workflow-corpus manifest (plans/cmux-next/ui-workflow-corpus.md, 'Workflow manifest') plus the capabilities it requires, the refactor switches it exercises, its platforms and the child exits it allows. The product (daemon, app, cli, headless, tui, mcp) is a run parameter, as in WPT (third_party/blink/tools/run_wpt_tests.py): the runner skips a case whose requires a product does not offer. Waits are typed (Kombucha WaitForState, ui/base/interaction/interactive_test.h), never sleeps. The x-oracle-* keywords are checks that JSON Schema cannot express; normalize.py (the one stdlib validator) runs them, and each carries its error text.",
-  "$comment": "x-oracle-unique: the array items' value at 'key' (a JSON pointer) is unique; the error template names the repeated value and both item pointers. x-oracle-step-ref: the step id in the string (the whole string, or the part between '$step:' and '#') names a step of this case; order 'earlier' also requires that step to come before the step that holds the string. Templates use {value}, {pointer}, {first} and {step}.",
+  "description": "One behavior case of the oracle corpus (tests/oracle/corpus/<suite>/<case>.json; plans/cmux-next/chrome-parity/p15-oracle.md section 3D). It is the ui-workflow-corpus manifest (plans/cmux-next/ui-workflow-corpus.md, 'Workflow manifest') plus the capabilities it requires, the refactor switches it exercises, its platforms and the child exits it allows. The product (daemon, app, cli, headless, tui, mcp) is a run parameter, as in WPT (third_party/blink/tools/run_wpt_tests.py): the runner skips a case whose requires a product does not offer. Waits are typed (Kombucha WaitForState, ui/base/interaction/interactive_test.h), never sleeps. The x-oracle-* keywords are checks that JSON Schema cannot express; scripts/cmux-next/oracle/case_checks.py (stdlib) runs them with the error text each carries, and normalize.py --validate (task 013) and oracle.py check (task 017) call it. fixtures/case-v1-mutations.json is the list of refusals both layers must produce.",
+  "$comment": "x-oracle-unique: the array items' value at 'key' (a JSON pointer) is unique. x-oracle-step-ref: the step id in the string (the whole string, or the part between '$step:' and '#') names a step of this case; order 'earlier' also requires that step to come before the step that holds the string. x-oracle-crash-scope: each step that ends a child process (a kill, or a Chromium debug URL in its args) is inside the steps of an allow_crashes entry of its kind, and no kind has more such steps than the sum of its entries' max. x-oracle-error: the message for the JSON Schema refusal of the def that carries it. Every pointer in a message is the JSON pointer of the value itself: {pointer} is the offending value (/steps/3/id, /steps/6/target/browser), {first} the earlier value it repeats (/steps/2/id); {value} is that value, {step} a step id, {kind} a crash kind, {count} and {max} step counts.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -127,7 +127,11 @@
     "allow_crashes": {
       "type": "array",
       "items": {"$ref": "#/$defs/allowCrash"},
-      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. A kill step's own exit must be listed too, as CrashTab needs ScopedAllowRendererCrashes."
+      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. The exit a step causes on purpose (a kill, or a Chromium debug URL such as chrome://crash) must be listed too, inside the entry's steps, as CrashTab needs ScopedAllowRendererCrashes.",
+      "x-oracle-crash-scope": {
+        "error": "{pointer}: step \"{step}\" ends a {kind} process, but no allow_crashes entry of kind {kind} lists it in its steps",
+        "countError": "{pointer}: {count} steps end a {kind} process, but the allow_crashes entries of kind {kind} allow at most {max}"
+      }
     },
     "steps": {
       "type": "array",
@@ -174,7 +178,7 @@
     "capability": {"enum": ["resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui"]},
     "crashKind": {
       "enum": ["renderer", "gpu", "browser", "utility", "daemon", "holder"],
-      "description": "The kinds of the crashes facet (snapshot-v1)."
+      "description": "The kinds of the crashes facet (snapshot-v1): the child processes whose exits I17 observes. The app is the observer, so a kill step cannot target it; restart the app instead."
     },
     "facetName": {
       "enum": [
@@ -227,10 +231,10 @@
     },
     "valueObject": {"type": "object", "additionalProperties": {"$ref": "#/$defs/value"}},
     "noRemoteUrl": {
-      "description": "Every string and key in the case, at any depth: a URL must have a loopback host (127.0.0.1, localhost, [::1]). file:/// and the Chromium debug URLs (third_party/blink/public/common/chrome_debug_urls.h) are local. The web fixture origin is written $WEB, without a scheme.",
+      "description": "Every string and key in the case, at any depth: a URL must have a loopback host (127.0.0.1, localhost, [::1]). The host is found the way the WHATWG URL parser finds it (url/url_canon_stdurl.cc, url/url_parse.cc): for http, https, ws, wss and ftp any run of / and \\ after the colon comes before the host, so http:host and http:\\\\host are refused like http://host; a file URL may only have an empty or loopback host (file:///path); a scheme-relative //host or \\\\host is refused. The Chromium debug URLs (third_party/blink/public/common/chrome_debug_urls.h) are local. The web fixture origin is written $WEB, without a scheme.",
       "not": {
         "type": "string",
-        "pattern": "(?:^|[^A-Za-z0-9+.-])(?![Cc][Hh][Rr][Oo][Mm][Ee]://(?:crash|kill|hang|shorthang|gpucrash|gpuhang|memory-exhaust)(?![A-Za-z0-9-])|[Ff][Ii][Ll][Ee]:///)[A-Za-z][A-Za-z0-9+.-]*://(?!(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?![A-Za-z0-9._~%!$&'()*+,;=:@-]))"
+        "pattern": "(?:^|[^A-Za-z0-9+.-])(?![Cc][Hh][Rr][Oo][Mm][Ee]://(?:crash|kill|hang|shorthang|gpucrash|gpuhang|memory-exhaust)(?![A-Za-z0-9-])|[Ff][Ii][Ll][Ee]:|(?:[Hh][Tt][Tt][Pp][Ss]?|[Ww][Ss][Ss]?|[Ff][Tt][Pp]):)[A-Za-z][A-Za-z0-9+.-]*://(?!(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?![A-Za-z0-9._~%!$&'()*+,;=:@\\t\\n\\r-]))|(?:^|[^A-Za-z0-9+.-])(?:[Hh][Tt][Tt][Pp][Ss]?|[Ww][Ss][Ss]?|[Ff][Tt][Pp]):[/\\\\]*(?![/\\\\])(?!(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?![A-Za-z0-9._~%!$&'()*+,;=:@\\t\\n\\r-]))|(?:^|[^A-Za-z0-9+.-])[Ff][Ii][Ll][Ee]:[/\\\\]{2}(?!/(?![/\\\\])|(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?![A-Za-z0-9._~%!$&'()*+,;=:@\\t\\n\\r-]))|(?:^|[\\s\"'(<>=,;\\[{|])[/\\\\]{2,}(?![/\\\\])(?=[A-Za-z0-9%\\[])(?!(?:127\\.0\\.0\\.1|localhost|\\[::1\\])(?::[0-9]{1,5})?(?![A-Za-z0-9._~%!$&'()*+,;=:@\\t\\n\\r-]))"
       },
       "x-oracle-error": "{pointer}: non-loopback URL in \"{value}\"; offline cases may only use 127.0.0.1, localhost, [::1], $WEB, file:/// or a chrome:// debug URL",
       "items": {"$ref": "#/$defs/noRemoteUrl"},
@@ -297,13 +301,24 @@
         "receipt": {
           "type": "string",
           "pattern": "^[a-z][A-Za-z0-9]*([._][a-z][A-Za-z0-9]*)*$",
-          "description": "Typed receipt kind the step must produce (I1)."
+          "description": "Typed receipt kind the step must produce (I1): for action.run and key the ActionEffect kind the registry reports (action.done, action.applied, action.waiting), for resource.call the reply kind of resource-operations-v2 (mutation_result)."
         },
         "noReceiptReason": {"type": "string", "minLength": 10, "description": "Why the step has no receipt."}
       },
       "if": {"properties": {"outcome": {"const": "error"}}},
       "then": {"required": ["error"]},
       "else": {"not": {"required": ["error"]}}
+    },
+    "expectMutation": {
+      "description": "I1: a mutation gives exactly one receipt or one typed error. An ok outcome names its receipt or says why none exists; an error outcome has its typed error and no receipt.",
+      "if": {"properties": {"outcome": {"const": "ok"}}},
+      "then": {
+        "oneOf": [
+          {"required": ["receipt"], "not": {"required": ["noReceiptReason"]}},
+          {"required": ["noReceiptReason"], "not": {"required": ["receipt"]}}
+        ]
+      },
+      "else": {"not": {"anyOf": [{"required": ["receipt"]}, {"required": ["noReceiptReason"]}]}}
     },
     "waitFor": {
       "type": "object",
@@ -406,7 +421,11 @@
             "required": ["op"],
             "properties": {"op": {"enum": ["action.run", "key", "tui.key", "kill", "restart"]}}
           },
-          "then": {"required": ["target", "expect"], "not": {"required": ["readOnly"]}}
+          "then": {
+            "required": ["target", "expect"],
+            "not": {"required": ["readOnly"]},
+            "properties": {"expect": {"$ref": "#/$defs/expectMutation"}}
+          }
         },
         {
           "$comment": "resource.call, cli and mcp mutate unless readOnly is true.",
@@ -414,7 +433,7 @@
             "required": ["op"],
             "properties": {"op": {"enum": ["resource.call", "cli", "mcp"]}, "readOnly": {"const": false}}
           },
-          "then": {"required": ["target", "expect"]}
+          "then": {"required": ["target", "expect"], "properties": {"expect": {"$ref": "#/$defs/expectMutation"}}}
         },
         {
           "$comment": "Runner steps act on the whole run: no target, no readOnly.",
@@ -458,7 +477,12 @@
         },
         {
           "if": {"required": ["op"], "properties": {"op": {"const": "kill"}}},
-          "then": {"properties": {"target": {"required": ["process"]}, "args": {"$ref": "#/$defs/argsKill"}}}
+          "then": {
+            "properties": {
+              "target": {"required": ["process"], "properties": {"process": {"$ref": "#/$defs/crashKind"}}},
+              "args": {"$ref": "#/$defs/argsKill"}
+            }
+          }
         },
         {
           "if": {"required": ["op"], "properties": {"op": {"const": "restart"}}},
@@ -659,14 +683,14 @@
       }
     },
     "killAllowsCrashRenderer": {
-      "if": {"$ref": "#/$defs/killsProcessRenderer"},
+      "if": {"anyOf": [{"$ref": "#/$defs/killsProcessRenderer"}, {"$ref": "#/$defs/opensRendererCrashUrl"}]},
       "then": {
         "required": ["allow_crashes"],
         "properties": {"allow_crashes": {"contains": {"properties": {"kind": {"const": "renderer"}}}}}
       }
     },
     "killAllowsCrashGpu": {
-      "if": {"$ref": "#/$defs/killsProcessGpu"},
+      "if": {"anyOf": [{"$ref": "#/$defs/killsProcessGpu"}, {"$ref": "#/$defs/opensGpuCrashUrl"}]},
       "then": {
         "required": ["allow_crashes"],
         "properties": {"allow_crashes": {"contains": {"properties": {"kind": {"const": "gpu"}}}}}
@@ -685,6 +709,40 @@
         "required": ["allow_crashes"],
         "properties": {"allow_crashes": {"contains": {"properties": {"kind": {"const": "utility"}}}}}
       }
+    },
+    "rendererCrashUrl": {
+      "type": "string",
+      "pattern": "(?:^|[^A-Za-z0-9+.-])[Cc][Hh][Rr][Oo][Mm][Ee]://(?:crash|kill|hang|shorthang|memory-exhaust)(?![A-Za-z0-9-])",
+      "description": "A Chromium debug URL that crashes, kills, hangs or exhausts the renderer that loads it (chrome_debug_urls.h kChromeUICrashURL, kChromeUIKillURL, kChromeUIHangURL, kChromeUIShorthangURL, kChromeUIMemoryExhaustURL)."
+    },
+    "gpuCrashUrl": {
+      "type": "string",
+      "pattern": "(?:^|[^A-Za-z0-9+.-])[Cc][Hh][Rr][Oo][Mm][Ee]://(?:gpucrash|gpuhang)(?![A-Za-z0-9-])",
+      "description": "A Chromium debug URL that crashes or hangs the GPU process (kChromeUIGpuCrashURL, kChromeUIGpuHangURL)."
+    },
+    "opensRendererCrashUrl": {
+      "required": ["steps"],
+      "properties": {"steps": {"contains": {"required": ["args"], "properties": {"args": {"$ref": "#/$defs/hasRendererCrashUrl"}}}}}
+    },
+    "opensGpuCrashUrl": {
+      "required": ["steps"],
+      "properties": {"steps": {"contains": {"required": ["args"], "properties": {"args": {"$ref": "#/$defs/hasGpuCrashUrl"}}}}}
+    },
+    "hasRendererCrashUrl": {
+      "description": "The value is, or holds at any depth, a rendererCrashUrl string.",
+      "anyOf": [
+        {"$ref": "#/$defs/rendererCrashUrl"},
+        {"type": "array", "contains": {"$ref": "#/$defs/hasRendererCrashUrl"}},
+        {"type": "object", "not": {"additionalProperties": {"not": {"$ref": "#/$defs/hasRendererCrashUrl"}}}}
+      ]
+    },
+    "hasGpuCrashUrl": {
+      "description": "The value is, or holds at any depth, a gpuCrashUrl string.",
+      "anyOf": [
+        {"$ref": "#/$defs/gpuCrashUrl"},
+        {"type": "array", "contains": {"$ref": "#/$defs/hasGpuCrashUrl"}},
+        {"type": "object", "not": {"additionalProperties": {"not": {"$ref": "#/$defs/hasGpuCrashUrl"}}}}
+      ]
     },
     "killsProcessDaemon": {
       "required": ["steps"],

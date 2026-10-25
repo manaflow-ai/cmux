@@ -46,7 +46,7 @@
       "op": "action.run",
       "target": {"window": "main", "pane": "shell"},
       "args": {"action": "splitRight", "entrypoint": "script"},
-      "expect": {"outcome": "ok"},
+      "expect": {"outcome": "ok", "receipt": "action.applied"},
       "waitFor": {"pointer": "/focus/windows/0/pane", "predicate": "changed", "maxMs": 2000},
       "checkpoint": ["before", "turn", "settled"]
     },
@@ -55,7 +55,7 @@
       "op": "key",
       "target": {"window": "main"},
       "args": {"keys": ["cmd+d"]},
-      "expect": {"outcome": "ok"},
+      "expect": {"outcome": "ok", "receipt": "action.applied"},
       "checkpoint": ["turn", "settled"]
     },
     {
@@ -63,7 +63,7 @@
       "op": "key",
       "target": {"window": "main"},
       "args": {"keys": ["cmd+shift+p"]},
-      "expect": {"outcome": "ok"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/overlays/stack/0/kind", "equals": "palette", "maxMs": 2000}
     },
     {
@@ -71,7 +71,7 @@
       "op": "key",
       "target": {"window": "main"},
       "args": {"keys": ["escape"]},
-      "expect": {"outcome": "ok"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/overlays/stack", "predicate": "empty", "maxMs": 2000}
     },
     {
@@ -86,7 +86,7 @@
       "op": "action.run",
       "target": {"window": "main"},
       "args": {"action": "newBrowserWorkspace", "params": {"url": "$WEB/load.html"}},
-      "expect": {"outcome": "ok"},
+      "expect": {"outcome": "ok", "receipt": "action.applied"},
       "waitFor": {"pointer": "/tabs/selected/loading", "equals": false, "maxMs": 5000}
     },
     {
@@ -98,7 +98,7 @@
         "params": {"url": "chrome://crash"},
         "idempotencyKey": "case-example-app.crash-renderer"
       },
-      "expect": {"outcome": "ok"},
+      "expect": {"outcome": "ok", "receipt": "mutation_result"},
       "waitFor": {"pointer": "/tabs/selected/error", "predicate": "exists", "maxMs": 5000}
     },
     {
@@ -106,7 +106,7 @@
       "op": "key",
       "target": {"window": "main", "browser": "$step:open-page#/browser_id"},
       "args": {"keys": ["cmd+r"]},
-      "expect": {"outcome": "ok"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
       "waitFor": {"pointer": "/tabs/selected/error", "predicate": "absent", "maxMs": 5000}
     },
     {
