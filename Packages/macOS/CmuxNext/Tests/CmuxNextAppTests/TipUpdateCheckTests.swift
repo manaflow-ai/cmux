@@ -193,6 +193,25 @@ import CmuxNextWakeupsTestSupport
         #expect(h.checks.count == 0, "the idle check ran while an update waits")
     }
 
+    /// A staged tip nothing can replace (deferred downloads, a disabled updater) keeps the person's
+    /// interval instead of waking every 5 minutes for nothing; it probes fast again once it can.
+    @Test func aStagedTipNothingCanReplaceKeepsThePersonsInterval() async throws {
+        let h = Self.make()
+        h.sparkle.staged = "300"
+        h.updater.stagedRefresh.replaceable = { h.checks.downloads }
+        h.checks.downloads = false
+        h.updater.debugIndicatorPhase = .ready(version: "3.0.0")
+        #expect(h.updater.stagedRefresh.timer.isScheduled)
+        #expect(!h.updater.stagedRefresh.armedFast, "a staged tip nothing can replace probes every 5 minutes")
+        h.checks.downloads = true
+        h.updater.applyDownloadPolicy()
+        #expect(h.updater.stagedRefresh.armedFast, "downloads are automatic again but the staged tip waits an hour")
+        h.policy.disablesUpdates = true
+        h.updater.applyManagedPolicy(channel: nil, minimumVersion: nil)
+        #expect(!h.updater.stagedRefresh.armedFast, "a disabled updater probes every 5 minutes")
+        #expect(h.updater.stagedRefresh.timer.isScheduled)
+    }
+
     /// A NIGHTLY's staged update keeps the person's interval.
     @Test func aStagedNightlyKeepsThePersonsInterval() async throws {
         let h = Self.make(Self.nightly)

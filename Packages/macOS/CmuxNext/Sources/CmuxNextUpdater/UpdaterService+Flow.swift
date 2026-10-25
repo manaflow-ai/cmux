@@ -226,8 +226,12 @@ extension UpdaterService {
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
-        // The tip check runs only where found updates download by themselves and the policy allows updates.
-        defer { tipCheck.refresh(self) }
+        // The tip app reads its feed every few minutes only where found updates download by
+        // themselves and the policy allows updates.
+        defer {
+            tipCheck.refresh(self)
+            stagedRefresh.policyChanged(updater: self)
+        }
         guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
         controller.downloadsUpdatesInBackground = downloads
         log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
