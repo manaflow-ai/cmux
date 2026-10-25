@@ -124,38 +124,38 @@ describe("acpmuxSend", () => {
     });
   });
 
-  test("output plumbing and reporting are not other work; other work is", () => {
+  test("output plumbing and reporting are not other work; other work is counted", () => {
     expect(acpmuxSend("acpmux send --no-wait a 'b' 2>&1 | tail -1")?.text).toBe("b");
     expect(acpmuxSend("acpmux send --no-wait a 'b' >/dev/null && echo sent || true")?.text).toBe("b");
     // A comment is not a command.
     expect(acpmuxSend("# report back\nacpmux send a b")?.text).toBe("b");
-    expect(acpmuxSend("git push && acpmux send a 'pushed'")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a b; nohup glaeda-gh wait pr x#1 &")).toBeUndefined();
+    expect(acpmuxSend("git push && acpmux send a 'pushed'")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send a b; nohup glaeda-gh wait pr x#1 &")?.others).toBe(1);
     // `tail` that is not reading the send's output is other work.
-    expect(acpmuxSend("tail -1 log.txt; acpmux send a b")).toBeUndefined();
+    expect(acpmuxSend("tail -1 log.txt; acpmux send a b")?.others).toBe(1);
     // Two sends are two messages: the command row keeps both, one in a substitution too.
     expect(acpmuxSend("acpmux send a x; acpmux send b y")).toBeUndefined();
     expect(acpmuxSend('acpmux send x "$(acpmux send y z)"')).toBeUndefined();
     // A substitution that does more than read is work, wherever it is.
-    expect(acpmuxSend('echo "$(touch /tmp/x)" | acpmux send a -')).toBeUndefined();
-    expect(acpmuxSend("cd `mktemp -d` && acpmux send a b")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a <<EOF\n$(rm -f x)\nEOF")).toBeUndefined();
-    expect(acpmuxSend('acpmux send target "${V:-$(rm -f /tmp/x)}"')).toBeUndefined();
+    expect(acpmuxSend('echo "$(touch /tmp/x)" | acpmux send a -')?.others).toBe(1);
+    expect(acpmuxSend("cd `mktemp -d` && acpmux send a b")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send a <<EOF\n$(rm -f x)\nEOF")?.others).toBe(1);
+    expect(acpmuxSend('acpmux send target "${V:-$(rm -f /tmp/x)}"')?.others).toBe(1);
     expect(acpmuxSend('acpmux send target "${V:-x}"')).toEqual({ target: "target", noWait: false });
     expect(acpmuxSend('acpmux send a "$(cat note.md | head -5)"')).toEqual({ target: "a", noWait: false });
     // A redirect that writes a file is work, on its own or on the send.
-    expect(acpmuxSend("> /tmp/out && acpmux send a b")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a b; > /tmp/out")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a b > /tmp/out")).toBeUndefined();
+    expect(acpmuxSend("> /tmp/out && acpmux send a b")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send a b; > /tmp/out")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send a b > /tmp/out")?.others).toBe(1);
     expect(acpmuxSend("acpmux send a b 2>&1 >/dev/null")?.text).toBe("b");
     // A filter that writes or reads a file of its own is work.
-    expect(acpmuxSend("acpmux send a b | tee /tmp/out")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a b | tail -1 log.txt")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a b | sed -n 1p")).toBeUndefined();
-    expect(acpmuxSend("acpmux send x y | grep -f secret")).toBeUndefined();
-    expect(acpmuxSend("acpmux send x y | grep -r x")).toBeUndefined();
-    expect(acpmuxSend("acpmux send x y | tr -d x file")).toBeUndefined();
-    expect(acpmuxSend("acpmux send x y | jq --rawfile f secret .")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b | tee /tmp/out")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send a b | tail -1 log.txt")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send a b | sed -n 1p")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send x y | grep -f secret")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send x y | grep -r x")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send x y | tr -d x file")?.others).toBe(1);
+    expect(acpmuxSend("acpmux send x y | jq --rawfile f secret .")?.others).toBe(1);
     expect(acpmuxSend("acpmux send x y | grep -c queued")?.text).toBe("y");
     expect(acpmuxSend("acpmux send --json a b | jq -r .text | head -n 3")?.text).toBe("b");
   });
@@ -186,7 +186,7 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("exit 0; acpmux send x y")).toBeUndefined();
     // Words a property of Object shares are no runner and no filter.
     expect(acpmuxSend("toString acpmux send x y")).toBeUndefined();
-    expect(acpmuxSend("acpmux send x y | constructor")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | constructor")?.others).toBe(1);
     // `-c` after an operand is the script's argument; a timeout that is no duration runs nothing.
     expect(acpmuxSend("bash script -c 'acpmux send x y'")).toBeUndefined();
     expect(acpmuxSend("timeout abc acpmux send x y")).toBeUndefined();
@@ -196,12 +196,40 @@ describe("acpmuxSend", () => {
     expect(acpmuxSend("acpmux send --on-permission maybe lane hi")).toBeUndefined();
     expect(acpmuxSend("acpmux send --prompt-id --no-wait lane hi")).toBeUndefined();
     expect(acpmuxSend("timeout --signal --foreground 10 acpmux send lane hi")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a b | grep foo 5")).toBeUndefined();
+    expect(acpmuxSend("acpmux send a b | grep foo 5")?.others).toBe(1);
     expect(acpmuxSend("acpmux send a b | grep -m 1 foo")?.text).toBe("b");
-    expect(acpmuxSend("acpmux send x y | tail -1 < /tmp/log")).toBeUndefined();
+    expect(acpmuxSend("acpmux send x y | tail -1 < /tmp/log")?.others).toBe(1);
     // A perl script that is not exactly `alarm N; exec @ARGV` is not looked through.
     expect(acpmuxSend(`perl -e 'print "exec @ARGV"' acpmux send a b`)).toBeUndefined();
     expect(acpmuxSend(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
+  });
+
+  test("a send anywhere in a compound command, with the other work counted", () => {
+    expect(
+      acpmuxSend(
+        "cd ~/wt/base && git fetch -q origin && acpmux send --no-wait --from claude-sr2 coord-deputy 'Restore base first.'; reach studio-mac 'df -h'",
+      ),
+    ).toEqual({ target: "coord-deputy", text: "Restore base first.", noWait: true, others: 2 });
+    // In a subshell, with a fallback that only reports.
+    expect(acpmuxSend("(cd ~/wt && acpmux send lane done) || echo failed")).toEqual({
+      target: "lane",
+      text: "done",
+      noWait: false,
+    });
+    // The text from a file on stdin: the target only.
+    expect(acpmuxSend("acpmux send --no-wait --from net-retries coord-deputy - < /tmp/report.md")).toEqual({
+      target: "coord-deputy",
+      noWait: true,
+    });
+    expect(
+      acpmuxSend("git push -q && acpmux send --no-wait --from net-retries coord-deputy - <<'EOF'\n## Pushed\nEOF"),
+    ).toEqual({ target: "coord-deputy", text: "## Pushed\n", noWait: true, others: 1 });
+    // Mentions are not sends, wherever they are.
+    expect(acpmuxSend("acpmux ls; echo acpmux send")).toBeUndefined();
+    // A shell that only checks the script runs nothing.
+    expect(acpmuxSend("bash -n -c 'acpmux send lane hi'")).toBeUndefined();
+    // A Unicode space is part of the word, as in the shell.
+    expect(acpmuxSend("acpmux send lane hi\u00a0there")?.text).toBe("hi\u00a0there");
   });
 
   test("acpmux's own flags may come before send", () => {
