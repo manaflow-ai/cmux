@@ -4,10 +4,11 @@
 // the session rail still disappears. We can't have it disappear."). Session Info floats and moves the
 // chat's column left only when both fit (inspector/ChatInspector.tsx inspectorChatShift); the rail
 // stays at the pane's left edge while the column moves, and the move always leaves the rail its
-// room. In a wide pane (1600), the pane where the column moves (1200) and the pane where moving it
-// would take the rail's room (1100), with Session Info closed, open, and pushing (Push always): the
-// rail draws, inside the pane, clear of the transcript's column, and Session Info opening leaves it
-// where it was. A narrower pane keeping the rail at all is #24525 (thread-minimap-narrow.test.tsx).
+// room. In a wide pane (1600), the pane where the column moves (1200), the pane where moving it
+// would take the rail's room (1100), a narrow window (1000) and the narrowest pane the layout allows
+// (200, cmux.json `layout.minimumPaneWidth`), with Session Info closed, open, and pushing (Push
+// always): the rail draws (minimal under a 48px gutter, #24525), inside the pane, clear of the
+// transcript's column, and Session Info opening leaves it where it was.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Locally:
@@ -97,7 +98,7 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
     });
 
   for (const name of browsers.keys())
-    for (const width of [1600, 1200, 1100])
+    for (const width of [1600, 1200, 1100, 1000, 200])
       test(`${name}: in a ${width}px pane the rail stays put with Session Info closed, open and pushing`, async () => {
         current = browsers.get(name)!;
         const page = await pane!.open({ width, height: 700 });
@@ -107,11 +108,11 @@ await requireBrowserLane("thread-minimap-left-rail-stays.test.ts", async () => {
           const closed = await rail(page);
           await openInspector(page, false);
           const open = await rail(page);
-          // Push always narrows the chat to the pane less the panel: in a 1100px pane its gutter is under
-          // the rail's 48px and the rail does not draw yet (#24525 keeps it there).
+          // Push always narrows the chat to the pane less the panel; the rail stays, minimal under a 48px
+          // gutter (#24525).
           await closeInspector(page);
           await openInspector(page, true);
-          const pushed = width === 1100 ? placed : await rail(page);
+          const pushed = await rail(page);
           const where = ({ left: _left, ...rest }: { left?: number; shown: boolean }) => rest;
           expect({
             closed: where(closed),
