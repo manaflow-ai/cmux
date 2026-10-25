@@ -17,6 +17,13 @@ matter (lines before the first blank line):
 
     title: Updates you barely notice
     action: palette.checkForUpdates | Try it      (optional "Try it" button)
+    clip: https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/ID/HASH.webp | SHA256
+                                                  (optional; written by media/whats-new-clips.py)
+
+A highlight's clip is its looping demo (scripts/cmux-next/media/whats-new-clips.py records it from
+release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over --pr-media's picture,
+and a clip added to a highlight of the last CLIP_REANNOUNCE_DAYS rides along with the next build, so
+an update that already listed the item shows it again with its clip (the page keeps the newest copy).
 
 The rest is the body (Markdown). A build with no new highlight file uses its
 user-facing summary for the What's New digest. Each commit is
@@ -198,7 +205,50 @@ def parse_highlight(path, text):
     if meta.get("action"):
         action_id, _, title = meta["action"].partition("|")
         item["action"] = {"id": action_id.strip(), "title": (title.strip() or "Try it")}
+    clip = CLIP.fullmatch(meta.get("clip", ""))
+    if clip:
+        item["media"] = [{"url": clip["url"], "sha256": clip["sha256"], "kind": "image", "alt": meta["title"]}]
+    elif meta.get("clip"):
+        raise SystemExit(f"{path}: 'clip:' must be '{CLIP_PREFIX}ID/NAME.webp | SHA256' (whats-new-clips.py publish)")
     return item
+
+
+# A clip (whats-new-clips.py publish): an animated WebP on pr-media's whats-new/ folder and its hash, which the
+# app checks before it shows it, as for --pr-media pictures.
+CLIP_PREFIX = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/whats-new/"
+CLIP = re.compile(r"(?P<url>" + re.escape(CLIP_PREFIX) + r"[a-z0-9][a-z0-9-]*/[0-9a-f]{12}\.webp)\s*\|\s*(?P<sha256>[0-9a-f]{64})")
+CLIPS = "release-notes/next/clips"
+CLIP_REANNOUNCE_DAYS = 7
+
+
+def clip_caption(highlight, head):
+    """The clip's caption (its spec's), else the highlight's title, as the clip's alt."""
+    try:
+        spec = json.loads(git("show", f"{head}:{CLIPS}/{highlight['id']}.json"))
+    except (subprocess.CalledProcessError, ValueError):
+        return
+    caption = spec.get("caption") if isinstance(spec, dict) else None
+    if isinstance(caption, str) and caption.strip():
+        highlight["media"][0]["alt"] = caption.strip()
+
+
+def reannounced(since, head, added):
+    """Highlights added before the span, of the last CLIP_REANNOUNCE_DAYS, whose clip line the span set."""
+    if not since:
+        return []
+    head_time = int(git("show", "-s", "--format=%ct", head).strip())
+    out = []
+    for path in git("diff", "--name-only", "--diff-filter=M", since, head, "--", HIGHLIGHTS).split():
+        if not path.endswith(".md") or path in added:
+            continue
+        before = parse_highlight(path, git("show", f"{since}:{path}"))
+        after = parse_highlight(path, git("show", f"{head}:{path}"))
+        if not after["media"] or before["media"] == after["media"]:
+            continue
+        born = git("log", "--diff-filter=A", "--format=%ct", "-1", head, "--", path).strip()
+        if born and head_time - int(born) <= CLIP_REANNOUNCE_DAYS * 86400:
+            out.append(path)
+    return out
 
 
 PR_SUFFIX = re.compile(r"^(?P<title>.*?)\s*\(#(?P<pr>\d+)\)\s*$")
@@ -415,9 +465,12 @@ def build(args):
     added = git("log", "--diff-filter=A", "--name-only", "--format=", span, "--", HIGHLIGHTS).split()
     highlights = []
     deadline = time.monotonic() + PR_MEDIA_BUDGET
-    for path in sorted(set(p for p in added if p.endswith(".md"))):
+    added = set(p for p in added if p.endswith(".md"))
+    for path in sorted(added | set(reannounced(args.since, args.head, added))):
         highlight = parse_highlight(path, git("show", f"{args.head}:{path}"))
-        if args.pr_media:
+        if highlight["media"]:
+            clip_caption(highlight, args.head)
+        elif args.pr_media:
             add_pr_media(highlight, path, args.head, deadline)
         highlights.append(highlight)
     # "head": the commit these notes end at; the next build's span starts there (`since`), so a
