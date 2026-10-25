@@ -92,7 +92,7 @@ public final class DeviceDirectory {
             let roles = device.roles.map(AddDeviceStrings.role).joined(separator: ", ")
             return DeviceListRow(id: device.id, title: device.name, subtitle: [roles, AddDeviceStrings.state(device.state)].filter { !$0.isEmpty }.joined(separator: " · "),
                              detail: device.detail, state: device.state, removable: true, fullAccess: device.fullAccess,
-                             fullAccessHelp: device.fullAccess == nil ? nil : AddDeviceStrings.fullAccessHelp(device.name))
+                             fullAccessHelp: device.fullAccess == nil ? nil : AddDeviceStrings.fullAccessHelp)
         }
         rows += phones.map { phone in
             DeviceListRow(id: Self.phonePrefix + phone.id, title: phone.name,

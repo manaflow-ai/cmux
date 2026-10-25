@@ -224,7 +224,7 @@ export class MockSettingsProvider {
             devices: {
               ...devices,
               rows: devices.rows.map((r) =>
-                r.id === params.id && r.full_access !== undefined ? { ...r, full_access: params.on } : r,
+                r.id === params.id && r.full_access !== undefined ? { ...r, full_access: params.on === true } : r,
               ),
             },
           });
@@ -809,8 +809,7 @@ export class MockSettingsProvider {
           state: "offline",
           removable: true,
           full_access: false,
-          full_access_help:
-            "Lets leo-mbp run chats in Full access: the agent edits files and runs commands on this Mac without asking.",
+          full_access_help: "Its chats edit files and run commands here without asking",
         },
         {
           id: "phone:p1",

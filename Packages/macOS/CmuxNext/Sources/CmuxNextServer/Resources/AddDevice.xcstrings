@@ -6557,127 +6557,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lets %@ run chats in Full access: the agent edits files and runs commands on this Mac without asking."
+            "value": "Its chats edit files and run commands here without asking"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يسمح لـ %@ بتشغيل المحادثات في وضع الوصول الكامل: يعدّل الوكيل الملفات ويشغّل الأوامر على هذا الـ Mac دون أن يسأل."
+            "value": "تعدّل محادثاته الملفات وتشغّل الأوامر هنا دون أن تسأل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dozvoljava da %@ pokreće razgovore s punim pristupom: agent mijenja datoteke i pokreće naredbe na ovom Macu bez pitanja."
+            "value": "Mijenja datoteke i pokreće naredbe ovdje bez pitanja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lader %@ køre chats med fuld adgang: agenten redigerer filer og kører kommandoer på denne Mac uden at spørge."
+            "value": "Redigerer filer og kører kommandoer her uden at spørge"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Erlaubt %@, Chats mit Vollzugriff auszuführen: Der Agent bearbeitet Dateien und führt Befehle auf diesem Mac aus, ohne zu fragen."
+            "value": "Ändert hier Dateien und führt Befehle ohne Rückfrage aus"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite que %@ ejecute chats con acceso total: el agente edita archivos y ejecuta comandos en este Mac sin preguntar."
+            "value": "Edita archivos y ejecuta comandos aquí sin preguntar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permet à %@ de lancer des discussions en accès complet : l’agent modifie des fichiers et exécute des commandes sur ce Mac sans demander."
+            "value": "Modifie des fichiers et lance des commandes sans demander"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Consente a %@ di avviare chat con accesso completo: l’agente modifica file ed esegue comandi su questo Mac senza chiedere."
+            "value": "Modifica file ed esegue comandi qui senza chiedere"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ がフルアクセスでチャットを実行できるようにします。エージェントは確認せずにこの Mac 上のファイルを編集し、コマンドを実行します。"
+            "value": "確認なしでこの Mac のファイルを編集し、コマンドを実行します"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អនុញ្ញាតឱ្យ %@ ដំណើរការការជជែកដោយសិទ្ធិចូលពេញលេញ៖ ភ្នាក់ងារកែសម្រួលឯកសារ និងដំណើរការពាក្យបញ្ជានៅលើ Mac នេះដោយមិនសួរ។"
+            "value": "កែសម្រួលឯកសារ និងដំណើរការពាក្យបញ្ជានៅទីនេះដោយមិនសួរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@에서 전체 접근으로 채팅을 실행할 수 있게 합니다. 에이전트가 묻지 않고 이 Mac에서 파일을 편집하고 명령을 실행합니다."
+            "value": "묻지 않고 이 Mac에서 파일을 편집하고 명령을 실행합니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lar %@ kjøre chatter med full tilgang: agenten redigerer filer og kjører kommandoer på denne Macen uten å spørre."
+            "value": "Redigerer filer og kjører kommandoer her uten å spørre"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pozwala urządzeniu %@ prowadzić czaty z pełnym dostępem: agent edytuje pliki i uruchamia polecenia na tym Macu bez pytania."
+            "value": "Edytuje pliki i uruchamia polecenia tutaj bez pytania"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Permite que %@ execute chats com acesso total: o agente edita arquivos e executa comandos neste Mac sem perguntar."
+            "value": "Edita arquivos e executa comandos aqui sem perguntar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Позволяет %@ запускать чаты с полным доступом: агент редактирует файлы и выполняет команды на этом Mac, не спрашивая."
+            "value": "Редактирует файлы и выполняет команды здесь без вопросов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อนุญาตให้ %@ เรียกใช้แชตแบบเข้าถึงเต็มรูปแบบ: เอเจนต์จะแก้ไขไฟล์และเรียกใช้คำสั่งบน Mac เครื่องนี้โดยไม่ถาม"
+            "value": "แก้ไขไฟล์และเรียกใช้คำสั่งบนเครื่องนี้โดยไม่ถาม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ cihazının sohbetleri tam erişimle çalıştırmasına izin verir: ajan bu Mac’te sormadan dosyaları düzenler ve komutları çalıştırır."
+            "value": "Burada sormadan dosyaları düzenler ve komutları çalıştırır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Дозволяє %@ запускати чати з повним доступом: агент редагує файли й виконує команди на цьому Mac, не питаючи."
+            "value": "Редагує файли й виконує команди тут без запитань"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cho phép %@ chạy trò chuyện với toàn quyền: tác tử sửa tệp và chạy lệnh trên máy Mac này mà không hỏi."
+            "value": "Sửa tệp và chạy lệnh trên máy này mà không hỏi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "允许 %@ 以完全访问运行聊天：代理会在这台 Mac 上编辑文件并运行命令，不再询问。"
+            "value": "无需询问即可在此编辑文件并运行命令"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "允許 %@ 以完整存取執行聊天：代理會在這台 Mac 上編輯檔案並執行指令，不再詢問。"
+            "value": "無需詢問即可在此編輯檔案並執行指令"
           }
         }
       }
@@ -6688,127 +6688,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Full access is still off. This Mac could not confirm the change came from you."
+            "value": "Still off: this Mac could not confirm it was you"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يزال الوصول الكامل متوقفًا. تعذّر على هذا الـ Mac التأكد من أن التغيير جاء منك."
+            "value": "لا يزال متوقفًا: تعذّر على هذا الـ Mac التأكد من أنه أنت"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Puni pristup je i dalje isključen. Ovaj Mac nije mogao potvrditi da promjena dolazi od vas."
+            "value": "I dalje isključeno: ovaj Mac nije potvrdio da ste to vi"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fuld adgang er stadig slået fra. Denne Mac kunne ikke bekræfte, at ændringen kom fra dig."
+            "value": "Stadig fra: denne Mac kunne ikke bekræfte, at det var dig"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vollzugriff ist weiterhin aus. Dieser Mac konnte nicht bestätigen, dass die Änderung von dir kam."
+            "value": "Noch aus: Dieser Mac konnte dich nicht verifizieren"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El acceso total sigue desactivado. Este Mac no pudo confirmar que el cambio lo hiciste tú."
+            "value": "Sigue desactivado: este Mac no pudo confirmar que eras tú"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’accès complet reste désactivé. Ce Mac n’a pas pu confirmer que la modification venait de vous."
+            "value": "Toujours inactif : ce Mac n’a pas pu vous identifier"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’accesso completo è ancora disattivato. Questo Mac non ha potuto confermare che la modifica venga da te."
+            "value": "Ancora spento: il Mac non ha potuto confermare che eri tu"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フルアクセスはオフのままです。この変更があなたによるものだと、この Mac で確認できませんでした。"
+            "value": "オフのままです。この Mac であなた本人か確認できませんでした"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "សិទ្ធិចូលពេញលេញនៅតែបិទ។ Mac នេះមិនអាចបញ្ជាក់ថាការផ្លាស់ប្ដូរនេះមកពីអ្នកបានទេ។"
+            "value": "នៅតែបិទ៖ Mac នេះមិនអាចបញ្ជាក់ថាជាអ្នកបានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "전체 접근이 여전히 꺼져 있습니다. 이 Mac에서 변경을 요청한 사람이 본인인지 확인하지 못했습니다."
+            "value": "여전히 꺼져 있음: 이 Mac에서 본인임을 확인하지 못했습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Full tilgang er fortsatt av. Denne Macen kunne ikke bekrefte at endringen kom fra deg."
+            "value": "Fortsatt av: Macen kunne ikke bekrefte at det var deg"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pełny dostęp jest nadal wyłączony. Ten Mac nie mógł potwierdzić, że zmiana pochodzi od Ciebie."
+            "value": "Nadal wyłączone: ten Mac nie potwierdził, że to Ty"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O acesso total continua desativado. Este Mac não conseguiu confirmar que a alteração veio de você."
+            "value": "Continua desativado: este Mac não confirmou que era você"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Полный доступ всё ещё выключен. Этот Mac не смог подтвердить, что изменение сделали вы."
+            "value": "Всё ещё выключено: этот Mac не подтвердил, что это вы"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การเข้าถึงเต็มรูปแบบยังปิดอยู่ Mac เครื่องนี้ยืนยันไม่ได้ว่าการเปลี่ยนแปลงมาจากคุณ"
+            "value": "ยังปิดอยู่: Mac เครื่องนี้ยืนยันไม่ได้ว่าเป็นคุณ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tam erişim hâlâ kapalı. Bu Mac, değişikliğin sizden geldiğini doğrulayamadı."
+            "value": "Hâlâ kapalı: Bu Mac, sizin olduğunuzu doğrulayamadı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Повний доступ досі вимкнено. Цей Mac не зміг підтвердити, що зміну зробили ви."
+            "value": "Досі вимкнено: цей Mac не підтвердив, що це ви"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toàn quyền vẫn đang tắt. Máy Mac này không xác nhận được thay đổi đến từ bạn."
+            "value": "Vẫn tắt: máy Mac này không xác nhận được là bạn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "完全访问仍为关闭。这台 Mac 无法确认此更改来自你本人。"
+            "value": "仍为关闭：这台 Mac 无法确认是你本人"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "完整存取仍為關閉。這台 Mac 無法確認此變更來自你本人。"
+            "value": "仍為關閉：這台 Mac 無法確認是你本人"
           }
         }
       }
@@ -6843,7 +6843,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vollzugriff konnte nicht ausgeschaltet werden. Versuche es erneut."
+            "value": "Vollzugriff ließ sich nicht ausschalten. Versuche es erneut."
           }
         },
         "es": {

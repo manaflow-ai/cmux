@@ -218,7 +218,7 @@ import Testing
         await directory.refresh()
         let rows = directory.rows(phones: [(id: "p1", name: "Lawrence's iPhone", connected: true)])
         #expect(rows.map(\.fullAccess) == [nil, false, nil], "only a paired client machine has the setting, off by default")
-        #expect(rows[1].fullAccessHelp == "Lets leo-mbp run chats in Full access: the agent edits files and runs commands on this Mac without asking.")
+        #expect(rows[1].fullAccessHelp == "Its chats edit files and run commands here without asking")
         #expect(rows[0].fullAccessHelp == nil)
         let page = try #require(try JSONSerialization.jsonObject(with: directory.pageData(phones: [])) as? [String: Any])
         let pageRows = try #require(page["rows"] as? [[String: Any]])

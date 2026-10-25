@@ -181,9 +181,7 @@ test("only a paired client machine has a Full access switch, off until turned on
   const toggle = () => line().querySelector<HTMLButtonElement>('[role="switch"]')!;
   expect(toggle().getAttribute("aria-checked")).toBe("false");
   expect(line().textContent).toContain("Full access");
-  expect(line().textContent).toContain(
-    "Lets leo-mbp run chats in Full access: the agent edits files and runs commands on this Mac without asking.",
-  );
+  expect(line().textContent).toContain("Its chats edit files and run commands here without asking");
   await act(async () => toggle().click());
   await settle();
   const on = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
