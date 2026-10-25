@@ -76,11 +76,15 @@ test("Send now and the X fade out once Send now worked, while the steer still re
   const container = await render(true);
   jest.useFakeTimers();
   expect(container.querySelector(".cv-user__take-back")).not.toBeNull();
+  // jsdom has no layout: the controls are 64px wide here.
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 64 });
   const button = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   await act(async () => button.click());
-  // At once it leaves: no second click, and it fades and folds its width (no line moves).
+  // At once it leaves: no second click, and it fades and folds its width from where it was drawn
+  // (no line moves).
   const leaving = container.querySelector<HTMLElement>(".cv-user__pending--leaving");
   expect(leaving).not.toBeNull();
+  expect(leaving!.style.getPropertyValue("--cv-pending-width")).toBe("64px");
   expect(leaving!.getAttribute("aria-hidden")).toBe("true");
   expect(button.disabled).toBe(true);
   await runFold();
