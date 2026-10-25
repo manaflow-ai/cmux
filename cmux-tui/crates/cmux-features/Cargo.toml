@@ -1,0 +1,11 @@
+[package]
+name = "cmux-features"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The daemon's feature snapshot: the generated registry table (schemas/features) and the app's snapshot from CMUX_FEATURES_SNAPSHOT or a client hello"
+
+[lints]
+workspace = true
