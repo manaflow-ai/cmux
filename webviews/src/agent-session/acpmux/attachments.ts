@@ -7,6 +7,7 @@ import { liftInlineImages } from "./inlineImages";
 import { pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
+import type { VideoInfo } from "./composer/videoAttachments";
 
 export type ComposerAttachment = {
   id: string;
@@ -30,6 +31,8 @@ export type ComposerAttachment = {
   /** The original image on the session's machine; the inline bytes are a metadata-free preview. */
   originalPath?: string;
   originalName?: string;
+  /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
+  video?: VideoInfo;
 };
 
 export type AttachmentError = {
