@@ -151,14 +151,20 @@ impl Translator {
                     }
                     Some("message_delta") => {
                         if let Some(u) = ev.get("usage") {
-                            let used = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0)
-                                + u.get("cache_read_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("cache_creation_input_tokens")
-                                    .and_then(Value::as_u64)
-                                    .unwrap_or(0)
-                                + u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            // `used` is the context held by the last request. It is the prompt
+                            // side of the usage, including cache reads/writes, and deliberately
+                            // excludes output: the context ring must not grow from generated text.
+                            let input = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let cache_read = u
+                                .get("cache_read_input_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            let cache_write = u
+                                .get("cache_creation_input_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            let output = u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let used = input + cache_read + cache_write;
                             // A subagent's usage is its own context, not the chat's.
                             if parent.is_none() {
                                 self.context_used.store(used, Ordering::SeqCst);
@@ -172,6 +178,10 @@ impl Translator {
                                 "sessionUpdate": "usage_update",
                                 "used": used,
                                 "size": size,
+                                "inputTokens": input,
+                                "cachedReadTokens": cache_read,
+                                "cachedWriteTokens": cache_write,
+                                "outputTokens": output,
                                 "_meta": {"acpmux": {"call": true}},
                             })));
                         }
