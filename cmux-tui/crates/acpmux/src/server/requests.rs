@@ -74,9 +74,17 @@ pub(super) async fn handle_notification(
         method::SESSION_CANCEL => {
             // Notifications have no response channel, but they still cross
             // the same origin/ownership boundary as request-form cancels.
+            let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
-                && let Err(e) =
-                    super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await
+                && let Err(e) = super::remote_guard::check(
+                    hub,
+                    conn.origin,
+                    conn.auth,
+                    device.as_deref(),
+                    m,
+                    &mut params,
+                )
+                .await
             {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
@@ -324,6 +332,7 @@ async fn dispatch_brief(
             hub,
             conn.origin,
             conn.auth,
+            None,
             method::SESSION_NEW,
             &mut new_params,
         )
@@ -379,6 +388,7 @@ async fn dispatch_brief(
     let task_session = session.clone();
     let task_via = params.pointer("/_meta/acpmux/via").cloned();
     let task_agent = row.get("from").and_then(Value::as_str).map(str::to_owned);
+    let task_device = super::remote_guard::full_access_device(hub, conn, &prompt);
     tokio::spawn(async move {
         let mut blocks =
             vec![json!({"type":"text","text":prompt.get("text").cloned().unwrap_or(Value::Null)})];
@@ -397,6 +407,7 @@ async fn dispatch_brief(
                     ),
                     trust_gate: task_via.is_some() || web,
                     agent: task_agent,
+                    full_access_device: task_device,
                     ..Default::default()
                 },
             )
@@ -451,7 +462,9 @@ pub(super) async fn handle_request(
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
-        super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await?;
+        let device = super::remote_guard::full_access_device(hub, conn, &params);
+        super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
+            .await?;
     }
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
     // check, before the request runs or reaches a peer. Held to the Web's rules: a Web
@@ -939,6 +952,7 @@ async fn dispatch_request(
                         )
                     })
                 },
+                full_access_device: super::remote_guard::full_access_device(hub, conn, &params),
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
@@ -985,6 +999,11 @@ async fn dispatch_request(
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             let mode = str_param(&params, "modeId")
                 .ok_or_else(|| RpcError::invalid_params("modeId is required"))?;
+            // A paired machine with Full access on (`remote_guard.rs` `full_access_device`).
+            if let Some(device) = super::remote_guard::full_access_device(hub, conn, &params) {
+                let set = crate::hub::SetRequest::Mode(mode.to_owned());
+                return hub.set_for_full_access_device(&s, &device, set).await;
+            }
             // The app pane's mode pick is saved for the next new chat (start_mode.rs).
             hub.client_set_mode(&s, mode, conn.origin == Origin::LocalApp).await
         }
@@ -996,6 +1015,10 @@ async fn dispatch_request(
                 .get("value")
                 .cloned()
                 .ok_or_else(|| RpcError::invalid_params("value is required"))?;
+            if let Some(device) = super::remote_guard::full_access_device(hub, conn, &params) {
+                let set = crate::hub::SetRequest::Config(id.to_owned(), value);
+                return hub.set_for_full_access_device(&s, &device, set).await;
+            }
             // The app pane's effort pick is saved for the next new chat (start_defaults.rs).
             hub.client_set_config(&s, id, value, conn.origin == Origin::LocalApp).await
         }
@@ -1452,8 +1475,9 @@ async fn dispatch_request(
                     "this queued prompt holds a masked secret: edit it on the machine that runs the session",
                 ));
             }
-            hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
-                .await
+            let device = super::remote_guard::full_access_device(hub, conn, &params);
+            let gated = super::trust_gate::gated(conn.origin, &params);
+            hub.queue_edit(&s, &params, control, gated, device.as_deref()).await
         }
         method::MUX_QUEUE_REMOVE => {
             let s = hub.resolve(session_key(&params)?)?;

@@ -1004,6 +1004,17 @@ pub enum TicketCmd {
     /// Revoke a ticket, or a paired machine by id or name; its open
     /// connections close at once.
     Revoke { id: String },
+    /// Let a paired client machine run chats in Full access (on), or not
+    /// (off, the default): the agent edits files and runs commands on this
+    /// machine without asking. On needs the person (the cmux app's Settings);
+    /// off takes effect at once.
+    FullAccess {
+        /// The machine's id or name (`cmux host ticket ls`).
+        id: String,
+        /// on or off.
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
 }
 
 #[derive(Args)]
