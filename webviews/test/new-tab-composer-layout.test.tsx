@@ -70,6 +70,7 @@ async function mount(
     machineName?: string;
     snapshot?: AcpmuxSnapshot;
     onCommands?(harness: string, cwd?: string): void;
+    template?: "cards";
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
@@ -80,6 +81,7 @@ async function mount(
     root!.render(
       <NewTabScreen
         snapshot={options.snapshot ?? noChat()}
+        {...(options.template ? { template: options.template } : {})}
         {...(options.machineName ? { machineName: options.machineName } : {})}
         lastAgent="claude"
         cwd="/Users/you"
@@ -135,6 +137,25 @@ test("the New Tab card is the composer's: the project strip on its top edge, the
   const row = composer.querySelector<HTMLElement>(".acpmux-composer-strip .acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
   expect(card.querySelector(".acpmux-composer-context, .acpmux-location-button")).toBeNull();
+});
+
+// Leo: "the claw thing should be one single row". The Claude split keeps the existing
+// mode/model row and moves the folder/computer into it; Codex retains its top tray.
+test("Claude New Tab location and model share the quiet row under the box", async () => {
+  const { setComposerLook } = await import("../src/agent-session/acpmux/composerLook");
+  act(() => setComposerLook("claude", { remember: false }));
+  await mount({ template: "cards" });
+  const composer = host.querySelector<HTMLElement>(".nt-composer")!;
+  const row = composer.querySelector<HTMLElement>(".nt-foot .acpmux-composer-foot")!;
+  expect(row.querySelector(".acpmux-composer-context")?.textContent).toContain("app");
+  expect(row.querySelector(".acpmux-chips")).not.toBeNull();
+  expect(composer.querySelector(".nt-above")).toBeNull();
+  expect(composer.querySelectorAll(".acpmux-composer-context")).toHaveLength(1);
+
+  act(() => setComposerLook("codex", { remember: false }));
+  expect(composer.querySelector(".nt-above .acpmux-composer-context")).not.toBeNull();
+  expect(composer.querySelector(".nt-foot")).toBeNull();
+  act(() => setComposerLook("claude", { remember: false }));
 });
 
 // Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could
