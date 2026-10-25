@@ -191,7 +191,9 @@
 }
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-under {
   position: absolute;
-  inset-inline: 0;
+  /* Match the card's content column so the floating dock's gutters still pass
+     pointer and wheel input through to the transcript. */
+  inset-inline: var(--cv-inset, max(18px, calc((100% - 760px) / 2)));
   bottom: 0;
   z-index: calc(var(--layer-raised, 1) + 1);
 }

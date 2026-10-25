@@ -218,6 +218,8 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await shown(page, form)).toBe(false);
     const box = (await (await page.$(`${form} .acpmux-composer-box`))!.boundingBox())!;
     const under = (await (await page.$(`${form} > .acpmux-composer-under`))!.boundingBox())!;
+    expect(Math.abs(under.x - box.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(under.width - box.width)).toBeLessThanOrEqual(1);
     expect(under.y).toBeGreaterThanOrEqual(box.y);
     expect(under.y + under.height).toBeLessThanOrEqual(box.y + box.height);
     await page.mouse.move(under.x + under.width * 0.35, under.y + under.height / 2);
