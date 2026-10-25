@@ -1,3 +1,4 @@
+public import CmuxNextDesignTokens
 /// What a status indicator draws for one state, as a pure value: the layer
 /// only executes the plan, so every rule here is unit tested.
 public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {

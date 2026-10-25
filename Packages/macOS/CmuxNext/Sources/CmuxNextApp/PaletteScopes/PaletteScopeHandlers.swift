@@ -17,10 +17,7 @@ enum PaletteScopeHandlers {
                 if !query.isEmpty { services.palette.model.query = query }
                 return
             }
-            // Search opens from the sidebar's Search button when that window shows it, from a click,
-            // the palette, a shortcut or the CLI alike (plans/cmux-next/sidebar-search.md).
-            let anchor = scope == PaletteScopeID.search.rawValue ? context.services.windows.active?.sidebar.container.sidebarView.searchAnchor : nil
-            guard services.palette.show(scope: PaletteScopeID(scope), query: query, relativeTo: window, anchoredTo: anchor) else {
+            guard services.palette.show(scope: PaletteScopeID(scope), query: query, relativeTo: window) else {
                 throw ActionFailure(message: PaletteOpenRefusal.unknownScope(scope).message)
             }
         })

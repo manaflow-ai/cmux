@@ -58,6 +58,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let rightSidebar: RightSidebarModel
     /// Its view, made the first time it shows.
     var rightSidebarView: RightSidebarView?
+    /// A fullscreen page that has the whole screen (`WindowController+FullScreen`).
+    var pagePresentation: BrowserPagePresentation?
+    /// A full screen enter is under way (AppKit ignores a toggle until it ends).
+    var isEnteringFullScreen = false
+    /// The page that entered full screen left during the enter: the window leaves once it ends.
+    var pageFullScreenExitPending = false
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
@@ -104,6 +110,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         window.focus = focus
         focus.applier = focusApplier
+        focus.window = window
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
@@ -237,6 +244,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
         if let current = content { park(current) }
+        DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {
             controller = kept
@@ -248,14 +256,19 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
         // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
+        DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
+        DebugWorkspaceSwitch.mark(self, "content")
         sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
+        DebugWorkspaceSwitch.mark(self, "root")
         arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
         // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
         // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
         themeScope.show(controller.themeScope, animated: true)
+        DebugWorkspaceSwitch.mark(self, "theme")
         startupObservation?.cancel()
         startupObservation = nil
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
@@ -269,11 +282,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
+        DebugWorkspaceSwitch.mark(self, "did_show")
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
         services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
+        DebugWorkspaceSwitch.shown(self, in: window)
+        revalidatePagePresentation()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -284,6 +300,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if let current = content { park(current) }
         content = nil
         arrangeOnScreen()
+        revalidatePagePresentation()
     }
 
     // MARK: NSWindowDelegate
@@ -354,6 +371,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        pagePresentation = nil
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)
@@ -366,7 +384,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
     /// The traffic lights' last windowed place: their left edge, their top's
     /// distance from the window's top, and their size (the window may come
     /// back from full screen at another height).
@@ -396,6 +414,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+
+    /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
+    private var zoomState = WindowZoom()
+    override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
+    override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
+    func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
     /// In an agent screenshot launch every frame stays on the test screen
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
@@ -441,7 +465,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// their home's place here, so a pane ring follows a pane that moved
     /// because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
         let began = traced ? CACurrentMediaTime() : 0
         defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }
