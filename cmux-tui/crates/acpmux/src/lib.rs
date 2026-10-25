@@ -19,7 +19,9 @@ pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
+pub mod agent_link;
 pub mod agent_tools;
+pub mod beads;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
@@ -64,6 +66,7 @@ pub mod pairing;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
+pub mod placement;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;

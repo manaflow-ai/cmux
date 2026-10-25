@@ -20,7 +20,8 @@
 # (gitignored). The next run skips the build when both still match, so a warm
 # tree costs about a second. Release and nightly builds pass --force.
 #
-# Needs the bun that webviews/package.json pins (scripts/check-webviews-bun-version.sh)
+# Needs the bun that webviews/package.json pins, or a newer one of the same major
+# (scripts/check-webviews-bun-version.sh),
 # and node 22.18 or newer. The fleet recipe provides both; locally:
 # curl -fsSL https://bun.sh/install | bash -s bun-v<pin>
 set -eu
@@ -73,10 +74,10 @@ missing_tool() {
 need_bun() {
   want="$(python3 -c 'import json, sys; m = (json.load(open(sys.argv[1])).get("devEngines") or {}).get("packageManager") or {}; print(m.get("version", "") if m.get("name") == "bun" else "")' "$ROOT/webviews/package.json" 2>/dev/null || true)"
   if ! command -v bun >/dev/null 2>&1; then
-    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)}; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
+    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)} or newer; install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
   fi
-  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ] && [ -n "$want" ] && [ "$(bun --version)" != "$want" ]; then
-    missing_tool "the cmux-next web bundles need bun $want; $(command -v bun) is bun $(bun --version)"
+  if [ "${CMUX_WEB_BUNDLES_TOOLS_OPTIONAL:-0}" = 1 ] && ! "$ROOT/scripts/check-webviews-bun-version.sh" --quiet; then
+    missing_tool "the cmux-next web bundles need bun ${want:-(see webviews/package.json devEngines)} or newer; $(command -v bun) is bun $(bun --version); install it: curl -fsSL https://bun.sh/install | bash -s bun-v${want:-<version>}"
   fi
   "$ROOT/scripts/check-webviews-bun-version.sh"
   # `vp build` (the webviews app) runs on node when node is on PATH and on bun

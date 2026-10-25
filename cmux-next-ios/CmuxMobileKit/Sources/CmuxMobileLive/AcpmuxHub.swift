@@ -227,7 +227,7 @@ public final class AcpmuxHub {
         if case .object(var object) = params, let session = object["sessionId"]?.stringValue,
            let permission = object["permissionId"]?.stringValue, let option = object["optionId"]?.stringValue,
            let meta = try await signedMeta(sessionID: session, permissionID: permission, optionID: option,
-                                           answers: object["answers"]) {
+                                           answers: object["answers"], reason: Self.answerReason(question, answer)) {
             object["_meta"] = meta
             params = .object(object)
         }
@@ -237,7 +237,8 @@ public final class AcpmuxHub {
     /// `_meta` for an Allow or an answer signed with the approval key after
     /// Face ID; nil for a reject option (never signed), an unpaired phone or a
     /// prompt that is no longer pending (acpmux then refuses or not-founds it).
-    func signedMeta(sessionID: String, permissionID: String, optionID: String, answers: JSONValue?) async throws -> JSONValue? {
+    func signedMeta(sessionID: String, permissionID: String, optionID: String, answers: JSONValue?,
+                    reason answerReason: String? = nil) async throws -> JSONValue? {
         guard let approver else { return nil }
         let info = try await request("_acpmux/info", .object(["sessionId": .string(sessionID)]))
         guard let pending = info["pending"]?.arrayValue?.first(where: { $0["permissionId"]?.stringValue == permissionID }) else {
@@ -251,7 +252,8 @@ public final class AcpmuxHub {
         guard let nonce = pending["decisionNonce"]?.stringValue,
               let instance = pending["personInstance"]?.stringValue ?? personInstance else { throw ApproverUnsupported() }
         let title = pending["request"]?["toolCall"]?["title"]?.stringValue ?? ""
-        let reason = answers != nil ? "Send your answer to the agent" : (title.isEmpty ? "Allow the agent's request" : "Allow “\(title.prefix(80))”")
+        // The Face ID sheet names what is sent: the chosen answers, or the Mac's own title (review M1, L3).
+        let reason = answers != nil ? (answerReason ?? "Send your answer to the agent") : Self.allowReason(title: title)
         let sign: Approver.Signer
         do {
             sign = try await approver.authorize(reason)
@@ -264,6 +266,28 @@ public final class AcpmuxHub {
             session: info["sessionId"]?.stringValue ?? sessionID, permission: permissionID, option: optionID, nonce: nonce,
             expiresAt: Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime), answers: answers)
         return payload.meta(signature: try sign(payload.message))
+    }
+
+    /// The Face ID reason of an answer: the labels (and free text) chosen, so
+    /// the person approves what is sent, not what a notification said.
+    nonisolated static func answerReason(_ question: AgentQuestion, _ answer: AgentQuestionAnswer) -> String {
+        var parts: [String] = []
+        for item in question.items {
+            guard let selection = answer.selections[item.id] else { continue }
+            parts += item.options.filter { selection.optionIDs.contains($0.id) }.map(\.label)
+            if let other = selection.other { parts.append(other) }
+        }
+        guard !parts.isEmpty else { return "Send your answer to the agent" }
+        return "Answer “\(cut(parts.joined(separator: ", "), 80))”"
+    }
+
+    /// The Face ID reason of an Allow: the Mac's own title, marked when cut.
+    nonisolated static func allowReason(title: String) -> String {
+        title.isEmpty ? "Allow the agent's request" : "Allow “\(cut(title, 80))”"
+    }
+
+    private nonisolated static func cut(_ text: String, _ max: Int) -> String {
+        text.count <= max ? text : String(text.prefix(max - 1)) + "…"
     }
 
     /// Declines a question (its reject option). A phone may always decline,

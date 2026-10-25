@@ -13,8 +13,8 @@ import Testing
 /// Edit / Clear Workspace Description, Mark Workspace as Done, Cycle Workspace Status and Set
 /// Workspace Status run on a daemon that serves them. The daemon keeps both on the workspace
 /// (`extra.description`, `extra.task_status`); the sidebar row leads its second line with the
-/// description's first line and draws the lane's glyph before the title, and the hover card shows
-/// the whole description and names the lane.
+/// description's first line, while the hover card shows the whole description and names the lane.
+/// Status dots already carry the lane state at the row's trailing edge.
 @MainActor @Suite(.serialized)
 struct WorkspaceNotesTests {
     static let ids: [ActionID] = [
@@ -69,11 +69,11 @@ struct WorkspaceNotesTests {
         #expect(cases.map(\.value) == ["auto", "todo", "working", "needs-attention", "review", "done"])
     }
 
-    @Test func theRowShowsTheDescriptionAndTheLanesGlyph() throws {
+    @Test func theRowShowsTheDescriptionWithoutALeadStatusGlyph() throws {
         let row = try Self.row(extra: #"{"description":"Ship the release\n- changelog","task_status":"done"}"#)
         let content = WorkspaceRowContent(row, preferences: .defaults)
         #expect(content.detail == "Ship the release", "the description's first line leads the second line")
-        #expect(content.icon == .symbol("checkmark.circle.fill", tint: .grey), "done draws its glyph before the title")
+        #expect(content.icon == nil, "task status is already represented by the trailing status dots")
 
         let card = WorkspaceHoverCardContent.make(row, machine: nil, now: Date())
         #expect(card.facts.first { $0.kind == "description" }?.text == "Ship the release\n- changelog")

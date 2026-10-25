@@ -106,6 +106,8 @@ impl Hub {
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
+        let mut goal_write = false;
+        let mut mark_cleared = false;
         let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match kind {
             "agent_message_chunk" => {
@@ -131,12 +133,24 @@ impl Hub {
             "usage_update" => m.usage = Some(update.clone()),
             "available_commands_update" => m.available_commands = Some(update.clone()),
             "current_mode_update" => {
+                // A mode the harness moves to by itself is not cmux's: the mark goes, so moving
+                // back to it later is not cmux's either (`trust_wait.rs` `full_access_by_cmux`).
+                let reported = update.get("currentModeId").and_then(Value::as_str);
+                if m.mode_set_by_cmux.is_some() && reported != m.mode_set_by_cmux.as_deref() {
+                    m.mode_set_by_cmux = None;
+                    // Saved now, so a restart does not load the mark back.
+                    mark_cleared = true;
+                }
                 mode_write = update.get("currentModeId").cloned().map(ModeWrite::CurrentMode);
             }
             "config_option_update" => {
                 mode_write = update.get("configOptions").cloned().map(ModeWrite::ConfigOptions);
             }
             "session_info_update" => {
+                if let Some(goal) = update.pointer("/_meta/goal") {
+                    m.goal = goal.as_object().map(|_| goal.clone());
+                    goal_write = true;
+                }
                 // A harness title made from the first input stops before a client context
                 // (prompt_context.rs), so a Cmd-I chat titles from the person's words.
                 if let Some(title) = update.get("title").and_then(Value::as_str) {
@@ -155,12 +169,19 @@ impl Hub {
             _ => {}
         }
         drop(m);
+        if goal_write {
+            // Goal state must survive a daemon restart even when the turn has not settled yet.
+            self.save_meta(session);
+        }
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
             self.write_mode_state(session, [w]);
+        }
+        if mark_cleared {
+            self.save_meta(session);
         }
     }
 

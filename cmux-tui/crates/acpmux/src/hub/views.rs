@@ -83,7 +83,9 @@ impl Hub {
 /// `lastMessage`, `preview`, `title`) carry the raw text, masked only on the
 /// way to a peer daemon (`server/peer_text.rs`).
 ///
-/// `{state, since, error, step, title}`; null for a closed session.
+/// `stalledSince`: a working lane whose turn has stalled (`hub/activity.rs`), since when.
+///
+/// `{state, since, error, step, title, stalledSince}`; null for a closed session.
 pub fn lane(summary: &Value) -> Value {
     if summary["status"] == "closed" {
         return Value::Null;
@@ -111,7 +113,10 @@ pub fn lane(summary: &Value) -> Value {
         _ => Value::Null,
     };
     let error = error.as_str().map_or(Value::Null, |e| Value::String(masked_error(e)));
-    json!({"state": state, "since": since, "error": error, "step": lane_step(summary), "title": lane_title(summary)})
+    let stalled =
+        if state == "working" { summary["turn"]["stalledSince"].clone() } else { Value::Null };
+    json!({"state": state, "since": since, "error": error, "step": lane_step(summary),
+           "title": lane_title(summary), "stalledSince": stalled})
 }
 
 /// The lane's step, one line: the running turn's prompt, else the agent's
@@ -266,6 +271,8 @@ impl Hub {
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
+        let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
+        let heard_at = session.last_model_at.load(Ordering::Relaxed);
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -289,6 +296,7 @@ impl Hub {
             depth: m.subsession.as_ref().map_or(0, |l| l.depth),
             children: self.subsessions.open_count(&m.id),
             title: m.title.clone(),
+            title_source: m.title_source.clone(),
             last_prompt: m.last_prompt.clone(),
             preview: m.preview.as_deref().map(|p| short_text(p, 160)),
             last_message: last_message(&m),
@@ -307,6 +315,13 @@ impl Hub {
             // Ctrl-B moves its work: by the kind its harness started as (`processes.rs`).
             backgrounds_work: session.backgrounds_work.load(Ordering::SeqCst),
             turn: turn.map(|t| TurnSummary {
+                stalled_since: super::activity::stalled_since(
+                    t.started_at,
+                    heard_at,
+                    t.doing.tool_in_flight(),
+                    crate::store::now_ms(),
+                    stall_after,
+                ),
                 started_at: t.started_at,
                 client: t.client,
                 prompt: t.prompt_preview,
@@ -398,6 +413,7 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
+        v["goal"] = m.goal.clone().unwrap_or(Value::Null);
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v["availableCommands"] = commands.clone();

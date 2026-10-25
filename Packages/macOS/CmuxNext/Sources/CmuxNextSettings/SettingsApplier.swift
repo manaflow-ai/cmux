@@ -79,6 +79,7 @@ public final class SettingsApplier {
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
         if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
+        if design.layoutScrollModifier != snapshot.layoutScrollModifier { design.layoutScrollModifier = snapshot.layoutScrollModifier }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
@@ -138,6 +139,15 @@ public final class SettingsApplier {
         if snapshot.swapCmdTAndCmdN, !swap.contains(where: { applied.contains($0.0) }) {
             for (id, key) in swap {
                 setOverride(Shortcut(key, modifiers: [.command]), for: id)
+                applied.insert(id)
+            }
+        }
+        // `tabs.commandDigits = tabs`: Cmd-1…9 select tabs and Ctrl-1…9 workspaces (the two trade
+        // keys), unless the user bound either one above; then neither moves, as with the swap above.
+        let digits: [(ActionID, NSEvent.ModifierFlags)] = [("selectSurfaceByNumber", [.command]), ("selectWorkspaceByNumber", [.control])]
+        if snapshot.commandDigits == .tabs, !digits.contains(where: { applied.contains($0.0) }) {
+            for (id, modifiers) in digits {
+                setOverride(Shortcut("1", modifiers: modifiers), for: id)
                 applied.insert(id)
             }
         }

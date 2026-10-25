@@ -71,8 +71,7 @@
    system's setting, keeps the solid fill above and no blur (composerStates.css); WebKit matches
    neither value of prefers-reduced-transparency, so this is scoped to `not reduce`, never to
    `no-preference`. The plain top strip (data-top-strip="plain") drops the strip's fill and blur, so
-   this leaves it alone. New Tab's tray (.nt-above) keeps the solid surface on an opaque window,
-   where its box is solid too. */
+   this leaves it alone. New Tab's tray is masked at the box edge when it tucks beneath the glass. */
 @media not (prefers-reduced-transparency: reduce) {
   :root:not([data-cmux-see-through], [data-reduce-transparency], [data-top-strip="plain"])
     .acpmux-composer[data-composer-look="codex"]

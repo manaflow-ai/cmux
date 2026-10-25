@@ -100,6 +100,16 @@ export function highestMode(family: string | undefined, harness: string | undefi
   return menu?.rows.find((row) => row.id === menu.highest);
 }
 
+/** The family's own menu whatever the harness reported (none yet: a New Tab before its chat
+ * starts), for a pick made before the chat reports its modes. None for a harness this table does
+ * not list. */
+export function harnessFamilyMenu(
+  family: string | undefined,
+  harness: string | undefined,
+): HarnessModeMenu | undefined {
+  return familyMenu(family, harness);
+}
+
 function familyMenu(family: string | undefined, harness: string | undefined): HarnessModeMenu | undefined {
   const of = (value: string | undefined) => {
     const id = (value ?? "").toLowerCase();

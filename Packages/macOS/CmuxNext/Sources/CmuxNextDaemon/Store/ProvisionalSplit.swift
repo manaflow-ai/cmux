@@ -169,7 +169,9 @@ import Foundation
                 return entry
             }
         }
-        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
+        // The target's column: its index places the new column, its panes place the new pane.
+        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),
+              let anchor = columns[checked: index]?.layout.paneIDs else { return nil }
         columns.insert(ColumnSnapshot(id: column.handle, width: column.width, layout: .leaf(leaf)), at: index + 1)
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
@@ -178,7 +180,6 @@ import Foundation
         screen.columns = columns
         guard daemon == nil else { return undo }
         let pane = model(of: provisional, in: store)
-        let anchor = columns[index].layout.paneIDs
         let after = (screen.panes.lastIndex { anchor.contains($0.handle) } ?? screen.panes.count - 1) + 1
         screen.panes.insert(pane, at: min(after, screen.panes.count))
         store.index.insert(pane, in: screen)
@@ -194,16 +195,18 @@ import Foundation
         guard screen.zoomedPane == nil else { return nil }
         var columns = screen.columns
         if columns.isEmpty { columns = [ColumnSnapshot(id: ColumnID(rawValue: row.firstHandle.rawValue | (1 << 60)), width: 1, layout: screen.layout)] }
-        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
-        var column = columns[index]
+        guard let index = columns.firstIndex(where: { $0.layout.paneIDs.contains(target) }),
+              var column = columns[checked: index] else { return nil }
         var rows = column.rows.isEmpty ? [RowSnapshot(id: row.firstHandle, height: 1000, layout: column.layout)] : column.rows
         guard let at = rows.firstIndex(where: { $0.layout.paneIDs.contains(target) }) else { return nil }
         rows.insert(RowSnapshot(id: row.handle, height: row.height, layout: .leaf(leaf)), at: at + 1)
         column.rows = rows
-        column.layout = rows.dropFirst().reduce(rows[0].layout) { chain, next in
+        // The column's compat chain of its rows (rows holds at least the target's row and the new one).
+        guard let first = rows.first else { return nil }
+        column.layout = rows.dropFirst().reduce(first.layout) { chain, next in
             .split(id: nil, resourceID: nil, direction: .down, ratio: 0.5, a: chain, b: next.layout)
         }
-        columns[index] = column
+        columns.replaceSubrange(index...index, with: [column])
         let undo = IntentUndo.splitPane(screen: screen.handle, layout: screen.layout, columns: screen.columns,
                                         pane: daemon == nil ? provisional.handle : nil)
         screen.layout = split(screen.layout, target, .down, 0.5, leaf, provisional.splitID)

@@ -118,7 +118,7 @@ import Testing
             #expect(!lines.isEmpty, "\(name): no members' line")
             for line in lines {
                 line.updateLayer()
-                let drawn = try Self.rgb(line.layer?.backgroundColor)
+                let drawn = try Self.rgb(line.railShape.fillColor)
                 let want = scope.tokens.chip(try Self.lawrence(line.color.token, fill: true, dark: dark), inks: .onColor).fill
                 #expect(Self.same(drawn, want), "\(name) \(line.color.token) line: \(drawn), want the bar's \(want)")
             }
