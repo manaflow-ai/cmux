@@ -729,6 +729,9 @@ def main():
             result["daemon_handoff_mark"] = bool(handed)
         if terminals:
             relaunched = first(rows, "launch.first_window_frame_committed", not_pid=v1_pid)["unix_ms"] / 1000
+            # Capture the relaunched app while every agent is still blocked on its FIFO.
+            result["busy_relaunched_snapshot"] = rpc(sock, "debug.window_snapshot",
+                {"path": os.path.join(out, "busy-after-relaunch.png")})
             result["terminal_survivals"] = [terminal.check(v1, click / 1000, relaunched, handoff=a.handoff)
                                             for terminal in terminals]
             result["agent_survivals"] = [agent.check(handoff=a.handoff) for agent in agents]
