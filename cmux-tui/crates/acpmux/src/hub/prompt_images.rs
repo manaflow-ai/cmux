@@ -26,7 +26,7 @@ const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
-fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn sniffed_type(bytes: &[u8]) -> Option<&'static str> {
     let at = |offset: usize, magic: &[u8]| bytes.get(offset..offset + magic.len()) == Some(magic);
     if at(0, b"\x89PNG\r\n\x1a\n") {
         return Some("image/png");
@@ -134,7 +134,7 @@ pub(super) fn named(blocks: &[Value]) -> Vec<Value> {
 /// Keeps the bytes of each `image` block in `blocks` and returns what `user_message` (and a
 /// queued prompt's `queued` and `queue_updated`) records of them. An image that cannot be read
 /// or kept is left out: the prompt still goes.
-pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
+pub(crate) fn keep(blocks: &[Value]) -> Vec<Value> {
     blocks
         .iter()
         .filter_map(decode)
@@ -145,7 +145,7 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
                 let written = std::fs::create_dir_all(dir()).and_then(|()| {
                     // Written aside and renamed, so a reader never sees half an image.
                     let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
-                    std::fs::write(&partial, &bytes)?;
+                    write_owner_only(&partial, &bytes)?;
                     std::fs::rename(&partial, &path)
                 });
                 if let Err(e) = written {
@@ -156,6 +156,16 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
             Some(named)
         })
         .collect()
+}
+
+/// Writes a new file only its owner reads (0600 on Unix).
+fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)
 }
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
