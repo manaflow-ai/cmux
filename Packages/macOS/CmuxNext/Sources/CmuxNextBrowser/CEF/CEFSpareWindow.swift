@@ -63,6 +63,7 @@ final class CEFSpareWindow {
         let spare = runtime.host(for: key)
         let blank = CEFTab(id: .random(), profile: .default, host: spare, runtime: runtime)
         spare.placeholder = blank
+        spare.freezesPlaceholder = true
         spare.add(blank)
         spare.ensureCreated(blank)
         guard spare.isLive || spare.isCreatingWindow else {
