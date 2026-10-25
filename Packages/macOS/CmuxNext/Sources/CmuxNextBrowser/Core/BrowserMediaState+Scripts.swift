@@ -16,9 +16,11 @@ import Foundation
 /// (or unmutes) the frame's media elements, keeps muting the ones that play
 /// next, and passes on to the frame's child frames. A video floating in
 /// Picture in Picture is the one reported, playing or not, until it comes back.
-/// The observer keeps a timer only while what it reported plays or, for at
-/// most ten looks, while a report waits for the binding: an idle frame costs
-/// its renderer no wakeup and no work per DOM change. A paused element the
+/// The observer keeps a timer only while what it reported plays: an idle
+/// frame, and a report that waits for Chromium's binding, cost its renderer
+/// no wakeup and no work per DOM change. A waiting report goes when the
+/// bridge calls ``readyHook`` after a binding add (`CEFMediaBridge`), or at
+/// the next natural event. A paused element the
 /// page removes (its events fire on a detached node no listener here sees)
 /// reports null at the next natural event: a media event, or the page
 /// showing again.
@@ -27,6 +29,10 @@ nonisolated extension BrowserMediaState {
     static let channel = "cmuxMedia"
     /// The isolated world the observer runs in.
     static let world = "cmux-media"
+    /// The function the observer puts on its world's `window`; calling it says the channel
+    /// exists now, and a report that waits for it goes (`CEFMediaBridge` calls it after each
+    /// binding add).
+    static let readyHook = "__cmuxMediaReady"
 
     /// The observer, posting with `post` (a JS expression taking `message`,
     /// `{frame, report}`) once `ready` (a JS expression) is true.
@@ -38,9 +44,6 @@ nonisolated extension BrowserMediaState {
           let last = '', reported = false, pending = false, heartbeat = false, timer = 0, actions = '', tabMuted = false, seeked = false;
           // What the last look found playing, and the one-second look-again while it plays (`follow`).
           let playing = false, ticks = 0, ticker = 0;
-          // Looks a report has waited for the binding; after `maxRetries` only a natural event retries.
-          let retries = 0;
-          const maxRetries = 10;
           // The element last reported: the page showing again checks it is still in the document.
           let held = null;
           // This document's id: the tab keeps one report per frame.
@@ -52,7 +55,6 @@ nonisolated extension BrowserMediaState {
           const send = (report) => {
             if (!(\#(ready))) { pending = true; return false; }
             pending = false;
-            retries = 0;
             const message = { frame, report };
             try { \#(post); return true; } catch (_) { return false; }
           };
@@ -101,18 +103,18 @@ nonisolated extension BrowserMediaState {
             held = element;
           };
           // Metadata changes fire no event: look again every second while what this frame reported
-          // plays (every third look sends it again with its position), and for at most `maxRetries`
-          // looks while a report waits for the binding (an iframe made after the last binding add
-          // never gets one: the next media event tries again). Nothing else keeps a timer, so a
-          // frame with nothing playing (every idle page, hidden or shown) never wakes its renderer.
+          // plays (every third look sends it again with its position). Nothing else keeps a timer,
+          // so a frame with nothing playing (every idle page, hidden or shown) never wakes its
+          // renderer. A report that waits for the binding keeps none either: the bridge's ready
+          // call after a binding add sends it (an iframe made after the last binding add never
+          // gets one: its next media event tries again).
           const follow = () => {
-            const on = (playing && reported) || (pending && retries < maxRetries);
+            const on = playing && reported;
             if (on && !ticker) {
               ticks = 0;
               ticker = setInterval(() => {
                 ticks += 1;
                 heartbeat = reported && ticks % 3 === 0;
-                if (pending) retries += 1;
                 schedule();
               }, 1000);
             } else if (!on && ticker) {
@@ -126,6 +128,9 @@ nonisolated extension BrowserMediaState {
             follow();
           };
           const schedule = () => { if (!timer) timer = setTimeout(report, 250); };
+          // The channel exists now (the bridge's one-shot call after a binding add): a report that
+          // waits for it goes.
+          window.\#(readyHook) = () => { if (pending) schedule(); };
           for (const type of ['play', 'playing', 'pause', 'ended', 'emptied', 'volumechange', 'loadedmetadata', 'durationchange',
             'enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged']) {
             addEventListener(type, schedule, true);

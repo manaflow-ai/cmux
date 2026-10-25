@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// The media hub's scripts in a Chromium page (`BrowserMediaState+Scripts`),
 /// through the DevTools protocol, so neither the fork nor the shim changes:
@@ -12,8 +11,10 @@ import os
 /// Without `Runtime.enable` (which would stream every console message of
 /// every tab, and which pages can detect) a binding reaches only worlds
 /// that exist when it is added. So the bridge adds it again each time a
-/// document commits, once that document's world exists; the observer holds
-/// its report until the binding appears.
+/// document commits and finishes, once that document's worlds exist; the
+/// observer holds its report, with no timer, until the bridge's ready call
+/// after each binding add (``CEFDocumentCall/readyHook(world:hook:)``) says
+/// the binding is there.
 final class CEFMediaBridge {
     /// Weak: the tab owns this bridge; after it is gone every entry point returns.
     private weak var tab: CEFTab?
@@ -29,21 +30,22 @@ final class CEFMediaBridge {
         tab.agentRelay.mediaListens = true
         // Blink runs new-document scripts only while the Page domain is on; its events are a few
         // per navigation. The scripts are the same list the renderer path installs (`CEFDocumentScripts`).
-        let scripts = CEFDocumentScripts(post: .binding).media.map { script -> (String, [String: Any]) in
+        let scripts = CEFDocumentScripts(post: .binding).media.map { script -> CEFDocumentCall in
             var params: [String: Any] = ["source": script.source, "runImmediately": true]
             if !script.world.isEmpty { params["worldName"] = script.world }
-            return ("Page.addScriptToEvaluateOnNewDocument", params)
+            return .method("Page.addScriptToEvaluateOnNewDocument", params)
         }
-        let calls: [(String, [String: Any])] = [("Page.enable", [:])] + scripts + Self.bindings
-        run(calls, browser)
+        run([.method("Page.enable", [:])] + scripts + Self.documentCalls, browser)
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
 
-    /// The media world's bindings: the media report and the protected-media refusal.
-    private static var bindings: [(String, [String: Any])] {
+    /// The calls for a document's worlds: the media world's bindings (the media report and the
+    /// protected-media refusal), then the observer's ready hook, so a report that waited for the
+    /// binding goes now, however late the binding came.
+    static var documentCalls: [CEFDocumentCall] {
         [BrowserMediaState.channel, BrowserProtectedMedia.channel].map {
-            ("Runtime.addBinding", ["name": $0, "executionContextName": BrowserMediaState.world])
-        }
+            .method("Runtime.addBinding", ["name": $0, "executionContextName": BrowserMediaState.world])
+        } + [.readyHook(world: BrowserMediaState.world, hook: BrowserMediaState.readyHook)]
     }
 
     /// A document committed or finished: its world exists now.
@@ -54,20 +56,12 @@ final class CEFMediaBridge {
         let document = (url: state.url, phase: state.phase)
         guard boundDocument.map({ $0.url != document.url || $0.phase != document.phase }) ?? true else { return }
         boundDocument = document
-        run(Self.bindings, browser)
+        run(Self.documentCalls, browser)
     }
 
-    private func run(_ calls: [(String, [String: Any])], _ browser: Int32) {
-        Task { [weak tab] in
-            for (method, params) in calls {
-                guard let tab, tab.browserID == browser else { return }
-                do {
-                    _ = try await tab.runtime.devTools(browser, method: method, params: params)
-                } catch {
-                    tab.runtime.logger.info("media hub: \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                }
-            }
-        }
+    private func run(_ calls: [CEFDocumentCall], _ browser: Int32) {
+        guard let tab else { return }
+        CEFDocumentCall.run(calls, on: tab, browser: browser, label: "media hub")
     }
 
     /// A `Runtime.bindingCalled` of the media binding: applies the page's

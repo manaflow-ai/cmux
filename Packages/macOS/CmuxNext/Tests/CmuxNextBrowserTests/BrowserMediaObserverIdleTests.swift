@@ -6,8 +6,9 @@ import Testing
 /// The media observer (`BrowserMediaState.observerScript`) runs from document start in every frame
 /// of every page, in both engines. Idle must cost nothing (speed-of-sound-DESIGN.md 1,
 /// idle-wakeups.md): a frame with nothing playing keeps no timer, so it never wakes its renderer.
-/// It looks again every second only while something plays (metadata changes fire no event) or a
-/// report waits for the binding. Run for real in JavaScriptCore against a small fake page.
+/// It looks again every second only while something plays (metadata changes fire no event); a
+/// report that waits for the binding keeps no timer and goes at the bridge's ready call. Run for
+/// real in JavaScriptCore against a small fake page.
 @Suite struct BrowserMediaObserverIdleTests {
     /// A fake page: timers the test runs by hand, global and document listeners, media elements.
     static let page = """
@@ -47,6 +48,9 @@ import Testing
     }
 
     static func timers(_ context: JSContext) -> Int32 { context.evaluateScript("intervals.size").toInt32() }
+    /// The bridge's ready call after a binding add (`CEFDocumentCall.readyHook`).
+    static let readyCall = "window.\(BrowserMediaState.readyHook)(); runTimeouts();"
+
     static func posts(_ context: JSContext) -> Int32 { context.evaluateScript("posted.length").toInt32() }
 
     @Test func aFrameWithNothingPlayingKeepsNoTimer() throws {
@@ -71,12 +75,12 @@ import Testing
         #expect(Self.posts(context) == 3)
     }
 
-    @Test func aReportTheBindingWasNotReadyForIsRetriedUntilItGoes() throws {
+    @Test func aReportTheBindingWasNotReadyForGoesAtTheReadyCall() throws {
         let context = try Self.context()
         context.evaluateScript("ready = false; var v = video(false); media = [v]; fire('pause', v);")
         #expect(Self.posts(context) == 0)
-        #expect(Self.timers(context) == 1)
-        context.evaluateScript("ready = true; tickSecond();")
+        #expect(Self.timers(context) == 0)
+        context.evaluateScript("ready = true; " + Self.readyCall)
         #expect(Self.posts(context) == 1)
         #expect(Self.timers(context) == 0)
     }
@@ -110,15 +114,16 @@ import Testing
         #expect(context.evaluateScript("observers.length").toInt32() == 0)
     }
 
-    /// A frame whose binding never comes (an iframe made after the last binding add) stops
-    /// retrying after a bounded number of looks; the next media event tries again. Before, its
-    /// 1 s retry ticker ran for the life of the page.
-    @Test func aReportWhoseBindingNeverComesStopsRetrying() throws {
+    /// A frame whose binding never comes (an iframe made after the last binding add) keeps no
+    /// retry timer; a ready call that finds the binding still missing sends nothing, and the next
+    /// media event tries again. Before, its 1 s retry ticker ran for the life of the page.
+    @Test func aReportWhoseBindingNeverComesKeepsNoTimer() throws {
         let context = try Self.context()
         context.evaluateScript("ready = false; var v = video(false); media = [v]; fire('pause', v);")
-        #expect(Self.timers(context) == 1)
+        #expect(Self.timers(context) == 0, "a waiting report keeps a retry ticker")
         for _ in 0..<30 { context.evaluateScript("tickSecond()") }
-        #expect(Self.timers(context) == 0, "the retry ticker runs for the life of the page")
+        context.evaluateScript(Self.readyCall)
+        #expect(Self.timers(context) == 0)
         #expect(Self.posts(context) == 0)
         context.evaluateScript("ready = true; fire('volumechange', v);")
         #expect(Self.posts(context) == 1, "the next media event sends the held report")
@@ -135,21 +140,21 @@ import Testing
         #expect(Self.timers(context) == 0, "a waiting report keeps a retry ticker")
         for _ in 0..<30 { context.evaluateScript("tickSecond()") }
         #expect(Self.posts(context) == 0)
-        context.evaluateScript("ready = true; window.__cmuxMediaReady(); runTimeouts();")
+        context.evaluateScript("ready = true; " + Self.readyCall)
         #expect(Self.posts(context) == 1, "the ready hook did not send the waiting report")
         #expect(context.evaluateScript("lastReport().playing === true").toBool())
     }
 
-    /// The pagehide null that the binding was not ready for is retried like every other report.
-    /// Before, only `report()` started the retry ticker, so that null never reached the tab.
-    @Test func aPagehideNullTheBindingWasNotReadyForIsRetried() throws {
+    /// The pagehide null that the binding was not ready for waits like every other report and
+    /// goes at the ready call.
+    @Test func aPagehideNullTheBindingWasNotReadyForGoesAtTheReadyCall() throws {
         let context = try Self.context()
         context.evaluateScript("var v = video(false); media = [v]; fire('pause', v);")
         #expect(Self.posts(context) == 1)
         context.evaluateScript("ready = false; fire('pagehide', {});")
         #expect(Self.posts(context) == 1)
-        #expect(Self.timers(context) == 1, "a pending null has no retry")
-        context.evaluateScript("ready = true; media = []; tickSecond();")
+        #expect(Self.timers(context) == 0)
+        context.evaluateScript("ready = true; media = []; " + Self.readyCall)
         #expect(Self.posts(context) == 2)
         #expect(context.evaluateScript("lastReport() === null").toBool())
         #expect(Self.timers(context) == 0)

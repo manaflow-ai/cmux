@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// The email verification detector in a Chromium page (`VerificationPageScripts`), through the
 /// DevTools protocol like `CEFMediaBridge`: the detector runs in its own isolated world on every
@@ -19,26 +18,22 @@ final class CEFVerificationBridge {
 
     init(tab: CEFTab) { self.tab = tab }
 
-    private static var binding: (String, [String: Any]) {
-        ("Runtime.addBinding", ["name": VerificationPageScripts.channel, "executionContextName": VerificationPageScripts.world])
+    private static var binding: CEFDocumentCall {
+        .method("Runtime.addBinding", ["name": VerificationPageScripts.channel, "executionContextName": VerificationPageScripts.world])
     }
 
-    /// Runs the detector's ready hook once in the worlds that exist now: `runImmediately` runs a
-    /// new-document script in the existing worlds, and removing it at once keeps it off later
-    /// documents (their detector finds the binding there from the start).
-    private static func readyCall() -> (String, [String: Any]) {
-        ("Page.addScriptToEvaluateOnNewDocument", ["source": readySource, "worldName": VerificationPageScripts.world, "runImmediately": true])
+    /// The detector's ready hook, once in the worlds that exist now (``CEFDocumentCall/readyHook(world:hook:)``).
+    private static var readyCall: CEFDocumentCall {
+        .readyHook(world: VerificationPageScripts.world, hook: VerificationPageScripts.readyHook)
     }
-
-    private static let readySource = "typeof window.\(VerificationPageScripts.readyHook) === 'function' && window.\(VerificationPageScripts.readyHook)()"
 
     /// The tab's browser exists (`CEFAgentRelay.browserAttached`).
     func attach(_ browser: Int32) {
         guard let tab else { return }
-        let scripts = CEFDocumentScripts(post: .binding).verification.map { script -> (String, [String: Any]) in
-            ("Page.addScriptToEvaluateOnNewDocument", ["source": script.source, "worldName": script.world, "runImmediately": true])
+        let scripts = CEFDocumentScripts(post: .binding).verification.map { script -> CEFDocumentCall in
+            .method("Page.addScriptToEvaluateOnNewDocument", ["source": script.source, "worldName": script.world, "runImmediately": true])
         }
-        run([("Page.enable", [:])] + scripts + [Self.binding], browser, tab: tab)
+        CEFDocumentCall.run([.method("Page.enable", [:])] + scripts + [Self.binding], on: tab, browser: browser, label: "verification detector")
         observation = ObservationLoop { [weak self] in self?.documentChanged() }
     }
 
@@ -49,38 +44,13 @@ final class CEFVerificationBridge {
         let document = (url: state.url, phase: state.phase)
         guard boundDocument.map({ $0.url != document.url || $0.phase != document.phase }) ?? true else { return }
         boundDocument = document
-        run(Self.documentCalls(phase: state.phase), browser, tab: tab)
+        CEFDocumentCall.run(Self.documentCalls(phase: state.phase), on: tab, browser: browser, label: "verification detector")
     }
 
     /// The DevTools calls for a document that reached `phase`: the binding each time, the ready
     /// call (two round trips) only once the document finished.
-    static func documentCalls(phase: BrowserLoadPhase) -> [(String, [String: Any])] {
-        phase == .finished ? [binding, readyCall()] : [binding]
-    }
-
-    private func run(_ calls: [(String, [String: Any])], _ browser: Int32, tab: CEFTab) {
-        Task { [weak tab] in
-            for (method, params) in calls {
-                guard let tab, tab.browserID == browser else { return }
-                do {
-                    let result = try await tab.runtime.devTools(browser, method: method, params: params)
-                    // The ready call is a one-shot: off every later document.
-                    if params["source"] as? String == Self.readySource, let identifier = Self.scriptIdentifier(result) {
-                        _ = try await tab.runtime.devTools(browser, method: "Page.removeScriptToEvaluateOnNewDocument",
-                                                          params: ["identifier": identifier])
-                    }
-                } catch {
-                    tab.runtime.logger.info("verification detector: \(method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                }
-            }
-        }
-    }
-
-    /// The `identifier` of a `Page.addScriptToEvaluateOnNewDocument` result.
-    private static func scriptIdentifier(_ result: String) -> String? {
-        guard let data = result.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return object["identifier"] as? String
+    static func documentCalls(phase: BrowserLoadPhase) -> [CEFDocumentCall] {
+        phase == .finished ? [binding, readyCall] : [binding]
     }
 
     /// A `Runtime.bindingCalled` of the detector's binding from the main frame's world: emits the
