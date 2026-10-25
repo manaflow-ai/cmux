@@ -219,9 +219,13 @@ impl Hub {
         if replaced || session.moving().is_some() {
             return;
         }
-        let gone = if deleted { "is gone" } else { "closed" };
         let mine = |row: &Value| worked_on(row) && row["sessionId"] == session.id.as_str();
-        for row in self.briefs.matching(mine) {
+        let rows = self.briefs.matching(mine);
+        if rows.is_empty() || self.moved_on(&session.id) {
+            return;
+        }
+        let gone = if deleted { "is gone" } else { "closed" };
+        for row in rows {
             let lane_name = row.get("to").and_then(Value::as_str).unwrap_or(&session.id).to_owned();
             let result = json!({
                 "state": "orphaned", "summary": format!("{lane_name} {gone} with it still open"),
@@ -240,15 +244,28 @@ impl Hub {
         }
     }
 
+    /// Whether chat `id` last moved to another daemon: its log's latest move record is its
+    /// commit here (`transferred`), not an arrival (`transferred_in`). Read from the log, so it
+    /// holds after a restart and whatever a racing abort did to `moving`; the commit logs it
+    /// before it closes the copy it leaves.
+    fn moved_on(&self, id: &str) -> bool {
+        let mut away = false;
+        let kinds = ["transferred", "transferred_in"];
+        let _ = self.store.scan_kinds(id, &kinds, &mut |e: crate::store::EventRecord| {
+            away = e.kind == "transferred";
+            true
+        });
+        away
+    }
+
     /// Sends the cards orphaned tasks owe (module docs) on each local close or delete, at the
     /// start and after a lag. Ends when the hub's event channel closes or the hub is dropped.
     pub(super) fn watch_orphans(self: &Arc<Self>) {
         let mut events = self.subscribe();
+        // The start's pass runs before the hub is handed out: a card a crash left owed.
+        self.send_owed_cards();
         let hub = Arc::downgrade(self);
         tokio::spawn(async move {
-            if let Some(hub) = hub.upgrade() {
-                hub.send_owed_cards();
-            }
             loop {
                 match events.recv().await {
                     Ok(ev) => {
@@ -271,10 +288,15 @@ impl Hub {
     }
 
     /// Sends each owed orphan card once: the mark is cleared under the ledger's lock first, so
-    /// two passes never both send it.
+    /// two passes never both send it. A card whose giver is not loaded stays owed (a start whose
+    /// session list failed loads none) for a later pass.
     fn send_owed_cards(self: &Arc<Self>) {
         let owed = |row: &Value| orphaned(row) && row["result"]["cardOwed"] == true;
         for row in self.briefs.matching(owed) {
+            let giver = row.get("fromSession").and_then(Value::as_str).unwrap_or_default();
+            if self.resolve(giver).is_err() {
+                continue;
+            }
             let id = row.get("briefId").and_then(Value::as_str).unwrap_or_default();
             let mut mine = false;
             let row = self.briefs.update(id, |r| {
