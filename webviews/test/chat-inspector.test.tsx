@@ -610,6 +610,36 @@ test("a folded Changes registers nothing with the host and asks it nothing", asy
   }
 });
 
+test("a folded Changes with only named pull requests the App has not confirmed keeps its header, so it can open", async () => {
+  const container = installDom(true);
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
+  });
+  setInspectorSection("changes", false);
+  try {
+    // Named only in a reply: hidden until the App says they are pull requests.
+    await render(container, chat([assistant("acme/billing#9 and acme/atlas-web#12 are the ones to watch.", 1)]));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    const folded = section(container, "changes");
+    expect(folded).not.toBeNull();
+    // Not presented as confirmed pull requests: no rows and no count.
+    expect(folded!.querySelectorAll("li.acpmux-chat-inspector-pr")).toHaveLength(0);
+    expect(meta(folded!)).toBeUndefined();
+    expect(calls).toEqual([]);
+    await act(async () => setInspectorSection("changes", true));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
+  } finally {
+    setInspectorSection("changes", true);
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
+});
+
 test("a pull request named only inside a quoted --body or --title is not the one the command touched", () => {
   const made = sessionSummary(
     chat([
