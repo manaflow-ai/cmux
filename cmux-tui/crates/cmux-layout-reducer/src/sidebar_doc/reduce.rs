@@ -1068,7 +1068,7 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
         // Remove/mark choice in the durable opt-out field unless a newer
         // client supplied that field explicitly.
         if patch.host_group_opt_out.is_none() {
-            section.host_group_opt_out = !host_group;
+            section.host_group_opt_out = section.kind.machine().is_some() && !host_group;
         }
     }
     if let Some(opt_out) = patch.host_group_opt_out {
