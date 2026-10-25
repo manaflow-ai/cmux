@@ -246,7 +246,17 @@ class Stress:
             topology = self.topology()
             raise StressShapeError(f"focus never reached pane {pane_id} (active focus {topology.get('focus')}, "
                                    f"windows {[(w.get('key'), w.get('workspace'), w.get('focused_pane')) for w in topology.get('windows') or []]}; "
-                                   f"pane.focus reply {json.dumps(reply)[:400]}; focus model {self.focus_model()})")
+                                   f"pane.focus reply {json.dumps(reply)[:400]}; focus model {self.focus_model()}; "
+                                   f"snapshot after debug.focus {self.reread_focus(pane_id)})")
+
+    def reread_focus(self, pane_id):
+        """The snapshot's focus read again after a main-actor call (debug.focus marks the snapshot stale): the
+        window that shows `pane_id`'s workspace and the active focus, for a focus failure's message."""
+        topology = self.topology()
+        owner = next((w["id"] for w in topology.get("workspaces") or [] for p in self.panes(w) if p.get("id") == pane_id), None)
+        window = self.window_showing(owner, topology) if owner else None
+        return json.dumps({"window_focused_pane": (window or {}).get("focused_pane"),
+                           "active_focus": (topology.get("focus") or {}).get("pane")})
 
     def focus_model(self):
         """Each window's focus machine (debug.focus: its pane, expectation, generation, topology workspace and
