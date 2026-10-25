@@ -318,6 +318,49 @@ struct ChatDraftAttachmentsTests {
         #expect(kept.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(2))
     }
 
+    @Test func anOrderedDraftWithADuplicateIdKeepsTheLatestChipAtItsOwnMark() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let old = Chip(id: "same", kind: "image", name: "old.png", mimeType: "image/png", size: 3,
+                       data: Data([1, 2, 3]).base64EncodedString())
+        var latest = old
+        latest.name = "latest.png"
+        latest.data = Data([4, 5, 6]).base64EncodedString()
+        let other = Chip(id: "other", kind: "image", name: "other.png", mimeType: "image/png", size: 3,
+                         data: Data([7, 8, 9]).base64EncodedString())
+        let draft = AgentPaneDraft(text: "a\u{FFFC}b\u{FFFC}c\u{FFFC}d", attachments: [old, latest, other])
+        #expect(try await Self.keep(draft, for: "duplicate-ordered") == ["other", "same"])
+
+        let restored = try await Self.ordered("duplicate-ordered")
+        #expect(restored.pieces == [.text("ab"), .attachment(latest), .text("c"), .attachment(other), .text("d")])
+    }
+
+    @Test func anOrderedDraftPastItsCapKeepsItsTextWithoutTheChips() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        store.maximumBytes = 8
+        AgentPaneDraftAttachments.shared = store
+        let big = Chip(id: "big", kind: "image", name: "big.png", mimeType: "image/png", size: 12,
+                       data: Data(repeating: 1, count: 12).base64EncodedString())
+        #expect(try await Self.keep(AgentPaneDraft(text: "typed\u{FFFC}words", attachments: [big]), for: "over-cap").isEmpty)
+
+        #expect(try await Self.ordered("over-cap") == AgentPaneDraft(text: "typedwords"))
+    }
+
+    @Test func anOrderedReadWithNoStoreAnswersAnEmptyDraft() async throws {
+        AgentPaneDraftAttachments.shared = nil
+        #expect(try await Self.ordered("no-store") == AgentPaneDraft())
+        #expect(try await Self.kept("no-store").isEmpty)
+    }
+
     @Test func aChatPastItsCapKeepsNothingAndBadCallsAreRefused() async throws {
         let directory = try Self.directory()
         defer {
