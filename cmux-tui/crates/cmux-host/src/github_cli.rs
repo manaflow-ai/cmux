@@ -332,8 +332,16 @@ pub fn gh_plan(
         if arg == "--" {
             break;
         }
-        if arg == "-R" || arg == "--repo" {
+        if arg == "--repo" {
             named = it.next().cloned();
+        } else if let Some(cluster) = arg.strip_prefix('-').filter(|c| !c.starts_with('-')) {
+            // gh's shorthand forms: `-R o/r`, `-Ro/r`, `-R=o/r`, `-wR o/r`. A
+            // value that only looks like one is read as a repo too, so the
+            // check below refuses it rather than letting gh pick a host.
+            if let Some((_, rest)) = cluster.split_once('R') {
+                let rest = rest.strip_prefix('=').unwrap_or(rest);
+                named = if rest.is_empty() { it.next().cloned() } else { Some(rest.to_owned()) };
+            }
         } else if let Some(v) = arg.strip_prefix("--repo=") {
             named = Some(v.to_owned());
         } else if arg == "--hostname" || arg.starts_with("--hostname=") {
@@ -600,10 +608,15 @@ mod tests {
             gh_plan(&strings(&["pr", "view", "--repo=o/r2"]), None, &none).unwrap().repo,
             "o/r2"
         );
-        // Only -R/--repo name the repo; a value that looks like one does not.
-        let titled =
-            gh_plan(&strings(&["issue", "create", "--title", "-Rfoo"]), Some("o/env"), &none);
-        assert_eq!(titled.unwrap().repo, "o/env");
+        // Every shorthand -R form names the repo, and one on another host
+        // (or a value that only looks like -R) is refused, never left to gh.
+        let repo_of = |v: &[&str]| gh_plan(&strings(v), Some("o/env"), &none).map(|p| p.repo);
+        assert_eq!(repo_of(&["pr", "view", "-Ro/r3"]).unwrap(), "o/r3");
+        assert_eq!(repo_of(&["pr", "view", "-R=o/r4"]).unwrap(), "o/r4");
+        assert_eq!(repo_of(&["pr", "view", "-wR", "o/r5"]).unwrap(), "o/r5");
+        assert!(repo_of(&["pr", "view", "-Revil.example.com/o/r"]).is_err());
+        assert!(repo_of(&["pr", "view", "-R=evil.example.com/o/r"]).is_err());
+        assert!(repo_of(&["issue", "create", "--title", "-Rfoo"]).is_err());
         assert!(
             gh_plan(&strings(&["api", "x", "--hostname", "evil.ghe.com"]), Some("o/r"), &none)
                 .is_err()
