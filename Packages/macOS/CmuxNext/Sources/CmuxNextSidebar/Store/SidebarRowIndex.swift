@@ -62,6 +62,7 @@ nonisolated struct SidebarRowIndex: Sendable {
     /// same id (its row state and machine kept). One walk, for a copy of the
     /// rows that has no index (the App's live rows under pending edits).
     static func patching(_ rows: [SidebarWorkspace], in sections: [SidebarSection]) -> [SidebarSection] {
+        guard !rows.isEmpty else { return sections }
         let changed = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         func patched(_ ws: SidebarWorkspace) -> SidebarWorkspace {
             guard var row = changed[ws.id] else { return ws }
@@ -113,6 +114,8 @@ extension SidebarListView {
         let shownCard = hoverCard.shownID
         let shownGroupCard = hoverCard.shownGroupID
         for ws in patched {
+            // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
+            let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
             workspaces[ws.id] = ws
             // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
             var changedTabs: [TabID] = []
@@ -129,12 +132,12 @@ extension SidebarListView {
                     groups[group.id] = group
                     reconfigure(.group(group.id))
                     // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.
-                    if let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
+                    if cardChanged, let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
                         hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shownGroupCard))
                     }
                 }
             }
-            if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
+            if cardChanged, shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else {
                 // A session a folded parent hides: the parent's roll-up counts it, so the list lays out again.
                 if SidebarSessionTree.shared.drawn?.hidesInFold(ws.id) == true { heightChanged = true }
@@ -145,7 +148,7 @@ extension SidebarListView {
             var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
             content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
-            let m = o.minimal ? metrics.minimal : metrics
+            let m = metrics.resolved(for: o)
             guard m.height(for: content) == row.height else {
                 heightChanged = true
                 continue
@@ -179,7 +182,7 @@ nonisolated extension SidebarLayout {
     /// workspaces, which read as one collapsible "Chief" group of their own, never as the rows
     /// after the last group above them (Leo 2026-10-21). The one rule for every header kind.
     static func keepsHeaderInOneList(_ section: SidebarSection) -> Bool {
-        section.isHostGroup || section.machine?.id.isLocalChief == true
+        section.isHostGroup
     }
 
     /// The computer a workspace row of `section` names on its second line in
@@ -187,7 +190,7 @@ nonisolated extension SidebarLayout {
     /// read like this Mac's: their hover card says who started them), with its
     /// status when it cannot connect; nil otherwise. The one rule for `make` and a row update.
     static func machineLabel(_ section: SidebarSection, options o: SidebarLayoutOptions) -> String? {
-        guard o.flattensMachines, let machine = section.machine, machine.kind != .local, !machine.id.isLocalChief
+        guard o.flattensMachines, let machine = section.machine, machine.kind != .local
         else { return nil }
         return o.machineStatusLabels[machine.id].map { machine.name + WorkspaceRowContent.separator + $0 } ?? machine.name
     }

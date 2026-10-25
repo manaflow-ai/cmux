@@ -174,6 +174,17 @@ const quick: ModelPickerProps = {
   },
 };
 
+/// A started Claude chat that can fork, on a Mac with a second Claude account (its own profile).
+const startedFork: ModelPickerProps = {
+  ...quick,
+  catalog: [
+    ...curated.catalog,
+    { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
+  ],
+  harnessFixed: true,
+  fork: { to: () => undefined, ready: true },
+};
+
 const openQuick: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
@@ -255,7 +266,35 @@ export default componentEntry<GalleryProps>({
       },
       play: openQuick,
     },
+    // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"): the whole rail, and
+    // the Codex tab offers Fork to Codex in place of its models.
+    "started-chat-fork": {
+      props: startedFork,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
+      },
+    },
+    // Its Account row: the harness's own accounts (profiles), then the chat's routes.
+    "started-chat-accounts": {
+      props: startedFork,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+      },
+    },
     "quick-menu": { props: quick, play: openQuick },
+    // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
+    "quick-menu-accounts": {
+      props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+      },
+    },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
     "quick-menu-rail": {
       props: quick,
@@ -314,8 +353,8 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
       },
     },
-    // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
-    // square), and its rail tab its initial.
+    // A folder profile is a machine choice, not a harness: it remains the selected model source,
+    // while the rail contains only Claude/Codex harnesses.
     "profile-without-mark": {
       props: {
         ...base,
@@ -335,6 +374,11 @@ export default componentEntry<GalleryProps>({
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-mp-harness")].every(
+            (tab) => tab.getAttribute("title")?.split(" · ")[0] !== "Vercel AI Gateway",
+          ),
+        );
       },
     },
   },

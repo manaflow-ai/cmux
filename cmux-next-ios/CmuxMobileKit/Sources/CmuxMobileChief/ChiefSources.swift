@@ -53,8 +53,8 @@ public final class ChiefSources {
     nonisolated static let defaultModel = "claude-opus-5-5"
     nonisolated static let defaultEffort = "low"
 
-    @ObservationIgnored private var http: ChiefCloudHTTP?
-    @ObservationIgnored private var userID: String?
+    @ObservationIgnored var http: ChiefCloudHTTP?
+    @ObservationIgnored var userID: String?
     @ObservationIgnored private var lookup: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var foregroundObserver: (any NSObjectProtocol)?

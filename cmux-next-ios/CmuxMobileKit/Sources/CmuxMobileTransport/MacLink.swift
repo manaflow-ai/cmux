@@ -79,6 +79,10 @@ public protocol MacLink: AnyObject, Sendable {
     /// output. A link without one opens an ordinary channel.
     func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel
     func ping() async throws -> UInt32
+    /// Whether the link is alive within `timeout`: the round trip on the pong,
+    /// nil when other frames from the Mac came first (the pong trails a busy
+    /// queue: alive), a throw only when nothing came back at all.
+    func probe(timeout: Duration) async throws -> UInt32?
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
@@ -89,6 +93,11 @@ public protocol MacLink: AnyObject, Sendable {
 
 extension MacLink {
     public var connectedPath: LinkPathKind? { nil }
+
+    /// A link that only pings: the pong or nothing.
+    public func probe(timeout: Duration) async throws -> UInt32? {
+        try await ping()
+    }
 
     public func openInputChannel(service: String, args: [String: String]) async throws -> any LinkChannel {
         try await openChannel(service: service, args: args)

@@ -51,12 +51,18 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
     differ. Any other event leaves exports the base left stale to the base autofix: a PR that only
     touched other Swift must not go red for the base's staleness (review of #23915)."""
 
+    CHECK = "scripts/cmux-next/check-settings-exports.sh"
+
     def step(self) -> str:
+        """The one script every `settings` step of cmux-next.yml runs: the generated-files job's and
+        the daemon-test job's folded copy (CMUX_NEXT_FOLD_GENERATED). Two inline copies would drift,
+        and did: the fold's was still asking `defaults_guard.py check-stamp` (review of #23915)."""
         workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
         steps = [step for job in workflow["jobs"].values() for step in job.get("steps", [])
                  if step.get("id") == "settings"]
-        self.assertEqual(len(steps), 1)
-        return steps[0]["run"]
+        self.assertGreaterEqual(len(steps), 1)
+        self.assertEqual({step["run"].strip() for step in steps}, {self.CHECK})
+        return (ROOT / self.CHECK).read_text(encoding="utf-8")
 
     def test_the_check_runs_only_when_the_settings_sources_moved(self):
         script = self.step()

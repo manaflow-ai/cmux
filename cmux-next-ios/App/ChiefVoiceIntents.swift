@@ -15,15 +15,22 @@ final class ChiefVoice {
     static let controller = ChiefVoiceController.live(sources: .shared)
 }
 
-/// Opens cmux into a recording call with the user's Chief.
+/// Opens cmux into a live voice call with the user's Chief (Settings →
+/// Chief Calls when no OpenAI API key is set). One button starts and stops:
+/// pressing again with the call on screen hangs up; a minimized call comes back.
 struct CallChiefIntent: AppIntent {
     static let title: LocalizedStringResource = "Call Chief"
-    static let description = IntentDescription("Opens cmux and starts recording a call with your Chief. Press again to hang up.")
+    static let description = IntentDescription("Opens cmux and starts a live voice call with your Chief. Press again to hang up.")
     static let openAppWhenRun = true
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        await ChiefVoice.controller.handle(.call)
+        let call = ChiefLiveCall.shared
+        if let session = call.session, !session.hasEnded, call.showsScreen {
+            session.hangUp()
+        } else {
+            ChiefCallLauncher.shared.call()
+        }
         return .result()
     }
 }

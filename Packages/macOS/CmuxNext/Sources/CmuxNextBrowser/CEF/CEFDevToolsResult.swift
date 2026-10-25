@@ -28,6 +28,19 @@ nonisolated enum CEFDevToolsResult {
         return image
     }
 
+    /// ``evaluation(_:)`` off the caller's actor: a script's value (an agent's DOM snapshot, page
+    /// text) is megabytes of JSON, and the caller is the main actor (CEF's UI thread).
+    @concurrent
+    static func parsedEvaluation(_ json: String) async throws(BrowserTabError) -> BrowserJSValue {
+        try evaluation(json)
+    }
+
+    /// ``screenshot(_:)`` off the caller's actor: base64 and PNG decoding of a whole page.
+    @concurrent
+    static func decodedScreenshot(_ json: String) async throws(BrowserTabError) -> CGImage {
+        try screenshot(json)
+    }
+
     /// `Page.getFrameTree` main frame id.
     static func mainFrameID(_ json: String) -> String? {
         let tree = parse(json)?["frameTree"] as? [String: Any]

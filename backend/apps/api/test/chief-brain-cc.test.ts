@@ -1,11 +1,10 @@
-import { env, exports } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
-import { importJWK, SignJWT, type JWK } from "jose"
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
-import { fireAlarm } from "./setup/alarm.ts"
+import { describe, expect, it } from "vitest"
 import { memberUpsert } from "../src/domains/team-members.ts"
 import { CHIEF_VM_MJS } from "../src/chief-brain-cc/chief-vm-source.ts"
 import { createHash } from "node:crypto"
+import { fakeCloud, machine, notes, type Started } from "./chief-brain-cc-fake.ts"
+import { CC_NOTICES, CC_PARTIAL, TURN_FAILED_NOTICE } from "../src/chief-brain/brain-gateway.ts"
+import { enabledChief, history, http, inDO, op, replies, send, sessionToken, testEnv, useCcSettings, worker } from "./chief-brain-cc-harness.ts"
 
 /**
  * The Claude Code route of a Cloud Chief (chief-brain-cc/): for an owner on the paid-model list, each turn
@@ -13,298 +12,10 @@ import { createHash } from "node:crypto"
  * API) and streams back to POST /v1/chief-cc/<agent>/<conversation>/notes with a per-turn token; the reply
  * is posted as the Chief, the VM is deleted by its exact id, the team needs no Cloud credits, and the next
  * turn's input carries the earlier reply (the Chief's memory). Freestyle and the Tailscale API are faked at
- * their HTTP boundary; the fake VM plays the turn machine (backend/chief-cc/image/run.mjs) by posting notes
+ * their HTTP boundary; the fake VM plays the turn machine (chief-turn-runner, Native/OptChat/chief-turn) by posting notes
  * to the Worker. One file on purpose: it replaces globalThis.fetch and the route's settings.
  */
-type TestEnv = Record<string, string | undefined> & { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace }
-const testEnv = env as unknown as TestEnv
-const worker = (exports as unknown as { default: Fetcher }).default
-const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
-const sessionToken = async (sub: string) =>
-  new SignJWT({ email: `${sub}@example.com`, email_verified: true, name: sub })
-    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
-    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
-    .setAudience(testEnv.STACK_PROJECT_ID)
-    .setSubject(sub)
-    .setIssuedAt()
-    .setExpirationTime("10m")
-    .sign(await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256"))
-const http = async (method: string, path: string, token: string, body?: unknown) => {
-  const res = await worker.fetch(`https://api.test${path}`, { method, headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
-  return { status: res.status, text: await res.clone().text(), json: (await res.json().catch(() => null)) as any }
-}
-const op = async (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => (await http("POST", "/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })).json
-const history = async (token: string, conversation: string) => (await http("POST", "/v1/read", token, { op: "conversation.history", params: { conversation, limit: 50 } })).json.value.messages as Array<any>
-
-const SETTINGS = { CHIEF_CC_ENABLED: "1", CHIEF_CC_SNAPSHOT: "sh-test-chief-cc", CHIEF_CC_FREESTYLE_API_KEY: "test-freestyle-key-not-real", CHIEF_CC_FREESTYLE_API_URL: "https://freestyle.test", CHIEF_CC_TS_OAUTH: JSON.stringify({ client_id: "test-client", client_secret: "test-client-secret-not-real" }) }
-const saved: Record<string, string | undefined> = {}
-beforeAll(() => {
-  for (const k of [...Object.keys(SETTINGS), "CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA", "CHIEF_CC_OWNERS"]) saved[k] = testEnv[k]
-  Object.assign(testEnv, SETTINGS)
-})
-afterAll(() => {
-  for (const [k, v] of Object.entries(saved)) v === undefined ? delete testEnv[k] : (testEnv[k] = v)
-})
-afterEach(() => vi.restoreAllMocks())
-
-interface Started { readonly vm: string; readonly run: string; readonly input: { notes_url: string; token: string; prompt: string; system: string; model: string; net: any } }
-/** Freestyle, the Tailscale API and the turn machine at their HTTP boundary; the Worker's own calls go to the real fetch. */
-const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: Started, n: number) => Promise<void>) => {
-  const real = globalThis.fetch
-  const made: Array<{ id: string; body: any }> = []
-  const deleted: Array<string> = []
-  const boots: Array<{ vm: string; stdin: string }> = []
-  const started: Array<Started> = []
-  // The network apply scripts (chief-brain-cc/net.ts), and every exec in order.
-  const nets: Array<{ vm: string; script: string }> = []
-  const steps: Array<string> = []
-  const keys: Array<string> = []
-  // The tags each minted tailnet key asked for.
-  const tags: Array<Array<string>> = []
-  const other: Array<string> = []
-  // Execs outside the turn machine's own steps (the Chief's sandboxes).
-  const execs: Array<{ vm: string; command: string; stdin: Uint8Array }> = []
-  // Each VM's size (Freestyle's default 4 vCPU / 8 GiB / 32 GB), and every resize asked for.
-  const sizes = new Map<string, { cpu: number; memory: number; storage: number }>()
-  const resizes: Array<{ vm: string; body: any }> = []
-  // Client sessions (sandbox-access.ts): identities with VM grants and tokens; every sandbox exec's credential.
-  const identities = new Map<string, { grants: Map<string, Array<string> | null> }>()
-  const tokens = new Map<string, { id: string; identity: string; revoked: boolean; expires: number }>()
-  const execAuth: Array<{ vm: string; by: string; user: string | null }> = []
-  const states = new Map<string, string>()
-  const patches: Array<{ vm: string; body: any }> = []
-  // Guest files per VM (fs routes), uploads, snapshots and every lifecycle call.
-  const files = new Map<string, Map<string, Uint8Array>>()
-  const uploads = new Map<string, { vm: string; path: string; size: number; got: Array<number> }>()
-  const snapshots = new Map<string, { source: string; body: any; deleted?: boolean }>()
-  const lifecycle: Array<string> = []
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const req = new Request(input, init)
-    const url = new URL(req.url)
-    if (url.origin === "https://api.tailscale.com") {
-      if (url.pathname === "/api/v2/oauth/token") return Response.json({ access_token: "test-ts-access", expires_in: 3600 })
-      const key = `tskey-auth-test-${keys.length + 1}`
-      keys.push(key)
-      expect(req.headers.get("authorization")).toBe("Bearer test-ts-access")
-      const asked = (await req.json()) as any
-      expect(asked).toMatchObject({ capabilities: { devices: { create: { reusable: false, ephemeral: true, preauthorized: true } } } })
-      tags.push(asked.capabilities.devices.create.tags)
-      return Response.json({ id: `k${keys.length}`, key })
-    }
-    if (url.origin !== "https://freestyle.test") {
-      if (!url.hostname.endsWith(".test")) return real(input, init)
-      other.push(req.url)
-      return new Response("not this route", { status: 500 })
-    }
-    const idToken = req.headers.get("x-freestyle-identity-access-token")
-    // An identity token reaches only a granted VM's exec route; everything else needs the team key.
-    if (idToken !== null) {
-      expect(req.headers.get("authorization")).toBeNull()
-      const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
-      if (!ex || req.method !== "POST") return Response.json({ code: "FORBIDDEN", message: "identity tokens reach exec and pty only" }, { status: 403 })
-      const t = tokens.get(idToken)
-      if (!t || t.revoked || t.expires < Date.now() || !identities.has(t.identity)) return Response.json({ code: "UNAUTHORIZED", message: "invalid identity access token" }, { status: 401 })
-      const body = (await req.json()) as { command: string; linuxUser?: string; env?: Record<string, string>; stdin?: string }
-      const allowed = identities.get(t.identity)!.grants.get(ex[1]!)
-      if (allowed === undefined || (allowed !== null && !allowed.includes(body.linuxUser ?? ""))) return Response.json({ code: "FORBIDDEN", message: "no access to this VM as that user" }, { status: 403 })
-      execAuth.push({ vm: ex[1]!, by: `identity:${t.identity}`, user: body.linuxUser ?? null })
-      execs.push({ vm: ex[1]!, command: body.command, stdin: body.stdin ? Uint8Array.from(atob(body.stdin), (c) => c.charCodeAt(0)) : new Uint8Array() })
-      if (/(^|[;( ])poweroff/.test(body.command)) states.set(ex[1]!, "stopped")
-      if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n", stderr: "" })
-      if (body.command === "printenv GREETING; cat") return Response.json({ statusCode: 0, stdout: `${body.env?.GREETING ?? ""}\n${body.stdin ? atob(body.stdin) : ""}`, stderr: "" })
-      if (body.command === "whoami") return Response.json({ statusCode: 0, stdout: `${body.linuxUser}\n`, stderr: "" })
-      if (body.command.startsWith("nproc; awk")) {
-        const z = sizes.get(ex[1]!)!
-        return Response.json({ statusCode: 0, stdout: `${z.cpu}\n${z.memory - 190}\n/dev/vda ${Math.round(z.storage / 1024) - 1}G 1.2G 62G 2% /\n`, stderr: "" })
-      }
-      return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "", stderr: "" })
-    }
-    expect(req.headers.get("authorization")).toBe("Bearer test-freestyle-key-not-real")
-    const idn = /^\/v5\/identities(?:\/([^/]+)(?:\/(permissions\/vm|tokens)(?:\/([^/]+))?)?)?$/.exec(url.pathname)
-    if (idn) {
-      const [, who, kind, sub] = idn
-      if (!who && req.method === "POST") {
-        const id = `idn-test${identities.size + 1}`
-        identities.set(id, { grants: new Map() })
-        return Response.json({ id, managed: false })
-      }
-      const it = who ? identities.get(who) : undefined
-      if (!it) return Response.json({ code: "NOT_FOUND", message: "no such identity" }, { status: 404 })
-      if (!kind && req.method === "GET") return Response.json({ id: who, managed: false })
-      if (!kind && req.method === "DELETE") {
-        identities.delete(who!)
-        for (const t of tokens.values()) if (t.identity === who) t.revoked = true
-        return Response.json({})
-      }
-      if (kind === "permissions/vm" && req.method === "POST") {
-        const body = (await req.json()) as { vmId: string; allowedLinuxUsers?: Array<string> | null }
-        it.grants.set(body.vmId, body.allowedLinuxUsers ?? null)
-        return Response.json({ id: `vmp-${body.vmId}`, identityId: who, vmId: body.vmId, allowedLinuxUsers: body.allowedLinuxUsers ?? null })
-      }
-      if (kind === "permissions/vm" && req.method === "DELETE" && sub) return it.grants.delete(sub), Response.json({})
-      if (kind === "tokens" && req.method === "POST") {
-        const body = (await req.json()) as { expiresAt?: string }
-        const id = `tok-test${tokens.size + 1}`
-        const token = `idtok-secret-${tokens.size + 1}-not-real`
-        tokens.set(token, { id, identity: who!, revoked: false, expires: body.expiresAt ? Date.parse(body.expiresAt) : Infinity })
-        return Response.json({ id, token, expiresAt: body.expiresAt ?? null })
-      }
-      if (kind === "tokens" && req.method === "DELETE" && sub) {
-        for (const t of tokens.values()) if (t.id === sub) t.revoked = true
-        return Response.json({})
-      }
-      return new Response("unexpected", { status: 500 })
-    }
-    const life = /^\/v5\/vms\/([^/]+)\/(pause|start)$/.exec(url.pathname)
-    if (req.method === "POST" && life) return lifecycle.push(`${life[1]} ${life[2]}`), states.set(life[1]!, life[2] === "pause" ? "paused" : "running"), Response.json({ id: life[1], state: states.get(life[1]!) })
-    const fsm = /^\/v5\/vms\/([^/]+)\/fs\/([a-z]+)(?:\/([^/]+)(\/commit)?)?$/.exec(url.pathname)
-    if (fsm) {
-      const [, vm, op, up, commit] = fsm
-      const fsOf = files.get(vm!) ?? new Map<string, Uint8Array>()
-      files.set(vm!, fsOf)
-      const path = url.searchParams.get("path") ?? ""
-      if (op === "write" && req.method === "PUT") {
-        const body = (await req.json()) as { path: string; content: string; encoding?: string }
-        fsOf.set(body.path, body.encoding === "base64" ? Uint8Array.from(atob(body.content), (c) => c.charCodeAt(0)) : new TextEncoder().encode(body.content))
-        return new Response(null, { status: 204 })
-      }
-      if (op === "read") {
-        const f = fsOf.get(path)
-        if (!f) return Response.json({ code: "NOT_FOUND", message: "no such file" }, { status: 404 })
-        const m = /^bytes=(\d+)-(\d+)$/.exec(req.headers.get("range") ?? "")
-        if (!m) return new Response(f)
-        const a = Number(m[1])
-        if (a >= f.length) return new Response(null, { status: 416 })
-        const part = f.subarray(a, Math.min(f.length, Number(m[2]) + 1))
-        return new Response(part, { status: 206, headers: { "content-range": `bytes ${a}-${a + part.length - 1}/${f.length}` } })
-      }
-      if (op === "dir") return Response.json({ entries: [...fsOf.keys()].filter((k) => k.startsWith(`${path.replace(/\/$/, "")}/`)).map((k) => ({ name: k.slice(path.replace(/\/$/, "").length + 1).split("/")[0], kind: "file" })) })
-      if (op === "stat") return fsOf.has(path) ? Response.json({ size: fsOf.get(path)!.length, isFile: true, isDirectory: false, isSymlink: false, permissions: "0644", owner: "root", group: "root", modified: "2026-10-21T00:00:00Z" }) : Response.json({ code: "NOT_FOUND", message: "no such path" }, { status: 404 })
-      if (op === "exists") return Response.json({ exists: fsOf.has(path) })
-      if (op === "mkdir") return new Response(null, { status: 204 })
-      if (op === "remove") return fsOf.delete(path), new Response(null, { status: 204 })
-      if (op === "uploads" && req.method === "POST" && !up) {
-        const body = (await req.json()) as { path: string; size: number }
-        const id = `up-${uploads.size + 1}`
-        uploads.set(id, { vm: vm!, path: body.path, size: body.size, got: [] })
-        return Response.json({ uploadId: id, receivedBytes: 0, size: body.size })
-      }
-      const u = up ? uploads.get(up) : undefined
-      if (op === "uploads" && u && req.method === "PUT") {
-        expect(req.headers.get("content-type")).toBe("application/octet-stream")
-        if (Number(url.searchParams.get("offset")) !== u.got.length) return Response.json({ code: "CONFLICT", message: "offset" }, { status: 409 })
-        for (const x of new Uint8Array(await req.arrayBuffer())) u.got.push(x)
-        return Response.json({ uploadId: up, receivedBytes: u.got.length, size: u.size })
-      }
-      if (op === "uploads" && u && commit && req.method === "POST") return fsOf.set(u.path, Uint8Array.from(u.got)), uploads.delete(up!), new Response(null, { status: 204 })
-      return new Response("unexpected fs", { status: 500 })
-    }
-    const snapOf = /^\/v5\/vms\/([^/]+)\/snapshot$/.exec(url.pathname)
-    if (snapOf && req.method === "POST") {
-      const id = `sn-test${snapshots.size + 1}`
-      snapshots.set(id, { source: snapOf[1]!, body: await req.json() })
-      return Response.json({ snapshotId: id, snapshot: { id }, sourceVmId: snapOf[1] })
-    }
-    const sn = /^\/v5\/snapshots\/([^/]+)$/.exec(url.pathname)
-    if (sn) {
-      const it = snapshots.get(sn[1]!)
-      if (!it || it.deleted) return Response.json({ code: "NOT_FOUND", message: "no such snapshot" }, { status: 404 })
-      if (req.method === "DELETE") return (it.deleted = true), Response.json({})
-      if (req.method === "PATCH") it.body = { ...it.body, ...((await req.json()) as object) }
-      return Response.json({ id: sn[1], displayName: it.body.displayName ?? null, ttlSeconds: it.body.ttlSeconds ?? null })
-    }
-    if (req.method === "POST" && url.pathname === "/v5/vms") {
-      const id = `vm-test${made.length + 1}`
-      made.push({ id, body: await req.json() })
-      // A VM starts at its snapshot's size (the small Ubuntu base is 2 vCPU / 4 GiB / 16 GB).
-      sizes.set(id, made[made.length - 1]!.body.snapshotId === "freestyle/ubuntu-sm" ? { cpu: 2, memory: 4096, storage: 16384 } : { cpu: 4, memory: 8192, storage: 32768 })
-      return Response.json({ id })
-    }
-    const del = /^\/v5\/vms\/([^/]+)$/.exec(url.pathname)
-    if (req.method === "DELETE" && del) return deleted.push(del[1]!), Response.json({})
-    if ((req.method === "GET" || req.method === "PATCH") && del) {
-      const m = made.find((x) => x.id === del[1])
-      if (!m || deleted.includes(m.id)) return new Response("no such vm", { status: 404 })
-      if (req.method === "PATCH") {
-        const body = (await req.json()) as any
-        patches.push({ vm: m.id, body })
-      }
-      const v = Object.assign({}, m.body, ...patches.filter((p) => p.vm === m.id).map((p) => p.body))
-      return Response.json({ id: m.id, state: states.get(m.id) ?? "running", ipMode: "dualStack", resources: sizes.get(m.id), metadata: v.metadata ?? {}, displayName: v.displayName ?? null, idleTimeoutSeconds: v.idleTimeoutSeconds ?? null, ttlSeconds: v.ttlSeconds ?? null })
-    }
-    const rs = /^\/v5\/vms\/([^/]+)\/resize$/.exec(url.pathname)
-    if (req.method === "POST" && rs) {
-      const vm = rs[1]!
-      const body = (await req.json()) as { cpu?: number; memory?: number; storage?: number }
-      resizes.push({ vm, body })
-      const was = sizes.get(vm)
-      if (!was) return Response.json({ code: "NOT_FOUND", message: "no such vm" }, { status: 404 })
-      const next = { cpu: body.cpu ?? was.cpu, memory: body.memory ?? was.memory, storage: body.storage ?? was.storage }
-      if (next.cpu < was.cpu || next.memory < was.memory || next.storage < was.storage) return Response.json({ code: "BAD_REQUEST", message: "grow only" }, { status: 400 })
-      sizes.set(vm, next)
-      return Response.json({ id: vm, state: "running", resources: next })
-    }
-    const ex = /^\/v5\/vms\/([^/]+)\/exec-await$/.exec(url.pathname)
-    if (req.method === "POST" && ex) {
-      const vm = ex[1]!
-      const body = (await req.json()) as { command: string; stdin?: string }
-      const stdin = body.stdin ? atob(body.stdin) : ""
-      const raw = Uint8Array.from(stdin, (c) => c.charCodeAt(0))
-      steps.push(`${vm} ${body.command.split(" ")[0]}`)
-      if (body.command.startsWith("/opt/chief-cc/boot.sh ")) return boots.push({ vm, stdin }), Response.json({ statusCode: 0, stdout: "ready\n" })
-      if (body.command === "bash -s") return nets.push({ vm, script: stdin }), Response.json({ statusCode: 0, stdout: "net ok\n" })
-      const start = /^\/opt\/chief-cc\/start\.sh (run_[0-9]+)$/.exec(body.command)
-      if (start) {
-        const s: Started = { vm, run: start[1]!, input: JSON.parse(stdin) }
-        started.push(s)
-        // The turn machine: the stream, then the result, posted to the Worker as run.mjs does.
-        const n = started.length
-        setTimeout(() => void (during ?? (async () => undefined))(s, n).then(() => machine(s, answer(s.input.prompt, n))), 20)
-        return Response.json({ statusCode: 0, stdout: "started\n" })
-      }
-      execs.push({ vm, command: body.command, stdin: raw })
-      if (body.command.includes("resize2fs")) return Response.json({ statusCode: 0, stdout: "/dev/vda 63G 1.2G 62G 2% /\n" })
-      return Response.json({ statusCode: 0, stdout: body.command.startsWith("echo ") ? `${body.command.slice(5)}\n` : "" })
-    }
-    return new Response("unexpected", { status: 500 })
-  })
-  return { made, deleted, boots, started, nets, steps, keys, tags, other, execs, sizes, resizes, identities, tokens, execAuth, states, patches, files, uploads, snapshots, lifecycle }
-}
-const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
-const machine = async (s: Started, reply: string) => {
-  const half = Math.floor(reply.length / 2)
-  await notes(s, { run: s.run, events: [{ gen: 0, type: "text_start" }, { gen: 0, type: "text_delta", delta: reply.slice(0, half) }] })
-  await notes(s, { run: s.run, events: [{ gen: 0, type: "text_delta", delta: reply.slice(half) }, { gen: 0, type: "text_done", text: reply }, { gen: 0, type: "done" }] })
-  await notes(s, { run: s.run, result: { status: "done", reply, model: s.input.model, usage: { input: 3, output: 7, cache_read: 0, cache_write: 0 }, first_token_ms: 900, total_ms: 1500, last_gen: 0 } })
-}
-
-/** `cc`: on the Claude Code route's owner list (and the paid-model list); `paid`: on the paid-model list only. */
-const enabledChief = async (sub: string, lists: "cc" | "paid" | false) => {
-  const listed = lists !== false
-  const token = await sessionToken(sub)
-  const ensured = (await op(token, "user.ensure", {})).value
-  const user = ensured.id as string
-  if (listed) testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA = `${testEnv.CHIEF_BRAIN_CLAUDE_OWNERS_EXTRA ?? ""},${user}`
-  if (lists === "cc") testEnv.CHIEF_CC_OWNERS = `${testEnv.CHIEF_CC_OWNERS ?? ""},${user}`
-  const chief = (await op(token, "chief.create", { display_name: "Route Chief" }, `chief-${sub}`)).value as { id: string; main_conversation: string }
-  const userDO = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user))
-  let on = { status: 0, json: {} as any, text: "" }
-  for (let i = 0; i < 20 && on.status !== 200; i++) {
-    await fireAlarm(userDO)
-    on = await http("PUT", `/v1/chiefs/${chief.id}/brain`, token, listed ? { enabled: true, model: "claude-opus-5-5" } : { enabled: true })
-  }
-  expect(on.status, on.text).toBe(200)
-  return { token, user, team: ensured.personal_team as string, chief }
-}
-const replies = async (token: string, conversation: string, chief: string, n: number) => {
-  for (let i = 0; i < 300; i++) {
-    const mine = (await history(token, conversation)).filter((m) => m.author === chief)
-    if (mine.length >= n) return mine
-    await new Promise((r) => setTimeout(r, 50))
-  }
-  throw new Error(`no ${n} chief replies`)
-}
-const send = (token: string, conversation: string, key: string, text: string) => op(token, "message.send", { conversation, client_msg_id: key, parts: [{ type: "text", text }] }, key)
+useCcSettings()
 
 describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
   it("keeps a teammate-authored turn out of the bypass-permissions VM route", async () => {
@@ -979,6 +690,35 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(cloud.snapshots.get(snap)!.deleted).toBe(true)
   })
 
+  it("finishes a turn whose brain object was evicted while the machine worked: the machine's posts revive it", async () => {
+    // Production, Oct 22: a long turn outlived its conversation brain object; the machine's notes and result
+    // reached a fresh object with no running turn (401), and the turn later failed as "timeout" although the
+    // reply was ready, so the person saw "I could not reach the model".
+    const brainOf = (s: Started) => {
+      const [, agent, conversation] = /\/v1\/chief-cc\/([^/]+)\/([^/]+)\/notes$/.exec(s.input.notes_url)!
+      return testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${agent}/${conversation}`))
+    }
+    // The fake's own machine never posts (it runs on the brain object's timers, which the eviction ends); this
+    // test plays the machine itself, from outside the object, as the real VM is.
+    const cloud = fakeCloud(() => "unused", () => new Promise<void>(() => undefined))
+    const { token, chief } = await enabledChief("chief-cc-evicted", "cc")
+    expect((await send(token, chief.main_conversation, "e1", "a long task")).ok).toBe(true)
+    for (let i = 0; i < 300 && cloud.started.length === 0; i++) await new Promise((r) => setTimeout(r, 20))
+    const s = cloud.started[0]!
+    await inDO(brainOf(s), async (_i, state) => {
+      try {
+        state.abort("test: evicted while the turn machine works")
+      } catch {}
+    }).catch(() => undefined)
+    await machine(s, "Back after a restart.")
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe("Back after a restart.")
+    expect(cloud.made).toHaveLength(1)
+    expect(cloud.started).toHaveLength(1)
+    const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs as Array<any>
+    expect(runs.map((r) => r.status)).toEqual(["done"])
+  })
+
   it("refuses notes without the running turn's token, and after the turn ended", async () => {
     const cloud = fakeCloud(() => "noted")
     const { token, chief } = await enabledChief("chief-cc-notes", "cc")
@@ -1000,5 +740,79 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
     expect(reply.parts[0].text).not.toBe("never")
     expect(cloud.made).toHaveLength(0)
+  })
+
+  // Turns never fail silently (Lawrence, Oct 24: "super reliable"): a turn that ends early posts what it streamed, a
+  // turn whose machine or model failed before anything ran is run again on a fresh machine, and a failed turn says
+  // what happened in plain words, never "could not reach the model".
+  const stream = (s: Started, events: Array<object>) => notes(s, { run: s.run, events })
+  const progress = "Found it: the steering race is in brain-turn.ts. I pushed the fix and the deploy is running."
+  const toolThenText = async (s: Started) => {
+    await stream(s, [{ gen: 0, type: "tool", id: "toolu_a", name: "Bash", input: { command: "git push" } }, { gen: 0, type: "tool_done", id: "toolu_a", error: false }, { gen: 0, type: "done" }])
+    await stream(s, [{ gen: 1, type: "text_start" }, { gen: 1, type: "text_delta", delta: progress }, { gen: 1, type: "text_done", text: progress }, { gen: 1, type: "done" }])
+  }
+  it.each([
+    // The runner on the snapshot today: the time limit SIGKILLs Claude Code, the result is "failed" with no reply.
+    ["the current runner", { status: "failed", reply: "", error: "claude exited on signal 9: ", total_ms: 20 * 60_000 }],
+    // The runner that keeps the streamed text itself.
+    ["a runner that keeps the text", { status: "partial", reason: "timeout", reply: progress, error: "the time limit stopped Claude Code", total_ms: 20 * 60_000 }]
+  ])("posts what a long tool-heavy turn streamed when the time limit stops it (%s), not the failed notice", async (_, result) => {
+    const cloud = fakeCloud(() => async (s) => {
+      await toolThenText(s)
+      await notes(s, { run: s.run, result: { ...result, model: s.input.model, last_gen: 1 } })
+    })
+    const { token, chief } = await enabledChief(`chief-cc-long-${result.status}`, "cc")
+    expect((await send(token, chief.main_conversation, "l1", "fix the steering race and deploy")).ok).toBe(true)
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe(`${CC_PARTIAL.timeout}\n\n${progress}`)
+    expect(reply.parts[0].text).not.toBe(TURN_FAILED_NOTICE)
+    // Its tools ran: never run a second time.
+    expect(cloud.started).toHaveLength(1)
+    // The turn is given the time it has, in its prompt and as the machine's limit (Freestyle's run cap is above it).
+    expect(cloud.started[0]!.input.max_ms).toBe(20 * 60_000)
+    expect(cloud.started[0]!.input.system).toContain("You have 20 minutes for this turn")
+    expect(cloud.made[0]!.body.maxRunSeconds).toBeGreaterThan(20 * 60 + 60)
+    expect(cloud.made[0]!.body.ttlSeconds).toBeGreaterThan(cloud.made[0]!.body.maxRunSeconds)
+  })
+
+  it("runs a turn again on a fresh machine when its machine did not start, and says so only after three tries", async () => {
+    const cloud = fakeCloud(() => "Started on the second machine.", undefined, (n) => n === 1)
+    const { token, chief } = await enabledChief("chief-cc-boot-retry", "cc")
+    expect((await send(token, chief.main_conversation, "b1", "hello")).ok).toBe(true)
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe("Started on the second machine.")
+    expect(cloud.made).toHaveLength(2)
+    expect(cloud.deleted).toContain("vm-test1")
+    expect(cloud.started.map((s) => s.vm)).toEqual(["vm-test2"])
+
+    const dead = fakeCloud(() => "never", undefined, () => true)
+    const other = await enabledChief("chief-cc-boot-dead", "cc")
+    expect((await send(other.token, other.chief.main_conversation, "b2", "hello")).ok).toBe(true)
+    const [notice] = await replies(other.token, other.chief.main_conversation, other.chief.id, 1)
+    expect(notice.parts[0].text).toBe(CC_NOTICES.machine)
+    expect(dead.made).toHaveLength(3)
+    expect(dead.started).toHaveLength(0)
+    expect(dead.deleted.sort()).toEqual(dead.made.map((m) => m.id).sort())
+  })
+
+  it("runs a turn again once when the model failed before any tool ran, and never after a tool ran", async () => {
+    const overloaded = { status: "failed", reply: "", error: "API Error: 529 overloaded" }
+    const cloud = fakeCloud((_, n) => (n === 1 ? async (s) => void (await notes(s, { run: s.run, result: overloaded })) : "Second try worked."))
+    const { token, chief } = await enabledChief("chief-cc-model-retry", "cc")
+    expect((await send(token, chief.main_conversation, "m1", "hello")).ok).toBe(true)
+    const [reply] = await replies(token, chief.main_conversation, chief.id, 1)
+    expect(reply.parts[0].text).toBe("Second try worked.")
+    expect(cloud.started.map((s) => s.vm)).toEqual(["vm-test1", "vm-test2"])
+
+    const ran = fakeCloud(() => async (s) => {
+      await stream(s, [{ gen: 0, type: "tool", id: "toolu_b", name: "Bash", input: { command: "rm -rf build" } }, { gen: 0, type: "tool_done", id: "toolu_b", error: false }])
+      await notes(s, { run: s.run, result: overloaded })
+    })
+    const other = await enabledChief("chief-cc-model-after-tool", "cc")
+    expect((await send(other.token, other.chief.main_conversation, "m2", "clean the build")).ok).toBe(true)
+    const [notice] = await replies(other.token, other.chief.main_conversation, other.chief.id, 1)
+    expect(notice.parts[0].text).toBe(CC_NOTICES.model)
+    expect(notice.parts[0].text).not.toMatch(/try again|could not reach/i)
+    expect(ran.started).toHaveLength(1)
   })
 })

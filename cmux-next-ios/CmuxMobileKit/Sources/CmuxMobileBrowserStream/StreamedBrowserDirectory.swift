@@ -74,6 +74,35 @@ public final class StreamedBrowserDirectory {
         return model
     }
 
+    /// The streamed model of a Mac phone tab's simulator (`tab`: `s<surface>`), or nil
+    /// when not linked. It is a browser tab's stream (one media lane, the shown tab
+    /// owns it) with no page: the simulator page reads ``StreamedBrowserModel/meter``,
+    /// ``StreamedBrowserModel/phase`` and sends touches at 0...1 of its screen.
+    public func simulatorModel(tab: String, macID: String? = nil) -> StreamedBrowserModel? {
+        let macID = macOpener == nil ? nil : macID.flatMap { $0.isEmpty ? nil : $0 }
+        guard macID != nil || opener != nil else { return nil }
+        let key = Self.key(tab: tab, macID: macID)
+        if let model = models[key] { return model }
+        let model = StreamedBrowserModel(tab: tab, url: nil) { [weak self] sink, tab, _ in
+            let link: (any BrowserStreamOpening)?
+            if let macID {
+                link = await self?.macOpener?(macID)
+            } else {
+                link = await self?.opener?()
+            }
+            guard let link else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            return try await link.openSurface(tab: tab, sink: sink)
+        }
+        model.openedHidden = { [weak self] in
+            guard let self else { return }
+            for shown in models.values where shown.isShown { shown.reassertShown() }
+        }
+        models[key] = model
+        if !appActive { model.setAppActive(false) }
+        warmMedia()
+        return model
+    }
+
     /// A workspace with browser tabs is shown: the WebRTC media session
     /// beside a WireGuard link opens before the first tab needs it.
     private func warmMedia() {

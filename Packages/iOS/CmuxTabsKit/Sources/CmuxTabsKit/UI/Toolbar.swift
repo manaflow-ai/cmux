@@ -31,7 +31,9 @@ struct ToolbarLayout {
         let capsuleX = noBack ? m.sideInset : back.maxX + m.gap
         let capsule = CGRect(x: capsuleX, y: barY, width: tabs.minX - m.gap - capsuleX, height: m.control)
         if bar == .collapsed {
-            let pillW = labelWidth * m.collapsedScale + 2 * m.pillPadding
+            // Hugs the label, never wider than the gap between the side controls.
+            let pillW = CollapsedPill.width(labelWidth: labelWidth, scale: m.collapsedScale, padding: m.pillPadding,
+                                            maxWidth: collapsedMaxWidth(metrics: m, screenWidth: w, backWidth: backW))
             let pill = CGRect(x: (w - pillW) / 2, y: size.height - m.pillBottom - m.pillHeight, width: pillW, height: m.pillHeight)
             // Side circles travel inward with the pill edges while fading.
             let b = CGRect(x: pill.minX - m.gap - back.width, y: pill.midY - m.control / 2, width: back.width, height: m.control)
@@ -39,6 +41,11 @@ struct ToolbarLayout {
             return ToolbarLayout(back: b, capsule: pill, right: t)
         }
         return ToolbarLayout(back: back, capsule: capsule, right: tabs)
+    }
+
+    static func collapsedMaxWidth(metrics m: TabsKitTheme.Metrics, screenWidth: CGFloat, backWidth: CGFloat) -> CGFloat {
+        CollapsedPill.maxWidth(screenWidth: screenWidth, sideInset: m.sideInset, backWidth: backWidth, control: m.control,
+                               gap: m.gap, padding: m.pillPadding)
     }
 }
 
@@ -131,8 +138,8 @@ struct TabsToolbar: View {
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background(alignment: .topLeading) {
-            // Width of the label at 17 pt; the pill hugs it.
-            Text(address.label).font(.system(size: m.urlFont, weight: .medium)).fixedSize().hidden()
+            // Width of the label (and its glyph) at 17 pt; the pill hugs it.
+            labelContent(m).fixedSize().hidden()
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { labelWidth = $0 }
         }
         // Back <-> back | forward and the enabled tint morph with the toolbar spring.
@@ -354,18 +361,42 @@ struct TabsToolbar: View {
                 }
             }
             .foregroundStyle(theme.colors.label)
-            .frame(width: max(0, r.width - (collapsed ? 0 : 2 * theme.metrics.control)), height: r.height)
+            // Collapsed, a title capped by the pill keeps 12 pt clear of its ends.
+            .frame(width: max(0, r.width - (collapsed ? 24 : 2 * theme.metrics.control)), height: r.height)
             .contentShape(.rect)
         }
         .buttonStyle(GlassContentButtonStyle())
         .accessibilityLabel(t.subtitle.isEmpty ? t.title : "\(t.title), \(t.subtitle)")
     }
 
+    /// The address label: a glyph (search, file) and one truncating line.
+    @ViewBuilder private func labelContent(_ m: TabsKitTheme.Metrics) -> some View {
+        let isSearch: Bool = if case .url(_, _, let s) = address { s } else { false }
+        HStack(spacing: 5) {
+            if isPlaceholder || isSearch {
+                Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .medium))
+            } else if address.isFile {
+                Image(systemName: "doc").font(.system(size: 14, weight: .medium))
+            }
+            Text(address.label)
+                .font(.system(size: m.urlFont, weight: isPlaceholder ? .regular : .medium))
+                .lineLimit(1)
+                // A file name keeps its extension; a host keeps its start.
+                .truncationMode(address.isFile ? .middle : .tail)
+        }
+    }
+
     @ViewBuilder private func label(_ r: CGRect) -> some View {
         let m = theme.metrics
-        let isSearch: Bool = if case .url(_, _, let s) = address { s } else { false }
         // A placeholder has no menu glyph, so it may use the leading slot.
         let maxW = max(40, r.width - (isPlaceholder ? m.control + 24 : 2 * m.control + 8))
+        // Collapsed, the label is drawn at 17 pt and scaled down: its unscaled
+        // width is the measured one, capped by the pill.
+        // One point over the measured width, so rounding never adds an ellipsis to a label that fits.
+        let collapsedW = CollapsedPill.labelWidth(
+            labelWidth: labelWidth + 1, scale: m.collapsedScale, padding: m.pillPadding,
+            maxWidth: ToolbarLayout.collapsedMaxWidth(metrics: m, screenWidth: size.width,
+                                                      backWidth: m.control + (splitBack ? m.forwardExtra : 0)))
         Button(action: unlessSwiped {
             if collapsed {
                 chrome.expand(tap: true, theme)
@@ -375,16 +406,9 @@ struct TabsToolbar: View {
                 onMenu()
             }
         }) {
-            HStack(spacing: 5) {
-                if isPlaceholder || isSearch {
-                    Image(systemName: "magnifyingglass").font(.system(size: 15, weight: .medium))
-                }
-                Text(address.label)
-                    .font(.system(size: m.urlFont, weight: isPlaceholder ? .regular : .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
+            labelContent(m)
             .foregroundStyle(isPlaceholder ? theme.colors.secondaryLabel : theme.colors.label)
+            .frame(width: collapsed ? collapsedW : nil)
             .frame(maxWidth: collapsed ? nil : maxW)
             // The label rides with its page during a toolbar swipe.
             .offset(x: chrome.swiping ? chrome.swipeOffset : 0)
