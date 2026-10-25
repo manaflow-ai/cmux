@@ -106,4 +106,84 @@ struct RemoteMachinesSidebarTests {
                                                     ["name": "big-red", "connected": false], ["connected": true]]])
         #expect(peers == [AcpmuxPeerList.Peer(name: "cmux16", connected: true), AcpmuxPeerList.Peer(name: "big-red", connected: false)])
     }
+
+    /// Leo 2026-10-24: "how much RAM do you have before you start ... how much CPU utilization". Each peer row's
+    /// `health` (acpmux reads it every 60 s) becomes whole numbers, so a reading that moves by a fraction changes nothing.
+    @Test func peerListReadsEachMachinesRoomInWholeUnits() {
+        let health: [String: Any] = ["cpus": 32, "load": [11.6, 9.0, 8.0], "ram": ["freeBytes": 31_400_000_000, "totalBytes": 64_000_000_000],
+                                     "disk": ["freeBytes": 180_200_000_000], "pressure": ["ok": true, "cores": 32]]
+        var later = health
+        later["load"] = [12.2, 9.0, 8.0]
+        let peers = AcpmuxPeerList.peers(["peers": [["name": "huge-blue", "connected": true, "health": health, "healthAt": 1],
+                                                    ["name": "old", "connected": true, "health": ["unsupported": true]],
+                                                    ["name": "cmux16", "connected": true, "health": NSNull()]]])
+        let room = AcpmuxPeerList.Resources(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false)
+        #expect(peers.map(\.resources) == [room, nil, nil])
+        let again = AcpmuxPeerList.peers(["peers": [["name": "huge-blue", "connected": true, "health": later, "healthAt": 2]]])
+        #expect(again[0] == peers[0])
+        var hot = health
+        hot["load"] = [99.0]
+        hot["pressure"] = ["ok": false, "cores": 32]
+        let busy = AcpmuxPeerList.peers(["peers": [["name": "huge-blue", "connected": true, "health": hot]]])[0].resources
+        #expect(busy?.coresBusy == 32 && busy?.over == true)
+    }
+
+    /// A partial or bad reading never shows made-up numbers: no core count, a negative or non-finite value, or a
+    /// boolean where a number goes means no row; a missing disk only leaves the disk out; `unsupported: false` is no veto.
+    @Test func aPartialOrBadReadingShowsNoMadeUpNumbers() {
+        let good: [String: Any] = ["load": [3.0], "ram": ["freeBytes": 8_000_000_000], "pressure": ["ok": true, "cores": 8]]
+        func room(_ h: [String: Any]) -> AcpmuxPeerList.Resources? {
+            AcpmuxPeerList.peers(["peers": [["name": "m", "connected": true, "health": h]]])[0].resources
+        }
+        #expect(room(good) == .init(ramFreeGB: 8, coresBusy: 3, cores: 8, diskFreeGB: nil, over: false))
+        var flagged = good
+        flagged["unsupported"] = false
+        #expect(room(flagged) != nil)
+        var noCores = good
+        noCores["pressure"] = ["ok": true]
+        #expect(room(noCores) == nil)
+        var cpus = noCores
+        cpus["cpus"] = 4
+        #expect(room(cpus)?.cores == 4)
+        for bad: Any in [-1.0, Double.nan, Double.infinity, 1e300, true, "8"] {
+            var h = good
+            h["ram"] = ["freeBytes": bad]
+            #expect(room(h) == nil, "ram \(bad)")
+            h = good
+            h["load"] = [bad]
+            #expect(room(h) == nil, "load \(bad)")
+            h = good
+            h["disk"] = ["freeBytes": bad]
+            #expect(room(h)?.diskFreeGB == nil, "disk \(bad)")
+        }
+    }
+
+    @Test func anUnfoldedMachineSaysItsRoomFirstAndTheHeaderStyleNamesItsFreeRAM() {
+        let room = AcpmuxPeerList.Resources(ramFreeGB: 31, coresBusy: 12, cores: 32, diskFreeGB: 180, over: false)
+        let peers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true, resources: room),
+                     AcpmuxPeerList.Peer(name: "big-red", connected: false, resources: room)]
+        let machines = RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue")], peers: peers)
+        #expect(machines.first { $0.peer == "big-red" }?.resources == nil)
+        let rows = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue", "big-red"], pages: [:], resources: .row,
+                                              displayName: { _ in nil })
+        #expect(rows.map(\.info.title) == ["huge-blue", "31 GB free · CPU 12/32", "a", RemoteMachinesStrings.offline("big-red")])
+        #expect(rows[1].info.indent == 1)
+        // VoiceOver names the machine on its room row.
+        #expect(rows[1].info.accessibilityTitle == "huge-blue: 31 GB free · CPU 12/32")
+        // The room row does nothing on a click, and folded groups show no row.
+        let sidebar = RemoteMachinesSidebar(lanes: AgentLaneStore())
+        #expect(sidebar.activate(rows[1].item.id))
+        let folded = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .row, displayName: { _ in nil })
+        #expect(folded.count == 2)
+        let header = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .header, displayName: { _ in nil })
+        #expect(header.map(\.info.title) == ["huge-blue · 31 GB free", RemoteMachinesStrings.offline("big-red")])
+        let off = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue"], pages: [:], resources: .off, displayName: { _ in nil })
+        #expect(off.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.offline("big-red")])
+        var hot = room
+        hot.over = true
+        hot.diskFreeGB = 8
+        #expect(RemoteMachinesStrings.resources(hot) == "Busy · 31 GB free · CPU 12/32 · 8 GB disk")
+        // No disk reading: no disk part, never "0 GB disk". One core reads "CPU 1/1".
+        #expect(RemoteMachinesStrings.resources(.init(ramFreeGB: 1, coresBusy: 1, cores: 1, diskFreeGB: nil, over: false)) == "1 GB free · CPU 1/1")
+    }
 }
