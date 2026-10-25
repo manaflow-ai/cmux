@@ -61,7 +61,12 @@ stdin, nothing on disk).
 
 - 2026-10-25: the WireGuard key is now per app launch and only in memory
   (`CloudTunnelHub.key`); each start enrolls its public key, and the server
-  rotates the device's peer to it, so an old key file stops working. Found
+  rotates the device's peer to it, so an old key file stops working. This
+  stops reuse of a copied key; it does not stop a same-user program that holds
+  the person's Cloud sign-in from enrolling its own key for this device (the
+  device id is not a secret), which rotates the app's peer off until the app
+  starts its hub again. Re-enrolling when the hub loses its handshake, and
+  honouring `409 vm_access_grant_busy`'s retry, are follow-ups. Found
   live: a Chief subagent had read `cloud-next/wireguard.private.key`, started a
   second hub on it and a `127.0.0.1:16901` bridge; the two hubs knocked each
   other's session off and the desktop's mouse froze. The Keychain is no

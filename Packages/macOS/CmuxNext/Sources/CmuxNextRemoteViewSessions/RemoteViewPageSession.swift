@@ -37,7 +37,7 @@ public final class RemoteViewPageSession {
 
     /// The `cmux-rd` transports of Cloud machine `machine`'s desktop (a new one per session: a
     /// used transport cannot connect again), or nil when the app has no route or token for it.
-    public typealias CloudRdTransport = @MainActor (_ machine: String) -> (@MainActor () -> RemoteRdStreamTransport?)?
+    public typealias CloudRdTransport = @MainActor (_ machine: String, _ control: Bool) -> (@MainActor () -> RemoteRdStreamTransport?)?
 
     /// The machine's VNC server as websockify serves it next to noVNC, over `open`'s stream.
     nonisolated static func cloudRFBTransport(_ open: @escaping @Sendable () async throws -> CloudDesktopStream) -> any RFBTransport {
@@ -212,7 +212,7 @@ public final class RemoteViewPageSession {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
         if record.cloudRd {
-            guard let make = cloudRd?(record.host), let first = make() else { return nil }
+            guard let make = cloudRd?(record.host, record.mode == .control), let first = make() else { return nil }
             return RemoteViewPageSession(record: record, first: first, make: make, closeTab: closeTab)
         }
         if record.cloudDesktop {

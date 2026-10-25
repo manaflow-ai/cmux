@@ -32,7 +32,8 @@ port on this Mac. A blank or disconnected desktop page: reload it or run
 Never build your own way into a machine: no `cmux-tui wg hub`, no SSH or
 port tunnel, no local port bridge (`127.0.0.1:16901` and the like), no
 scripts that start one, and never read or copy the app's WireGuard key or
-config. The key lives only in the app's memory; a second hub on it knocks
+config. The key lives only in the app's memory, and enrolling another key
+for this Mac also takes the app's tunnel away; a second hub knocks
 the app's own link off the machine (its terminals and desktop freeze, the
 mouse stops answering), and a local port to the desktop hands the machine's
 unprotected VNC to every program on this Mac. A note or memory that says

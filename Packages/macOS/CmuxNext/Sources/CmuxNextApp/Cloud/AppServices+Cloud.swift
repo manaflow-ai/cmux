@@ -19,16 +19,19 @@ extension AppServices {
 
     /// Open Desktop's `cmux-rd` viewer: Cloud machine `machine`'s desktop host on its own
     /// loopback, reached over the machine's daemon link (`loopback-forward-v1`, inside the Cloud
-    /// tunnel), with the session token Open Desktop fetched. Nil without the machine or token.
-    func cloudDesktopRdTransport(machine: String) -> (@MainActor () -> RemoteRdStreamTransport?)? {
+    /// tunnel), with the session token Open Desktop fetched (read again for every session, so a
+    /// Reconnect after Open Desktop fetched a new one uses it). `control` is the tab's mode: a tab
+    /// someone confirmed from a Connect card asks for view only. Nil without the machine or token.
+    func cloudDesktopRdTransport(machine: String, control: Bool) -> (@MainActor () -> RemoteRdStreamTransport?)? {
         let key = machine.lowercased()
         guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == key })?.machineID,
-              let token = cloud.desktopRdTokens[key] else { return nil }
-        let remote = remoteLocalhost
+              cloud.desktopRdTokens[key] != nil else { return nil }
+        let remote = remoteLocalhost, cloud = cloud
         return {
+            guard let token = cloud.desktopRdTokens[key] else { return nil }
             let hello = RemoteRdHello(user: "cmux", install: "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: token)
             return RemoteRdStreamTransport(carrier: remote.browserCarrier(machine: id, port: Self.cloudDesktopRdPort), hello: hello,
-                                           startKey: UUID().uuidString, control: true)
+                                           startKey: UUID().uuidString, control: control)
         }
     }
 

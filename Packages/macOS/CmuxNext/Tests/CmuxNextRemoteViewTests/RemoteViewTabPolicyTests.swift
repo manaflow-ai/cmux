@@ -44,6 +44,12 @@ import Testing
         #expect(RemoteViewTabRecord(url: rd.url) == rd)
         #expect(RemoteViewTabRecord(host: "vm-1", cloudRd: true) == nil, "cmux-rd is a Cloud desktop engine")
         #expect(policy.decide(record: rd, source: .person, paneAvailable: true) == .connect(rd))
+        var rdView = rd
+        rdView.mode = .view
+        #expect(policy.decide(record: rd, source: .unconfirmed, paneAvailable: true) == .confirm(rdView), "an agent's open asks, view only")
+        #expect(policy.decide(record: rd, source: .remoteTree, paneAvailable: true) == .unavailable(.remoteRecord))
+        let hello = RemoteRdHello(user: "cmux", install: "test", token: String(repeating: "ab", count: 32))
+        #expect(!String(describing: hello).contains("abab"), "a hello's description never shows its token")
 
         #expect(policy.decide(record: record, source: .person, paneAvailable: true) == .connect(record))
         var view = record

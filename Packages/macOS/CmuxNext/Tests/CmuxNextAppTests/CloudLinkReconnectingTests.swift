@@ -159,7 +159,8 @@ struct CloudLinkReconnectingTests {
         let legacy = fixture.cloudRoot.appendingPathComponent("wireguard.conf")
         try "PrivateKey = old\n".write(to: legacy, atomically: true, encoding: .utf8)
         let legacyKey = fixture.cloudRoot.appendingPathComponent("wireguard.private.key")
-        try "b2xkIGtleQ==\n".write(to: legacyKey, atomically: true, encoding: .utf8)
+        let oldKey = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
+        try (oldKey + "\n").write(to: legacyKey, atomically: true, encoding: .utf8)
 
         _ = try await fixture.link.socketPath()
         let hubInput = try String(contentsOf: fixture.root.appendingPathComponent("hub-stdin"), encoding: .utf8)
@@ -167,6 +168,7 @@ struct CloudLinkReconnectingTests {
         let privateKey = try #require(keyLine)
         let key = String(privateKey.dropFirst("PrivateKey = ".count))
         #expect(!key.isEmpty)
+        #expect(key != oldKey, "an earlier build's key file is never reused: each launch makes its own key")
         let token = try String(contentsOf: fixture.root.appendingPathComponent("hub-token"), encoding: .utf8)
             .trimmingCharacters(in: .newlines)
         #expect(token.count == 64, "a 32-byte token, hex")

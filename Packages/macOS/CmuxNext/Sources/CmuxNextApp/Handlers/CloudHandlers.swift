@@ -194,13 +194,17 @@ enum CloudHandlers {
             let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
             let api = services.cloud.api, machineID = session.machineID, cloud = services.cloud
             let unavailable = CloudStrings.desktopUnavailable(title)
-            services.remoteViewPages.personOpens(record.url)
+            // The person's mark goes on right before the tab appears (after the host start and token
+            // read), in the person's run scope captured here, so its window never runs out first.
+            let scope = ActionRunScope.current, pages = services.remoteViewPages
             WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
                 guard let pane = terminal.pane else { return }
                 if rd {
                     // The machine's `cmux-rd` host: started on its display :1 (loopback only), and its
                     // session token fetched over the signed-in Cloud API into memory.
                     let started = try await api.exec(machineID, command: Self.desktopRdStart)
+                    // A nonzero exit (127: no start script) means this machine has no cmux-rd host yet;
+                    // the host is not in the VM image (development-only today).
                     guard started.exitCode == 0 else { throw ActionFailure(message: unavailable) }
                     let file = try await api.readFile(machineID, path: Self.desktopRdTokenPath)
                     let token = Data(base64Encoded: file.dataBase64).map { String(decoding: $0, as: UTF8.self) }?
@@ -208,6 +212,7 @@ enum CloudHandlers {
                     guard token.count == 64 else { throw ActionFailure(message: unavailable) }
                     await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
                 }
+                await MainActor.run { pages.personOpens(record.url, scope: scope) }
                 _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
                 if let surface = terminal.surface { try await connection.closeTab(surface) }
             }
