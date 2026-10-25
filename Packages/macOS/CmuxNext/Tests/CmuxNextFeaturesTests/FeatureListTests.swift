@@ -170,15 +170,27 @@ struct FeatureListTests {
         let control = MallocProbe.allocations { on += ContiguousArray(repeating: 1, count: 64).count }
         try #require((control ?? 0) > 0, "malloc_logger saw no allocation on this thread: the probe cannot measure here")
 
-        let lookups = MallocProbe.allocations {
+        let loop = MallocProbe.allocations {
             for _ in 0..<10_000 {
-                for feature in features {
-                    if list.isEnabled(feature) { on += 1 }
-                    if slot.isEnabled(feature) { on += 1 }
-                }
+                for feature in features where feature.index >= 0 { on += 1 }
             }
         }
-        #expect(lookups == 0)
+        let listLookups = MallocProbe.allocations {
+            for _ in 0..<10_000 {
+                for feature in features where list.isEnabled(feature) { on += 1 }
+            }
+        }
+        let slotLookups = MallocProbe.allocations {
+            for _ in 0..<10_000 {
+                for feature in features where slot.isEnabled(feature) { on += 1 }
+            }
+        }
+        let contains = MallocProbe.allocations {
+            for _ in 0..<10_000 {
+                for feature in features where Self.registry.contains(feature) { on += 1 }
+            }
+        }
+        #expect(listLookups == 0 && slotLookups == 0, "loop \(String(describing: loop)) list \(String(describing: listLookups)) slot \(String(describing: slotLookups)) contains \(String(describing: contains))")
         #expect(on > 0)
     }
 }
