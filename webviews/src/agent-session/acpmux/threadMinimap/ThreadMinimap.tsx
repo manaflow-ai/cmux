@@ -602,9 +602,10 @@ export function ThreadMinimap({
   };
   /// The tick that has the page's focus (a pointer's click focuses one too, without the keyboard's
   /// grow or card), by its prompt's key: it stays drawn wherever the list scrolls.
-  /// A focused button that goes (its chat replaced, its prompt cut) may send no blur: a key that is
-  /// no longer a tick, or one from another chat, holds nothing and is dropped below.
-  const domFocusLive = domFocus !== undefined && domFocus.sessionId === sessionId && rowOf.has(domFocus.key);
+  /// A focused button that goes (its chat replaced, its prompt cut, the rail hidden) may send no blur:
+  /// a key that is no longer a tick of this chat's shown rail holds nothing, and the effect below
+  /// drops it, as it does once the page's focus is not in the list at all.
+  const domFocusLive = shown && domFocus !== undefined && domFocus.sessionId === sessionId && rowOf.has(domFocus.key);
   const domFocused = domFocusLive ? rowOf.get(domFocus.key) : undefined;
   /// The rows the list draws (tickWindow.ts), the same array while they stay the same, so a render
   /// that moves none (a streamed token) renders no row.
@@ -620,7 +621,9 @@ export function ThreadMinimap({
   const ranges = useMemo(() => drawn, [drawnKey]);
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: it keeps the rows' keys as of this commit, and its setState calls run only when the ticks moved a row.
   useLayoutEffect(() => {
-    if (domFocus !== undefined && !domFocusLive) setDomFocus(undefined);
+    // Reading the page's focus lays nothing out.
+    const focusIn = !!list.current && list.current.contains(list.current.ownerDocument.activeElement);
+    if (domFocus !== undefined && (!domFocusLive || !focusIn)) setDomFocus(undefined);
     if (held.focused !== focused) setFocused(held.focused);
     if (held.hovered !== hovered) setHovered(held.hovered);
     if (held.card !== cardRow) setCardRow(held.card);
