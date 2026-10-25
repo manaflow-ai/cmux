@@ -35,16 +35,25 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
       state.unmounts = 0;
     };
     target.__cmuxEnvProbe = {
-      reset,
       get renders() {
         return state.renders;
+      },
+      set renders(value: number) {
+        state.renders = value;
       },
       get mounts() {
         return state.mounts;
       },
+      set mounts(value: number) {
+        state.mounts = value;
+      },
       get unmounts() {
         return state.unmounts;
       },
+      set unmounts(value: number) {
+        state.unmounts = value;
+      },
+      reset,
       snapshot: () => ({ ...state }),
     };
   };
@@ -104,7 +113,9 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
         return { code: next, map: null };
       },
     };
-    pane = await papercutPane(wrappedBrowser, { turns: 42, running: false, vitePlugins: [probe] });
+    // Keep enough rows to exercise both scroll extremes and history publication without making
+    // the browser lane spend its whole timeout laying out a synthetic 42-turn transcript.
+    pane = await papercutPane(wrappedBrowser, { turns: 24, running: false, vitePlugins: [probe] });
     // Warm Vite and Chromium before the actual cases; this closes only the warm page and leaves
     // the daemon/page fixture alive for the cases below.
     const warm = await pane.open({ width: 980, height: 720 });
