@@ -84,7 +84,7 @@ const CLIS: Record<string, Cli> = {
   acpmux: {
     sub: spaced("run new exec"),
     values: spaced(
-      "-p --preset --host -n --name --cwd --policy --mode -m --model -e --effort --timeout --on-permission --retries --stall --prompt-id --worktree --prompt-file --report-to --group --from",
+      "-p --preset --host -n --name --cwd --policy --mode -m --model -e --effort --timeout --on-permission --retries --stall --prompt-id --worktree --prompt-file --report-to --group --from --parent",
     ),
     harnessModel: spaced("-m --model"),
     effort: spaced("-e --effort"),

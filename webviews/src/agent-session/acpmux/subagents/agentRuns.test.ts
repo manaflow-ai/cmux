@@ -52,6 +52,11 @@ describe("agentRun", () => {
       host: "big-red",
       prompt: "Review #24977",
     });
+    expect(agentRun(`acpmux run --parent 01a1-parent -m codex -n fix "Fix the flaky test"`)).toEqual({
+      harness: "codex",
+      session: "fix",
+      prompt: "Fix the flaky test",
+    });
     expect(agentRun(`sr codex exec -m gpt-6-astra "hi"`)?.harness).toBe("codex");
     expect(agentRun(`claude -p --model opus "Summarize the log"`)).toEqual({
       harness: "claude",
