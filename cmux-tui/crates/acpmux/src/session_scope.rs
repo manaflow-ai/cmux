@@ -166,7 +166,7 @@ fn slice_settings(
         }
         if let Some(pct) = v.strip_suffix('%') {
             let pct = pct.parse::<u64>().ok().filter(|p| (1..=100).contains(p))?;
-            return (memory > 0).then(|| (memory / 100 * pct).to_string());
+            return (memory > 0).then(|| (u128::from(memory) * u128::from(pct) / 100).to_string());
         }
         let (digits, unit) = match v.strip_suffix(['K', 'M', 'G', 'T']) {
             Some(digits) => (digits, 1u64 << (10 * (1 + "KMGT".find(v.chars().last()?)?))),
@@ -460,12 +460,8 @@ mod tests {
     #[test]
     fn the_scope_joins_the_sessions_slice_and_runs_the_harness_after_the_separator() {
         let props = properties(&from(&[("ACPMUX_SESSION_MEMORY_MB", "512")]), 0);
-        let argv = scope_argv(
-            "/usr/bin/systemd-run",
-            Some(SESSIONS_SLICE),
-            "acpmux session s1",
-            &props,
-        );
+        let argv =
+            scope_argv("/usr/bin/systemd-run", Some(SESSIONS_SLICE), "acpmux session s1", &props);
         assert_eq!(
             argv.join(" "),
             "/usr/bin/systemd-run --user --scope --quiet --collect \
@@ -481,13 +477,13 @@ mod tests {
     #[test]
     fn the_sessions_slice_caps_all_sessions_together_in_absolute_values() {
         let pair = |k: &'static str, v: &str| (k, v.to_owned());
-        let default_max = (64 * GIB / 100 * 85).to_string();
+        let default_max = (64 * GIB * 85 / 100).to_string();
         // 64 GiB: 85% and 80%, in bytes.
         assert_eq!(
             slice_settings(&from(&[]), 64 * GIB),
             [
                 pair("MemoryMax", &default_max),
-                pair("MemoryHigh", &(64 * GIB / 100 * 80).to_string()),
+                pair("MemoryHigh", &(64 * GIB * 80 / 100).to_string()),
                 pair("TasksMax", "16384"),
             ]
         );
