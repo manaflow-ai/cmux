@@ -129,6 +129,54 @@ struct AgentAutoResumeScreenTests {
         #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .dialog)
     }
 
+    @Test func wrappedDraftWithCursorOnTheContinuationRowIsADraft() throws {
+        // A sentence wider than the pane wraps; the cursor ends on the continuation row.
+        let frame = try screen([
+            "> long draft",
+            "  continued",
+            "────────────────────────"
+        ], cursorRow: 1)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .draft)
+    }
+
+    @Test func multiLineDraftWithCursorOnItsLastRowIsADraft() throws {
+        let frame = try screen([
+            "────────────────────────",
+            "❯ first line",
+            "  second line",
+            "  third line",
+            "────────────────────────"
+        ], cursorRow: 3)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .draft)
+    }
+
+    @Test func aPromptAboveTheInputBoxBorderIsNotTheInputs() throws {
+        // Output above the box can hold a quoted "> " line; the border ends the walk up.
+        let frame = try screen([
+            "> quoted line in earlier output",
+            "────────────────────────",
+            "  some text"
+        ], cursorRow: 2)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .unknown)
+    }
+
+    @Test func barePromptWithAFaintPlaceholderIsStillEmpty() throws {
+        let frame = try MobileTerminalRenderGridFrame(
+            surfaceID: "auto-resume-test",
+            stateSeq: 0,
+            columns: 120,
+            rows: 3,
+            cursor: .init(row: 0, column: 2),
+            styles: [.default, .init(id: 1, faint: true)],
+            rowSpans: [
+                .init(row: 0, column: 0, text: "❯ "),
+                .init(row: 0, column: 2, styleID: 1, text: "Try \"create a util logging.py that...\""),
+                .init(row: 1, column: 0, text: "────────────────────────"),
+            ]
+        )
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)
+    }
+
     private func screen(_ lines: [String], cursorRow: Int?) throws -> MobileTerminalRenderGridFrame {
         try MobileTerminalRenderGridFrame.fromPlainRows(
             surfaceID: "auto-resume-test",

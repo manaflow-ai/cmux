@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CMUXMobileCore
 import CmuxFoundation
 import Darwin
 import Foundation
@@ -93,6 +94,28 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
         }
         guard case .switchAccount = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: .emptyPrompt) else {
             Issue.record("an empty input box is no reason to stay")
+            return
+        }
+    }
+
+    @Test
+    @MainActor
+    func aDraftWrappedPastOneRowHoldsTheSwitchBack() throws {
+        // Any sentence wider than a narrow split pane wraps, leaving the cursor on a
+        // continuation row; the restart would discard it all the same.
+        let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: "claude-account-auto-switch-test",
+            stateSeq: 0,
+            columns: 40,
+            rows: 3,
+            text: ["❯ please also rename the helper and", "  update its tests", "────────────────────────"]
+                .joined(separator: "\n"),
+            cursor: .init(row: 1, column: 18)
+        )
+        let screen = AgentAutoResumeCoordinator.screenState(in: frame)
+
+        guard case .holdBack(_, .draftPending) = fixture.decide(fixture.request(), pane: fixture.pane(), sourceScreen: screen) else {
+            Issue.record("a wrapped draft must hold the switch back, screen read as \(screen)")
             return
         }
     }
