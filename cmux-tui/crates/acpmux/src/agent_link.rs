@@ -23,7 +23,8 @@ impl AgentLink {
         if !is_harness(&self.harness) || !is_id(&self.session, 256, ":") {
             return None;
         }
-        let mut url = format!("https://cmux.com{WEB_PATH}?harness={}&session={}", self.harness, self.session);
+        let mut url =
+            format!("https://cmux.com{WEB_PATH}?harness={}&session={}", self.harness, self.session);
         let hints = [
             ("host", &self.host, is_id(self.host.as_deref().unwrap_or_default(), 64, "")),
             ("name", &self.name, is_id(self.name.as_deref().unwrap_or_default(), 64, "")),
@@ -168,7 +169,9 @@ fn is_id(v: &str, max: usize, extra: &str) -> bool {
     (1..=max).contains(&v.len())
         && !v.bytes().all(|b| b == b'.')
         && v.bytes().all(|b| {
-            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-') || extra.as_bytes().contains(&b)
+            b.is_ascii_alphanumeric()
+                || matches!(b, b'.' | b'_' | b'-')
+                || extra.as_bytes().contains(&b)
         })
 }
 
@@ -254,6 +257,8 @@ mod tests {
         assert!(find("builder/review").is_none());
         assert!(find("01a16c8c-54ec-71b2-a0fa-125d1404dd72").is_none());
         assert!(find("https://cmux.com/deeplink/agent").unwrap().is_err());
-        assert!(find("https://cmux.com/deeplink/agentx?harness=claude&session=s1").unwrap().is_err());
+        assert!(
+            find("https://cmux.com/deeplink/agentx?harness=claude&session=s1").unwrap().is_err()
+        );
     }
 }

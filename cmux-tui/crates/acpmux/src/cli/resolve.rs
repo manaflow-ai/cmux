@@ -54,7 +54,8 @@ fn card(s: &Value) -> String {
     let turn = &s["lastTurn"];
     if turn.is_object() {
         let how = turn["stopReason"].as_str().or(turn["status"].as_str()).unwrap_or_default();
-        let when = turn["endedAt"].as_u64().map(|t| format!(", {} ago", age(t))).unwrap_or_default();
+        let when =
+            turn["endedAt"].as_u64().map(|t| format!(", {} ago", age(t))).unwrap_or_default();
         row("last turn", format!("{how}{when}"));
     }
     if let Some(reply) = s["lastMessage"].as_str().or(s["lastPrompt"].as_str()) {

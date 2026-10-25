@@ -2098,7 +2098,8 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
     let (port, peer_token) = listen_with_peer_token(b.clone(), "resolve").await;
     let mut cb = client(b.clone()).await;
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far-one"}}});
-    let far = cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let far =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
     let far_info = cb.call(method::MUX_INFO, json!({"session": far})).await.unwrap();
     let far_agent = far_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
 
@@ -2108,7 +2109,8 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
         .unwrap();
     let mut ca = client(a.clone()).await;
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "near-one"}}});
-    let near = ca.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let near =
+        ca.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
     let near_info = ca.call(method::MUX_INFO, json!({"session": near})).await.unwrap();
     let near_agent = near_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
     let family = near_info["family"].as_str().unwrap_or("fake").to_owned();
@@ -2148,7 +2150,8 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
     assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
 
     // A link no daemon here knows, naming a host that is neither this one nor a peer.
-    let unknown = format!("https://cmux.com/deeplink/agent?harness={family}&session=nope-1&host=elsewhere");
+    let unknown =
+        format!("https://cmux.com/deeplink/agent?harness={family}&session=nope-1&host=elsewhere");
     let e = ca.call("_acpmux/resolve", json!({"query": unknown})).await.unwrap_err();
     assert!(e.contains("nope-1") && e.contains("peers (b)") && e.contains("elsewhere"), "{e}");
     // A link that names no session is refused as a link.
