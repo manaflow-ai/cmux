@@ -12,6 +12,7 @@ import {
   chatDisplayVariables,
   chatMetrics,
   DEFAULT_CHAT_DISPLAY,
+  ENVIRONMENT_PLACEMENT_KEY,
   resolveChatDisplay,
 } from "../src/agent-session/acpmux/chatDisplay";
 import { chatColumnOf } from "../src/agent-session/acpmux/chatWidth";
@@ -78,6 +79,13 @@ describe("chat display resolution", () => {
     expect(display.width).toBe(480);
     expect(display.codeFamily).toBeNull();
     expect(display.fullWidth).toBe(false);
+  });
+
+  test("the environment chip is left by default and accepts right or off", () => {
+    expect(resolveChatDisplay({}).environmentPlacement).toBe("left");
+    expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "right" }).environmentPlacement).toBe("right");
+    expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "off" }).environmentPlacement).toBe("off");
+    expect(resolveChatDisplay({ [ENVIRONMENT_PLACEMENT_KEY]: "center" }).environmentPlacement).toBe("left");
   });
 });
 

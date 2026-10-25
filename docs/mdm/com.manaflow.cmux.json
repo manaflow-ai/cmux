@@ -13,6 +13,17 @@
       "title" : "Chat Code Size",
       "type" : "number"
     },
+    "agentPane.display.environment.placement" : {
+      "default" : "left",
+      "description" : "Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it.",
+      "enum" : [
+        "left",
+        "right",
+        "off"
+      ],
+      "title" : "Session Info Chip",
+      "type" : "string"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",

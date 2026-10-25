@@ -792,6 +792,7 @@
               "agentPane.display.code.family",
               "agentPane.display.code.scale",
               "agentPane.display.inspector.placement",
+              "agentPane.display.environment.placement",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.needsYou.enabled",
@@ -18368,6 +18369,90 @@
       "title" : {
         "key" : "settings.agentPane.display.inspector",
         "text" : "Session Info"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "left",
+        "right",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.left",
+            "text" : "Left"
+          },
+          "value" : "left"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.right",
+            "text" : "Right"
+          },
+          "value" : "right"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "left",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.environment.help",
+        "text" : "Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.environment.placement",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "session",
+        "info",
+        "chip",
+        "environment",
+        "machine",
+        "folder",
+        "placement",
+        "left",
+        "right",
+        "off"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "environment",
+        "placement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.environment",
+        "text" : "Session Info Chip"
       },
       "validation" : "portable"
     },
