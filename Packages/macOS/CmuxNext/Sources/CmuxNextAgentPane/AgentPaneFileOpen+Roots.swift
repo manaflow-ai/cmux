@@ -5,7 +5,7 @@ extension AgentPaneFileOpen {
     /// reply text and tool calls, so it is made canonical first (`realpath`: symlinks and `..`
     /// resolved) and must then be under one canonical root, by path components, the same rule as
     /// the relay's frames (``AcpmuxPathPolicy``). A root of `/` counts as no root.
-    static func resolve(_ path: String, roots: [String]) -> Result<URL, AgentPaneTransportError> {
+    nonisolated static func resolve(_ path: String, roots: [String]) -> Result<URL, AgentPaneTransportError> {
         guard let canonical = AcpmuxPathPolicy.canonical(path) else { return .failure(.pathInvalid) }
         let canonicalRoots = roots.compactMap(AcpmuxPathPolicy.canonical).filter { $0 != "/" }
         guard canonicalRoots.contains(where: { AcpmuxPathPolicy.contains(root: $0, path: canonical) }) else {
