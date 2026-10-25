@@ -153,13 +153,24 @@ BENCH_START = time.time()
 APP_LOG = {}
 
 
-def app_log_lines(needles, limit=80):
-    """The app log's lines that hold one of `needles` (the last `limit`), or None."""
+def app_log_lines(needles, limit=40):
+    """The app log's distinct lines that hold one of `needles` (the first `limit`, process ids and times
+    dropped for the dedupe, each up to 2,000 characters: a dlopen error names its reason at the end), or None."""
+    import re
     try:
         lines = open(APP_LOG["path"], errors="replace").read().splitlines()
     except (KeyError, OSError):
         return None
-    return [line[:400] for line in lines if any(n in line for n in needles)][-limit:]
+    seen, out = set(), []
+    for line in lines:
+        if not any(n in line for n in needles):
+            continue
+        key = re.sub(r"^\[[0-9:/.]+\]|\[\d+:\d+\]|\d{4}-\d\d-\d\d [\d:.]+", "", line)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line[:2000])
+    return out[:limit]
 
 
 def log_tail(path, lines=40):
@@ -407,7 +418,7 @@ def run_helper(rpc, url, inproc_tab):
                                      "host_log": log_tail(failed.get("log_file")), "crash_reports": host_crash_reports(),
                                      # The host's children write to cmux's stderr (the app log): sandbox and load errors.
                                      "app_log_children": app_log_lines(("Helper", "sandbox", "Sandbox", "seatbelt", "Check failed",
-                                                                        "ERROR", "FATAL", "LoadInHelper"))}
+                                                                        "ERROR", "FATAL", "LoadInHelper", "dlopen"))}
         return False
     time.sleep(0.5)  # test harness: the shown context's first frame reaches the screen
     pixels["shown"] = probe_color_share()
