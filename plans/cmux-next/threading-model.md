@@ -92,13 +92,15 @@ updater's lanes: 250 ms in total).
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
 dispatch_sync onto a serial queue (GCD sync QoS override), awaiting a Task value (Swift escalation), BackgroundWork.run
-(boost at the call only; no later escalation on any macOS). Non-donating (never on a hot main-thread path):
+(boost at the call only; no later escalation: on macOS 14 and 15 the runtime has no hook, on 26 the hook exists but cmux does not use it). Non-donating (never on a hot main-thread path):
 DispatchSemaphore.wait, DispatchGroup.wait, NSCondition.wait, Rust std mpsc/Condvar waits. BackgroundWork has no
 synchronous wait.
 
 Guardrail `task-priority` (pre-push): a new Task.detached names priority:, DispatchQueue.global names qos:,
-DispatchQueue(label:) names qos: or target:. Escape `// qos-allow: <why>`. A plain Task { } is not counted. Rule (c) (a
-blocking call inside a Task) follows PL-blocking's BLOCKING_* list.
+DispatchQueue(label:) names qos: or target:, also when the call spans lines. Escape `// qos-allow: <why>`. A plain
+Task { } is not counted. Guardrail `pool-blocking` (rule (c)): a blocking call from the main-blocking list (raw or a
+checked seam) written directly in a Task, Task.detached or task-group child body is refused; a `work.run`/`work.post`
+body inside it passes, and a `Task { @MainActor in` body is main-blocking's. Escape `// blocking-allow: <why>`.
 
 Daemon: no cmux-tui thread sets a QoS yet. The journal writer stays at the default QoS while request paths wait on its
 durable commit (PL-daemon is removing that wait; then writer = utility, request threads = userInitiated).

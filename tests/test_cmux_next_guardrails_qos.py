@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""guardrails.py rule `task-priority` (PL-qos): a new detached Task or dispatch queue states its priority.
+"""guardrails.py rules `task-priority` and `pool-blocking` (PL-qos): a new detached Task or dispatch queue states its
+priority, and no blocking call is written directly in a Task body.
 
 Not on CI (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to the rule:
 python3 tests/test_cmux_next_guardrails_qos.py
@@ -95,6 +96,57 @@ class TaskPriorityRuleTests(suite.Fixture):
         cases = REFUSED + ALLOWED
         self.write(f"{KIT}/Many.swift", "".join(swift(line) for line in cases * (5200 // len(cases))))
         self.commit("many lines")
+        started = time.monotonic()
+        self.check()
+        self.assertLess(time.monotonic() - started, 1.0)
+
+
+POOL_REFUSED = [
+    "Task.detached(priority: .utility) {\n        let data = try? Data(contentsOf: url)\n    }",
+    "Task {\n        try data.write(to: url, options: .atomic)\n    }",
+    "Task { [weak self] in\n        if ready {\n            _ = FileManager.default.fileExists(atPath: path)\n        }\n    }",
+    "group.addTask {\n        try? FileManager.checked.removeItem(at: url)\n    }",
+    "Task.detached(\n        priority: .utility\n    ) {\n        _ = try? String(contentsOf: url, encoding: .utf8)\n    }",
+    "Task(priority: .high) {\n        process.waitUntilExit()\n    }",
+]
+POOL_ALLOWED = [
+    "Task {\n        let data = try await work.run(.userVisible, mayBlock: .files) { try Data(blockingContentsOf: url) }\n    }",
+    "Task {\n        work.post(.bestEffort, mayBlock: .files) {\n            try? FileManager.checked.removeItem(at: url)\n        }\n    }",
+    "Task { @MainActor in\n        refresh()\n    }",
+    "Task {\n        // blocking-allow: a one-byte read of a pipe the child just closed\n        _ = handle.readDataToEndOfFile()\n    }",
+    "func save() {\n        try? data.write(to: url)\n    }",
+    "Task {\n        await model.reload()\n    }",
+]
+
+
+class PoolBlockingRuleTests(suite.Fixture):
+    """Rule (c) of P14: a blocking call written directly in a Task body (the cooperative pool, or main)."""
+
+    refused_ids = TaskPriorityRuleTests.refused_ids
+
+    def test_a_blocking_call_in_a_task_body_is_refused(self):
+        for text in POOL_REFUSED:
+            with self.subTest(text=text):
+                self.assertIn("pool-blocking", self.refused_ids(text))
+
+    def test_a_lane_body_a_main_actor_hop_plain_code_or_the_escape_passes(self):
+        for text in POOL_ALLOWED:
+            with self.subTest(text=text):
+                self.assertNotIn("pool-blocking", self.refused_ids(text))
+
+    def test_an_existing_blocking_task_never_counts(self):
+        old = swift("Task {\n        _ = try? Data(contentsOf: url)\n    }")
+        self.rebase_on({f"{KIT}/Old3.swift": old})
+        self.write(f"{KIT}/Old3.swift", old + "// edited\n")
+        self.commit("edits around an old blocking task")
+        refusals, _ = self.check()
+        self.assertNotIn("pool-blocking", [r.id for r, _ in refusals])
+
+    def test_the_rule_is_fast(self):
+        import time
+        cases = POOL_REFUSED + POOL_ALLOWED
+        self.write(f"{KIT}/Many.swift", "".join(swift(text) for text in cases * (3000 // len(cases))))
+        self.commit("many tasks")
         started = time.monotonic()
         self.check()
         self.assertLess(time.monotonic() - started, 1.0)

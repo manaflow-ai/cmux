@@ -1688,6 +1688,40 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
     return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
 
 
+# ---- pool-blocking (PL-qos): rule (c) of P14. A blocking call (raw or a checked seam: the main-blocking list) written
+# directly in a Task body runs on Swift's cooperative pool (one thread per core: a few stall every task) or, for a
+# plain Task in main-actor code, on the main thread. Only the innermost closure counts: a `work.run(...) { }` or
+# `work.post(...) { }` body inside the Task is a BackgroundWork lane, which is where such work belongs. A
+# `Task { @MainActor in` body is main-blocking's to judge.
+POOL_TASK_OPENER = re.compile(r"(\bTask(\s*\.\s*detached)?|\.addTask(UnlessCancelled)?|\.addDiscardingTask)\s*(\([^{]*\))?\s*\{$")
+
+
+def in_task_body(version: Version, index: int) -> bool:
+    """Whether VERSION's line INDEX sits directly in a Task (or task group child) body: the innermost block around
+    it, past `if` / `for` / `do` blocks, is a `Task {`, `Task.detached(...) {` or `group.addTask {` opener."""
+    code = code_of(version.lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    for opener, number in enclosing_openers(version.lines, index, OPENER_STOP, prefix):
+        header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(code_of(version.lines[number - 1])):
+            return False  # main-blocking's
+        if POOL_TASK_OPENER.search(opener.rstrip()) or POOL_TASK_OPENER.search(header.rstrip()):
+            return True
+        if CONTROL_OPENER.search(header):
+            continue
+        return False  # a declaration, or another closure (a BackgroundWork lane body, a callback)
+    return False
+
+
+def pool_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls written directly in a Task body (in_task_body)."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (index < len(version.lines) and blocking_match(MAIN_SCAN, code) and not ALWAYS_SCAN.search(code)
+                and in_task_body(version, index))
+    return changed_debt(outside_seams(changes), judge)
+
+
 RULES = (
     Rule("unchecked-sendable", "`@unchecked Sendable` / `nonisolated(unsafe)` without a safety argument",
          "it switches off the data-race checker; without a written argument nobody can review it",
@@ -1758,6 +1792,16 @@ RULES = (
          "into a Task on the cooperative pool",
          "// qos-allow: <why: a frame waits for it (userInteractive), it inherits on purpose, or nothing ever waits for it (background)>",
          matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
+    Rule("pool-blocking", "A blocking call (file I/O, a wait, a process wait, a sync system call) written directly in a "
+         "Task body",
+         "a Task runs on Swift's cooperative pool, one thread per core: a few blocked tasks stall every task the app "
+         "awaits, typing and frames included; a plain Task in main-actor code runs it on the main thread "
+         "(plans/cmux-next/PATTERNS.md P14, threading-model.md)",
+         "run it on a BackgroundWork lane: `try await work.run(.userVisible, mayBlock: .files) { ... }` (or `work.post` "
+         "when nothing awaits it; `.system` for a sync system call, `.cpu` for a long parse); a child process goes "
+         "through `AsyncProcess`; take the app's `AppServices.work` through `init`",
+         "// blocking-allow: <why this call cannot block the pool>",
+         pool_blocking),
     Rule("appkit-index", "A raw AppKit row or column index read (`.clickedRow`, `.clickedColumn`, `.selectedColumn`, "
          "`item(atRow:`, `selectedRow(inColumn:`)",
          "they are -1 when a click lands off the rows or nothing is selected, and past the end after a reload; "
