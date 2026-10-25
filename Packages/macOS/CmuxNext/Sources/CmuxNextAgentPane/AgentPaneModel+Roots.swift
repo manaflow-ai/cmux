@@ -56,7 +56,20 @@ extension AgentPaneModel {
     /// terminal made in the key's frame gets it too. Nil for agent-home (``folderForOtherTabs(_:)``).
     public var terminalFolder: String? {
         let session = sessionId.flatMap(transport.sessions.folder(of:))
-        return folderForOtherTabs(session ?? chosenFolder ?? startFolders.current(of: self) ?? handshakeCwd)
+        return folderForOtherTabs(session ?? pickedFolder ?? chosenFolder ?? startFolders.current(of: self) ?? handshakeCwd)
+    }
+
+    /// Keeps a `workspace.useFolder` pick as the terminal folder (Ctrl-` before the first send,
+    /// #22225) when the chat may start there: an `ok` for a folder that is a root of this pane, or
+    /// one the person's click granted. A page script's pick of any other folder moves nothing.
+    func notePicked(_ reply: [String: Any]) async -> [String: Any] {
+        guard let value = reply["value"] as? [String: Any], value["status"] as? String == "ok",
+              let cwd = value["cwd"] as? String else { return reply }
+        // The reply to the person's click waits for it.
+        let canonical = await Task.detached(priority: .userInitiated) { AcpmuxPathPolicy.canonical(cwd) }.value
+        let allowed = transport.roots() + transport.addedRoots
+        if allowed.contains(cwd) || canonical.map(allowed.contains) == true { pickedFolder = cwd }
+        return reply
     }
 
     /// "Choose Folder…" (`workspace.chooseFolder`): the native sheet only after a real gesture (it
@@ -67,6 +80,7 @@ extension AgentPaneModel {
         switch await onChooseFolder() {
         case .chosen(let folder):
             chosenFolder = folder
+            pickedFolder = nil
             return AgentPaneReply.success(["cwd": folder])
         case .cancelled:
             return AgentPaneReply.success()
