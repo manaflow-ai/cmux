@@ -59,14 +59,16 @@ if [ -n "$l" ] && ! grep -q "\"listen\": *\"$l\"" "${h:-$HOME/.acpmux}/config.js
 /// Refuses the move when `acpmux.service` or one of its drop-ins already
 /// exists with other text than the plan's (`$t/acpmux.service`, `$t/d`):
 /// someone wrote that unit, and it is theirs. One with the same text is
-/// adopted as it is.
-const MIGRATE_CONFLICTS: &str = r#"if [ -e "$d/acpmux.service" ] && ! cmp -s "$t/acpmux.service" "$d/acpmux.service"; then refuse unitConflict "$d/acpmux.service differs from the unit acpmux writes, so the daemon is not moved from $u to it: remove or fix it, then run this again"; fi
+/// adopted as it is; one an earlier acpmux wrote (`acpmux_is_old`,
+/// [`super::OLD_SYSTEMD_UNITS`]) is replaced ([`MIGRATE_STOP`]).
+const MIGRATE_CONFLICTS: &str = r#"if [ -e "$d/acpmux.service" ] && ! cmp -s "$t/acpmux.service" "$d/acpmux.service"; then acpmux_is_old "$d/acpmux.service"; [ -n "$acpmux_ours" ] || refuse unitConflict "$d/acpmux.service differs from the unit acpmux writes, so the daemon is not moved from $u to it: remove or fix it, then run this again"; fi
 while read -r f; do [ -z "$f" ] || cmp -s "$f" "$t/d/${f##*/}" || refuse unitConflict "$f differs from what moving the daemon from $u to acpmux.service writes: remove or fix it, then run this again"; done <<ACPMUX_DROP_INS
 $(find "$n" -maxdepth 1 -type f -name '*.conf' 2>/dev/null)
 ACPMUX_DROP_INS
 "#;
 
-/// Writes the plan (files that exist already are kept: they matched), then
+/// Writes the plan (files that exist already are kept: they matched, or the
+/// unit an earlier acpmux wrote is replaced), then
 /// stops the old unit with the runtime drop-in `zzz-acpmux-migrate.conf` in
 /// place: `KillMode=process` sends SIGTERM to the daemon alone, which leaves
 /// its agents running for the next one to adopt (the unit's default
@@ -75,7 +77,7 @@ ACPMUX_DROP_INS
 const MIGRATE_STOP: &str = r#"echo "ACPMUX_MIGRATING=$u"
 r="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/user/$u.d"
 mkdir -p "$n" "$r" && printf '[Service]\nKillMode=process\nRestart=no\n' > "$r/zzz-acpmux-migrate.conf" || exit 1
-[ -e "$d/acpmux.service" ] || cp "$t/acpmux.service" "$d/acpmux.service" || exit 1
+cmp -s "$t/acpmux.service" "$d/acpmux.service" || cp "$t/acpmux.service" "$d/acpmux.service" || exit 1
 find "$t/d" -type f -name '*.conf' -exec cp -n {} "$n/" \;
 rm -rf "$t"
 systemctl --user daemon-reload && systemctl --user disable --now "$u" || exit 1
@@ -115,8 +117,9 @@ pub(super) fn migrate(dry: bool) -> String {
             "{SYSTEMD_LINGERING} || refuse noLinger \"this user's systemd manager does not linger, so acpmux.service would stop at logout: run loginctl enable-linger, then run this again\"\n{MIGRATE_STOP}{STILL_RUNNING_CHECK}\n{MIGRATE_START}echo {SYSTEMD_STARTED}; exit 0\n"
         )
     };
+    let old = super::old_unit_check();
     format!(
-        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT'\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
+        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\ndh={REMOTE_HOME}\n{old}{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT'\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
     )
 }
 
