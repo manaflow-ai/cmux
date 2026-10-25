@@ -42,6 +42,7 @@ jobs:
       signed: ${{ steps.package.outputs.signed }}
       source_sha: ${{ steps.package.outputs.source_sha }}
       build: ${{ steps.stamp.outputs.build }}
+      notary_id: ${{ steps.notary.outputs.id }}
     env:
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       RELEASE_TAG: cmux-next-dev
@@ -275,6 +276,29 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # Apple notarizes while the tip job waits for a Mac (4.4 min in run
+      # 40170870180), so the tip job usually finds it done. Advisory: on any
+      # failure the tip job submits the DMG itself.
+      - name: Submit the tip DMG for notarization
+        id: notary
+        if: steps.stamp.outputs.build != ''
+        continue-on-error: true
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          NOTARY_TMP="$(mktemp -d "$RUNNER_TEMP/cmux-notary.XXXXXX")"
+          trap 'rm -rf "$NOTARY_TMP"' EXIT
+          source ./scripts/ci/lib/notary-auth.sh
+          notary_auth_init "$NOTARY_TMP"
+          submit="$(xcrun notarytool submit "tip-handoff/$TIP_DMG_NAME" "${NOTARY_AUTH_ARGS[@]}" --no-wait --output-format json)"
+          id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$submit")"
+          [[ "$id" =~ ^[0-9a-f-]{36}$ ]] || { echo "unexpected notarytool id '$id'" >&2; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+          echo "Submitted the tip DMG for notarization: $id"
+
       - name: Cleanup signing keychain
         if: always()
         run: |
@@ -497,6 +521,7 @@ jobs:
           ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
           ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
           ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          EARLY_NOTARY_ID: ${{ needs.sign.outputs.notary_id }}
         run: |
           set -euo pipefail
           NOTARY_TMP="$(mktemp -d "$RUNNER_TEMP/cmux-notary.XXXXXX")"
@@ -504,9 +529,21 @@ jobs:
           source ./scripts/ci/lib/notary-auth.sh
           notary_auth_init "$NOTARY_TMP"
           dmg="tip-handoff/$TIP_DMG_NAME"
-          submit="$(xcrun notarytool submit "$dmg" "${NOTARY_AUTH_ARGS[@]}" --wait --timeout 30m --output-format json)"
-          id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$submit")"
-          status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$submit")"
+          # The sign job submitted these exact bytes (the sha256 was checked
+          # above); wait for that submission, or submit when it could not.
+          status=""
+          if [[ "$EARLY_NOTARY_ID" =~ ^[0-9a-f-]{36}$ ]]; then
+            id="$EARLY_NOTARY_ID"
+            if result="$(xcrun notarytool wait "$id" "${NOTARY_AUTH_ARGS[@]}" --timeout 30m --output-format json)"; then
+              status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$result")"
+            fi
+            [[ -n "$status" ]] || echo "::warning::could not read early submission $id; submitting again"
+          fi
+          if [[ -z "$status" ]]; then
+            submit="$(xcrun notarytool submit "$dmg" "${NOTARY_AUTH_ARGS[@]}" --wait --timeout 30m --output-format json)"
+            id="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$submit")"
+            status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$submit")"
+          fi
           if [[ "$status" != Accepted ]]; then
             echo "tip DMG notarization failed with status: $status" >&2
             xcrun notarytool log "$id" "${NOTARY_AUTH_ARGS[@]}" || true

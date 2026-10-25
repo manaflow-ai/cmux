@@ -78,6 +78,17 @@ check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/spa
       "the key is checked before the feed is generated")
 check(tip.split("needs:")[0].count("continue-on-error: true") == 1,
       "a red tip job never makes the dispatcher re-publish the same source run")
+sign = workflow[workflow.index("\n  sign:\n"):workflow.index("\n  verify:\n")]
+early = sign[sign.index("Submit the tip DMG for notarization"):]
+check("--no-wait" in early and "continue-on-error: true" in early.split("run: |")[0],
+      "the sign job submits the tip DMG without waiting, and a failed submit never fails signing")
+check(sign.index("Upload the signed tip DMG") < sign.index("Submit the tip DMG for notarization"),
+      "the early submit runs after the DMG is uploaded, so it never delays the tip artifact")
+check("notary_id: ${{ steps.notary.outputs.id }}" in sign, "the sign job hands its submission id to the tip job")
+check("EARLY_NOTARY_ID: ${{ needs.sign.outputs.notary_id }}" in tip and 'notarytool wait "$id"' in tip,
+      "the tip job waits for the early submission")
+check(tip.index('notarytool wait "$id"') < tip.index("notarytool submit") < tip.index("xcrun stapler staple"),
+      "the tip job submits itself only when the early submission could not be read, before stapling")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
 
