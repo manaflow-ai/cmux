@@ -9,11 +9,14 @@ its destination target in one step, in the worktree, uncommitted:
   2. String tables: an App table only the group uses moves whole; a shared one is split by key, each key
      the group uses going to the destination's table of the same name with every locale (`bundle:
      .module` rebinds to the destination's bundle on a move, and a missing key falls back silently).
-     A key both sides use is copied; a key only the group uses leaves the App table.
-  3. follow-renames.py rewrites every mention of the moved paths: the path-keyed baselines (its REGISTRY)
-     and every other tracked text file, so `git grep <old path>` comes back empty.
+     A key both sides use is copied, and so is one a non-Swift reader takes (gen-strings.mjs builds webview
+     pages from App tables); a key only the group uses leaves the App table, and a key nothing references
+     is deleted from it. Destination tables get the new members as text: their other bytes stay.
+  3. follow-renames.py rewrites every mention of the moved paths (a merged table's too): the path-keyed
+     baselines (its REGISTRY) and every other tracked text file, so `git grep <old path>` comes back empty.
   4. The localization debt baseline is recounted for the tables it touched; architecture-layers.json gets
-     the destination when it lacks it (with the group's layer).
+     the destination when it lacks it (with the group's layer); crash_ratchet.py --update-baseline --base HEAD
+     carries the module-keyed crash rows with the moved hits.
 
 It never edits Package.swift (FREEZE, rule R10): a destination or test target, or a resources entry the
 move needs, is printed as a manifest request for the manifest agent (task 019).
@@ -46,6 +49,8 @@ LAYERS = "plans/cmux-next/architecture-layers.json"
 OWNERS = "plans/cmux-next/OWNERS.md"
 PERF_HOT = "scripts/cmux-next/perf-hot-benches.json"
 DEBT_BASELINE = "scripts/localization-debt-baseline.json"
+CRASH_RATCHET = "scripts/cmux-next/crash_ratchet.py"
+CRASH_BASELINE = "scripts/cmux-next/crash-safety-baseline.json"
 
 
 def load(name: str, filename: str):
@@ -141,27 +146,59 @@ def stem(path: str) -> str:
     return Path(path).name.removesuffix(".swift").split("+")[0]
 
 
-def test_files(group: Group, sources: list[str], tracked: list[str]) -> list[str]:
-    """Explicit tests, else the App tests in a folder named for the group, and each `<Name>...Tests.swift` whose
-    longest prefix among the App's file stems (`Stem` of `Stem+Part.swift`) and the group's name is a moved one:
-    `TabSearchFactsTests` goes with TabSearch/, `TabStripTests` stays with an unmoved `TabStrip.swift`."""
+def starts_with_word(name: str, prefix: str) -> bool:
+    """Whether NAME starts with PREFIX as a CamelCase word: `ShareTests` and `Share+X` do, `SharedIndicator` does not."""
+    rest = name[len(prefix):]
+    return name.startswith(prefix) and bool(prefix) and (not rest or rest[0].isupper() or rest[0] in "+_" or rest[0].isdigit())
+
+
+def test_files(repo: Path, group: Group, sources: list[str], tracked: list[str]) -> tuple[list[str], list[str]]:
+    """(tests, notes). Explicit tests (the graph's `tests` field), else the App tests in a folder named for the group,
+    each `<Name>...Tests.swift` whose longest CamelCase-word prefix among the App's file stems (`Stem` of
+    `Stem+Part.swift`) and the group's name is a moved one (`TabSearchFactsTests` goes with TabSearch/, `TabStripTests`
+    stays with an unmoved `TabStrip.swift`, `SharedIndicatorTests` is not `Share`'s), and the App test helpers
+    (fixtures, fakes: files that are not `*Tests.swift`) whose types only the moving tests use."""
     if group.tests is not None:
         missing = [t for t in group.tests if t not in tracked]
         if missing:
             raise MoveError(f"tests not tracked: {', '.join(missing)}")
-        return sorted(group.tests)
+        return sorted(group.tests), []
     moved = {group.name} | {stem(f) for f in sources if f.endswith(".swift")}
     every = moved | {stem(f) for f in tracked if f.startswith(APP_SOURCES) and f.endswith(".swift")}
     folder = APP_TESTS + group.name + "/"
-    out = []
-    for f in tracked:
-        if not f.startswith(APP_TESTS) or not f.endswith(".swift"):
-            continue
+    app_tests = [f for f in tracked if f.startswith(APP_TESTS) and f.endswith(".swift")]
+    chosen = set()
+    for f in app_tests:
         name = Path(f).name
-        owner = max((s for s in every if name.startswith(s)), key=len, default=None) if name.endswith("Tests.swift") else None
+        owner = max((s for s in every if starts_with_word(name, s)), key=len, default=None) \
+            if name.endswith("Tests.swift") else None
         if f.startswith(folder) or owner in moved:
-            out.append(f)
-    return sorted(out)
+            chosen.add(f)
+    return helpers_of(repo, chosen, app_tests)
+
+
+def helpers_of(repo: Path, chosen: set[str], app_tests: list[str]) -> tuple[list[str], list[str]]:
+    """CHOSEN plus each App test helper whose declared types are used by chosen files only (to a fixed point), and a
+    note for each helper both a moving and a staying test use (it stays: the moved test needs it from somewhere)."""
+    if not chosen:
+        return [], []
+    texts = {f: (repo / f).read_text(encoding="utf-8", errors="replace") for f in app_tests}
+    helpers = {}
+    for f in app_tests:
+        types = follow.declared_types(texts[f])
+        if not f.endswith("Tests.swift") and types:
+            helpers[f] = re.compile(r"\b(?:" + "|".join(map(re.escape, sorted(types))) + r")\b")
+    users = {f: {g for g in app_tests if g != f and word.search(texts[g])} for f, word in helpers.items()}
+    chosen, grew = set(chosen), True
+    while grew:
+        grew = False
+        for f, who in users.items():
+            if f not in chosen and who and who <= chosen:
+                chosen.add(f)
+                grew = True
+    notes = [f"{f} stays in {APP}Tests: moving tests ({', '.join(sorted(Path(g).name for g in who & chosen)[:3])}) "
+             "and staying ones use it" for f, who in sorted(users.items()) if f not in chosen and who & chosen]
+    return sorted(chosen), notes
 
 
 # ---------------------------------------------------------------------------------------- string tables
@@ -234,14 +271,6 @@ class Table:
         return self.data["strings"]
 
 
-def separator(text: str) -> tuple[str, str]:
-    return (",", " : ") if re.search(r'"sourceLanguage"\s:\s', text) else (",", ": ")
-
-
-def dump_table(data: dict, style_of: str) -> str:
-    return json.dumps(data, indent=2, ensure_ascii=False, separators=separator(style_of)) + "\n"
-
-
 def member_spans(text: str) -> list[tuple[str, int, int]]:
     """(key, start of its line, end of its value) for each member of the table's `strings` object."""
     decoder = json.JSONDecoder()
@@ -291,21 +320,68 @@ def remove_keys(text: str, keys: set[str]) -> str:
     return result
 
 
-def add_entries(dest_text: str | None, entries: dict, style_of: str, version: str | None) -> str:
+def separator(text: str) -> str:
+    """A table's key separator: Xcode writes `"key" : value`, json.dumps `"key": value`."""
+    return " : " if re.search(r'"(?:sourceLanguage|strings)" :', text) else ": "
+
+
+def line_indent(text: str, line: int) -> str:
+    """The spaces and tabs that start the line at offset LINE."""
+    rest = text[line:]
+    return rest[:len(rest) - len(rest.lstrip(" \t"))]
+
+
+# Orders a table's keys may be in (Xcode writes code point order; some tables are case-folded); a table in
+# neither keeps its own order and gets new keys at the end.
+KEY_ORDERS = (lambda k: k, lambda k: (k.casefold(), k))
+
+
+def add_entries(dest_text: str | None, source_text: str, keys: set[str]) -> str:
+    """The destination table with the members KEYS of SOURCE_TEXT added as text, every existing byte kept (its diff is
+    only the added members). Each member is copied from the source with its own bytes, re-indented to the
+    destination's member indent, and placed at its sorted position when the destination's keys are sorted, else
+    after its last member. A new destination is the source table less every other key (the source's layout)."""
+    spans = {k: (line, end) for k, line, end in member_spans(source_text)}
     if dest_text is None:
-        data = {"sourceLanguage": "en", "strings": entries}
-        if version:
-            data["version"] = version
-        return dump_table(data, style_of)
-    data = json.loads(dest_text)
-    strings = data["strings"]
-    for key, value in entries.items():
-        if key in strings and strings[key] != value:
+        return remove_keys(source_text, set(spans) - keys)
+    source = json.loads(source_text)["strings"]
+    dest = json.loads(dest_text)["strings"]
+    for key in sorted(keys & set(dest)):
+        if dest[key] != source[key]:
             raise MoveError(f"key {key!r} is already in the destination table with other text")
-        strings[key] = value
-    if list(json.loads(dest_text)["strings"]) == sorted(json.loads(dest_text)["strings"]):
-        data["strings"] = dict(sorted(strings.items()))
-    return dump_table(data, dest_text)
+    new = sorted(keys - set(dest), key=lambda k: spans[k][0])  # source order
+    if not new:
+        return dest_text
+    dest_spans = member_spans(dest_text)
+    if not dest_spans:
+        raise MoveError("the destination table has an empty strings object; add the keys by hand")
+    src_indent, dest_indent = line_indent(source_text, spans[new[0]][0]), line_indent(dest_text, dest_spans[0][1])
+    same_style = separator(source_text) == separator(dest_text)
+
+    def member(key: str) -> str:
+        if not same_style:  # the destination's separators, in Xcode's layout
+            text = json.dumps({key: source[key]}, indent=2, ensure_ascii=False, separators=(",", separator(dest_text)))
+            lines = text[1:-1].strip("\n").split("\n")
+            return "\n".join(dest_indent + ln[2:] for ln in lines)
+        line, end = spans[key]
+        lines = source_text[line:end].split("\n")
+        return "\n".join(dest_indent + ln[len(src_indent):] if ln.startswith(src_indent) else ln for ln in lines)
+
+    names = [k for k, _, _ in dest_spans]
+    order = next((o for o in KEY_ORDERS if names == sorted(names, key=o)), None)
+    inserts: dict[int, list[tuple[str, str]]] = {}  # position -> (key, text), before the member there or at the end
+    last_end = dest_spans[-1][2]
+    for key in (new if order is None else sorted(new, key=order)):
+        after = None if order is None else next((s for s in dest_spans if order(s[0]) > order(key)), None)
+        if after is None:
+            inserts.setdefault(last_end, []).append((key, ",\n" + member(key)))
+        else:
+            inserts.setdefault(after[1], []).append((key, member(key) + ",\n"))
+    out, last = [], 0
+    for pos in sorted(inserts):
+        out += [dest_text[last:pos], *(text for _, text in inserts[pos])]
+        last = pos
+    return "".join(out) + dest_text[last:]
 
 
 # ------------------------------------------------------------------------------------------- the plan
@@ -319,17 +395,21 @@ class Plan:
     table_moves: list[dict] = field(default_factory=list)
     table_writes: dict[str, str] = field(default_factory=dict)  # path -> new text
     table_removes: list[str] = field(default_factory=list)  # App tables merged whole into an existing one
+    merged_tables: dict[str, str] = field(default_factory=dict)  # those App tables -> the table they merged into
     moved_keys: dict[str, set[str]] = field(default_factory=dict)  # destination table -> keys it must hold
+    reader_keys: dict[str, set[str]] = field(default_factory=dict)  # split App table -> keys a non-Swift reader reads
+    layer_text: str | None = None  # architecture-layers.json with the new destination, when it lacks it
     folders: dict[str, str] = field(default_factory=dict)  # App folders that moved whole
     followed: object = None  # the follow-renames Renames the move applied
     manifest: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     perf_hot: list[str] = field(default_factory=list)
+    problems: list[str] = field(default_factory=list)  # found while applying (a crash row that could not follow)
 
     def as_dict(self) -> dict:
         return {"group": self.group.name, "destination": self.group.destination, "renames": self.renames,
                 "tables": self.table_moves, "manifest_requests": self.manifest, "notes": self.notes,
-                "perf_hot": self.perf_hot}
+                "perf_hot": self.perf_hot, "tests": self.tests}
 
 
 def target_body(manifest: str, kind: str, name: str) -> str | None:
@@ -358,13 +438,87 @@ def destination_table_path(repo: Path, dest: str, table: str, body: str | None, 
     return path
 
 
+# Non-Swift code that reads App string tables by path (webviews/scripts/pages/gen-strings.mjs builds the webview
+# pages' strings from them). Tests and the move tools only name paths.
+READER_SUFFIXES = (".mjs", ".js", ".cjs", ".ts", ".tsx", ".py", ".sh", ".rb")
+READER_TABLE = re.compile(r"CmuxNextApp/((?:[A-Za-z0-9_+\-]+/)*[A-Za-z0-9_+\-]+\.xcstrings)")
+# A gen-strings catalog's key filter: `key.startsWith("p.")`, `key === "k"`, `() => ["k", ...]`. Any other test
+# (a regex, endsWith, a helper) reads as every key.
+KEY_PREFIX = re.compile(r"startsWith\(\s*([\"'`])([^\"'`]+)\1\s*\)")
+KEY_EXACT = re.compile(r"===\s*([\"'])([^\"']+)\1|^\s*\(\)\s*=>\s*\[([^\]]*)\]")
+KEY_CALL = re.compile(r"([A-Za-z_$][\w$]*)\s*\(")
+KEY_CALLS_READ = {"filter", "startsWith"}
+
+
+@dataclass
+class Reader:
+    path: str  # the reading file
+    prefixes: tuple[str, ...] = ()
+    exact: frozenset[str] = frozenset()
+    every: bool = True
+
+    def reads(self, key: str) -> bool:
+        return self.every or key in self.exact or key.startswith(self.prefixes)
+
+
+def key_filter(path: str, expression: str | None) -> Reader:
+    """The keys a reader takes from a table: EXPRESSION is its `keys:` filter, None when it has none (every key)."""
+    if expression is None:
+        return Reader(path)
+    expression = re.sub(r"//[^\n]*", "", expression)
+    if any(call not in KEY_CALLS_READ for call in KEY_CALL.findall(expression)):
+        return Reader(path)
+    prefixes = tuple(m.group(2) for m in KEY_PREFIX.finditer(expression))
+    exact = {m.group(2) for m in KEY_EXACT.finditer(expression) if m.group(2)}
+    for m in KEY_EXACT.finditer(expression):
+        if m.group(3) is not None:
+            exact |= set(re.findall(r"[\"'`]([^\"'`]+)[\"'`]", m.group(3)))
+    if not prefixes and not exact:
+        return Reader(path)
+    return Reader(path, prefixes, frozenset(exact), every=False)
+
+
+def table_readers(repo: Path, tracked: list[str]) -> dict[str, list[Reader]]:
+    """App table path -> the non-Swift code that reads it, with the keys each takes."""
+    out: dict[str, list[Reader]] = {}
+    for path in tracked:
+        name = Path(path).name
+        if (not path.endswith(READER_SUFFIXES) or "/tests/" in "/" + path or name.startswith("test_")
+                or name in ("move-app-files.py", "follow-renames.py")):
+            continue
+        try:
+            text = (repo / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "CmuxNextApp/" not in text:
+            continue
+        for m in READER_TABLE.finditer(text):
+            # The catalog entry is the text up to the next catalog (`file:`) or page (`out:`).
+            ends = [i for i in (text.find("file:", m.end()), text.find("out:", m.end())) if i >= 0]
+            entry = text[m.end():min(ends, default=len(text))]
+            keys = entry.find("keys:")
+            out.setdefault(APP_SOURCES + m.group(1), []).append(
+                key_filter(path, entry[keys + len("keys:"):] if keys >= 0 else None))
+    return out
+
+
 def plan_tables(repo: Path, plan: Plan, moved_sources: list[str], tracked: list[str], body: str | None) -> None:
+    """Each App table the group uses: moved whole when no staying App file uses it (merged when the destination has
+    the table), else split by key. A split moves the keys only the group uses, copies the keys staying App code or a
+    non-Swift reader (table_readers) also uses, and deletes from the App table the keys nothing references (no App
+    source or test literal, no dynamic prefix, no reader): no App table keeps an unreferenced key."""
     app_swift = [f for f in tracked if f.startswith(APP_SOURCES) and f.endswith(".swift")]
     moved = set(moved_sources)
     moved_text = "\n".join((repo / f).read_text(encoding="utf-8", errors="replace") for f in moved_sources if f.endswith(".swift"))
     rest_text = "\n".join((repo / f).read_text(encoding="utf-8", errors="replace") for f in app_swift if f not in moved)
-    moved_lits, rest_lits = literals(moved_text), literals(rest_text)
+    test_text = "\n".join((repo / f).read_text(encoding="utf-8", errors="replace") for f in tracked
+                          if f.startswith(APP_TESTS) and f.endswith(".swift"))
+    moved_lits, rest_lits, test_lits = literals(moved_text), literals(rest_text), literals(test_text)
     moved_named, rest_named = set(TABLE_ARG.findall(moved_text)), set(TABLE_ARG.findall(rest_text))
+    prefixes = tuple(sorted(lit for lit in moved_lits | rest_lits | test_lits
+                            if len(lit) >= 4 and lit[-1] in "._-" and PLACEHOLDER not in lit
+                            and not any(c.isspace() for c in lit)))
+    readers = table_readers(repo, tracked)
     tables = [Table(f, (repo / f).read_text(encoding="utf-8")) for f in tracked
               if f.startswith(APP_SOURCES) and f.endswith(".xcstrings") and f not in moved]
     all_keys: set[str] = set()
@@ -377,11 +531,12 @@ def plan_tables(repo: Path, plan: Plan, moved_sources: list[str], tracked: list[
                 plan.notes.append(f"{table.path}: the group names table {table.name} but uses none of its keys")
             continue
         theirs = index.used(rest_lits)
+        read = {k for k in index.keys if any(r.reads(k) for r in readers.get(table.path, []))}
         dest = destination_table_path(repo, plan.group.destination, table.name, body, plan)
-        dest_text = (repo / dest).read_text(encoding="utf-8") if (repo / dest).is_file() else None
-        unreferenced = index.keys - mine - theirs
-        # Whole when the App keeps no use of it; a table with keys nobody references moves whole only when
-        # no remaining App file names it (Localizable is everyone's default table, so it is split).
+        dest_text = plan.table_writes.get(dest) or ((repo / dest).read_text(encoding="utf-8") if (repo / dest).is_file() else None)
+        unreferenced = index.keys - mine - theirs - read
+        # Whole when the App keeps no use of it (a reader's path follows the table); a table with keys nobody
+        # references moves whole only when no remaining App file names it (Localizable is everyone's default table).
         whole = not theirs and (not unreferenced or (table.name != "Localizable" and table.name not in rest_named))
         if whole and dest_text is None:
             plan.renames[table.path] = dest
@@ -389,20 +544,26 @@ def plan_tables(repo: Path, plan: Plan, moved_sources: list[str], tracked: list[
             plan.moved_keys[dest] = set(index.keys)
             continue
         if whole:
-            plan.table_writes[dest] = add_entries(dest_text, table.strings, table.text, table.data.get("version"))
+            plan.table_writes[dest] = add_entries(dest_text, table.text, set(index.keys))
             plan.table_removes.append(table.path)
+            plan.merged_tables[table.path] = dest
             plan.table_moves.append({"table": table.path, "to": dest, "mode": "merge", "keys": len(index.keys)})
             plan.moved_keys[dest] = set(index.keys)
+            plan.notes += [f"{r.path} reads {table.path}, which merges into {dest}: it now reads that table's other keys too"
+                           for r in readers.get(table.path, []) if r.every]
             continue
-        only_mine, shared = mine - theirs, mine & theirs
-        entries = {k: v for k, v in table.strings.items() if k in mine}
-        plan.table_writes[dest] = add_entries(dest_text, entries, table.text, table.data.get("version"))
-        plan.table_writes[table.path] = remove_keys(table.text, only_mine)
+        only_mine, kept = mine - theirs - read, mine & (theirs | read)
+        # A key no App source or test literal names, no interpolated prefix (`"x.\(y)"`) and no concatenated one
+        # (`"x." + y`) reaches, and no reader takes: dead, deleted from the App table.
+        dead = {k for k in unreferenced - index.used(test_lits) if not k.startswith(prefixes)}
+        plan.table_writes[dest] = add_entries(dest_text, table.text, mine)
+        plan.table_writes[table.path] = remove_keys(table.text, only_mine | dead)
         plan.moved_keys[dest] = set(mine)
+        if read:
+            plan.reader_keys[table.path] = read
         plan.table_moves.append({"table": table.path, "to": dest, "mode": "split", "moved": len(only_mine),
-                                 "copied": len(shared), "kept": len(index.keys - only_mine)})
-        if unreferenced:
-            plan.notes.append(f"{table.path}: {len(unreferenced)} key(s) neither side references stay in the App table")
+                                 "copied": len(kept), "deleted_unreferenced": sorted(dead),
+                                 "kept": len(index.keys - only_mine - dead)})
     # Explicit lookups whose key no App table has: they fall back today and will after the move.
     explicit = set(re.findall(r'localized:\s*"((?:[^"\\\n]|\\.)*)"', moved_text))
     known = KeyIndex(all_keys)
@@ -449,7 +610,8 @@ def plan_move(repo: Path, group: Group) -> Plan:
     dest_root = PKG + "Sources/" + group.destination + "/" + (into.strip("/") + "/" if into.strip("/") else "")
     for src in sources:
         plan.renames[src] = dest_root + src[len(base):]
-    plan.tests = test_files(group, sources, tracked)
+    plan.tests, test_notes = test_files(repo, group, sources, tracked)
+    plan.notes += test_notes
     test_root = PKG + "Tests/" + group.destination + "Tests/"
     for test in plan.tests:
         plan.renames[test] = test_root + test[len(APP_TESTS):]
@@ -463,6 +625,7 @@ def plan_move(repo: Path, group: Group) -> Plan:
     plan_dependencies(repo, plan, manifest, group.destination, body, sources)
     plan_dependencies(repo, plan, manifest, group.destination + "Tests", test_body, plan.tests, group.destination)
     plan_tables(repo, plan, sources, tracked, body)
+    plan_layer(repo, group.destination, group.layer, plan)
     # Pure-move preconditions: nothing overwritten, one basename per module (Swift refuses a duplicate).
     for old, new in plan.renames.items():
         if new in trackset or (repo / new).exists():
@@ -521,7 +684,10 @@ def recount_debt(repo: Path, catalogs: set[str]) -> None:
     path.write_text(catalog.debt_json(dict(sorted(baseline.items()))), encoding="utf-8")
 
 
-def add_layer(repo: Path, dest: str, layer: str | None, plan: Plan) -> None:
+def plan_layer(repo: Path, dest: str, layer: str | None, plan: Plan) -> None:
+    """architecture-layers.json with DEST added (plan.layer_text), planned before any file moves: one line
+    `"Dest": {"layer": "x"}` after the last target of its layer (or at its sorted place when the targets are sorted),
+    every other byte kept. Blank lines between the layer blocks are kept; a target entry that spans lines refuses."""
     path = repo / LAYERS
     if not path.is_file():
         return
@@ -535,21 +701,39 @@ def add_layer(repo: Path, dest: str, layer: str | None, plan: Plan) -> None:
     if not layer:
         raise MoveError(f"{dest} is not in {LAYERS}: pass --layer (core, service, domain, ui)")
     lines = text.splitlines(keepends=True)
-    start = next(i for i, ln in enumerate(lines) if ln.startswith('  "targets": {'))
-    end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("  }"))
-    rows = [(i, json.loads("{" + lines[i].strip().rstrip(",") + "}")) for i in range(start + 1, end)]
-    names = [next(iter(r)) for _, r in rows]
-    if names == sorted(names):
-        after = max([i for (i, r), n in zip(rows, names) if n < dest], default=start)
+    start = next((i for i, ln in enumerate(lines) if re.match(r'\s*"targets"\s*:\s*\{\s*$', ln)), None)
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].strip().startswith("}")), None) \
+        if start is not None else None
+    if start is None or end is None:
+        raise MoveError(f"{LAYERS}: no one-line-per-target \"targets\" object; add {dest} ({layer}) by hand")
+    rows = []  # (line, name, layer)
+    for i in range(start + 1, end):
+        row = lines[i].strip()
+        if not row or row.startswith("//"):
+            continue
+        try:
+            (name, value), = json.loads("{" + row.rstrip(",") + "}").items()
+        except ValueError:
+            raise MoveError(f"{LAYERS}:{i + 1}: a target entry that is not one line; add {dest} ({layer}) by hand") from None
+        rows.append((i, name, value.get("layer") if isinstance(value, dict) else None))
+    names = [n for _, n, _ in rows]
+    if not rows:
+        after = start
+    elif names == sorted(names):
+        after = max([i for i, n, _ in rows if n < dest], default=start)
     else:
-        after = max([i for i, r in rows if next(iter(r.values())).get("layer") == layer], default=end - 1)
-    new = f'    "{dest}": {{"layer": "{layer}"}}'
-    if after == end - 1:
+        after = max([i for i, _, lay in rows if lay == layer], default=rows[-1][0])
+    indent = line_indent(lines[rows[0][0]], 0) if rows else "    "
+    new = f'{indent}"{dest}": {{"layer": "{layer}"}}'
+    if rows and after == rows[-1][0]:
         lines[after] = lines[after].rstrip("\n").rstrip(",") + ",\n"
         lines.insert(after + 1, new + "\n")
     else:
-        lines.insert(after + 1, new + ",\n")
-    path.write_text("".join(lines), encoding="utf-8")
+        lines.insert(after + 1, new + (",\n" if rows else "\n"))
+    out = "".join(lines)
+    if json.loads(out)["targets"].get(dest) != {"layer": layer}:
+        raise MoveError(f"{LAYERS}: could not add {dest}; add it ({layer}) by hand")
+    plan.layer_text = out
 
 
 def owner_rows(before: str, after: str) -> list[str]:
@@ -562,39 +746,75 @@ def owner_rows(before: str, after: str) -> list[str]:
     return rows
 
 
+def carry_crash_rows(repo: Path, plan: Plan) -> list[str]:
+    """crash_ratchet.py --update-baseline --base HEAD (the repository's own copy, which writes the baseline next to
+    it): its module-keyed rows follow the moved hits (the same lines, proven against HEAD's tree), so the
+    destination's row rises by what the App's row loses. Problems when a row stays above the baseline."""
+    script = repo / CRASH_RATCHET
+    if not script.is_file():
+        return []
+    done = subprocess.run([sys.executable, "-I", str(script), "--repo", str(repo), "--update-baseline", "--base", "HEAD"],
+                          capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    plan.notes += [line for line in done.stdout.splitlines() if line.startswith("crash-ratchet: moved:")]
+    if done.returncode == 0:
+        return []
+    held = [line for line in (done.stdout + done.stderr).splitlines() if "not raised" in line or "refused" in line]
+    return [f"{CRASH_RATCHET}: {line}" for line in held or [f"exit {done.returncode}: {done.stderr.strip()[-300:]}"]]
+
+
 def apply_plan(repo: Path, plan: Plan) -> follow.Report:
+    """Moves the files, writes the tables and follows the paths; every decision was made in plan_move. A failure after
+    the first `git mv` is reported as a MoveError that says the worktree holds a partial move."""
     owners_before = (repo / OWNERS).read_text(encoding="utf-8") if (repo / OWNERS).is_file() else ""
     before = follow.tracked(repo, None)
-    for old, new in plan.renames.items():
-        (repo / new).parent.mkdir(parents=True, exist_ok=True)
-        git(repo, "mv", old, new)
-    for path, text in plan.table_writes.items():
-        (repo / path).parent.mkdir(parents=True, exist_ok=True)
-        (repo / path).write_text(text, encoding="utf-8")
-        git(repo, "add", path)
-    for path in plan.table_removes:
-        git(repo, "rm", "-q", path)
-    retarget_test_imports(repo, [plan.renames[t] for t in plan.tests], plan.group.destination)
-    renames = follow.Renames(dict(plan.renames), before)
-    plan.folders = renames.folders
-    report = follow.apply(repo, renames)
-    plan.followed = renames
-    touched = {m["table"] for m in plan.table_moves} | {m["to"] for m in plan.table_moves}
-    recount_debt(repo, touched)
-    add_layer(repo, plan.group.destination, plan.group.layer, plan)
-    if owners_before:
-        plan.notes += [f"owned area changed, add the owner trailer: {row}"
-                       for row in owner_rows(owners_before, (repo / OWNERS).read_text(encoding="utf-8"))]
-    # Stage every edit, so the move is one `git commit` (the generated files the report names stay out).
-    edited = set(report.edited) | {DEBT_BASELINE, LAYERS} | {plan.renames[t] for t in plan.tests}
-    git(repo, "add", "--", *sorted(p for p in edited if (repo / p).is_file()))
+    started = False
+    try:
+        for old, new in plan.renames.items():
+            (repo / new).parent.mkdir(parents=True, exist_ok=True)
+            git(repo, "mv", old, new)
+            started = True
+        for path, text in plan.table_writes.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text, encoding="utf-8")
+            git(repo, "add", path)
+            started = True
+        for path in plan.table_removes:
+            git(repo, "rm", "-q", path)
+        retarget_test_imports(repo, [plan.renames[t] for t in plan.tests], plan.group.destination)
+        # A table merged into the destination's is a rename for every mention (gen-strings.mjs reads it by path).
+        renames = follow.Renames({**plan.renames, **plan.merged_tables}, before)
+        plan.folders = renames.folders
+        report = follow.apply(repo, renames)
+        plan.followed = renames
+        touched = {m["table"] for m in plan.table_moves} | {m["to"] for m in plan.table_moves}
+        recount_debt(repo, touched)
+        if plan.layer_text is not None:
+            (repo / LAYERS).write_text(plan.layer_text, encoding="utf-8")
+        plan.problems += carry_crash_rows(repo, plan)
+        if owners_before:
+            plan.notes += [f"owned area changed, add the owner trailer: {row}"
+                           for row in owner_rows(owners_before, (repo / OWNERS).read_text(encoding="utf-8"))]
+        # Stage every edit, so the move is one `git commit` (the generated files the report names stay out).
+        edited = set(report.edited) | {DEBT_BASELINE, LAYERS, CRASH_BASELINE} | {plan.renames[t] for t in plan.tests}
+        git(repo, "add", "--", *sorted(p for p in edited if (repo / p).is_file()))
+    except Exception as error:
+        if not started:
+            raise
+        raise MoveError(f"failed after the move started ({type(error).__name__}: {error}); the worktree and index hold "
+                        "a partial move: see git status") from error
     return report
 
 
 def verify(repo: Path, plan: Plan, report: follow.Report, renames: follow.Renames) -> list[str]:
-    """What the acceptance asks of a move: no old path left, every moved key with every locale."""
-    problems = []
+    """What the acceptance asks of a move: no old path left, every moved key with every locale, every key a non-Swift
+    reader takes still in the App table, and the crash rows carried (plan.problems)."""
+    problems = list(plan.problems)
     problems += [f"old path still named: {line}" for line in follow.leftovers(repo, renames, report.generated)]
+    # Left as it was: its new spelling would also cover what the destination folder already held.
+    problems += [f"old folder or glob still named, review it by hand: {line}" for line in report.widened]
+    for path, keys in plan.reader_keys.items():
+        table = json.loads((repo / path).read_text(encoding="utf-8"))["strings"]
+        problems += [f"{path}: lost {key!r}, which a non-Swift reader takes" for key in sorted(keys - set(table))]
     for dest, keys in plan.moved_keys.items():
         table = json.loads((repo / dest).read_text(encoding="utf-8"))["strings"]
         for key in sorted(keys):

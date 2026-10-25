@@ -73,7 +73,11 @@ arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
 Also local only: "Baseline paths follow renames" (follow-renames.py --check): refuses a push whose own commits leave
 an entry of a path-keyed baseline (crash allowlist, main-actor work, OWNERS.md, the route table and the rest of its
 REGISTRY) naming no tracked file, the trace of a `git mv` that did not run follow-renames.py --from-git or
-move-app-files.py. Entries already stale at the base pass. --no-guardrails turns it off; it fails open.
+move-app-files.py. Entries already stale at the base pass. --no-guardrails turns it off; it fails open (only
+follow-renames' exit 1 with its findings header refuses; its exit 2, any failure, warns).
+Renames: the scanners check a renamed file at its old path in the base tree and the crash data that followed a
+rename needs no trailer, so a pure move adds none of their findings. The guardrails do not credit renames yet (they
+diff with --no-renames), so a moved file's existing guardrail debt still reads as new there.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -105,6 +109,7 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import NamedTuple
 
 DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
@@ -585,22 +590,68 @@ def commit_renames(repo: Path, sha: str) -> dict[str, str]:
     return renamed
 
 
+class CrashMoves(NamedTuple):
+    """What a commit's renames carried in the crash data, with no raise: baseline row -> change (the source module's
+    row down, the destination's up by as much), and allowlist key at the old path -> key at the new path."""
+    rows: dict[tuple, int]
+    allow: dict[tuple, tuple]
+
+
 def followed_moves(allow: dict[tuple, dict], old: dict[tuple, dict], new: dict[tuple, dict],
-                   renamed: dict[str, str]) -> dict[tuple, dict]:
-    """ALLOW less the entries that only followed their file's rename (follow-renames.py, move-app-files.py): the
-    old path's entry of the same class is gone and the count did not rise. A reviewed allowance moves with its code."""
-    out = {}
+                   renamed: dict[str, str]) -> tuple[dict[tuple, dict], dict[tuple, tuple]]:
+    """(ALLOW less the entries that only followed their file's rename (follow-renames.py, move-app-files.py), {old key:
+    new key} of those): the old path's entry of the same class is gone and the count did not rise. A reviewed
+    allowance moves with its code."""
+    out, moved = {}, {}
     for (path, cls), entry in allow.items():
         was = (renamed.get(path), cls)
         if was[0] and was in old and was not in new and (entry.get("count") or 0) <= (old[was].get("count") or 0):
+            moved[was] = (path, cls)
             continue
         out[(path, cls)] = entry
-    return out
+    return out, moved
 
 
-def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str | None, dict, dict]]:
+def swift_module(path: str) -> str | None:
+    """The Swift module of a source path, as crash_ratchet.py keys its rows: the folder under `Sources/`."""
+    parts = path.split("/")
+    return parts[parts.index("Sources") + 1] if "Sources" in parts[:-2] and path.endswith(".swift") else None
+
+
+def followed_rows(rows: dict[tuple, int], old_rows: dict[tuple, int], new_rows: dict[tuple, int],
+                  renamed: dict[str, str]) -> tuple[dict[tuple, int], dict[tuple, int]]:
+    """(ROWS less the rises the commit's renames account for, {row: change} of those carried moves). A raised row
+    (section..., class, module) is carried when files renamed from module S into its module and S's row of the same
+    section and class went down by at least as much (crash_ratchet.py --update-baseline --base: the same lines moved
+    module). Each drop carries one rise only, so the class's total over its modules does not rise."""
+    pairs = sorted({(swift_module(old), swift_module(new)) for new, old in renamed.items()
+                    if swift_module(old) and swift_module(new) and swift_module(old) != swift_module(new)})
+    if not pairs:
+        return rows, {}
+    budget = {k: v - new_rows.get(k, 0) for k, v in old_rows.items() if new_rows.get(k, 0) < v}
+    left, carried = {}, {}
+    for row, value in sorted(rows.items()):
+        need = value - old_rows.get(row, 0)
+        for source, target in pairs:
+            if target != row[-1] or need <= 0:
+                continue
+            source_row = row[:-1] + (source,)
+            take = min(need, budget.get(source_row, 0))
+            if take:
+                budget[source_row] -= take
+                need -= take
+                carried[source_row] = carried.get(source_row, 0) - take
+                carried[row] = carried.get(row, 0) + take
+        if need > 0:
+            left[row] = value
+    return left, carried
+
+
+def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str | None, dict, dict, CrashMoves]]:
     """Per non-merge commit of BASE..HEAD that changes the crash data: (sha, subject, its Crash-allow-OK trailer or
-    None, {allowlist key: entry added or raised}, {baseline row: value raised}), against the commit's own parent."""
+    None, {allowlist key: entry added or raised}, {baseline row: value raised}, what its renames carried), against
+    the commit's own parent. A pure move's allowlist entries and module rows follow its files (followed_moves,
+    followed_rows): they are in neither raise map and need no trailer."""
     out = git(repo, "log", "--reverse", "--no-merges", "--format=%x1e%H%x1f%B", f"{base}..{head}", "--",
               CRASH_ALLOWLIST, CRASH_BASELINE, check=False).decode(errors="replace")
     found = []
@@ -611,21 +662,26 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
             continue
         old, new = _allow_entries(_json_at(repo, sha + "^", CRASH_ALLOWLIST)), _allow_entries(_json_at(repo, sha, CRASH_ALLOWLIST))
         allow = {k: e for k, e in new.items() if k not in old or (e.get("count") or 0) > (old[k].get("count") or 0)}
-        if allow:
-            allow = followed_moves(allow, old, new, commit_renames(repo, sha))
         old_rows, new_rows = _rows(_json_at(repo, sha + "^", CRASH_BASELINE)), _rows(_json_at(repo, sha, CRASH_BASELINE))
         rows = {k: v for k, v in new_rows.items() if v > old_rows.get(k, 0)}
+        carried = CrashMoves({}, {})
         if allow or rows:
+            renamed = commit_renames(repo, sha)
+            allow, moved_allow = followed_moves(allow, old, new, renamed)
+            rows, moved_rows = followed_rows(rows, old_rows, new_rows, renamed) if rows else (rows, {})
+            carried = CrashMoves(moved_rows, moved_allow)
+        if allow or rows or carried.rows or carried.allow:
             trailer = CRASH_OK.search(message)
             subject = message.strip().splitlines()[0] if message.strip() else ""
-            found.append((sha, subject, trailer.group(1).strip() if trailer else None, allow, rows))
+            found.append((sha, subject, trailer.group(1).strip() if trailer else None, allow, rows, carried))
     return found
 
 
 def apply_reviewed_crash_data(repo: Path, base: str, head: str, scripts_dir: Path) -> list[str]:
     """Write into SCRIPTS_DIR (the head tree's installed scripts) the crash data raises of the pushed commits that
     carry a Crash-allow-OK trailer, over the installed files; a raise without one stays out, so it is still refused.
-    Returns what was taken, one line each, for the gate to print."""
+    What a commit's renames carried (CrashMoves) is written with or without a trailer: an allowance moves to the new
+    path, a row moves between modules. Returns what was taken, one line each, for the gate to print."""
     taken: list[str] = []
     allow_path, baseline_path = scripts_dir / Path(CRASH_ALLOWLIST).name, scripts_dir / Path(CRASH_BASELINE).name
     try:
@@ -634,7 +690,21 @@ def apply_reviewed_crash_data(repo: Path, base: str, head: str, scripts_dir: Pat
     except (OSError, ValueError):
         return taken
     changed = False
-    for sha, subject, trailer, allow, rows in crash_raises(repo, base, head):
+    for sha, subject, trailer, allow, rows, carried in crash_raises(repo, base, head):
+        # What renames carried applies without a trailer: the same lines changed path or module.
+        for row, change in carried.rows.items():
+            node = baseline
+            for part in row[:-1]:
+                node = node.setdefault(part, {}) if isinstance(node, dict) else None
+            if isinstance(node, dict):
+                node[row[-1]] = max(0, (node.get(row[-1]) or 0) + change)
+                taken.append(f"{sha[:11]} (moved files): baseline {'.'.join(row)} {change:+d}")
+        for was, now in carried.allow.items():
+            for e in allow_data.setdefault("allow", []):
+                if isinstance(e, dict) and (e.get("path"), e.get("class")) == was:
+                    e["path"] = now[0]
+                    taken.append(f"{sha[:11]} (moved files): allow {was[1]} follows {was[0]} to {now[0]}")
+        changed = changed or bool(carried.rows or carried.allow)
         if trailer is None:
             continue
         entries = [e for e in allow_data.setdefault("allow", []) if isinstance(e, dict)]
@@ -661,7 +731,7 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
     return [f"{sha[:11]} {subject[:70]}: adds {', '.join(f'{k[1]} in {k[0]}' for k in list(allow)[:3])}"
             f"{f' and {len(allow) - 3} more' if len(allow) > 3 else ''} to {CRASH_ALLOWLIST} without a "
             "`Crash-allow-OK: <reviewer or review id>` trailer"
-            for sha, subject, trailer, allow, _ in crash_raises(repo, base, head) if allow and trailer is None]
+            for sha, subject, trailer, allow, _, _ in crash_raises(repo, base, head) if allow and trailer is None]
 
 
 def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
@@ -1109,6 +1179,8 @@ def perf_cron_tests(repo: Path, ranges: list) -> bool:
 
 FOLLOW_RENAMES = "follow-renames.py"
 FOLLOW_RENAMES_TIMEOUT = 60
+# follow-renames.py STALE_HEADER: the first line of a --check refusal.
+STALE_HEADER = "follow-renames: these baseline entries name no tracked file"
 
 
 def can_leave_stale_paths(repo: Path, base: str, head: str, script: Path) -> bool:
@@ -1156,12 +1228,13 @@ def stale_baseline_paths(repo: Path, ranges: list, trusted_scripts: Path | None)
             log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} --check did not run ({type(error).__name__}: {error}); not "
                 "applied to this push.")
             continue
-        if done.returncode == 1:
+        # A refusal is exit 1 with the findings' header; anything else (exit 2, a traceback) is a failure.
+        if done.returncode == 1 and done.stdout.startswith(STALE_HEADER):
             log(f"prepush-gate: at {own.head[:12]}: {done.stdout.strip()}")
             refused = True
         elif done.returncode != 0:
-            log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} --check failed ({done.stderr.strip()[-400:]}); not applied "
-                "to this push.")
+            log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} --check failed (exit {done.returncode}: "
+                f"{(done.stderr or done.stdout).strip()[-400:]}); not applied to this push.")
     return refused
 
 

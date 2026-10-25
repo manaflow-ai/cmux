@@ -11,7 +11,8 @@ either drops an allowance (the checker fails at the new path) or keeps a dead on
   follow-renames.py --check [--rev R] [--base B]...
                                                 list the baseline entries (REGISTRY) that name no tracked
                                                 file at R; with --base, only those B does not already have.
-                                                Exit 1 when there is one.
+                                                Exit 1 when there is one, and only then: any other failure (an
+                                                unknown revision, a missing object) exits 2.
 
 Path forms it reads and writes, on a path-character boundary: `Packages/macOS/CmuxNext/Sources/T/x`,
 `Sources/T/x`, `Tests/TTests/x`, `${sources}/T/x` (after any interpolation), and the bare `T/x` (rewrite only). A whole moved directory is rewritten
@@ -74,16 +75,23 @@ END = r"(?![A-Za-z0-9_+\-*?\[\\]|\.[A-Za-z0-9])"
 # A module-qualified path after an interpolated Sources or Tests folder: `${sources}/CmuxNextApp/x`,
 # f"{SOURCES}/CmuxNextBrowser/x" (webviews/scripts/pages/gen-strings.mjs, check-single-omnibar.py).
 BRACED = re.compile(r"(?<=\}/)(CmuxNext[A-Za-z0-9_]*/(?:[A-Za-z0-9_+\-./*?\[\]])+)")
-START = r"(?:(?<![" + PATH_CHARS + r"])|(?<=\}/))"
+# Where a path starts: after a non-path character, an interpolation (`${sources}/`), or a doc's short alias for a
+# Sources or Tests folder (`S/CmuxNextApp/x`, `T/CmuxNextAppTests/x`, `APP/`, `SRC/`: one to four capitals).
+ALIAS = "|".join(r"(?<=(?<![" + PATH_CHARS + r"])[A-Z]{" + str(n) + r"}/)" for n in range(1, 5))
+START = r"(?:(?<![" + PATH_CHARS + r"])|(?<=\}/)|" + ALIAS + r")"
 SWIFT_DECL = re.compile(
     r"^(?:(?:@[A-Za-z_]+(?:\([^)]*\))?|public|internal|package|fileprivate|private|final|nonisolated|indirect|open)\s+)*"
     r"(?:class|struct|enum|actor|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)")
 
 
+class FollowError(Exception):
+    """A failure that is not a finding (a git error, a missing object): main() exits 2, never 1."""
+
+
 def git(repo: Path, *args: str, check: bool = True) -> str:
     done = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
     if check and done.returncode != 0:
-        raise SystemExit(f"follow-renames: git {' '.join(args)} failed: {done.stderr.strip()}")
+        raise FollowError(f"git {' '.join(args)} failed: {done.stderr.strip()}")
     return done.stdout
 
 
@@ -220,7 +228,10 @@ def read_many(repo: Path, rev: str | None, paths: list[str]) -> dict[str, str]:
                 pass
         return out
     batch = "".join(f"{rev}:{p}\n" for p in paths).encode()
-    raw = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=batch, capture_output=True, check=True).stdout
+    done = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], input=batch, capture_output=True)
+    if done.returncode != 0:
+        raise FollowError(f"git cat-file --batch at {rev} failed: {done.stderr.decode(errors='replace').strip()}")
+    raw = done.stdout
     out, i = {}, 0
     for p in paths:
         nl = raw.find(b"\n", i)
@@ -256,6 +267,10 @@ def stale_at(repo: Path, rev: str | None) -> dict[str, list[str]]:
     return out
 
 
+# The first line --check prints before its findings; prepush-gate.py refuses only on exit 1 with this line.
+STALE_HEADER = "follow-renames: these baseline entries name no tracked file"
+
+
 def check(repo: Path, rev: str | None, bases: list[str] | None = None) -> int:
     """Exit status 1 when a registry entry names nothing at REV and at none of BASES (base debt passes)."""
     now = stale_at(repo, rev)
@@ -266,7 +281,7 @@ def check(repo: Path, rev: str | None, bases: list[str] | None = None) -> int:
     if not now:
         print("follow-renames: every path-keyed baseline entry names a tracked file")
         return 0
-    print("follow-renames: these baseline entries name no tracked file (a rename left them behind; run "
+    print(STALE_HEADER + " (a rename left them behind; run "
           "scripts/cmux-next/follow-renames.py --from-git <base>..HEAD, or delete the dead entry):")
     for path, tokens in sorted(now.items()):
         for token in tokens:
@@ -279,10 +294,16 @@ def check(repo: Path, rev: str | None, bases: list[str] | None = None) -> int:
 
 @dataclass
 class Renames:
-    """Old -> new repository paths, files and the folders that moved whole."""
+    """Old -> new repository paths, files and the folders that moved whole.
+
+    A folder that moved whole into a new folder is in FOLDERS: its spelling is a prefix, so a folder or glob entry
+    under it follows. One that moved whole into a folder that already held files is in MERGED instead: there only
+    the file entries follow, because the same folder or glob entry at the destination would also cover the files
+    that were there before; rewrite_text reports such an entry (Report.widened)."""
     files: dict[str, str]
     before: list[str]  # tracked files before the renames
     folders: dict[str, str] = field(default_factory=dict)
+    merged: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         moved = set(self.files)
@@ -302,15 +323,22 @@ class Renames:
         for fo, fn in candidates.items():
             under = [f for f in self.before if f.startswith(fo + "/")]
             if fn and under and all(f in moved and self.files[f] == fn + f[len(fo):] for f in under):
-                self.folders[fo] = fn
+                there = any(f.startswith(fn + "/") and f not in moved for f in self.before)
+                (self.merged if there else self.folders)[fo] = fn
 
     @functools.cached_property
     def before_folders(self) -> set[str]:
         return folders_of(self.before)
 
     @functools.cached_property
-    def patterns(self) -> dict[bool, tuple[re.Pattern | None, dict[str, str]]]:
-        return {bare: rewrite_pattern(self, bare) for bare in (True, False)}
+    def patterns(self) -> tuple[re.Pattern | None, dict[str, str]]:
+        return rewrite_pattern(self.pairs())
+
+    @functools.cached_property
+    def merged_pattern(self) -> re.Pattern | None:
+        merged = [(o, n) for o, n in sorted(self.merged.items(), key=lambda kv: -len(kv[0]))
+                  if not any(o.startswith(fo + "/") for fo in self.folders)]
+        return rewrite_pattern(merged)[0]
 
     @functools.cache
     def glob_hits(self, path: str) -> tuple[str, ...]:
@@ -324,6 +352,31 @@ class Renames:
         both = {**self.folders, **self.files}
         return sorted(both.items(), key=lambda kv: -len(kv[0]))
 
+    def map_path(self, path: str) -> tuple[str | None, str]:
+        """(PATH after the renames, how): PATH a file, folder or glob as a package path. how is "moved" (the new
+        path), "none" (nothing it names moved), "split" (only some of what it names moved, or to several folders) or
+        "widened" (all of it moved, into a folder that already held files the new spelling would cover too)."""
+        if path in self.files:
+            return self.files[path], "moved"
+        for fo, fn in sorted(self.folders.items(), key=lambda kv: -len(kv[0])):
+            if path.rstrip("/") == fo or path.startswith(fo + "/"):
+                return fn + path[len(fo):], "moved"
+        hits = self.glob_hits(path)
+        moved = [h for h in hits if h in self.files]
+        if not moved:
+            return None, "none"
+        lit = literal_folder(path) if is_glob(path) else path.rstrip("/") + "/"
+        targets = {self.files[h][:len(self.files[h]) - (len(h) - len(lit))] for h in moved
+                   if self.files[h].endswith(h[len(lit):])}
+        if len(moved) != len(hits) or len(targets) != 1:
+            return None, "split"
+        new = targets.pop() + path[len(lit):]
+        if not is_glob(path) and not path.endswith("/"):
+            new = new.rstrip("/")
+        if matches(new, self.before, self.before_folders):  # BEFORE holds no moved file's new path
+            return None, "widened"
+        return new, "moved"
+
 
 def forms(path: str) -> list[str]:
     """The relative spellings of a package path: `Sources/T/x` and the bare `T/x` (the package form is the
@@ -333,13 +386,13 @@ def forms(path: str) -> list[str]:
     return [rel] + ([bare] if "/" in bare else [])
 
 
-def rewrite_pattern(renames: Renames, bare: bool) -> tuple[re.Pattern | None, dict[str, str]]:
+def rewrite_pattern(pairs: list[tuple[str, str]]) -> tuple[re.Pattern | None, dict[str, str]]:
     table: dict[str, str] = {}
-    for old, new in renames.pairs():
+    for old, new in pairs:
         if not old.startswith(PKG) or not new.startswith(PKG):
             continue
         olds, news = forms(old), forms(new)
-        if not bare or len(olds) != len(news):
+        if len(olds) != len(news):
             olds, news = olds[:1], news[:1]
         for o, n in zip(olds, news):
             table.setdefault(o, n)
@@ -349,18 +402,24 @@ def rewrite_pattern(renames: Renames, bare: bool) -> tuple[re.Pattern | None, di
         return None, table
     alternation = "|".join(re.escape(k) for k in sorted(table, key=len, reverse=True))
     # Group 3: the rest of the path after a moved folder, so a made-up path under it is left alone.
-    rx = re.compile(START + r"(" + re.escape(PKG) + r")?(" + alternation + r")" + END + r"((?:/[" + REST + r"]*)?)")
+    rx = re.compile(START + r"(" + re.escape(PKG) + r")?(" + alternation + r")" + END + r"((?:/" + REST + r")?)")
     return rx, table
 
 
-REST = r"A-Za-z0-9_+\-./*?\[\]{}$\\"
+# The rest of a path: path and glob characters, `${x}` or `{x}` interpolations and `{a,b}` brace lists.
+REST = r"(?:[A-Za-z0-9_+\-./*?\[\]$\\]|\{[^{}\s\"'`]*\})*"
+# Code that builds a path: `{SRC}`, `{i}`, `${name}`, `$name` (an interpolation has no comma; a brace list does).
+INTERPOLATED = re.compile(r"\{[^{},]*\}|\$")
+# A path with one `{a,b,...}` brace list, in any spelling the rewrite reads (package, Sources/Tests, bare `T/x`).
+BRACE_LIST = re.compile(START + r"((?:" + re.escape(PKG) + r")?(?:(?:Sources|Tests)/)?CmuxNext[A-Za-z0-9_]*/"
+                        r"[A-Za-z0-9_+\-./*?]*\{[^{}\s,\"'`]*(?:,[^{}\s,\"'`]*)+\}[A-Za-z0-9_+\-./*?]*)(?!\{)")
 
 
 def synthesized(rest: str) -> bool:
     """Whether REST (the path after a moved folder) is built by code: a test's `{SRC}/CmuxNextApp/Handlers/Moved{i}.swift`
     names a fixture file, not the folder's, and keeps its spelling. A literal path under a moved folder follows it,
-    a planned file in a spec too."""
-    return "{" in rest or "$" in rest
+    a planned file in a spec too, and so does a brace list (`Handlers/{A,B}.swift`): the whole folder moved."""
+    return bool(INTERPOLATED.search(rest))
 
 
 @dataclass
@@ -369,16 +428,38 @@ class Report:
     split_globs: list[str] = field(default_factory=list)
     generated: list[str] = field(default_factory=list)
     godfile_rows: list[str] = field(default_factory=list)
+    widened: list[str] = field(default_factory=list)  # folder or glob entries a merge into a held folder would widen
 
     def as_dict(self) -> dict:
         return {"edited": self.edited, "split_globs": self.split_globs, "generated": self.generated,
-                "godfile_rows": self.godfile_rows}
+                "godfile_rows": self.godfile_rows, "widened": self.widened}
+
+    def note(self, kind: list[str], line: str) -> None:
+        if line not in kind:
+            kind.append(line)
+
+
+def spelled_like(token: str, path: str) -> str:
+    """Package path PATH in TOKEN's spelling: the package form, `Sources/T/x`, or the bare `T/x`."""
+    if token.startswith(PKG):
+        return path
+    rel = path[len(PKG):]
+    return rel if token.startswith(("Sources/", "Tests/")) else rel.split("/", 1)[1]
+
+
+def token_path(token: str) -> str:
+    """The package path of a token in any spelling (a bare `TTests/x` is under Tests/)."""
+    if token.startswith((PKG, "Sources/", "Tests/")):
+        return package_path(token)
+    module = token.split("/", 1)[0]
+    return PKG + ("Tests/" if module.endswith("Tests") else "Sources/") + strip_token(token)
 
 
 def follow_globs(text: str, renames: Renames, source: str, report: Report) -> str:
-    """Globs whose literal folder did not move: follow only when all their matches moved to one folder. A glob
-    mostly about the moved files (at least half of its matches) that would split is reported; a broader one
-    (`CmuxNextApp/**`) keeps naming what stays, and the moved files leave it as they leave the App."""
+    """Globs whose literal folder did not move whole: follow only when all their matches moved to one folder that
+    held none of them before. A glob mostly about the moved files (at least half of its matches) that would split is
+    reported; a broader one (`CmuxNextApp/**`) keeps naming what stays, and the moved files leave it as they leave
+    the App. A glob whose new spelling would also cover files already at the destination is reported (widened)."""
     out, last = [], 0
     for m in TOKEN.finditer(text):
         token = strip_token(m.group(1))
@@ -388,32 +469,56 @@ def follow_globs(text: str, renames: Renames, source: str, report: Report) -> st
         lit = literal_folder(path)
         if any(lit.startswith(fo + "/") for fo in renames.folders):
             continue  # the literal pass rewrites the folder
-        hits = renames.glob_hits(path)
-        moved = [h for h in hits if h in renames.files]
-        if not moved:
-            continue
-        targets = {renames.files[h][:len(renames.files[h]) - (len(h) - len(lit))] for h in moved
-                   if renames.files[h].endswith(h[len(lit):])}
-        if len(moved) == len(hits) and len(targets) == 1:
-            new_lit = targets.pop()
-            new_path = new_lit + path[len(lit):]
-            new_token = new_path if token.startswith(PKG) else new_path[len(PKG):]
-            out.append(text[last:m.start(1)] + new_token)
+        new, how = renames.map_path(path)
+        if how == "moved" and new:
+            out.append(text[last:m.start(1)] + spelled_like(token, new))
             last = m.start(1) + len(token)
             report.edited[source] = report.edited.get(source, 0) + 1
-        elif len(moved) * 2 >= len(hits):
-            line = f"{source}: {token} (matched {len(hits)}, {len(moved)} moved)"
-            if line not in report.split_globs:
-                report.split_globs.append(line)
+        elif how == "widened":
+            report.note(report.widened, f"{source}: {token}")
+        elif how == "split":
+            hits = renames.glob_hits(path)
+            moved = [h for h in hits if h in renames.files]
+            if len(moved) * 2 >= len(hits):
+                report.note(report.split_globs, f"{source}: {token} (matched {len(hits)}, {len(moved)} moved)")
     out.append(text[last:])
     return "".join(out)
 
 
-def rewrite_text(text: str, renames: Renames, source: str, report: Report, bare: bool = True) -> str:
+def follow_brace_lists(text: str, renames: Renames, source: str, report: Report) -> str:
+    """`T/{A,B}/` and `T/X/{A*,B}.swift` entries (WORK.tsv, specs): each expansion is mapped like a path or glob. They
+    follow when every expansion moved under one new prefix; when only some moved, the entry is reported (split)."""
+    out, last = [], 0
+    for m in BRACE_LIST.finditer(text):
+        token = m.group(1)
+        open_, close = token.index("{"), token.index("}")
+        prefix, alts, suffix = token[:open_], token[open_ + 1:close].split(","), token[close + 1:]
+        mapped = [renames.map_path(token_path(prefix + alt + suffix)) for alt in alts]
+        hows = {how for _, how in mapped}
+        if hows == {"none"}:
+            continue
+        if hows == {"moved"}:
+            # The new prefix, when every expansion is it + the same alternative + the same suffix.
+            heads = {new[:len(new) - len(alt + suffix)] if new and new.endswith(alt + suffix) else None
+                     for (new, _), alt in zip(mapped, alts)}
+            head = heads.pop() if len(heads) == 1 else None
+            if head:
+                out.append(text[last:m.start(1)] + spelled_like(token, head) + token[open_:])
+                last = m.end(1)
+                report.edited[source] = report.edited.get(source, 0) + 1
+                continue
+        # Some alternatives stay or went apart: a split, for review. All moved, but one would widen at the destination:
+        # widened.
+        kind = report.widened if "widened" in hows and hows <= {"moved", "widened"} else report.split_globs
+        report.note(kind, f"{source}: {token} ({sum(how != 'none' for _, how in mapped)} of {len(alts)} moved)")
+    out.append(text[last:])
+    return "".join(out)
+
+
+def rewrite_text(text: str, renames: Renames, source: str, report: Report) -> str:
+    text = follow_brace_lists(text, renames, source, report)
     text = follow_globs(text, renames, source, report)
-    rx, table = renames.patterns[bare]
-    if rx is None:
-        return text
+    rx, table = renames.patterns
     count = 0
 
     def sub(m: re.Match) -> str:
@@ -424,9 +529,14 @@ def rewrite_text(text: str, renames: Renames, source: str, report: Report, bare:
         count += 1
         return (m.group(1) or "") + table[old] + rest
 
-    out = rx.sub(sub, text)
+    out = rx.sub(sub, text) if rx is not None else text
     if count:
         report.edited[source] = report.edited.get(source, 0) + count
+    if renames.merged_pattern is not None:
+        # A folder that merged into a held one: its own spelling stays, for review (its files followed above).
+        for m in renames.merged_pattern.finditer(out):
+            if not (m.group(3) and synthesized(m.group(3))):
+                report.note(report.widened, f"{source}: {m.group(0)}")
     return out
 
 
@@ -525,11 +635,15 @@ def is_generated(path: str, globs: list[str]) -> bool:
 
 
 def mentioning(repo: Path, renames: Renames) -> list[str]:
-    """Tracked text files that mention any old path in any spelling."""
+    """Tracked text files that mention any old path in any spelling, a folder that merged into a held one, or a brace
+    list (`T/{A,B}`) in a folder an old path is under."""
     needles = set()
-    for old, _ in renames.pairs():
-        if old.startswith(PKG):
-            needles.update(forms(old))
+    for old in [o for o, _ in renames.pairs()] + list(renames.merged):
+        if not old.startswith(PKG):
+            continue
+        needles.update(forms(old))
+        parts = old[len(PKG):].split("/")  # Sources, the module, then its folders
+        needles.update("/".join(parts[1:i]) + "/{" for i in range(2, len(parts)))
     if not needles:
         return []
     args = ["grep", "-l", "-I", "-F"]
@@ -588,6 +702,14 @@ def main(argv: list[str] | None = None) -> int:
                         "have stale (repeatable: a merged upstream head is a base too)")
     parser.add_argument("--json", action="store_true", help="rewrite: print the report as JSON")
     args = parser.parse_args(argv)
+    try:
+        return run(args)
+    except Exception as error:  # exit 1 means stale entries (check()); any failure is 2, so a caller never reads it as one
+        print(f"follow-renames: failed ({type(error).__name__}: {error})", file=sys.stderr)
+        return 2
+
+
+def run(args: argparse.Namespace) -> int:
     repo = args.repo or Path(git(Path(__file__).resolve().parent, "rev-parse", "--show-toplevel").strip())
     if args.list:
         print("\n".join(REGISTRY))
@@ -617,6 +739,9 @@ def print_report(report: Report) -> None:
         print(f"follow-renames: godfile row {row}")
     for glob in report.split_globs:
         print(f"follow-renames: WARNING glob only partly moved, edit it by hand: {glob}")
+    for entry in report.widened:
+        print(f"follow-renames: WARNING the destination folder already holds files, so this entry would cover them "
+              f"too; review it by hand: {entry}")
     for path in report.generated:
         print(f"follow-renames: generated, regenerate it (not hand-edited): {path}")
 

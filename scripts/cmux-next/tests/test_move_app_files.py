@@ -126,9 +126,10 @@ FILES = {
         f"paths:\n  - {APP}FixtureSearch/*.swift\n  - {APP}**/FixtureSearch*.swift\n  - {APP}Other.swift\n",
     "plans/cmux-next/notes.md": "FixtureSearch lives in CmuxNextApp/FixtureSearch/ (see Sources/CmuxNextApp/FixtureSearch/FixtureSearchHandlers.swift).\n"
                                 "Not CmuxNextApp/FixtureSearchy.swift.\n",
+    # The real map's shape: one line per target, blank lines between the layer blocks.
     "plans/cmux-next/architecture-layers.json": '{\n  "_doc": "x",\n  "targets": {\n'
-                                                '    "CmuxNextPalette": {"layer": "ui"},\n'
-                                                '    "CmuxNextBare": {"layer": "ui"},\n'
+                                                '    "CmuxNextPalette": {"layer": "ui"},\n\n'
+                                                '    "CmuxNextBare": {"layer": "ui"},\n\n'
                                                 '    "CmuxNextApp": {"layer": "app"}\n  },\n  "exceptions": []\n}\n',
     "scripts/localization-debt-baseline.json": json.dumps({"catalogs": {}}, indent=2, sort_keys=True) + "\n",
     "scripts/ci/generated-files.json": json.dumps({"conventions": ["**/*.generated.*"], "generators": []}) + "\n",
@@ -265,7 +266,10 @@ class MoveFixtureSearch(unittest.TestCase):
         self.assertIn("Shared words", app, "a key both use is copied")
         self.assertIn("Other only", app)
         self.assertNotIn("Other only", dest)
-        self.assertIn("Dead key", app)
+        self.assertNotIn("Dead key", app, "no App table keeps an unreferenced key (p11-codebase.md 000b)")
+        self.assertNotIn("Dead key", dest)
+        split = next(m for m in self.out["tables"] if m["mode"] == "split")
+        self.assertEqual(split["deleted_unreferenced"], ["Dead key"])
 
     def test_split_app_table_diff_is_deletions_only(self) -> None:
         diff = self.fx.git("diff", "--cached", "-U0", "--", APP + "Resources/Localizable.xcstrings")
@@ -312,11 +316,42 @@ class Preconditions(unittest.TestCase):
         try:
             code, out = fx.move("--destination", "CmuxNextFixtureSearch", "--layer", "domain")
             self.assertEqual(code, 0, out["problems"])
-            layers = json.loads(fx.read("plans/cmux-next/architecture-layers.json"))["targets"]
+            text = fx.read("plans/cmux-next/architecture-layers.json")
+            layers = json.loads(text)["targets"]
             self.assertEqual(layers["CmuxNextFixtureSearch"], {"layer": "domain"})
+            before = FILES["plans/cmux-next/architecture-layers.json"].splitlines()
+            after = text.splitlines()
+            self.assertEqual([ln for ln in after if ln not in before], ['    "CmuxNextApp": {"layer": "app"},',
+                                                                         '    "CmuxNextFixtureSearch": {"layer": "domain"}'])
+            self.assertEqual(after.count(""), before.count(""), "the blank lines between layer blocks stay")
             self.assertTrue(any("declare .target CmuxNextFixtureSearch" in m for m in out["manifest_requests"]))
             self.assertTrue(any("CmuxNextFixtureSearchTests" in m for m in out["manifest_requests"]))
             self.assertEqual(fx.read(PKG + "Package.swift"), MANIFEST, "Package.swift is never edited")
+        finally:
+            fx.close()
+
+    def test_new_layer_goes_after_its_layer_block(self) -> None:
+        fx = Fixture()
+        try:
+            code, out = fx.move("--destination", "CmuxNextFixtureSearch", "--layer", "ui")
+            self.assertEqual(code, 0, out["problems"])
+            text = fx.read("plans/cmux-next/architecture-layers.json")
+            self.assertIn('    "CmuxNextBare": {"layer": "ui"},\n    "CmuxNextFixtureSearch": {"layer": "ui"},\n\n', text)
+        finally:
+            fx.close()
+
+    def test_a_map_it_cannot_edit_refuses_before_any_file_moves(self) -> None:
+        files = dict(FILES)
+        files["plans/cmux-next/architecture-layers.json"] = '{"targets": {"CmuxNextApp": {"layer": "app"}}}\n'
+        fx = Fixture(files)
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = mover.main(["--repo", str(fx.root), "--group", "FixtureSearch", "--destination",
+                                   "CmuxNextFixtureSearch", "--layer", "domain"])
+            self.assertEqual(code, 2)
+            self.assertIn("architecture-layers.json", err.getvalue())
+            self.assertEqual(fx.git("status", "--porcelain"), "", "planned before the first git mv")
         finally:
             fx.close()
 
@@ -553,6 +588,253 @@ class PrepushWiring(unittest.TestCase):
                 fx.git("add", "-A")
                 own.base, own.head = own.head, fx.commit("edit")
                 self.assertFalse(gate.can_leave_stale_paths(fx.root, own.base, own.head, HERE.parent / "follow-renames.py"))
+        finally:
+            fx.close()
+
+
+class CrashRows(unittest.TestCase):
+    """The module-keyed crash baseline follows a pure move (crash_ratchet.py --update-baseline --base HEAD), and the
+    gate needs no Crash-allow-OK trailer for it."""
+
+    def fixture(self) -> Fixture:
+        files = dict(FILES)
+        files[APP + "FixtureSearch/FixtureSearchHandlers.swift"] = (
+            "final class FixtureSearchBox: @unchecked Sendable {}\nenum FixtureSearchHandlers {\n    static func bind() {}\n}\n")
+        files[APP + "Other.swift"] = files[APP + "Other.swift"].replace("struct Other {", "final class OtherBox: @unchecked Sendable {}\nstruct Other {")
+        files["scripts/cmux-next/crash_ratchet.py"] = (HERE.parent / "crash_ratchet.py").read_text(encoding="utf-8")
+        fx = Fixture(files)
+        subprocess.run([sys.executable, "-I", str(fx.root / "scripts/cmux-next/crash_ratchet.py"), "--repo", str(fx.root),
+                        "--update-baseline"], check=True, capture_output=True)
+        fx.git("add", "-A")
+        fx.commit("crash baseline")
+        return fx
+
+    def rows(self, fx: Fixture) -> dict:
+        return json.loads(fx.read("scripts/cmux-next/crash-safety-baseline.json"))["swift"]["unchecked"]
+
+    def test_moved_hit_carries_its_row_and_the_gate_needs_no_trailer(self) -> None:
+        gate = load("cmux_next_prepush_gate_for_crash_rows", "prepush-gate.py")
+        fx = self.fixture()
+        try:
+            self.assertEqual(self.rows(fx), {"CmuxNextApp": 2})
+            base = fx.git("rev-parse", "HEAD").strip()
+            code, out = fx.move()
+            self.assertEqual(code, 0, out["problems"])
+            self.assertEqual(self.rows(fx), {"CmuxNextApp": 1, "CmuxNextPalette": 1})
+            self.assertIn("scripts/cmux-next/crash-safety-baseline.json",
+                          fx.git("diff", "--cached", "--name-only").splitlines(), "staged with the move")
+            ratchet = subprocess.run([sys.executable, "-I", str(fx.root / "scripts/cmux-next/crash_ratchet.py"),
+                                      "--repo", str(fx.root)], capture_output=True, text=True)
+            self.assertEqual(ratchet.returncode, 0, ratchet.stdout)
+            moved = fx.commit("move FixtureSearch")
+            raises = gate.crash_raises(fx.root, base, moved)
+            self.assertEqual([rows for _, _, _, _, rows, _ in raises if rows], [], "no raised row is left for a trailer")
+            self.assertEqual(raises[0][5].rows, {("swift", "unchecked", "CmuxNextApp"): -1,
+                                                 ("swift", "unchecked", "CmuxNextPalette"): 1})
+            self.assertEqual(gate.crash_allow_unreviewed(fx.root, base, moved), [])
+            with tempfile.TemporaryDirectory() as tmp:
+                scripts = Path(tmp)
+                (scripts / "crash-safety-baseline.json").write_text(self.before_baseline(fx, base))
+                taken = gate.apply_reviewed_crash_data(fx.root, base, moved, scripts)
+                carried = json.loads((scripts / "crash-safety-baseline.json").read_text())["swift"]["unchecked"]
+                self.assertEqual(carried, {"CmuxNextApp": 1, "CmuxNextPalette": 1}, taken)
+        finally:
+            fx.close()
+
+    def before_baseline(self, fx: Fixture, rev: str) -> str:
+        return fx.git("show", f"{rev}:scripts/cmux-next/crash-safety-baseline.json")
+
+    def test_a_row_that_rises_past_what_the_move_brought_still_needs_review(self) -> None:
+        gate = load("cmux_next_prepush_gate_for_crash_rows2", "prepush-gate.py")
+        renamed = {PKG + "Sources/CmuxNextPalette/A.swift": APP + "A.swift"}
+        old = {("swift", "unchecked", "CmuxNextApp"): 2}
+        new = {("swift", "unchecked", "CmuxNextApp"): 1, ("swift", "unchecked", "CmuxNextPalette"): 3}
+        rows = {("swift", "unchecked", "CmuxNextPalette"): 3}
+        left, carried = gate.followed_rows(rows, old, new, renamed)
+        self.assertEqual(left, rows, "a total that rises is not a move")
+        left, carried = gate.followed_rows({("swift", "unchecked", "CmuxNextPalette"): 1}, old,
+                                           {("swift", "unchecked", "CmuxNextApp"): 1, ("swift", "unchecked", "CmuxNextPalette"): 1},
+                                           renamed)
+        self.assertEqual(left, {})
+        self.assertEqual(carried, {("swift", "unchecked", "CmuxNextApp"): -1, ("swift", "unchecked", "CmuxNextPalette"): 1})
+        self.assertEqual(gate.followed_rows(rows, old, new, {})[0], rows, "no rename across modules, nothing carried")
+
+
+class CheckFailures(unittest.TestCase):
+    def test_an_unknown_rev_exits_2_and_the_gate_does_not_refuse(self) -> None:
+        gate = load("cmux_next_prepush_gate_for_check_failure", "prepush-gate.py")
+        fx = Fixture()
+        try:
+            for args in (["--rev", "deadbeef"], ["--rev", "HEAD", "--base", "deadbeef"]):
+                err = io.StringIO()
+                with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(err):
+                    code = follow.main(["--repo", str(fx.root), "--check", *args])
+                self.assertEqual(code, 2, args)
+                self.assertEqual(out.getvalue(), "", args)
+                self.assertIn("deadbeef", err.getvalue())
+            base = fx.git("rev-parse", "HEAD").strip()
+            fx.git("rm", "-q", PKG + "Sources/CmuxNextPalette/Palette.swift")  # a deletion makes the gate run --check
+            head = fx.commit("delete")
+
+            class Own:
+                pass
+            own = Own()
+            # A base the clone lacks (a pruned upstream head): --check exits 2, a warning, not a refusal.
+            own.base, own.head, own.before = base, head, (("upstream", "deadbeef"),)
+            log = io.StringIO()
+            with contextlib.redirect_stderr(log):
+                self.assertFalse(gate.stale_baseline_paths(fx.root, [own], HERE.parent))
+            self.assertIn("WARNING", log.getvalue())
+        finally:
+            fx.close()
+
+
+class BraceLists(unittest.TestCase):
+    def test_a_brace_list_under_a_moved_folder_follows_and_a_split_one_is_reported(self) -> None:
+        files = dict(FILES)
+        files["plans/cmux-next/work.tsv"] = (
+            f"a\t{APP}FixtureSearch/{{FixtureSearchControl,FixtureSearchHandlers}}.swift\n"
+            "b\tCmuxNextApp/FixtureSearch/{FixtureSearchControl*,FixtureSearchHandlers}.swift\n"
+            f"c\t{APP}{{FixtureSearch,Resources}}/\n"
+            "d\tf\"{SRC}/CmuxNextApp/FixtureSearch/Moved{i}.swift\"\n"
+            "e\t`S/CmuxNextApp/FixtureSearch/FixtureSearchHandlers.swift`, T/CmuxNextAppTests/FixtureSearchClosedOnceTests.swift\n"
+            "f\tAPP/CmuxNextApp/Other.swift and xS/CmuxNextApp/FixtureSearch/ (not an alias: a letter before it)\n")
+        fx = Fixture(files)
+        try:
+            code, out = fx.move()
+            text = fx.read("plans/cmux-next/work.tsv")
+            self.assertIn(f"a\t{PKG}Sources/CmuxNextPalette/FixtureSearch/{{FixtureSearchControl,FixtureSearchHandlers}}.swift\n", text)
+            self.assertIn("b\tCmuxNextPalette/FixtureSearch/{FixtureSearchControl*,FixtureSearchHandlers}.swift\n", text)
+            self.assertIn(f"c\t{APP}{{FixtureSearch,Resources}}/\n", text, "only one of the two folders moved")
+            self.assertTrue(any("{FixtureSearch,Resources}" in g for g in out["follow"]["split_globs"]), out["follow"])
+            self.assertIn('d\tf"{SRC}/CmuxNextApp/FixtureSearch/Moved{i}.swift"\n', text, "an interpolation is code-built")
+            self.assertIn("e\t`S/CmuxNextPalette/FixtureSearch/FixtureSearchHandlers.swift`, "
+                          "T/CmuxNextPaletteTests/FixtureSearchClosedOnceTests.swift\n", text, "doc aliases follow")
+            self.assertIn("f\tAPP/CmuxNextApp/Other.swift and xS/CmuxNextApp/FixtureSearch/", text)
+            self.assertEqual(code, 0, out["problems"])
+        finally:
+            fx.close()
+
+
+class DestinationTables(unittest.TestCase):
+    COMPACT = ('{\n  "sourceLanguage" : "en",\n  "strings" : {\n'
+               '    "Alpha" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Alpha" } } } },\n'
+               '    "Zulu" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "Zulu" } } } }\n'
+               '  },\n  "version" : "1.0"\n}')
+
+    def test_adding_keys_to_a_compact_table_changes_only_the_added_lines(self) -> None:
+        source = table({"Mike": "M", "Other": "O"})
+        out = mover.add_entries(self.COMPACT, source, {"Mike"})
+        self.assertEqual(list(json.loads(out)["strings"]), ["Alpha", "Mike", "Zulu"])
+        before, after = self.COMPACT.splitlines(), out.splitlines()
+        self.assertEqual([ln for ln in after if ln not in before][0], '    "Mike" : {')
+        self.assertEqual([ln for ln in before if ln not in after], [], "no existing line changes")
+        self.assertFalse(out.endswith("\n"), "the missing final newline stays missing")
+        self.assertEqual(json.loads(out)["strings"]["Mike"], json.loads(source)["strings"]["Mike"])
+
+    def test_keys_go_at_the_end_of_an_unsorted_table_and_in_case_folded_order(self) -> None:
+        unsorted = table({"b": "B", "a": "A"})
+        out = mover.add_entries(unsorted, table({"c": "C"}), {"c"})
+        self.assertEqual(list(json.loads(out)["strings"]), ["b", "a", "c"])
+        self.assertTrue(out.startswith(unsorted[:unsorted.rindex('"a"')]))
+        folded = table({"accounts.hint": "H", "accounts.Status": "S"})  # case-folded, not code point order
+        out = mover.add_entries(folded, table({"accounts.mid": "M"}), {"accounts.mid"})
+        self.assertEqual(list(json.loads(out)["strings"]), ["accounts.hint", "accounts.mid", "accounts.Status"])
+
+    def test_merge_into_an_existing_table_rewrites_its_path_everywhere(self) -> None:
+        files = dict(FILES)
+        dest = PKG + "Sources/CmuxNextPalette/Resources/FixtureSearch.xcstrings"
+        files[dest] = table({"palette.only": "P"})
+        fx = Fixture(files)
+        try:
+            code, out = fx.move()
+            self.assertEqual(code, 0, out["problems"])
+            self.assertTrue(any(m["mode"] == "merge" for m in out["tables"]))
+            self.assertIn("`${sources}/CmuxNextPalette/Resources/FixtureSearch.xcstrings`",
+                          fx.read("webviews/scripts/pages/gen-strings.mjs"))
+            hits = subprocess.run(["git", "-C", str(fx.root), "grep", "-n", "CmuxNextApp/Resources/FixtureSearch.xcstrings"],
+                                  capture_output=True, text=True).stdout
+            self.assertEqual(hits, "")
+            self.assertEqual(sorted(json.loads(fx.read(dest))["strings"]),
+                             ["fixtureSearch.refusal.focus", "fixtureSearch.refusal.gone", "fixtureSearch.title", "palette.only"])
+        finally:
+            fx.close()
+
+    def test_keys_a_webview_page_reads_stay_in_the_app_table(self) -> None:
+        files = dict(FILES)
+        files[APP + "Resources/Localizable.xcstrings"] = table({
+            "Other only": "Other", "Shared words": "Shared", "Window %lld": "Window %lld",
+            "page.title": "Title", "page.unused": "Webview only"})
+        files[APP + "FixtureSearch/FixtureSearchHandlers.swift"] = (
+            "enum FixtureSearchHandlers {\n    static let t = String(localized: \"page.title\", bundle: .module)\n}\n")
+        files["webviews/scripts/pages/gen-strings.mjs"] = (
+            "const sources = 'Packages/macOS/CmuxNext/Sources';\n"
+            "const pages = [{ file: `${sources}/CmuxNextApp/Resources/FixtureSearch.xcstrings` },\n"
+            "  { file: `${sources}/CmuxNextApp/Resources/Localizable.xcstrings`,\n"
+            "    keys: (all) => all.filter((key) => key.startsWith(\"page.\")) }];\n")
+        fx = Fixture(files)
+        try:
+            code, out = fx.move()
+            self.assertEqual(code, 0, out["problems"])
+            app = json.loads(fx.read(APP + "Resources/Localizable.xcstrings"))["strings"]
+            dest = json.loads(fx.read(PKG + "Sources/CmuxNextPalette/Resources/Localizable.xcstrings"))["strings"]
+            self.assertIn("page.title", app, "the reader still finds it: copied, not moved")
+            self.assertIn("page.title", dest)
+            self.assertIn("page.unused", app, "only the reader references it: not dead")
+            self.assertNotIn("Window %lld", app)
+        finally:
+            fx.close()
+
+    def test_reader_filters(self) -> None:
+        self.assertFalse(mover.key_filter("g", "(all) => all.filter((key) => key.startsWith(\"a.\"))").reads("b"))
+        self.assertTrue(mover.key_filter("g", "(all) => all.filter((key) => key.startsWith(\"a.\") || key === \"z\")").reads("z"))
+        self.assertTrue(mover.key_filter("g", "() => [\"x.y\"]").reads("x.y"))
+        self.assertTrue(mover.key_filter("g", "(all) => all.filter((key) => /^a/.test(key))").reads("b"), "unknown test: every key")
+        self.assertTrue(mover.key_filter("g", None).reads("b"))
+
+
+class TestSelection(unittest.TestCase):
+    def test_a_stem_needs_a_word_boundary_and_helpers_follow_their_only_users(self) -> None:
+        files = dict(FILES)
+        files[PKG + "Tests/CmuxNextAppTests/FixtureSearchesTests.swift"] = "import XCTest\n@testable import CmuxNextApp\n"
+        files[PKG + "Tests/CmuxNextAppTests/Support/FakeFixtureSearch.swift"] = "struct FakeFixtureSearch {}\n"
+        files[PKG + "Tests/CmuxNextAppTests/Support/SharedFake.swift"] = "struct SharedFake {}\n"
+        files[PKG + "Tests/CmuxNextAppTests/FixtureSearchClosedOnceTests.swift"] = (
+            "import XCTest\n@testable import CmuxNextApp\n\nfinal class FixtureSearchClosedOnceTests: XCTestCase {\n"
+            "    let fake = FakeFixtureSearch()\n    let shared = SharedFake()\n}\n")
+        files[PKG + "Tests/CmuxNextAppTests/OtherTests.swift"] = "import XCTest\n@testable import CmuxNextApp\nlet s = SharedFake()\n"
+        fx = Fixture(files)
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                mover.main(["--repo", str(fx.root), "--group", "FixtureSearch", "--destination", "CmuxNextPalette", "--dry-run"])
+            plan = json.loads(out.getvalue())
+            tests = [Path(t).name for t in plan["tests"]]
+            self.assertIn("FixtureSearchClosedOnceTests.swift", tests)
+            self.assertIn("FakeFixtureSearch.swift", tests, "a helper only moving tests use moves with them")
+            self.assertNotIn("SharedFake.swift", tests)
+            self.assertNotIn("FixtureSearchesTests.swift", tests, "FixtureSearches is not FixtureSearch")
+            self.assertTrue(any("SharedFake.swift stays" in n for n in plan["notes"]), plan["notes"])
+        finally:
+            fx.close()
+
+
+class WidenedFolders(unittest.TestCase):
+    def test_a_folder_merged_into_a_held_folder_follows_file_by_file(self) -> None:
+        files = dict(FILES)
+        files[PKG + "Sources/CmuxNextPalette/FixtureSearch/FixtureSearchPlan.swift"] = "struct FixtureSearchPlan {}\n"
+        fx = Fixture(files)
+        try:
+            code, out = fx.move()
+            owners = fx.read("plans/cmux-next/OWNERS.md")
+            self.assertIn(f"`{APP}FixtureSearch/`", owners, "the folder entry would also cover FixtureSearchPlan.swift")
+            self.assertTrue(any("OWNERS.md" in w for w in out["follow"]["widened"]), out["follow"])
+            self.assertIn(f"{PKG}Sources/CmuxNextPalette/FixtureSearch/FixtureSearchHandlers.swift",
+                          fx.read("scripts/cmux-next/no-swiftui-allowlist.txt"), "file entries follow")
+            yml = fx.read(".github/workflows/cmux-next-motion-golden.yml")
+            self.assertIn(f"{APP}FixtureSearch/*.swift", yml, "a glob that would widen stays and is reported")
+            self.assertEqual(code, 1, "left for review")
+            self.assertTrue(any("review it by hand" in p for p in out["problems"]))
         finally:
             fx.close()
 
