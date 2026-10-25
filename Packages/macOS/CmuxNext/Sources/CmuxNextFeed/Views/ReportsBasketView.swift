@@ -7,8 +7,9 @@ import Observation
 /// addressed message through the host callback and never mutates the report.
 ///
 /// AppKit (plans/cmux-next/no-swiftui-DESIGN.md rule 1). It reads `model.reports` with
-/// `withObservationTracking`, re-armed after each change while the view is in a window; leaving
-/// the window (or deinit) stops it, and coming back re-reads the model.
+/// `withObservationTracking`, re-armed after each change while the view is in a window; out of a
+/// window the registration lapses at the next change, deinit drops it (the callback holds the
+/// view weakly), and coming back re-reads the model.
 final class ReportsBasketView: NSView {
     let model: FeedModel
     let onReply: (@MainActor (ReportReply) async -> Bool)?
@@ -24,8 +25,7 @@ final class ReportsBasketView: NSView {
     private var unsent: [String: ReportReply] = [:]
 
     private var colors: ReportsBasketColors?
-    /// Bumped when the view leaves its window: a change from an older arming is dropped.
-    private var arming = 0
+    /// A `withObservationTracking` registration is pending (at most one at a time).
     private var armed = false
 
     private(set) var rows: [ReportsBasketRow] = []
@@ -73,7 +73,9 @@ final class ReportsBasketView: NSView {
         side.translatesAutoresizingMaskIntoConstraints = false
         let column = ReportsBasketText.stack([header, lines[0], content])
         for part in [header, lines[0], content] { part.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true }
-        list.widthAnchor.constraint(equalTo: listScroll.widthAnchor).isActive = true
+        ReportsBasketText.flexible(content, .vertical)
+        ReportsBasketText.flexible(side, .horizontal)
+        ReportsBasketText.flexible(titles, .horizontal)
         let split = ReportsBasketText.stack([column, lines[1], side], vertical: false, alignment: .top)
         embed(split)
         for part in [column, lines[1], side] { part.heightAnchor.constraint(equalTo: split.heightAnchor).isActive = true }
@@ -95,26 +97,23 @@ final class ReportsBasketView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        guard window != nil else {
-            arming += 1
-            armed = false
-            return
-        }
+        guard window != nil else { return }
         selected = selected ?? reports.first?.id
-        if !armed { observe(arming) }
+        if armed { render() } else { observe() }
     }
 
-    /// Reads the reports in a tracked scope and draws them; re-arms on the next change while
-    /// `current` is the arming (the view has not left its window since).
-    private func observe(_ current: Int) {
-        guard current == arming, window != nil else { return }
+    /// Reads the reports in a tracked scope and draws them. The next change re-arms only while the
+    /// view is in a window; out of one, the registration lapses after that change, and coming back
+    /// arms again. A registration still pending on re-entry is reused, so there is never a second.
+    private func observe() {
+        guard window != nil else { return }
         armed = true
         withObservationTracking { _ = model.reports } onChange: { [weak self] in
             // task-owner: re-arms one observation; it ends at once when the view left its window or is gone
             Task { @MainActor [weak self] in
-                guard let self, current == self.arming else { return }
+                guard let self else { return }
                 self.armed = false
-                self.observe(current)
+                self.observe()
             }
         }
         render()

@@ -61,6 +61,21 @@ import Testing
         #expect(!view.rows.isEmpty)
     }
 
+    @Test func theListAndTheDetailFillTheBasket() throws {
+        let model = FeedModel(source: MockFeedSource())
+        model.replaceReports([older, newer])
+        let (view, window) = shown(model)
+        defer { window.close() }
+        let row = try #require(view.rows.first)
+        let detail = try #require(view.detail)
+        let list = row.convert(row.bounds, to: view)
+        let side = detail.convert(detail.bounds, to: view)
+        #expect(row.bounds.height > 20 && row.bounds.width > 300, "row \(row.bounds)")
+        #expect((340...420).contains(list.maxX + 8), "the list column is 340-420 wide: row ends at \(list.maxX)")
+        #expect(side.width >= 420 && side.height == view.bounds.height, "detail \(side) in \(view.bounds)")
+        #expect(detail.field.frame.height > 0 && detail.replyButton.frame.width > 0)
+    }
+
     @Test func theNewestReportIsSelectedAndAClickSelectsAnother() throws {
         let model = FeedModel(source: MockFeedSource())
         model.replaceReports([older, newer])

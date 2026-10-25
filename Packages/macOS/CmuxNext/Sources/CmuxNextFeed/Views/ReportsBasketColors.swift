@@ -79,6 +79,8 @@ enum ReportsBasketText {
         stack.orientation = vertical ? .vertical : .horizontal
         stack.alignment = alignment
         stack.spacing = spacing
+        // Fill, not gravity areas: a part with no intrinsic size (the list, the detail) takes the room left.
+        stack.distribution = .fill
         stack.edgeInsets = NSEdgeInsets(top: insets, left: insets, bottom: insets, right: insets)
         stack.translatesAutoresizingMaskIntoConstraints = false
         return stack
@@ -98,7 +100,14 @@ enum ReportsBasketText {
         return box
     }
 
-    /// A scroll view over `content`, pinned to its top and width (short content sits at the top).
+    /// Lets `view` take the room its stack has left along `orientation` (and give it up first).
+    static func flexible(_ view: NSView, _ orientation: NSLayoutConstraint.Orientation) {
+        view.setContentHuggingPriority(.init(1), for: orientation)
+        view.setContentCompressionResistancePriority(.init(1), for: orientation)
+    }
+
+    /// A scroll view over `content`, as wide as its clip view (never under a legacy scroller) and
+    /// pinned to its top (short content sits at the top).
     static func scroll(_ content: NSView) -> NSScrollView {
         let scroll = NSScrollView()
         let document = TopDocument()

@@ -44,11 +44,9 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
         let column = ReportsBasketText.stack(parts)
         embed(column)
         for part in parts { part.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true }
-        body.widthAnchor.constraint(equalTo: scroll.widthAnchor).isActive = true
         widthAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
         // The text scrolls; the header and the reply row keep their size.
-        scroll.setContentHuggingPriority(.init(1), for: .vertical)
-        scroll.setContentCompressionResistancePriority(.init(1), for: .vertical)
+        ReportsBasketText.flexible(scroll, .vertical)
         update(item)
         setState(sending: false, notSent: false)
     }
@@ -105,6 +103,8 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
 
 /// The reply field: rounded, wraps, and grows from one line to four.
 final class ReportsBasketReplyField: NSTextField {
+    static let maxLines = 4
+
     init() {
         super.init(frame: .zero)
         isBezeled = true
@@ -114,6 +114,7 @@ final class ReportsBasketReplyField: NSTextField {
         cell?.wraps = true
         cell?.isScrollable = false
         lineBreakMode = .byWordWrapping
+        maximumNumberOfLines = Self.maxLines
         font = .systemFont(ofSize: TypeScale.body)
         focusRingType = .none
         translatesAutoresizingMaskIntoConstraints = false
@@ -126,9 +127,12 @@ final class ReportsBasketReplyField: NSTextField {
     override var intrinsicContentSize: NSSize {
         let one = super.intrinsicContentSize.height
         guard let cell, bounds.width > 0 else { return NSSize(width: NSView.noIntrinsicMetric, height: one) }
-        let wrapped = cell.cellSize(forBounds: NSRect(x: 0, y: 0, width: bounds.width, height: .greatestFiniteMagnitude)).height
-        let line = TypeScale.bodyLineHeight
-        return NSSize(width: NSView.noIntrinsicMetric, height: min(max(wrapped, one), one + 3 * line))
+        // While editing, the text is the field editor's (the cell has the value from before the edit).
+        let probe = cell.copy() as? NSCell ?? cell
+        probe.stringValue = (currentEditor() as? NSTextView)?.string ?? stringValue
+        let wrapped = probe.cellSize(forBounds: NSRect(x: 0, y: 0, width: bounds.width, height: .greatestFiniteMagnitude)).height
+        let lines = CGFloat(Self.maxLines - 1) * TypeScale.bodyLineHeight
+        return NSSize(width: NSView.noIntrinsicMetric, height: min(max(wrapped, one), one + lines))
     }
 
     override func setFrameSize(_ newSize: NSSize) {
