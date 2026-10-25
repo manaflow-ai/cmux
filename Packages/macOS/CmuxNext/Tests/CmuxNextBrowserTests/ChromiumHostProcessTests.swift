@@ -116,6 +116,9 @@ import Testing
         #expect(arguments.contains("--subprocess=\(frameworks.path)/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper"))
         let configuration = ChromiumHostConfiguration(executable: URL(filePath: "/bin/true"), arguments: arguments)
         #expect(configuration.logFile == "/tmp/host-root/chromium-host.log")
+        let diagnosed = ChromiumHostConfiguration.arguments(layout: layout, rootCache: root, bundleIdentifier: "com.cmuxterm.app.debug.t",
+                                                            environment: ["CMUX_NEXT_CHROMIUM_HOST_SWITCHES": "enable-logging=stderr,v=1"])
+        #expect(diagnosed.suffix(2) == ["--cef-switch=enable-logging=stderr", "--cef-switch=v=1"])
     }
 
     @Test func aHostThatStopsReadingEndsTheConnection() async throws {
