@@ -98,12 +98,26 @@ fn host_group_opt_out_is_machine_only() {
             &mut doc,
             &[Op::SectionUpdate {
                 id: "sec_custom".into(),
-                patch: SectionPatch {
-                    host_group_opt_out: Some(true),
-                    ..SectionPatch::default()
-                },
+                patch: SectionPatch { host_group_opt_out: Some(true), ..SectionPatch::default() },
             }],
         ),
+        Err(Refusal::InvalidValue)
+    );
+
+    let mut custom = Section::new("sec_added", SectionKind::Custom, Region::Middle);
+    custom.host_group_opt_out = true;
+    assert_eq!(
+        apply(&mut doc, &[Op::SectionAdd { section: custom, place: SectionPlace::default() }],),
+        Err(Refusal::InvalidValue)
+    );
+}
+
+#[test]
+fn host_group_and_opt_out_cannot_both_be_set() {
+    let mut doc = doc();
+    let id = machine_section_id("mini");
+    assert_eq!(
+        apply(&mut doc, &[update_with_opt_out(&id, true, true)]),
         Err(Refusal::InvalidValue)
     );
 }
