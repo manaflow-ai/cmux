@@ -5,8 +5,19 @@
 // Raw, the call itself (its command and output, or its MCP request and response); a failed send
 // opens to its output. Both ways of sending draw this one row: a cmux-subsessions `send_message`
 // (SubsessionCallCard.tsx) and a shell `acpmux send` (acpmuxSends.ts, `AcpmuxSendLine` below).
-// Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx).
-import { type ReactNode, useId, useMemo, useState, useSyncExternalStore } from "react";
+// Whether a row is open lasts across the virtualized transcript (transcriptDisclosure.tsx). The
+// target opens its chat beside this one when the session list knows it (by id, or by `name`,
+// `host/name` or `host:name`); otherwise it is plain text. A shell call that also ran other
+// commands says so ("· and 2 more commands"), its whole command behind Raw: no work is hidden.
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useContext,
+  useId,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AcpmuxSendCall, SendState } from "./acpmuxSends";
@@ -17,6 +28,7 @@ import { AlertCircle, ChevronRight, Envelope, Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
 import "./SubsessionCallCard.css";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -45,12 +57,31 @@ const subscribe = (listener: () => void) => {
 };
 const snapshot = () => look;
 
+/// The listed chat a send's target names: its id when the call gives it, else the chat with that
+/// name, on that host for `host/name` or `host:name` (a basket such as `reports:leo` is no chat).
+export function targetChat(store: SubsessionStore, target: string, sessionId?: string): string | undefined {
+  if (sessionId) return store.get(sessionId) || store.harness(sessionId) ? sessionId : undefined;
+  // A peer's chat is listed as `host/name` (acpmux hub/peers.rs).
+  const listed = store.find(target);
+  if (listed) return listed;
+  const split = /^([^/:]+)[/:](.+)$/.exec(target);
+  if (!split) return undefined;
+  const id = store.find(`${split[1]}/${split[2]}`) ?? store.find(split[2]!);
+  return id && (store.find(`${split[1]}/${split[2]}`) === id || store.host(id) === split[1]) ? id : undefined;
+}
+
+const NO_STORE = new SubsessionStore();
+/// Where the target placeholder sits in the translated line, so the name can be a link.
+const MARK = "\u0001";
+
 export function SentMessageLine({
   tool,
   state,
   target,
+  targetSession,
   text,
   detail,
+  others = 0,
   disclosureKey,
   raw,
   rawOpen = false,
@@ -60,49 +91,94 @@ export function SentMessageLine({
   state: SendState;
   /// Who it went to, by name.
   target: string;
+  /// The chat's id, when the call gives it (a sub-session `send_message`).
+  targetSession?: string;
+  /// Other commands the same shell call ran (acpmuxSends.ts `others`).
+  others?: number;
   /// The message, when the call holds it; without it the row names only the target.
   text?: string;
   /// How it was delivered, after the line ("queued", "read at its next step").
   detail?: string;
   disclosureKey: string;
-  /// The call as it was made, behind the Raw toggle while open.
-  raw: ReactNode;
+  /// The call as it was made, behind the Raw toggle while open; `reveal` bumps when Find in Chat
+  /// shows the call, so its output shows whole.
+  raw: (reveal: number) => ReactNode;
   /// Raw starts open (a failed send: its output says why).
   rawOpen?: boolean;
 }) {
   const t = useT();
   const shape = useSyncExternalStore(subscribe, snapshot, snapshot);
   const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
+  const [rawShown, setRawShown] = useState(rawOpen);
+  const [reveal, setReveal] = useState(0);
+  // Find in Chat opens the row and its Raw: the match may be in the command or its output.
   useFindReveal(
     useMemo((): AcpmuxActivity[] => [{ kind: "tool", text: tool.title, tool }], [tool]),
-    () => setOpen(true),
+    () => {
+      setOpen(true);
+      setRawShown(true);
+      setReveal((value) => value + 1);
+    },
   );
   const id = useId();
+  const chats = useContext(SubsessionContext);
+  const store = chats?.store ?? NO_STORE;
+  const readChat = () => targetChat(store, target, targetSession);
+  const chat = useSyncExternalStore(store.subscribeNames, readChat, readChat);
   const preview = text ? messagePreview(text) : "";
   const label =
     shape === "arrow" && state !== "failed" && preview
-      ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: target, text: preview })
-      : t(state === "sending" ? "send.sending" : state === "failed" ? "send.failed" : "send.sent", { target });
+      ? t(state === "sending" ? "subsession.sending" : "subsession.to", { name: MARK, text: preview })
+      : t(state === "sending" ? "send.sending" : state === "failed" ? "send.failed" : "send.sent", { target: MARK });
+  const [before, after = ""] = label.split(MARK);
+  const name =
+    chat && chats ? (
+      <button
+        type="button"
+        className="cv-sent__target"
+        title={t("subagents.open", { name: target })}
+        onClick={(event) => {
+          event.stopPropagation();
+          (chats.openSender ?? chats.open)(chat);
+        }}
+      >
+        {target}
+      </button>
+    ) : (
+      target
+    );
+  const more = others === 1 ? t("send.moreOne") : others > 1 ? t("send.more", { n: others }) : undefined;
+  const toggle = () => setOpen((value) => !value);
   const icon =
     state === "sending" ? <Spinner size={16} loading /> : state === "failed" ? <AlertCircle /> : <Envelope />;
   return (
     <>
-      <button
-        type="button"
+      {/* A div, not a button: the target inside it is a button of its own. */}
+      <div
+        role="button"
+        tabIndex={0}
         className={`cv-tool is-toggle cv-subsession cv-sent${state === "sending" ? " is-live" : " is-strong"}`}
         data-send-state={state}
         aria-expanded={open}
         aria-controls={open ? id : undefined}
-        onClick={() => setOpen((value) => !value)}
+        onClick={toggle}
+        onKeyDown={(event: KeyboardEvent) => {
+          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+          event.preventDefault();
+          toggle();
+        }}
       >
         <span className={`cv-tool__icon${state === "failed" ? " cv-tool__failed" : ""}`}>{icon}</span>
         <span className="cv-tool__text">
-          {label}
+          {before}
+          {name}
+          {after}
           {shape === "quote" && preview && state !== "failed" && (
             // l10n-allow: punctuation around the message's own words.
             <span className="cv-tool__detail">{`: “${preview}”`}</span>
           )}
           {detail && <span className="cv-tool__detail">{` · ${detail}`}</span>}
+          {more && <span className="cv-tool__detail cv-sent__more">{` · ${more}`}</span>}
           {shape === "sentence" && preview && state !== "failed" && (
             <span className="cv-tool__detail cv-sent__preview">{preview}</span>
           )}
@@ -112,7 +188,7 @@ export function SentMessageLine({
           strokeWidth={1.2}
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
-      </button>
+      </div>
       {open && (
         <div id={id} className="cv-subsession__under">
           {text && (
@@ -120,17 +196,31 @@ export function SentMessageLine({
               <Markdown commits="quiet">{text}</Markdown>
             </div>
           )}
-          <RawToggle startOpen={rawOpen}>{raw}</RawToggle>
+          <RawToggle open={rawShown} onOpenChange={setRawShown}>
+            {raw(reveal)}
+          </RawToggle>
         </div>
       )}
     </>
   );
 }
 
-/// "Raw" and the call under it while open.
-export function RawToggle({ children, startOpen = false }: { children: ReactNode; startOpen?: boolean }) {
+/// "Raw" and the call under it while open: its own state, or the caller's (`open`, `onOpenChange`).
+export function RawToggle({
+  children,
+  startOpen = false,
+  open: shown,
+  onOpenChange,
+}: {
+  children: ReactNode;
+  startOpen?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const t = useT();
-  const [open, setOpen] = useState(startOpen);
+  const [own, setOwn] = useState(startOpen);
+  const open = shown ?? own;
+  const setOpen = (next: (value: boolean) => boolean) => (onOpenChange ? onOpenChange(next(open)) : setOwn(next));
   const id = useId();
   return (
     <div className="cv-subsession__raw">
@@ -168,15 +258,17 @@ export function AcpmuxSendLine({ tool, send }: { tool: Tool; send: AcpmuxSendCal
       text={send.text}
       detail={detail}
       disclosureKey={`send:${tool.id}`}
+      others={send.others}
       rawOpen={send.state === "failed"}
-      raw={
+      raw={(reveal) => (
         <ShellBlock
           command={tool.command}
           output={tool.output}
           exitCode={tool.exitCode}
           live={send.state === "sending"}
+          reveal={reveal}
         />
-      }
+      )}
     />
   );
 }

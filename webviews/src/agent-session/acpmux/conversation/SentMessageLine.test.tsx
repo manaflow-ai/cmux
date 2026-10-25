@@ -10,6 +10,8 @@ import { acpmuxSendCall } from "./acpmuxSends";
 import { toolGroups } from "./toolGroups";
 import { AcpmuxSendLine } from "./SentMessageLine";
 import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { SubsessionContext, SubsessionStore } from "../subagents/subsessions";
+import type { AcpmuxSessionEntry } from "../sessionList";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -76,11 +78,20 @@ const bash = (command: string, fields: Partial<Tool> = {}): Tool => ({
   ...fields,
 });
 
-async function line(tool: Tool): Promise<HTMLElement> {
+async function line(tool: Tool, store?: SubsessionStore, opened: string[] = []): Promise<HTMLElement> {
   const send = acpmuxSendCall(tool);
   if (!send) throw new Error(`not a send: ${tool.command}`);
-  return render(<AcpmuxSendLine tool={tool} send={send} />);
+  const row = <AcpmuxSendLine tool={tool} send={send} />;
+  if (!store) return render(row);
+  const chats = { store, open: (id: string) => void opened.push(id) };
+  return render(<SubsessionContext.Provider value={chats}>{row}</SubsessionContext.Provider>);
 }
+
+const listed = (...entries: Partial<AcpmuxSessionEntry>[]) => {
+  const store = new SubsessionStore();
+  store.set(entries.map((entry, at) => ({ sessionId: `s${at}`, ...entry }) as AcpmuxSessionEntry));
+  return store;
+};
 
 test("a sent message reads its target, how it was taken and its first line, and opens to all of it", async () => {
   const container = await line(
@@ -137,4 +148,42 @@ test("toolGroups draws a send as its own entry, between the commands around it",
     item(bash("git log -1", { id: "c" })),
   ]);
   expect(groups.map((group) => group.type)).toEqual(["item", "send", "item"]);
+});
+
+test("a compound command's send says the other work, which stays behind Raw", async () => {
+  const container = await line(
+    bash("cd ~/wt && git fetch -q && acpmux send --no-wait --from me coord-deputy 'Restore base.'; reach box 'df -h'", {
+      output: "queued",
+    }),
+  );
+  const row = container.querySelector<HTMLElement>(".cv-sent")!;
+  expect(row.textContent).toBe("Sent message to coord-deputy · and 2 more commandsRestore base.");
+  await act(async () => row.click());
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-subsession__toggle")!.click());
+  expect(container.querySelector(".cv-shell")?.textContent).toContain("git fetch -q");
+});
+
+const chats = () => listed({ name: "coord-deputy" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
+
+test("the target opens its chat when the session list has it, without opening the row", async () => {
+  const opened: string[] = [];
+  const container = await line(bash("acpmux send coord-deputy 'hi'"), chats(), opened);
+  const link = container.querySelector<HTMLButtonElement>(".cv-sent__target")!;
+  expect(link.textContent).toBe("coord-deputy");
+  await act(async () => link.click());
+  expect(opened).toEqual(["s0"]);
+  expect(container.querySelector(".cv-sent")!.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a host:name target finds the peer's chat listed as host/name", async () => {
+  const opened: string[] = [];
+  const container = await line(bash("acpmux send studio-mac:scroll-jitter 'hi'"), chats(), opened);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-sent__target")!.click());
+  expect(opened).toEqual(["s1"]);
+});
+
+test("a target the session list does not have is plain text", async () => {
+  const container = await line(bash("acpmux send reports:leo 'hi'"), chats());
+  expect(container.querySelector(".cv-sent__target")).toBeNull();
+  expect(container.querySelector(".cv-sent")!.textContent).toContain("Sent message to reports:leo");
 });

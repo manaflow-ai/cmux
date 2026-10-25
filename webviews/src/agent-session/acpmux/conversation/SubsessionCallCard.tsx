@@ -200,7 +200,8 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
       text={call.text}
       detail={call.delivery && deliveryText(t, call.delivery)}
       disclosureKey={`send:${tool.id}`}
-      raw={<McpDetails tool={tool} />}
+      targetSession={call.sessionId}
+      raw={() => <McpDetails tool={tool} />}
     />
   );
 }
