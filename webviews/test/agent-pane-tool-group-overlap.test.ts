@@ -60,7 +60,13 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
     });
     for (const open of [true, false, true]) {
       await group.locator("button.cv-tool").first().click();
-      await page.waitForFunction(async () => {
+      // The click can resolve before React commits the toggle and starts its layout-effect
+      // animation. Observe the committed state before waiting for that animation to finish.
+      await page.waitForFunction((expected) => {
+        const line = document.querySelector('[data-row-id="mixed-tool-group"] button.cv-tool');
+        return line?.getAttribute("aria-expanded") === String(expected);
+      }, open);
+      await page.waitForFunction(() => {
         const moving = document
           .getAnimations()
           .filter(
@@ -72,6 +78,15 @@ await requireBrowserLane("agent-pane-tool-group-overlap.test.ts", async () => {
       });
       await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
       expect(await group.locator("button.cv-tool").first().getAttribute("aria-expanded")).toBe(String(open));
+      if (open) {
+        const geometry = await group.evaluate((row) => ({
+          bodyBottom: row.querySelector(".cv-tool-run")!.getBoundingClientRect().bottom,
+          rowBottom: row.getBoundingClientRect().bottom,
+        }));
+        // Once open, the whole tool list fits in its row: clipping cannot make article bounds
+        // appear separate while the actual tool content still extends behind the next bubble.
+        expect(geometry.bodyBottom).toBeLessThanOrEqual(geometry.rowBottom + 1);
+      }
     }
     if (captures) await page.screenshot({ path: path.join(captures, "tool-group-followed-by-prompt.png") });
     const overlaps = await page.evaluate(
