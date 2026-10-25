@@ -970,20 +970,30 @@ fn an_acpmux_service_someone_else_wrote_is_refused_and_a_matching_one_adopted() 
 
     // A full disk while the new text is copied in: the old unit stays whole
     // (written beside it and renamed, never cut), and the daemon goes back.
-    let peer = FakePeer::new("adopt-old-full");
-    peer.under_foreign_unit(false);
-    peer.write(&format!("{UNITS}/acpmux.service"), OLD_SYSTEMD_UNITS[0]);
-    peer.exe(
-        "fakebin/cp",
-        "#!/bin/sh\nfor a; do last=$a; done\ncase \"$last\" in *.acpmux-new|*.acpmux-old) printf x > \"$last\"; echo 'No space left on device' >&2; exit 1;; esac\nexec /bin/cp \"$@\"\n",
-    );
-    peer.offer(NEW, Some(NEW));
-    let up = peer.update(true);
-    assert_ne!(up.outcome, Outcome::Updated, "{up:?}");
-    assert_eq!(peer.read(&format!("{UNITS}/acpmux.service")), OLD_SYSTEMD_UNITS[0]);
-    assert!(!peer.exists(&format!("{UNITS}/acpmux.service.acpmux-new")));
-    assert!(!peer.exists(&format!("{UNITS}/acpmux.service.acpmux-old")));
-    assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{up:?}");
+    // A full disk while the new text is copied in, or while the old text is
+    // kept aside: the old unit stays whole (written beside it and renamed,
+    // never cut), nothing is left beside it, and the daemon goes back.
+    for (tag, full) in [("adopt-old-full", "*.service.acpmux-new"), ("adopt-old-full-backup", "*.acpmux-old.new")] {
+        let peer = FakePeer::new(tag);
+        peer.under_foreign_unit(false);
+        peer.write(&format!("{UNITS}/acpmux.service"), OLD_SYSTEMD_UNITS[0]);
+        peer.exe(
+            "fakebin/cp",
+            &format!("#!/bin/sh\nfor a; do last=$a; done\ncase \"$last\" in {full}) printf x > \"$last\"; echo 'No space left on device' >&2; exit 1;; esac\nexec /bin/cp \"$@\"\n"),
+        );
+        peer.offer(NEW, Some(NEW));
+        let up = peer.update(true);
+        assert_ne!(up.outcome, Outcome::Updated, "{tag}: {up:?}");
+        assert_eq!(peer.read(&format!("{UNITS}/acpmux.service")), OLD_SYSTEMD_UNITS[0], "{tag}");
+        let mut left: Vec<String> = std::fs::read_dir(peer.home.join(UNITS))
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| n.contains("acpmux.service") && n != "acpmux.service")
+            .collect();
+        left.retain(|n| n != "acpmux.service.d");
+        assert!(left.is_empty(), "{tag}: left {left:?}");
+        assert!(peer.exists(&format!("{UNITS}/{FOREIGN}")), "{tag}: {up:?}");
+    }
 
     // The disk fills at a drop-in, after acpmux.service was put in place:
     // everything this move wrote goes, so the host is as it was.

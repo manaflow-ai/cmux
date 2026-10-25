@@ -36,10 +36,10 @@ pub(super) const MIGRATING: &str = "ACPMUX_MIGRATING=";
 /// refused.
 const MIGRATE_PLAN: &str = r#"d=~/.config/systemd/user; n=$d/acpmux.service.d; t=
 refuse() { [ -z "$t" ] || rm -rf "$t"; echo "ACPMUX_REFUSED=$1"; echo "$2" >&2; exit 3; }
-fail() { [ -z "$t" ] || rm -rf "$t"; rm -f "$d/acpmux.service.acpmux-new"; exit 1; }
+fail() { [ -z "$t" ] || rm -rf "$t"; exit 1; }
 unwritten() { refuse writeFailed "the files for moving the daemon from $u to acpmux.service could not be written (is the disk full?): free space, then run this again"; }
 [ -f "$d/$u" ] || refuse unitElsewhere "the daemon of ~/.acpmux runs under $u, whose unit file is not in $d: move it to acpmux.service by hand"
-t=$(mktemp -d) && mkdir "$t/d" || fail
+t=$(mktemp -d) && mkdir "$t/d" || unwritten
 envof() { tr '\000' '\n' < "/proc/$p/environ" 2>/dev/null | sed -n "s/^$1=//p" | head -1; }
 carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env" || unwritten; }
 h=$(envof ACPMUX_HOME); s=$(envof ACPMUX_SOCKET)
@@ -77,7 +77,9 @@ ACPMUX_DROP_INS
 /// unit an earlier acpmux wrote is replaced). Each file is written beside
 /// its place and renamed into it (`put`), so a full disk never leaves a cut
 /// unit or drop-in. A failed write undoes this step (`undo`): the files it
-/// created go, an earlier acpmux's unit text comes back, the runtime drop-in
+/// created go, an earlier acpmux's unit text comes back (kept beside it as
+/// `.acpmux.service.acpmux-old`, a name systemd ignores, on the same disk so
+/// putting it back is a rename), the runtime drop-in
 /// goes, then the temporary folder, and the script ends (exit 1: the caller
 /// moves the daemon back, which finds everything as it was). Then it
 /// stops the old unit with the runtime drop-in `zzz-acpmux-migrate.conf` in
@@ -88,10 +90,11 @@ ACPMUX_DROP_INS
 const MIGRATE_STOP: &str = r#"echo "ACPMUX_MIGRATING=$u"
 r="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/user/$u.d"
 : > "$t/created" || fail
-undo() { while read -r f; do [ -z "$f" ] || rm -f "$f"; done < "$t/created"; if [ -f "$t/old-unit" ]; then mv -f "$t/old-unit" "$d/acpmux.service"; fi; rm -f "$r/zzz-acpmux-migrate.conf" "$r/.zzz-acpmux-migrate.acpmux-new" "$d/acpmux.service.acpmux-new"; fail; }
+b="$d/.acpmux.service.acpmux-old"; rm -f "$b" "$b.new"
+undo() { while read -r f; do [ -z "$f" ] || rm -f "$f"; done < "$t/created"; if [ -f "$b" ]; then mv -f "$b" "$d/acpmux.service"; fi; rm -f "$b.new" "$r/zzz-acpmux-migrate.conf" "$r/.zzz-acpmux-migrate.acpmux-new" "$d/acpmux.service.acpmux-new"; fail; }
 put() { cp "$1" "$2.acpmux-new" && mv -f "$2.acpmux-new" "$2" || { rm -f "$2.acpmux-new"; undo; }; }
 mkdir -p "$n" "$r" && printf '[Service]\nKillMode=process\nRestart=no\n' > "$r/.zzz-acpmux-migrate.acpmux-new" && mv -f "$r/.zzz-acpmux-migrate.acpmux-new" "$r/zzz-acpmux-migrate.conf" || undo
-if [ -e "$d/acpmux.service" ]; then cmp -s "$t/acpmux.service" "$d/acpmux.service" || { cp -p "$d/acpmux.service" "$t/old-unit" || undo; put "$t/acpmux.service" "$d/acpmux.service"; }
+if [ -e "$d/acpmux.service" ]; then cmp -s "$t/acpmux.service" "$d/acpmux.service" || { { cp -p "$d/acpmux.service" "$b.new" && mv -f "$b.new" "$b"; } || undo; put "$t/acpmux.service" "$d/acpmux.service"; }
 else echo "$d/acpmux.service" >> "$t/created" || undo; put "$t/acpmux.service" "$d/acpmux.service"; fi
 w=$(find "$t/d" -type f -name '*.conf') || undo
 while read -r f; do
@@ -101,7 +104,7 @@ put "$f" "$n/${f##*/}"
 done <<ACPMUX_PLANNED_DROP_INS
 $w
 ACPMUX_PLANNED_DROP_INS
-rm -rf "$t"
+rm -f "$b"; rm -rf "$t"
 systemctl --user daemon-reload && systemctl --user disable --now "$u" || exit 1
 "#;
 
