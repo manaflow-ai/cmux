@@ -60,7 +60,7 @@ final class CEFDevToolsController {
 
     func setFocused(_ focused: Bool) {
         guard let tab, let browserID = tab.browserID, tab.devTools.isOpen else { return }
-        tab.runtime.shim?.devToolsSetFocus(browserID, focused ? 1 : 0)
+        tab.focusGrant.devTools(of: browserID, focused: focused)
     }
 
     func contains(window candidate: NSWindow) -> Bool {
