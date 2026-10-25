@@ -131,7 +131,11 @@ struct BlockingWallTimeTests {
             }
             await table.flush()
             let sites = BlockingDetector(table: table).sites
-            guard sites.map(\.kind) == [.processWait, .fileIO] else { exit(3) }
+            guard sites.map(\.kind) == [.processWait, .fileIO] else {
+                // 100 + 10 x the site count + the last site's kind (its index in allCases; 9 for none).
+                let last = sites.last.flatMap { site in BlockingKind.allCases.firstIndex(of: site.kind) } ?? 9
+                exit(Int32(100 + 10 * min(sites.count, 9) + last))
+            }
             guard sites.map(\.count) == [1, 1] else { exit(4) }
             guard sites[0].totalNanos > 0 else { exit(5) }
             exit(sites[1].totalNanos == 0 ? 0 : 6)
