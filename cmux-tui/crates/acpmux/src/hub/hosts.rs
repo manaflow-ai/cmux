@@ -503,8 +503,11 @@ impl Hub {
                     work.steers.clear();
                     work.doing = Default::default();
                 }
+                // A subagent's updates are not the turn's own (`permissions.rs` `on_update`).
                 ("in", "tool_call" | "tool_call_update" | "plan")
-                    if current && work.turn.is_some() =>
+                    if current
+                        && work.turn.is_some()
+                        && e.msg.pointer("/params/_meta/acpmux/subagent").is_none() =>
                 {
                     work.doing.note(&e.msg["params"]["update"]);
                 }

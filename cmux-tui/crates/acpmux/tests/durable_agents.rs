@@ -425,6 +425,51 @@ async fn a_tool_call_running_across_a_restart_keeps_its_turn_from_stalling() {
     assert_eq!(result["msg"]["status"], "completed", "{result}");
 }
 
+/// A subagent's tool call is not its parent turn's: rebuilt after a restart, the parent turn
+/// still stalls while only its subagent's tool call runs, and does not take its activity.
+#[tokio::test]
+async fn a_subagents_tool_call_across_a_restart_is_not_its_parent_turns() {
+    let mut daemon = Daemon::new("stall-sub", "approve-all");
+    daemon.sigterm();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all", "stalledTurnMs": 300}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("child-gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the subagent's tool call", |e| {
+        e["kind"] == "tool_call" && e["msg"].pointer("/params/_meta/acpmux/subagent").is_some()
+    });
+
+    daemon.sigkill();
+    drop(client);
+    daemon.start();
+    until_turn_restored(&daemon, &session).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let all = daemon.rpc().await.call("_acpmux/sessions", json!({})).await;
+    let entry = all["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert!(entry["lane"]["stalledSince"].is_u64(), "only its subagent's call runs: {entry}");
+    assert!(entry["turn"]["activity"].is_null(), "the subagent's activity: {entry}");
+
+    std::fs::write(&gate, b"go").unwrap();
+    let result = daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    assert_eq!(result["msg"]["status"], "completed", "{result}");
+}
+
 /// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
 /// Code answers a steer "steered" at once and the turn runs on. The adopting daemon must keep
 /// the turn open until the turn's own prompt is answered; it settled the turn on the steer's

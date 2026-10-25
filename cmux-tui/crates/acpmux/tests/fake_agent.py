@@ -418,6 +418,17 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "child-gate: PATH" starts subagent child-1, whose tool call "Child build" runs while
+    # the turn blocks on the FIFO at PATH; then the child's call and the turn end.
+    if text.startswith("child-gate:"):
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-1", "name": "Child", "task": "Child build", "capabilities": {}})
+        update("child-1", {"sessionUpdate": "tool_call", "toolCallId": "cg-1", "title": "Child build", "kind": "execute", "status": "in_progress"})
+        with open(text[len("child-gate:"):].strip()) as gate:
+            gate.read()
+        update("child-1", {"sessionUpdate": "tool_call_update", "toolCallId": "cg-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
