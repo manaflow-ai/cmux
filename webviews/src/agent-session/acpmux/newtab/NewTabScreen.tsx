@@ -476,7 +476,7 @@ export function NewTabScreen(props: Props) {
   const chrome = useComposerChrome();
   // The chat composer's footer look (composerSettings.ts plainFooter): the New Tab row draws the
   // same plain chips, so the two composers never disagree (composerLocation.css).
-  const { plainFooter } = useComposerSettings();
+  const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
   // Claude Code's split (Leo 2026-10-19, "the claude code style composer on the first dot ... the
@@ -1190,7 +1190,7 @@ export function NewTabScreen(props: Props) {
               aria-activedescendant={
                 commandsOpen ? `acpmux-slash-${commandIndex}` : rows[current] ? `nt-row-${current}` : undefined
               }
-              spellCheck={!shell}
+              spellCheck={spellChecking && !shell}
               autoCapitalize="off"
               autoCorrect="off"
               onChange={(event) => edit(event.target.value)}
