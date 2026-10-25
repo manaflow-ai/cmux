@@ -27,8 +27,6 @@ public final class RemoteMachinesSidebar {
     static let pageSize = 10
     /// The longest a lane change waits before the groups show it.
     static let refreshInterval: Duration = .seconds(2)
-    /// How often the daemon's peer list (who is reachable) is read again.
-    static let peerInterval: Duration = .seconds(20)
     private static let expandedKey = "sidebar.remoteMachines.expanded"
     private static let prefix = LayoutItemID.transientPrefix + "remote:"
     private static let machinePrefix = prefix + "machine:"
@@ -81,8 +79,7 @@ public final class RemoteMachinesSidebar {
     @ObservationIgnored private var laneWatch: Task<Void, Never>?
     /// The next rebuild after a lane change: one per `refreshInterval` however many changes come.
     @ObservationIgnored private let refresh = DemandTimer(owner: "sidebar.remoteMachines")
-    /// When the peer list was last asked for, and the read in flight.
-    @ObservationIgnored private var peersAskedAt: ContinuousClock.Instant?
+    /// The peer list read in flight.
     @ObservationIgnored private var peerRead: Task<Void, Never>?
 
     public init(lanes: AgentLaneStore = .shared) {
@@ -90,8 +87,9 @@ public final class RemoteMachinesSidebar {
     }
 
     /// Starts following the lanes. Nothing runs while no lane changes: a change schedules one
-    /// rebuild `refreshInterval` later, and a rebuild asks for the peer list when it is older than
-    /// `peerInterval`. It ends with `stop()`.
+    /// rebuild `refreshInterval` later, and each rebuild asks for the peer list. A peer that drops
+    /// or comes back changes lanes too (acpmux marks every row of a dropped peer stale, and a
+    /// reconnect sends its list), so its header follows. It ends with `stop()`.
     public func bind(host: Host) {
         self.host = host
         guard laneWatch == nil else { return }
@@ -138,7 +136,8 @@ public final class RemoteMachinesSidebar {
     }
 
     private func rebuild() {
-        askForPeersIfStale()
+        guard laneWatch != nil else { return } // stopped: a fire queued before `stop()` does nothing
+        askForPeers()
         // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
         let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
             : Self.machines(lanes: lanes.lanes.values, peers: peers)
@@ -161,13 +160,10 @@ public final class RemoteMachinesSidebar {
         }
     }
 
-    /// One bounded `_acpmux/peers` (the daemon answers from memory, never asking a peer) when the
-    /// list is older than `peerInterval` and no read is in flight; a changed answer arms `refresh`.
-    private func askForPeersIfStale() {
+    /// One bounded `_acpmux/peers` (the daemon answers from memory, never asking a peer),
+    /// unless a read is in flight; a changed answer arms `refresh`.
+    private func askForPeers() {
         guard peerRead == nil, let read = host?.peers else { return }
-        let now = ContinuousClock.now
-        if let asked = peersAskedAt, now - asked < Self.peerInterval { return }
-        peersAskedAt = now
         // task-owner: this instance; one read, bounded by its 2 s deadline, cancelled by `stop()`
         peerRead = Task { [weak self] in
             let next = await read()
