@@ -508,6 +508,9 @@ impl Hub {
             failures: 0,
         };
         let now = std::time::Instant::now();
+        // A resend of a message held already: its answer says so (`resent`), so the sender's
+        // attachments of this copy go (`attach::Saved`).
+        let mut resent = false;
         let hold = {
             let mut state = self.pairs_state();
             // Under the lock, so the order held here is the order a restart restores.
@@ -515,7 +518,7 @@ impl Hub {
             let pair = state.pairs.entry(key.clone()).or_default();
             if let Some(paused) = pair.paused.as_mut() {
                 if paused.held.iter().any(|h| h.prompt_id == prompt_id) {
-                    // A resend of a message held already.
+                    resent = true;
                 } else if paused.held.len() >= MAX_HELD {
                     return Err(RpcError::new(
                         -32000,
@@ -641,6 +644,7 @@ impl Hub {
         Err(RpcError::new(-32000, message).with_data(json!({
             "reason": PAUSED_REASON,
             "held": true,
+            "resent": resent,
             "promptId": prompt_id,
             "sessions": [from, to],
             "trip": trip,
