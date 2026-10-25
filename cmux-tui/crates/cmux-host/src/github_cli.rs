@@ -484,17 +484,23 @@ pub fn helper_value(program: &Path) -> String {
 /// How to run this binary again as `cmux`: argv[0] made absolute, or found
 /// on PATH.
 fn self_program() -> Option<PathBuf> {
-    let argv0 = PathBuf::from(std::env::args_os().next()?);
+    let cwd = std::env::current_dir().ok()?;
+    program_path(&PathBuf::from(std::env::args_os().next()?), std::env::var_os("PATH"), &cwd)
+}
+
+/// `argv0` as an absolute path: joined to `cwd` when it names a directory,
+/// else the first `PATH` entry holding it (a relative entry joined to `cwd`).
+/// Symlinks are kept: the name `cmux` selects the verb.
+pub fn program_path(
+    argv0: &Path,
+    path_var: Option<std::ffi::OsString>,
+    cwd: &Path,
+) -> Option<PathBuf> {
+    let absolute = |p: PathBuf| if p.is_absolute() { p } else { cwd.join(p) };
     if argv0.components().count() > 1 {
-        return Some(if argv0.is_absolute() {
-            argv0
-        } else {
-            std::env::current_dir().ok()?.join(argv0)
-        });
+        return Some(absolute(argv0.to_path_buf()));
     }
-    std::env::split_paths(&std::env::var_os("PATH")?)
-        .map(|dir| dir.join(&argv0))
-        .find(|p| p.is_file())
+    std::env::split_paths(&path_var?).map(|dir| absolute(dir.join(argv0))).find(|p| p.is_file())
 }
 
 /// The `git config --global` argument lists `setup` (or `--unset`) runs.
@@ -505,14 +511,14 @@ pub fn setup_commands(helper: &str, unset: bool) -> Vec<Vec<String>> {
         out
     };
     if unset {
-        return vec![cmd(&["--unset-all", HOST_KEY]), cmd(&["--unset", PATH_KEY])];
+        return vec![cmd(&["--unset-all", HOST_KEY]), cmd(&["--unset-all", PATH_KEY])];
     }
     vec![
         // An empty value resets the helper list for github.com (a gh login's
         // `gh auth git-credential` or a store), so only this helper answers.
         cmd(&["--replace-all", HOST_KEY, ""]),
         cmd(&["--add", HOST_KEY, helper]),
-        cmd(&[PATH_KEY, "true"]),
+        cmd(&["--replace-all", PATH_KEY, "true"]),
     ]
 }
 
@@ -843,6 +849,23 @@ mod tests {
     }
 
     #[test]
+    fn setup_finds_this_binary_by_an_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("bin")).unwrap();
+        std::fs::write(dir.path().join("bin/cmux"), "").unwrap();
+        let cwd = dir.path();
+        let path = |v: &str| Some(std::ffi::OsString::from(v));
+        let found = |argv0: &str, var| program_path(Path::new(argv0), var, cwd);
+        assert_eq!(found("cmux", path("/nonexistent:bin")), Some(cwd.join("bin/cmux")));
+        assert_eq!(found("bin/cmux", None), Some(cwd.join("bin/cmux")));
+        assert_eq!(
+            found("/opt/cmux/current/bin/cmux", None),
+            Some(PathBuf::from("/opt/cmux/current/bin/cmux"))
+        );
+        assert_eq!(found("cmux", path("/nonexistent")), None);
+    }
+
+    #[test]
     fn setup_writes_only_the_github_helper_and_use_http_path() {
         let helper = helper_value(Path::new("/opt/cmux/current/bin/cmux"));
         assert_eq!(helper, "!'/opt/cmux/current/bin/cmux' github credential");
@@ -850,13 +873,13 @@ mod tests {
         let on = setup_commands(&helper, false);
         assert_eq!(on[0], strings(&["config", "--global", "--replace-all", HOST_KEY, ""]));
         assert_eq!(on[1], strings(&["config", "--global", "--add", HOST_KEY, &helper]));
-        assert_eq!(on[2], strings(&["config", "--global", PATH_KEY, "true"]));
+        assert_eq!(on[2], strings(&["config", "--global", "--replace-all", PATH_KEY, "true"]));
         let off = setup_commands(&helper, true);
         assert_eq!(
             off,
             vec![
                 strings(&["config", "--global", "--unset-all", HOST_KEY]),
-                strings(&["config", "--global", "--unset", PATH_KEY])
+                strings(&["config", "--global", "--unset-all", PATH_KEY])
             ]
         );
     }
