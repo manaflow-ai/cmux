@@ -470,3 +470,17 @@ button.acpmux-attachment-pasted-open:hover {
 .acpmux-attachment-pasted .acpmux-attachment-remove {
   top: 14px;
 }
+/* Dragging a staged chip moves it along the strip (composer/stripReorder.ts): its slot draws
+   nothing of its own, the chip being dragged lifts a little, and the strip says it can be grabbed. */
+.acpmux-attachment-slot {
+  display: contents;
+}
+.acpmux-attachments[data-reorder] .acpmux-attachment-slot .acpmux-attachment {
+  cursor: grab;
+}
+.acpmux-attachment-slot[data-dragging] .acpmux-attachment {
+  cursor: grabbing;
+  opacity: 0.85;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px color-mix(in srgb, #000 30%, transparent);
+}
