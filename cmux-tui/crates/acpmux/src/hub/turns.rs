@@ -1040,6 +1040,8 @@ impl Hub {
             self.end_unadopted_host(session).await;
         }
         *session.turn.lock().unwrap() = None;
+        // Before the close's event, which sends the cards it owes (`tasks.rs`).
+        self.orphan_tasks_of(session, purge);
         self.set_status(session, SessionStatus::Closed);
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
