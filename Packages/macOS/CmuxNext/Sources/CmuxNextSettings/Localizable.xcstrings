@@ -155082,127 +155082,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مكان شريحة الجهاز والمجلد أسفل صف علامات التبويب. يُبقيها اليسار أعلى اليسار؛ ينقلها اليمين إلى أعلى اليمين؛ ويخفيها إيقاف."
+            "value": "يضع اليسار الشريحة في صف أسفل صف علامات التبويب؛ يُبقيها اليمين في الرأس (أو في مقدمة أدوات صف التبويب)؛ ويخفيها إيقاف."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mjesto čipa s mašinom i mapom ispod reda kartica. Lijevo ga drži gore lijevo; Desno ga pomjera gore desno; Isključeno ga skriva."
+            "value": "Lijevo stavlja čip u red ispod reda kartica; Desno ga zadržava u zaglavlju (ili ispred alata reda kartica); Isključeno ga skriva."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor chippen med maskine og mappe sidder under fanerækken. Venstre holder den øverst til venstre; Højre flytter den øverst til højre; Fra skjuler den."
+            "value": "Venstre placerer chippen i en række under fanerækken; Højre beholder den i sidehovedet (eller foran værktøjerne i fanerækken); Fra skjuler den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wo der Chip für Rechner und Ordner unter der Tabzeile sitzt. Links bleibt er oben links; Rechts verschiebt ihn nach oben rechts; Aus blendet ihn aus."
+            "value": "Links platziert den Chip in einer Zeile unter der Tabzeile; Rechts lässt ihn im Header (oder vor den Tabzeilen-Werkzeugen); Aus blendet ihn aus."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it."
+            "value": "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dónde se encuentra el chip de máquina y carpeta bajo la fila de pestañas. Izquierda lo mantiene arriba a la izquierda; Derecha lo mueve arriba a la derecha; Desactivado lo oculta."
+            "value": "Izquierda coloca el chip en una fila bajo las pestañas; Derecha lo mantiene en el encabezado (o delante de las herramientas de pestañas); Desactivado lo oculta."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où se trouve la pastille de machine et de dossier sous la rangée d’onglets. Gauche la garde en haut à gauche ; Droite la déplace en haut à droite ; Désactivé la masque."
+            "value": "Gauche place la pastille dans une ligne sous les onglets ; Droite la garde dans l’en-tête (ou devant les outils de la rangée d’onglets) ; Désactivé la masque."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dove si trova il chip di macchina e cartella sotto la riga delle schede. Sinistra lo mantiene in alto a sinistra; Destra lo sposta in alto a destra; Disattivato lo nasconde."
+            "value": "Sinistra mette il chip in una riga sotto la riga delle schede; Destra lo mantiene nell’intestazione (o davanti agli strumenti della riga delle schede); Disattivato lo nasconde."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "タブ行の下にあるマシンとフォルダのチップの位置です。左は左上、右は右上に置き、オフは非表示にします。"
+            "value": "左はチップをタブ行の下の行に置き、右はヘッダー（またはタブ行ツールの先頭）に残し、オフは非表示にします。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ទីតាំងបន្ទះម៉ាស៊ីន និងថតនៅខាងក្រោមជួរផ្ទាំង។ ឆ្វេងរក្សាទុកនៅកំពូលឆ្វេង; ស្ដាំផ្លាស់ទីទៅកំពូលស្ដាំ; បិទលាក់វា។"
+            "value": "ឆ្វេងដាក់បន្ទះក្នុងជួរខាងក្រោមជួរផ្ទាំង; ស្ដាំរក្សាទុកវានៅក្បាល (ឬនៅមុខឧបករណ៍ជួរផ្ទាំង); បិទលាក់វា។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "탭 행 아래에서 머신 및 폴더 칩의 위치를 정합니다. 왼쪽은 왼쪽 위에 두고, 오른쪽은 오른쪽 위로 옮기며, 끄기는 숨깁니다."
+            "value": "왼쪽은 탭 행 아래의 별도 행에 칩을 놓고, 오른쪽은 헤더(또는 탭 행 도구 앞)에 유지하며, 끄기는 숨깁니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor maskin- og mappebrikken ligger under faneraden. Venstre holder den øverst til venstre; Høyre flytter den øverst til høyre; Av skjuler den."
+            "value": "Venstre plasserer brikken på en rad under faneraden; Høyre beholder den i toppteksten (eller foran verktøyene i faneraden); Av skjuler den."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Położenie chipa komputera i folderu pod rzędem kart. Lewo zostawia go u góry po lewej; Prawo przenosi go u góry po prawej; Wyłącz ukrywa go."
+            "value": "Lewo umieszcza chip w wierszu pod rzędem kart; Prawo zostawia go w nagłówku (lub przed narzędziami rzędu kart); Wyłącz ukrywa go."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onde o chip de máquina e pasta fica abaixo da linha de abas. Esquerda o mantém no canto superior esquerdo; Direita o move para o canto superior direito; Desativado o oculta."
+            "value": "Esquerda coloca o chip em uma linha abaixo das abas; Direita o mantém no cabeçalho (ou à frente das ferramentas da linha de abas); Desativado o oculta."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Расположение чипа компьютера и папки под рядом вкладок. Слева он остаётся вверху слева; Справа перемещается вверх вправо; Выкл. скрывает его."
+            "value": "Слева помещает чип в строку под рядом вкладок; Справа оставляет его в заголовке (или перед инструментами ряда вкладок); Выкл. скрывает его."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตำแหน่งชิปเครื่องและโฟลเดอร์ใต้แถวแท็บ ซ้ายจะวางไว้ด้านซ้ายบน ขวาจะย้ายไปด้านขวาบน และปิดจะซ่อนไว้"
+            "value": "ซ้ายจะวางชิปในแถวใต้แถวแท็บ ขวาจะคงชิปไว้ในส่วนหัว (หรือไว้หน้าปุ่มของแถวแท็บ) และปิดจะซ่อนไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sekme satırının altındaki makine ve klasör çipinin konumu. Sol üst solda tutar; Sağ üst sağa taşır; Kapalı gizler."
+            "value": "Sol, çipi sekme satırının altındaki bir satıra yerleştirir; Sağ, başlıkta (veya sekme satırı araçlarının önünde) tutar; Kapalı gizler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Розташування чипа комп’ютера й теки під рядком вкладок. Ліворуч залишає його вгорі ліворуч; Праворуч переміщує вгору праворуч; Вимкнено приховує його."
+            "value": "Ліворуч розміщує чип у рядку під рядком вкладок; Праворуч залишає його в заголовку (або перед інструментами рядка вкладок); Вимкнено приховує його."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vị trí chip máy và thư mục bên dưới hàng tab. Trái giữ ở góc trên bên trái; Phải chuyển sang góc trên bên phải; Tắt sẽ ẩn chip."
+            "value": "Trái đặt chip trong một hàng bên dưới hàng tab; Phải giữ chip trong tiêu đề (hoặc trước các công cụ hàng tab); Tắt sẽ ẩn chip."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "机器和文件夹标签在标签栏下方的位置。左侧放在左上角；右侧移到右上角；关闭则隐藏。"
+            "value": "左侧将标签放在标签栏下方的单独一行；右侧将其保留在标题栏中（或放在标签栏工具前）；关闭则隐藏。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "機器與資料夾標籤在標籤列下方的位置。左側放在左上角；右側移到右上角；關閉則隱藏。"
+            "value": "左側將標籤放在標籤列下方的獨立一列；右側將其保留在標題列中（或放在標籤列工具前）；關閉則隱藏。"
           }
         }
       }
