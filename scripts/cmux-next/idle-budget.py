@@ -30,7 +30,9 @@ Sessions (--sessions):
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
 
-Budget: scripts/cmux-next/idle-budget.json (per process kind; a missing value is reported, not judged).
+Budget: scripts/cmux-next/idle-budget.json, schema v2 (its _doc): per process kind with per-session overrides,
+sums (app+daemon, tree), ratios to an earlier session and to chrome-static, allowed_periodic (wakeup-audit.py)
+and assertions_allowed_when. A missing value is reported, not judged; a v1 file (kinds only) still loads.
 Over budget prints IDLE-BUDGET-OVER lines; the exit code is 0 unless --gate (no CI gate: the perf cron
 runs it and reports).
 
@@ -43,12 +45,18 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, a Markdown table, and --json with every sample.
 """
-import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, time
+import argparse, ctypes, functools, json, os, platform, re, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "perf-bench"))
-import procs  # noqa: E402  (process set of one app: descendants, bundle processes, responsible XPC processes)
+
+
+def _procs():
+    """perf-bench/procs.py (process set of one app: descendants, bundle processes, responsible XPC processes). It
+    loads libproc, so it is imported on first measurement: the budget logic below runs and tests on any host."""
+    import procs
+    return procs
 
 BUDGET_FILE = os.path.join(HERE, "idle-budget.json")
 STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
@@ -56,7 +64,6 @@ STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
 # ---------------------------------------------------------------------------------------------------------
 # Per-thread counters (libproc, same user, no root)
 
-_libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 PROC_PIDLISTTHREADIDS = 28
 PROC_PIDTHREADID64INFO = 15
 
@@ -68,16 +75,22 @@ class _ThreadInfo(ctypes.Structure):
                 ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
 
 
+@functools.cache
+def _libproc():
+    return ctypes.CDLL("/usr/lib/libproc.dylib")
+
+
 def threads(pid):
     """{thread id: (cpu ns, name)} of `pid` now; {} when it is gone."""
+    libproc = _libproc()
     ids = (ctypes.c_uint64 * 8192)()
-    size = _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDLISTTHREADIDS), ctypes.c_uint64(0),
-                                 ctypes.byref(ids), ctypes.c_int(ctypes.sizeof(ids)))
+    size = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDLISTTHREADIDS), ctypes.c_uint64(0),
+                                ctypes.byref(ids), ctypes.c_int(ctypes.sizeof(ids)))
     out = {}
     for index in range(max(0, size) // 8):
         info = _ThreadInfo()
-        got = _libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDTHREADID64INFO), ctypes.c_uint64(ids[index]),
-                                    ctypes.byref(info), ctypes.c_int(ctypes.sizeof(info)))
+        got = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDTHREADID64INFO), ctypes.c_uint64(ids[index]),
+                                   ctypes.byref(info), ctypes.c_int(ctypes.sizeof(info)))
         if got == ctypes.sizeof(info):
             out[ids[index]] = (info.user_time + info.system_time, info.name.decode(errors="replace"))
     return out
@@ -85,6 +98,12 @@ def threads(pid):
 
 # ---------------------------------------------------------------------------------------------------------
 # Process kinds (the budget's keys)
+
+# Chromium utility processes by service (content/browser/utility_process_host.cc names them by
+# --utility-sub-type, the mojo interface the process serves).
+UTILITY_KINDS = {"network.mojom.NetworkService": "cef-network", "storage.mojom.StorageService": "cef-storage",
+                 "audio.mojom.AudioService": "cef-audio"}
+
 
 def kind(cmd):
     """The budget kind of a process of the app's set."""
@@ -97,11 +116,16 @@ def kind(cmd):
     if re.search(r"/bin/acpmux(\s|$)", cmd):
         return "acpmux"
     if "--type=renderer" in cmd:
-        return "cef-renderer"
+        return "cef-extension" if "--extension-process" in cmd else "cef-renderer"
     if "--type=gpu-process" in cmd:
         return "cef-gpu"
     if "--type=utility" in cmd:
-        return "cef-utility"
+        service = re.search(r"--utility-sub-type=(\S+)", cmd)
+        return UTILITY_KINDS.get(service.group(1) if service else "", "cef-utility")
+    if "--type=crashpad-handler" in cmd or "chrome_crashpad_handler" in cmd:
+        return "crashpad"
+    if " Chromium Host.app/Contents/MacOS/" in cmd.split(" --", 1)[0]:
+        return "cef-host"  # the out-of-process Chromium browser process (ChromiumHostConfiguration)
     if " Helper" in cmd.split(" --", 1)[0]:
         return "cef-helper"
     if "com.apple.WebKit." in cmd:
@@ -115,7 +139,7 @@ def kind(cmd):
 def process_set(instance):
     """{pid: command} of the app's processes plus their descendants (shells of the terminals are `other:`)."""
     found = dict(instance.pids())
-    table = procs.process_table()
+    table = _procs().process_table()
     children = {}
     commands = {}
     for pid, ppid, cmd in table:
@@ -145,6 +169,7 @@ def measure(app, instance, seconds):
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger0 = read_rpc(app, "debug.wakeups")
     counters0 = app_counters(app)
+    procs = _procs()
     pids = process_set(instance)
     first = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in pids}
     began = time.monotonic()
@@ -285,8 +310,13 @@ def ledger_rates(before, after, elapsed):
 # Budget
 
 
+# Fields summed over a kind's processes when the rows carry them (energy, disk and log come from task 003).
+SUMMED = ("wakeups_per_s", "csw_per_s", "cpu_pct", "energy_mw", "disk_bytes_per_s", "log_lines")
+
+
 def aggregate(result):
-    """Per kind: count, threads (sum and max per process), wakeups/s (sum and max per process), CPU %."""
+    """Per kind: count, threads (sum and max per process), wakeups/s (sum and max per process, and the max over
+    the processes of hidden pages), CPU %, and energy, disk and log sums when the rows have them; the roles."""
     kinds = {}
     for row in result["processes"]:
         entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_per_s": 0.0,
@@ -294,59 +324,174 @@ def aggregate(result):
         entry["n"] += 1
         entry["threads"] += row["threads"]
         entry["threads_max"] = max(entry["threads_max"], row["threads"])
-        entry["wakeups_per_s"] = round(entry["wakeups_per_s"] + row["wakeups_per_s"], 3)
         entry["wakeups_max"] = max(entry["wakeups_max"], row["wakeups_per_s"])
-        entry["csw_per_s"] = round(entry["csw_per_s"] + row["csw_per_s"], 3)
-        entry["cpu_pct"] = round(entry["cpu_pct"] + row["cpu_pct"], 4)
+        if row.get("hidden"):
+            entry["hidden_wakeups_max"] = max(entry.get("hidden_wakeups_max", 0.0), row["wakeups_per_s"])
+        for field in SUMMED:
+            if isinstance(row.get(field), (int, float)):
+                entry[field] = round(entry.get(field, 0) + row[field], 4 if field == "cpu_pct" else 3)
         entry["threads_ran"] += row["threads_ran"]
+        if row.get("role"):
+            entry["roles"] = sorted(set(entry.get("roles", [])) | {row["role"]})
     if "main_wakes_per_s" in result and "app" in kinds:
         kinds["app"]["main_wakes_per_s"] = result["main_wakes_per_s"]
     return kinds
 
 
-def over_budget(session, kinds, budget):
-    """[(kind, field, value, limit)] for every value over its budget. Limits are per process for
-    `wakeups_max` and `threads_max`, and per kind for the rest."""
+def session_budget(budget, session):
+    return (budget.get("sessions") or {}).get(session) or {}
+
+
+def limit_for(budget, session, name, field):
+    """The limit of `field` for kind `name` in `session`: the session's own value (an explicit null there means
+    not judged), else the kind's default (one number or {session: number}), else all_kinds. Busy and reference
+    sessions (STRESS's animating pages, an agent at work, Chrome) take only their own values."""
+    own = session_budget(budget, session)
+    kind_limits = (own.get("kinds") or {}).get(name) or {}
+    if field in kind_limits:
+        return kind_limits[field]
+    if own.get("busy") or own.get("reference"):
+        return None
+    defaults = (budget.get("kinds") or {}).get(name) or {}
+    if field in defaults:
+        limit = defaults[field]
+        return limit.get(session) if isinstance(limit, dict) else limit
+    return (budget.get("all_kinds") or {}).get(field)
+
+
+def limited_fields(budget, session, name):
+    own = session_budget(budget, session)
+    fields = set((own.get("kinds") or {}).get(name) or {})
+    if not (own.get("busy") or own.get("reference")):
+        fields |= set((budget.get("kinds") or {}).get(name) or {}) | set(budget.get("all_kinds") or {})
+    return sorted(f for f in fields if not f.startswith("_"))
+
+
+def selector_value(kinds, selector, field):
+    """`field` summed over the kinds of `selector` ('tree': every kind; 'app+daemon': those kinds); None when no
+    selected kind has the field."""
+    names = list(kinds) if selector == "tree" else selector.split("+")
+    values = [kinds[n][field] for n in names if isinstance((kinds.get(n) or {}).get(field), (int, float))]
+    return round(sum(values), 4) if values else None
+
+
+def setting_on(value):
+    return value not in (None, False, "off", "never", 0, "")
+
+
+def over_budget(session, kinds, budget, facts=None, others=None):
+    """[(subject, field, value, limit)] for every value over its budget (or a role or expected state that differs).
+    `facts`: the session's measurements outside the kinds (page_raf_per_s, saver, saver_reason, `assertions` held by
+    cmux pids, `settings`). `others`: {session: kinds} measured earlier in the same run, for the relative rows and
+    the ratio_to_chrome rows (chrome-static)."""
+    facts, others = facts or {}, others or {}
+    own = session_budget(budget, session)
     out = []
-    for name, limits in (budget.get("kinds") or {}).items():
-        entry = kinds.get(name)
-        if not entry:
-            continue
-        for field, limit in limits.items():
-            if field.startswith("_") or limit is None:
+    for name in sorted(kinds):
+        entry = kinds[name]
+        for field in limited_fields(budget, session, name):
+            limit = limit_for(budget, session, name, field)
+            if limit is None:
                 continue
-            if isinstance(limit, dict):
-                limit = limit.get(session)
-                if limit is None:
-                    continue
+            if field == "role":
+                roles = entry.get("roles") or []
+                if roles and roles != [limit]:
+                    out.append((name, "role", ",".join(roles), limit))
+                continue
             value = entry.get(field)
             if isinstance(value, (int, float)) and value > limit:
                 out.append((name, field, value, limit))
+    for selector, limits in (own.get("sums") or {}).items():
+        for field, limit in limits.items():
+            value = selector_value(kinds, selector, field)
+            if limit is not None and value is not None and value > limit:
+                out.append((selector, field, value, limit))
+    for field, limit in (own.get("limits") or {}).items():
+        value = facts.get(field)
+        if limit is not None and isinstance(value, (int, float)) and value > limit:
+            out.append(("session", field, value, limit))
+    for field, expected in (own.get("expect") or {}).items():
+        if field in facts and facts[field] != expected:
+            out.append(("session", field, facts[field], expected))
+    for rule in own.get("relative") or []:
+        if rule["to"] in others:
+            out += ratio_over(rule["of"], rule["field"], kinds, rule["of"], others[rule["to"]], rule["max_ratio"],
+                              f"/{rule['to']}")
+    chrome = others.get("chrome-static")
+    for rule in budget.get("ratio_to_chrome") or []:
+        if chrome is not None and rule.get("source") == "idle-budget" and rule.get("session") == session:
+            out += ratio_over(rule["of"], rule["field"], kinds, rule["vs"], chrome, rule["max_ratio"],
+                              f"/chrome:{rule['vs']}")
+    if not own.get("reference"):
+        settings = facts.get("settings") or {}
+        if not any(setting_on(settings.get(key)) for key in budget.get("assertions_allowed_when") or []):
+            held = facts.get("assertions") or []
+            if held:
+                out.append(("assertions", "held", len(held), 0))
     return out
+
+
+def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix):
+    """[(of, field + suffix, ratio, max)] when `of` in `kinds` over `vs` in `reference` is above `max_ratio`; a
+    reference of 0 or one that was not measured judges nothing."""
+    value, base = selector_value(kinds, of, field), selector_value(reference, vs, field)
+    if value is None or not base:
+        return []
+    ratio = round(value / base, 3)
+    return [(of, field + suffix, ratio, max_ratio)] if ratio > max_ratio else []
+
+
+def over_line(session, over):
+    name, field, value, limit = over
+    relation = ">" if isinstance(limit, (int, float)) and not isinstance(limit, bool) else "!="
+    return f"IDLE-BUDGET-OVER {session} {name} {field} {value} {relation} {limit}"
+
+
+def load_budget(path):
+    """The budget file; a v1 file (kinds only) is read as v2 with no session overrides."""
+    with open(path) as handle:
+        budget = json.load(handle)
+    budget.setdefault("version", 1)
+    for key in ("kinds", "sessions", "all_kinds"):
+        budget.setdefault(key, {})
+    for key in ("ratio_to_chrome", "allowed_periodic", "assertions_allowed_when"):
+        budget.setdefault(key, [])
+    return budget
 
 
 # Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late).
 CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2}
+# The sums every session reports, plus the ones its budget names.
+CRON_SUMS = ("app+daemon", "tree")
+CRON_SUM_FLOORS = {"wakeups_per_s": 0.5, "energy_mw": 0.5}
 
 
 def cron_rows(report, budget=None):
     """{row: {p50, p95, unit, budget, floor}} for the perf cron (scripts/cmux-next/perf-cron.py) from one
-    idle-budget report: `idle_budget.<session>.<kind>.<field>`, one value per run (p50 = p95)."""
-    budget = budget if budget is not None else json.load(open(BUDGET_FILE))
+    idle-budget report: `idle_budget.<session>.<kind>.<field>` and the sums `idle_budget.<session>.<selector>.<field>`,
+    one value per run (p50 = p95)."""
+    budget = budget if budget is not None else load_budget(BUDGET_FILE)
     out = {}
     for session, entry in ((report or {}).get("sessions") or {}).items():
-        for name, values in (entry.get("kinds") or {}).items():
-            limits = (budget.get("kinds") or {}).get(name) or {}
+        kinds = entry.get("kinds") or {}
+        for name, values in kinds.items():
             for field, floor in CRON_FLOORS.items():
                 value = values.get(field)
                 if not isinstance(value, (int, float)):
                     continue
-                limit = limits.get(field)
-                if isinstance(limit, dict):
-                    limit = limit.get(session)
                 unit = "threads" if field.startswith("threads") else "/s"
                 out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
-                                                                 "budget": limit, "floor": floor}
+                                                                 "budget": limit_for(budget, session, name, field),
+                                                                 "floor": floor}
+        sums = session_budget(budget, session).get("sums") or {}
+        for selector in dict.fromkeys([*CRON_SUMS, *sums]):
+            for field, floor in CRON_SUM_FLOORS.items():
+                value = selector_value(kinds, selector, field)
+                if value is None:
+                    continue
+                out[f"idle_budget.{session}.{selector}.{field}"] = {
+                    "p50": value, "p95": value, "unit": "mW" if field == "energy_mw" else "/s",
+                    "budget": (sums.get(selector) or {}).get(field), "floor": floor}
     return out
 
 
@@ -472,7 +617,7 @@ def main():
                         help="seconds of /usr/bin/sample of the app after the window, to name the threads that woke (0: none)")
     opts, _unknown = parser.parse_known_args()
     from bench_launch import BenchApp
-    budget = json.load(open(opts.budget))
+    budget = load_budget(opts.budget)
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()
@@ -493,7 +638,7 @@ def main():
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
-            instance = procs.Instance(app.app, app.process.pid)
+            instance = _procs().Instance(app.app, app.process.pid)
             window_before = window_state(app)
             result = measure(app, instance, opts.measure)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
@@ -501,7 +646,8 @@ def main():
             if opts.sample:
                 result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
             kinds = aggregate(result)
-            overs = over_budget(session, kinds, budget)
+            others = {name: done["kinds"] for name, done in report["sessions"].items() if done.get("kinds")}
+            overs = over_budget(session, kinds, budget, others=others)
             entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
             report["sessions"][session] = entry
             for name, values in kinds.items():
@@ -521,8 +667,8 @@ def main():
                 top = "; ".join(f"{frame} x{count}" for frame, count in entry["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
-            for name, field, value, limit in overs:
-                print(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}", flush=True)
+            for over in overs:
+                print(over_line(session, over), flush=True)
             all_overs += [(session, *o) for o in overs]
             markdown.append(table(session, kinds, overs))
             entry["exit"] = 0
