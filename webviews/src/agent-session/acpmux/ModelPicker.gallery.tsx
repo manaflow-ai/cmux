@@ -218,9 +218,7 @@ const openQuickSlider: Play = async (ctx) => {
   // focused Effort row exercises the same path as keyboard users and keeps this capture reliable.
   await ctx.focus({ role: "menuitem", name: /^Effort/ });
   await ctx.press("Enter");
-  await ctx.waitFor(
-    () => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null,
-  );
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
 };
 
 export default componentEntry<GalleryProps>({
@@ -237,21 +235,13 @@ export default componentEntry<GalleryProps>({
     "ui/ScrollArea.tsx#ScrollArea",
     "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
-  styles: () =>
-    Promise.all([
-      import("./styles.css"),
-      import("./modelPicker.css"),
-      import("./composerControls.css"),
-    ]),
+  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
-    import("./ModelPicker").then(
-      ({ ModelPicker }) =>
-        ({ update: offer, ...props }: GalleryProps) => (
-          <UpdateOfferContext.Provider value={offer}>
-            <ModelPicker {...props} />
-          </UpdateOfferContext.Provider>
-        ),
-    ),
+    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
+      <UpdateOfferContext.Provider value={offer}>
+        <ModelPicker {...props} />
+      </UpdateOfferContext.Provider>
+    )),
   variants: {
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
@@ -277,11 +267,7 @@ export default componentEntry<GalleryProps>({
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
           const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-          return (
-            !!menu &&
-            menu.style.visibility === "visible" &&
-            menu.getBoundingClientRect().height >= 219
-          );
+          return !!menu && menu.style.visibility === "visible" && menu.getBoundingClientRect().height >= 219;
         });
       },
     },
@@ -357,10 +343,7 @@ export default componentEntry<GalleryProps>({
         await openQuick(ctx);
         await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(
-              '.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]',
-            ) !== null,
+          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]') !== null,
         );
       },
     },
@@ -371,9 +354,7 @@ export default componentEntry<GalleryProps>({
         await openQuick(ctx);
         for (const letter of "son") await ctx.press(letter);
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent ===
-            "“son”",
+          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
         );
       },
     },

@@ -275,3 +275,29 @@
   color: var(--agent-muted);
   white-space: nowrap;
 }
+
+/* Agent maintenance stays below the numbered model choices. */
+.acpmux-quick-railed:has(> .acpmux-quick-update) { display: flex; flex-direction: column; }
+.acpmux-quick-railed:has(> .acpmux-quick-update) .acpmux-quick-layout { min-height: 0; }
+.acpmux-quick-update {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-block-start: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.acpmux-quick-update > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-menu-item.acpmux-quick-update-action {
+  flex: none;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--ui-row-radius, 5px);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.ui-menu-item.acpmux-quick-update-action:is(:hover, [data-highlighted]) { background: var(--acpmux-menu-hover); color: var(--agent-text); }
