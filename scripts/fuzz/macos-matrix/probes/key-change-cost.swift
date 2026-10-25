@@ -146,4 +146,20 @@ for target in [0, 10, 40, 120] {
         if Date() >= deadline { print("  stopped at the time limit"); exit(0) }
     }
 }
+// A key change into a window whose first responder takes text (a terminal, a Chromium page's
+// RenderWidgetHostViewCocoa) activates its text input context: -[NSTextInputContext activate] waits for
+// the input method server's XPC reply (IMKInputSession activate). The fuzz hang of 2026-10-25 (macOS 26.6.2,
+// step 1076, ten seconds) waited there. Same rounds, with a text view first responder in each window.
+for view in parked where view.superview === content { view.removeFromSuperview() }
+let cmuxText = NSTextView(frame: NSRect(x: 20, y: 20, width: 300, height: 100))
+let pageText = NSTextView(frame: NSRect(x: 20, y: 20, width: 300, height: 100))
+content.addSubview(cmuxText)
+page.contentView?.addSubview(pageText)
+cmux.makeFirstResponder(cmuxText)
+page.makeFirstResponder(pageText)
+spin(0.2)
+let text = measure(rounds: 15)
+print(String(format: "  text-input responders  to_page %@ to_cmux %@ display %@ (input sources: %@)",
+             stats(text.toPage) as NSString, stats(text.toCmux) as NSString, stats(text.display) as NSString,
+             (NSTextInputContext.current?.selectedKeyboardInputSource ?? "none") as NSString))
 exit(0)
