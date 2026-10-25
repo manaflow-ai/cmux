@@ -89,6 +89,19 @@ extension HomeService {
         }
     }
 
+    /// This Mac's brain host started or died (``ChiefBrainKeeper``): Auto follows it, so the Chief
+    /// tab check runs again. Without this, Home opening starts the brain after the check settled on
+    /// the Hosted Chief, and Auto would keep opening Hosted for the rest of the launch.
+    func localChiefHostChanged() {
+        chiefHostChange?.cancel()
+        // task-owner: one lock read and tab check per brain start or death
+        chiefHostChange = Task { [weak self] in
+            await self?.refreshLocalChiefRunning()
+            guard let self, !Task.isCancelled else { return }
+            refreshChiefTab()
+        }
+    }
+
     /// Reads again, off the main actor, whether this Mac's optchat-chief runs (it holds the Chief
     /// home's lock: ``ChiefHostStop/runningHostPID(home:isChiefHost:)``); the Chief tab check runs this first.
     func refreshLocalChiefRunning() async {

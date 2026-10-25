@@ -55,7 +55,10 @@ final class HomeService {
             host?.ensureAppAcpmux = { try? await local.prewarm() }
             return host
         },
-        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) })
+        mint: { connection in try await ConversationClient(connection).agentToken(for: HomeService.mux.id) },
+        // The default Chief is this Mac's while its brain runs, so a brain that
+        // just started or died re-runs the Chief tab check (HomeService+ChiefRoster).
+        hostChanged: { [weak self] _ in self?.localChiefHostChanged() })
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
     @ObservationIgnored unowned let services: AppServices
     @ObservationIgnored private var availability: Task<Void, Never>?
@@ -98,6 +101,8 @@ final class HomeService {
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
     /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
     @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
+    /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
+    @ObservationIgnored var chiefHostChange: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine

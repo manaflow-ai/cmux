@@ -13,9 +13,12 @@ import os
 public final class ChiefBrainWatch {
     /// Starts the host; the pid to watch next, nil when it did not start.
     public typealias Restart = @MainActor () async -> pid_t?
+    /// The host process watched now (nil: none), each time it changes.
+    public typealias Watching = @MainActor (pid_t?) -> Void
 
     private let home: ChiefHome
     private let restart: Restart
+    private let watching: Watching?
     private var source: (any DispatchSourceProcess)?
     /// The process the armed source watches; an event for another pid is stale.
     private var watchedPID: pid_t?
@@ -28,9 +31,10 @@ public final class ChiefBrainWatch {
     static let deathLimit = 3
     static let deathWindow: Duration = .seconds(60)
 
-    public init(home: ChiefHome, restart: @escaping Restart) {
+    public init(home: ChiefHome, restart: @escaping Restart, watching: Watching? = nil) {
         self.home = home
         self.restart = restart
+        self.watching = watching
     }
 
     /// Watches `pid`, or the host that holds the lock now when `pid` is nil.
@@ -38,12 +42,12 @@ public final class ChiefBrainWatch {
         guard !stopped else { return }
         source?.cancel()
         source = nil
-        watchedPID = nil
         guard let pid = pid ?? ChiefHostStop.runningHostPID(home: home) else {
             logger.info("chief brain watch: no host process to watch")
+            setWatched(nil)
             return
         }
-        watchedPID = pid
+        setWatched(pid)
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
         weak let weakSelf = self
         source.setEventHandler {
@@ -67,14 +71,23 @@ public final class ChiefBrainWatch {
         stopped = true
         source?.cancel()
         source = nil
-        watchedPID = nil
+        setWatched(nil)
+    }
+
+    /// The watched host changed: `watching` hears it once per change, so a
+    /// reader of the brain's liveness (Home's default Chief) follows a host
+    /// that started or died without asking for it.
+    private func setWatched(_ pid: pid_t?) {
+        guard watchedPID != pid else { return }
+        watchedPID = pid
+        watching?(pid)
     }
 
     private func exited(_ pid: pid_t) {
         // One event per watched process: a late event of an older watch, or a
         // second report of the same exit, does nothing.
         guard !stopped, !restarting, pid == watchedPID else { return }
-        watchedPID = nil
+        setWatched(nil)
         source?.cancel()
         source = nil
         if let other = ChiefHostStop.runningHostPID(home: home), other != pid {
