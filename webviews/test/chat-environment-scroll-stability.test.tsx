@@ -138,6 +138,9 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
   const publishSnapshot = async (page: Page, cwd: string) => {
     // App.saveSnapshot coalesces writes for 250 ms; wait on the storage state instead of racing
     // that debounce after the fixture has painted its last turn.
+    // The fixture page remains open, so exercise the same pagehide flush the host uses before
+    // reading its current snapshot.
+    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
     await page.waitForFunction(() => Boolean(sessionStorage.getItem("cmux.acpmux.snapshot")), undefined, {
       timeout: 20_000,
     });
