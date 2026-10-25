@@ -17,11 +17,12 @@
 //   virtual:cmux-gallery/revision          the checkout's commit (sha, subject, commit time, branch),
 //                                          read when the module loads; the live server pushes newer
 //                                          ones (galleryLive.ts)
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import type { Plugin } from "vite-plus";
 import { parseGhosttyTheme, type GhosttyTheme } from "../src/gallery/theme/ghostty";
 
@@ -131,47 +132,87 @@ export function agentPaneStylesheets(): string[] {
 
 let paneSheets: string[] | undefined;
 
+/** bundle.mjs's arguments: the script's own command, writing the sheet list to `list`. */
+function paneSheetsArgs(work: string, list: string): string[] {
+  return [
+    "scripts/agent-pane/bundle.mjs",
+    path.join(SESSION, "acpmux/dev.tsx"),
+    path.join(SESSION, "acpmux/shiki"),
+    path.join(work, "order/dev.js"),
+    "--split",
+    "--css-inputs",
+    list,
+    "--css-inputs-only",
+  ];
+}
+
+/** The list bundle.mjs wrote, as absolute paths, Tailwind's entry moved last. */
+function readPaneSheets(list: string): string[] {
+  const sheets = fs
+    .readFileSync(list, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((sheet) => path.join(webviewsRoot, sheet))
+    .filter((file) => file !== PANE_TAILWIND);
+  if (!sheets.some((file) => file.endsWith("shared/styles.css")))
+    throw new Error("gallery: dev.tsx's sheets leave out shared/styles.css; the pane would render unstyled");
+  return [...sheets, PANE_TAILWIND];
+}
+
+// process.execPath: bun or node, whichever runs the gallery (touched.ts, Vite).
 function derivePaneSheets(): string[] {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-gallery-pane-sheets-"));
   try {
     const list = path.join(work, "page-sheets");
-    // The script's own command (process.execPath: bun or node, whichever runs the gallery).
-    execFileSync(
-      process.execPath,
-      [
-        "scripts/agent-pane/bundle.mjs",
-        path.join(SESSION, "acpmux/dev.tsx"),
-        path.join(SESSION, "acpmux/shiki"),
-        path.join(work, "order/dev.js"),
-        "--split",
-        "--css-inputs",
-        list,
-        "--css-inputs-only",
-      ],
-      { cwd: webviewsRoot, stdio: ["ignore", "ignore", "inherit"] },
-    );
-    const sheets = fs
-      .readFileSync(list, "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((sheet) => path.join(webviewsRoot, sheet))
-      .filter((file) => file !== PANE_TAILWIND);
-    if (!sheets.some((file) => file.endsWith("shared/styles.css")))
-      throw new Error("gallery: dev.tsx's sheets leave out shared/styles.css; the pane would render unstyled");
-    return [...sheets, PANE_TAILWIND];
+    execFileSync(process.execPath, paneSheetsArgs(work, list), {
+      cwd: webviewsRoot,
+      stdio: ["ignore", "ignore", "inherit"],
+    });
+    return readPaneSheets(list);
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
 }
 
-/** Whether a saved source may change the pane's sheets: it imports a stylesheet. */
-function importsStylesheet(file: string): boolean {
-  if (!/\.(tsx?|mjs)$/.test(file) || !file.startsWith(`${webviewsRoot}/src/`)) return false;
+async function derivePaneSheetsAsync(): Promise<string[]> {
+  const work = await fs.promises.mkdtemp(path.join(os.tmpdir(), "cmux-gallery-pane-sheets-"));
   try {
-    return /\bimport\s+["'][^"']+\.css["']/.test(fs.readFileSync(file, "utf8"));
-  } catch {
-    return false;
+    const list = path.join(work, "page-sheets");
+    await promisify(execFile)(process.execPath, paneSheetsArgs(work, list), { cwd: webviewsRoot });
+    return readPaneSheets(list);
+  } finally {
+    await fs.promises.rm(work, { recursive: true, force: true });
   }
+}
+
+let rederiving: Promise<void> | undefined;
+let rederiveAgain = false;
+
+/**
+ * The dev server's answer to a saved source, which may add or drop a stylesheet import: the list
+ * derived again off the save's path, and `changed` called when it differs. A save while one runs
+ * runs it once more after (it may have read the file before the save); it stops when no save came.
+ */
+function rederivePaneSheets(changed: () => void): void {
+  if (rederiving) {
+    rederiveAgain = true;
+    return;
+  }
+  rederiving = (async () => {
+    do {
+      rederiveAgain = false;
+      try {
+        const next = await derivePaneSheetsAsync();
+        const before = paneSheets;
+        paneSheets = next;
+        if (before && before.join("\n") !== next.join("\n")) changed();
+      } catch (error) {
+        console.warn(`gallery: the agent pane's sheets were not derived again: ${String(error)}`);
+      }
+    } while (rederiveAgain);
+  })().finally(() => {
+    rederiving = undefined;
+  });
 }
 
 export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
@@ -289,13 +330,19 @@ export function galleryModules(): Plugin {
       });
     },
     handleHotUpdate({ file, server, modules }) {
-      // A save of any pane stylesheet updates the combined sheet in place; a saved source that
-      // imports a stylesheet derives the list again, and updates it when the list changed.
-      if (importsStylesheet(file)) {
-        const before = agentPaneStylesheets().join("\n");
-        paneSheets = undefined;
-        if (agentPaneStylesheets().join("\n") === before) return undefined;
-      } else if (!agentPaneStylesheets().includes(file)) return undefined;
+      // A saved source may add or drop a stylesheet import: the list is derived again after this
+      // update, and the combined sheet reloads when it changed. A save of a pane stylesheet updates
+      // the combined sheet in place.
+      if (/\.(tsx?|mjs)$/.test(file) && file.startsWith(`${webviewsRoot}/src/`)) {
+        rederivePaneSheets(() => {
+          const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
+          if (!combined) return;
+          server.moduleGraph.invalidateModule(combined);
+          server.ws.send({ type: "full-reload" });
+        });
+        return undefined;
+      }
+      if (!agentPaneStylesheets().includes(file)) return undefined;
       const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
       if (!combined) return undefined;
       server.moduleGraph.invalidateModule(combined);
