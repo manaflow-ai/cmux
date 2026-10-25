@@ -54,7 +54,7 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=chromium-host" in sys.argv:
     rest = [a for a in sys.argv[1:] if a != "--suite=chromium-host"]
     named = {k: rest[i + 1] for i, k in enumerate(rest[:-1]) if k in ("--app", "--out", "--json")}
-    extra = [a for a in rest if a.startswith(("--count=", "--modes=", "--pump-seconds=")) or a == "--stress"]
+    extra = [a for a in rest if a.startswith(("--count=", "--modes=", "--pump-seconds=", "--host-switches=")) or a == "--stress"]
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chromium-host-bench.py")
     os.execv(sys.executable, [sys.executable, suite, "--app", named["--app"], "--out", named["--out"], "--json", named["--json"]] + extra)
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
