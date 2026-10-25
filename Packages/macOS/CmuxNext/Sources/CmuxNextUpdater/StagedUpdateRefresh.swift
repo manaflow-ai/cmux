@@ -12,8 +12,9 @@ import Foundation
 /// held ready reply keeps the session open, and a check answers with the waiting update. So a Dev
 /// build published after the staged one would wait for a restart. While an update waits, this
 /// probes the feed (the read-only probe, filtered by the ring as Sparkle filters) once per
-/// `updates.checkIntervalSeconds`, and at once when the person checks or picks a ring. When the
-/// ring has a strictly newer build, it cancels the staged installer (Skip on Sparkle's held reply,
+/// `updates.checkIntervalSeconds` (the tip app: at least every ``TipUpdateCheck/interval``), and
+/// at once when the person checks or picks a ring. When the ring has a strictly newer build, it
+/// cancels the staged installer (Skip on Sparkle's held reply,
 /// which records no skipped version and touches no file of the person's) and starts a check
 /// through this app's driver (``UpdateController/checkForUpdates()``, never Sparkle's silent
 /// driver), which downloads the newer build and stages it, replaceable again, for the card. If
@@ -139,11 +140,13 @@ final class StagedUpdateRefresh {
         arm(updater)
     }
 
-    /// Schedules the next probe one interval from now, unless one is pending or running.
+    /// Schedules the next probe one interval from now, unless one is pending or running. The tip
+    /// app probes at least every ``TipUpdateCheck/interval``, so a newer tip replaces the staged one.
     private func arm(_ updater: UpdaterService) {
         guard schedule.automatic, schedule.interval > 0, task == nil, !timer.isScheduled, !installing,
               case .ready = updater.flow.phase else { return }
-        timer.schedule(after: .seconds(schedule.interval)) { @MainActor [weak self, weak updater] in
+        let interval = updater.identity.isTipBuild ? min(schedule.interval, TipUpdateCheck.interval) : schedule.interval
+        timer.schedule(after: .seconds(interval)) { @MainActor [weak self, weak updater] in
             guard let self, let updater, self.run(reason: "scheduled check", updater: updater) == nil else { return }
             self.arm(updater)
         }

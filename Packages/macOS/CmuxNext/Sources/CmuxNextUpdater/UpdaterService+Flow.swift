@@ -134,6 +134,7 @@ extension UpdaterService {
         followInstall(phase)
         followStagedUpdate(phase)
         stagedRefresh.follow(phase, updater: self)
+        tipCheck.refresh(self)
         switch phase {
         case .ready:
             recordStagedUpdate()
@@ -188,6 +189,7 @@ extension UpdaterService {
         }
         downloadSetting = (downloadAutomatically, metered)
         stagedRefresh.reschedule(automatic: checkAutomatically, interval: checkInterval, updater: self)
+        tipCheck.reschedule(automatic: checkAutomatically, updater: self)
         if automaticUpdates != downloadAutomatically { automaticUpdates = downloadAutomatically }
         guard let controller else { return }
         controller.setSchedule(automaticChecks: checkAutomatically, interval: checkInterval)
@@ -224,6 +226,8 @@ extension UpdaterService {
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel
         let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained, expensive: network.expensive)
+        // The tip check runs only where found updates download by themselves and the policy allows updates.
+        defer { tipCheck.refresh(self) }
         guard let controller, controller.downloadsUpdatesInBackground != downloads else { return }
         controller.downloadsUpdatesInBackground = downloads
         log.append("automatic downloads \(downloads ? "on" : "deferred") (setting \(downloadSetting.enabled), required \(required), off managed channel \(isOffManagedChannel), constrained \(network.constrained), expensive \(network.expensive))")
