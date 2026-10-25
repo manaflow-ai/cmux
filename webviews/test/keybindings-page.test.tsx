@@ -191,7 +191,7 @@ test("a click on a row's keys records new ones, and Remove keeps the action list
   });
   await act(async () => store.reload());
   expect(conflict()).toBeUndefined();
-  // The row shows the keys as they go down too, not only the recorder.
+  // Saved: the row shows the new keys too (it shows only keys the app holds).
   expect(row("Go to File")?.querySelector(".keys-key-button")?.textContent).toBe("⇧⌘O");
   expect(lastSet()).toEqual({
     command: "palette.files",
@@ -570,8 +570,9 @@ test("keys another action has: the recorder says who has them and offers Overwri
   expect(row("Open Command Palette")).toBeTruthy();
   await keys("cmd+shift+y");
   expect(field()?.value).toBe("cmd+shift+y");
+  // A bare Return stops it too, the keys staying the filter.
   await act(async () => {
-    provider.cancel();
+    provider.press("return");
     await Promise.resolve();
   });
   await settle();
@@ -626,6 +627,21 @@ test("keys another action has: the recorder says who has them and offers Overwri
   });
   await settle();
   expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+o" });
+  expect(recorder()).toBeNull();
+
+  // Close right after the release, while those keys' check is still on the way: one save, then
+  // the recorder closes.
+  await click(row("Go to File")?.querySelector(".keys-key-button"));
+  const savesBefore = sets().length;
+  await act(async () => {
+    provider.press("cmd+shift+e");
+    provider.release();
+    store.closeRecording();
+    await Promise.resolve();
+  });
+  await settle();
+  expect(sets()).toHaveLength(savesBefore + 1);
+  expect(sets().at(-1)?.params).toMatchObject({ command: "palette.files", key: "cmd+shift+e" });
   expect(recorder()).toBeNull();
 
   // Keys of an action that runs in more places than the new ones (Find runs in a terminal, Next

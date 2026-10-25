@@ -171,4 +171,35 @@ import Testing
         }
         #expect(taken.isEmpty, "Select Tab back on its digits takes: \(taken.compactMap { Self.field($0, "command")?.stringValue })")
     }
+
+    /// A "Not Set" numbered family moves to the recorded modifiers on its digits: a letter is
+    /// refused before the save, so no question offers to take that letter from another action
+    /// (review 2026-10-26: Overwrite removed a key the family never took).
+    @Test func anUnsetFamilyTakesOnlyADigit() {
+        let (services, writes) = Self.writes()
+        services.registry.setShortcutOverride(nil, for: "selectSurfaceByNumber")
+        let letter: [String: JSONValue] = ["command": "selectSurfaceByNumber", "key": "ctrl+opt+t", "when": .null]
+        #expect(writes.refusal(letter)?.message == KeybindingStrings.familyNeedsDigit)
+        #expect(!writes.restoresDefault(letter))
+        let digit: [String: JSONValue] = ["command": "selectSurfaceByNumber", "key": "ctrl+opt+3", "when": .null]
+        #expect(writes.refusal(digit)?.message != KeybindingStrings.familyNeedsDigit)
+    }
+
+    /// Keys that give an action its default back are checked with the shipped entry's `when`
+    /// (with the keys it yields to a terminal program or the code editor), not only its
+    /// `requires`: a terminal-only entry on the same keys is not taken everywhere.
+    @Test func aRestoredDefaultIsCheckedWithItsShippedWhen() throws {
+        let (services, writes) = Self.writes()
+        let id: ActionID = "groupSelectedWorkspaces"
+        let shipped = try #require(services.registry.descriptor(for: id)?.defaultShortcut)
+        let entry = try #require(RegistryKeyBindings(services.registry).table.entries.last { $0.command == id && $0.keys == [shipped] })
+        services.registry.setShortcutOverride(Shortcut("9", modifiers: [.command, .option, .control]), for: id)
+        let moved = try #require(RegistryKeyBindings(services.registry).table.entries.last { $0.command == id })
+        let when: JSONValue = moved.when.map { .string($0.text) } ?? .null
+        let back: [String: JSONValue] = ["command": .string(id.rawValue), "key": .string(KeybindingReports.text([shipped])),
+                                         "when": when, "replaces": ["key": .string(KeybindingReports.text(moved.keys)), "when": when]]
+        #expect(writes.restoresDefault(back))
+        #expect(writes.savedWhen(back) == entry.when)
+        #expect(writes.sameScopeOwners(back).isEmpty)
+    }
 }
