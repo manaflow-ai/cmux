@@ -129,7 +129,8 @@ pub fn refusal(code: &str, message: &str) -> Value {
 
 /// The reply line for the API's answer to `ask`: the token and its expiry,
 /// or the API's error (code, message, HTTP status, `retry_after` when given).
-/// A 200 that lacks a field of the contract, or names another repo, is a
+/// A 200 that lacks a field of the contract (`token_id` is 16 hex
+/// characters), or names another repo, is a
 /// refusal, never a success.
 pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
     match answer {
@@ -138,17 +139,22 @@ pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
             let expires = body.field("expires_at").as_str().filter(|e| !e.is_empty());
             let repo = body.field("repo").as_str().filter(|r| r.eq_ignore_ascii_case(&ask.repo));
             let granted = body.field("permissions").as_object().filter(|p| !p.is_empty());
-            match (token, expires, repo, granted) {
-                (Some(token), Some(expires), Some(repo), Some(granted)) => json!({
+            let token_id = body
+                .field("token_id")
+                .as_str()
+                .filter(|id| id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit()));
+            match (token, expires, repo, granted, token_id) {
+                (Some(token), Some(expires), Some(repo), Some(granted), Some(token_id)) => json!({
                     "ok": true,
                     "token": token,
                     "expires_at": expires,
                     "repo": repo,
                     "permissions": granted,
+                    "token_id": token_id,
                 }),
                 _ => refusal(
                     "integration.bad_answer",
-                    "the API's answer lacks a token, expiry, the repo or its permissions",
+                    "the API's answer lacks a token, expiry, the repo, its permissions or token_id",
                 ),
             }
         }

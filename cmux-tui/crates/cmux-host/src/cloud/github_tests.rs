@@ -56,6 +56,10 @@ impl Http for Fake {
 }
 
 fn client(fake: &Fake) -> CloudClient<Fake> {
+    client_with(fake.clone())
+}
+
+fn client_with<H: Http>(http: H) -> CloudClient<H> {
     let bound = Bound {
         machine: "vm_m0000000000000000004".to_owned(),
         team: TEAM.to_owned(),
@@ -70,7 +74,7 @@ fn client(fake: &Fake) -> CloudClient<Fake> {
         bound_at: T0,
     };
     let key = InstallKey::generate(&SystemRandom::new()).unwrap();
-    CloudClient::new(fake.clone(), bound, key)
+    CloudClient::new(http, bound, key)
 }
 
 fn ask(perms: Value) -> TokenAsk {
@@ -214,12 +218,12 @@ fn a_200_must_carry_every_field_for_the_asked_repo() {
     let a = ask(json!({ "contents": "write" }));
     let full = || {
         json!({ "token": SECRET, "expires_at": "2026-10-25T02:00:00Z", "repo": "manaflow-ai/cmux",
-                "permissions": { "contents": "write", "metadata": "read" } })
+                "permissions": { "contents": "write", "metadata": "read" }, "token_id": "0123456789abcdef" })
     };
     let reply = |body: Value| reply_for(&a, &Answer::Http { status: 200, body });
     assert_eq!(reply(full())["ok"], true);
     assert_eq!(reply(full())["permissions"]["metadata"], "read", "as granted");
-    for key in ["token", "expires_at", "repo", "permissions"] {
+    for key in ["token", "expires_at", "repo", "permissions", "token_id"] {
         let mut body = full();
         body.as_object_mut().unwrap().remove(key);
         let out = reply(body);
@@ -229,6 +233,9 @@ fn a_200_must_carry_every_field_for_the_asked_repo() {
     let mut other = full();
     other["repo"] = json!("manaflow-ai/other");
     assert_eq!(reply(other)["ok"], false);
+    let mut short_id = full();
+    short_id["token_id"] = json!("abc");
+    assert_eq!(reply(short_id)["ok"], false);
 }
 
 fn no_log(_: &str) {}
@@ -237,7 +244,7 @@ fn fixed_now() -> u64 {
 }
 
 /// One ask through the minter thread: the reply line on `ours`.
-fn ask_minter(minter: &Minter<Fake>, a: Result<TokenAsk, String>) -> Value {
+fn ask_minter<H: Http + Send + 'static>(minter: &Minter<H>, a: Result<TokenAsk, String>) -> Value {
     let (ours, theirs) = UnixStream::pair().unwrap();
     ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
     minter.ask(a, theirs);
@@ -262,6 +269,51 @@ fn the_minter_answers_each_connection_off_the_poll_loop() {
     let reply = ask_minter(&minter, Ok(a));
     assert_eq!(reply["ok"], true);
     assert_eq!(reply["token"], SECRET);
+    // Dropping the handle stops and joins the thread.
+    drop(minter);
+}
+
+/// A fake whose token route waits for the test to release each call.
+struct Gated {
+    inner: Fake,
+    gate: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+}
+
+impl Http for Gated {
+    fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        if url.ends_with(TOKEN_PATH) {
+            let _ = self.gate.lock().unwrap().recv();
+        }
+        self.inner.post(url, body, bearer)
+    }
+}
+
+#[test]
+fn asks_over_the_limit_are_answered_busy_at_once() {
+    use super::github_minter::MAX_PENDING;
+    let (release, gate) = std::sync::mpsc::channel();
+    let fake = Fake::default();
+    fake.0.lock().unwrap().answers.extend((0..MAX_PENDING).map(|_| minted()));
+    let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log).unwrap();
+    minter.bound(client_with(Gated { inner: fake, gate: Arc::new(Mutex::new(gate)) }));
+    let a = ask(json!({ "contents": "write" }));
+    let mut held = Vec::new();
+    for _ in 0..MAX_PENDING {
+        let (ours, theirs) = UnixStream::pair().unwrap();
+        minter.ask(Ok(a.clone()), theirs);
+        held.push(ours);
+    }
+    // The first is minting and the rest wait: one more is busy at once.
+    assert_eq!(ask_minter(&minter, Ok(a))["error"]["code"], "busy");
+    for _ in 0..MAX_PENDING {
+        release.send(()).unwrap();
+    }
+    for ours in held {
+        ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        let mut line = String::new();
+        BufReader::new(ours).read_line(&mut line).unwrap();
+        assert!(line.contains(SECRET));
+    }
 }
 
 #[test]

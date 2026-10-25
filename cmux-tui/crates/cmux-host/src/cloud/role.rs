@@ -514,7 +514,12 @@ impl Worker {
         let mut session_lines = Vec::new();
         let mut asks: Vec<(usize, Result<TokenAsk, String>)> = Vec::new();
         for (i, line) in lines {
+            // One ask per connection, and none from a client already gone:
+            // nobody would read the token.
             if asks.iter().any(|(asker, _)| *asker == i) {
+                continue;
+            }
+            if closed.contains(&i) && github_ask(&line).is_some() {
                 continue;
             }
             match github_ask(&line) {

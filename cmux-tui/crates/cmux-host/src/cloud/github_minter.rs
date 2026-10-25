@@ -6,14 +6,17 @@
 //! with one line and closes it. Asks are answered one at a time; at most
 //! [`MAX_PENDING`] wait, and the worker answers more with `busy` at once.
 //! The minter has its own [`CloudClient`] (the same bound machine and
-//! install key) from each bind on. It ends when the worker drops its
-//! [`Minter`] (the channel closes).
+//! install key) from each bind on. Dropping the [`Minter`] (the worker
+//! ending) stops it: asks still queued get `vm.agent_stopping`, and the
+//! drop joins the thread, so it waits for the one mint in flight (bounded
+//! by the API client's timeouts).
 
 use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -31,10 +34,25 @@ enum Msg<H: Http> {
     Ask(Result<TokenAsk, String>, UnixStream),
 }
 
+/// A `busy` reply never holds the poll loop longer than this.
+const BUSY_WRITE_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// The worker's handle on the minter thread.
 pub struct Minter<H: Http> {
-    tx: Sender<Msg<H>>,
+    tx: Option<Sender<Msg<H>>>,
     pending: Arc<AtomicUsize>,
+    stop: Arc<AtomicBool>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl<H: Http> Drop for Minter<H> {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        self.tx = None;
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 impl<H: Http + Send + 'static> Minter<H> {
@@ -43,16 +61,19 @@ impl<H: Http + Send + 'static> Minter<H> {
     pub fn spawn(now: fn() -> u64, log: fn(&str)) -> io::Result<Minter<H>> {
         let (tx, rx) = mpsc::channel();
         let pending = Arc::new(AtomicUsize::new(0));
-        let counter = Arc::clone(&pending);
-        std::thread::Builder::new()
+        let stop = Arc::new(AtomicBool::new(false));
+        let (counter, stopping) = (Arc::clone(&pending), Arc::clone(&stop));
+        let thread = std::thread::Builder::new()
             .name("cmux-host-github".to_owned())
-            .spawn(move || run(&rx, &counter, now, log))?;
-        Ok(Minter { tx, pending })
+            .spawn(move || run(&rx, &counter, &stopping, now, log))?;
+        Ok(Minter { tx: Some(tx), pending, stop, thread: Some(thread) })
     }
 
     /// The machine is bound (again): mint as this client from now on.
     pub fn bound(&self, client: CloudClient<H>) {
-        let _ = self.tx.send(Msg::Bound(Box::new(client)));
+        if let Some(tx) = self.tx.as_ref() {
+            let _ = tx.send(Msg::Bound(Box::new(client)));
+        }
     }
 
     /// Hands one asking connection to the minter, or answers `busy` now.
@@ -60,25 +81,34 @@ impl<H: Http + Send + 'static> Minter<H> {
         if self.pending.fetch_add(1, Ordering::SeqCst) >= MAX_PENDING {
             self.pending.fetch_sub(1, Ordering::SeqCst);
             let busy = github::refusal("busy", "too many GitHub token asks are waiting; retry");
-            let _ = stream.set_nonblocking(true);
-            let _ = stream.write_all(format!("{busy}\n").as_bytes());
+            let _ = write_reply(&mut stream, &busy, BUSY_WRITE_TIMEOUT);
             return;
         }
-        // The minter is gone only when the worker is: the connection closes.
-        if self.tx.send(Msg::Ask(ask, stream)).is_err() {
+        let sent = self.tx.as_ref().map(|tx| tx.send(Msg::Ask(ask, stream)));
+        if !matches!(sent, Some(Ok(()))) {
             self.pending.fetch_sub(1, Ordering::SeqCst);
         }
     }
 }
 
-fn run<H: Http>(rx: &Receiver<Msg<H>>, pending: &AtomicUsize, now: fn() -> u64, log: fn(&str)) {
+fn run<H: Http>(
+    rx: &Receiver<Msg<H>>,
+    pending: &AtomicUsize,
+    stop: &AtomicBool,
+    now: fn() -> u64,
+    log: fn(&str),
+) {
     let mut client: Option<Box<CloudClient<H>>> = None;
     while let Ok(msg) = rx.recv() {
         match msg {
             Msg::Bound(next) => client = Some(next),
             Msg::Ask(ask, mut stream) => {
-                let reply = answer(client.as_deref_mut(), ask, now(), log);
-                let _ = write_reply(&mut stream, &reply);
+                let reply = if stop.load(Ordering::SeqCst) {
+                    github::refusal("vm.agent_stopping", "the Cloud agent is stopping; retry")
+                } else {
+                    answer(client.as_deref_mut(), ask, now(), log)
+                };
+                let _ = write_reply(&mut stream, &reply, REPLY_WRITE_TIMEOUT);
                 pending.fetch_sub(1, Ordering::SeqCst);
             }
         }
@@ -105,9 +135,9 @@ pub fn answer<H: Http>(
     reply
 }
 
-/// One reply line, blocking, bounded by [`REPLY_WRITE_TIMEOUT`].
-fn write_reply(stream: &mut UnixStream, reply: &Value) -> io::Result<()> {
+/// One reply line, blocking, bounded by `timeout`.
+fn write_reply(stream: &mut UnixStream, reply: &Value, timeout: Duration) -> io::Result<()> {
     stream.set_nonblocking(false)?;
-    stream.set_write_timeout(Some(REPLY_WRITE_TIMEOUT))?;
+    stream.set_write_timeout(Some(timeout))?;
     stream.write_all(format!("{reply}\n").as_bytes())
 }
