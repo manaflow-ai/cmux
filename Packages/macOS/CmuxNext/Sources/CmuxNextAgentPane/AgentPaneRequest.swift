@@ -11,9 +11,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
+    /// A bounded element report from the debug app-owned webview picker.
+    case uiPointerReport(String)
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// `chat.missing` with `{session, reason}`: the page says this tab's chat isn't available
+    /// (`notListedAtOpen`, `leftListWhileShown`); the host logs it, so the views can be counted.
+    case missingChat(session: String, reason: String)
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
@@ -54,13 +59,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
-    /// The new tab page's style switch (`newTab.setTemplate`): the template to
-    /// save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
+    /// The new tab page's style switch (`newTab.setTemplate`) or edit mode (`newTab.editWidgets`):
+    /// ``AgentPaneNewTabEdit``.
+    case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
-    /// An import card's button on the New Tab page (`importCards.act {id, action}`).
-    case importCard(AgentPaneImportCards.Act)
     /// The new tab page got its first user input (`newTab.touched`); a
     /// touched page is never recycled into the prewarm pool.
     case touched
@@ -120,6 +123,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// The header's Changes or an edited-files card naming a chat turn (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
+    /// turn (``AgentPaneDiffTurn``).
+    case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.
@@ -138,10 +145,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
     /// a split, a new workspace or a new window (`placement`; none is a tab).
     case chatTab(String, AgentForkDestination)
-    /// `chat.offer.open {sessionId}`: the person opened a session the chat shows (a sub-session its
-    /// agent started, the session that started it): its tab, else one beside this chat, focused
-    /// (``AgentPaneOfferOpen``).
-    case offerOpen(String)
+    /// `chat.offer.open {sessionId, sender?}`: the person opened a session the chat shows (a
+    /// sub-session its agent started, the session that started it, with `sender` the chat that sent
+    /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
+    case offerOpen(String, sender: Bool)
     /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
     /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
     case asksOpen(String)
@@ -252,6 +259,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
+    case uploadStage(AgentPaneUploadStageRequest)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -274,6 +282,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// An upload: the person's files, never logged.
     public var carriesFiles: Bool {
         if case .upload = self { return true }
+        if case .uploadStage = self { return true }
         return false
     }
 

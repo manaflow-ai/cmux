@@ -251,14 +251,25 @@ import WebKit
         #expect(Self.isRed(pixels.at(x: 30, y: 48)))
     }
 
-    /// Only a person's own run in the app gets raw pixels; a socket run claiming `user` does not.
+    /// Only a person's own run in the app gets raw pixels; a socket run claiming `user` does not,
+    /// and neither does a run that names a caller (an app, an agent chat or a terminal gets the
+    /// image), even one carrying `user` from the person's gesture inside it.
     @Test func onlyAPersonsRunInTheAppIsRaw() {
         var claimed = ActionInvocation(origin: .user)
         claimed.viaControlSocket = true
         #expect(!ScreenshotHandlers.isPersonsRun(claimed))
         #expect(ScreenshotHandlers.isPersonsRun(ActionInvocation()))
-        for origin in [ActionOrigin.cli, .mcp, .script, .remote, .page] {
-            #expect(!ScreenshotHandlers.isPersonsRun(ActionInvocation(origin: origin)))
+        for origin in ActionOrigin.allCases where origin != .user {
+            #expect(!ScreenshotHandlers.isPersonsRun(ActionInvocation(origin: origin)), "\(origin)")
         }
+        var app = ActionInvocation(origin: .user)
+        app.callerApp = "com.example.sidebar-app"
+        #expect(!ScreenshotHandlers.isPersonsRun(app))
+        var chat = ActionInvocation(origin: .user)
+        chat.callerAgentSession = "agent-1"
+        #expect(!ScreenshotHandlers.isPersonsRun(chat))
+        var terminal = ActionInvocation(origin: .user)
+        terminal.callerTerminal = "term_1"
+        #expect(!ScreenshotHandlers.isPersonsRun(terminal))
     }
 }

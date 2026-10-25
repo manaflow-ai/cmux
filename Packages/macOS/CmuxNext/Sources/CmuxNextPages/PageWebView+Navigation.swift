@@ -1,4 +1,5 @@
 public import WebKit
+import CmuxNextWakeups
 
 @MainActor
 extension PageWebView {
@@ -12,6 +13,9 @@ extension PageWebView {
 
     /// A new main-frame document committed (either engine).
     func documentCommitted() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        traceMark(.committed)
+        #endif
         // A new document: the old one's subscriptions and host calls end with it, and it has not
         // painted yet.
         router.reset()

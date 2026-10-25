@@ -43,6 +43,7 @@
 mod offers;
 mod stats;
 
+use crate::no_panic::JsonExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -275,7 +276,7 @@ pub(super) async fn route(
                     Some(service) if running => service.roots_view(),
                     _ => json!({"ready": false}),
                 };
-                view["applied"] = json!(true);
+                view.set("applied", json!(true));
                 Ok(view)
             })
             .await
@@ -313,7 +314,7 @@ async fn settled_page(
     query: ChatQuery,
 ) -> Result<Value, RpcError> {
     let mut page = page(hub, service, query).await?;
-    page["settled"] = Value::Bool(true);
+    page.set("settled", Value::Bool(true));
     Ok(page)
 }
 

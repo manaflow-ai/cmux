@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
+import CmuxNextScreenshots
 
 /// One of this app's main windows as on screen, for `cmux window|pane|tab
 /// screenshot`: the window server's image of the window and its Chromium
@@ -16,7 +17,9 @@ import CmuxNextPages
 struct AppWindowImage {
     let services: AppServices
 
-    /// The window's image at its backing scale.
+    /// The window's image at its backing scale, raw: only a person's own run in the app gets
+    /// this (``ScreenshotHandlers/isPersonsRun(_:)``). An agent's or a script's run goes through
+    /// ``maskedCapture(_:)``, which covers every page area and chat.
     /// - Throws: ``WindowScreenshotFailure`` when the window server gives no image.
     func capture(_ window: NSWindow) async throws -> CGImage {
         let base = try await window.screenshotImage(includeChild: WindowOverlayHost.isPageWindow)
@@ -33,11 +36,13 @@ struct AppWindowImage {
             guard let image = await page.chromiumImage() else { continue }
             layers.append(.page(image, rect))
         }
-        if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
+        // The panel and floating-window captures run off the main actor too; main reads only their window numbers.
+        if let panels = await window.childWindowsImage(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
             layers.append(.window(panels))
         }
-        if let floating = window.floatingWindowsSnapshot() { layers.append(.window(floating.image)) }
-        return WindowImageLayer.composite(base: base, window: window, layers: layers) ?? base
+        if let floating = await window.floatingWindowsImage() { layers.append(.window(floating.image)) }
+        // The full-resolution redraw runs off the main actor.
+        return await WindowImageLayer.compositedOffMain(base: base, windowSize: window.frame.size, layers: layers) ?? base
     }
 
     /// The window for an agent or a script, with every browser page and chat masked

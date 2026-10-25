@@ -379,7 +379,7 @@ struct SidebarMultiViewWindowTests {
         try await Self.withMultiView(false) {
             let f = try await Fixture()
             defer { f.close() }
-            // With the toggle off a press selects its row at once, so the drag starts as the window drag's own.
+            // With the toggle off, a drag of the shown workspace's row starts as the window drag's own.
             let handoff = SidebarDragHandoff(payload: .workspaces([WorkspaceID("k1")]), workspaceIDs: [WorkspaceID("k1")],
                                              rowScreenFrame: CGRect(x: 300, y: 300, width: 220, height: 28),
                                              grabOffset: CGPoint(x: 20, y: 14), screenPoint: CGPoint(x: 320, y: 314), image: nil)

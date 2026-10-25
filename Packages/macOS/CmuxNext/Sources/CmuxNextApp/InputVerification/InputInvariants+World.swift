@@ -17,9 +17,10 @@ extension InputInvariants {
         var unsettled: [String] = []
         for window in observation.windows {
             out += model(window.model, window: window.id)
-            if isSettled(window) {
+            // Under a top page the parked workspace presents nothing; its content checks wait for the page to hide.
+            if window.topPage != true, isSettled(window) {
                 out += content(window)
-            } else {
+            } else if window.topPage != true {
                 unsettled.append(window.id)
             }
         }

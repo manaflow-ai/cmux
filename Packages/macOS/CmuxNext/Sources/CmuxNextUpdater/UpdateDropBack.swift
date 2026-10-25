@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 import Security
 
@@ -52,8 +54,12 @@ public struct UpdateDropBack {
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: command[0])
         helper.arguments = Array(command.dropFirst())
-        do { try helper.run() } catch { return }
-        RunLoop.main.perform(inModes: [.common]) { NSApp.terminate(nil) }
+        // The helper spawns off main; the app quits once it runs (it waits for this pid to exit).
+        // task-owner: one spawn, then the quit; ends with the app.
+        Task { @MainActor in
+            do { try await ProcessLauncher(label: "com.cmuxterm.next.relaunch", priority: .userBlocking).launched(helper) } catch { return }
+            NSApplication.terminateFromRunLoop()
+        }
     }
 
     /// The Developer ID team of a valid signed bundle, else nil.

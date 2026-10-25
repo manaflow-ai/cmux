@@ -100,7 +100,7 @@ enum ChiefInspectorHandlers {
 
     /// A connected paired server whose brain daemon serves `chief-inspect`.
     private static func remoteChief(_ context: AppActionContext) -> ServerMachineSession? {
-        context.services.machines.servers.first { $0.daemon.supports(DaemonCapabilities.shared.chiefInspect) }
+        context.services.machines.servers.first { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }
     }
 
     /// The remote inspector page in this window, then moved into a new

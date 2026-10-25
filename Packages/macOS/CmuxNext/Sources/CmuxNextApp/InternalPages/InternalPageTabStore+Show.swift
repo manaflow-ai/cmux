@@ -24,15 +24,19 @@ extension InternalPageTabStore {
         }
         if focus { window.leaveTopPage() }
         guard let content = window.workspaceContent else { return nil }
-        let panes = content.panes.values
+        // The model's panes: a workspace parked under a top page lays out nothing, so its view's
+        // panes may lack one the daemon added or still hold one it closed.
+        let panes = content.modelPanes
+        let daemon = content.daemon
         for pane in panes {
-            guard let tab = pane.pane.tabs.first(where: { $0.page == page.rawValue }) else { continue }
-            if focus { reveal(tab.id, in: pane) }
-            return view(forStoreTab: tab, in: pane.daemon.store, local: pane.daemon.isLocal, window: window)
+            guard let tab = pane.tabs.first(where: { $0.page == page.rawValue }) else { continue }
+            if focus, let controller = content.controller(for: pane) { reveal(tab.id, in: controller) }
+            return view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal, window: window)
         }
-        if let found = tab(of: page, inPanes: panes.map(\.paneKey)),
-           let pane = panes.first(where: { $0.paneKey == found.pane }) {
-            if focus { reveal(found.key, in: pane) }
+        if let found = tab(of: page, inPanes: panes.map(\.id)) {
+            if focus, let controller = panes.first(where: { $0.id == found.pane }).flatMap(content.controller(for:)) {
+                reveal(found.key, in: controller)
+            }
             return view(for: found.key)
         }
         return openNew(page, in: window, focus: focus)
@@ -46,12 +50,17 @@ extension InternalPageTabStore {
     func openNew(_ page: InternalPageID, in window: WindowController?, focus: Bool) -> InternalPageView? {
         guard let window else { return nil }
         if focus { window.leaveTopPage() }
-        // Never in a dock (the docked Home, a chat dock): beside it (pageTabPane).
-        guard let content = window.workspaceContent, let pane = content.pageTabPane ?? content.panes.values.first else { return nil }
-        if let view = openStoreTab(page, in: pane, window: window, focus: focus) { return view }
-        let key = open(page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue, window: window)
-        pane.apply(pane.snapshot())
-        if focus { reveal(key, in: pane) }
+        // Never in a dock (the docked Home, a chat dock): beside it. Chosen from the model: a
+        // workspace parked under a top page shows nothing of a pane the daemon changed meanwhile.
+        guard let content = window.workspaceContent, let model = content.pageTabModelPane else { return nil }
+        let pane = content.controller(for: model)
+        if let view = openStoreTab(page, in: model, of: content.daemon, services: window.services, controller: pane,
+                                   window: window, focus: focus) { return view }
+        let key = open(page, in: model.id, of: content.daemon.store, after: pane?.stripModel.selectedID?.rawValue, window: window)
+        if let pane {
+            pane.apply(pane.snapshot())
+            if focus { reveal(key, in: pane) }
+        }
         return view(for: key)
     }
 

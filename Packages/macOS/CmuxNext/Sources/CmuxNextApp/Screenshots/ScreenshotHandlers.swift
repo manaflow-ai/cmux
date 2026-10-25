@@ -84,9 +84,11 @@ enum ScreenshotHandlers {
 
     /// Whether `invocation` is a person's own run in this app (palette, menu, keyboard), the
     /// only one that gets raw pixels. A run the control socket carries is automation even when
-    /// it claims the `user` origin.
+    /// it claims the `user` origin, and so is a run that names a caller: an app, an agent chat
+    /// or a terminal gets the image, so it is masked even during the person's gesture in it.
     static func isPersonsRun(_ invocation: ActionInvocation) -> Bool {
         invocation.origin == .user && !invocation.viaControlSocket
+            && invocation.callerApp == nil && invocation.callerAgentSession == nil && invocation.callerTerminal == nil
     }
 
     /// The tab the run names (target or `tab` argument, in any workspace),
@@ -193,8 +195,9 @@ enum ScreenshotHandlers {
     /// Encodes and writes `capture` where `output` says.
     private static func deliver(_ capture: Capture, output: ScreenshotOutput, copies: Bool) async throws -> [String: ActionResultValue] {
         let image = capture.image
-        guard !image.isFullyTransparent else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
-        guard let png = await encode(image) else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
+        let encoded = await encode(image)
+        guard !encoded.blank else { throw ActionWorkFailure(code: unavailableCode, reason: ScreenshotStrings.blank) }
+        guard let png = encoded.png else { throw ActionWorkFailure(code: unavailableCode, reason: BrowserPageStrings.encodeFailed) }
         var result: [String: ActionResultValue] = [
             "width": .int(image.width), "height": .int(image.height), "scale": .double(capture.scale), "method": .string(capture.method),
         ]
@@ -202,7 +205,8 @@ enum ScreenshotHandlers {
         do {
             switch output {
             case .inline where png.count <= AppBrowserPage.inlinePNGLimit:
-                result["png_base64"] = .string(png.base64EncodedString())
+                // Up to 4 MiB of PNG grows to 5.3 MiB of text: off the main actor.
+                result["png_base64"] = .string(await AppBrowserPage.base64(png))
             case .inline, .temporary:
                 result["path"] = .string(try await saveTemporary(png))
             case .file(let url):
@@ -219,10 +223,12 @@ enum ScreenshotHandlers {
         return result
     }
 
-    /// Encodes off the main actor: a Retina window is several megapixels.
+    /// The blank check (a 64 x 64 redraw) and the PNG encoding, off the main actor: a Retina
+    /// window is several megapixels. `png` is nil for a blank image or a failed encoding.
     @concurrent
-    nonisolated private static func encode(_ image: CGImage) async -> Data? {
-        image.pngData()
+    nonisolated private static func encode(_ image: CGImage) async -> (blank: Bool, png: Data?) {
+        if image.isFullyTransparent { return (true, nil) }
+        return (false, image.pngData())
     }
 
     @concurrent

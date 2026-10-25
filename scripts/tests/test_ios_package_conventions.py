@@ -168,6 +168,38 @@ public struct Value {
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('package init() {}', result.fixed_source)
 
+    def test_fix_adds_no_second_initializer_to_a_type_that_declares_one(self):
+        # 2081d2319a4: the autofix added `public init() {}` next to an existing `private init() {}`
+        # (DaemonCapabilities) and the package stopped compiling.
+        cases = {
+            'struct with a private init': '''public struct Catalog: Sendable {
+    /// No instances.
+    private init() {}
+
+    public static let required = ["a"]
+}
+''',
+            'enum with a private init': '''public enum Catalog {
+    private init() {}
+    public static let required = ["a"]
+}
+''',
+            'struct whose private init is in an extension': '''public struct Catalog {
+    public static let required = ["a"]
+}
+
+extension Catalog {
+    private init() {}
+}
+''',
+        }
+        for label, source in cases.items():
+            with self.subTest(label):
+                result = self.lint(source, fix=True)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn('already declares an init', result.stdout)
+                self.assertEqual(result.fixed_source, source)
+
     def test_files_from_limits_the_namespace_fix_to_edited_files(self):
         source = '''public enum Policy {
     public static let enabled = true
