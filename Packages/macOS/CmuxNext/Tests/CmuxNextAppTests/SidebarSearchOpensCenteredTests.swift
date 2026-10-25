@@ -23,7 +23,7 @@ struct SidebarSearchOpensCenteredTests {
         window.orderFront(nil)
         // The footer button's own handler, the path a click takes.
         let sidebar = controller.sidebar.container.sidebarView
-        sidebar.searchButton.onPress?()
+        sidebar.onSearch?(sidebar)
         let panel = try #require(services.palette.visiblePanel, "pressing Search opened no palette")
         #expect(abs(panel.frame.midX - window.frame.midX) <= 1, "panel \(panel.frame) is not centered over \(window.frame)")
         #expect(panel.frame.maxY > window.frame.maxY - window.frame.height / 3, "panel \(panel.frame) does not reach the upper third of \(window.frame)")
