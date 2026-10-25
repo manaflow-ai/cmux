@@ -72,7 +72,11 @@ const curated: ModelPickerProps = {
     .map((harness) => ({
       id: harness.id,
       name: harness.name,
-      models: harness.models.map((model) => ({ id: model.id, name: model.name, shortName: model.shortName })),
+      models: harness.models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        shortName: model.shortName,
+      })),
       ...(topModelsFor(harness.id) ? { top: topModelsFor(harness.id) } : {}),
     })),
 };
@@ -107,7 +111,11 @@ const manyHarnesses: ModelPickerProps["catalog"] = [
     ["deepagents", "DeepAgents"],
     ["poolside", "Poolside"],
     ["qoder", "Qoder CLI"],
-  ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
+  ].map(([id, name]) => ({
+    id: id!,
+    name: name!,
+    models: [{ id: `${id}-default`, name: "Default" }],
+  })),
 ];
 
 /// The open picker stays at most MODEL_PICKER_MAX_HEIGHT (480px) on a tall stage, and its content
@@ -189,7 +197,11 @@ const startedFork: ModelPickerProps = {
   ...quick,
   catalog: [
     ...curated.catalog,
-    { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
+    {
+      ...curated.catalog.find((entry) => entry.id === "claude")!,
+      id: "claude-work",
+      name: "Claude (work)",
+    },
   ],
   harnessFixed: true,
   fork: { to: () => undefined, ready: true },
@@ -206,7 +218,9 @@ const openQuickSlider: Play = async (ctx) => {
   // focused Effort row exercises the same path as keyboard users and keeps this capture reliable.
   await ctx.focus({ role: "menuitem", name: /^Effort/ });
   await ctx.press("Enter");
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
+  await ctx.waitFor(
+    () => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null,
+  );
 };
 
 export default componentEntry<GalleryProps>({
@@ -223,13 +237,21 @@ export default componentEntry<GalleryProps>({
     "ui/ScrollArea.tsx#ScrollArea",
     "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
-  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
+  styles: () =>
+    Promise.all([
+      import("./styles.css"),
+      import("./modelPicker.css"),
+      import("./composerControls.css"),
+    ]),
   load: () =>
-    import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
-      <UpdateOfferContext.Provider value={offer}>
-        <ModelPicker {...props} />
-      </UpdateOfferContext.Provider>
-    )),
+    import("./ModelPicker").then(
+      ({ ModelPicker }) =>
+        ({ update: offer, ...props }: GalleryProps) => (
+          <UpdateOfferContext.Provider value={offer}>
+            <ModelPicker {...props} />
+          </UpdateOfferContext.Provider>
+        ),
+    ),
   variants: {
     idle: {
       props: { ...base, catalogRefresh: refresh("idle", "2026-10-07T10:00:00Z") },
@@ -255,7 +277,11 @@ export default componentEntry<GalleryProps>({
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
           const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-          return !!menu && menu.style.visibility === "visible" && menu.getBoundingClientRect().height >= 219;
+          return (
+            !!menu &&
+            menu.style.visibility === "visible" &&
+            menu.getBoundingClientRect().height >= 219
+          );
         });
       },
     },
@@ -307,6 +333,13 @@ export default componentEntry<GalleryProps>({
     // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
     // the harness-only rail with no machine/session initials.
     "quick-menu": { props: quick, play: openQuick },
+    "quick-update-offer": {
+      props: { ...quick, update },
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-update") !== null);
+      },
+    },
     "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
     // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
     "quick-menu-accounts": {
@@ -324,7 +357,10 @@ export default componentEntry<GalleryProps>({
         await openQuick(ctx);
         await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
         await ctx.waitFor(
-          () => ctx.document.querySelector('.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]') !== null,
+          () =>
+            ctx.document.querySelector(
+              '.acpmux-quick-rail-tab[aria-label="Codex"][aria-pressed="true"]',
+            ) !== null,
         );
       },
     },
@@ -335,7 +371,9 @@ export default componentEntry<GalleryProps>({
         await openQuick(ctx);
         for (const letter of "son") await ctx.press(letter);
         await ctx.waitFor(
-          () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
+          () =>
+            ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent ===
+            "“son”",
         );
       },
     },

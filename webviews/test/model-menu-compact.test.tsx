@@ -8,7 +8,11 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
-import { DEFAULT_COMPOSER, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
+import type { UpdateOffer } from "../src/agent-session/acpmux/HarnessHealthNotice";
+import {
+  DEFAULT_COMPOSER,
+  setComposerSettings,
+} from "../src/agent-session/acpmux/composerSettings";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -41,7 +45,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -100,14 +107,17 @@ async function mount(
     effort?: string;
     folderProfile?: boolean;
     currentFolder?: boolean;
+    update?: UpdateOffer;
   } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
+  const { UpdateOfferContext } = await import("../src/agent-session/acpmux/HarnessHealthNotice");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
-  const { ChatAccountsContext, readChatAccounts } = await import("../src/agent-session/acpmux/chatAccounts");
+  const { ChatAccountsContext, readChatAccounts } =
+    await import("../src/agent-session/acpmux/chatAccounts");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
   const acpmux: Snapshot["catalog"] = [
     ...BUNDLED_MODEL_CATALOG.harnesses.map((harness) => ({
@@ -170,7 +180,12 @@ async function mount(
             name: "Effort",
             category: "thought_level",
             currentValue: state.effort,
-            options: [...(options.effort === "default" ? ["default"] : []), "low", "medium", "high"].map((value) => ({
+            options: [
+              ...(options.effort === "default" ? ["default"] : []),
+              "low",
+              "medium",
+              "high",
+            ].map((value) => ({
               value,
               name: value,
             })),
@@ -191,7 +206,11 @@ async function mount(
         ],
       },
     } as Snapshot;
-    const picker = usePickerCatalog(snapshot.catalog, { harness: state.harness }, snapshot.sessions);
+    const picker = usePickerCatalog(
+      snapshot.catalog,
+      { harness: state.harness },
+      snapshot.sessions,
+    );
     return (
       <ComposerPickers
         snapshot={snapshot}
@@ -203,7 +222,9 @@ async function mount(
         onMode={() => undefined}
         onEffort={(id, value) => {
           sent.push({ method: "effort", value });
-          setState((current) => (id === "fast-mode" ? { ...current, fast: value } : { ...current, effort: value }));
+          setState((current) =>
+            id === "fast-mode" ? { ...current, fast: value } : { ...current, effort: value },
+          );
         }}
         showPlan={false}
         onAddAgent={() => added.push("add")}
@@ -216,7 +237,9 @@ async function mount(
   const tree = () => (
     <QueryClientProvider client={client}>
       <ChatAccountsContext.Provider value={accounts}>
-        <Host />
+        <UpdateOfferContext.Provider value={options.update}>
+          <Host />
+        </UpdateOfferContext.Provider>
       </ChatAccountsContext.Provider>
     </QueryClientProvider>
   );
@@ -296,7 +319,12 @@ test("a number key picks that model in place", async () => {
   await open();
   const models = modelRows(menu()!);
   // The running model's row shows its check in place of its number.
-  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual(["1", "✓", "3", "4"]);
+  expect(models.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent ?? "✓")).toEqual([
+    "1",
+    "✓",
+    "3",
+    "4",
+  ]);
   const third = models[2]!;
   const name = third.querySelector(".acpmux-menu-label")!.textContent!;
   await act(async () => {
@@ -350,7 +378,10 @@ test("with no routes, Account offers the CLI login and says how to add one", asy
   await open();
   const account = await openSub("Account");
   // `cmux route` is gone (Leo, 2026-10-21): an account is a route file, so the note names its folder.
-  expect(itemsOf(account)).toEqual(["CLI login", "Add accounts as route files in ~/.config/cmux/routes"]);
+  expect(itemsOf(account)).toEqual([
+    "CLI login",
+    "Add accounts as route files in ~/.config/cmux/routes",
+  ]);
   expect(account.textContent).not.toContain("cmux route");
 });
 
@@ -375,7 +406,9 @@ test("the rail lists Starred, then each harness; a harness's tab lists its model
   expect(names.length).toBeGreaterThan(0);
   expect(names.every((name) => !/opus|sonnet|haiku/i.test(name))).toBe(true);
   // Effort and Account are the chat's: another harness's tab shows neither.
-  expect(itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort"))).toBe(false);
+  expect(
+    itemsOf(menu()!).some((row) => row?.startsWith("Account") || row?.startsWith("Effort")),
+  ).toBe(false);
 });
 
 test("without a starred model the rail starts at the harnesses", async () => {
@@ -488,7 +521,9 @@ test("a filtered row the keyboard moved to keeps focus as the composer re-render
   const name = rows[1]!.querySelector(".acpmux-menu-label")?.textContent;
   await rerender();
   await settle();
-  expect((doc().activeElement as HTMLElement | null)?.querySelector(".acpmux-menu-label")?.textContent).toBe(name);
+  expect(
+    (doc().activeElement as HTMLElement | null)?.querySelector(".acpmux-menu-label")?.textContent,
+  ).toBe(name);
 });
 
 test("while filtering, a digit narrows the list instead of picking a row", async () => {
@@ -519,7 +554,9 @@ test("the rail's tabs are not rows of the menu", async () => {
   await mount({ routes: [] });
   await open();
   expect(railTabs().length).toBeGreaterThan(1);
-  expect(railTabs().every((tab) => !(tab.getAttribute("role") ?? "").startsWith("menuitem"))).toBe(true);
+  expect(railTabs().every((tab) => !(tab.getAttribute("role") ?? "").startsWith("menuitem"))).toBe(
+    true,
+  );
   // Right moves to the next harness's tab.
   await key("ArrowRight");
   await settle();
@@ -536,7 +573,8 @@ test("Fast mode is a checkbox row after Account, checked from the session, and a
   // The row names its state, as Effort and Account name theirs (Leo 2026-10-21).
   expect(rows.at(-1)).toBe("Fast modeOff");
   expect(rows.findIndex((row) => row?.startsWith("Account"))).toBeLessThan(rows.length - 1);
-  const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
+  const fast = () =>
+    menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
   expect(fast()).not.toBeNull();
   expect(fast().getAttribute("aria-checked")).toBe("false");
   const effort = await openSub("Effort");
@@ -599,7 +637,12 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
   expect(menu()).not.toBeNull();
   await act(async () => {
     dom.window.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+      new dom.window.KeyboardEvent("keydown", {
+        key: "m",
+        metaKey: true,
+        ctrlKey: true,
+        bubbles: true,
+      }),
     );
   });
   await settle();
@@ -651,7 +694,9 @@ test("every rail tab fits in the same list height and width, the tallest and wid
   });
   const held = spacer();
   const probeLabels = () =>
-    [...body().querySelectorAll(".acpmux-quick-probe .acpmux-menu-label")].map((node) => node.textContent ?? "");
+    [...body().querySelectorAll(".acpmux-quick-probe .acpmux-menu-label")].map(
+      (node) => node.textContent ?? "",
+    );
   const heldWidths = probeLabels();
   const tabs = railTabs().map((tab) => tab.getAttribute("aria-label")!);
   expect(tabs.length).toBeGreaterThan(1);
@@ -671,8 +716,12 @@ test("every rail tab fits in the same list height and width, the tallest and wid
     extents.push(extent);
   }
   // No two of its separators touch: back to back, their margins would collapse.
-  const parts = [...body().querySelector(".acpmux-quick-spacer")!.children].map((node) => node.className);
-  expect(parts.some((name, index) => name === "ui-separator" && parts[index + 1] === "ui-separator")).toBe(false);
+  const parts = [...body().querySelector(".acpmux-quick-spacer")!.children].map(
+    (node) => node.className,
+  );
+  expect(
+    parts.some((name, index) => name === "ui-separator" && parts[index + 1] === "ui-separator"),
+  ).toBe(false);
   // The chat's own tab (Effort, Account, Fast mode) is taller than another harness's.
   expect(new Set(extents.map((each) => each.rows)).size).toBeGreaterThan(1);
   // Typing keeps the same height too, and a filter starts at its top.
@@ -687,3 +736,62 @@ test("every rail tab fits in the same list height and width, the tallest and wid
   expect(Math.max(...extents.map((each) => each.rows))).toBe(held.rows);
   expect(Math.max(...extents.map((each) => each.separators))).toBe(held.separators);
 });
+
+test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFolder: true }])(
+  "compact and full model pickers omit the redundant session header: %j",
+  async (options) => {
+    await mount({ routes: [] }, options);
+    await open();
+    expect(menu()!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+    expect(menu()!.querySelector(".ui-menu-group-label")).toBeNull();
+    await act(async () => {
+      dom.window.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          ctrlKey: true,
+          bubbles: true,
+        }),
+      );
+    });
+    const full = doc().querySelector<HTMLElement>(".acpmux-mp");
+    expect(full).not.toBeNull();
+    expect(full!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+  },
+);
+
+test.each([false, true])(
+  "agent updates stay below the model list and remain actionable, machine profile: %s",
+  async (machine) => {
+    let updated = 0;
+    await mount(
+      { routes: [] },
+      {
+        folderProfile: machine,
+        currentFolder: machine,
+        update: {
+          harness: "claude",
+          agent: "Claude Code",
+          version: "2.1.0",
+          latest: "2.2.0",
+          update: () => {
+            updated += 1;
+          },
+          skip: () => undefined,
+        },
+      },
+    );
+    await open();
+    const popup = menu()!;
+    const update = popup.querySelector<HTMLElement>(".acpmux-quick-update")!;
+    expect(update).not.toBeNull();
+    expect(update.closest(".acpmux-quick-list")).toBeNull();
+    expect(itemsOf(popup).some((row) => row?.includes("2.2.0"))).toBe(false);
+    expect(update.querySelector('[role^="menuitem"]')).toBeNull();
+    const run = update.querySelector<HTMLButtonElement>("button")!;
+    expect(run?.textContent).toBe("Update");
+    await act(async () => run.click());
+    expect(updated).toBe(1);
+    expect(menu()).toBeNull();
+  },
+);
