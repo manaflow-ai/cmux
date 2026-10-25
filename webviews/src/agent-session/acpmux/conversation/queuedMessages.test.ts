@@ -23,7 +23,11 @@ test("the person's prompts are the composer's queue; agent messages are not", ()
 });
 
 test("each agent message is a received-card row, in the queue's order, with its promptId", () => {
-  const queue = [agent("a1", "Rebase first"), { id: "p1", prompt: "mine" }, agent("a2", "CI is green", { next: true })];
+  const queue: AcpmuxSnapshot["queue"] = [
+    agent("a1", "Rebase first"),
+    { id: "p1", prompt: "mine" },
+    agent("a2", "CI is green", { next: true }),
+  ];
   const rows = queuedMessageRows(queue);
   expect(rows.map((row) => row.id)).toEqual([queuedMessageRowId("a1"), queuedMessageRowId("a2")]);
   expect(rows.every((row) => row.kind === QUEUED_MESSAGE && row.untyped === true)).toBe(true);

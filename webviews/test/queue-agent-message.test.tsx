@@ -60,7 +60,11 @@ const { queuedMessageRows } = await import("../src/agent-session/acpmux/conversa
 const t = translatorFor("en");
 const agent = (index: number) => {
   const text = `Lane ${index}: CI is green on #${24000 + index}.`;
-  return { id: `a${index}`, prompt: text, message: { name: `lane-${index}`, sessionId: `s-${index}`, text, raw: text } };
+  return {
+    id: `a${index}`,
+    prompt: text,
+    message: { name: `lane-${index}`, sessionId: `s-${index}`, text, raw: text },
+  };
 };
 const agents = Array.from({ length: 11 }, (_, index) => agent(index + 1));
 const own = (index: number) => ({ id: `p${index}`, prompt: `My prompt ${index}` });
@@ -74,7 +78,12 @@ const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve
 
 test("eleven agent messages and one prompt: one queue row, no fold, no agent line", async () => {
   await show(
-    <ComposerQueue queue={[...agents, own(1)] as never} t={t} onRemove={async () => true} onChange={async () => true} />,
+    <ComposerQueue
+      queue={[...agents, own(1)] as never}
+      t={t}
+      onRemove={async () => true}
+      onChange={async () => true}
+    />,
   );
   const rows = [...host.querySelectorAll<HTMLElement>(".acpmux-queued")];
   expect(rows.map((row) => row.dataset.promptId)).toEqual(["p1"]);

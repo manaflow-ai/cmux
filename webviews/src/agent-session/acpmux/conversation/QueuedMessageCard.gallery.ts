@@ -56,12 +56,9 @@ const alternate =
 const CLOCK =
   '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3.2l2 1.3"/></svg>';
 /// B: a clock before a shorter "After this turn".
-const clockNote = alternate(
-  `.cv-received__queued { display: inline-flex; align-items: center; gap: 4px; }`,
-  (note) => {
-    note.innerHTML = `${CLOCK}<span>After this turn</span>`;
-  },
-);
+const clockNote = alternate(`.cv-received__queued { display: inline-flex; align-items: center; gap: 4px; }`, (note) => {
+  note.innerHTML = `${CLOCK}<span>After this turn</span>`;
+});
 /// C: a hairline pill that says "Queued", the rest in its tooltip.
 const pillNote = alternate(
   `.cv-received__queued { padding: 0 6px; height: 16px; line-height: 16px; border-radius: 8px;

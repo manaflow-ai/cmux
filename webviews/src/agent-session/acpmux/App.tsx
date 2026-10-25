@@ -890,10 +890,7 @@ const MessageRow = memo(
                   <QueuedMessageNote after="step" />
                   <ReceivedActions row={row} text={row.incoming.message.text} />
                   {row.steerPromptId && (
-                    <QueuedMessageMenu
-                      steer={sendSteerNow(row.steerPromptId)}
-                      steerLabel="steer.sendNow"
-                    />
+                    <QueuedMessageMenu steer={sendSteerNow(row.steerPromptId)} steerLabel="steer.sendNow" />
                   )}
                 </>
               ) : (
@@ -1284,7 +1281,12 @@ const sendSteerNow = (promptId: string) => () => void editQueued(promptId, { op:
 const QueuedMessageRow = memo(
   function QueuedMessageRow({ row, githubRepository }: RowProps) {
     return (
-      <QueuedMessageCard row={row} onOpen={openSenderChat} onReply={replyToMessage} githubRepository={githubRepository} />
+      <QueuedMessageCard
+        row={row}
+        onOpen={openSenderChat}
+        onReply={replyToMessage}
+        githubRepository={githubRepository}
+      />
     );
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
