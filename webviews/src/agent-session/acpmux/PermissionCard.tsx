@@ -122,6 +122,7 @@ export function PermissionCard({
   const scopeLine = [scopeText, alwaysScope].filter(Boolean).join(" · ") || undefined;
   const targetId = React.useId();
   const ruleId = React.useId();
+  const otherId = React.useId();
   const allowAlwaysLabel =
     allowAlways &&
     (permissionOptionKind(allowAlways) === "allow_chat" ? t("permission.allowChat") : t("permission.alwaysAllow"));
@@ -349,14 +350,23 @@ export function PermissionCard({
           {others.map((option, index) => {
             const label = otherLabels[index]!;
             const full = [option.name.trim(), option.description?.trim()].filter(Boolean).join(" · ");
+            const more = full && full !== label ? full : undefined;
+            const fullId = `${otherId}-${index}`;
             return (
-              <PermissionActionButton
-                key={option.id}
-                label={label}
-                title={full && full !== label ? full : undefined}
-                className="acpmux-permission-other"
-                onClick={() => answer(option)}
-              />
+              <React.Fragment key={option.id}>
+                <PermissionActionButton
+                  label={label}
+                  title={more}
+                  aria-describedby={more ? fullId : undefined}
+                  className="acpmux-permission-other"
+                  onClick={() => answer(option)}
+                />
+                {more && (
+                  <span id={fullId} className="acpmux-permission-sr-only">
+                    {more}
+                  </span>
+                )}
+              </React.Fragment>
             );
           })}
         </div>

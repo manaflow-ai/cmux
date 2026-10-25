@@ -135,9 +135,10 @@ const SHORT_LABEL = 24;
 
 /// A button label for an option beyond the three answers (a second grant, Codex's "No, continue
 /// without running it"): the agent's name when it is short, else its kind's label ("Allow once",
-/// "Always allow", "Deny", "Always deny") unless another button already says that, else the name,
-/// which the button cuts with an ellipsis. Leo 2026-10-25: a long agent label made "Always allow" a
-/// wide row.
+/// "Always allow", "Deny", "Always deny"), numbered ("Always allow 2") when another button already
+/// says that. Only an option of a kind the pane has no word for keeps its long name, which the
+/// button cuts with an ellipsis. The agent's whole text is the button's title and description.
+/// Leo 2026-10-25: a long agent label made "Always allow" a wide row.
 export function optionButtonLabel(option: PermissionOption, t: Translate, taken: ReadonlySet<string>): string {
   const name = option.name.trim();
   if (name && name.length <= SHORT_LABEL) return name;
@@ -154,7 +155,10 @@ export function optionButtonLabel(option: PermissionOption, t: Translate, taken:
             : kind === "deny"
               ? t("permission.deny")
               : undefined;
-  return label && !taken.has(label) ? label : name || option.id;
+  if (!label) return name || option.id;
+  let numbered = label;
+  for (let n = 2; taken.has(numbered); n++) numbered = `${label} ${n}`;
+  return numbered;
 }
 
 /** The concrete target an approval covers, kept visible beside its actions. */

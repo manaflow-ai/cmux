@@ -311,6 +311,10 @@ test("long agent labels get short buttons from their ACP kind, in one row, and t
   expect(card.host.querySelector('[aria-label="Always deny"]')?.getAttribute("title")).toBe(
     "No, continue without running it",
   );
+  const alwaysDeny = card.host.querySelector('[aria-label="Always deny"]')!;
+  expect(dom.window.document.getElementById(alwaysDeny.getAttribute("aria-describedby")!)?.textContent).toBe(
+    "No, continue without running it",
+  );
   await card.click('[aria-label="Always deny"]');
   expect(card.answers).toEqual(["denied"]);
   await card.unmount();
@@ -322,12 +326,19 @@ test("an extra option keeps a short agent name, else its kind's label, else its 
     optionButtonLabel({ id: "o", name, kind, allow: false }, translate, taken);
   expect(label("Show me the plan", "custom")).toBe("Show me the plan");
   expect(label("No, continue without running it", "reject_always")).toBe("Always deny");
-  // A kind another button already names keeps the agent's name, cut by the button.
-  expect(label("No, and tell the agent what to do instead", "reject_once")).toBe(
-    "No, and tell the agent what to do instead",
-  );
-  expect(label("Yes, and allow edits to every file in this folder", "allow_once")).toBe(
-    "Yes, and allow edits to every file in this folder",
+  // A kind another button already names is numbered, never the agent's long text.
+  expect(label("No, and tell the agent what to do instead", "reject_once")).toBe("Deny 2");
+  expect(label("Allow Read(/Users/you/project/**) for this session", "allow_always")).toBe("Always allow 2");
+  expect(
+    optionButtonLabel(
+      { id: "o", name: "Allow Read(/Users/you/other/**) for this session", kind: "allow_always", allow: true },
+      translate,
+      new Set([...taken, "Always allow 2"]),
+    ),
+  ).toBe("Always allow 3");
+  // Only a kind the pane has no word for keeps its long name, which the button cuts.
+  expect(label("Show me the whole plan before running anything", "custom")).toBe(
+    "Show me the whole plan before running anything",
   );
   expect(
     optionButtonLabel(
