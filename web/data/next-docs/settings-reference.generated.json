@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 488,
+  "count": 489,
   "sections": [
     {
       "id": "general",
@@ -1966,6 +1966,32 @@
           "range": {
             "min": 0,
             "max": 24,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.dividerHitWidth",
+          "title": "Divider Drag Width",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 1,
+            "max": 24,
+            "unit": "points"
+          }
+        },
+        {
+          "key": "appearance.metrics.dividerThickness",
+          "title": "Divider Thickness",
+          "help": "",
+          "kind": "number",
+          "default": null,
+          "group": "Density and Motion",
+          "range": {
+            "min": 0,
+            "max": 6,
             "unit": "points"
           }
         },
@@ -4819,19 +4845,6 @@
           "values": [
             "imessage",
             "theme"
-          ]
-        },
-        {
-          "key": "home.chiefEngine",
-          "title": "Engine",
-          "help": "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
-          "kind": "choice",
-          "default": "auto",
-          "group": "Engine",
-          "values": [
-            "auto",
-            "local",
-            "hosted"
           ]
         },
         {
