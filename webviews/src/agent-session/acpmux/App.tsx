@@ -6144,25 +6144,25 @@ function AcpmuxPane() {
   const sideChatOffered = queueSideChat !== undefined;
   const queuedMessageActions = useMemo<QueuedMessageActionsValue>(
     () => ({
-            steer: (promptId) => editQueued(promptId, { op: "send_now" }),
-            remove: removeQueued,
-            edit: async (promptId, text, images) => {
-              const attachments = await queuedAttachments(images, readQueuedImage);
-              const removed = await removeQueued(promptId);
-              if (removed) composerHandle.current?.restore(text, attachments);
-              return removed;
-            },
-            // The queue row's Move up and Move down: acpmux's `move` to a place in the whole queue.
-            position: (promptId) => {
-              const queue = queueRef.current;
-              const index = queue.findIndex((entry) => entry.id === promptId);
-              return index < 0 ? undefined : { index, count: queue.length };
-            },
-            move: (promptId, index) => editQueued(promptId, { op: "move", index }),
-            ...(sideChatOffered && {
-              sideChat: (promptId: string, text: string) =>
-                queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
-            }),
+      steer: (promptId) => editQueued(promptId, { op: "send_now" }),
+      remove: removeQueued,
+      edit: async (promptId, text, images) => {
+        const attachments = await queuedAttachments(images, readQueuedImage);
+        const removed = await removeQueued(promptId);
+        if (removed) composerHandle.current?.restore(text, attachments);
+        return removed;
+      },
+      // The queue row's Move up and Move down: acpmux's `move` to a place in the whole queue.
+      position: (promptId) => {
+        const queue = queueRef.current;
+        const index = queue.findIndex((entry) => entry.id === promptId);
+        return index < 0 ? undefined : { index, count: queue.length };
+      },
+      move: (promptId, index) => editQueued(promptId, { op: "move", index }),
+      ...(sideChatOffered && {
+        sideChat: (promptId: string, text: string) =>
+          queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
+      }),
     }),
     [sideChatOffered, readQueuedImage],
   );
