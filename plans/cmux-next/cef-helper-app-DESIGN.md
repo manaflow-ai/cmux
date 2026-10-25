@@ -195,6 +195,23 @@ Tests: the three suites passed on aws-m4pro-2/4/5/6/7 (macOS 27.0.1), 5 runs in 
 macOS 27 measure hosts cmux-austin-mini-0, cmuxs-Mac-mini-3, cmux20-bench; the CEF cmux.33 pin, API 27) are pending
 in the measure queue and go into perf-lead.md section 5 when they arrive.
 
+### Default and prototype gaps (lead, 2026-10-24)
+
+The host stays off by default (`browserHost.helperPrototype`, Debug builds only; `ChromiumHostDefaultOffTests`): every
+Chromium tab of every DEV, NIGHTLY and Release user runs in process. Only `debug.chromium_host` starts a host, and only
+with the toggle on. It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
+The page's focus is DevTools focus emulation (`Emulation.setFocusEmulationEnabled`), never `CefBrowserHost::SetFocus`,
+which activates the host's window and app (cmux's bundle id).
+
+| Gap in the prototype | Slice that fixes it |
+|---|---|
+| IME, dead keys, emoji, dictation: `ChromiumHostPageView` has no `NSTextInputClient`; windowed `Ime*` are `DCHECK(false)` in CEF | 2 (input: the rp-path IME, composition rects pushed ahead) |
+| Find (Cmd-F) and the find bar | 3 (the shim behind the wire: `find`, `stop_finding`, results as events) |
+| Drag and drop in and out | 4 (`DragTarget*` / drag source to the embedder, fork items) |
+| Permission prompts (camera, microphone, location, notifications) | 4 (native UI from data: `OnShowPermissionPrompt`, cmux draws) |
+| Context menu, `<select>`, autofill, JS dialogs, file picker: Chromium's own UI in the host process (rows of `chromium-host-bench.py` input; each must never activate the host) | 4 (native UI from data, cmux draws and answers by token) |
+| Cursor, accessibility | 2 (cursor), 4 (remote AX token) |
+
 ## 5. Remaining work and estimate
 
 | # | Work | Who | Estimate |
