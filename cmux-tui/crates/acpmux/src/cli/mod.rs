@@ -29,6 +29,7 @@ pub mod pairing;
 pub mod peer_status;
 pub mod place;
 pub mod process;
+pub mod resolve;
 pub mod run;
 pub mod sender;
 pub mod session_folder;
