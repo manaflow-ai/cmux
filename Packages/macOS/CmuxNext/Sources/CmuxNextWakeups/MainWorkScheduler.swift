@@ -34,7 +34,9 @@ public final class MainWorkScheduler {
 
     /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
-    ///   while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
+    ///   while the link runs (``MainFrameBudget/noteRenderPass(nanos:)``): it is the source of the
+    ///   commit estimate (``MainCommitMeter``) that ends each frame's budgeted work before the
+    ///   link's `targetTimestamp`, and the charge on a frame with no target.
     public convenience init(budget: MainFrameBudget) {
         let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), renderPasses: meter)
@@ -53,7 +55,8 @@ public final class MainWorkScheduler {
     }
 
     /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,
-    /// and render passes reach the budget only through ``MainFrameBudget/noteRenderPass(nanos:)``.
+    /// and render passes reach the budget only through ``MainFrameBudget/noteRenderPass(nanos:)``
+    /// (a budget with no passes keeps the fixed per-frame limit: no deadline without history).
     ///
     /// - Parameters:
     ///   - budget: The budget (tests inject its clock and input source).

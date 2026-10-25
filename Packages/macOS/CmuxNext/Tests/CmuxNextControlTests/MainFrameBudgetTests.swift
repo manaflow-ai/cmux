@@ -388,9 +388,9 @@ import Testing
         let clock = BudgetClock()
         let budget = MainFrameBudget(uptimeNanos: clock.read)
         let request = budget.board.owner("workspace.move")
-        func frame(_ timestamp: Double) -> Int {
+        func frame(_: Int) -> Int {
             clock.advance(ms: 17)
-            budget.beginFrame(timestamp: timestamp, refreshInterval: 1.0 / 60)
+            budget.beginFrame(timestamp: nil, refreshInterval: nil) // synthesized: no target, no deadline
             var ran = 0
             while budget.mayRun(.automation) {
                 budget.run(.automation, owner: request) { clock.advance(ms: 0.5) }
