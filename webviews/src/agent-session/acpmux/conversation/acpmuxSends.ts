@@ -467,8 +467,7 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     const name = program(words[0]);
     if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
     // A filter reads the send's output only when nothing else is its stdin (`| tail -1 < log`).
-    if (pipedFromSend && !command.stdin && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!))
-      continue;
+    if (pipedFromSend && !command.stdin && own(FILTERS, name) && onlyFilters(words.slice(1), FILTERS[name]!)) continue;
     // `cat <<EOF | acpmux send x -`: cat only hands the send its text.
     if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
     return undefined;

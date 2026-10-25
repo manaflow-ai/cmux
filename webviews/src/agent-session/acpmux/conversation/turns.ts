@@ -1020,7 +1020,9 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 /// transcript draws its own row (`ownRow`).
 function inFlightCall(
   row: AcpmuxRow,
-): { title: string; command: boolean; draft: boolean; row: OwnRow; tool: NonNullable<AcpmuxActivity["tool"]> } | undefined {
+):
+  | { title: string; command: boolean; draft: boolean; row: OwnRow; tool: NonNullable<AcpmuxActivity["tool"]> }
+  | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
