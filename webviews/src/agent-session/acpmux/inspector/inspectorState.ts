@@ -164,13 +164,14 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
         continue;
       }
       // The index this pane read may be stale: another pane may have saved this chat since. Its own
-      // key carries its `at`, so it goes only while that is still the one the index named; a chat
-      // saved since stays, listed with its new time (the next save prunes it, if it is still due).
+      // key carries its `at`, so it goes only while that is exactly the one the index named; a chat
+      // saved since stays, listed with its new time, even an earlier one (a clock set back), and the
+      // next save prunes it if it is still due.
       const key = INSPECTOR_PANE_PREFIX + id;
       const raw = read(key);
       if (raw === null) continue;
       const savedAt = (parse(raw) as Stored | undefined)?.at;
-      if (typeof savedAt === "number" && savedAt > at) kept.push([id, savedAt]);
+      if (typeof savedAt === "number" && savedAt !== at) kept.push([id, savedAt]);
       else write(key, null);
     }
     write(INSPECTOR_INDEX_KEY, JSON.stringify(kept));
