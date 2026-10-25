@@ -34,7 +34,7 @@ extension DeviceDirectory {
         return DeviceDirectory(run: { await cli?.json($0, label: "device") },
                                removePhone: { [weak services] in await services?.iphone.removePhone(id: $0) },
                                setFullAccess: { [weak services] id, on in
-                                   guard let environment = services.flatMap(QuitAgents.environment),
+                                   guard let services, let environment = QuitAgents.environment(services),
                                          let line = await AcpmuxPersonLine.open(environment) else { return false }
                                    defer { line.close() }
                                    // acpmux refuses an on from a connection that is not the person.

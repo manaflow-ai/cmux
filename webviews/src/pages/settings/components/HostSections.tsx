@@ -175,7 +175,7 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
                   </button>
                 )}
               </div>
-              {row.full_access !== undefined && (
+              {typeof row.full_access === "boolean" && (
                 <div className="row-main device-full-access" data-device-full-access={row.id}>
                   <div className="row-label">
                     <div className="row-title" id={`device-full-access-${row.id}`}>
