@@ -120,25 +120,27 @@ struct BlockingWallTimeTests {
     @Test func aCallInANestedRunLoopInsideATimedCallCountsWithoutTime() async {
         await #expect(processExitsWith: .exitCode(0)) {
             let table = BlockingViolationTable(mode: .record)
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run {
-                    blockingCall(.processWait) {
+            let probe = SharedFlags()
+            let runResult = await BlockingViolationTable.$scoped.withValue(table) {
+                await MainActor.run { () -> Int32 in
+                    blockingCall(.processWait) { () -> Int32 in
                         // The nested run's work: a timer, a source, so the mode is not empty (a run of an empty
                         // mode returns at once); it ends the run.
                         RunLoop.main.add(Timer(timeInterval: 0, repeats: false) { _ in
+                            probe.set(ran: true, sawTable: BlockingViolationTable.active === table)
                             _ = FileManager.checked.fileExists(atPath: "/")
                             CFRunLoopStop(CFRunLoopGetMain())
                         }, forMode: .default)
-                        _ = CFRunLoopRunInMode(.defaultMode, 5, false)
+                        return CFRunLoopRunInMode(.defaultMode, 5, false).rawValue
                     }
                 }
             }
             await table.flush()
             let sites = BlockingDetector(table: table).sites
             guard sites.map(\.kind) == [.processWait, .fileIO] else {
-                // 100 + 10 x the site count + the last site's kind (its index in allCases; 9 for none).
-                let last = sites.last.flatMap { site in BlockingKind.allCases.firstIndex(of: site.kind) } ?? 9
-                exit(Int32(100 + 10 * min(sites.count, 9) + last))
+                // 100 + 10 x the run's result + 1 when the nested work ran + 2 when it saw the test's table.
+                let (ran, sawTable) = probe.read()
+                exit(100 + 10 * runResult + (ran ? 1 : 0) + (sawTable ? 2 : 0))
             }
             guard sites.map(\.count) == [1, 1] else { exit(4) }
             guard sites[0].totalNanos > 0 else { exit(5) }
@@ -267,6 +269,19 @@ private nonisolated final class StepClock: Sendable {
             if state.reads % 2 == 1 { state.now += durations[(state.reads / 2) % durations.count] }
             return state.now
         }
+    }
+}
+
+/// What a run-loop callout saw, read after the run.
+private nonisolated final class SharedFlags: Sendable {
+    private let state = Mutex((ran: false, sawTable: false))
+
+    func set(ran: Bool, sawTable: Bool) {
+        state.withLock { $0 = (ran, sawTable) }
+    }
+
+    func read() -> (ran: Bool, sawTable: Bool) {
+        state.withLock { $0 }
     }
 }
 
