@@ -71,6 +71,8 @@ export type ShellCommand = {
   stdin?: ShellWord | "file";
   op: "" | ";" | "&&" | "||" | "|" | "&";
   writes?: true;
+  /// Its stdout goes somewhere other than the next command (`> out`, `>/dev/null`; not `2>&1`).
+  stdout?: true;
   runs?: string[];
 };
 
@@ -88,9 +90,11 @@ export function shellCommands(line: string): ShellCommand[] {
   let words: ShellWord[] = [];
   let stdin: ShellCommand["stdin"];
   let writes = false;
+  let stdout = false;
   let runs: string[] = [];
-  /// Here-documents opened on the current line, read once it ends.
-  let pending: { delimiter: string; strip: boolean; quoted: boolean; command: Pending }[] = [];
+  /// Here-documents opened on the current line, read once it ends; `stdin` false when a later
+  /// redirect (`<<EOF < file`) took the command's stdin from it.
+  let pending: { delimiter: string; strip: boolean; quoted: boolean; stdin: boolean; command: Pending }[] = [];
   /// The here-documents the command being read opened, so their bodies read after its line land on it.
   let docs: (typeof pending)[number][] = [];
   let index = 0;
@@ -101,6 +105,7 @@ export function shellCommands(line: string): ShellCommand[] {
         op,
         ...(stdin && { stdin }),
         ...(writes && { writes: true as const }),
+        ...(stdout && { stdout: true as const }),
         ...(runs.length && { runs }),
       };
       commands.push(command);
@@ -110,6 +115,7 @@ export function shellCommands(line: string): ShellCommand[] {
     words = [];
     stdin = undefined;
     writes = false;
+    stdout = false;
     runs = [];
     docs = [];
   };
@@ -125,7 +131,7 @@ export function shellCommands(line: string): ShellCommand[] {
         lines.push(text);
       }
       const body = lines.length ? `${lines.join("\n")}\n` : "";
-      doc.command.stdin = { text: body, literal: doc.quoted || !/[$`]/.test(body) };
+      if (doc.stdin) doc.command.stdin = { text: body, literal: doc.quoted || !/[$`]/.test(body) };
       if (!doc.quoted) {
         const found = substitutions(body);
         if (found.length) doc.command.runs = [...(doc.command.runs ?? []), ...found];
@@ -162,11 +168,19 @@ export function shellCommands(line: string): ShellCommand[] {
       const [target, next] = readWord(line, index, runs);
       index = next;
       if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") writes = true;
+      // Stdout leaves the pipe: `> f`, `&> f`, `>&f`, `1> f`; `2> f` and `2>&1` keep it.
+      const fd = /^\d+/.exec(redirect[0])?.[0];
+      if ((op.startsWith(">") || op.startsWith("&>")) && (fd === undefined || fd === "1") && target.text !== "1")
+        stdout = true;
+      // The last redirect of stdin wins: one after a here-document takes its place.
+      const takesStdin = (fd === undefined || fd === "0") && (op.startsWith("<") || op === "<>");
+      if (takesStdin) for (const doc of docs) doc.stdin = false;
       if (op === "<<" || op === "<<-") {
         const quoted = /['"\\]/.test(line.slice(start, next));
-        const doc = { delimiter: target.text, strip: op === "<<-", quoted, command: {} };
+        const doc = { delimiter: target.text, strip: op === "<<-", quoted, stdin: true, command: {} };
         pending.push(doc);
         docs.push(doc);
+        stdin = undefined;
       } else if (op === "<<<") stdin = { text: `${target.text}\n`, literal: target.literal };
       else if (op === "<" || op === "<>") stdin = "file";
       continue;
@@ -533,7 +547,8 @@ function stdinOf(commands: readonly ShellCommand[], index: number): ShellWord | 
   const own = commands[index]!.stdin;
   if (own) return own;
   const before = commands[index - 1];
-  if (before?.op !== "|") return undefined;
+  // Its stdout sent elsewhere (`echo x >/dev/null | …`), nothing comes down the pipe.
+  if (before?.op !== "|" || before.stdout) return undefined;
   const words = unwrapped(before.words);
   const name = program(words[0]);
   if (name === "cat" && words.length === 1) return before.stdin;
