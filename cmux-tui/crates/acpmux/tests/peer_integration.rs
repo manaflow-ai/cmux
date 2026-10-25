@@ -2127,9 +2127,13 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
     assert!(s["status"].is_string() && s["lane"]["state"].is_string(), "{r}");
     assert!(s["pullRequests"].is_array(), "{r}");
     assert!(s["link"].as_str().unwrap().contains(&format!("session={near_agent}")), "{r}");
-    assert_eq!(r["matches"].as_array().unwrap().len(), 1, "{r}");
+    // The stand-in agent numbers its sessions, so B's first has the same harness session id:
+    // both match, this daemon's first when the link names no host.
+    let hosts: Vec<&Value> = r["matches"].as_array().unwrap().iter().map(|m| &m["peer"]).collect();
+    assert_eq!(hosts, [&Value::Null, &json!("b")], "{r}");
+    assert_eq!(far_agent, near_agent, "the stand-in's ids changed; this test assumes they repeat");
 
-    // A peer's session, from the native link the app opens.
+    // A peer's session, from the native link the app opens: the host it names ranks first.
     let native = format!("cmux://agent/{family}/{far_agent}?host=b");
     let r = ca.call("_acpmux/resolve", json!({"query": native})).await.unwrap();
     let s = &r["session"];
