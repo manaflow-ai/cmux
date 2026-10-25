@@ -52,10 +52,10 @@ import CmuxNextWakeupsTestSupport
                                              hasPublicKey: true)
 
     /// A started updater on build 100 with nothing found yet; the person's interval is an hour.
-    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true) -> Harness {
+    static func make(_ identity: UpdateBuildIdentity = tip, checkAutomatically: Bool = true, held: Bool = false) -> Harness {
         let defaults = UserDefaults(suiteName: "TipUpdateCheckTests.\(UUID().uuidString)")!
         let clock = ManualClock()
-        let feed = Base.CountingFeed(xml: Self.feed)
+        let feed = Base.CountingFeed(xml: Self.feed, held: held)
         let sparkle = Base.FakeSparkle()
         sparkle.staged = nil
         let policy = Policy()
@@ -163,6 +163,28 @@ import CmuxNextWakeupsTestSupport
         #expect(h.feed.fetches == 0)
         h.updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: true)
         try await tick(h, fetches: 1)
+        #expect(h.checks.count == 1)
+    }
+
+    /// The update sheet shows a failure's details: no check replaces them, not even one whose read
+    /// began before it opened; its close arms the next read.
+    @Test func noCheckWhileTheUpdateSheetIsOpen() async throws {
+        let h = Self.make(held: true)
+        var sheetOpen = false
+        h.updater.isSheetPresented = { sheetOpen }
+        try await h.clock.waitForSleeper()
+        h.clock.advance(by: .seconds(TipUpdateCheck.interval))
+        try #require(await eventually { h.feed.fetches == 1 })
+        sheetOpen = true
+        h.feed.release()
+        await h.updater.tipCheck.task?.value
+        #expect(h.checks.count == 0, "a check replaced the open sheet's details")
+        #expect(!h.updater.tipCheck.timer.isScheduled, "the next read was armed while the sheet is open")
+        sheetOpen = false
+        h.updater.updateSheetClosed()
+        #expect(h.updater.tipCheck.timer.isScheduled, "closing the sheet armed no read")
+        h.feed.release()
+        try await tick(h, fetches: 2)
         #expect(h.checks.count == 1)
     }
 

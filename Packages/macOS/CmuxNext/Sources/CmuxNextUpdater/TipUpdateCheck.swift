@@ -20,14 +20,16 @@ import Foundation
 ///
 /// Only where found updates download by themselves (the person's `updates.downloadAutomatically`,
 /// their metered-network choice and the managed channel); elsewhere Sparkle's own schedule offers
-/// the update. Never with the updater disabled, never while the update sheet shows a failure, and
-/// the person's interval setting is not changed. Stop condition and cleanup: the one-shot ``timer``
-/// is armed only while every condition above holds, and is cancelled when the phase moves on
-/// (checking, downloading, found, staged, installing), when automatic checks go off, when
-/// downloads stop being automatic, and at a deadline that finds the updater disabled
-/// (``UpdaterService/applyDownloadPolicy()``, run on every download and managed policy change,
-/// arms it again). One probe runs at a time and the next waits a whole interval. The timer cancels
-/// its sleep when this object goes; a probe in flight ends with its 15-second fetch deadline.
+/// the update. Never with the updater disabled, never while the update sheet is open (its details
+/// stay as they are), and the person's interval setting is not changed.
+///
+/// Stop condition and cleanup: the one-shot ``timer`` is armed only while every condition above
+/// holds, and is cancelled when the phase moves on (checking, downloading, found, staged,
+/// installing), when automatic checks go off, when downloads stop being automatic, and at a
+/// deadline that finds the updater disabled or the sheet open (``UpdaterService/applyDownloadPolicy()``,
+/// run on every download and managed policy change, and ``UpdaterService/updateSheetClosed()`` arm
+/// it again). One probe runs at a time and the next waits a whole interval. The timer cancels its
+/// sleep when this object goes; a probe in flight ends with its 15-second fetch deadline.
 @MainActor
 final class TipUpdateCheck {
     /// How often the tip app reads its feed while nothing waits (an internal constant, not a setting).
@@ -58,7 +60,7 @@ final class TipUpdateCheck {
     }
 
     /// Arms the next read an interval from now while the tip app may check, else ends the pending one.
-    /// Called when the phase, the schedule, the download policy or the managed policy moves.
+    /// Called when the phase, the schedule, the download or managed policy moves, and when the sheet closes.
     func refresh(_ updater: UpdaterService) {
         guard mayCheck(updater) else { return timer.cancel() }
         guard task == nil, !timer.isScheduled else { return }
@@ -70,7 +72,7 @@ final class TipUpdateCheck {
 
     private func mayCheck(_ updater: UpdaterService) -> Bool {
         guard updater.identity.isTipBuild, automatic, updater.isStarted, updater.disabledReason == nil,
-              !updater.flow.installRequested, downloads(updater) else { return false }
+              !updater.flow.installRequested, !updater.isSheetPresented(), downloads(updater) else { return false }
         switch updater.flow.phase {
         case .hidden, .note: return true
         case .checking, .downloading, .available, .ready, .installing: return false
@@ -84,8 +86,6 @@ final class TipUpdateCheck {
 
     private func run(_ updater: UpdaterService) {
         guard task == nil, mayCheck(updater) else { return }
-        // The update sheet shows a failure's details: no check replaces them; the next interval reads the feed.
-        guard !updater.isSheetPresented() else { return refresh(updater) }
         let probe = updater.probe()
         task = Task { [weak self, weak updater] in
             let failure = await probe.value
