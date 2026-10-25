@@ -332,8 +332,22 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
 /// a Chief turn and is not offered.
 #[test]
 fn the_engine_answer_offers_every_harness_with_what_it_supports() {
+    use optchat_chief::acpmux::Family;
     let dir = tempfile::tempdir().unwrap();
-    let mut brain = brain(dir.path(), &[]);
+    // The families this brain read at its start, which is what a set checks a
+    // harness and its speed against, so the rows say what a set would take.
+    let mut brain = brain(
+        dir.path(),
+        &[
+            ("claude", Family::Claude),
+            ("claude-acp", Family::Claude),
+            ("claude-sr", Family::Claude),
+            ("claude-vm", Family::Claude),
+            ("codex", Family::Codex),
+            ("opencode", Family::Other),
+            ("unii", Family::Other),
+        ],
+    );
     let answer = engine(&mut brain, EngineRequest::Show);
     let offered = answer["offered"]["harnesses"]
         .as_array()
