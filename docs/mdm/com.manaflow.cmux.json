@@ -900,6 +900,20 @@
       "title" : "Column Gap",
       "type" : "number"
     },
+    "appearance.metrics.dividerHitWidth" : {
+      "description" : "appearance.metrics.dividerHitWidth",
+      "maximum" : 24,
+      "minimum" : 1,
+      "title" : "Divider Drag Width",
+      "type" : "number"
+    },
+    "appearance.metrics.dividerThickness" : {
+      "description" : "appearance.metrics.dividerThickness",
+      "maximum" : 6,
+      "minimum" : 0,
+      "title" : "Divider Thickness",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarWidth" : {
       "description" : "appearance.metrics.sidebarWidth",
       "maximum" : 420,
