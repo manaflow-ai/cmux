@@ -146,6 +146,9 @@ function unwrap(
     case "nohup":
     case "exec":
     case "command":
+      // `command -v codex` only asks where it is.
+      if (/^-[a-zA-Z]*[vV]/.test(rest[0] ?? "")) return undefined;
+      return again(skipFlags(rest, []));
     case "time":
     case "sr":
       return again(skipFlags(rest, []));
@@ -153,8 +156,12 @@ function unwrap(
       return again(skipFlags(rest, ["-n"]));
     case "caffeinate":
       return again(skipFlags(rest, ["-t", "-w"]));
-    case "env":
-      return again(skipFlags(rest, ["-u", "-C", "-S"]));
+    case "env": {
+      // `env -S 'codex exec …'` splits its string into the command's words.
+      const split = rest.findIndex((word) => word === "-S" || word === "--split-string");
+      if (split >= 0) return runIn(rest.slice(split + 1).join(" "), stdin, host, depth + 1);
+      return again(skipFlags(rest, ["-u", "-C"]));
+    }
     case "timeout":
     case "gtimeout": {
       // Its options, then its duration, then the command.
@@ -164,7 +171,8 @@ function unwrap(
     case "perl": {
       // `perl -e 'alarm 600; exec @ARGV' codex exec …`: the script runs the words after it.
       const script = rest.indexOf("-e");
-      if (script < 0 || !/\bexec\s*@ARGV\b/.test(rest[script + 1] ?? "")) return undefined;
+      // Only a script that is the timeout itself: an alarm, then exec of the words after it.
+      if (script < 0 || !PERL_TIMEOUT.test(rest[script + 1] ?? "")) return undefined;
       return again(rest.slice(script + 2));
     }
     case "sh":
@@ -191,6 +199,7 @@ function unwrap(
   return cli ? read(cli, rest, stdin, host) : undefined;
 }
 
+const PERL_TIMEOUT = /^\s*(?:alarm\s+\d+\s*;\s*)?exec\s*\(?\s*@ARGV\s*\)?\s*;?\s*$/;
 const SSH_VALUES = spaced("-i -p -o -l -F -J -L -R -D -W -b -c -E -m -O -S -w");
 
 /// The words after the leading options; `values` are the options that take the next word.
@@ -210,12 +219,17 @@ function optionValue(word: string, next: string | undefined, names: readonly str
   for (const option of names) {
     if (word === option) return next ?? null;
     if (option.startsWith("--") && word.startsWith(`${option}=`)) return word.slice(option.length + 1);
+    if (option.length === 2 && !word.startsWith("--") && word.startsWith(option) && word.length > 2)
+      return word.slice(2).replace(/^=/, "");
   }
   return undefined;
 }
 
 function read(cli: Cli, args: readonly string[], stdin: Stdin | undefined, host: string | undefined) {
-  if (args.some((word) => word === "--help" || word === "-h" || word === "--version" || word === "-V"))
+  // Before a `--`, which ends the options: `codex exec -- --help` asks Codex about its help.
+  const end = args.indexOf("--");
+  const options = end < 0 ? args : args.slice(0, end);
+  if (options.some((word) => word === "--help" || word === "-h" || word === "--version" || word === "-V"))
     return undefined;
   const run: AgentRun = { ...(cli.family && { harness: cli.family }), ...(host && { host }) };
   // The subcommand that started the run, or the flag.
@@ -271,6 +285,9 @@ function read(cli: Cli, args: readonly string[], stdin: Stdin | undefined, host:
   else if ((prompt === "-" || (!file && cli.stdinPrompt)) && stdin?.text !== undefined) run.prompt = stdin.text;
   // A session `acpmux new` makes with nothing to do runs no agent yet.
   if (started === "new" && prompt === undefined && !file) return undefined;
+  // `acpmux run --parent` (acpmux #25019) makes a real sub-session of the chat, with typed state
+  // and result: the session list and its records draw it, not its command.
+  if (args.some((word) => word === "--parent" || word.startsWith("--parent="))) return undefined;
   return run;
 }
 

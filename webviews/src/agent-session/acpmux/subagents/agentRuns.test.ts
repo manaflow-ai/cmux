@@ -52,12 +52,22 @@ describe("agentRun", () => {
       host: "big-red",
       prompt: "Review #24977",
     });
-    expect(agentRun(`acpmux run --parent 01a1-parent -m codex -n fix "Fix the flaky test"`)).toEqual({
-      harness: "codex",
-      session: "fix",
-      prompt: "Fix the flaky test",
-    });
+    // A sub-session acpmux records with its typed state and result (#25019) is drawn from those.
+    expect(agentRun(`acpmux run --parent 01a1-parent -m codex -n fix "Fix the flaky test"`)).toBeUndefined();
     expect(agentRun(`sr codex exec -m gpt-6-astra "hi"`)?.harness).toBe("codex");
+    // Attached short options, env's split string, and a prompt after `--`.
+    expect(agentRun(`acpmux run -mclaude/opus -exhigh "Go"`)).toEqual({
+      harness: "claude",
+      model: "opus",
+      effort: "xhigh",
+      prompt: "Go",
+    });
+    expect(agentRun(`env -S 'codex exec -mgpt-6 "Look"'`)).toEqual({
+      harness: "codex",
+      model: "gpt-6",
+      prompt: "Look",
+    });
+    expect(agentRun(`codex exec -- --help`)?.prompt).toBe("--help");
     expect(agentRun(`claude -p --model opus "Summarize the log"`)).toEqual({
       harness: "claude",
       model: "opus",
@@ -76,6 +86,8 @@ describe("agentRun", () => {
       `acpmux new -n idle-lane -d`,
       `acpmux session stop review; which codex; codex --version`,
       `claude mcp list`,
+      `command -v codex exec`,
+      `perl -e 'print "exec @ARGV"' codex exec "text"`,
     ])
       expect(agentRun(command)).toBeUndefined();
   });
