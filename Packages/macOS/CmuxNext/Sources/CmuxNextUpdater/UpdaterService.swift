@@ -235,16 +235,16 @@ public final class UpdaterService {
             // Set on this updater only; no defaults change, so the legacy app
             // sharing the domain keeps its own behavior.
             controller.installsUpdatesInBackground = true
-            // The click hides every window and the daemon keeps every session, so a user
-            // install relaunches at once; only automatic idle installs wait.
+            // The daemon keeps every terminal, agent and running turn, so all app relaunches are
+            // immediate. `UpdateDriver` uses this same flag for automatic installs.
             controller.holdsUserInstalls = false
             // The nightly feed lists each build's deltas minutes after its DMG
             // (nightly.yml generate-nightly-deltas); a scheduled check in that gap
             // waits once instead of downloading the full DMG. The tip feed lists an
             // item's deltas with it (cmux-next-dev-daily.yml, job tip): nothing comes later.
             if identity.track == .nightly, !identity.isTipBuild { controller.pendingDeltaWindow = 45 * 60 }
-            // A nightly installs a downloaded update by itself once agents, commands and input
-            // are quiet, or at `updates.idleInstallMaxWaitSeconds`; no prompt.
+            // A nightly installs a downloaded update by itself once it is staged; the daemon
+            // preserves agents, commands and turns while the app relaunches.
             controller.installsUpdatesWhenIdle = identity.track == .nightly
             self.controller = controller
         } else {
