@@ -447,7 +447,6 @@ export function QuickModelMenu({
                   onRangeKey={(event) => {
                     if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
                   }}
-                  autoFocus
                 />
               </div>
             ) : (
@@ -619,7 +618,9 @@ export function QuickModelMenu({
                     <StarIcon />
                   ) : family.mark ? (
                     <AgentMark agent={family.mark} size={16} />
-                  ) : <AgentMark agent={undefined} size={16} reserve />}
+                  ) : (
+                    <AgentMark agent={undefined} size={16} reserve />
+                  )}
                 </button>
               ))}
             </fieldset>

@@ -200,7 +200,7 @@
    input remains the full hit target. Its custom thumb is endpoint-inclusive (composerControls.css). */
 .acpmux-quick-effort-slider {
   width: min(232px, calc(100vw - 24px));
-  padding: 2px 8px 4px;
+  padding: var(--ui-popup-padding);
 }
 .acpmux-quick-effort-slider .acpmux-effort-track {
   margin-top: 8px;
