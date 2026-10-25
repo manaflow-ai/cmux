@@ -584,6 +584,32 @@ test("Changes reads every pull request's title, state and checks from the App's 
   }
 });
 
+test("a folded Changes registers nothing with the host and asks it nothing", async () => {
+  const container = installDom(true);
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
+  });
+  setInspectorSection("changes", false);
+  try {
+    await render(container, chat([activity([opened(31, "Retry the fetch helper")], 2)]));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(section(container, "changes")).not.toBeNull();
+    expect(calls).toEqual([]);
+    // Opened: one registration for the list, then the host's cache.
+    await act(async () => setInspectorSection("changes", true));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(calls).toEqual(["link.inspect", "pr.inspect"]);
+  } finally {
+    setInspectorSection("changes", true);
+    setChipHost(undefined);
+    resetPullRequestStore();
+    resetChangesStatuses();
+  }
+});
+
 test("a pull request named only inside a quoted --body or --title is not the one the command touched", () => {
   const made = sessionSummary(
     chat([

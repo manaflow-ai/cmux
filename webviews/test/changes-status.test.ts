@@ -7,7 +7,6 @@ import { afterEach, expect, jest, setSystemTime, test } from "bun:test";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { resetPullRequestStore, type LinkedPullRequest } from "../src/agent-session/acpmux/chips/pullRequestStore";
 import {
-  READ_SLACK_MS,
   REGISTER_BATCH,
   REGISTER_EVERY_MS,
   changesStatus,
@@ -59,9 +58,9 @@ test("an answer becomes the row's title, state, conflicts, lines by kind and fai
         ],
       }),
       fetchedAt: 1_700_000_000,
+      readFrom: 1_699_999_990,
       reading: false,
     },
-    5_000,
   );
   expect(status).toEqual({
     title: "cmux-next: backgrounds batch",
@@ -74,8 +73,8 @@ test("an answer becomes the row's title, state, conflicts, lines by kind and fai
     checks: "failing",
     failing: 2,
     failingOnBase: 1,
-    // When the page first saw it in this state, not when the host's read finished.
-    since: 5_000,
+    // When the host's read began (readFrom), not when it finished.
+    since: 1_699_999_990_000,
   });
   // Green: no failing count; the row draws its dot from `checks`.
   expect(
@@ -140,47 +139,67 @@ test("the header's live read of the folder's pull request wins field by field; t
   expect(live[url]).toEqual({ checks: "pending", additions: 4, deletions: 1 });
 });
 
-test("a row's state counts from when the page first saw it, so a read that answers after the chat's close cannot reopen it", () => {
+test("a row's state counts from when the host's read began, so only a read that began after the chat's close reopens it", () => {
   const url = "https://github.com/acme/a/pull/13";
-  const open = { pullRequest: linked({ url, number: 13, state: "open" }), fetchedAt: 9_999, reading: false };
-  // First seen open at 1000; the chat closes it at 2000; a read that started before the close
-  // answers at 3000 (fetchedAt after the close), still open.
-  expect(changesStatus(open, 1_000)?.since).toBe(1_000);
-  const late = changesStatus(open, 3_000)!;
-  expect(late.since).toBe(1_000);
-  const closed = { url, repo: "acme/a", number: 13, state: "closed" as const, closedAt: 2_000, opened: true };
-  expect(rowState(closed, late)).toBe("closed");
-  // A later read that says closed, then a real reopen after the close, show as they are.
-  expect(changesStatus({ ...open, pullRequest: linked({ url, number: 13, state: "closed" }) }, 4_000)?.since).toBe(
-    4_000,
-  );
-  const reopened = changesStatus(open, 5_000)!;
-  expect(reopened.since).toBe(5_000);
-  expect(rowState(closed, reopened)).toBe("open");
+  const closed = { url, repo: "acme/a", number: 13, state: "closed" as const, closedAt: 2_000_000, opened: true };
+  const open = (readFrom: number | undefined, fetchedAt: number) =>
+    changesStatus({
+      pullRequest: linked({ url, number: 13, state: "open" }),
+      fetchedAt,
+      ...(readFrom === undefined ? {} : { readFrom }),
+      reading: false,
+    })!;
+  // The page saw it open long before the chat closed it at 2_000 s.
+  expect(rowState(closed, open(1_000, 1_001))).toBe("closed");
+  // A batched read that began at 1_990 s, before the close, and finished at 2_100 s (a queued
+  // batch can take longer than any fixed allowance) still says open: the close stands.
+  expect(rowState(closed, open(1_990, 2_100))).toBe("closed");
+  // Someone reopened it after the close; a read that began at 2_005 s says open: it shows open,
+  // although the page first saw it open before the close.
+  expect(rowState(closed, open(2_005, 2_006))).toBe("open");
+  // A host that does not say when its read began: the chat's close stands.
+  expect(open(undefined, 2_500).since).toBeUndefined();
+  expect(rowState(closed, open(undefined, 2_500))).toBe("closed");
 });
 
-test("a cached open answer read before the chat's close, first seen after it, cannot reopen the row", () => {
-  const url = "https://github.com/acme/a/pull/14";
-  const closed = { url, repo: "acme/a", number: 14, state: "closed" as const, closedAt: 2_000_000, opened: true };
-  // The App read it open at 1_990 s; the chat closed it at 2_000 s while the list was closed; the
-  // list opens at 2_010 s and sees that cached answer for the first time.
-  const stale = changesStatus(
-    { pullRequest: linked({ url, number: 14, state: "open" }), fetchedAt: 1_990, reading: false },
-    2_010_000,
-  )!;
-  expect(stale.since).toBe(1_990_000 - READ_SLACK_MS);
-  expect(rowState(closed, stale)).toBe("closed");
-  // A read that finished more than READ_SLACK_MS after the close started after it: a real reopen.
-  const fresh = changesStatus(
-    {
-      pullRequest: linked({ url, number: 14, state: "open" }),
-      fetchedAt: 2_000 + READ_SLACK_MS / 1_000 + 5,
-      reading: false,
-    },
-    2_070_000,
-  )!;
-  expect(fresh.since).toBe(2_005_000);
-  expect(rowState(closed, fresh)).toBe("open");
+test("every pr.inspect the list sends is cache-only: the host never starts a GitHub read for one row", async () => {
+  const asks: Record<string, unknown>[] = [];
+  setChipHost(async (method, params) => {
+    if (method === "pr.inspect") asks.push(params);
+    return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
+  });
+  const urls = ["https://github.com/acme/a/pull/1", "https://github.com/acme/a/pull/2"];
+  refreshChanges(urls, 1_000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Registered lately (within the minute) with no answer here yet: asked from the cache too.
+  resetPullRequestStore();
+  refreshChanges(urls, 2_000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(asks).toHaveLength(4);
+  expect(asks.every((params) => params.cached === true)).toBe(true);
+});
+
+test("a hidden page registers and asks nothing", async () => {
+  const calls: string[] = [];
+  setChipHost(async (method) => {
+    calls.push(method);
+    return method === "pr.inspect" ? { pullRequest: null, reading: false } : {};
+  });
+  const had = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", { value: { visibilityState: "hidden" }, configurable: true });
+  try {
+    refreshChanges(["https://github.com/acme/a/pull/1"], 1_000);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([]);
+  } finally {
+    if (had) Object.defineProperty(globalThis, "document", had);
+    else delete (globalThis as { document?: unknown }).document;
+  }
+  // Shown again: the same call registers it.
+  refreshChanges(["https://github.com/acme/a/pull/1"], 1_000);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(calls).toEqual(["link.inspect", "pr.inspect"]);
 });
 
 test("an open list registers again each minute while the chat is quiet, and stops when it closes", async () => {
