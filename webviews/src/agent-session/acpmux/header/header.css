@@ -38,9 +38,11 @@
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden}
 .acpmux-status>svg{flex:none}
 .acpmux-status>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* The Environment line (EnvironmentLine.tsx): machine · folder · branch in the status slot, as quiet
-   as the status label; each name ends in an ellipsis before the line could size the slot. */
+/* The Environment line (EnvironmentLine.tsx): Left's machine · folder · branch row below the tab
+   row, as quiet metadata. Right stays in the existing header slot. */
 .acpmux-env-line{position:absolute;inset:0 auto 0 0;display:flex;align-items:center;gap:5px;max-width:100%;box-sizing:border-box;margin:0;padding:0 6px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);white-space:nowrap;overflow:hidden;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-environment-row{display:flex;align-items:center;flex:none;min-width:0;min-height:var(--ui-row-height);padding:0 8px;box-sizing:border-box;pointer-events:none}
+.acpmux-environment-row>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;width:auto;max-width:100%;min-height:var(--ui-row-height);pointer-events:auto}
 /* The glyph and the names center on one line: a block glyph, and a line box tall enough for descenders. */
 .acpmux-env-line>svg{flex:none;display:block}
 .acpmux-env-line>span{line-height:16px}

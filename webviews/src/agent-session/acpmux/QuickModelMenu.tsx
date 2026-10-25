@@ -3,6 +3,8 @@ import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
+import { EffortTrack } from "./EffortTrack";
+import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import {
@@ -26,7 +28,14 @@ export type QuickMenu = {
   current?: string;
   onModel(id: string): void;
   /// The reasoning levels; absent when the model offers no choice.
-  effort?: { levels: Choice[]; current?: string; onPick(value: string): void };
+  effort?: {
+    levels: Choice[];
+    current?: string;
+    onPick(value: string): void;
+    /// The optional stepped slider is opt-in; the Effort submenu remains the default.
+    slider?: boolean;
+    sliderStyle?: ReasoningSliderStyle;
+  };
   /// The chat's accounts (acpmux routes); absent for a chat with no session yet or off this Mac.
   account?: { sessionId: string; accounts: ChatAccounts };
   /// Fast mode: the menu's last checkbox row, its one place. Absent where the running model has
@@ -80,6 +89,7 @@ export type QuickFamilies = {
 
 /// How many rows a filtered list shows (keys 1 to 9 pick them).
 const FILTER_ROWS = 9;
+const EFFORT_SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
 /// The models whose name, or whose harness's name, holds every typed word. Starred repeats other
 /// tabs' models, so it is not searched.
@@ -152,7 +162,6 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
           </div>
         ))}
       </div>
-      <div className="ui-menu-group-label">{"\u00a0"}</div>
       {/* A separator after each of the first rows: back to back, their margins would collapse. */}
       {Array.from({ length: rows }, (_, index) => (
         <Fragment key={index}>
@@ -167,11 +176,12 @@ function QuickMenuSpacer({ rows, separators, widths }: TabExtent & { widths: Pro
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast">;
 
-/// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu headed "Model · this
-/// session". Its few numbered rows (ModelPicker's QUICK_ROWS) are picked in place by their keys, its check sits at the row's trailing edge, Effort
-/// and Account open beside their rows, and More models opens the full picker (the harness rail and
-/// search). Typing a letter opens that picker searching for it. Fast mode is the last row, a
-/// checkbox (Leo 2026-10-20), never a radio group inside Effort.
+/// The Claude Code style model menu (Leo 2026-10-18): a short rounded menu whose first content is
+/// the model list. Its few numbered rows (ModelPicker's QUICK_ROWS) are picked in place by their
+/// keys, its check sits at the row's trailing edge, Effort and Account open beside their rows, and
+/// More models opens the full picker (the harness rail and search). Typing a letter opens that
+/// picker searching for it. Fast mode is the last row, a checkbox (Leo 2026-10-20), never a radio
+/// group inside Effort.
 export function QuickModelMenu({
   open,
   onOpenChange,
@@ -358,6 +368,49 @@ export function QuickModelMenu({
       ]
     : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
+  // Keep the model menu's normal state as a compact list. A typed query remains labelled so the
+  // filtered context is visible, while the static "Model · this session" caption adds no
+  // information beyond the trigger and is intentionally omitted.
+  const modelRows = (
+    <>
+      <MenuRadioGroup
+        value={currentValue}
+        onValueChange={(value) => {
+          const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
+          if (row) pickRow(row);
+        }}
+      >
+        {rows.map((choice, index) => {
+          const value = families ? rowValue(choice) : choice.id;
+          return (
+            <MenuRadioItem
+              key={value}
+              value={value}
+              closeOnClick
+              disabled={choice.disabled}
+              className="acpmux-quick-item"
+              shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
+            >
+              <span className="acpmux-quick-label">
+                <span className="acpmux-menu-label">{choice.name}</span>
+                {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
+              </span>
+            </MenuRadioItem>
+          );
+        })}
+      </MenuRadioGroup>
+      {rows.length === 0 && (
+        <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+          {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
+        </MenuItem>
+      )}
+      {!query && shown?.note && shown.logIn && (
+        <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
+          <span className="acpmux-menu-label">{t("harness.logIn")}</span>
+        </MenuItem>
+      )}
+    </>
+  );
   const list = (
     <>
       {forkTab ? (
@@ -370,43 +423,10 @@ export function QuickModelMenu({
             <span className="acpmux-menu-label">{t("picker.forkTo", { harness: forkTab.name })}</span>
           </MenuItem>
         </MenuGroup>
+      ) : query ? (
+        <MenuGroup label={`“${query}”`}>{modelRows}</MenuGroup>
       ) : (
-        <MenuGroup label={query ? `“${query}”` : t("picker.modelThisSession")}>
-          <MenuRadioGroup
-            value={currentValue}
-            onValueChange={(value) => {
-              const row = rows.find((choice) => (families ? rowValue(choice) : choice.id) === value);
-              if (row) pickRow(row);
-            }}
-          >
-            {rows.map((choice, index) => {
-              const value = families ? rowValue(choice) : choice.id;
-              return (
-                <MenuRadioItem
-                  key={value}
-                  value={value}
-                  closeOnClick
-                  disabled={choice.disabled}
-                  className="acpmux-quick-item"
-                  shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
-                >
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                  {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
-                </MenuRadioItem>
-              );
-            })}
-          </MenuRadioGroup>
-          {rows.length === 0 && (
-            <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-              {query ? t("picker.noMatches") : (shown?.note ?? t("picker.noMatches"))}
-            </MenuItem>
-          )}
-          {!query && shown?.note && shown.logIn && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
-              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
-            </MenuItem>
-          )}
-        </MenuGroup>
+        modelRows
       )}
       {!query && onChatTab && effort && levels.length > 1 && (
         <>
@@ -416,13 +436,29 @@ export function QuickModelMenu({
             popupClassName="acpmux-quick-menu"
             label={<QuickRowLabel label={t("effort.title")} value={level?.name} />}
           >
-            <MenuRadioGroup value={effort.current ?? ""} onValueChange={(value) => effort.onPick(value)}>
-              {levels.map((choice) => (
-                <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
-                  <span className="acpmux-menu-label">{choice.name}</span>
-                </MenuRadioItem>
-              ))}
-            </MenuRadioGroup>
+            {effort.slider ? (
+              <div className="acpmux-quick-effort-slider">
+                <EffortTrack
+                  efforts={levels}
+                  current={effort.current}
+                  fallback={levels.find((choice) => choice.recommended)?.id}
+                  sliderStyle={effort.sliderStyle}
+                  onPick={effort.onPick}
+                  onRangeKey={(event) => {
+                    if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
+                  }}
+                  focusOnMount
+                />
+              </div>
+            ) : (
+              <MenuRadioGroup value={effort.current ?? ""} onValueChange={(value) => effort.onPick(value)}>
+                {levels.map((choice) => (
+                  <MenuRadioItem key={choice.id} value={choice.id} closeOnClick className="acpmux-quick-item">
+                    <span className="acpmux-menu-label">{choice.name}</span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            )}
           </Submenu>
         </>
       )}
@@ -567,7 +603,8 @@ export function QuickModelMenu({
                   type="button"
                   aria-label={family.name}
                   aria-pressed={family.id === tab}
-                  // tooltip-allow: the rail tab draws only the harness's mark or initial, never its name.
+                  // tooltip-allow: the rail tab draws only a meaningful harness mark, never a
+                  // machine/session initial; its accessible name and title identify the harness.
                   title={family.note ? `${family.name} · ${family.note}` : family.name}
                   className="acpmux-quick-rail-tab"
                   // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
@@ -583,9 +620,7 @@ export function QuickModelMenu({
                   ) : family.mark ? (
                     <AgentMark agent={family.mark} size={16} />
                   ) : (
-                    <span aria-hidden="true" className="acpmux-quick-rail-initial">
-                      {family.name.trim().charAt(0).toUpperCase()}
-                    </span>
+                    <AgentMark agent={undefined} size={16} reserve />
                   )}
                 </button>
               ))}
