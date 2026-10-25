@@ -15,10 +15,9 @@ import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-/// The longest the main thread may stall while screenshots attach: a key typed then lands within it.
-const MAX_STALL_MS = 120;
-
 await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () => {
+  /// The longest the main thread may stall while screenshots attach: a key typed then lands within it.
+  const MAX_STALL_MS = 120;
   setDefaultTimeout(180_000);
   try {
     await (await chromium.launch({ headless: true })).close();

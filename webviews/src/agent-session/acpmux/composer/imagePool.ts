@@ -5,7 +5,6 @@
 // Worker, or the engine cannot draw in one, the work runs on the page as before; a worker that fails
 // or stops answering fails its jobs (the file then goes as a file) and is replaced, never handing
 // them to the page.
-import { usesHighlightWorker } from "../conversation/highlightPool";
 import { prepareImage, thumbnailOf, type PreparedImage, type Thumb } from "./imageWork";
 
 /// The worker's file, beside the bundled page.
@@ -34,7 +33,9 @@ function startWorker(): Worker | null {
   if (typeof Worker === "undefined" || typeof location === "undefined") return null;
   // The bundled page ships the worker beside it; the Vite dev server (import.meta.hot) serves the
   // module. Anywhere else (a unit test's DOM) the work runs here, in the engine the test gave it.
-  const bundled = usesHighlightWorker(location.protocol);
+  // The bundled page's schemes, as conversation/highlightPool.ts usesHighlightWorker (not imported:
+  // it loads the diff renderer's web components into every importer of attachments.ts).
+  const bundled = location.protocol === "cmux-agent:" || location.protocol === "cmux-page:";
   if (!bundled && !import.meta.hot) return null;
   try {
     const started = bundled
