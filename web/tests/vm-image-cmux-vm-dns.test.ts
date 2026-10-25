@@ -16,6 +16,7 @@ afterAll(() => {
 type Machine = {
   link?: boolean;
   resolvedActive?: boolean;
+  readlinkFails?: boolean;
   resolves?: string[];
   /** status "fail": `tailscale status --json` exits 1. */
   tailscale?: { status: unknown; dnsLog?: string; journalFails?: boolean; stopped?: boolean };
@@ -37,6 +38,7 @@ async function check(machine: Machine, args: string[] = []) {
   if (machine.link ?? true) symlinkSync(stubFile, resolv);
   else writeFileSync(resolv, "# written by tailscale\n");
   const log = path.join(dir, "calls");
+  if (machine.readlinkFails) stub(dir, "readlink", "exit 127");
   const ts = machine.tailscale;
   stub(dir, "systemctl", [
     `echo "systemctl $*" >> ${log}`,
@@ -170,6 +172,12 @@ describe("cmux-dns-check", () => {
   test("a timeout with a leading zero is decimal", async () => {
     const r = await check({}, ["--timeout", "08"]);
     expect(r.code).toBe(0);
+  });
+
+  test("a readlink that fails never passes the link check", async () => {
+    const r = await check({ readlinkFails: true });
+    expect(r.code).toBe(1);
+    expect(r.lines.some((l) => l.startsWith("FAIL resolv.conf: "))).toBe(true);
   });
 
   test("bad usage exits 2", async () => {

@@ -83,7 +83,7 @@ if [ "$restart" = 1 ]; then
   fi
 fi
 
-if [ -L "$resolv_conf" ] && [ "$(readlink -f "$resolv_conf")" = "$(readlink -f "$stub")" ]; then
+if [ -L "$resolv_conf" ] && target="$(readlink -f "$resolv_conf")" && want="$(readlink -f "$stub")" && [ -n "$target" ] && [ "$target" = "$want" ]; then
   pass "resolv.conf: $resolv_conf links to $stub"
 elif [ -L "$resolv_conf" ]; then
   fail "resolv.conf: $resolv_conf links to $(readlink "$resolv_conf"), not to $stub"
