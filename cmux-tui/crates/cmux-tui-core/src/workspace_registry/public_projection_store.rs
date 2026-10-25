@@ -41,6 +41,9 @@ pub struct RegistryNotificationProjection {
     /// `extra.browser_id`: the content of the non-terminal tab it was
     /// posted on (an agent chat).
     pub browser_id: Option<BrowserPublicId>,
+    /// `extra.workspace_id`: the workspace of a terminal-less notification
+    /// (`cmux notify --workspace ws_…`).
+    pub workspace_id: Option<WorkspacePublicId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -364,6 +367,12 @@ impl WorkspaceRegistry {
                 .and_then(|extra| extra.get("browser_id"))
                 .and_then(Value::as_str)
                 .and_then(|id| BrowserPublicId::parse(id).ok());
+            let workspace_id = stored
+                .extra
+                .as_ref()
+                .and_then(|extra| extra.get("workspace_id"))
+                .and_then(Value::as_str)
+                .and_then(|id| WorkspacePublicId::parse(id.to_owned()).ok());
             let _ = stored.read_by;
             let read_by = reads.remove(stored.id.as_str()).unwrap_or_default();
             // A closed terminal's notification has no ring to restore.
@@ -383,6 +392,7 @@ impl WorkspaceRegistry {
                 read_by,
                 source,
                 browser_id,
+                workspace_id,
             });
         }
         notifications.reverse();

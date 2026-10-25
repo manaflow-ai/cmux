@@ -5,6 +5,8 @@ public import Foundation
 /// pins the acpmux session from its own record, so nothing here names a session, a folder or a
 /// command. JSON values travel as `Data` (the daemon's own JSON).
 public nonisolated protocol AgentSessionRemoteClient: Sendable {
+    /// True when this wire observes a session without permission to prompt, cancel or answer it.
+    var isReadOnly: Bool { get }
     /// Subscribes and returns acpmux's attach page `{session, events, hasMore, lastSeq}`.
     /// Events then go to `handler` until ``detach()``, ``close()`` or a `.closed` event.
     func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data
@@ -19,6 +21,20 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func detach() async
     /// Ends the attachment and its daemon connection.
     func close() async
+    /// The chats the attached session started on that machine, as its acpmux summarizes them
+    /// (`{sessions}`, `agent-session-children-v1`); their changes then arrive as `.changed`.
+    func children() async throws -> Data
+    /// Reads one image from the attached chat's host, as `{mimeType, data}` with base64 bytes.
+    func media(path: String) async throws -> Data
+}
+
+extension AgentSessionRemoteClient {
+    /// A daemon without `agent-session-children-v1` lists none.
+    public func children() async throws -> Data { Data(#"{"sessions":[]}"#.utf8) }
+    /// Older daemons have no host media command; callers turn this into a refused image.
+    public func media(path: String) async throws -> Data {
+        throw AgentSessionRemoteError(code: "agent_session.media_unsupported", message: "the daemon does not serve agent session media")
+    }
 }
 
 /// A page request: forward from `afterSeq`, or the newest `limit` before `beforeSeq`.

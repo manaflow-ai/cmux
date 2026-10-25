@@ -3,6 +3,7 @@
 //! dispatcher thread that runs queued surface operations in order.
 
 use super::MessageWriter;
+use crate::panic_free::RecoverPoison;
 
 use super::CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY;
 use super::CONNECTION_SURFACE_QUEUE_CAPACITY;
@@ -126,29 +127,34 @@ impl ConnectionSurfaceScheduler {
         retained_bytes: usize,
         writer: MessageWriter,
     ) -> Option<bool> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         if state.closed {
             return Some(false);
         }
-        let is_clear_history = request.as_ref().unwrap().cmd.is_clear_history();
+        let Some((is_clear_history, request_id)) =
+            request.as_ref().map(|pending| (pending.cmd.is_clear_history(), pending.id.clone()))
+        else {
+            // Nothing to schedule; the connection stays open.
+            return Some(true);
+        };
         let over_count = state.requests.len() >= CONNECTION_SURFACE_QUEUE_CAPACITY;
         let over_bytes = retained_bytes
             > CONNECTION_SURFACE_QUEUE_BYTE_CAPACITY.saturating_sub(state.queued_bytes);
         if over_count || over_bytes {
             drop(state);
+            *request = None;
             return Some(send_request_error_with_delivery(
                 &writer,
-                request.take().unwrap().id,
+                request_id,
                 "surface request queue is full; request was not executed",
                 is_clear_history.then_some(ResponseErrorDelivery::KnownNotDelivered),
             ));
         }
-        let request_id = request.as_ref().unwrap().id.clone();
         let bytes_permit = match self.admission.try_reserve_bytes(retained_bytes) {
             Ok(bytes) => bytes,
             Err(ServerSurfaceAdmissionError::RetainedByteCapacity) => {
                 drop(state);
-                let request_id = request.take().unwrap().id;
+                *request = None;
                 return Some(if is_clear_history {
                     send_request_error_with_delivery(
                         &writer,
@@ -165,11 +171,14 @@ impl ConnectionSurfaceScheduler {
                 });
             }
         };
+        let Some(queued) = request.take() else {
+            return Some(true);
+        };
         let start_dispatcher = !state.dispatcher_started;
         state.dispatcher_started = true;
         state.queued_bytes = state.queued_bytes.saturating_add(retained_bytes);
         state.requests.push_back(PendingSurfaceRequest {
-            request: request.take().unwrap(),
+            request: queued,
             retained_bytes,
             _bytes_permit: bytes_permit,
         });
@@ -199,7 +208,7 @@ impl ConnectionSurfaceScheduler {
         let handle = std::thread::Builder::new()
             .name("mux-control-dispatch".into())
             .spawn(move || run_connection_surface_dispatcher(scheduler, mux, client, writer))?;
-        *self.dispatcher.lock().unwrap() = Some(handle);
+        *self.dispatcher.lock().recover_poison() = Some(handle);
         Ok(())
     }
 
@@ -221,19 +230,19 @@ impl ConnectionSurfaceScheduler {
     }
 
     pub(super) fn next_request(&self) -> Option<PendingSurfaceRequest> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         loop {
-            if let Some(index) = Self::next_runnable_index(&state) {
-                let pending = state.requests.remove(index).unwrap();
+            if let Some(index) = Self::next_runnable_index(&state)
+                && let Some(pending) = state.requests.remove(index)
+            {
                 state.queued_bytes = state.queued_bytes.saturating_sub(pending.retained_bytes);
-                if pending.request.cmd.is_clear_history() {
-                    let surface = pending
-                        .request
-                        .cmd
-                        .ordering_surface()
-                        .expect("clear-history is ordered by surface");
-                    let inserted = state.active_clear_surfaces.insert(surface);
-                    assert!(inserted, "a clear worker cannot overlap its surface");
+                // Clear-history is always ordered by a surface; a clear
+                // worker never overlaps another on the same surface.
+                if pending.request.cmd.is_clear_history()
+                    && let Some(surface) = pending.request.cmd.ordering_surface()
+                    && !state.active_clear_surfaces.insert(surface)
+                {
+                    eprintln!("cmux: clear-history worker overlapped surface {surface}");
                 }
                 return Some(pending);
             }
@@ -242,28 +251,28 @@ impl ConnectionSurfaceScheduler {
                 self.changed.notify_all();
                 return None;
             }
-            state = self.changed.wait(state).unwrap();
+            state = self.changed.wait(state).recover_poison();
         }
     }
 
     pub(super) fn finish_clear(&self, surface: SurfaceId) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.active_clear_surfaces.remove(&surface);
         self.changed.notify_all();
     }
 
     pub(super) fn finish_dispatcher(&self) {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             state.dispatcher_done = true;
             self.changed.notify_all();
         }
-        self.connection_permit.lock().unwrap().take();
+        self.connection_permit.lock().recover_poison().take();
     }
 
     pub(super) fn close(&self) {
         self.cancelled.cancel();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.closed = true;
         state.requests.clear();
         state.queued_bytes = 0;
@@ -274,12 +283,12 @@ impl ConnectionSurfaceScheduler {
         self.changed.notify_all();
         drop(state);
         if dispatcher_never_started {
-            self.connection_permit.lock().unwrap().take();
+            self.connection_permit.lock().recover_poison().take();
         }
     }
 
     pub(super) fn finish(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.closed = true;
         let dispatcher_never_started = !state.dispatcher_started;
         if dispatcher_never_started {
@@ -288,13 +297,14 @@ impl ConnectionSurfaceScheduler {
         self.changed.notify_all();
         drop(state);
         if dispatcher_never_started {
-            self.connection_permit.lock().unwrap().take();
+            self.connection_permit.lock().recover_poison().take();
         }
     }
 
     pub(super) fn wait_for_completion(&self, timeout: Option<Duration>) -> bool {
-        let deadline = timeout.map(|timeout| Instant::now() + timeout);
-        let mut state = self.state.lock().unwrap();
+        // A timeout too large to represent waits without a deadline.
+        let deadline = timeout.and_then(|timeout| Instant::now().checked_add(timeout));
+        let mut state = self.state.lock().recover_poison();
         while !state.dispatcher_done
             || !state.active_clear_surfaces.is_empty()
             || state.active_creations != 0
@@ -304,17 +314,17 @@ impl ConnectionSurfaceScheduler {
                     break;
                 }
                 let remaining = deadline.saturating_duration_since(Instant::now());
-                let (next, _) = self.changed.wait_timeout(state, remaining).unwrap();
+                let (next, _) = self.changed.wait_timeout(state, remaining).recover_poison();
                 state = next;
             } else {
-                state = self.changed.wait(state).unwrap();
+                state = self.changed.wait(state).recover_poison();
             }
         }
         let drained = state.dispatcher_done
             && state.active_clear_surfaces.is_empty()
             && state.active_creations == 0;
         drop(state);
-        if drained && let Some(dispatcher) = self.dispatcher.lock().unwrap().take() {
+        if drained && let Some(dispatcher) = self.dispatcher.lock().recover_poison().take() {
             let _ = dispatcher.join();
         }
         drained
@@ -371,12 +381,9 @@ fn run_connection_surface_dispatcher(
     let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
     while writer.is_open() {
         let Some(pending) = scheduler.next_request() else { return };
-        if pending.request.cmd.is_clear_history() {
-            let surface = pending
-                .request
-                .cmd
-                .ordering_surface()
-                .expect("clear-history is ordered by surface");
+        if pending.request.cmd.is_clear_history()
+            && let Some(surface) = pending.request.cmd.ordering_surface()
+        {
             let Some(worker_permit) = scheduler.admission.try_reserve_worker() else {
                 let id = pending.request.id.clone();
                 drop(pending);
@@ -403,7 +410,11 @@ fn run_connection_surface_dispatcher(
                     // Drop the mux-wide permit before `_active` wakes the next
                     // request queued behind this surface barrier.
                     let _worker_permit = worker_permit;
-                    let pending = worker_pending.lock().unwrap().take().unwrap();
+                    // The request is handed over exactly once: here, or to
+                    // the spawn-failure path below.
+                    let Some(pending) = worker_pending.lock().recover_poison().take() else {
+                        return;
+                    };
                     if !run_pending_request(
                         &worker_scheduler,
                         &worker_mux,
@@ -415,7 +426,10 @@ fn run_connection_surface_dispatcher(
                     }
                 });
             if let Err(error) = spawn {
-                let pending = shared_pending.lock().unwrap().take().unwrap();
+                let Some(pending) = shared_pending.lock().recover_poison().take() else {
+                    scheduler.finish_clear(surface);
+                    continue;
+                };
                 let id = pending.request.id.clone();
                 drop(pending);
                 scheduler.finish_clear(surface);

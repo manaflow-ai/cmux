@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxHomeCore
 public import CmuxHomeRender
 public import CmuxNextDesign
@@ -28,16 +29,25 @@ public final class HomeNativeTranscriptView: NSView {
     /// the background, an op that may not have gone through).
     let noticeLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var notice: String?
+    /// The notice's one action under it (Open System Settings for a denied microphone).
+    let noticeButton = NSButton(title: "", target: nil, action: nil)
+    private(set) var noticeAction: HomeNoticeAction?
+    /// The message box's mic (Debug Settings > Home > Mic button in the message box).
+    let voice = HomeVoiceDictation()
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
     public var attachmentPreparer: (any HomeAttachmentPreparing)?
+    /// The "+" file picker over the app's made-ahead panel; nil when the app passed none (tests).
+    let attachmentPanel: HomeAttachmentPanel?
     /// Whether photos and videos keep their location (Settings > Home,
     /// `home.attachments.keepLocation`; false strips it, the default).
     public var keepLocation: () -> Bool = { false }
     /// The chain of attachment preparations, in the order they arrived.
     // task-owner: replaced by the next intake; awaited by attachmentsReady
     var intake: Task<Void, Never>?
-    private var stopped = false
+    /// The pane's drop target state: its highlight, the current drag's answer, drops on their way.
+    let drop = HomeDropState()
+    private(set) var stopped = false
     /// The composer rect toasts last moved clear of (posted on change).
     private var lastToastAvoidance = NSRect.zero
     /// False while the owner is unreachable (H17: offline Send is off; the
@@ -106,12 +116,22 @@ public final class HomeNativeTranscriptView: NSView {
     /// Automation (DEBUG socket): the transcript is this much narrower than this view (a pane's width
     /// change, as a divider drag or a live resize makes it). Zero in the product.
     public var debugTranscriptWidthTrim: CGFloat = 0 { didSet { needsLayout = true } }
-    private var observers: [any NSObjectProtocol] = []
+    /// A click on a header panel toggle (``setHeaderPanels(_:)``), by its id.
+    public var onHeaderPanel: (String) -> Void = { _ in }
+    /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
+    let headerPanels = HomeHeaderPanelBar()
+    /// The window's key and occlusion observers; each token removes itself when released (on any thread).
+    private var observers: [MainActorObservation] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
+    /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
+    let showsHeader = HomeTunables.chatHeader.value
 
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
-    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
+    /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
+    public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
+                openPanel: MadeAheadOpenPanel? = nil) {
+        attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
@@ -133,7 +153,14 @@ public final class HomeNativeTranscriptView: NSView {
         noticeLabel.maximumNumberOfLines = 2
         noticeLabel.isSelectable = false
         addSubview(noticeLabel)
+        noticeButton.isBordered = false
+        noticeButton.font = Typography.caption
+        noticeButton.isHidden = true
+        noticeButton.target = self
+        noticeButton.action = #selector(noticeButtonClicked)
+        addSubview(noticeButton)
         connectAttachments()
+        connectVoice()
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
@@ -145,23 +172,19 @@ public final class HomeNativeTranscriptView: NSView {
         firstRun.switchCard.onOpenSettings = { [weak self] in self?.onOpenKeyboardShortcutSettings() }
         transcript.onSummaryChange = { [weak self] _ in self?.updateFirstRun() }
         transcript.onRowsChange = { [weak self] in self?.updateFirstRun() }
+        // A long draft grows the field with no size change: refit the panel and the notice above it.
+        transcript.onFieldTopChange = { [weak self] in self?.needsLayout = true }
         followTextSize()
         followBubbleStyle()
         followHeroTunable()
         followChiefPet()
         applyTheme()
+        followTopFadeStyle()
         updateFirstRun()
     }
 
     required init?(coder: NSCoder) { nil }
 
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for o in observers { NotificationCenter.default.removeObserver(o) }
-        }
-    }
 
     /// The hover cards of link chips (``enableLinkPreviews(coordinator:previewer:)``), nil until the host enables them.
     private(set) var linkPreviews: HomeLinkChipHoverSource?
@@ -183,6 +206,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        voice.close()
         transcript.stop()
         binding.stop()
     }
@@ -190,13 +214,24 @@ public final class HomeNativeTranscriptView: NSView {
     nonisolated public override var isFlipped: Bool { true }
     public override var acceptsFirstResponder: Bool { true }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The first-run panel is on screen (capture scenes settle on it).
     public var debugFirstRunShown: Bool { !firstRun.isHiddenOrHasHiddenAncestor && firstRun.window != nil }
     /// The first-run panel's listed agents, most urgent first.
     public var debugFirstRunAgents: [HomeDebugAgentRow] { firstRun.debugAgents }
     /// Clicks the panel's agent row `index` (`HomeFirstRunView.debugClickAgent`).
     public func debugClickFirstRunAgent(_ index: Int, pointer: Bool) -> String? { firstRun.debugClickAgent(index, pointer: pointer) }
+    /// How far the first-run panel's lowest shown part sits above the field's top (negative:
+    /// it runs under the field); nil when the panel shows nothing.
+    public var debugFirstRunFieldGap: CGFloat? {
+        firstRun.debugShownBottom.map { transcript.fieldTop - (firstRun.frame.minY + $0) }
+    }
+    /// Which parts of the first-run panel show (hero, switch_card, action_rows).
+    public var debugFirstRunParts: [String: Bool] { firstRun.debugShownParts }
+    /// The field's top in this view.
+    public var debugFieldTop: CGFloat { transcript.fieldTop }
+    /// Puts `text` in the field, as typing would (`home-chief-long-draft`).
+    public func debugSetDraft(_ text: String) { transcript.setDraft(text) }
     #endif
 
     /// A click on the header's name pill (the Chief's settings popover).
@@ -222,6 +257,17 @@ public final class HomeNativeTranscriptView: NSView {
         set { transcript.avatarPicture = newValue }
     }
 
+    /// Each Chief's avatar by participant id (``HomeChiefAvatar/bubbleAvatars(for:own:fallback:)``),
+    /// beside a group's bubbles; a new value redraws them.
+    public func setChiefBubbleAvatars(_ avatars: [String: HomeChiefAvatar]) {
+        transcript.setSenderAvatars(avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .picture(url)
+            case .text(let text): .text(text)
+            }
+        })
+    }
+
     /// The name pill's VoiceOver help.
     public func setNamePillHelp(_ help: String) { transcript.setNamePillHelp(help) }
 
@@ -231,6 +277,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// The primary input (spec/app-screens.md section 3): the message box's
     /// text view. Hosts focus this view, not the transcript.
     public var primaryInput: NSView { transcript.primaryInput }
+
+    /// The host's opt-in system spell checking preference for the native composer.
+    public var composerSpellCheckingEnabled: Bool {
+        get { transcript.composerSpellCheckingEnabled }
+        set { transcript.composerSpellCheckingEnabled = newValue }
+    }
 
     public override func becomeFirstResponder() -> Bool {
         window?.makeFirstResponder(primaryInput) ?? false
@@ -295,7 +347,7 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// Settings > Agents > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
+    /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
     private func followBubbleStyle() {
         withObservationTracking {
             bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
@@ -323,7 +375,8 @@ public final class HomeNativeTranscriptView: NSView {
             if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
-        // change, and the first-run panel fits its agent rows above it.
+        // change (`onFieldTopChange` asks for this pass), and the first-run
+        // panel fits what it shows above it, under the header.
         let top = transcript.headerHeight
         let panel = CGRect(x: 0, y: top, width: bounds.width, height: max(0, transcript.fieldTop - top))
         if firstRun.frame != panel { firstRun.frame = panel }
@@ -336,17 +389,34 @@ public final class HomeNativeTranscriptView: NSView {
         let width = max(0, bounds.width - 32)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+        let action: CGFloat = noticeAction == nil ? 0 : ceil(noticeButton.intrinsicContentSize.height)
+        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - action - 8, width: width, height: height)
+        if noticeAction != nil {
+            let w = min(width, ceil(noticeButton.intrinsicContentSize.width))
+            noticeButton.frame = CGRect(x: (bounds.width - w) / 2, y: noticeLabel.frame.maxY, width: w, height: action)
+        }
         let avoided = toastAvoidanceRect
         if avoided != lastToastAvoidance {
             lastToastAvoidance = avoided
-            NotificationCenter.default.post(name: .cmuxToastAvoidanceDidChange, object: self)
+            if let window { CmuxToastAvoidance.avoidanceChanged(in: window) }
         }
     }
 
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
-    public func showNotice(_ text: String?) {
-        guard text != notice else { return }
+    public func showNotice(_ text: String?) { showNotice(text, action: nil) }
+
+    /// Shows the notice with one action under it (a link-styled button).
+    func showNotice(_ text: String?, action: HomeNoticeAction?) {
+        let hadAction = noticeAction != nil
+        noticeAction = text == nil ? nil : action
+        noticeButton.isHidden = noticeAction == nil
+        if let noticeAction {
+            noticeButton.attributedTitle = NSAttributedString(string: noticeAction.title, attributes: [
+                .font: Typography.caption, .foregroundColor: performWithTheme { Palette.accent }, .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ])
+            noticeButton.setAccessibilityLabel(noticeAction.title)
+        }
+        guard text != notice || hadAction != (noticeAction != nil) else { return }
         notice = text
         noticeLabel.stringValue = text ?? ""
         noticeLabel.isHidden = text == nil
@@ -371,7 +441,6 @@ public final class HomeNativeTranscriptView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
@@ -379,13 +448,10 @@ public final class HomeNativeTranscriptView: NSView {
             if window == nil || stopped { linkPreviews.coordinator.unregister(linkPreviews) } else { linkPreviews.coordinator.register(linkPreviews) }
         }
         guard let window else { return }
-        if attachmentPreparer != nil { HomeAttachmentPanel.warmWhenIdle() }  // the "+" opens without making a panel
-        let nc = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                     NSWindow.didChangeOcclusionStateNotification] {
-            observers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.windowStateChanged() } // main-proof: observer on queue: .main
-            })
+        if attachmentPreparer != nil { attachmentPanel?.warmWhenIdle() }  // the "+" opens without making a panel
+        observers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
+                     NSWindow.didChangeOcclusionStateNotification].map { name in
+            MainActorObservation(name, object: window) { [weak self] in self?.windowStateChanged() }
         }
         windowStateChanged()
         // A theme change while the tab was hidden (equal palettes return early).
@@ -397,27 +463,23 @@ public final class HomeNativeTranscriptView: NSView {
         applyTheme()
     }
 
-    private func windowStateChanged() {
-        transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
-    }
-
-    /// The theme's palettes (key and non-key window) for the MessagesLab
+    /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
-        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, style: style, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
-        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
-        // The header: a thin glass band over the transcript and a glass name pill, as
-        // Messages on macOS 26 (HeaderGlass.swift).
-        transcript.setHeaderGlass()
+        transcript.applyTheme(active: active, measuredAccent: measured)
+        // The header's top fade (Debug Settings > Home > Top of the chat; the glass band by default,
+        // HeaderGlass.swift), or no header and the rows' own short fade (HomeNativeTranscriptView+TopFade.swift).
+        applyTopFadeStyle()
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,
                                  danger: Palette.danger, done: Palette.highlight)
             noticeLabel.textColor = Palette.textSecondary
         }
+        drop.highlight.applyTheme()
     }
 }
 

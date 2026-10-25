@@ -36,8 +36,14 @@ fn serve(listener: UnixListener) {
                             ]},
                             {"harness": "claude-sr", "kind": "claude-stdio", "models": [
                                 {"id": "default", "name": "Default (Claude Code's choice)"},
-                                {"id": "opus", "name": "Opus"},
-                                {"id": "claude-fable-5-1", "name": "Fable 5.1"},
+                                {"id": "opus", "name": "Opus", "resolvedModel": "claude-opus-5-5"},
+                                {"id": "claude-fable-5-1", "name": "Fable 5.1", "family": "Fable",
+                                 "provider": "anthropic", "shortName": "Fable 5.1",
+                                 "efforts": ["low", "medium", "high", "xhigh", "max"],
+                                 "defaultEffort": "medium", "fast": true, "aliases": ["fable"],
+                                 "contextWindow": 1000000, "releaseDate": "2026-08-01",
+                                 "description": "Most capable", "curated": true,
+                                 "cost": {"input": 15}},
                             ]},
                         ]}),
                         _ => json!({}),
@@ -116,6 +122,72 @@ fn the_engine_answer_offers_the_harness_models_acpmux_has() {
     );
 }
 
+/// The Chief's model picker groups by family, dedupes aliases, offers only
+/// the efforts a model takes and Fast where it runs: the answer keeps the
+/// catalog metadata acpmux attached to each model (it kept only id and name).
+#[test]
+fn the_offered_models_keep_the_pickers_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(dir.path(), &[]);
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let fable = &answer["offered"]["models"][2];
+    assert_eq!(fable["family"], "Fable", "{answer:#}");
+    assert_eq!(fable["provider"], "anthropic");
+    assert_eq!(fable["shortName"], "Fable 5.1");
+    assert_eq!(
+        fable["efforts"],
+        json!(["low", "medium", "high", "xhigh", "max"])
+    );
+    assert_eq!(fable["defaultEffort"], "medium");
+    assert_eq!(fable["fast"], true);
+    assert_eq!(fable["aliases"], json!(["fable"]));
+    assert_eq!(fable["contextWindow"], 1000000);
+    assert_eq!(fable["releaseDate"], "2026-08-01");
+    assert_eq!(fable["description"], "Most capable");
+    // Prices and curation flags are not the picker's.
+    assert_eq!(fable.get("cost"), None);
+    assert_eq!(
+        answer["offered"]["models"][1]["resolvedModel"],
+        "claude-opus-5-5"
+    );
+}
+
+/// The Speed picker shows Fast only where the turns' harness runs it (codex's
+/// priority tier; Claude Code's adapter has none), as a set checks.
+#[test]
+fn the_offered_speeds_follow_the_turn_harness() {
+    use optchat_chief::acpmux::Family;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude-sr", Family::Claude), ("codex", Family::Codex)],
+    );
+    let answer = engine(&mut brain, EngineRequest::Show);
+    assert_eq!(
+        answer["offered"]["speeds"],
+        json!(["default"]),
+        "{answer:#}"
+    );
+    let codex = engine(
+        &mut brain,
+        EngineRequest::Set {
+            harness: Some("codex".to_owned()),
+            model: None,
+            effort: None,
+            speed: None,
+            compactor_speed: None,
+            compactor_harness: None,
+            compactor_model: None,
+            reactions: Default::default(),
+        },
+    );
+    assert_eq!(
+        codex["offered"]["speeds"],
+        json!(["default", "fast"]),
+        "{codex:#}"
+    );
+}
+
 #[test]
 fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
     use optchat_chief::acpmux::Family;
@@ -136,6 +208,7 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
         compactor_speed: None,
         compactor_harness: Some(compactor_harness.to_owned()),
         compactor_model: compactor_model.map(str::to_owned),
+        reactions: Default::default(),
     };
 
     let answer = engine(&mut brain, set("claude-sr", Some("claude-haiku-5-5")));
@@ -195,6 +268,7 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         compactor_speed: None,
         compactor_harness: None,
         compactor_model: None,
+        reactions: Default::default(),
     };
 
     let answer = engine(&mut brain, set("unii"));
@@ -215,4 +289,87 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         optchat_chief::engine::load(&dir.path().join("engine.json")).harness,
         None
     );
+}
+
+/// The reaction classifier's fields (a416): a set saves them in engine.json,
+/// the answer names the classifier this Chief runs (Claude Haiku and the
+/// built-in prompt, "", by default), `default` clears them, and a
+/// reactions_can_wake that is not a boolean is refused.
+#[test]
+fn the_engine_set_takes_the_reaction_classifier() {
+    use optchat_chief::acpmux::Family;
+    use optchat_chief::brain::ReactionFields;
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude", Family::Claude), ("claude-sr", Family::Claude)],
+    );
+    brain.set_reaction_user_settings(None);
+    let set = |reactions: ReactionFields| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        reactions: Box::new(reactions),
+    };
+    let shown = engine(&mut brain, EngineRequest::Show);
+    assert_eq!(
+        shown["engine"]["classifier_model"], "claude-haiku-5-5",
+        "{shown:#}"
+    );
+    assert_eq!(shown["engine"]["classifier_prompt"], "", "{shown:#}");
+    assert_eq!(shown["engine"]["reactions_can_wake"], true, "{shown:#}");
+    let answer = engine(
+        &mut brain,
+        set(ReactionFields {
+            classifier_harness: Some("claude-sr".into()),
+            classifier_model: Some("claude-sonnet-5-5".into()),
+            classifier_prompt: Some("Wake only on 👎.".into()),
+            reactions_can_wake: Some("false".into()),
+        }),
+    );
+    assert_eq!(
+        answer["engine"]["classifier_harness"], "claude-sr",
+        "{answer:#}"
+    );
+    assert_eq!(answer["engine"]["classifier_model"], "claude-sonnet-5-5");
+    assert_eq!(answer["engine"]["classifier_prompt"], "Wake only on 👎.");
+    assert_eq!(answer["engine"]["reactions_can_wake"], false);
+    assert_eq!(answer["choice"]["reactions_can_wake"], false);
+    let cleared = engine(
+        &mut brain,
+        set(ReactionFields {
+            classifier_model: Some("default".into()),
+            reactions_can_wake: Some("default".into()),
+            ..ReactionFields::default()
+        }),
+    );
+    assert_eq!(
+        cleared["engine"]["classifier_model"], "claude-haiku-5-5",
+        "{cleared:#}"
+    );
+    assert_eq!(cleared["engine"]["reactions_can_wake"], true);
+    assert_eq!(
+        cleared["engine"]["classifier_harness"], "claude-sr",
+        "an absent field stays"
+    );
+    let refused = engine(
+        &mut brain,
+        set(ReactionFields {
+            reactions_can_wake: Some("sometimes".into()),
+            ..ReactionFields::default()
+        }),
+    );
+    assert_eq!(refused["error"]["code"], "invalid_value", "{refused:#}");
+    let unknown = engine(
+        &mut brain,
+        set(ReactionFields {
+            classifier_harness: Some("nope".into()),
+            ..ReactionFields::default()
+        }),
+    );
+    assert_eq!(unknown["error"]["code"], "unknown_harness", "{unknown:#}");
 }

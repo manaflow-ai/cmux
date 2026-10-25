@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDesign
 
 /// `notifications.*` in cmux.json (the attention ring is
@@ -18,6 +19,7 @@ enum NotificationConfigParser {
         }
         if let value = reader.bool("dockBadge") { prefs.dockBadge = value }
         if let value = reader.choice("dockBounce", DockBounceMode.self) { prefs.dockBounce = value }
+        if let value = reader.choice("showPreviews", NotificationPreviews.self) { prefs.showPreviews = value }
         diagnostics += reader.diagnostics
         prefs.quietHours = quietHours(root, diagnostics: &diagnostics)
         prefs.mutedWorkspaces = mutedWorkspaces(root, diagnostics: &diagnostics)

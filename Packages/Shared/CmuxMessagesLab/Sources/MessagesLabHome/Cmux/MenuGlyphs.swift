@@ -11,8 +11,12 @@ import AppKit
 /// work; menu bench profile). The glyphs do not depend on the appearance (fixed colours).
 enum MenuGlyphs {
     private static var cache: [Reaction.Kind: NSImage] = [:]
-    static func image(_ kind: Reaction.Kind) -> NSImage {
+    static func image(_ kind: Reaction.Kind) -> NSImage { image(kind, art: messagesArt) }
+    /// cmux: `art` gives a kind's Messages art: read here on main by default; `warm()` passes the art it
+    /// read off the main thread.
+    private static func image(_ kind: Reaction.Kind, art artOf: (Reaction.Kind) -> NSImage?) -> NSImage {
         if let i = cache[kind] { return i }
+        let messages = artOf(kind)  // cmux: once for both scales
         let side = TapbackPickerView.glyphSize
         let img = NSImage(size: NSSize(width: side, height: side))
         for scale in [2, 1] {
@@ -25,7 +29,7 @@ enum MenuGlyphs {
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
             let box = CGRect(x: 0, y: 0, width: side, height: side)
-            if let art = messagesArt(kind) {
+            if let art = messages {
                 art.draw(in: scaled(box, Self.artScale), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             } else if case let .emoji(e) = kind {
                 PartRenderer.drawEmoji(e, in: box, ctx: ctx, scale: Self.emojiScale)
@@ -46,10 +50,29 @@ enum MenuGlyphs {
                                          "laugh": "haha-ENG_114", "emphasize": "exclamation_103", "question": "question_080"]
     private static let messagesBundle = Bundle(path: "/System/Applications/Messages.app")
     static func messagesArt(_ kind: Reaction.Kind) -> NSImage? {
+        messagesArtName(kind).flatMap { messagesBundle?.image(forResource: $0) }
+    }
+    /// cmux: the asset name of a kind's Messages art, or nil when it keeps the drawn glyph.
+    private static func messagesArtName(_ kind: Reaction.Kind) -> String? {
         guard case let .tapback(t) = kind, let name = messagesAssets[t] else { return nil }
         // HA HA is the English art; another language keeps the drawn glyph.
         if t == "laugh", Locale.preferredLanguages.first.map({ !$0.hasPrefix("en") }) ?? false { return nil }
-        return messagesBundle?.image(forResource: name)
+        return name
+    }
+    /// cmux: the six tapback images by asset name, read on a utility queue: not on the main thread (the first
+    /// `image(forResource:)` opens Messages' asset catalog: file reads and a dispatch_sync onto CoreUI's serial
+    /// `com.apple.CoreUI.UICatalog-cache` queue, 2.2 ms on the main thread at the first warm, blocking probe
+    /// 2026-10-24) and not on the cooperative pool (file I/O). Utility: a prefetch nothing waits for.
+    /// A GCD utility thread, not BackgroundWork: this shared package cannot reach CmuxNextWakeups (lead, 2026-10-25).
+    private static func loadArt() async -> [String: NSImage] {
+        let bundle = messagesBundle, names = Array(messagesAssets.values)
+        return await withCheckedContinuation { done in
+            DispatchQueue.global(qos: .utility).async {
+                var read: [String: NSImage] = [:]
+                for name in names { read[name] = bundle?.image(forResource: name) }
+                done.resume(returning: read)
+            }
+        }
     }
     /// The palette's last cell (Messages, macOS 27): the filled grinning face of the compose
     /// bar's emoji button (private `emoji.face.grinning`), white; else the public symbol.
@@ -84,9 +107,16 @@ enum MenuGlyphs {
     /// MessagesLab 7518134 (ChatController.warmUp, and after a display move): the six tapbacks, the
     /// recent emoji and the picker glyph. Images only.
     static func warm() {
-        TapbackGlyph.all.forEach { _ = image(.tapback($0)) }
         RecentEmoji.list.prefix(5).forEach { _ = image(.emoji($0)) }
         _ = emojiPickerGlyph()
+        // cmux: the tapbacks once their art is read off the main thread; a menu that opens first draws
+        // its own. Drawn on main, in the display's colour space of that moment.
+        let tapbacks = TapbackGlyph.all.map { Reaction.Kind.tapback($0) }.filter { cache[$0] == nil }
+        guard !tapbacks.isEmpty else { return }
+        Task { @MainActor in  // task-owner: a one-shot prefetch that ends on its own; nothing cancels it
+            let tapbackArt: [String: NSImage] = await loadArt()
+            tapbacks.forEach { _ = image($0) { kind in messagesArtName(kind).flatMap { tapbackArt[$0] } } }
+        }
     }
 }
 

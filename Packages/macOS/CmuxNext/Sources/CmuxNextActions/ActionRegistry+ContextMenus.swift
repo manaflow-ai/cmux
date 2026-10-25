@@ -6,7 +6,10 @@ extension ActionRegistry {
     /// or disabled ones are shown disabled; runs of separators collapse.
     /// Items pass `target` to the handler. `implied` adds focus facts the
     /// target itself establishes (a right-clicked browser tab is a browser
-    /// even while a terminal has focus). `arguments` go to every item's run
+    /// even while a terminal has focus); they only show rows. The menu's own
+    /// facts (`impliedContext(for:)`) also enable and run its items
+    /// (`ActionMenuPayload.implied`): a Files row runs the explorer's actions
+    /// while a terminal has the keyboard. `arguments` go to every item's run
     /// (a right-clicked link's `url`).
     public func makeContextMenu(
         for context: ActionMenuContext,
@@ -15,12 +18,28 @@ extension ActionRegistry {
         implied: ActionContext = [],
         arguments: [String: ActionValue] = [:]
     ) -> NSMenu {
-        let effective = self.context.union(Self.impliedContext(for: context)).union(implied)
+        let runFacts = Self.impliedContext(for: context)
+        let effective = self.context.union(runFacts).union(implied)
         let menu = NSMenu()
         menu.autoenablesItems = true
         let entries = entries ?? ContextMenuCatalog.shared.entries(for: context), labels = ContextMenuCatalog.shared.labels(for: context)
-        menuItems(entries, target: target, context: effective, arguments: arguments, labels: labels).forEach(menu.addItem)
+        menuItems(entries, target: target, context: effective, implied: runFacts, arguments: arguments, labels: labels).forEach(menu.addItem)
         return menu
+    }
+
+    /// One row of `context`'s menu whose arguments are known only when the menu opens (Open
+    /// With's apps, one row per app): it runs `id` with `arguments` and the menu's facts, like
+    /// a catalog row. Nil when `id` is not in the catalog or an administrator turned it off.
+    public func makeContextMenuItem(for id: ActionID, in context: ActionMenuContext, target: ActionTargetRef? = nil,
+                                    arguments: [String: ActionValue] = [:], title: String? = nil) -> NSMenuItem? {
+        guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil,
+              let item = makeMenuItem(for: id) else { return nil }
+        item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments,
+                                                   implied: Self.impliedContext(for: context))
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
+        if let title { item.title = title }
+        return item
     }
 
     /// Items for one main menu: every action whose `mainMenu` is `menu`, in
@@ -42,12 +61,14 @@ extension ActionRegistry {
         switch context {
         case .browserPage, .browserLink, .browserImage, .browserSelection: .browserFocused
         case .terminalSelection: .terminalFocused
-        case .agentChat: .agentPaneFocused
+        case .agentChat, .priorityRow: .agentPaneFocused
+        // A right-clicked row is the explorer's even while another view has the keyboard.
+        case .fileExplorerRow: .fileExplorerFocused
         default: []
         }
     }
 
-    private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext,
+    private func menuItems(_ entries: [ContextMenuEntry], target: ActionTargetRef?, context: ActionContext, implied: ActionContext,
                            arguments: [String: ActionValue], labels: [ActionID: String] = [:]) -> [NSMenuItem] {
         var items: [NSMenuItem] = []
         for entry in entries {
@@ -58,7 +79,7 @@ extension ActionRegistry {
                 let invocation = ActionInvocation(target: target, arguments: arguments)
                 guard let descriptor = descriptor(for: id), ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil, Self.isAvailable(descriptor, in: context),
                       !ActionTargetVisibility.isHidden(id, invocation: invocation, in: self), let item = makeMenuItem(for: id) else { continue }
-                item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments)
+                item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: arguments, implied: implied)
                 item.image = Self.menuIcon(descriptor.symbol)
                 // A menu-only short title (the palette keeps the action's title).
                 if let label = labels[id] { item.title = label }
@@ -66,7 +87,7 @@ extension ActionRegistry {
                 ActionTargetTitles.decorate(item, id: descriptor.id, invocation: invocation, in: self)
                 items.append(item)
             case .submenu(let id, let children):
-                let childItems = menuItems(children, target: target, context: context, arguments: arguments, labels: labels)
+                let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels)
                 guard !childItems.isEmpty, let title = labels[id] ?? title(for: id) else { continue }
                 let item = NSMenuItem(title: title.droppingEllipsis, action: nil, keyEquivalent: "")
                 item.image = descriptor(for: id).flatMap { Self.menuIcon($0.symbol) }
@@ -75,7 +96,7 @@ extension ActionRegistry {
                 item.submenu = submenu
                 items.append(item)
             case .folder(let folder, let children):
-                let childItems = menuItems(children, target: target, context: context, arguments: arguments, labels: labels)
+                let childItems = menuItems(children, target: target, context: context, implied: implied, arguments: arguments, labels: labels)
                 guard childItems.contains(where: { !$0.isSeparatorItem }) else { continue }
                 let item = NSMenuItem(title: folder.title, action: nil, keyEquivalent: "")
                 item.image = Self.menuIcon(folder.symbol)
@@ -101,7 +122,11 @@ extension ActionRegistry {
     /// A right-click row's icon: its action's SF Symbol as a template, inked like the row's text.
     /// Nil for `ActionDescriptor`'s default symbol (`command`), so a row without its own icon shows none.
     static func menuIcon(_ symbol: String) -> NSImage? {
-        guard symbol != "command", let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) else { return nil }
+        // The menu font's size, as `NSImage.menuSymbol` (CmuxNextDesign) sizes every hand-built row's symbol.
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        guard symbol != "command",
+              let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?.withSymbolConfiguration(configuration)
+        else { return nil }
         image.isTemplate = true
         return image
     }

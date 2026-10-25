@@ -29,11 +29,13 @@ use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
 mod agent_open;
+mod batch;
 mod call;
 mod classic;
 mod events;
 mod keybinding;
 mod open;
+mod open_link;
 mod page;
 mod right;
 mod run;
@@ -221,7 +223,12 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             let Some((id, tail)) = rest[1..].split_first() else {
                 return Err(UsageError::new(messages.action_run_usage));
             };
-            run_action(id, tail, ActionName::Any)?
+            // `-`: the actions on stdin, as one `action.batch` transaction.
+            if id == "-" {
+                batch::parse_batch(tail, &mut std::io::stdin().lock(), action_origin())?
+            } else {
+                run_action(id, tail, ActionName::Any)?
+            }
         }
         ("settings" | "config", Some(verb)) if settings::VERBS.contains(&verb) => {
             settings::parse(rest)?
@@ -667,6 +674,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
+                if request.method == "browser.open_link" {
+                    status = status.max(open_link::run(global, stream, request));
+                    if stop_on_failure && status != 0 {
+                        break;
+                    }
+                    continue;
+                }
                 let timeout = Some(request.timeout());
                 if let Ran::Done(code) = call(
                     global,
@@ -692,8 +706,13 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     }
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     // Runs that may create or close something carry a key, so a retry is not a second run.
-    let keyed =
-        ["action.run", "browser.page.new_tab", "browser.page.select_tab", "browser.page.close"];
+    let keyed = [
+        "action.run",
+        "action.batch",
+        "browser.page.new_tab",
+        "browser.page.select_tab",
+        "browser.page.close",
+    ];
     let key = if keyed.contains(&method) {
         match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
             Ok(key) => Some(key),
@@ -749,7 +768,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 skew::annotate(stream, method, &mut error);
             }
             settings::explain_refusal(method, &params, &mut error);
-            report.annotate(&mut error, global.output);
+            if refused_before_running(&error) {
+                report.succeeded();
+            } else {
+                report.annotate(&mut error, global.output);
+            }
             let code = super::wire::print_local_error(&error, global.output, 1);
             report.finish(global.output);
             Ran::Done(code)
@@ -769,10 +792,18 @@ fn error_code(error: &Value) -> Option<&str> {
 /// A `busy` answer is safe to retry only when the app says the request
 /// never ran; one that may have started (`in_progress`) is reported.
 fn busy_before_running(error: &Value) -> bool {
+    error_code(error) == Some("busy") && refused_before_running(error)
+}
+
+/// The app says nothing ran (`data.not_run`): it refused before the
+/// handler ran or before any of its work started, or a `busy` or `timeout`
+/// came before the start. No change may still apply and there is no key to
+/// retry. A refusal from the action's work (`unavailable` after a group was
+/// made, a send still resending) carries no mark and keeps the retry note.
+fn refused_before_running(error: &Value) -> bool {
     let data = error.get("data").unwrap_or(&Value::Null);
-    error_code(error) == Some("busy")
-        && (data.get("not_run") == Some(&Value::Bool(true))
-            || data.get("state").and_then(Value::as_str) == Some("not_run"))
+    data.get("not_run") == Some(&Value::Bool(true))
+        || data.get("state").and_then(Value::as_str) == Some("not_run")
 }
 
 fn busy_retry_delay(error: &Value) -> Duration {

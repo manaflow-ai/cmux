@@ -7,7 +7,6 @@
 import type { Play, PlayContext } from "../../gallery/play";
 
 const MODEL = { selector: ".acpmux-model .acpmux-picker-button" };
-const EFFORT = { selector: ".acpmux-effort .acpmux-picker-button" };
 
 const blur = (ctx: PlayContext) => (ctx.document.activeElement as HTMLElement | null)?.blur();
 
@@ -39,12 +38,12 @@ export function composerStatePlays(field: string): Record<ComposerStateName, { n
       },
     },
     open: {
-      note: "The reasoning menu open: its chip holds the soft pill with no ring while the menu shows.",
+      note: "The model button's menu open (Leo 2026-10-20: one button for the model and its effort): the button holds the soft pill with no ring while the menu shows.",
       play: async (ctx) => {
         await ready(ctx);
         blur(ctx);
-        await ctx.click(EFFORT);
-        await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"]'));
+        await ctx.click(MODEL);
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-quick-menu [role="menuitemradio"]'));
       },
     },
     focus: {

@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDaemon
 import Foundation
 
@@ -22,9 +23,11 @@ struct CloudMachineCreateFlow {
     /// What the person confirms: the exact machine the create asks for.
     struct Machine: Equatable, Sendable {
         var name: String?
-        var cpu: Int
-        var memoryMB: Int
-        var diskMB: Int
+        var cpu: Int, memoryMB: Int
+        /// `sizeShown` is false for the legacy create, whose size the plan picks: the person sees no size.
+        var diskMB: Int, sizeShown = true
+        /// The agent chat (acpmux session) that asked; its card goes when that chat does.
+        var askedBy: String?
     }
 
     enum Prompt: Equatable {
@@ -32,8 +35,28 @@ struct CloudMachineCreateFlow {
         case agentRequest(Machine)
         /// The backend holds the create for the person's approval.
         case approval(request: String, Machine)
+        /// The plan cannot create a machine: one upgrade card, never a create confirm.
+        case upgrade(Upgrade)
     }
 
+    /// Why a create needs a plan upgrade.
+    struct Upgrade: Equatable, Sendable {
+        typealias Reason = CloudUpgradeReason
+        var reason: Reason
+    }
+
+    /// Whether the plan lets a create go out.
+    enum Gate: Equatable { case allowed, upgrade(Upgrade) }
+
+    /// The plan gate from the last known limits; unknown limits leave the decision to the server.
+    static func gate(_ limits: CloudMachineLimits?) -> Gate {
+        guard let limits else { return .allowed }
+        if limits.maxActiveVms == 0 || limits.planId?.lowercased() == "free" { return .upgrade(Upgrade(reason: .freePlan)) }
+        if let max = limits.maxActiveVms, limits.activeVmCount >= max { return .upgrade(Upgrade(reason: .atLimit(max))) }
+        return .allowed
+    }
+
+    // app-type-allow: an existing enum that gains one case (upgradeRequired)
     enum Failure: Error, Equatable {
         /// The person declined the confirmation; nothing was created.
         case declined
@@ -42,6 +65,8 @@ struct CloudMachineCreateFlow {
         case stillPending(request: String)
         /// A pending answer without its request id (a protocol break).
         case noApprovalRequest
+        /// The plan cannot create a machine; the upgrade card was shown and nothing was created.
+        case upgradeRequired
     }
 
     var run: CloudAppOp
@@ -56,24 +81,24 @@ struct CloudMachineCreateFlow {
     /// Same-key calls after the approval before ``Failure/stillPending``.
     var retries = 8
 
-    /// The default machine size (the stub plan's smallest; the backend
-    /// checks the plan).
-    static let defaultMachine = Machine(name: nil, cpu: 2, memoryMB: 4096, diskMB: 16384)
+    /// The default machine named `name` (trimmed; empty is none), in the stub plan's smallest
+    /// size (the backend checks the plan); `sizeShown` false when the plan picks the size.
+    static func named(_ name: String?, sizeShown: Bool = true, askedBy: String? = nil) -> Machine {
+        Machine(name: name.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 }, cpu: 2, memoryMB: 4096, diskMB: 16384, sizeShown: sizeShown, askedBy: askedBy)
+    }
 
     /// Creates a machine; `startedByPerson` is true for the person's own
     /// gesture in this app (click, menu, palette, key). Returns the machine
-    /// record (contract 1.2).
-    func create(name: String?, startedByPerson: Bool) async throws -> JSONValue {
-        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        var machine = Self.defaultMachine
-        machine.name = trimmed?.isEmpty == false ? trimmed : nil
-        var confirmed = false
-        if !startedByPerson {
-            guard await confirm(.agentRequest(machine)) else { throw Failure.declined }
-            confirmed = true
+    /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
+    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
+        if case .upgrade(let need) = gate {
+            _ = await confirm(.upgrade(need))
+            throw Failure.upgradeRequired
         }
-        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)),
-                                                          "disk_mb": .number(Double(machine.diskMB))])]
+        let machine = Self.named(name, askedBy: askedBy)
+        var confirmed = !startedByPerson
+        if confirmed { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
+        var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
         let key = newKey()
         var approved: String?
@@ -106,6 +131,25 @@ struct CloudMachineCreateFlow {
         throw Failure.stillPending(request: approved ?? "")
     }
 
+    /// The legacy `/api/vm` create (the default link). A plan that cannot create (`gate`, or the
+    /// server's 402) shows one upgrade card and sends nothing. Otherwise a create no person started
+    /// goes out at once; only the opt-in `askFirst` ("ask before creating", default off) asks first,
+    /// and a no sends nothing. The plan picks its size, so none shows.
+    static func legacy<T>(name: String?, startedByPerson: Bool, askedBy: String? = nil, askFirst: Bool = false, gate: @MainActor () -> Gate = { .allowed },
+                          confirm: @MainActor (Prompt) async -> Bool, create: @MainActor () async throws -> T) async throws -> T {
+        if case .upgrade(let need) = gate() {
+            _ = await confirm(.upgrade(need))
+            throw Failure.upgradeRequired
+        }
+        if !startedByPerson, askFirst { guard await confirm(.agentRequest(named(name, sizeShown: false, askedBy: askedBy))) else { throw Failure.declined } }
+        do {
+            return try await create()
+        } catch CloudAPIError.http(let status, _, _) where status == 402 {
+            _ = await confirm(.upgrade(Upgrade(reason: .server)))
+            throw Failure.upgradeRequired
+        }
+    }
+
     /// 1, 2, 4 … 8 s between the same-key retries after the approval.
     static func backoff(_ attempt: Int) -> Duration { .seconds(min(8, 1 << min(max(attempt - 1, 0), 3))) }
 }
@@ -116,6 +160,7 @@ extension CloudMachineCreateFlow.Failure: CustomStringConvertible {
         case .declined: "declined"
         case .stillPending: CloudStrings.createStillPending
         case .noApprovalRequest: CloudStrings.createApproveInFeed
+        case .upgradeRequired: CloudStrings.upgradeRequired
         }
     }
 }

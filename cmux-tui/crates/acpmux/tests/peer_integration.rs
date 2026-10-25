@@ -240,6 +240,52 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     assert_eq!(st["peers"][0]["connected"], true);
 }
 
+/// An agent on A reports to a chat on B through A's peer link (`acpmux send b/chat` in an acpmux
+/// session): B records it as that agent's message. B sees neither A's session nor its caller
+/// proof, so A names the sender; the person's prompt through A names no one (claude-sr2,
+/// 2026-10-24: every remote lane's report read as the person's own words).
+#[tokio::test]
+async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_daemon() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "named").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "coordinator"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let lane = ca.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "codex-lane"}}})).await.unwrap();
+    let lane_id = lane["sessionId"].as_str().unwrap().to_owned();
+
+    // The agent in `codex-lane` runs `acpmux send`: its caller token proves the session to A.
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection(a.clone(), in_rx, out_tx));
+    let mut agent = C { tx: in_tx, rx: out_rx, next: 0 };
+    let token = acpmux::hub::person::caller_token(&lane_id);
+    let caller = json!({"callerSession": {"sessionId": lane_id, "token": token}});
+    agent
+        .call(method::INITIALIZE, json!({"protocolVersion": 1, "_meta": {"acpmux": caller}}))
+        .await
+        .unwrap();
+    let report = |id: &str| json!({"sessionId": "b/coordinator", "prompt": [{"type": "text", "text": id}], "_meta": {"acpmux": {"promptId": id}}});
+    agent.call(method::SESSION_PROMPT, report("from-lane")).await.unwrap();
+    ca.call(method::SESSION_PROMPT, report("from-person")).await.unwrap();
+
+    let page = cb
+        .call("_acpmux/events", json!({"sessionId": remote_id, "kinds": ["user_message"]}))
+        .await
+        .unwrap();
+    let messages: Vec<&Value> =
+        page["events"].as_array().unwrap().iter().map(|e| &e["msg"]).collect();
+    let by_id = |id: &str| *messages.iter().find(|m| m["promptId"] == id).expect(id);
+    let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": "codex-lane", "to": remote_id});
+    assert_eq!(by_id("from-lane").pointer("/_meta/provenance"), Some(&stamped), "{messages:?}");
+    assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
+}
+
 /// Two daemons peered both ways (a real pair on 10-14 grew names
 /// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
 /// sessions to a peer, both in the watch snapshot and in later changes, so a
@@ -565,6 +611,7 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
         codex_config: root.join("home").join("config.toml"),
         record: root.join("home").join("trust.json"),
         agent_home: None,
+        cmux_worktrees: None,
     }));
     let (port, peer_token) = listen_with_peer_token(b.clone(), "trust").await;
     let mut cb = client(b.clone()).await;
@@ -601,6 +648,133 @@ async fn an_app_prompt_forwarded_by_a_peer_waits_for_the_owning_daemons_trust() 
     // Trusted on B (B's own user answers): A's pane prompt goes.
     cb.call("acp.trust.set", json!({"cwd": work, "level": "trusted"})).await.unwrap();
     let r = app.call(method::SESSION_PROMPT, prompt("app-after-trust")).await;
+    assert!(r.is_ok(), "{r:?}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A TCP relay in front of `port` that keeps every byte the server sends:
+/// a WebSocket server's frames are not masked, so B's replies to A read as
+/// text there.
+async fn recording_relay(port: u16) -> (u16, Arc<std::sync::Mutex<Vec<u8>>>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_port = l.local_addr().unwrap().port();
+    let kept = seen.clone();
+    tokio::spawn(async move {
+        while let Ok((client, _)) = l.accept().await {
+            let Ok(server) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else {
+                continue;
+            };
+            let (mut cr, mut cw) = client.into_split();
+            let (mut sr, mut sw) = server.into_split();
+            let kept = kept.clone();
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 64 * 1024];
+                while let Ok(n) = sr.read(&mut buf).await {
+                    if n == 0 {
+                        break;
+                    }
+                    kept.lock().unwrap().extend_from_slice(&buf[..n]);
+                    if cw.write_all(&buf[..n]).await.is_err() {
+                        break;
+                    }
+                }
+            });
+            tokio::spawn(async move {
+                let _ = tokio::io::copy(&mut cr, &mut sw).await;
+            });
+        }
+    });
+    (relay_port, seen)
+}
+
+/// The pane's Trust for a chat on a peer (Leo, 2026-10-21: only `cmux setup
+/// trust` on the peer cleared it). The folder is the peer's, so A's app sends
+/// `acp.trust.set` for it and A forwards it without looking for the folder on
+/// its own disk: B checks the folder itself (one B lacks is refused by B) and
+/// records the answer, and the pane's prompt then goes. A's Web client still
+/// cannot answer, and a set for no peer's session is still checked on A.
+#[tokio::test]
+async fn an_app_trust_answer_for_a_peers_folder_is_checked_and_recorded_by_the_peer() {
+    let root = std::env::temp_dir().join(format!("api-tp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("work")).unwrap();
+    std::fs::create_dir_all(root.join("home")).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let work = root.join("work");
+    let record = root.join("home").join("trust.json");
+    let b = hub(config(PermissionPolicy::ApproveAll)).await;
+    b.set_trust_gate(Some(acpmux::trust::Paths {
+        claude_json: root.join("home").join(".claude.json"),
+        codex_config: root.join("home").join("config.toml"),
+        record: record.clone(),
+        agent_home: None,
+        cmux_worktrees: None,
+    }));
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "trust-set").await;
+    let (relay, from_b) = recording_relay(port).await;
+    let mut cb = client(b.clone()).await;
+    cb.call(
+        method::SESSION_NEW,
+        json!({"cwd": work, "mcpServers": [], "_meta": {"acpmux": {"name": "t2"}}}),
+    )
+    .await
+    .unwrap();
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{relay}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let connect = |origin: acpmux::server::Origin| {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(acpmux::server::serve_connection_with(a.clone(), in_rx, out_tx, origin));
+        C { tx: in_tx, rx: out_rx, next: 0 }
+    };
+    let mut app = connect(acpmux::server::Origin::LocalApp);
+    let mut web = connect(acpmux::server::Origin::Web);
+    let set = |cwd: &std::path::Path, session: Option<&str>| {
+        let mut p = json!({"cwd": cwd, "level": "trusted"});
+        if let Some(s) = session {
+            p["sessionId"] = json!(s);
+        }
+        p
+    };
+    let refused_by_b =
+        || String::from_utf8_lossy(&from_b.lock().unwrap()).contains("cwd is refused");
+
+    // A folder that is not on this disk, for the chat on B: A passes it on, and B, which lacks
+    // it too, refuses it.
+    let elsewhere = root.join("only-on-the-peer");
+    let err = app.call("acp.trust.set", set(&elsewhere, Some("b/t2"))).await.unwrap_err();
+    assert!(err.starts_with("cwd is refused"), "{err}");
+    assert!(refused_by_b(), "A refused the peer's folder itself instead of forwarding it");
+    assert!(!record.exists(), "a folder B lacks was recorded");
+
+    // A Web client of A answers nothing, whatever the folder.
+    for cwd in [&work, &elsewhere] {
+        let err = web.call("acp.trust.set", set(cwd, Some("b/t2"))).await.unwrap_err();
+        assert!(err.starts_with("trust.remote"), "{err}");
+    }
+    assert!(!record.exists(), "a Web client's answer was recorded");
+
+    // With no peer's session named, A still checks the folder on its own disk.
+    for session in [None, Some("no-such-chat")] {
+        let err = app.call("acp.trust.set", set(&elsewhere, session)).await.unwrap_err();
+        assert!(err.starts_with("cwd is refused"), "{err}");
+    }
+
+    // B's folder: forwarded, recorded on B, and the pane's prompt goes.
+    let prompt =
+        |text: &str| json!({"sessionId": "b/t2", "prompt": [{"type": "text", "text": text}]});
+    let err = app.call(method::SESSION_PROMPT, prompt("before-trust")).await.unwrap_err();
+    assert!(err.starts_with("trust.pending"), "{err}");
+    let ok = app.call("acp.trust.set", set(&work, Some("b/t2"))).await.unwrap();
+    assert_eq!(ok["peer"], "b", "{ok}");
+    assert_eq!(ok["level"], "trusted", "{ok}");
+    let on_b = cb.call("acp.trust.get", json!({"cwd": work})).await.unwrap();
+    assert_eq!(on_b["level"], "trusted", "{on_b}");
+    let r = app.call(method::SESSION_PROMPT, prompt("after-trust")).await;
     assert!(r.is_ok(), "{r:?}");
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -871,7 +1045,12 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
     let page = page.unwrap();
     let events = page["events"].as_array().unwrap();
     let seq_of = |kind: &str| events.iter().find(|e| e["kind"] == kind).unwrap()["seq"].clone();
-    let (prompt_seq, reply_seq) = (seq_of("user_message"), seq_of("turn_result"));
+    let prompt_seq = seq_of("user_message");
+    // Neither a prompt nor an answer (a turn's `turn_result`), which a Pin also marks.
+    let other_seq =
+        events.iter().find(|e| e["kind"] != "user_message" && e["kind"] != "turn_result").unwrap()
+            ["seq"]
+            .clone();
 
     let a = hub(config(PermissionPolicy::ApproveAll)).await;
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
@@ -881,7 +1060,7 @@ async fn a_peer_sessions_bookmarks_are_kept_by_the_daemon_that_owns_it() {
     let refused = ca
         .call(
             "_acpmux/bookmark_set",
-            json!({"sessionId": remote_id, "seq": reply_seq, "bookmarked": true}),
+            json!({"sessionId": remote_id, "seq": other_seq, "bookmarked": true}),
         )
         .await;
     assert!(refused.as_ref().is_err_and(|e| e.contains("not a prompt")), "{refused:?}");
@@ -1097,11 +1276,133 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// No message on a peer link is larger than one frame every acpmux reads (16 MiB). At
+/// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
+/// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
+/// 33 MB prompt pushed over the link fails alone, with an error; a 60 MB history comes in a page
+/// that fits, and a record too large for any message comes as a stub; the link never drops.
+#[tokio::test]
+async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
+    use acpmux::store::EventRecord;
+    let dir = std::env::temp_dir().join(format!("acpmux-peer-frame-{}", uuid::Uuid::now_v7()));
+    let mut cfg = config(PermissionPolicy::ApproveAll);
+    cfg.store.mode = StoreMode::Local;
+    cfg.store.segment_bytes = 64 * 1024 * 1024;
+
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 20 MB, written straight to its store:
+    // no hub runs the chat before B, so no other record lands after them.
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let id = uuid::Uuid::now_v7().to_string();
+    let meta: acpmux::store::SessionMeta = serde_json::from_value(json!({
+        "schema": acpmux::store::META_SCHEMA, "id": id, "name": "big", "harness": "fake",
+        "cwd": std::env::temp_dir(), "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let mut seq = 0;
+    let mut output = |bytes: usize| {
+        seq += 1;
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1",
+            "update": {"sessionUpdate": "tool_call_update", "toolCallId": format!("call-{seq}"),
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "x".repeat(bytes)}}]}}});
+        let rec = EventRecord {
+            seq,
+            at: seq,
+            dir: "in".into(),
+            kind: "tool_call_update".into(),
+            msg,
+            host_seq: None,
+        };
+        store.append(&id, &rec).unwrap();
+    };
+    for _ in 0..40 {
+        output(1024 * 1024);
+    }
+    output(20 * 1024 * 1024);
+    let last = seq;
+    let b = Hub::new(cfg.clone(), store);
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "frame").await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+
+    // A 33 MB prompt for B's chat: refused with an error, never sent as one frame.
+    let huge = "y".repeat(33 * 1024 * 1024);
+    let refused = ca
+        .call(
+            method::SESSION_PROMPT,
+            json!({"sessionId": "b/big", "prompt": [{"type": "text", "text": huge}]}),
+        )
+        .await
+        .expect_err("a 33 MB prompt went over the peer link");
+    assert!(refused.contains("too large"), "{refused}");
+
+    // The whole history, asked with no maxBytes: one page that fits in a frame, newest last.
+    let att =
+        ca.call(method::MUX_ATTACH, json!({"session": "b/big", "limit": 5000})).await.unwrap();
+    let wire = serde_json::to_string(&att).unwrap().len();
+    assert!(wire < 16 * 1024 * 1024, "the history page was {} MiB", wire >> 20);
+    assert_eq!(att["peer"], "b");
+    assert_eq!(att["hasMore"], true, "60 MB of history came in one page");
+    let events = att["events"].as_array().unwrap();
+    assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
+    // The 20 MB record, too large for any message, is a stub that says what it left out.
+    let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
+    assert!(omitted["bytes"].as_u64().unwrap() > 20 * 1024 * 1024, "{omitted}");
+
+    // A live update too large for a frame: B leaves it out of A's link and says so, and A tells
+    // its client reading that chat to read it again.
+    let mut cb = client(b.clone()).await;
+    let live = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "live"}}})).await.unwrap();
+    let live = live["sessionId"].as_str().unwrap().to_owned();
+    ca.call(method::MUX_ATTACH, json!({"session": "b/live", "limit": 1})).await.unwrap();
+    cb.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+    )
+    .await
+    .unwrap();
+    ca.wait("_acpmux/lagged", |_| true).await;
+
+    // The link held through all of it: no reconnect, and B still answers.
+    let peer = &a.peers()[0];
+    assert_eq!(peer["connected"], true, "{peer}");
+    assert!(peer["error"].is_null(), "the peer link dropped: {peer}");
+    let page = ca
+        .call(
+            method::MUX_EVENTS,
+            json!({"session": "b/big", "beforeSeq": last, "limit": 2, "maxBytes": 4 << 20}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page["events"].as_array().unwrap().len(), 2, "{}", page["hasMore"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What a lying peer (`lying_peer`) says: `instance` is the daemon run it
+/// names at its handshake (null: a build that names none), `sessions` what
+/// it lists on `_acpmux/watch`, `pending` the `_acpmux/permission_pending`
+/// it sends after that, `detail` any session's `_acpmux/info` and the
+/// `session` of its `_acpmux/attach`, `events` the records both its
+/// `_acpmux/attach` and `_acpmux/events` answer with, and `live` the
+/// `_acpmux/event` records it sends after an attach.
+#[derive(Clone, Default)]
+struct Lying {
+    instance: Value,
+    sessions: Vec<Value>,
+    pending: Vec<Value>,
+    detail: Value,
+    events: Vec<Value>,
+    live: Vec<Value>,
+}
+
 /// A peer daemon that says what it likes (`hub/person.rs` (c)): a WebSocket
-/// server that answers `initialize` with `instance` as its daemon run,
-/// lists `sessions` on `_acpmux/watch`, then sends each of `pending` as
-/// `_acpmux/permission_pending`. Returns its port.
-async fn lying_peer(instance: String, sessions: Vec<Value>, pending: Vec<Value>) -> u16 {
+/// server that answers as `says` has it. Returns its port.
+async fn lying_peer(says: Lying) -> u16 {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as Ws;
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1109,8 +1410,7 @@ async fn lying_peer(instance: String, sessions: Vec<Value>, pending: Vec<Value>)
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
-            let (instance, sessions, pending) =
-                (instance.clone(), sessions.clone(), pending.clone());
+            let says = says.clone();
             tokio::spawn(async move {
                 while let Some(Ok(Ws::Text(text))) = ws.next().await {
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
@@ -1119,23 +1419,31 @@ async fn lying_peer(instance: String, sessions: Vec<Value>, pending: Vec<Value>)
                     let result = match m.as_str() {
                         method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
                             "version": "0", "build": "lying", "origin": "peer",
-                            "personInstance": instance}}}),
-                        method::MUX_WATCH => json!({"sessions": sessions}),
+                            "personInstance": says.instance}}}),
+                        method::MUX_WATCH => json!({"sessions": says.sessions}),
+                        method::MUX_INFO => says.detail.clone(),
+                        method::MUX_ATTACH => json!({"session": says.detail,
+                            "events": says.events, "hasMore": false}),
+                        method::MUX_EVENTS => json!({"events": says.events, "hasMore": false}),
                         _ => json!({}),
                     };
                     let reply = Message::ok(id, result).to_line();
                     if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
                         return;
                     }
+                    let (notes, kind) = match m.as_str() {
+                        method::MUX_WATCH => (&says.pending, method::MUX_PERMISSION_PENDING),
+                        method::MUX_ATTACH => (&says.live, method::MUX_EVENT),
+                        _ => continue,
+                    };
                     if m == method::MUX_WATCH {
                         // After this daemon took the session list in.
                         tokio::time::sleep(Duration::from_millis(500)).await;
-                        for p in &pending {
-                            let note =
-                                Message::notification(method::MUX_PERMISSION_PENDING, p.clone());
-                            let line = note.to_line().trim_end().to_owned();
-                            let _ = ws.send(Ws::Text(line.into())).await;
-                        }
+                    }
+                    for p in notes {
+                        let note = Message::notification(kind, p.clone());
+                        let line = note.to_line().trim_end().to_owned();
+                        let _ = ws.send(Ws::Text(line.into())).await;
                     }
                 }
             });
@@ -1174,7 +1482,8 @@ async fn pendings_through_a_lying_peer(
         json!({"sessionId": "far-1", "name": "far"}),
         json!({"sessionId": own, "name": "mine"}),
     ];
-    let port = lying_peer("l-run".to_owned(), sessions, pending).await;
+    let says = Lying { instance: json!("l-run"), sessions, pending, ..Lying::default() };
+    let port = lying_peer(says).await;
     let mut watcher = plain(a.clone()).await;
     watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
     a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
@@ -1229,6 +1538,225 @@ async fn peer_pending_legit_is_relayed() {
     assert_eq!(got[0]["decisionNonce"], "n-1", "{got:?}");
     assert_eq!(got[0]["peer"], "l", "{got:?}");
     assert_eq!(got[0]["via"], "peer", "{got:?}");
+}
+
+/// An ask as a peer's `_acpmux/event` record carries it: a
+/// `permission_request` whose `msg` names the daemon run that asks.
+fn ask_record(session: &str, permission: &str, instance: &str, seq: u64) -> Value {
+    let mut msg = peer_prompt(session, permission, instance);
+    msg.as_object_mut().unwrap().remove("sessionId");
+    json!({"sessionId": session, "seq": seq, "at": 1, "dir": "mux",
+           "kind": "permission_request", "msg": msg})
+}
+
+/// What A answers through the lying peer `l` for its session `far-1`.
+struct Read {
+    info: Value,
+    attach: Value,
+    events: Value,
+}
+
+/// A's `_acpmux/info`, `_acpmux/attach` and `_acpmux/events` for the lying
+/// peer `l`'s session `far-1`, whose detail carries one pending ask
+/// (`asked`) and whose log holds that ask's record, its answer and one agent
+/// message: `runs` gets A's daemon run and names the run the peer claims at
+/// its handshake (null: none) and the run the ask carries. Every read
+/// answers: the watch rule drops asks, never a session (`Hub::peer_ask_counts`).
+async fn detail_through_a_lying_peer(runs: impl FnOnce(&str) -> (Value, String)) -> Read {
+    detail_through_a_lying_peer_beside(None, runs).await
+}
+
+/// `detail_through_a_lying_peer`, with a second peer `m` connected first
+/// when `other` names the daemon run `m` claims at its handshake.
+async fn detail_through_a_lying_peer_beside(
+    other: Option<&str>,
+    runs: impl FnOnce(&str) -> (Value, String),
+) -> Read {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    if let Some(other) = other {
+        let says = Lying {
+            instance: json!(other),
+            sessions: vec![json!({"sessionId": "near-1", "name": "near"})],
+            ..Lying::default()
+        };
+        let port = lying_peer(says).await;
+        a.add_peer("m", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+            .await
+            .unwrap();
+    }
+    let (instance, asks_in) = runs(a.person.instance());
+    let says = Lying {
+        instance,
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        detail: json!({"sessionId": "far-1", "name": "far",
+                       "pending": [peer_prompt("far-1", "asked", &asks_in)]}),
+        events: vec![
+            ask_record("far-1", "asked", &asks_in, 1),
+            json!({"sessionId": "far-1", "seq": 2, "at": 1, "dir": "mux",
+                   "kind": "permission_decision",
+                   "msg": {"permissionId": "asked", "outcome": {"outcome": "selected", "optionId": "yes"}}}),
+            json!({"sessionId": "far-1", "seq": 3, "at": 1, "dir": "mux",
+                   "kind": "turn_result", "msg": {}}),
+        ],
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let info = ca.call(method::MUX_INFO, json!({"sessionId": "far-1"})).await;
+    let attach = ca.call(method::MUX_ATTACH, json!({"sessionId": "far-1", "limit": 0})).await;
+    let events = ca.call(method::MUX_EVENTS, json!({"sessionId": "far-1"})).await;
+    Read { info: info.unwrap(), attach: attach.unwrap(), events: events.unwrap() }
+}
+
+/// The kinds of `records`, in order.
+fn kinds(records: &Value) -> Vec<&str> {
+    records.as_array().unwrap().iter().map(|r| r["kind"].as_str().unwrap()).collect()
+}
+
+/// The session still reads, without its ask: no pending entry and no
+/// `permission_request` record, the agent's other records kept.
+fn assert_asks_stripped(read: &Read) {
+    let Read { attach, events, .. } = read;
+    assert_pending_stripped(read);
+    assert_eq!(kinds(&attach["events"]), ["permission_decision", "turn_result"], "{attach}");
+    assert_eq!(kinds(&events["events"]), ["permission_decision", "turn_result"], "{events}");
+}
+
+/// The session reads with no pending entry: the strict rule.
+fn assert_pending_stripped(read: &Read) {
+    let Read { info, attach, .. } = read;
+    assert_eq!(info["peer"], "l", "{info}");
+    assert_eq!(info["sessionId"], "far-1", "{info}");
+    assert_eq!(info["pending"], json!([]), "{info}");
+    assert_eq!(attach["session"]["sessionId"], "far-1", "{attach}");
+    assert_eq!(attach["session"]["pending"], json!([]), "{attach}");
+}
+
+/// The ask stays in the log as history, in the run it names, with no nonce:
+/// it draws its receipt, and nothing can answer it or prove an allow for it.
+fn assert_ask_kept_as_history(read: &Read, run: &str) {
+    let Read { attach, events, .. } = read;
+    for page in [attach, events] {
+        let kept = ["permission_request", "permission_decision", "turn_result"];
+        assert_eq!(kinds(&page["events"]), kept, "{page}");
+        let ask = &page["events"][0]["msg"];
+        assert_eq!(ask["permissionId"], "asked", "{page}");
+        assert_eq!(ask["personInstance"], run, "{page}");
+        assert!(ask.get("decisionNonce").is_none(), "{page}");
+    }
+}
+
+/// A peer's session whose detail and log carry an ask from an older run of
+/// the peer (it restarted since): the pending ask is dropped, by the rule the
+/// watch applies to the peer's `_acpmux/permission_pending` (`hub/peers.rs`),
+/// while the log keeps the ask, without its nonce, so the chat still shows
+/// what was asked and answered.
+#[tokio::test]
+async fn peer_detail_keeps_an_older_runs_ask_as_history_without_its_nonce() {
+    let read = detail_through_a_lying_peer(|_| (json!("l-run"), "old-run".into())).await;
+    assert_pending_stripped(&read);
+    assert_ask_kept_as_history(&read, "old-run");
+}
+
+/// A peer that names this daemon's run as its own asks nothing here: its
+/// session reads without its asks.
+#[tokio::test]
+async fn peer_detail_from_a_peer_in_this_daemons_run_strips_its_asks() {
+    let read = detail_through_a_lying_peer(|mine| (json!(mine), mine.to_owned())).await;
+    assert_asks_stripped(&read);
+}
+
+/// An ask in a peer's history that names this daemon's run is a forgery of
+/// one of this daemon's prompts: dropped, though the peer names a run of its
+/// own.
+#[tokio::test]
+async fn peer_history_ask_naming_this_daemons_run_is_dropped() {
+    let read = detail_through_a_lying_peer(|mine| (json!("l-run"), mine.to_owned())).await;
+    assert_asks_stripped(&read);
+}
+
+/// An ask in a peer's history that names another connected peer's run is
+/// that peer's to show, never this one's: dropped.
+#[tokio::test]
+async fn peer_history_ask_naming_another_peers_run_is_dropped() {
+    let read =
+        detail_through_a_lying_peer_beside(Some("m-run"), |_| (json!("l-run"), "m-run".into()))
+            .await;
+    assert_asks_stripped(&read);
+}
+
+/// A peer that names no run at its handshake (a build before 6f214158cf1)
+/// still opens its chats; its pending asks are dropped, its history keeps
+/// them without their nonce.
+#[tokio::test]
+async fn peer_detail_from_a_peer_with_no_run_keeps_its_asks_only_as_history() {
+    let read = detail_through_a_lying_peer(|_| (Value::Null, "l-run".into())).await;
+    assert_pending_stripped(&read);
+    assert_ask_kept_as_history(&read, "l-run");
+}
+
+/// A peer's own session in its own run forwards whole, its ask included.
+#[tokio::test]
+async fn peer_detail_in_the_peers_own_run_forwards() {
+    let Read { info, attach, events } =
+        detail_through_a_lying_peer(|_| (json!("l-run"), "l-run".into())).await;
+    assert_eq!(info["peer"], "l", "{info}");
+    assert_eq!(info["pending"][0]["permissionId"], "asked", "{info}");
+    assert_eq!(info["pending"][0]["personInstance"], "l-run", "{info}");
+    assert_eq!(attach["session"]["pending"][0]["permissionId"], "asked", "{attach}");
+    let whole = ["permission_request", "permission_decision", "turn_result"];
+    assert_eq!(kinds(&attach["events"]), whole, "{attach}");
+    assert_eq!(attach["events"][0]["msg"]["personInstance"], "l-run", "{attach}");
+    assert_eq!(attach["events"][0]["msg"]["decisionNonce"], "n-1", "{attach}");
+    assert_eq!(kinds(&events["events"]), whole, "{events}");
+}
+
+/// A live ask a peer sends for its attached session in another daemon run
+/// never reaches the client, as an event or as a pending prompt; the next
+/// ask, in the peer's own run, does.
+#[tokio::test]
+async fn peer_live_ask_from_another_run_never_reaches_an_attached_client() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        detail: json!({"sessionId": "far-1", "name": "far", "pending": []}),
+        live: vec![
+            ask_record("far-1", "stale", "old-run", 3),
+            ask_record("far-1", "fresh", "l-run", 4),
+        ],
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    ca.call(method::MUX_ATTACH, json!({"sessionId": "far-1", "limit": 0})).await.unwrap();
+    let mut asks = Vec::new();
+    loop {
+        let line = tokio::time::timeout(Duration::from_secs(20), ca.rx.recv())
+            .await
+            .expect("timeout")
+            .expect("closed");
+        let Message::Notification { method: m, params } = Message::parse(&line).unwrap() else {
+            continue;
+        };
+        let p = params.unwrap_or(Value::Null);
+        let permission = match m.as_str() {
+            method::MUX_PERMISSION_PENDING => p["permissionId"].clone(),
+            method::MUX_EVENT => p["msg"]["permissionId"].clone(),
+            _ => continue,
+        };
+        asks.push((m.clone(), permission.clone()));
+        if m == method::MUX_PERMISSION_PENDING && permission == "fresh" {
+            break;
+        }
+    }
+    assert!(asks.iter().all(|(_, p)| p == "fresh"), "{asks:?}");
 }
 
 /// A fake token, assembled so no file holds one.
@@ -1513,4 +2041,206 @@ async fn a_legacy_peer_that_asks_back_cannot_loop_models() {
     let again = ca.call("_acpmux/models", json!({})).await.unwrap();
     assert_eq!(again.get("peersOmitted"), None, "{again}");
     assert_eq!(a.models_fanouts.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+/// `new --host auto -n NAME` (`cli::place::resolve`): a session of that name
+/// already running, here or on a peer, is used only with --reuse, as for
+/// `new -n`; without it the launch says where it runs and makes no second one,
+/// and a name on two machines is left to --host.
+#[tokio::test]
+async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer() {
+    use acpmux::cli::place::resolve;
+    let named = |n: &str| json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": n}}});
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "auto-name").await;
+    let mut cb = client(b.clone()).await;
+    cb.call(method::SESSION_NEW, named("far")).await.unwrap();
+    cb.call(method::SESSION_NEW, named("both")).await.unwrap();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call(method::SESSION_NEW, named("near")).await.unwrap();
+    ca.call(method::SESSION_NEW, named("both")).await.unwrap();
+    // The CLI's own client, on A's unix socket (short: sun_path is ~104 bytes).
+    let dir = std::path::PathBuf::from(format!("/tmp/acpmux-auto-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sock = dir.join("a.sock");
+    let l = acpmux::server::bind_unix(&sock).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
+    let cli = acpmux::client::Client::connect(&sock).await.unwrap();
+
+    let here = resolve(&cli, "agent", Some("near"), false).await.unwrap_err().to_string();
+    assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
+    assert_eq!(resolve(&cli, "agent", Some("near"), true).await.unwrap(), None);
+    let there = resolve(&cli, "agent", Some("far"), false).await.unwrap_err().to_string();
+    assert!(there.contains("already runs on b"), "{there}");
+    assert_eq!(resolve(&cli, "agent", Some("far"), true).await.unwrap().as_deref(), Some("b"));
+    // On two machines: not guessed at, even with --reuse.
+    let two = resolve(&cli, "agent", Some("both"), true).await.unwrap_err().to_string();
+    assert!(two.contains("this machine, b") && two.contains("--host"), "{two}");
+    // A new name goes to the pick (which a busy test machine may refuse).
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false).await {
+        let e = e.to_string();
+        assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `_acpmux/resolve` (`acpmux resolve`): an agent link, as a PR footer carries it, finds its
+/// session by the harness's session id, on this daemon or on a peer, with its metadata; a name
+/// finds a peer's session too; a link no daemon knows says where it looked.
+#[tokio::test]
+async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "resolve").await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "far-one"}}});
+    let far =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let far_info = cb.call(method::MUX_INFO, json!({"session": far})).await.unwrap();
+    let far_agent = far_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "near-one"}}});
+    let near =
+        ca.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let near_info = ca.call(method::MUX_INFO, json!({"session": near})).await.unwrap();
+    let near_agent = near_info["agentSessionId"].as_str().expect("an agent session id").to_owned();
+    let family = near_info["family"].as_str().unwrap_or("fake").to_owned();
+
+    // A local session, from a whole PR footer line.
+    let footer = format!(
+        "Agent session: [here](https://cmux.com/deeplink/agent?harness={family}&session={near_agent})"
+    );
+    let r = ca.call("_acpmux/resolve", json!({"query": footer})).await.unwrap();
+    let s = &r["session"];
+    assert_eq!(s["sessionId"], near, "{r}");
+    assert_eq!(s["name"], "near-one", "{r}");
+    assert_eq!(s["peer"], Value::Null, "{r}");
+    assert_eq!(s["agentSessionId"], near_agent.as_str(), "{r}");
+    assert_eq!(s["cwd"], near_info["cwd"], "{r}");
+    assert!(s["status"].is_string() && s["lane"]["state"].is_string(), "{r}");
+    assert!(s["pullRequests"].is_array(), "{r}");
+    assert!(s["link"].as_str().unwrap().contains(&format!("session={near_agent}")), "{r}");
+    // The stand-in agent numbers its sessions, so B's first has the same harness session id:
+    // both match, this daemon's first when the link names no host.
+    let hosts: Vec<&Value> = r["matches"].as_array().unwrap().iter().map(|m| &m["peer"]).collect();
+    assert_eq!(hosts, [&Value::Null, &json!("b")], "{r}");
+    assert_eq!(far_agent, near_agent, "the stand-in's ids changed; this test assumes they repeat");
+
+    // A peer's session, from the native link the app opens: the host it names ranks first.
+    let native = format!("cmux://agent/{family}/{far_agent}?host=b");
+    let r = ca.call("_acpmux/resolve", json!({"query": native})).await.unwrap();
+    let s = &r["session"];
+    assert_eq!(s["host"], "b", "{r}");
+    assert_eq!(s["peer"], "b", "{r}");
+    assert_eq!(s["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(s["name"], "b/far-one", "{r}");
+    assert_eq!(s["agentSessionId"], far_agent.as_str(), "{r}");
+
+    // By its bare name, from the daemon that only mirrors it.
+    let r = ca.call("_acpmux/resolve", json!({"query": "far-one"})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+
+    // A link no daemon here knows, naming a host that is neither this one nor a peer.
+    let unknown =
+        format!("https://cmux.com/deeplink/agent?harness={family}&session=nope-1&host=elsewhere");
+    let e = ca.call("_acpmux/resolve", json!({"query": unknown})).await.unwrap_err();
+    assert!(e.contains("nope-1") && e.contains("peers (b)") && e.contains("elsewhere"), "{e}");
+    // A link that names no session is refused as a link.
+    let e = ca
+        .call("_acpmux/resolve", json!({"query": "https://cmux.com/deeplink/agent?harness=claude"}))
+        .await
+        .unwrap_err();
+    assert!(e.contains("no session"), "{e}");
+}
+
+/// hq#2509 for `_acpmux/resolve`: a peer's connection reads a resolved session's own words
+/// masked, as it reads them in a session list; the owning daemon's client reads them raw.
+#[tokio::test]
+async fn a_peer_resolves_a_sessions_text_masked() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "secret-resolve"}}});
+    let id =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let text = format!("push with {}", github_token());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    cb.call(method::SESSION_PROMPT, prompt).await.unwrap();
+    let query = json!({"query": "secret-resolve"});
+    let raw = cb.call("_acpmux/resolve", query.clone()).await.unwrap();
+    assert_eq!(raw["session"]["lastPrompt"], text.as_str(), "{raw}");
+
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        b.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Peer,
+    ));
+    let mut peer = C { tx: in_tx, rx: out_rx, next: 0 };
+    let r = peer.call("_acpmux/resolve", query).await.unwrap();
+    let mask = "[GitHub Personal Access Token]";
+    assert!(!r.to_string().contains("ghp_"), "{r}");
+    assert_eq!(r["session"]["lastPrompt"], format!("push with {mask}"), "{r}");
+    assert_eq!(r["matches"][0]["lastMessage"]["text"], format!("echo: push with {mask}"), "{r}");
+}
+
+/// Beads ↔ sessions (`beads.rs`): a bead linked to a peer's session through this daemon (its
+/// `bead:<id>` tag, forwarded to the peer) reaches this daemon's mirror, and resolving the bead
+/// id finds that session with its beads listed; the session's own card lists them too.
+#[tokio::test]
+async fn a_bead_linked_to_a_peers_session_resolves_to_it() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "beads").await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "bead-lane"}}});
+    let far =
+        cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let mut watcher = client(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({})).await.unwrap();
+
+    // Not linked yet: the bead id names no session.
+    let e = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2"})).await.unwrap_err();
+    assert!(e.contains("carrying the bead") && e.contains("cx-ab1.2"), "{e}");
+
+    // `acpmux bead link b/bead-lane cx-ab1.2` is this tag, set through A.
+    let set = json!({"sessionId": "b/bead-lane", "set": {"bead:cx-ab1.2": "1"}});
+    ca.call(method::MUX_TAG, set).await.unwrap();
+    watcher
+        .wait(method::MUX_SESSION_CHANGED, |p| {
+            p["session"]["sessionId"] == far.as_str()
+                && p["session"]["tags"].get("bead:cx-ab1.2").is_some()
+        })
+        .await;
+
+    let r = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2"})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(r["session"]["beads"], json!(["cx-ab1.2"]), "{r}");
+    let r = ca.call("_acpmux/resolve", json!({"query": "b/bead-lane"})).await.unwrap();
+    assert_eq!(r["session"]["beads"], json!(["cx-ab1.2"]), "{r}");
+
+    // A session named like the bead answers a plain lookup; `bead ls` (bead only) still finds
+    // the session carrying it.
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "cx-ab1.2"}}});
+    ca.call(method::SESSION_NEW, new).await.unwrap();
+    let r = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2"})).await.unwrap();
+    assert_eq!(r["session"]["name"], "cx-ab1.2", "{r}");
+    let r = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2", "bead": true})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(r["matches"].as_array().unwrap().len(), 1, "{r}");
 }

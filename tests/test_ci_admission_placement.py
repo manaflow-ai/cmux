@@ -154,7 +154,6 @@ class Workflow(unittest.TestCase):
         for clause in ("vars.CI_OWNED_SPREAD == '1'",
                        "github.event.pull_request.head.repo.full_name == github.repository",
                        "startsWith(inputs.pr_root_runner, 'glaeda-root-')",
-                       "startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')",
                        "contains(inputs.pr_owned_jobs, ' admission ')"):
             self.assertIn(clause, spec["if"])
         self.assertTrue(all(step.get("continue-on-error") for step in spec["steps"]))

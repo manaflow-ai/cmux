@@ -58,7 +58,7 @@ public final class SidebarView: NSView {
     let aboveLine = CALayer()
     let newButton = SidebarIconButton(icon: .actionAdd, label: Strings.newWorkspace)
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
-    /// a press hands it to ``onSearch`` as the palette's anchor. `sidebar.showSearchButton` hides it.
+    /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
@@ -72,6 +72,8 @@ public final class SidebarView: NSView {
     var minimalHiddenBands: (top: Bool, bottom: Bool) = (false, false)
     var accessories: [SidebarAccessorySlot: NSView] = [:]
     let footer = NSView()
+    /// Edit mode's Add Items and Done (`SidebarView+EditItems`); nil out of edit mode.
+    var editBar: SidebarEditBar?
     let updateCardView = SidebarUpdateCardView(), nowPlayingCardView = SidebarNowPlayingCardView(), updatedCardView = SidebarUpdatedCardHost(), noticeCardView = SidebarNoticeCardView()
     /// The card slot's height as the list lays out: springs when a card comes or goes.
     let cardSlotMotion = SidebarCardSlotMotion()
@@ -178,15 +180,8 @@ public final class SidebarView: NSView {
     }
 
     /// The footer's Search button was pressed: the App opens Search (`palette.open`, scope
-    /// `search`) anchored to the given view. Nil leaves the button doing nothing.
+    /// `search`), the same centered palette as Cmd-P. Nil leaves the button doing nothing.
     public var onSearch: ((NSView) -> Void)?
-    /// The Search button while it is on screen (shown, in a window, not inside a collapsed
-    /// sidebar), for Search to open from; nil otherwise, and Search opens over the window.
-    public var searchAnchor: NSView? {
-        let button = searchButton
-        guard button.window != nil, !button.isHiddenOrHasHiddenAncestor, !button.visibleRect.isEmpty else { return nil }
-        return button
-    }
 
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
@@ -225,9 +220,9 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        // Thin, shown only while scrolling (SCROLLBARS-THIN); the list follows
-        // the clip's width when a legacy scroller narrows it.
-        SystemScrollers.follow(scrollView)
+        // The shared thin scroller (the chat's): a 3 pt knob on no track, an
+        // overlay that never narrows the list.
+        SystemScrollers.followThin(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
@@ -328,6 +323,7 @@ public final class SidebarView: NSView {
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
+        layoutEditBar(over: listFrame)
         scrollView.tile()
         syncListSize()
         // Everything above may have moved under a still pointer (cx-3wu5).

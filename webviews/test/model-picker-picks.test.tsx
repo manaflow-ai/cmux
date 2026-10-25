@@ -90,13 +90,22 @@ type Sent = { method: "model" | "harness" | "effort"; value: string };
 
 async function mount(start: {
   harness: string;
-  extra?: { id: string; name: string; family?: string; unavailable?: string; probeFailed?: boolean }[];
+  extra?: {
+    id: string;
+    name: string;
+    family?: string;
+    models?: { id: string; name: string }[];
+    unavailable?: string;
+    probeFailed?: boolean;
+    folder?: { folder: string; state: "enabled" | "needs-enable" | "needs-trust" | "error" };
+  }[];
   /// Completed turns of the shown chat: none (the default) is a chat with no message yet.
   turnCount?: number;
   /// acpmux's session list (the sidebar's Chats).
   sessions?: import("../src/agent-session/acpmux/model").AcpmuxSnapshot["sessions"];
   /// Add harness…: each click is counted.
   onAddAgent?: () => void;
+  onHarnessEnable?: (folder: string, id: string) => void;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -112,7 +121,9 @@ async function mount(start: {
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     }))
-    .concat((start.extra ?? []).map((entry) => ({ family: entry.id, ...entry, models: [] }))) as Snapshot["catalog"];
+    .concat(
+      (start.extra ?? []).map((entry) => ({ family: entry.id, ...entry, models: entry.models ?? [] })),
+    ) as Snapshot["catalog"];
   const sent: Sent[] = [];
   let session = 0;
   function Host() {
@@ -169,6 +180,7 @@ async function mount(start: {
         }}
         showPlan={false}
         {...(start.onAddAgent ? { onAddAgent: start.onAddAgent } : {})}
+        {...(start.onHarnessEnable ? { onHarnessEnable: start.onHarnessEnable } : {})}
       />
     );
   }
@@ -184,13 +196,20 @@ async function mount(start: {
   return { sent, catalog: BUNDLED_MODEL_CATALOG };
 }
 
+/// The full picker, as More models' shortcut opens it (Cmd-Ctrl-M): the composer's model button opens
+/// the compact menu first (Leo 2026-10-20: one model button), and the full picker is reached from it.
+const openFullPicker = () =>
+  dom.window.dispatchEvent(
+    new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+  );
+
 // The model the chip names, in full: its title (the visible name drops the vendor its mark draws).
 const chip = () => host.querySelector('[data-menu="Model"]')?.getAttribute("title") ?? "";
 
 async function openOn(harnessName: string) {
   if (!host.querySelector(".acpmux-mp"))
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+      openFullPicker();
     });
   const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")];
   const tab = tabs.find((button) => button.title.split(" · ")[0] === harnessName);
@@ -242,7 +261,7 @@ test("before its first message, a row of another provider starts that provider o
 // Leo 2026-10-13 (cosmic-gray): in a running claude-sr chat, picking a ChatGPT model started a
 // Codex session in the tab, and picking Claude again started a bare `claude` one that was signed
 // out; the chat itself left the sidebar. Once a chat has a message its harness is fixed: the picker
-// lists that harness's models only, and crossing to another is Continue in…, never a pick.
+// lists that harness's models only, and crossing to another is Continue In…, never a pick.
 // Leo 2026-10-19: the menu still drew a rail of that one harness and then offered Add harness…; a
 // started chat's menu is search, its harness's models and More models, as in Claude Code.
 test("a started chat's picker lists only its own harness, and no pick or search leaves it", async () => {
@@ -254,7 +273,7 @@ test("a started chat's picker lists only its own harness, and no pick or search 
     onAddAgent: () => (added += 1),
   });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
   expect(menu.querySelector(".acpmux-mp-rail-scroll")).toBeNull();
@@ -279,7 +298,7 @@ test("before its first message, the picker's rail lists every installed harness 
   let added = 0;
   await mount({ harness: "codex", onAddAgent: () => (added += 1) });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map(
     (button) => button.title.split(" · ")[0],
@@ -291,6 +310,76 @@ test("before its first message, the picker's rail lists every installed harness 
   expect(add).not.toBeNull();
   await act(async () => add.click());
   expect(added).toBe(1);
+});
+
+test("before its first message, a machine profile is absent from the harness rail", async () => {
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        folder: { folder: "/Users/me/app", state: "enabled" },
+      },
+    ],
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map(
+    (button) => button.title.split(" · ")[0],
+  );
+  expect(tabs).toContain("Claude Code");
+  expect(tabs).toContain("Codex");
+  expect(tabs).not.toContain("Build machine");
+});
+
+test("a non-current folder profile keeps its Enable action outside the harness rail", async () => {
+  const enabled: string[] = [];
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        folder: { folder: "/Users/me/app", state: "needs-enable" },
+      },
+    ],
+    onHarnessEnable: (folder, id) => enabled.push(`${folder}:${id}`),
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  const profile = host.querySelector<HTMLButtonElement>(".acpmux-mp-folder-profiles button");
+  expect(profile?.textContent).toContain("Build machine");
+  expect(host.querySelector(".acpmux-mp-harness[title^='Build machine']")).toBeNull();
+  await act(async () => profile?.click());
+  const enable = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-row")].find(
+    (button) => !button.closest(".acpmux-mp-folder-profiles") && button.textContent?.includes("Enable"),
+  );
+  expect(enable).not.toBeUndefined();
+  await act(async () => enable?.click());
+  expect(enabled).toEqual(["/Users/me/app:machine-profile"]);
+});
+
+test("Starred keeps folder models out of the harness rail", async () => {
+  dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify(["machine-model"]));
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        models: [{ id: "machine-model", name: "Machine model" }],
+        folder: { folder: "/Users/me/app", state: "enabled" },
+      },
+    ],
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-mp-rail-list [aria-label='Starred']")!.click());
+  expect(rows().map((row) => row.dataset.key)).not.toContain("model:machine-model");
 });
 
 // Debug Settings' "Allow switching harness in a started chat" (off by default): on, a started
@@ -496,7 +585,7 @@ test("on a New Tab, GPT-6 Astra from Claude Code starts Codex on GPT-6 Astra", a
 test("each provider lists its curated models first; the rest fold under More models, and search reaches all", async () => {
   await mount({ harness: "claude" });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const names = () => rows().map((row) => row.querySelector(".acpmux-menu-label")!.textContent);
   expect(names()).toEqual(["Fable 5.1", "Opus 5.5", "Sonnet 5.5", "Haiku 5.5"]);
@@ -518,7 +607,7 @@ test("each provider lists its curated models first; the rest fold under More mod
 test("hovering a provider in the rail keeps the list; a click switches it", async () => {
   await mount({ harness: "claude" });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const first = () => rows()[0]?.dataset.key;
   expect(first()).toBe("model:claude-fable-5-1");
@@ -538,7 +627,7 @@ test("hovering a provider in the rail keeps the list; a click switches it", asyn
 test("a typed combo for another provider starts it on that model, then sets its effort", async () => {
   const { sent } = await mount({ harness: "claude" });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
   await act(async () => {
@@ -559,7 +648,7 @@ test("Add harness… shows only where the Harnesses page can open (never in the 
   const { registerHarnessesPage } = await import("../src/agent-session/acpmux/harnesses/harnessesPage");
   await mountNewTab({ harness: "claude" });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   // No pane that can show the page is mounted (the Quick Composer registers none).
   expect(host.querySelector(".acpmux-mp-add-harness")).toBeNull();
@@ -584,7 +673,7 @@ test("Return on a search with no match stays put; an arrow onto Add harness… t
   try {
     await mountNewTab({ harness: "claude" });
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+      openFullPicker();
     });
     const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
     const key = (name: string) =>
@@ -678,7 +767,7 @@ test("the rail lists the harnesses set up here; one acpmux cannot run stays off 
     extra: [{ id: "grok", name: "Grok", unavailable: "grok: command not found" }],
   });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const rail = () => [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((tab) => tab.title);
   expect(rail().some((title) => title.startsWith("Grok"))).toBe(false);
@@ -691,7 +780,7 @@ test("a harness whose model probe alone failed stays on the rail", async () => {
     extra: [{ id: "grok", name: "Grok", unavailable: "model list timed out", probeFailed: true }],
   });
   await act(async () => {
-    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+    openFullPicker();
   });
   const rail = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((tab) => tab.title);
   expect(rail.some((title) => title.startsWith("Grok"))).toBe(true);
@@ -708,4 +797,16 @@ test("a remembered model the harness no longer offers is neither drawn nor asked
   await settle();
   expect(tab.created).toEqual(["claude"]);
   expect(tab.models).toEqual([]);
+});
+
+// A model's ☆ says what a click does (it adds the model to Starred or takes it off) and carries
+// its state as aria-pressed, so the glyph is not the only cue.
+test("a model's star button names its action in a tooltip and its state as pressed", async () => {
+  await mount({ harness: "claude" });
+  await openOn("Codex");
+  const star = () => host.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
+  expect(star().getAttribute("aria-label")).toStartWith("Starred: ");
+  expect([star().title, star().getAttribute("aria-pressed")]).toEqual(["Add to Starred", "false"]);
+  await act(async () => star().click());
+  expect([star().title, star().getAttribute("aria-pressed")]).toEqual(["Remove from Starred", "true"]);
 });

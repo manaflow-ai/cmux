@@ -8,10 +8,12 @@ import { IDEMPOTENCY_TTL_MS, memoryLedgerStorage, TenantLedger } from "../src/li
 const baseline = "7462cb6feaf5930d67d795119fed79a34531697d";
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+// Pass --depth only in an already-shallow checkout; it would make a full clone shallow.
+const shallowDepth = git("rev-parse", "--is-shallow-repository").stdout.toString().trim() === "true" ? ["--depth=1"] : [];
 const read = () => git("show", `${baseline}:workers/cmux-vm/src/limits/ledger.ts`);
 let source = read();
 if (source.exitCode !== 0) {
-  const fetched = git("fetch", "--no-tags", "--depth=1", "origin", baseline);
+  const fetched = git("fetch", "--no-tags", ...shallowDepth, "origin", baseline);
   if (fetched.exitCode !== 0) throw Error("cannot fetch the pinned previous ledger");
   source = read();
 }

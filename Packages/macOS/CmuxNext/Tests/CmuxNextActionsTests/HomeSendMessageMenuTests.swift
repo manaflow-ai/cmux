@@ -4,7 +4,7 @@ import Testing
 
 /// u5402 (Oct 20): "Make sure we can send messages in the iMessage UI via right clicking." The
 /// right-click on a workspace, a tab and an agent chat offers Send Message… (the Chief's chat,
-/// about it); selected text in a terminal or a page offers Send to Chief and Send to…; the
+/// about it); selected text in a terminal or a page offers Send to Chief and Send To…; the
 /// palette and `cmux chat send` (and so MCP) offer Send Message To…. Each row runs its catalog
 /// action through the registry, with the right-clicked object as its target.
 @MainActor

@@ -7,12 +7,16 @@
 //! a pinned column alone on its screen (`pinned-dock-alone-v1`) opens in a new
 //! column right of it instead, in the same commit
 //! ([`lone_pinned_dock_taking_no_tabs`]). A pinned column is never removed,
-//! undocked or moved to another edge either. Closing the whole workspace and
-//! a terminal that exited on its own are not refusals.
+//! undocked or moved to another edge either. Closing the whole workspace (or
+//! its last screen) and a terminal that exited on its own are not refusals;
+//! a tab or pane close that would empty the workspace and close it with the
+//! pinned tab is (the pinned tab of a lone pinned column, `pinned-dock-alone-v1`).
 //!
 //! The rule reads the column's tabs only, never a title or a page name, so
 //! it holds for every client and every path (a resource op, a JSON-lines
-//! command, a layout undo).
+//! command, a layout undo). A batch close (`close-tabs`, `close-tab-group`,
+//! `layout.bulk`, `stash.create`) keeps the rule of the single close it
+//! stands for and refuses the whole set: nothing in it closes.
 
 use super::*;
 use crate::mux::dock_columns::PINNED_COLUMN_CODE;
@@ -29,6 +33,13 @@ pub(crate) struct PinnedColumn {
 /// Every pinned column of `state`, with its tabs.
 pub(crate) fn pinned_columns(state: &State) -> Vec<PinnedColumn> {
     pinned_column_views(state).map(|(column, _)| column).collect()
+}
+
+/// The pinned tab (first tab) of every pinned column of `state`. A close
+/// that picks its own tabs (a `layout.bulk` preset, a Workspace-form stash)
+/// leaves these out, as it leaves out pinned tabs.
+pub(crate) fn pinned_dock_tabs(state: &State) -> HashSet<SurfaceId> {
+    pinned_column_views(state).filter_map(|(column, _)| column.tabs.first().copied()).collect()
 }
 
 fn pinned_column_views(state: &State) -> impl Iterator<Item = (PinnedColumn, bool)> + '_ {
@@ -52,14 +63,26 @@ fn pinned_column_views(state: &State) -> impl Iterator<Item = (PinnedColumn, boo
     })
 }
 
-/// Why a change breaks a pinned column, if it does.
-fn violation(before: &[PinnedColumn], after: &State) -> Option<&'static str> {
+const PINNED_TAB_KEPT: &str =
+    "the pinned tab cannot close, leave its column or lose the first place";
+
+/// Why a change breaks a pinned column, if it does. With
+/// `workspace_close_counts` a workspace the change closed still loses its
+/// pinned tab (a tab or pane close that emptied it); otherwise it is no removal.
+fn violation(
+    before: &[PinnedColumn],
+    after: &State,
+    workspace_close_counts: bool,
+) -> Option<&'static str> {
     if before.is_empty() {
         return None;
     }
     let after_columns = pinned_column_views(after).collect::<Vec<_>>();
     for column in before {
         if !after.workspaces.iter().any(|workspace| workspace.id == column.workspace) {
+            if workspace_close_counts && !column.tabs.is_empty() {
+                return Some(PINNED_TAB_KEPT);
+            }
             continue; // the workspace closed: not a removal
         }
         let Some((now, allow_tabs)) = after_columns
@@ -71,7 +94,7 @@ fn violation(before: &[PinnedColumn], after: &State) -> Option<&'static str> {
         if let Some(first) = column.tabs.first()
             && now.tabs.first() != Some(first)
         {
-            return Some("the pinned tab cannot close, leave its column or lose the first place");
+            return Some(PINNED_TAB_KEPT);
         }
         if !allow_tabs && now.tabs.iter().any(|tab| !column.tabs.contains(tab)) {
             return Some("the pinned column takes no other tab (allow_tabs is off)");
@@ -87,7 +110,22 @@ pub(crate) fn ensure_pinned_columns_kept(
     before: &[PinnedColumn],
     after: &State,
 ) -> anyhow::Result<()> {
-    let Some(reason) = violation(before, after) else {
+    refuse(operation, violation(before, after, false))
+}
+
+/// [`ensure_pinned_columns_kept`] for a tab or pane close: a close that
+/// empties the workspace and so closes it with the pinned tab is refused too
+/// (Home's dock alone on its screen keeps its tab, `pinned-dock-alone-v1`).
+pub(crate) fn ensure_pinned_tabs_not_closed(
+    operation: &str,
+    before: &[PinnedColumn],
+    after: &State,
+) -> anyhow::Result<()> {
+    refuse(operation, violation(before, after, true))
+}
+
+fn refuse(operation: &str, reason: Option<&'static str>) -> anyhow::Result<()> {
+    let Some(reason) = reason else {
         return Ok(());
     };
     Err(ResourceError::operation_failed(
@@ -128,8 +166,9 @@ pub(crate) fn ensure_pane_takes_tabs(
 
 /// The width of the column that opens right of a lone pinned column
 /// (`pinned-dock-alone-v1`): a conversation split from Home's dock and a link
-/// Home opens (`workspace.open_url`) both get it.
-pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 0.5;
+/// Home opens (`workspace.open_url`) both get it. A column width is a share of
+/// the strip right of the dock, so 1.0 fills that space; 0.5 left half of it empty.
+pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 1.0;
 
 /// Whether `pane` is in a pinned column alone on its screen
 /// (`pinned-dock-alone-v1`: Home's dock with nothing beside it).

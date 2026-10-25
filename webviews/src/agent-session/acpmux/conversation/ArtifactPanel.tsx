@@ -3,7 +3,7 @@
 // render frame (RenderCard.tsx), an origin of its own that allows no connection, so a document cannot
 // reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
 // pane on a dev server has no render frame, so there HTML and SVG show their source only.
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useT } from "../i18n";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
@@ -22,6 +22,19 @@ export type SaveDocument = (
   suggestedName: string,
   kind: ArtifactKind,
 ) => Promise<"saved" | "cancelled" | "unavailable">;
+
+/// Below this pane width the side panel covers the whole pane instead of sitting beside the chat
+/// (conversation.css `@media (max-width: 720px)`): the chat's header, and the Inspector's toggle in
+/// it, are under it, so the Inspector steps aside while it is open (App.tsx `covered`).
+export const ARTIFACT_COVERS_PANE = "(max-width: 720px)";
+const subscribeCovers = (change: () => void) => {
+  const query = globalThis.matchMedia?.(ARTIFACT_COVERS_PANE);
+  query?.addEventListener("change", change);
+  return () => query?.removeEventListener("change", change);
+};
+const coversNow = () => globalThis.matchMedia?.(ARTIFACT_COVERS_PANE).matches ?? false;
+/// Whether an open side panel would cover the whole pane at its current width.
+export const useArtifactCoversPane = (): boolean => useSyncExternalStore(subscribeCovers, coversNow, () => false);
 
 export function ArtifactPanel({
   artifact: opened,
@@ -77,6 +90,8 @@ export function ArtifactPanel({
     // oxlint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape closes the panel from its tabs, buttons or a focused frame's edge.
     <aside
       className="acpmux-artifact"
+      // Slides in from the pane's right edge (ui/presence.ts).
+      data-enter="right"
       aria-label={t("artifact.panel")}
       // ui-allow: Escape closes the panel from anywhere inside it
       onKeyDown={(event) => {

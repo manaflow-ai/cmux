@@ -71,6 +71,8 @@ import CmuxNextCompat
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
     private(set) var remoteWire = false
+    /// The current remote chat's host reader, installed from the same wire that carries its ACP.
+    var remoteImageLoader: (@Sendable (String) async throws -> Data)?
     /// A `session/new` took the person's send gesture: the first `session/prompt` on that
     /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
     /// that gesture; on this Mac it needs none but carries one it finds.
@@ -149,6 +151,18 @@ import CmuxNextCompat
         throw AcpmuxStatusClient.Failure.closed
     }
 
+    /// Sends the pane's reply in place on as its chat's cmux agent message (``AgentPaneAgentReply``),
+    /// for a chat on this Mac only; nil refuses every reply. The App wires it to this Mac's daemon.
+    public var sendAgentReply: AgentPaneAgentReply.Send?
+    /// What the socket calls: the ``sendAgentReply`` set now, not the one set when it opened. A
+    /// prewarmed spare opens before its tab wires it, and a provisional tab's rekey rewires it.
+    private var currentAgentReply: AgentPaneAgentReply.Send {
+        { [weak self] reply in
+            guard let send = self?.sendAgentReply else { throw AgentPaneAgentReply.Failure.unavailable }
+            return try await send(reply)
+        }
+    }
+
     /// Keeps the prompts acpmux has not acknowledged across the app's end (``AgentPanePromptJournal``).
     public var promptJournal: AgentPanePromptJournal? = AgentPanePromptJournal.shared
     var promptRelay: AgentPanePromptRelay?
@@ -192,6 +206,12 @@ import CmuxNextCompat
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
+        let wire = connection.remote?.makeWire()
+        if let wire {
+            remoteImageLoader = { path in try await wire.loadRemoteImage(path) }
+        } else {
+            remoteImageLoader = nil
+        }
         if !remoteWire { remoteHomeChosen = [] }
         startCredit.clear()
         pickCredit.clear()
@@ -200,8 +220,9 @@ import CmuxNextCompat
         promptRelay = AgentPanePromptRelay(connection, journal: promptJournal)
         let ids = AcpmuxRequestIds(promptAccepted: promptRelay?.forget)
         requestIds = ids
-        let socket = AcpmuxPaneSocket(request: connection.request, wire: connection.remote?.makeWire(), limits: limits,
-                                      options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids) { [weak self] in
+        let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
+                                      options: permissionOptions, sessions: sessions, decisions: decisions, ids: ids,
+                                      agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
             Task { @MainActor [weak self] in self?.arrived(id) }
         }
@@ -300,14 +321,13 @@ import CmuxNextCompat
     public func close(connection id: Int) {
         guard id == current, let socket else { return }
         socket.close(code: 1000, reason: "", error: nil)
-        self.socket = nil
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
     }
 
     private func arrived(_ id: Int) {
-        guard id == current, socket != nil else { return }
-        pacer.schedule { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
+        guard id == current, let socket else { return }
+        pacer.schedule(urgent: socket.pageWaits) { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
     }
 
     /// Delivers one batch, and says whether it made a call and whether more is waiting.

@@ -149,7 +149,13 @@ def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_co
     selection=acc.wa(0.26 if dark else 0.16) if acc else fg.wa(0.10 if dark else 0.08)
     # Swift: the lower-contrast of pressedFill and selectionFill over bg (pressed, with the neutral accent).
     worst=min([pressed.comp(bg),selection.comp(bg)],key=lambda c: fg.contrast(c))
-    primary=readable(fg,worst,4.5); secondary=muted(primary,bg,0.38,worst,4.5); tertiary=muted(primary,bg,0.55,worst,3.0)
+    primary=readable(fg,worst,4.5)
+    # See-through window: the quieter inks also hold over the tint on the worst desktop for the theme.
+    ink=worst
+    if opacity<1:
+        tint=bg.wa(opacity).comp(WHITE if dark else BLACK)
+        ink=min([worst,tint,pressed.comp(tint),selection.comp(tint)],key=lambda c: primary.contrast(c))
+    secondary=muted(primary,bg,0.38,ink,4.5); tertiary=muted(primary,bg,0.55,ink,3.0)
     status=lambda i: readable(pal[i],bg,3.0)
     hl=acc if acc else status(4)
     best=lambda cs: max(cs,key=lambda c:c.contrast(hl))

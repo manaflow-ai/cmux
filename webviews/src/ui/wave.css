@@ -1,0 +1,31 @@
+/* RUNNING-WAVE (ui/wave.ts): running indicators side by side share one shimmer that sweeps across
+   them, as ChatGPT's "Thinking" glimmers. Each `.acpmux-wave-item` rests dim and brightens as the
+   crest passes; `--wave-index` puts it one step behind the item before it, so the crest travels left
+   to right (top to bottom for rows). The loop runs on one clock (ui/wave.ts: Unix time mod the
+   period), so every item counts from one epoch and only its index offsets it. The delay is pulled
+   back whole periods so it is never positive (no item waits at rest). Opacity only. It stops under
+   Reduce Motion, the motion gate (`data-cmux-motion` off or reduced), static status indicators and
+   a hidden page; a stopped item shows at full strength. */
+:root {
+  --cmux-wave-period: 1.6s;
+  --cmux-wave-step: 120ms;
+}
+@keyframes cmux-wave {
+  0%,
+  45%,
+  100% {
+    opacity: 0.55;
+  }
+  20% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"]):not([data-cmux-motion="reduced"]):not([data-status-indicators="static"]):not(
+      [data-cmux-page-hidden]
+    )
+    .acpmux-wave-item {
+    animation: cmux-wave var(--cmux-wave-period) ease-in-out infinite;
+    animation-delay: calc(var(--wave-index, 0) * var(--cmux-wave-step) - 20 * var(--cmux-wave-period));
+  }
+}

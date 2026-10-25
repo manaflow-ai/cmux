@@ -240,8 +240,12 @@ if [[ $skip_mac == 0 ]]; then
     plans/cmux-next skills mux samples | ssh "$mac_host" "tar -x -C ~/$mac_dir/src"
   # ghostty-next is a submodule: archive it from its own repository.
   [[ -e "$repo/ghostty-next/.git" ]] || git -C "$repo" submodule update --init --depth 1 ghostty-next
-  git -C "$repo/ghostty-next" cat-file -e "$ghostty_sha^{commit}" 2>/dev/null \
-    || git -C "$repo/ghostty-next" fetch --depth 1 origin "$ghostty_sha"
+  if ! git -C "$repo/ghostty-next" cat-file -e "$ghostty_sha^{commit}" 2>/dev/null; then
+    # --depth only in an already-shallow submodule; it would make a full one shallow.
+    depth=()
+    [[ "$(git -C "$repo/ghostty-next" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
+    git -C "$repo/ghostty-next" fetch ${depth[@]+"${depth[@]}"} origin "$ghostty_sha"
+  fi
   git -C "$repo/ghostty-next" archive --format=tar --prefix=ghostty-next/ "$ghostty_sha" \
     | ssh "$mac_host" "tar -x -C ~/$mac_dir/src"
   ssh "$mac_host" "set -e; export PATH=\$HOME/.cargo/bin:\$HOME/.local/bin:\$PATH; d=\$HOME/$mac_dir

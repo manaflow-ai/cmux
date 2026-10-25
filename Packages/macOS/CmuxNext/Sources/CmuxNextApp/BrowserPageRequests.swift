@@ -3,9 +3,13 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import CmuxNextNowPlaying
+import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextRemoteLocalhostService
 
 /// Tabs a page asks for: a link opened in a new tab (Cmd-click, middle
 /// click, `target=_blank` handled as a URL), a popup or `window.open` that
@@ -24,6 +28,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             nowPlaying.follow(services)
             sidebarNowPlaying.follow(sessions: { [weak self] in self?.services.map { s in s.cache.pageRequests.media.sessions(in: s.cache).map { NowPlayingSession(tab: $0.entry.tab.id, media: $0.media) } } ?? [] },
                                      tab: { [weak self] id in self?.services?.cache.browsers.values.first { $0.tab.id == id }?.tab })
+            sidebarNowPlaying.allowsPictureInPicture = { [weak self] in PictureInPictureHandlers.isEnabled(self?.services) }
             // A popup panel's page gets the same rows, acting for its opener's tab.
             services?.popups.hitItems = { [weak self] target, openerKey in self?.hitItems(for: target, tab: openerKey) ?? [] }
             // A popup window's omnibar suggests from its page's profile, as a tab's does.
@@ -60,8 +65,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// cmux's own music player (cx-imt2i, a preview feature).
     let music = MusicPlayer()
     /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
-    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out).
-    private(set) lazy var sidebarSources = NowPlayingSources(player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled())
+    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
+    /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux).
+    private(set) lazy var sidebarSources = NowPlayingSources(
+        player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled(),
+        otherApps: { [weak self] in self?.services?.settings?.snapshot.nowPlaying.otherApps ?? NowPlayingSettings.otherAppsDefault })
     /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
     let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
@@ -130,7 +138,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             try? ChromiumPageRouter.showPasswords(services, focus: disposition != .backgroundTab)
             return
         }
-        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let engine = page.engineKind.daemonEngine.rawValue
         // A page's new tabs stay in its browser profile (its cookies, and the
         // store an engine-made child page already uses).
         let profile = services.cache.tabModel(key).map(services.browserProfiles.profileID(ofTab:))
@@ -169,7 +177,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.cache.existingBrowser(key)?.chrome.showNotice(text)
         case .download(let item):
             downloads.add(item, tab: key, keep: !services.cache.browserTabs.isIncognitoTab(key)) { [weak services] notice in
-                guard let chrome = services?.cache.existingBrowser(key)?.chrome else { return }
+                guard let services, let entry = services.cache.existingBrowser(key) else { return }
+                // A finished download opens the Downloads popup under the tab's
+                // button, as Chrome's bubble does; the notice is for a tab not on screen.
+                if notice.finished, BrowserToolbarHandlers.showDownloads(for: entry, services: services, finished: true) { return }
+                let chrome = entry.chrome
                 // A blocked download offers the blocking site's Site
                 // settings, where its automatic-downloads choice changes
                 // (the same path as browser.download.openBlockedSiteSettings).
@@ -258,6 +270,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// browser profile. Shift-Return opens a new window with a new
     /// workspace that holds the tab (cmux windows hold workspaces).
     func openFromOmnibar(_ url: URL, _ disposition: OmnibarDisposition, page: any BrowserTab) {
+        // A pairing link (or a search for one) never loads anywhere: Mac Screen says why.
+        if let refusal = MacScreenPages.pairingLinkRefusal(for: url.absoluteString) {
+            services?.registry.refuse(refusal)
+            return
+        }
         switch disposition {
         case .currentTab:
             // The host's own pages and routed chrome:// pages, as a plain Return does.
@@ -288,7 +305,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             if let url { browserTab(page, didRequest: .openURL(url, .foregroundTab)) }
             return
         }
-        let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
+        let engine = page.engineKind.daemonEngine.rawValue
         let choice = Self.choice(adopting: child, inherited: engine, browserTabs: browserTabs)
         let profile = services.browserProfiles.profileID(ofTab: tab)
         let address = child == nil ? (url?.absoluteString ?? "about:blank") : BrowserNewTabPage.blankURL
@@ -324,7 +341,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source, cmdClick: true) { target, placed in
+        services.linkOpener.open(from: source) { target, placed in
             target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
                                  opener: target === source ? opener : nil, then: placed)
         }
@@ -360,7 +377,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// The engine for a page-requested tab: the child's own engine when the
     /// engine already made the page, else the opener's (with the fallback).
     static func choice(adopting child: (any BrowserTab)?, inherited: String?, browserTabs: BrowserTabService) -> BrowserEngineChoice {
-        if let child { return BrowserEngineChoice(engine: BrowserEngineResolver.tag(for: child.engineKind), inherited: true) }
+        if let child { return BrowserEngineChoice(engine: child.engineKind.daemonEngine, inherited: true) }
         if case .open(let choice) = browserTabs.resolve(requested: nil, inherited: inherited) { return choice }
         return BrowserEngineChoice(engine: .webkit)
     }

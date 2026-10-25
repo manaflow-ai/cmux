@@ -4,8 +4,10 @@
 //! context is a daemon socket that is the app's own daemon: the one its
 //! Chief names in `CMUX_APP_DAEMON_SOCKET`, or, in an app terminal, the
 //! daemon of the app this `cmux` belongs to (`app_owns_daemon`). Elsewhere
-//! (a headless daemon, the TUI, whose sidebar draws the session order) the
-//! daemon's default, the session order, stays. `--order` always wins.
+//! the daemon's default stays: with the sidebar document (`sidebar-doc-v1`)
+//! that is the sidebar order for every caller too, so this only matters for a
+//! daemon without the document, whose default is the session order.
+//! `--order` always wins.
 
 use std::path::{Path, PathBuf};
 

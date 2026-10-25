@@ -3,6 +3,72 @@
 
 use super::*;
 
+/// Raw Claude `stream_event` lines (text and tool-input deltas) are mostly not logged: the
+/// translated `session/update` records that follow carry their content. They were most of a
+/// Claude chat's log (44,000 of 54,000 records in 24 minutes on huge-blue, 2026-10-21), and each
+/// one went to every subscriber and into every read of the log. Two kinds stay, because
+/// optchat-chief reads them back to time each model request (`fold.rs` `time_request`:
+/// headers_ms and ttft_ms): every `message_start`, and the first `content_block_delta` after it.
+const RAW_STREAM_EVENT: &str = "claude.stream_event";
+
+/// The `session/update` kinds that show the model at work: what it says or does (a message, a
+/// thought, a tool call and its progress, a plan), a compaction (the model summarizing) and a
+/// subagent's progress.
+const MODEL_UPDATES: [&str; 8] = [
+    "agent_message_chunk",
+    "agent_thought_chunk",
+    "tool_call",
+    "tool_call_update",
+    "plan",
+    "compaction",
+    "compaction_summary",
+    "subagent_progress",
+];
+
+/// The raw harness lines only a responding model produces, which often come long before any
+/// update a client shows: Claude's stream (its first event is the model's answer starting), its
+/// messages, its thinking (redacted thinking sends no thought), a running tool's heartbeat (a
+/// prompt queued behind it), and Codex's moderation notice on what the model generates (Codex
+/// reasoning without summaries sends nothing else for minutes).
+const MODEL_LINES: [&str; 5] = [
+    RAW_STREAM_EVENT,
+    "claude.assistant",
+    "claude.system.thinking_tokens",
+    "claude.tool_progress",
+    "codex.turn/moderationMetadata",
+];
+
+/// Whether an agent's message shows its model at work (`silent_turn.rs`): an update or a raw line
+/// above, or a request it makes (a permission, a file, a terminal). The agent's own bookkeeping is
+/// not: usage, commands, modes, its turn and usage notices (Codex sends them as soon as the prompt
+/// goes out), answers to acpmux's requests, its host's stderr and exit.
+fn from_the_model(msg: &Message) -> bool {
+    match msg {
+        Message::Request { .. } => true,
+        Message::Notification { method, params }
+            if method == crate::rpc::method::SESSION_UPDATE =>
+        {
+            params
+                .as_ref()
+                .and_then(|p| p.pointer("/update/sessionUpdate"))
+                .and_then(Value::as_str)
+                .is_some_and(|kind| MODEL_UPDATES.contains(&kind))
+        }
+        Message::Notification { method, .. } => MODEL_LINES.contains(&method.as_str()),
+        _ => false,
+    }
+}
+
+/// Whether a logged record shows the model at work, as `from_the_model` judged it when it came
+/// in (`stalled_turn.rs` reads an adopted turn's last one): the update and line kinds above, or a
+/// request the agent made. A history replay (`*.replay`) is not.
+pub(super) fn logged_from_the_model(e: &crate::store::EventRecord) -> bool {
+    e.dir == "in"
+        && (MODEL_UPDATES.contains(&e.kind.as_str())
+            || MODEL_LINES.contains(&e.kind.as_str())
+            || (e.msg.get("id").is_some() && e.msg.get("method").is_some()))
+}
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -11,7 +77,23 @@ impl Hub {
     pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
         let tap_session = session.clone();
         let tap_hub = self.clone();
+        // A `message_start` was logged and its first delta was not yet.
+        let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            // The sign of work is published before a tool call's end can bring the stalled
+            // deadline nearer and wake the reaper (`stalled_turn.rs`).
+            if matches!(dir, Direction::In) && from_the_model(msg) {
+                tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_hub.heard_now(&tap_session);
+                tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
+                tap_hub.heard_after_silence(&tap_session);
+            }
+            if matches!(dir, Direction::In)
+                && let Message::Notification { method, params: Some(p) } = msg
+                && method == crate::rpc::method::SESSION_UPDATE
+            {
+                tap_hub.note_tool_update(&tap_session, &p["update"]);
+            }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
                 // order, before the entry is acknowledged.
@@ -35,6 +117,8 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // Its workflows ran in the agent's process: they end with it.
+                    tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
                         .append_logged(
                             &tap_session,
@@ -47,6 +131,13 @@ impl Hub {
                 }
                 (Direction::In, Message::Notification { method, params }) => {
                     let mut kind = method.clone();
+                    let timing = method == RAW_STREAM_EVENT
+                        && params.as_ref().is_some_and(|p| times_request(p, &awaiting_first_delta));
+                    if method == RAW_STREAM_EVENT && !timing {
+                        // Kept nowhere: the entry counts as logged, so the host drops it.
+                        tap_hub.touch(&tap_session);
+                        return true;
+                    }
                     if method.starts_with("claude.") {
                         // Raw stream-json line; translated messages follow.
                         return tap_hub
@@ -102,11 +193,24 @@ impl Hub {
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && let Some(params) = value.get_mut("params")
             {
-                subagent = tap_session
-                    .subagents
+                // The chat's own thread is never one of its subagents.
+                let own = tap_session
+                    .meta
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .annotate(params);
+                    .agent_session_id
+                    .clone();
+                let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+                tree.set_own(own.as_deref());
+                subagent = tree.annotate(params);
+            }
+            // A live update's workflow changes feed the daemon's index of them.
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    value.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.workflow_index.observe(&tap_session.id, events, crate::store::now_ms());
             }
             // Live agent updates (not a session/load replay) also feed the
             // stream watcher, which may record `message_superseded` first.
@@ -133,5 +237,22 @@ impl Hub {
             }
             logged
         })
+    }
+}
+
+/// Whether a raw `stream_event` line is one a request's timing reads: a `message_start`, or the
+/// first `content_block_delta` after one. Only the main agent's requests are timed; a subagent's
+/// lines (`parent_tool_use_id`) stream alongside them and are never kept.
+fn times_request(params: &Value, awaiting_first_delta: &AtomicBool) -> bool {
+    if params.get("parent_tool_use_id").is_some_and(|p| !p.is_null()) {
+        return false;
+    }
+    match params.pointer("/event/type").and_then(Value::as_str) {
+        Some("message_start") => {
+            awaiting_first_delta.store(true, Ordering::Relaxed);
+            true
+        }
+        Some("content_block_delta") => awaiting_first_delta.swap(false, Ordering::Relaxed),
+        _ => false,
     }
 }
