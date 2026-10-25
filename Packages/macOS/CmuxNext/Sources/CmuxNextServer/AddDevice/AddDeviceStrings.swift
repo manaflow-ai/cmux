@@ -106,6 +106,14 @@ public nonisolated struct AddDeviceStrings {
     public static var removeTitle: String { s("devices.remove", "Remove") }
     public static var removeConfirmTitle: String { s("devices.removeConfirm", "Remove for Good") }
     public static var removeHelp: String { s("devices.removeHelp", "It stops working with this computer at once. To use it again, add it again.") }
+    public static var fullAccessTitle: String { s("devices.fullAccess", "Full access") }
+    static func fullAccessHelp(_ name: String) -> String {
+        String(format: s("devices.fullAccessHelp", "Lets %@ run chats in Full access: the agent edits files and runs commands on this Mac without asking."), name)
+    }
+    static var fullAccessOnFailed: String {
+        s("devices.fullAccessOnFailed", "Full access is still off. This Mac could not confirm the change came from you.")
+    }
+    static var fullAccessOffFailed: String { s("devices.fullAccessOffFailed", "Full access could not be turned off. Try again.") }
     public static var activityTitle: String { s("devices.activity", "Recent activity") }
     public static var addDeviceTitle: String { s("devices.add", "Add Device…") }
 }
