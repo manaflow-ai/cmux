@@ -21,7 +21,7 @@ extension TraceRingTests {
             let golden = try Self.goldenFixture()
             let bytes = Self.goldenRing().image()
             #expect(bytes.count == golden.count)
-            let first = zip(bytes, golden).firstIndex { $0 != $1 }
+            let first = bytes.indices.first { $0 < golden.count && bytes[$0] != golden[$0] }
             #expect(first == nil, "ring v1 bytes differ from the shared golden file at offset \(first ?? -1)")
         }
 
