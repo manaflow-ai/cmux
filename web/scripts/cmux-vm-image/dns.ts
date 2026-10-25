@@ -32,8 +32,8 @@ export function resolverBakeCommand(): string {
     "systemctl enable --now systemd-resolved.service >/dev/null 2>&1",
     "systemctl is-active --quiet systemd-resolved.service",
     `if [ "$(readlink -f ${RESOLV_CONF})" = ${RESOLVED_STUB} ] && [ -L ${RESOLV_CONF} ]; then echo 'resolv.conf was a link already'; else grep -q '^nameserver ' ${RESOLVED_STUB} && ln -sfn ../run/systemd/resolve/stub-resolv.conf ${RESOLV_CONF} && echo 'resolv.conf linked'; fi`,
-    // The provider's drop-ins, recorded (never edited).
-    "{ printf 'resolved.conf.d: '; ls /etc/systemd/resolved.conf.d 2>/dev/null | tr '\\n' ' '; echo; }",
+    // The provider's drop-ins, recorded for the bake log only (never edited); none is not an error.
+    "echo \"resolved.conf.d: $(ls /etc/systemd/resolved.conf.d 2>/dev/null || echo none)\"",
     DNS_CHECK_PATH,
   ].join(" && ");
 }

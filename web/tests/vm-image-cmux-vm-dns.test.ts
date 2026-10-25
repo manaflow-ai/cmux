@@ -18,7 +18,7 @@ type Machine = {
   resolvedActive?: boolean;
   resolves?: string[];
   /** status "fail": `tailscale status --json` exits 1. */
-  tailscale?: { status: unknown; dnsLog?: string; journalFails?: boolean };
+  tailscale?: { status: unknown; dnsLog?: string; journalFails?: boolean; stopped?: boolean };
 };
 
 function stub(dir: string, name: string, body: string): void {
@@ -43,12 +43,12 @@ async function check(machine: Machine, args: string[] = []) {
     'case "$1" in',
     `  cat) [ "$2" = tailscaled.service ] && ${ts ? "exit 0" : "exit 1"} ;;`,
     "  restart) exit 0 ;;",
-    `  is-active) ${machine.resolvedActive ?? true ? "exit 0" : "exit 3"} ;;`,
+    `  is-active) case "$3" in tailscaled.service) ${ts?.stopped ? "exit 3" : "exit 0"} ;; esac; ${machine.resolvedActive ?? true ? "exit 0" : "exit 3"} ;;`,
     "  show) echo inv-1; exit 0 ;;",
     "esac",
     "exit 1",
   ].join("\n"));
-  stub(dir, "journalctl", ts?.journalFails ? "exit 1" : `[ "$4" = _SYSTEMD_INVOCATION_ID=inv-1 ] && printf '%s\\n' ${JSON.stringify(ts?.dnsLog ?? "")}`);
+  stub(dir, "journalctl", ts?.journalFails ? "exit 1" : `[ "$4" = _SYSTEMD_INVOCATION_ID=inv-1 ] && printf '%b\\n' ${JSON.stringify(ts?.dnsLog ?? "")}`);
   stub(dir, "getent", `for n in ${(machine.resolves ?? ["github.com"]).join(" ")}; do [ "$2" = "$n" ] && { echo "140.82.112.3 STREAM $n"; exit 0; }; done; exit 2`);
   if (ts) {
     writeFileSync(path.join(dir, "status.json"), JSON.stringify(ts.status));
@@ -141,6 +141,18 @@ describe("cmux-dns-check", () => {
     expect(garbage.lines).toContain("FAIL resolve tailnet name: tailscale status --json gave no status object");
     const journal = await check({ tailscale: { status: LOGGED_IN, journalFails: true }, resolves: ["github.com", "huge-blue.tail1234.ts.net"] });
     expect(journal.lines).toContain("FAIL tailscale DNS mode: could not read the tailscaled journal");
+  });
+
+  test("an installed but stopped tailscaled skips its mode and the tailnet name", async () => {
+    const r = await check({ tailscale: { status: "fail", stopped: true } });
+    expect(r.code).toBe(0);
+    expect(r.lines).toContain("SKIP tailscale DNS mode: tailscaled is installed but not running");
+    expect(r.lines).toContain("SKIP resolve tailnet name: tailscaled is installed but not running");
+  });
+
+  test("the last DNS mode line of the run wins", async () => {
+    const r = await check({ resolves: ["github.com", "huge-blue.tail1234.ts.net"], tailscale: { status: LOGGED_IN, dnsLog: "dns: [rc=unknown ret=direct]\\nother line\\n" + RESOLVED_MODE } });
+    expect(r.lines).toContain("PASS tailscale DNS mode: systemd-resolved");
   });
 
   test("a timeout with a leading zero is decimal", async () => {

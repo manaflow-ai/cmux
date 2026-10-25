@@ -64,6 +64,16 @@ resolve() {
 
 has_tailscaled() { systemctl cat tailscaled.service >/dev/null 2>&1; }
 
+# The DNS mode in tailscaled's journal text on stdin (the last `dns: [... ret=MODE]`), in bash
+# alone so no missing tool can turn into an empty answer.
+dns_mode() {
+  local line found="" re='dns: \[[^]]*ret=([a-z-]+)'
+  while IFS= read -r line; do
+    [[ $line =~ $re ]] && found="${BASH_REMATCH[1]}"
+  done
+  printf '%s' "$found"
+}
+
 if [ "$restart" = 1 ]; then
   if systemctl restart systemd-resolved.service; then pass "restart systemd-resolved"; else fail "restart systemd-resolved: systemctl restart failed"; fi
   if has_tailscaled; then
@@ -85,16 +95,20 @@ if systemctl is-active --quiet systemd-resolved.service; then pass "systemd-reso
 
 # Tailscale's DNS mode for this tailscaled run: its startup log line
 # `dns: [rc=... ret=MODE]` in the journal of the unit's current invocation.
-if has_tailscaled && ! systemctl is-active --quiet tailscaled.service; then
+tailscaled_state=absent
+if has_tailscaled; then
+  if systemctl is-active --quiet tailscaled.service; then tailscaled_state=running; else tailscaled_state=stopped; fi
+fi
+if [ "$tailscaled_state" = stopped ]; then
   skip "tailscale DNS mode: tailscaled is installed but not running"
-elif has_tailscaled; then
+elif [ "$tailscaled_state" = running ]; then
   invocation="$(systemctl show -p InvocationID --value tailscaled.service 2>/dev/null)"
   end=$((SECONDS + timeout)); mode="!tailscaled has no invocation ID"
   while [ -n "$invocation" ]; do
     if ! journal="$(timeout 10 journalctl -q -o cat "_SYSTEMD_INVOCATION_ID=$invocation" 2>/dev/null)"; then
       mode="!could not read the tailscaled journal"; break
     fi
-    mode="$(printf '%s\n' "$journal" | grep -o 'dns: \[[^]]*ret=[a-z-]*' | tail -n 1 | sed 's/.*ret=//')"
+    mode="$(dns_mode <<<"$journal")"
     if [ -n "$mode" ] || [ "$SECONDS" -ge "$end" ]; then break; fi
     sleep 1
   done
@@ -113,6 +127,8 @@ done
 # The machine's own MagicDNS name, when it is logged in to a tailnet with MagicDNS on.
 if ! command -v tailscale >/dev/null 2>&1; then
   skip "resolve tailnet name: tailscale is not installed"
+elif [ "$tailscaled_state" = stopped ]; then
+  skip "resolve tailnet name: tailscaled is installed but not running"
 else
   # Valid logged-out or MagicDNS-off states skip ("!"); a status that cannot be read or parsed fails ("?").
   if ! status="$(timeout 10 tailscale status --json 2>/dev/null)"; then
