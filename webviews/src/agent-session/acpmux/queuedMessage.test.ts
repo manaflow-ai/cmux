@@ -85,3 +85,13 @@ test("a queue row the pane never read the record of is an agent's message when t
     { id: "p2", prompt: "Also update the comment" },
   ]);
 });
+
+test("a queue row the list says is the person's drops the agent's name its record gave", () => {
+  const message = { name: "lane-a", text: "Rebase first", raw: "Rebase first" };
+  // Edited past the preview's cut: the head the list shows is the same, the sender is not.
+  const current = [{ id: "p1", prompt: "Rebase first, then push", message }];
+  const listed = mergeQueue(current, [{ promptId: "p1", prompt: "Rebase first", fromAgent: null }]);
+  expect(listed).toEqual([{ id: "p1", prompt: "Rebase first, then push" }]);
+  // An older acpmux names no sender: the record's stays.
+  expect(mergeQueue(current, [{ promptId: "p1", prompt: "Rebase first" }])).toEqual(current);
+});

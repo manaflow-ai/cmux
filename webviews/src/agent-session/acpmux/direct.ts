@@ -500,17 +500,15 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     // acpmux) keeps those the pane had.
     const images = Array.isArray(entry?.images) ? withKnownBytes(promptImages(entry.images), had?.images) : had?.images;
     // The `queued` record the pane read names the sender, while its text is still the one listed
-    // (an edit the pane missed makes it the person's, as acpmux does). A row the pane never read
-    // the record of (a reload, a reconnect) is named by the list's `fromAgent`.
-    const listedMessage = queuedMessage({ text: preview, fromAgent: entry?.fromAgent });
-    return queuedEntry(
-      id,
-      whole ? had.prompt : preview,
-      had?.next === true,
-      false,
-      images,
-      whole ? (had.message ?? listedMessage) : listedMessage,
-    );
+    // (an edit the pane missed makes it the person's, as acpmux does). The list's `fromAgent`
+    // says so too: null is the person's (an edit past the preview's cut leaves its head the
+    // same), and a name is an agent's, also for a row the pane never read the record of (a
+    // reload). An older acpmux lists none.
+    const listed = entry?.fromAgent;
+    const listedMessage = queuedMessage({ text: preview, fromAgent: listed });
+    const kept = whole ? had.message : undefined;
+    const message = listed === undefined ? kept : listed === null ? undefined : (kept ?? listedMessage);
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, message);
   });
 }
 

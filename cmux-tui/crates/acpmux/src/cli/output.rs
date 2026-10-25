@@ -298,7 +298,7 @@ pub(crate) async fn stream_prompt(
     let c = client.clone();
     let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
-    let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id);
+    let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, steer);
     let mut t = Transcript::default();
     let mut printed_assistant = 0usize;
     let mut last_tool = String::new();
@@ -626,7 +626,7 @@ async fn collect_once(
     let c = client.clone();
     let params = prompt.params(id, text, opts.steer, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
-    let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id);
+    let mut steered = crate::cli::steer_reply::SteerReply::new(&prompt.id, opts.steer);
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
     let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
