@@ -191,9 +191,12 @@ pub fn connected(stream: &UnixStream) -> bool {
     if stream.set_nonblocking(true).is_err() {
         return false;
     }
-    match reader.read(&mut byte) {
-        Ok(n) => n > 0,
-        Err(e) => e.kind() == io::ErrorKind::WouldBlock,
+    loop {
+        match reader.read(&mut byte) {
+            Ok(n) => return n > 0,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return e.kind() == io::ErrorKind::WouldBlock,
+        }
     }
 }
 

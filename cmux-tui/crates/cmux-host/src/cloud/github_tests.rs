@@ -276,15 +276,25 @@ fn the_minter_answers_each_connection_off_the_poll_loop() {
     drop(minter);
 }
 
-/// A fake whose token route waits for the test to release each call.
+/// A fake whose token route says it was reached, then waits for the test
+/// to release each call.
 struct Gated {
     inner: Fake,
-    gate: Arc<Mutex<std::sync::mpsc::Receiver<()>>>,
+    entered: Mutex<std::sync::mpsc::Sender<()>>,
+    gate: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+/// A gated fake, its release and its "reached the token route" signal.
+fn gated(inner: Fake) -> (Gated, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
+    let (release, gate) = std::sync::mpsc::channel();
+    let (entered, reached) = std::sync::mpsc::channel();
+    (Gated { inner, entered: Mutex::new(entered), gate: Mutex::new(gate) }, release, reached)
 }
 
 impl Http for Gated {
     fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
         if url.ends_with(TOKEN_PATH) {
+            let _ = self.entered.lock().unwrap().send(());
             let _ = self.gate.lock().unwrap().recv();
         }
         self.inner.post(url, body, bearer)
@@ -294,11 +304,11 @@ impl Http for Gated {
 #[test]
 fn asks_over_the_limit_are_answered_busy_at_once() {
     use super::github_minter::MAX_PENDING;
-    let (release, gate) = std::sync::mpsc::channel();
     let fake = Fake::default();
     fake.0.lock().unwrap().answers.extend((0..MAX_PENDING).map(|_| minted()));
+    let (http, release, _reached) = gated(fake);
     let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log, Arc::default()).unwrap();
-    minter.bound(client_with(Gated { inner: fake, gate: Arc::new(Mutex::new(gate)) }));
+    minter.bound(client_with(http));
     let a = ask(json!({ "contents": "write" }));
     let mut held = Vec::new();
     for _ in 0..MAX_PENDING {
@@ -322,18 +332,18 @@ fn asks_over_the_limit_are_answered_busy_at_once() {
 
 #[test]
 fn a_stop_from_the_role_withholds_the_token_of_a_mint_in_flight() {
-    let (release, gate) = std::sync::mpsc::channel();
     let fake = Fake::default();
     fake.0.lock().unwrap().answers.push_back(minted());
+    let (http, release, reached) = gated(fake);
     let stop = Arc::new(super::github_minter::Stop::default());
     let minter: Minter<Gated> = Minter::spawn(fixed_now, no_log, Arc::clone(&stop)).unwrap();
-    minter.bound(client_with(Gated { inner: fake, gate: Arc::new(Mutex::new(gate)) }));
+    minter.bound(client_with(http));
     let (ours, theirs) = UnixStream::pair().unwrap();
     ours.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
     minter.ask(Ok(ask(json!({ "contents": "write" }))), theirs);
     // The role sets the flag while the mint is in flight; the minter is
     // not dropped (a worker stuck past the deadline).
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    reached.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
     stop.set();
     release.send(()).unwrap();
     let mut line = String::new();
