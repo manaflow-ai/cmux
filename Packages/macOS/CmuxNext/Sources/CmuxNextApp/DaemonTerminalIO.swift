@@ -150,7 +150,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     // MARK: TerminalIO
 
     /// The daemon terminal by its surface id, as its attachment names it to the typing probe.
-    var typingProbeSource: TypingLatencyProbe.Source? { probeSurface == 0 ? nil : .terminal(probeSurface) }
+    nonisolated var typingProbeSource: TypingLatencyProbe.Source? { probeSurface == 0 ? nil : .terminal(probeSurface) }
 
     /// The daemon's VT core answers DA/DSR, so the surface mirrors only.
     var answersTerminalQueries: Bool { true }
