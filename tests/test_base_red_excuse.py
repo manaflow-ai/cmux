@@ -1256,6 +1256,34 @@ class OutsideTheDiff(unittest.TestCase):
                      "Packages/macOS/CmuxNext/Tests/ATests/ATests.swift"):
             self.assertFalse(excuse.guarded(path), path)
 
+    # Fourth review round of #25036.
+    def test_a_later_run_group_in_a_step_is_output(self):
+        self.gh.logs[1] = self.web_log(CSS_ERROR, "##[group]Run inner/action@v1", "FAIL webviews/src/a.test.ts",
+                                       "##[endgroup]")
+        with self.assertRaisesRegex(excuse.Refused, "says a test failed"):
+            self.judge()
+        job = failed_job(1, 10, HEAD, name=CHECKS, step=L10N)
+        nested = l10n_log(1, "##[group]Run inner/action@v1", f"{XCSTRINGS}:new.key: missing uk", "##[endgroup]")
+        self.assertIn(f"{XCSTRINGS}:new.key: missing uk", excuse.printed(job, nested))
+
+    def test_a_url_without_a_scheme_is_no_file(self):
+        self.assertEqual(excuse.file_paths("docs.example.com/assets/Changed.ts //cdn.x.io/a.css "
+                                           "WWW.Example.COM/b.js"), set())
+        self.gh.logs[1] = self.web_log("error: cannot fetch docs.example.com/assets/Changed.ts")
+        with self.assertRaisesRegex(excuse.Refused, "error naming no file"):
+            self.judge()
+
+    def test_an_uppercase_warning_never_pins_a_red(self):
+        self.gh.logs[1] = self.web_log("WARNING: webviews/src/Old.ts is deprecated", "3 findings")
+        with self.assertRaisesRegex(excuse.Refused, "naming no file"):
+            self.judge()
+
+    def test_a_go_or_rust_panic_is_a_test_failure(self):
+        for line in ("panic: webviews/src/Old.ts", "thread 'main' panicked at src/lib.rs:3:5"):
+            self.gh.logs[1] = self.web_log(line)
+            with self.assertRaisesRegex(excuse.Refused, "says a test failed"):
+                self.judge()
+
     def test_a_pr_changing_a_build_input_blocks(self):
         for path in ("web/vercel.json", "Dockerfile", "cmux-tui/scripts/requirements-windows-conpty.txt",
                      "webviews/package.json", "webviews/bun.lock", "Packages/macOS/CmuxNext/Package.swift",

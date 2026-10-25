@@ -163,7 +163,13 @@ FILE_EXTENSIONS = frozenset(
     "jsonc toml yaml yml plist xcstrings strings xib storyboard sh bash zsh md txt tsv csv lock lockb "
     "xcconfig entitlements pbxproj resolved png jpg jpeg gif svg pdf ttf otf wasm".split())
 # Any line that says a test failed: it names the test, not the file with the bug.
-TEST_MARK = re.compile(r"\bfail\w*|\(fail\)|\bnot ok\b|assert|traceback|panick|✘|✗|✕|×", re.IGNORECASE)
+TEST_MARK = re.compile(r"\bfail\w*|\(fail\)|\bnot ok\b|assert|traceback|panic|✘|✗|✕|×", re.IGNORECASE)
+# Any warning, in any case: a warning never pins a red to files.
+ANY_WARNING = re.compile(r"##\[warning\]|\bwarn(?:ing)?s?\b", re.IGNORECASE)
+# A URL, with or without its scheme: a scheme, `//host`, or a first segment shaped like a host
+# name (`docs.example.com/a.ts`). A repository folder with a dot in it reads as one too, which
+# only refuses (fails closed).
+URL_LIKE = re.compile(r"[A-Za-z][\w+.-]*:/|^//|^[\w-]+(?:\.[\w-]+)*\.[A-Za-z]{2,}(?::\d+)?/", re.IGNORECASE)
 # Any line that reports an error; each must name a file.
 ERRORISH = re.compile(r"##\[error\]|\berrors?\b|\bfatal\b|\bexceptions?\b", re.IGNORECASE)
 # A pull request may be excused by files only when every file it changes is source a check
@@ -319,12 +325,16 @@ def printed(job: dict, log: str) -> Counter[str]:
             failed.add(step)
     found: Counter[str] = Counter()
     echo: set[str] = set()
+    opened: set[str] = set()
     for step, raw in lines:
         if step not in failed:
             continue
         text = ANSI.sub("", STAMP.sub("", raw.lstrip("\ufeff"))).strip()
-        if text.startswith("##[group]Run "):
+        if text.startswith("##[group]Run ") and step not in opened:
+            # A step's first `Run` group is its own script; a later one (a composite action's
+            # inner step) is output like any nested group.
             echo.add(step)
+            opened.add(step)
             continue
         if text.startswith("##[endgroup]"):
             echo.discard(step)
@@ -525,7 +535,7 @@ def file_paths(text: str) -> set[str]:
     """The files a line names, each token taken whole (`assets/Foo@2x.png`, never `2x.png`)."""
     found = set()
     for token in TOKEN.findall(text) + QUOTED.findall(text):
-        if re.search(r"[A-Za-z][\w+.-]*:/|^www\.", token):
+        if URL_LIKE.search(token):
             continue  # a URL is somewhere else, not a file of this repository
         token =re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
         name = token.rsplit("/", 1)[-1]
@@ -567,7 +577,8 @@ def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
         if step not in failed:
             continue
         text = ANSI.sub("", STAMP.sub("", raw.lstrip("﻿"))).strip()
-        if text.startswith("##[group]Run "):
+        if text.startswith("##[group]Run ") and step not in echo:
+            # Only the step's first `Run` group is its script; a later one is output.
             in_echo.add(step)
             echo.setdefault(step, []).append(text[len("##[group]Run "):])
         elif text.startswith("##[endgroup]") and step in in_echo:
@@ -593,7 +604,7 @@ def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
             raise Refused(f"step '{step}' has an error naming no file: {unpinned[0][:200]}")
         # The findings are what the step printed, warnings aside; its script, env and warnings
         # only widen what must be outside the diff, never pin the red to files themselves.
-        paths = {found for text in said if not WARNING.search(text) for found in file_paths(text)}
+        paths = {found for text in said if not ANY_WARNING.search(text) for found in file_paths(text)}
         if not paths:
             raise Refused(f"step '{step}' failed naming no file outside its warnings and script")
         for path in sorted({found for text in said + echo.get(step, []) for found in file_paths(text)}):
