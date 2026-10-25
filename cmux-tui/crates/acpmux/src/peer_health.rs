@@ -61,10 +61,14 @@ impl Peer {
 /// already has or nobody reads.
 fn trim(v: Value) -> Value {
     let mut out = serde_json::Map::new();
-    for key in ["cpus", "load", "ram", "swap", "disk", "liveSessions", "pressure", "problems"] {
+    for key in ["cpus", "load", "ram", "swap", "disk", "liveSessions", "pressure"] {
         if let Some(x) = v.get(key).filter(|x| !x.is_null()) {
             out.insert(key.to_owned(), x.clone());
         }
+    }
+    // The peer's words reach `host ls` and the app: cleaned and capped like this machine's own.
+    if let Some(problems) = v.get("problems").filter(|x| !x.is_null()) {
+        out.insert("problems".to_owned(), crate::server::machine_health::sanitize(problems));
     }
     Value::Object(out)
 }

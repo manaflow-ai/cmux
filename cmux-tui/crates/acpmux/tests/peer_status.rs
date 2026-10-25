@@ -5,10 +5,26 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/), and its
-// hubs read the machine health file this file's test writes.
+// hubs read the machine health file `hub()` writes once (`health_file`).
 const HERMETIC: daemon_env::Process =
     daemon_env::Process::stand_in().with_env(&[("ACPMUX_MACHINE_HEALTH_FILE", HEALTH_FILE)]);
 const HEALTH_FILE: &str = concat!(env!("CARGO_TARGET_TMPDIR"), "/peer-status-machine-health.json");
+
+/// The machine health loop's file every hub here reads: written once, before
+/// the first hub, and never changed, so tests running at once read the same
+/// one (`tests/machine_health.rs` changes its own in its own process).
+fn health_file() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+        let file = json!({"schema": 1, "checkedAt": rfc3339(now.as_secs()), "problems": [
+            {"check": "dns", "detail": "DNS: github.com does not resolve",
+             "since": rfc3339(now.as_secs() - 600)},
+            {"check": "disk"},
+        ], "fixed": []});
+        std::fs::write(HEALTH_FILE, file.to_string()).unwrap();
+    });
+}
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -21,6 +37,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 async fn hub() -> Arc<Hub> {
+    health_file();
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -261,13 +278,6 @@ fn rfc3339(secs: u64) -> String {
 /// Web caller gets them for its own machine only, like the resources.
 #[tokio::test]
 async fn the_health_loops_problems_ride_along_and_stay_off_the_web_for_peers() {
-    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
-    let file = json!({"schema": 1, "checkedAt": rfc3339(now), "problems": [
-        {"check": "dns", "detail": "DNS: github.com does not resolve", "since": rfc3339(now - 600)},
-        {"check": "disk"},
-    ], "fixed": []});
-    std::fs::write(HEALTH_FILE, file.to_string()).unwrap();
-
     let b = hub().await;
     let (port, token) = listen(b.clone(), "problems").await;
     let a = hub().await;
@@ -305,25 +315,4 @@ async fn the_health_loops_problems_ride_along_and_stay_off_the_web_for_peers() {
     assert_eq!(reply["hosts"][0]["problems"], health["problems"], "{reply}");
     let peer = row(&reply, "b");
     assert!(peer.get("problems").is_none(), "a peer's problems reached the web: {reply}");
-
-    // A stale file is one `loop` problem; a malformed one says so.
-    let stale = json!({"schema": 1, "checkedAt": rfc3339(now - 600), "problems": []});
-    std::fs::write(HEALTH_FILE, stale.to_string()).unwrap();
-    let health = local.call("_acpmux/host_health", json!({})).await.unwrap();
-    assert_eq!(health["problems"][0]["check"], "loop", "{health}");
-    assert!(
-        health["problems"][0]["detail"].as_str().is_some_and(|d| d.contains("has not run since")),
-        "{health}"
-    );
-    std::fs::write(HEALTH_FILE, "{not json").unwrap();
-    let health = local.call("_acpmux/host_health", json!({})).await.unwrap();
-    assert_eq!(
-        health["problems"],
-        json!([{"check": "loop", "detail": "machine health file is not valid"}]),
-        "{health}"
-    );
-    // No file: no loop on this machine, no field.
-    std::fs::remove_file(HEALTH_FILE).unwrap();
-    let health = local.call("_acpmux/host_health", json!({})).await.unwrap();
-    assert!(health.get("problems").is_none(), "{health}");
 }

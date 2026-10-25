@@ -1398,7 +1398,7 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
-mod machine_health;
+pub(crate) mod machine_health;
 mod models_fanout;
 mod new_worktree;
 pub(crate) mod outbox;
