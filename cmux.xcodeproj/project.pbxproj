@@ -685,6 +685,7 @@
 		D8B4D581D932FD64F4DAD878 /* ClaudeAccountAutoSwitchAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB4906FCD6E18B54BD89BDBD /* ClaudeAccountAutoSwitchAction.swift */; };
 		90DDA2EDC6110BB3490E9C50 /* ClaudeAccountAutoSwitchAnnouncement.swift in Sources */ = {isa = PBXBuildFile; fileRef = 900FFF9FA8E37A3CF33961F0 /* ClaudeAccountAutoSwitchAnnouncement.swift */; };
 		F9002E20E15253699BEF00D4 /* ClaudeAccountAutoSwitchContinueGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF4FF87989FC2678BEA1F110 /* ClaudeAccountAutoSwitchContinueGate.swift */; };
+		4A5CE93EB884A228FC849B89 /* ClaudeAccountAutoSwitchContinueGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EA4B1AF7005BA98331CF84E /* ClaudeAccountAutoSwitchContinueGateTests.swift */; };
 		B2C4A0BF924A46274D460489 /* ClaudeAccountAutoSwitchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A5CB6265C3C37A390D6D39 /* ClaudeAccountAutoSwitchCoordinator.swift */; };
 		513453690F01D86DB56D525A /* ClaudeAccountAutoSwitchFixture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DDD761649C5A10246E46333 /* ClaudeAccountAutoSwitchFixture.swift */; };
 		06722B95976F754085428EB8 /* ClaudeAccountAutoSwitchFollowUp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 153C29639D69E58C97B31423 /* ClaudeAccountAutoSwitchFollowUp.swift */; };
@@ -5578,6 +5579,7 @@
 		CB4906FCD6E18B54BD89BDBD /* ClaudeAccountAutoSwitchAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountAutoSwitchAction.swift; sourceTree = "<group>"; };
 		900FFF9FA8E37A3CF33961F0 /* ClaudeAccountAutoSwitchAnnouncement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountAutoSwitchAnnouncement.swift; sourceTree = "<group>"; };
 		BF4FF87989FC2678BEA1F110 /* ClaudeAccountAutoSwitchContinueGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountAutoSwitchContinueGate.swift; sourceTree = "<group>"; };
+		8EA4B1AF7005BA98331CF84E /* ClaudeAccountAutoSwitchContinueGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeAccountAutoSwitchContinueGateTests.swift"; sourceTree = "<group>"; };
 		E4A5CB6265C3C37A390D6D39 /* ClaudeAccountAutoSwitchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountAutoSwitchCoordinator.swift; sourceTree = "<group>"; };
 		6DDD761649C5A10246E46333 /* ClaudeAccountAutoSwitchFixture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeAccountAutoSwitchFixture.swift"; sourceTree = "<group>"; };
 		153C29639D69E58C97B31423 /* ClaudeAccountAutoSwitchFollowUp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeAccountAutoSwitchFollowUp.swift; sourceTree = "<group>"; };
@@ -14410,6 +14412,7 @@
 				F54AD2107998047BFF88C5C9 /* ClaudeAccountAutoSwitchRequestTests.swift */,
 				6DDD761649C5A10246E46333 /* ClaudeAccountAutoSwitchFixture.swift */,
 				4ABB1D139C18458D32DD0BF3 /* ClaudeAccountAutoSwitchSafetyTests.swift */,
+				8EA4B1AF7005BA98331CF84E /* ClaudeAccountAutoSwitchContinueGateTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18637,6 +18640,7 @@
 				F3000002A1B2C3D4E5F60718 /* CJKIMEInputTests+DeadKeyComposition.swift in Sources */,
 				F3000000A1B2C3D4E5F60718 /* CJKIMEInputTests.swift in Sources */,
 				D3571002A1B2C3D4E5F60718 /* CJKIMEMarkedSelectionTests.swift in Sources */,
+				4A5CE93EB884A228FC849B89 /* ClaudeAccountAutoSwitchContinueGateTests.swift in Sources */,
 				513453690F01D86DB56D525A /* ClaudeAccountAutoSwitchFixture.swift in Sources */,
 				4A4E64EDB3D79AEE411AB850 /* ClaudeAccountAutoSwitchFollowUpTests.swift in Sources */,
 				9372CDB2D664E30B44C9D938 /* ClaudeAccountAutoSwitchRequestTests.swift in Sources */,

@@ -177,8 +177,16 @@ final class ClaudeAccountAutoSwitchCoordinator {
                 reset: exhaustion.quotedReset,
                 continues: typeContinue
             )
-            announce(announcement, notification: announcement.notification(now: Date(), calendar: .current),
-                     workspace: workspace, panelId: panelId)
+            // A trusted switch is announced by its continue wait, once the resumed Claude settled:
+            // that Claude's SessionStart hook clears the pane's notifications, so one posted now
+            // would vanish within a second. An untrusted target's Claude stops at the trust
+            // prompt before any SessionStart, so its notice goes out now.
+            announce(
+                announcement,
+                notification: typeContinue ? nil : announcement.notification(now: Date(), calendar: .current),
+                workspace: workspace,
+                panelId: panelId
+            )
             if typeContinue {
                 waitThenTypeContinue(
                     panelId: panelId,
@@ -314,7 +322,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
 
     /// One poll of a waiting continue. Returns whether the wait is over.
     private func pollContinue(panelId: UUID, elapsed: Duration) -> Bool {
-        guard let pending = pendingContinues[panelId] else { return true }
+        guard var pending = pendingContinues[panelId] else { return true }
         guard let workspace = AppDelegate.shared?.workspaceContainingPanel(
             panelId: panelId,
             preferredWorkspaceId: pending.workspaceId
@@ -323,7 +331,8 @@ final class ClaudeAccountAutoSwitchCoordinator {
             finishContinue(panelId: panelId, reason: .paneGone)
             return true
         }
-        let step = pending.gate.step(
+        let switchStartedAt = pending.switchStartedAt
+        let poll = pending.gate.poll(
             elapsed: elapsed,
             isEnabled: isEnabled,
             responseRunning: workspace.isClaudeResponseRunning(panelId: panelId),
@@ -340,21 +349,24 @@ final class ClaudeAccountAutoSwitchCoordinator {
             claudeInForeground: {
                 ClaudeAccountAutoSwitchForegroundCheck.claudeOwnsTerminal(
                     registered: workspace.claudeAgentProcesses(panelId: panelId),
-                    startedAfter: pending.switchStartedAt,
+                    startedAfter: switchStartedAt,
                     paneTTYDevice: terminal.surface.controllingTTYDeviceIdentifier,
                     facts: ClaudeAccountAutoSwitchForegroundCheck.liveFacts(pid:)
                 )
             }
         )
-        switch step {
+        pendingContinues[panelId]?.gate = pending.gate
+        switch poll.step {
         case .wait:
+            if poll.announce { postSwitchAnnouncement(pending, panelId: panelId) }
             return false
         case .giveUp(let reason):
-            finishContinue(panelId: panelId, reason: reason)
+            finishContinue(panelId: panelId, reason: reason, includingSwitch: poll.announce)
             return true
         case .send:
             // Ended first, so `continue` is typed at most once and its own input path finds no gate.
             pendingContinues[panelId] = nil
+            if poll.announce { postSwitchAnnouncement(pending, panelId: panelId) }
             guard terminal.sendTextResult(AgentAutoResumeCoordinator.resumePrompt).accepted,
                   terminal.sendNamedKeyResult("return").accepted else {
                 log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) continue=rejected")
@@ -365,16 +377,45 @@ final class ClaudeAccountAutoSwitchCoordinator {
         }
     }
 
-    /// Ends a waiting continue without typing and says why.
-    private func finishContinue(panelId: UUID, reason: ClaudeAccountAutoSwitchContinueGate.GiveUpReason) {
-        guard let pending = pendingContinues.removeValue(forKey: panelId) else { return }
-        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) continueWait=\(reason.rawValue)")
-        post(pending.announcement.notContinuedNotification(reason: reason), workspaceId: pending.workspaceId, panelId: panelId)
+    /// Posts the "Claude account switched" notification a trusted switch owes.
+    private func postSwitchAnnouncement(_ pending: PendingContinue, panelId: UUID) {
+        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) announced")
+        post(pending.announcement.notification(now: Date(), calendar: .current), workspaceId: pending.workspaceId, panelId: panelId)
     }
 
-    /// Drops a waiting continue silently: a newer report for the pane brings its own notice.
+    /// Ends a waiting continue without typing and says why, together with the switch itself
+    /// when that was not announced yet.
+    ///
+    /// - Parameter includingSwitch: What the gate's last poll decided; `nil` asks the gate,
+    ///   for a wait the coordinator ends itself.
+    private func finishContinue(
+        panelId: UUID,
+        reason: ClaudeAccountAutoSwitchContinueGate.GiveUpReason,
+        includingSwitch: Bool? = nil
+    ) {
+        guard var pending = pendingContinues.removeValue(forKey: panelId) else { return }
+        let includeSwitch = includingSwitch ?? pending.gate.announceIfOwed()
+        log("claudeAccount.autoSwitch panel=\(panelId.uuidString.prefix(5)) continueWait=\(reason.rawValue) announced=\(includeSwitch)")
+        post(
+            pending.announcement.notContinuedNotification(
+                reason: reason,
+                includingSwitch: includeSwitch,
+                now: Date(),
+                calendar: .current
+            ),
+            workspaceId: pending.workspaceId,
+            panelId: panelId
+        )
+    }
+
+    /// Drops a waiting continue: a newer report for the pane brings its own notice. A switch not
+    /// announced yet still is, so the user learns the pane moved.
     private func cancelContinue(panelId: UUID) {
-        pendingContinues.removeValue(forKey: panelId)?.task?.cancel()
+        guard var pending = pendingContinues.removeValue(forKey: panelId) else { return }
+        pending.task?.cancel()
+        if pending.gate.announceIfOwed() {
+            postSwitchAnnouncement(pending, panelId: panelId)
+        }
     }
 
     private static func nowMs() -> Int64 {

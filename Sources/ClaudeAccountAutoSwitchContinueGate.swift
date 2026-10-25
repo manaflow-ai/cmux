@@ -81,6 +81,11 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
     private(set) var claudeStarted = false
     /// Set by an event that ends the wait.
     private(set) var interruption: GiveUpReason?
+    /// Polls in a row that found the resumed session started and its Claude registered in the
+    /// terminal's foreground.
+    private var settledPolls = 0
+    /// Whether the switch notification was handed out.
+    private(set) var announced = false
 
     init(sessionId: String) {
         self.sessionId = sessionId
@@ -116,7 +121,22 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
         interrupt(.userInput)
     }
 
-    /// The step for one poll.
+    /// What one poll decided: the step, and whether to post the switch notification now.
+    struct Poll: Equatable, Sendable {
+        let step: Step
+        /// Post the "Claude account switched" notification on this poll. True at most once per
+        /// gate; on a give-up the notification goes out together with the reason.
+        let announce: Bool
+    }
+
+    /// One poll of the wait.
+    ///
+    /// The resumed Claude's `SessionStart` hook clears every notification on the pane right after
+    /// it registers Claude's process, through an asynchronous queue that reports no completion.
+    /// So the switch notification, and `continue` after it, wait until the resumed session
+    /// started and its Claude stayed registered in the foreground for a whole poll interval,
+    /// which orders them after that clear. A wait that ends without that announces the switch
+    /// together with why `continue` was not typed.
     ///
     /// - Parameters:
     ///   - elapsed: Time since the switch typed the resume command.
@@ -124,8 +144,40 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
     ///   - responseRunning: Whether the pane's Claude is mid-turn.
     ///   - screen: Reads the pane's screen; called only when everything else allows typing.
     ///   - claudeInForeground: Whether the Claude registered for the pane after the switch is
-    ///     alive and owns the terminal's foreground; called last, and only when the screen allows.
-    func step(
+    ///     alive and owns the terminal's foreground; called once the resumed session started.
+    mutating func poll(
+        elapsed: Duration,
+        isEnabled: Bool,
+        responseRunning: Bool,
+        screen: () -> Screen,
+        claudeInForeground: () -> Bool
+    ) -> Poll {
+        let step = nextStep(
+            elapsed: elapsed,
+            isEnabled: isEnabled,
+            responseRunning: responseRunning,
+            screen: screen,
+            claudeInForeground: claudeInForeground
+        )
+        // A wait that ends carries the announcement if it is still owed; a settled wait owes it now.
+        let due = step != .wait || settledPolls >= Self.settledPollsBeforeTyping
+        return Poll(step: step, announce: due && announceIfOwed())
+    }
+
+    /// Hands out the switch notification if it is still owed, for a wait the coordinator ends
+    /// itself (the pane went away, or a newer report replaced the wait).
+    mutating func announceIfOwed() -> Bool {
+        guard !announced else { return false }
+        announced = true
+        return true
+    }
+
+    /// Polls in a row the resumed Claude must be found registered in the foreground before the
+    /// switch is announced and `continue` typed: one whole poll interval past its registration,
+    /// after which its `SessionStart` hook's notification clear has been applied.
+    private static let settledPollsBeforeTyping = 2
+
+    private mutating func nextStep(
         elapsed: Duration,
         isEnabled: Bool,
         responseRunning: Bool,
@@ -137,10 +189,13 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
         guard elapsed < Self.timeout else { return .giveUp(.timedOut) }
         guard claudeStarted else { return .wait }
         guard !responseRunning else { return .giveUp(.sessionBusy) }
+        // Read every poll once the session started: the announcement needs it too. A Claude not
+        // yet registered may still be starting.
+        settledPolls = claudeInForeground() ? settledPolls + 1 : 0
+        guard settledPolls >= Self.settledPollsBeforeTyping else { return .wait }
         let reading = screen()
         guard reading.state == .emptyPrompt, !reading.showsInterruptHint else { return .wait }
-        // Checked last: it reads the kernel. A Claude not yet registered may still be starting.
-        return claudeInForeground() ? .send : .wait
+        return .send
     }
 
     private mutating func interrupt(_ reason: GiveUpReason) {

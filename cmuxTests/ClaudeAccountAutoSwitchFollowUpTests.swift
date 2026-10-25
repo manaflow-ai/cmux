@@ -1,6 +1,4 @@
 import CMUXAgentLaunch
-import CMUXMobileCore
-import CmuxAgentJournal
 import Foundation
 import Testing
 
@@ -76,195 +74,6 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
             ),
             homeDirectory: home
         ).get()
-    }
-}
-
-/// Spec D8: `continue` is typed only into the resumed Claude's own idle prompt.
-@MainActor
-struct ClaudeAccountAutoSwitchContinueGateTests {
-    private typealias Gate = ClaudeAccountAutoSwitchContinueGate
-    private let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
-    private let idle = Gate.Screen(state: .emptyPrompt, showsInterruptHint: false)
-
-    private func startedGate() -> Gate {
-        var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: sessionId)
-        return gate
-    }
-
-    private func step(
-        _ gate: Gate,
-        elapsed: Duration = .seconds(2),
-        isEnabled: Bool = true,
-        running: Bool = false,
-        screen: Gate.Screen? = nil,
-        foreground: Bool = true
-    ) -> Gate.Step {
-        gate.step(
-            elapsed: elapsed,
-            isEnabled: isEnabled,
-            responseRunning: running,
-            screen: { screen ?? idle },
-            claudeInForeground: { foreground }
-        )
-    }
-
-    @Test
-    func aShellPromptBeforeClaudeStartsIsNeverTypedInto() {
-        var screenReads = 0
-        let step = Gate(sessionId: sessionId).step(
-            elapsed: .seconds(1),
-            isEnabled: true,
-            responseRunning: false,
-            screen: {
-                screenReads += 1
-                return idle
-            },
-            claudeInForeground: { true }
-        )
-
-        #expect(step == .wait)
-        #expect(screenReads == 0)
-    }
-
-    @Test
-    func aShellPromptReadsAsAnEmptyPromptOnScreen() throws {
-        // Why the gate waits for the resumed session's own start: the screen can't tell them apart.
-        let frame = try screen(["~/project", "❯ "], cursorRow: 1)
-
-        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)
-    }
-
-    @Test
-    func claudesFolderTrustPromptIsADialog() throws {
-        let frame = try screen([
-            " Do you trust the files in this folder?",
-            "",
-            " /Users/cmux-test/fresh",
-            "",
-            " ❯ 1. Yes, proceed",
-            "   2. No, exit",
-            "",
-            " Enter to confirm · Esc to exit",
-        ], cursorRow: 4)
-
-        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .dialog)
-        #expect(step(startedGate(), screen: Gate.Screen(frame: frame)) == .wait)
-    }
-
-    @Test
-    func aRunningTurnIsNeverTakenForAnEmptyPrompt() throws {
-        // Claude keeps its input box empty while it works; only the hint says it is busy.
-        let frame = try screen([
-            "> Remember the codeword.",
-            "✻ Cogitating… (3s · ↑ 120 tokens · esc to interrupt)",
-            "",
-            "❯ ",
-        ], cursorRow: 3)
-        let reading = Gate.Screen(frame: frame)
-
-        #expect(reading.state == .emptyPrompt)
-        #expect(reading.showsInterruptHint)
-        #expect(step(startedGate(), screen: reading) != .send)
-    }
-
-    @Test
-    func claudesIdlePromptAfterItsSessionStartGetsContinue() {
-        #expect(step(startedGate()) == .send)
-    }
-
-    @Test
-    func onlyTheResumedSessionsStartCounts() {
-        // A `claude` the user started by hand, or a `/clear`, is another session.
-        var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: "0f0e0d0c-0000-4000-8000-000000000001")
-
-        #expect(step(gate) == .giveUp(.otherSession))
-    }
-
-    @Test
-    func aClaudeThatDoesNotOwnTheTerminalIsNotTypedInto() {
-        #expect(step(startedGate(), foreground: false) == .wait)
-    }
-
-    @Test
-    func inputDuringTheWaitEndsIt() {
-        var gate = startedGate()
-        gate.userDidInput()
-
-        #expect(step(gate) == .giveUp(.userInput))
-    }
-
-    @Test(arguments: [
-        AgentAutoResumeCoordinator.ScreenState.unknown,
-        .draft,
-        .dialog,
-        .codexGoalResume,
-        .codexResumePicker,
-    ])
-    func anyOtherScreenWaits(screen: AgentAutoResumeCoordinator.ScreenState) {
-        #expect(step(startedGate(), screen: Gate.Screen(state: screen, showsInterruptHint: false)) == .wait)
-    }
-
-    @Test(arguments: [
-        AgentJournalEventKind.turnStarted,
-        .approvalRequested,
-        .questionRequested,
-        .planReviewRequested,
-    ])
-    func someoneElseDrivingTheSessionEndsTheWait(kind: AgentJournalEventKind) {
-        var gate = startedGate()
-        gate.observe(kind: kind, sessionId: sessionId)
-
-        #expect(step(gate) == .giveUp(.sessionBusy))
-    }
-
-    @Test
-    func theReplacedClaudesSessionEndDoesNotCountButTheResumedOnesDoes() {
-        var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .sessionEnded, sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: sessionId)
-        #expect(step(gate) == .send)
-
-        gate.observe(kind: .sessionEnded, sessionId: sessionId)
-        #expect(step(gate) == .giveUp(.sessionEnded))
-    }
-
-    @Test
-    func theStopFailuresOwnAttentionEchoDoesNotEndTheWait() {
-        var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .errorReported, sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: sessionId)
-        gate.observe(kind: .stateChanged, sessionId: sessionId)
-
-        #expect(step(gate) == .send)
-    }
-
-    @Test
-    func aRunningResponseEndsTheWait() {
-        #expect(step(startedGate(), running: true) == .giveUp(.sessionBusy))
-    }
-
-    @Test
-    func turningTheSettingOffEndsTheWait() {
-        #expect(step(startedGate(), isEnabled: false) == .giveUp(.disabled))
-    }
-
-    @Test
-    func theWaitEndsAfterOneMinute() {
-        #expect(step(startedGate(), elapsed: .seconds(59), screen: Gate.Screen(state: .draft, showsInterruptHint: false)) == .wait)
-        #expect(step(startedGate(), elapsed: .seconds(60)) == .giveUp(.timedOut))
-    }
-
-    private func screen(_ lines: [String], cursorRow: Int?) throws -> MobileTerminalRenderGridFrame {
-        try MobileTerminalRenderGridFrame.fromPlainRows(
-            surfaceID: "claude-account-auto-switch-test",
-            stateSeq: 0,
-            columns: 120,
-            rows: lines.count,
-            text: lines.joined(separator: "\n"),
-            cursor: cursorRow.map { .init(row: $0, column: 3) }
-        )
     }
 }
 
@@ -390,11 +199,41 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
             ), "work")),
         ]
         for (reason, body) in expected {
-            let notification = announcement.notContinuedNotification(reason: reason)
+            let notification = announcement.notContinuedNotification(
+                reason: reason,
+                includingSwitch: false,
+                now: now,
+                calendar: seoulCalendar
+            )
             #expect(notification.title == switchedTitle, "\(reason)")
             #expect(notification.subtitle == announcement.statusText, "\(reason)")
             #expect(notification.body == body, "\(reason)")
         }
+    }
+
+    @Test
+    func aWaitThatEndsBeforeTheAnnouncementAlsoSaysTheSwitchHappened() {
+        // One notification: a second one on the same pane would replace the first.
+        let reset = now.addingTimeInterval(2 * 3600)
+        let announcement = ClaudeAccountAutoSwitchAnnouncement(from: "default", to: "work", reset: reset, continues: true)
+        let switched = announcement.notification(now: now, calendar: seoulCalendar)
+        let reasonOnly = announcement.notContinuedNotification(
+            reason: .timedOut,
+            includingSwitch: false,
+            now: now,
+            calendar: seoulCalendar
+        )
+
+        let combined = announcement.notContinuedNotification(
+            reason: .timedOut,
+            includingSwitch: true,
+            now: now,
+            calendar: seoulCalendar
+        )
+
+        #expect(combined.title == switchedTitle)
+        #expect(combined.subtitle == announcement.statusText)
+        #expect(combined.body == switched.body + "\n" + reasonOnly.body)
     }
 
     @Test

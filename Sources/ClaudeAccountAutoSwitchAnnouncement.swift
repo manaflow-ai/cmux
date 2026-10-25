@@ -84,9 +84,20 @@ struct ClaudeAccountAutoSwitchAnnouncement: Equatable, Sendable {
         }
     }
 
-    /// The follow-up when cmux stopped waiting to type `continue` on `to`, and why.
+    /// The notice when cmux stopped waiting to type `continue` on `to`, and why.
+    ///
+    /// - Parameters:
+    ///   - reason: Why the wait ended.
+    ///   - includingSwitch: The switch itself was not announced yet. The notice then also says
+    ///     what ``notification(now:calendar:)`` would have, in one notification: a second one on
+    ///     the same pane would replace the first.
+    ///   - now: Decides whether a quoted reset time needs its date.
+    ///   - calendar: The calendar and time zone the reset time is shown in.
     func notContinuedNotification(
-        reason: ClaudeAccountAutoSwitchContinueGate.GiveUpReason
+        reason: ClaudeAccountAutoSwitchContinueGate.GiveUpReason,
+        includingSwitch: Bool,
+        now: Date,
+        calendar: Calendar
     ) -> ClaudeAccountSwitchSocketOutcome.ResumeNotification {
         let format: String
         switch reason {
@@ -116,10 +127,11 @@ struct ClaudeAccountAutoSwitchAnnouncement: Equatable, Sendable {
                 defaultValue: "cmux didn't type continue on %@: the terminal was closed."
             )
         }
+        let reasonText = String(format: format, to)
         return ClaudeAccountSwitchSocketOutcome.ResumeNotification(
             title: String(localized: "notification.claudeAccountSwitch.title", defaultValue: "Claude account switched"),
             subtitle: statusText,
-            body: String(format: format, to)
+            body: includingSwitch ? body(now: now, calendar: calendar) + "\n" + reasonText : reasonText
         )
     }
 
