@@ -236,7 +236,8 @@ mod tests {
     /// run only when that phone's Full-access setting covers it.
     #[test]
     fn a_refused_request_is_marked_for_acpmux_to_decide() {
-        let marked_set: Value = serde_json::from_str(&marked(&set_mode("agent-full-access")).unwrap()).unwrap();
+        let marked_set: Value =
+            serde_json::from_str(&marked(&set_mode("agent-full-access")).unwrap()).unwrap();
         assert_eq!(marked_set["params"]["_meta"]["acpmux"]["requireFullAccess"], true);
         assert_eq!(marked_set["params"]["modeId"], "agent-full-access");
         let prompt = json!({"jsonrpc": "2.0", "id": 3, "method": "session/prompt",
