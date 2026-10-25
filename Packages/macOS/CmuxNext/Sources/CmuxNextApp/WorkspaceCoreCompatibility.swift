@@ -1,5 +1,6 @@
 import CmuxNextAppCore
 import CmuxNextBridge
+import CmuxNextDaemon
 
 // The app keeps these names as source-compatible aliases while their values and
 // close path compile in the lower core target. Feature files therefore move by
@@ -50,6 +51,7 @@ extension AppServices: WindowSnapshotsProviding {
 extension AppServices: AppServicesProviding {
     var daemonRouting: any DaemonRoutingProviding { self }
     var windowSnapshotService: any WindowSnapshotsProviding { self }
+    var windowAccess: any WindowAccessProviding { self }
 }
 
 // Legacy app handlers still use the concrete group editor while the core
@@ -57,5 +59,15 @@ extension AppServices: AppServicesProviding {
 extension WorkspaceSpawnSidebar {
     var groupFlow: SidebarGroupFlow {
         (self as! SidebarBridge).groupFlow
+    }
+}
+
+extension AppServices: WindowAccessProviding {
+    func snapshot(windowID: String) -> (any WindowSnapshotProviding)? {
+        windows.controller(for: windowID)
+    }
+
+    func ownerWindowID(workspaceID: String) -> String? {
+        windows.registry.value.owner(of: workspaceID)
     }
 }
