@@ -49,6 +49,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_values.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_library_loader.h"
 
@@ -122,6 +123,8 @@ int g_refused_frames = 0;
 // host (kStatsReply t0).
 uint32_t g_activations = 0;
 uint32_t g_key_windows = 0;
+// The focus cmux last sent (kFocus), applied when the browser exists.
+bool g_page_focused = false;
 
 // Ends the process kQuitLimitSeconds after the first call, if it has not
 // ended by then. Any thread: the reader arms it at EOF, the UI thread at kQuit.
@@ -177,6 +180,7 @@ void CloseHost() {
 }
 
 void TryHosting();
+void SetPageFocused(bool focused);
 
 // Asks again at the end of this turn: the fork refuses while Chromium has
 // no compositor view in the page window yet, and calling it inside the
@@ -215,6 +219,9 @@ void TryHosting() {
   return @[ [NSValue valueWithRect:self.bounds] ];
 }
 - (NSBezierPath*)cmuxClipPath {
+  // Each tracker read: Chromium's page window (a child of the host's window)
+  // takes no mouse either; input comes from cmux over the wire.
+  for (NSWindow* child in self.window.childWindows) child.ignoresMouseEvents = YES;
   ScheduleHosting();
   return nil;
 }
@@ -274,6 +281,7 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
       browser->GetHost()->CloseBrowser(true);
       return;
     }
+    if (g_page_focused) SetPageFocused(true);
     ScheduleHosting();
   }
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
@@ -417,6 +425,21 @@ void HandleInput(const cmux_host::Header& h) {
   RecordHop(h.t0);
 }
 
+// The page's focus, with no window or app activation. CefBrowserHost::SetFocus
+// cannot be used: in this windowed Chrome-style mode it activates the page's
+// widget (browser_platform_delegate_chrome_child_window.cc SetFocus ->
+// Widget::Activate -> NativeWidgetNSWindowBridge kShowAndActivateWindow ->
+// [NSApp activateIgnoringOtherApps:YES] + makeKeyAndOrderFront), which made
+// the host, an app with cmux's bundle id, the active app and took cmux's key
+// window. DevTools focus emulation makes the page behave as focused (focus
+// events, document.hasFocus(), a caret, text input) while its window stays
+// inactive; keys arrive over the wire either way.
+void SetPageFocused(bool focused) {
+  CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+  params->SetBool("enabled", focused);
+  g_browser->GetHost()->ExecuteDevToolsMethod(0, "Emulation.setFocusEmulationEnabled", params);
+}
+
 void SendStats(uint32_t seq) {
   std::vector<uint32_t> sorted = g_hop_us;
   std::sort(sorted.begin(), sorted.end());
@@ -462,7 +485,8 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
       if (g_browser) HandleInput(h);
       break;
     case cmux_host::kFocus:
-      if (g_browser) g_browser->GetHost()->SetFocus(h.v[0] != 0);
+      g_page_focused = h.v[0] != 0;
+      if (g_browser) SetPageFocused(g_page_focused);  // else OnAfterCreated applies it
       break;
     case cmux_host::kEdit:
       if (g_browser) {
