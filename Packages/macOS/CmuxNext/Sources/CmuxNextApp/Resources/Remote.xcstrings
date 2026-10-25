@@ -12183,6 +12183,137 @@
           }
         }
       }
+    },
+    "remote.terminal.splitRightOrDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A terminal from another machine can split right or down only."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن تقسيم طرفية من جهاز آخر إلى اليمين أو للأسفل فقط."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal s drugog uređaja može se podijeliti samo udesno ili nadolje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En terminal fra en anden maskine kan kun deles til højre eller nedad."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Terminal einer anderen Maschine lässt sich nur nach rechts oder nach unten teilen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un terminal de otra máquina solo se puede dividir a la derecha o hacia abajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un terminal d'une autre machine ne peut être divisé qu'à droite ou vers le bas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un terminale di un'altra macchina può essere diviso solo a destra o in basso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "別のマシンのターミナルは、右または下にのみ分割できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្ថានីយពីម៉ាស៊ីនផ្សេងអាចបំបែកបានតែទៅស្តាំ ឬចុះក្រោមប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 머신의 터미널은 오른쪽 또는 아래로만 분할할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En terminal fra en annen maskin kan bare deles til høyre eller nedover."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal z innej maszyny można podzielić tylko w prawo lub w dół."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um terminal de outra máquina só pode ser dividido à direita ou para baixo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Терминал другой машины можно разделить только вправо или вниз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เทอร์มินัลจากเครื่องอื่นแยกได้เฉพาะไปทางขวาหรือลงด้านล่างเท่านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Başka bir makinenin terminali yalnızca sağa veya aşağıya bölünebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Термінал іншої машини можна розділити лише вправо або вниз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal của máy khác chỉ có thể chia sang phải hoặc xuống dưới."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他机器的终端只能向右或向下拆分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他機器的終端機只能向右或向下分割。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

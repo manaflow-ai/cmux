@@ -44,11 +44,21 @@ enum RemoteHandlers {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
             let home = context.services.daemon(for: pane)
-            if daemon === home {
+            let cwd = invocation["cwd"]?.stringValue
+            // Rex-style placement words too (`below`, `bottom`); the daemon splits right or down only.
+            var direction: SplitDirection?
+            if let word = invocation["direction"]?.stringValue {
+                switch word {
+                case "right": direction = .right
+                case "down", "below", "bottom": direction = .down
+                default: throw ActionFailure(message: RemoteStrings.splitRightOrDown)
+                }
+            }
+            if daemon === home && direction == nil && cwd == nil {
                 registry.perform("newSurface", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.id)))
                 return
             }
-            if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: nil) {
+            if let failure = context.services.remoteTerminals.openTerminal(on: daemon, in: pane, home: home, cwd: cwd, splitting: direction) {
                 throw ActionFailure(message: failure.message)
             }
         })

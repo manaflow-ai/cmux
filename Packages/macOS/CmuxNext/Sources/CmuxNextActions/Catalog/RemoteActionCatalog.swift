@@ -87,8 +87,8 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 id: "remote.openTerminalHere",
                 title: String(localized: "action.remote.openTerminalHere", defaultValue: "Open Terminal on Machine Here…", table: "RemoteActions", bundle: .module),
                 keywords: ["ssh", "remote", "machine", "session", "terminal", "mixed"], category: .remote, symbol: "terminal",
-                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine], targets: [.pane],
-                cliName: "remote open-terminal-here", startsTerminal: true
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.machineMachine, CatalogArgument.directionChoice.optional, CatalogArgument.cwdString.optional],
+                targets: [.pane], cliName: "remote open-terminal-here", startsTerminal: true
             ),
             ActionDescriptor(
                 id: "remote.reconnect",

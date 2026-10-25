@@ -96,8 +96,10 @@ extension RemoteTerminalService {
     /// `pane` (whose workspace is homed on `home`). The terminal has no tab
     /// on `machine`: `create-terminal {detached}` (`detached-terminals-v1`),
     /// else created in one of the machine's workspaces (a scratch one when
-    /// it has none) and that tab closed.
-    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
+    /// it has none) and that tab closed. With `direction` the tab lands in a
+    /// new split of `pane` (right or bottom) instead of a tab of it.
+    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?,
+                      splitting direction: SplitDirection? = nil) -> ActionWorkFailure? {
         // Only the tab's session stores the reference; the terminal's session
         // needs no new capability.
         guard home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {
@@ -129,7 +131,9 @@ extension RemoteTerminalService {
                 }
                 let ref = RemoteTerminalRef(sessionID: session, terminalID: terminal, sessionName: name)
                 if let resource { self?.remember(ref, resource: resource) }
-                _ = try await homeConnection.newRemoteTerminalTab(ref, in: paneHandle, title: RemoteStrings.terminalOn(name))
+                let created = try await homeConnection.newRemoteTerminalTab(ref, in: paneHandle, title: RemoteStrings.terminalOn(name))
+                // Placed by moving the new tab to a split of its pane (move-tab-to-split): no local seed shell.
+                if let direction { try await homeConnection.split(paneHandle, direction: direction, movingTab: created.surface) }
                 return nil
             } catch {
                 return ActionWorkFailure("open terminal on machine", error)
