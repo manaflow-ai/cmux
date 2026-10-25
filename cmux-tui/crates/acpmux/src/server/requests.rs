@@ -938,6 +938,7 @@ async fn dispatch_request(
             // place (`attach.rs`).
             let mut saved = None;
             if crate::attach::any(&blocks) {
+                crate::attach::check_wire(&params)?;
                 let id = s.id.clone();
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
@@ -994,7 +995,7 @@ async fn dispatch_request(
             };
             let answer = hub.prompt_with(&s, blocks, &client, steer, opts).await;
             if let Some(saved) = saved {
-                saved.settle(&answer).await;
+                saved.settle(hub, &answer).await;
             }
             answer
         }

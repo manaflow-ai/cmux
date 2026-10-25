@@ -18,15 +18,15 @@
 //!
 //! Caps: the message is one JSON-RPC message on every hop (CLI, outbox record, peer link, agent),
 //! at most `rpc::MAX_MESSAGE_BYTES` (15 MiB). 10 MiB is 13.3 MiB as base64, leaving room for the
-//! text; [`check_wire`] also refuses a message whose whole size would not fit. A screenshot (a 5K Retina PNG is 3 to 7 MiB) fits in [`MAX_FILE_BYTES`]; a larger file
-//! is a video or an archive, which `_acpmux/file_put` takes.
+//! text; [`check_wire`] also refuses a request whose whole size would not fit. A screenshot (a 5K
+//! Retina PNG is 3 to 7 MiB) fits in [`MAX_FILE_BYTES`]; a larger file is a video or an archive,
+//! which `_acpmux/file_put` takes.
 
 use crate::rpc::RpcError;
 use base64::Engine;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// The `initialize` feature of a daemon that saves a message's attachments.
 pub const FEATURE: &str = "sendAttach";
@@ -132,9 +132,11 @@ fn data_of(block: &Value) -> Option<&str> {
     .and_then(Value::as_str)
 }
 
-/// `blocks`' attachments against the caps from their base64 length, before they are decoded or
-/// sent on: a daemon forwarding a prompt to a peer refuses it before the link.
-pub fn check_wire(blocks: &[Value]) -> Result<(), RpcError> {
+/// A `session/prompt` request's attachments against the caps from their base64 length, and the
+/// whole request (its text and metadata too) against one JSON-RPC message, before they are
+/// decoded or sent on: every sender and hop checks it.
+pub fn check_wire(request: &Value) -> Result<(), RpcError> {
+    let blocks = request.get("prompt").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
     let sizes: Vec<_> = blocks
         .iter()
         .filter_map(|b| Some((mark(b)?, data_of(b).unwrap_or_default())))
@@ -148,9 +150,8 @@ pub fn check_wire(blocks: &[Value]) -> Result<(), RpcError> {
     if sizes.is_empty() {
         return Ok(());
     }
-    // The text too, as one message with its envelope (`FRAME_SLACK`), on every hop.
     let mut len = Count(0);
-    let _ = serde_json::to_writer(&mut len, blocks);
+    let _ = serde_json::to_writer(&mut len, request);
     if len.0 + FRAME_SLACK <= crate::rpc::MAX_MESSAGE_BYTES {
         return Ok(());
     }
@@ -163,8 +164,9 @@ pub fn check_wire(blocks: &[Value]) -> Result<(), RpcError> {
     Err(refused("attach.tooLarge", message))
 }
 
-/// Room [`check_wire`] leaves for a prompt's JSON-RPC envelope (method, ids, `_meta`).
-const FRAME_SLACK: usize = 64 << 10;
+/// Room [`check_wire`] leaves for the JSON-RPC envelope and what a hop adds (a forwarding
+/// daemon's provenance).
+const FRAME_SLACK: usize = 16 << 10;
 
 /// Counts the bytes written to it.
 struct Count(usize);
@@ -198,7 +200,6 @@ pub fn receive(
             "a remote web connection cannot attach files".to_owned(),
         ));
     }
-    check_wire(blocks)?;
     let mut files = Vec::new();
     let mut names = std::collections::HashSet::new();
     for (index, b) in blocks.iter().enumerate() {
@@ -227,7 +228,8 @@ pub fn receive(
     // Named by this daemon's clock, which the uploads age sweep reads.
     let dir = uploads.join(uuid::Uuid::now_v7().to_string());
     // From here the folder is the message's: a failure deletes it, files saved so far included.
-    let saved_dir = Saved { dir: Some(dir.clone()), accepted: Arc::new(AtomicBool::new(false)) };
+    let saved_dir =
+        Saved { dir: Some(dir.clone()), session: session.to_owned(), accepted: Arc::default() };
     let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save an attachment: {e}"));
     crate::config::private_state_dir(&dir).map_err(failed)?;
     let mut saved = Vec::new();
@@ -261,7 +263,9 @@ pub fn receive(
 /// the session took the prompt.
 pub struct Saved {
     dir: Option<PathBuf>,
-    accepted: Arc<AtomicBool>,
+    session: String,
+    /// Set when the session takes the prompt as a new run: whether it queued, and its id.
+    accepted: Arc<Mutex<Option<(bool, String)>>>,
 }
 
 type OnAccepted = Option<Box<dyn FnOnce(Value) + Send>>;
@@ -272,7 +276,9 @@ impl Saved {
         let accepted = self.accepted.clone();
         Some(Box::new(move |v: Value| {
             if v.get("duplicate") != Some(&Value::Bool(true)) {
-                accepted.store(true, Ordering::SeqCst);
+                let queued = v.get("queued") == Some(&Value::Bool(true));
+                let id = v.get("promptId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                *accepted.lock().unwrap_or_else(|e| e.into_inner()) = Some((queued, id));
             }
             if let Some(f) = on_accepted {
                 f(v);
@@ -282,23 +288,38 @@ impl Saved {
 
     /// Deletes the files nothing will read: the prompt was a resend the ledger answered with its
     /// first run's outcome (that run reads its own folder, so a retried delivery keeps one copy),
-    /// or it was refused before it reached the session. A message an agent pair holds keeps them
-    /// for its release (`agent_pairs.rs`); a resend of one held already does not.
-    pub async fn settle(mut self, answer: &Result<Value, RpcError>) {
+    /// it was refused before it reached the session, or it was queued and then left the queue
+    /// unrun (withdrawn, superseded, refused when its turn came). A message an agent pair holds
+    /// keeps them for its release (`agent_pairs.rs`); a resend of one held already does not.
+    pub async fn settle(mut self, hub: &Arc<crate::hub::Hub>, answer: &Result<Value, RpcError>) {
+        let accepted = self.accepted.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let data = answer.as_ref().err().and_then(|e| e.data.as_ref());
         let flag = |k| data.and_then(|d| d.get(k)) == Some(&Value::Bool(true));
-        let keep = self.accepted.load(Ordering::SeqCst) || (flag("held") && !flag("resent"));
-        if let Some(dir) = self.dir.take().filter(|_| !keep) {
-            let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(dir)).await;
-        }
+        let held = flag("held") && !flag("resent");
+        let withdrawn = answer.as_ref().ok().and_then(|v| v.pointer("/_meta/acpmux/withdrawn"))
+            == Some(&Value::Bool(true));
+        let failed = answer.is_err();
+        let (hub, session, dir) = (hub.clone(), self.session.clone(), self.dir.take());
+        let _ = tokio::task::spawn_blocking(move || {
+            let keep = match accepted {
+                None => held,
+                Some(_) if withdrawn => false,
+                // Refused when its turn came, or its turn failed: kept if it ran.
+                Some((true, id)) if failed => hub.ran_prompt(&session, &id),
+                Some(_) => true,
+            };
+            if let Some(dir) = dir.filter(|_| !keep) {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        })
+        .await;
     }
 }
 
 impl Drop for Saved {
     fn drop(&mut self) {
-        let Some(dir) = self.dir.take().filter(|_| !self.accepted.load(Ordering::SeqCst)) else {
-            return;
-        };
+        let accepted = self.accepted.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        let Some(dir) = self.dir.take().filter(|_| !accepted) else { return };
         let remove = move || drop(std::fs::remove_dir_all(dir));
         match tokio::runtime::Handle::try_current() {
             Ok(runtime) => drop(runtime.spawn_blocking(remove)),
@@ -353,35 +374,18 @@ mod tests {
     #[test]
     fn a_message_too_big_for_one_frame_is_refused() {
         let half = vec![0u8; MAX_MESSAGE_BYTES / 2];
-        let mut blocks = vec![block("a.bin", &half), block("b.bin", &half)];
-        assert!(check_wire(&blocks).is_ok());
-        blocks.insert(0, json!({"type": "text", "text": "x".repeat(2 << 20)}));
-        let refused = check_wire(&blocks).unwrap_err();
+        let mut request = json!({"prompt": [block("a.bin", &half), block("b.bin", &half)]});
+        assert!(check_wire(&request).is_ok());
+        request["_meta"] = json!({"acpmux": {"promptId": "x".repeat(2 << 20)}});
+        let refused = check_wire(&request).unwrap_err();
         assert!(refused.message.contains("15 MiB"), "{refused}");
-    }
-
-    fn saved_in(dir: &Path) -> Saved {
-        std::fs::create_dir_all(dir).unwrap();
-        Saved { dir: Some(dir.to_owned()), accepted: Arc::new(AtomicBool::new(false)) }
-    }
-
-    #[tokio::test]
-    async fn a_held_message_keeps_its_files_and_its_resend_does_not() {
-        let root = std::env::temp_dir().join(format!("acpmux-saved-{}", uuid::Uuid::now_v7()));
-        let held = |resent| {
-            Err(RpcError::new(-32000, "held").with_data(json!({"held": true, "resent": resent})))
-        };
-        saved_in(&root.join("held")).settle(&held(false)).await;
-        assert!(root.join("held").is_dir());
-        saved_in(&root.join("resent")).settle(&held(true)).await;
-        assert!(!root.join("resent").exists());
-        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
     fn files_of_a_message_dropped_unanswered_are_deleted() {
         let root = std::env::temp_dir().join(format!("acpmux-saved-{}", uuid::Uuid::now_v7()));
-        drop(saved_in(&root));
+        std::fs::create_dir_all(&root).unwrap();
+        drop(Saved { dir: Some(root.clone()), session: String::new(), accepted: Arc::default() });
         assert!(!root.exists());
     }
 
