@@ -3,6 +3,13 @@
 /// leaves (`CloseSizing`), in one layout. A column's only pane takes its column with it, and with
 /// `layout.newColumnWidth` fitScreen the columns left share the viewport again. Nothing is sent: the
 /// caller sends the close, and the daemon's tree without the pane then shows what is already shown.
+///
+/// Column widths are derived, never held per close: the shown widths are the daemon's, then the
+/// widths of closes that landed while others were pending (`landedCloseWidths`), then each pending
+/// close in the order it was shown, its fit-screen sizing taken against the layout before it. So
+/// overlapping closes, their echoes in any order and a refusal of any of them each show what the
+/// closes still pending leave, and the widths go to the daemon once, when the screen's last
+/// pending close resolves (`flushLandedCloseWidths`).
 extension LayoutModel {
     /// Hides `pane` from the shown screens with its chain's close sizing, in this turn.
     ///
@@ -19,17 +26,12 @@ extension LayoutModel {
         guard paneCloses[pane] == nil, let screen = screens.first(where: { $0.layout.contains(pane) }), !screen.zoomed,
               let after = Self.removingSplitPane(pane, from: screen.layout) else { return nil }
         let close = PendingPaneClose(pane: pane, successor: Self.successor(of: pane, in: screen.layout), transaction: .make())
-        paneCloses[pane] = PaneCloseHold(transaction: close.transaction)
+        paneCloseSequence += 1
+        paneCloses[pane] = PaneCloseHold(transaction: close.transaction, sequence: paneCloseSequence)
         if splitSizing == .even {
             for change in CloseSizing(old: screen.layout, new: after).splitChanges(closing: pane) {
                 let ratio = min(max(change.ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
                 splitOverrides[change.split] = Override(value: ratio, transaction: close.transaction, ended: false)
-            }
-        }
-        if newColumnWidthMode == .fitScreen {
-            for resize in CloseSizing(old: screen.layout, new: after).columnResizes() {
-                let width = min(max(resize.width, ColumnWidthPreset.widthRange.lowerBound), ColumnWidthPreset.widthRange.upperBound)
-                widthOverrides[resize.column] = Override(value: width, transaction: close.transaction, ended: false)
             }
         }
         showOverlaid()
@@ -43,13 +45,14 @@ extension LayoutModel {
         paneCloses[close.pane]?.settled = true
     }
 
-    /// The daemon refused the close: the pane and its chain's sizes come back at once.
+    /// The daemon refused the close: the pane and its chain's sizes come back at once; the closes
+    /// still pending keep theirs, and when none is left the widths of those that landed go out.
     public func cancelPaneClose(_ close: PendingPaneClose) {
         guard paneCloses[close.pane]?.transaction == close.transaction else { return }
         paneCloses[close.pane] = nil
         splitOverrides = splitOverrides.filter { $0.value.transaction != close.transaction }
-        widthOverrides = widthOverrides.filter { $0.value.transaction != close.transaction }
         showOverlaid()
+        flushLandedCloseWidths()
     }
 
     /// Whether `pane` is hidden by a pending close.
@@ -64,16 +67,67 @@ extension LayoutModel {
             for (split, override) in splitOverrides where override.transaction == hold.transaction {
                 splitOverrides[split]?.ended = true
             }
-            for (column, override) in widthOverrides where override.transaction == hold.transaction {
-                widthOverrides[column]?.ended = true
+        }
+    }
+
+    /// The pending closes, in the order they were shown.
+    var orderedPaneCloses: [PaneID] {
+        paneCloses.sorted { $0.value.sequence < $1.value.sequence }.map(\.key)
+    }
+
+    /// `layout` with the landed close widths, then each pending close in order: its pane out and,
+    /// under fit-screen, the widths it leaves (``LayoutModel`` above).
+    func overlayingPaneCloses(_ layout: ScreenLayout) -> ScreenLayout {
+        var layout = applyingLandedCloseWidths(layout)
+        let fits = newColumnWidthMode == .fitScreen
+        for pane in orderedPaneCloses where layout.contains(pane) {
+            guard var after = Self.removingSplitPane(pane, from: layout) else { continue }
+            if fits {
+                for resize in CloseSizing(old: layout, new: after).columnResizes() { after = after.settingWidth(resize.width, for: resize.column) }
+            }
+            layout = after
+        }
+        return layout
+    }
+
+    func applyingLandedCloseWidths(_ layout: ScreenLayout) -> ScreenLayout {
+        landedCloseWidths.reduce(layout) { layout, entry in
+            layout.columns.contains { $0.id == entry.key } ? layout.settingWidth(entry.value, for: entry.key) : layout
+        }
+    }
+
+    /// Shown closes that landed (`landed` left the daemon's tree between `old` and `new`): under
+    /// fit-screen, the widths each screen's change leaves, against the landed widths, join them.
+    func noteLandedColumnCloses(from old: [LayoutScreen], to new: [LayoutScreen], landed: Set<PaneID>) {
+        guard !landed.isEmpty, newColumnWidthMode == .fitScreen else { return }
+        for screen in new {
+            guard let before = old.first(where: { $0.id == screen.id }), !before.zoomed, !screen.zoomed,
+                  landed.contains(where: { before.layout.contains($0) }) else { continue }
+            let resizes = CloseSizing(old: applyingLandedCloseWidths(before.layout), new: applyingLandedCloseWidths(screen.layout)).columnResizes()
+            for resize in resizes { landedCloseWidths[resize.column] = resize.width }
+        }
+    }
+
+    /// Sends the landed close widths of every screen with no close pending, once: the daemon then has
+    /// what the screen shows. A width the daemon already has, or of a column gone, is dropped.
+    func flushLandedCloseWidths() {
+        guard !landedCloseWidths.isEmpty else { return }
+        for screen in daemonScreens where !paneCloses.keys.contains(where: { screen.layout.contains($0) }) {
+            for column in screen.layout.columns {
+                guard let width = landedCloseWidths.removeValue(forKey: column.id) else { continue }
+                if abs(width - column.width) > 0.002 { setColumnWidth(column.id, width: width, transaction: .make(), phase: .ended) }
             }
         }
+        let live = Set(daemonScreens.flatMap { $0.layout.columns.map(\.id) })
+        landedCloseWidths = landedCloseWidths.filter { live.contains($0.key) }
     }
 }
 
 /// One pane hidden by a pending close (``LayoutModel/showPaneClose(_:)``).
 struct PaneCloseHold {
     var transaction: LayoutTransactionID
+    /// The order it was shown in: a later close's sizing is taken after an earlier one's.
+    var sequence: Int
     /// The daemon accepted the close: the next snapshot wins.
     var settled = false
 }

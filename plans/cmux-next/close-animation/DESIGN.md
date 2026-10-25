@@ -97,10 +97,14 @@ Tests: `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/PaneCloseMotionTests.swif
   daemon's tree, so the emptied column showed its strip's tab close (`ui.animations.newTab`, on by
   default since) before it left. `LayoutModel.removingColumn(at:from:)` shows the columns as
   cmux-tui leaves them (`project_layout_columns`: a lone column is the screen's tree, a lone pinned
-  dock stays; `normalize_dock_columns`), the fit-screen widths the close leaves are held under the
-  close's transaction like the split ratios, and the focus goes to the nearest column on the left,
-  else the right (close-focus.md), at its first pane: if the coordinator picks the column's most
-  recent pane instead, the focus moves again on the echo.
+  dock stays; `normalize_dock_columns`). Column widths are derived, not held per close: the daemon's,
+  then the widths of closes that landed while another was pending, then each pending close in the
+  order it was shown with the fit-screen sizing it leaves. Overlapping closes, their echoes in any
+  order and refusals each show what the pending closes leave; the widths go out once, when the
+  screen's last pending close resolves. When the closed pane had the focus, the focus reducer picks
+  the successor from the held topology without the pane (`layout.closeFocus` and the window's
+  history, close-focus.md), the pick the echo's topology would make; the window applies it in the
+  key's turn. Overlapping closes in one split chain still share `splitOverrides` (not seen yet).
 - The window's fade is alpha only: AppKit gives no public way to scale a window, and its content
   cannot be snapshotted with its Metal and page layers.
 - The grid hold is app-wide (every window's terminals) for the ~0.4 s of a close, not per pane.
