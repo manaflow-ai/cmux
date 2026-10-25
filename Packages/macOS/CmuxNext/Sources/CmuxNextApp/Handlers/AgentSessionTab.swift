@@ -1,4 +1,6 @@
 import CmuxNextActions
+import CmuxNextAgentActivity
+import CmuxNextAgentLanes
 import CmuxNextDaemon
 import Foundation
 
@@ -12,17 +14,26 @@ import Foundation
 /// A session a tab already shows gets no second tab. Only a run that may change the view (the
 /// person's, or `focus: true`) selects and shows the tab; a script's run adds it and leaves the
 /// person's view as it is. Arguments: `session` (required), `host` (`chief:<home id>`: the session
-/// runs in this app's Chief home's acpmux; absent: this Mac's).
+/// runs in this app's Chief home's acpmux; an acpmux peer's name such as `huge-blue`: its chat as
+/// this Mac's acpmux mirrors it (`AgentPeerSession`); absent: this Mac's).
 enum AgentSessionTab {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionTab", run: { try open($0, context: context) })
     }
 
     private static func open(_ invocation: ActionInvocation, context: AppActionContext) throws {
-        let session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var session = (invocation["session"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !session.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.sessionRequired) }
-        let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
+        // A peer's chat opens as the session this Mac's acpmux mirrors (the tab binds here, never there).
+        if let peer = host, peer != services.agentTabs.chiefHost, peer != services.agentTabs.localHost {
+            switch AgentPeerSession.resolve(session, peer: peer, lanes: AgentLaneStore.shared.lanes.values) {
+            case .session(let mirrored): (session, host) = (mirrored, nil)
+            case .unknownSession: throw ActionFailure(message: MiscHandlerStrings.noPeerSession(session, peer))
+            case .notAPeer: break // the tab's host check refuses it with its own reason
+            }
+        }
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let shows = invocation.allowsViewChange
         if let shown = services.agentTabs.tab(showing: session, host: host) {
