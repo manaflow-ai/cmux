@@ -31,6 +31,9 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 195
+    defaults:
+      run:
+        working-directory: .fast-checks-checkout
     env:
       CARGO_TARGET_DIR: /home/runner/.cache/fast-checks/target
       CARGO_HOME: /home/runner/.cache/fast-checks/cargo
@@ -43,6 +46,7 @@ jobs:
         env:
           SOURCE_SHA: ${{ inputs.source_sha }}
           COMMAND_TIMEOUT: ${{ inputs.timeout }}
+        working-directory: ${{ github.workspace }}
         run: |
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
@@ -54,11 +58,11 @@ jobs:
         uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
         with:
           key: cmux-fast-checks-checkout-v1
-          path: ${{ github.workspace }}
+          path: ${{ github.workspace }}/.fast-checks-checkout
           commit: on-change
 
       - name: Sanitize persistent checkout metadata
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ github.workspace }}/.fast-checks-checkout
         run: |
           # Keep the sticky disk's Git object store for fetch speed, but never
           # trust metadata written by a prior command or source snapshot.
@@ -89,6 +93,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.source_sha }}
+          path: .fast-checks-checkout
           persist-credentials: false
           clean: true
 
@@ -129,7 +134,7 @@ jobs:
 
       - name: Install webview dependencies
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
-        working-directory: webviews
+        working-directory: ${{ github.workspace }}/.fast-checks-checkout/webviews
         run: bun install --frozen-lockfile
 
       - name: Prepare full webview tests
@@ -175,7 +180,7 @@ jobs:
 
       - name: Set up pinned Rust
         if: inputs.setup == 'rust'
-        uses: ./.github/actions/setup-cmux-tui-rust
+        uses: ./.fast-checks-checkout/.github/actions/setup-cmux-tui-rust
 
       - name: Run fast checks
         env:
@@ -186,7 +191,7 @@ jobs:
         run: |
           umask 022
           python3 - <<'PY'
-          import json, os, pathlib, subprocess, time
+          import json, os, pathlib, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
@@ -195,17 +200,48 @@ jobs:
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
           started_at = time.time()
           start = time.monotonic()
-          code = subprocess.call(['timeout', '--signal=TERM', '--kill-after=30s',
-                                  os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
-                                  os.environ['FAST_CHECKS_COMMAND']], cwd=directory)
+          command = subprocess.Popen(
+              ['timeout', '--signal=TERM', '--kill-after=30s',
+               os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
+               os.environ['FAST_CHECKS_COMMAND']],
+              cwd=directory, start_new_session=True)
+          command_pgid = command.pid
+          try:
+              code = command.wait()
+          finally:
+              # The command owns this process group. Reap any child that kept
+              # the checkout open without name-based kills or touching the
+              # runner/action processes.
+              try:
+                  os.killpg(command_pgid, signal.SIGTERM)
+              except ProcessLookupError:
+                  pass
           after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           result = dict(source_sha=actual, source_tree=tree, head_after=after,
               command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
-              run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
+              command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
           print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
           pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
           raise SystemExit(code if actual == after else 2)
           PY
+
+      # The checkout is mounted below the runner workspace, so the runner's
+      # own cwd cannot keep the mount busy during sticky-disk post cleanup.
+      # Capture holders before that post action and leave the mount from /.
+      - name: Inspect checkout mount holders
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          mount_path="${{ github.workspace }}/.fast-checks-checkout"
+          cd /
+          if command -v mountpoint >/dev/null 2>&1 && mountpoint -q "$mount_path"; then
+            {
+              echo "checkout mount holders: $mount_path"
+              sudo fuser -vm "$mount_path" || true
+              sudo lsof +f -- "$mount_path" || true
+            } > "$RUNNER_TEMP/fast-checks-checkout-holders.log" 2>&1 || true
+            cat "$RUNNER_TEMP/fast-checks-checkout-holders.log"
+          fi
 
       - name: Save exact-source timing receipt
         if: always()
