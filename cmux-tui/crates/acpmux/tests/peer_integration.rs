@@ -2192,4 +2192,42 @@ async fn a_peer_resolves_a_sessions_text_masked() {
     assert!(!r.to_string().contains("ghp_"), "{r}");
     assert_eq!(r["session"]["lastPrompt"], format!("push with {mask}"), "{r}");
     assert_eq!(r["matches"][0]["lastMessage"]["text"], format!("echo: push with {mask}"), "{r}");
+/// Beads ↔ sessions (`beads.rs`): a bead linked to a peer's session through this daemon (its
+/// `bead:<id>` tag, forwarded to the peer) reaches this daemon's mirror, and resolving the bead
+/// id finds that session with its beads listed; the session's own card lists them too.
+#[tokio::test]
+async fn a_bead_linked_to_a_peers_session_resolves_to_it() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "beads").await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "bead-lane"}}});
+    let far = cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let mut watcher = client(a.clone()).await;
+    watcher.call(method::MUX_WATCH, json!({})).await.unwrap();
+
+    // Not linked yet: the bead id names no session.
+    let e = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2"})).await.unwrap_err();
+    assert!(e.contains("carrying the bead") && e.contains("cx-ab1.2"), "{e}");
+
+    // `acpmux bead link b/bead-lane cx-ab1.2` is this tag, set through A.
+    let set = json!({"sessionId": "b/bead-lane", "set": {"bead:cx-ab1.2": "1"}});
+    ca.call(method::MUX_TAG, set).await.unwrap();
+    watcher
+        .wait(method::MUX_SESSION_CHANGED, |p| {
+            p["session"]["sessionId"] == far.as_str()
+                && p["session"]["tags"].get("bead:cx-ab1.2").is_some()
+        })
+        .await;
+
+    let r = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2"})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(r["session"]["beads"], json!(["cx-ab1.2"]), "{r}");
+    let r = ca.call("_acpmux/resolve", json!({"query": "b/bead-lane"})).await.unwrap();
+    assert_eq!(r["session"]["beads"], json!(["cx-ab1.2"]), "{r}");
 }
