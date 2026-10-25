@@ -103,3 +103,9 @@ const draw = () =>
   working = true;
   flushSync(draw);
 };
+(window as unknown as { __switchSession: (id: string, rows: AcpmuxRow[]) => void }).__switchSession = (id, rows) => {
+  sessionId = id;
+  shown = rows;
+  draw();
+};
+};

@@ -9,12 +9,7 @@
 // composer passes the pointer through beside its card (bottomStack.css), and the other parts' bands,
 // which take the pointer so nothing reaches the masked rows under them, send the wheel on here.
 
-/// The event's vertical distance in pixels (a line is 16px, a page the scroller's height).
-export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pageHeight: number): number {
-  if (event.deltaMode === 1) return event.deltaY * 16;
-  if (event.deltaMode === 2) return event.deltaY * pageHeight;
-  return event.deltaY;
-}
+import { wheelPixels } from "./wheelMath";
 
 /// Whether the wheel over `target` goes to the transcript: over Jump to latest, or over a part of the
 /// floating stack itself (its gutters and empty room, not what it holds), unless that part scrolls.
@@ -28,14 +23,33 @@ function passesThrough(target: Element): boolean {
 
 /// Scrolls `scroller` by a vertical wheel that landed outside it. The scroller first gets a copy of
 /// the event, so its own wheel listeners run as for a wheel over it (the scroll counts as the
-/// reader's, a glide, a minimap jump or a Jump to latest in flight ends). A pinch (ctrl) or a mostly
-/// sideways wheel is left alone.
+/// reader's, a glide, a minimap jump or a Jump to latest in flight ends, a mouse wheel's notch
+/// glides instead of jumping). A pinch (ctrl) or a mostly sideways wheel is left alone, and a wheel
+/// with shift, option or command scrolls nothing here, as the transcript's own wheel handling
+/// (wheelGlide.ts) leaves a modified wheel to the engine; its copy still ends a glide in flight.
 export function forwardWheel(scroller: HTMLElement, event: WheelEvent): void {
   if (event.defaultPrevented || event.ctrlKey) return;
   if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
-  scroller.dispatchEvent(
-    new WheelEvent("wheel", { deltaX: 0, deltaY: event.deltaY, deltaMode: event.deltaMode, bubbles: false }),
-  );
+  // A mouse wheel's notch glides there (wheelGlide.ts takes the copy, which carries the legacy
+  // delta it reads): the scroll is left to it.
+  const copy = new WheelEvent("wheel", {
+    deltaX: 0,
+    deltaY: event.deltaY,
+    deltaMode: event.deltaMode,
+    bubbles: false,
+    cancelable: true,
+    // The same modifiers as the wheel itself, so the copy is read as that wheel would be over the
+    // transcript (a modified wheel never glides).
+    metaKey: event.metaKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+    wheelDeltaY: (event as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY,
+  } as WheelEventInit);
+  // A modified wheel's copy asks for no scroll: its listeners still hear it (a glide in flight ends),
+  // and WebKit, which scrolls for a dispatched wheel event, leaves the transcript where it is.
+  const modified = event.metaKey || event.shiftKey || event.altKey;
+  if (modified) copy.preventDefault();
+  if (!scroller.dispatchEvent(copy) || modified) return;
   scroller.scrollTop += wheelPixels(event, scroller.clientHeight);
 }
 
