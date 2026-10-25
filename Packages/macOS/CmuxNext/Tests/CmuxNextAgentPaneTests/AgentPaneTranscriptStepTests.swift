@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing

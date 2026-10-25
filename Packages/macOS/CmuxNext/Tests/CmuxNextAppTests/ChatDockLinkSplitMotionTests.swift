@@ -32,16 +32,6 @@ struct ChatDockLinkSplitMotionTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// The agent page the chat loads (the page host registers its root once per process, so it is
-    /// made once and never deleted).
-    static let chatPage: URL? = {
-        let directory = FileManager.default.temporaryDirectory.appending(path: "right-split-chat-\(UUID().uuidString)")
-        let file = directory.appending(path: "index.html")
-        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
-              (try? Data("<html><body><textarea></textarea></body></html>".utf8).write(to: file)) != nil else { return nil }
-        return file
-    }()
-
     final class Panes: LayoutPaneContentProvider {
         let content: Content
         private(set) var page: CEFHostView?
@@ -73,7 +63,8 @@ struct ChatDockLinkSplitMotionTests {
                     self?.page = page
                 }
                 self.hosting = hosting
-                guard let file = ChatDockLinkSplitMotionTests.chatPage,
+                // The page root every test target shares (`cmux.agent` registers once per process).
+                guard let file = AgentPageTestRoot.page,
                       let chat = AgentPaneView(model: AgentPaneModel(host: NoChatHost()), source: .bundled(file), pageHost: true,
                                                chromium: hosting) else { return NSView() }
                 self.chat = chat
@@ -196,6 +187,51 @@ struct ChatDockLinkSplitMotionTests {
         guard expected.minX < 0.5, expected.width > 1, shown.minX > 0.5 || shown.width < 1 else { return nil }
         return String(format: "%@: shows %.1f...%.1f of a pane whose 0...%.1f is inside the strip", label, shown.minX,
                       shown.maxX, expected.maxX)
+    }
+
+    /// Why `host` is off its part inside the strip in a way the mask's frame alone does not show, or
+    /// nil when it is right: while any of it is inside the strip the host and its ancestors are not
+    /// hidden, and no cutout of its strip mask (a pane in front) cuts into that part.
+    static func strictError(_ host: PaneHostView, in screen: ScreenContentView, _ label: String) -> String? {
+        let expected = Self.expectedShown(host, in: screen)
+        guard expected.width > 1, expected.height > 1 else { return nil }
+        if host.isHiddenOrHasHiddenAncestor {
+            return String(format: "%@: the pane is hidden while its %.1f...%.1f is inside the strip", label, expected.minX, expected.maxX)
+        }
+        let cutouts = (host.layer?.mask as? StripClipMaskLayer)?.cutouts ?? []
+        let cutting = cutouts.filter { Self.meets($0, expected) }
+        guard !cutting.isEmpty else { return nil }
+        return "\(label): mask cutouts \(cutting) cut into the strip part \(expected)"
+    }
+
+    /// Whether `a` and `b` share more than a hairline.
+    static func meets(_ a: CGRect, _ b: CGRect) -> Bool {
+        let shared = a.intersection(b)
+        return !shared.isNull && shared.width > 0.5 && shared.height > 0.5
+    }
+
+    /// Why the Chromium page in `host` does not show all of its part inside the strip, or nil when it
+    /// does: no occlusion hole and no clip cutout meets that part, and the clip shape (nil, or a path)
+    /// holds every point of it away from the rounded corners.
+    static func strictPageError(_ page: CEFHostView, in host: PaneHostView, screen: ScreenContentView, _ label: String) -> String? {
+        let expected = Self.expectedShown(host, in: screen)
+        guard expected.width > 1, expected.height > 1 else { return nil }
+        guard page.bounds.width > 1 else { return "\(label): the page has no width: \(page.bounds)" }
+        let part = page.bounds.intersection(page.convert(expected, from: host))
+        guard !part.isNull, part.width > 1, part.height > 1 else { return nil }
+        let holes = ((page.cmuxOcclusionRects() as? [NSValue])?.map(\.rectValue) ?? []).filter { Self.meets($0, part) }
+        if !holes.isEmpty { return "\(label): occlusion holes \(holes) meet the page's strip part \(part)" }
+        let cutouts = CEFClipShape.cutouts(around: page).filter { Self.meets($0, part) }
+        if !cutouts.isEmpty { return "\(label): clip cutouts \(cutouts) meet the page's strip part \(part)" }
+        guard let path = page.cmuxClipPath() else { return nil }
+        let inner = part.insetBy(dx: min(16, part.width / 4), dy: min(16, part.height / 4))
+        for i in 0...4 {
+            for j in 0...4 {
+                let point = CGPoint(x: inner.minX + inner.width * CGFloat(i) / 4, y: inner.minY + inner.height * CGFloat(j) / 4)
+                if !path.contains(point) { return "\(label): the page clip leaves out \(point) of its strip part \(part)" }
+            }
+        }
+        return nil
     }
 
     /// Why the Chromium page in `host` is off its part inside the strip, or nil when it is right: the
@@ -413,9 +449,11 @@ struct ChatDockLinkSplitMotionTests {
     /// - the pane's content is the pane's final size from the open's first frame (the strip moves the
     ///   pane; nothing grows),
     /// - what shows of the pane is its part inside the strip, from its leading edge to the strip's
-    ///   right edge while it slides in, never nothing and never a part starting inside it,
-    /// - a Chromium page (the browser's, the chat's) clips to that same part with no hole over it,
-    /// and at rest the pane shows all of itself and its content fills it.
+    ///   right edge while it slides in, never nothing and never a part starting inside it; the pane
+    ///   is never hidden while any of it is inside the strip, and no mask cutout cuts into that part,
+    /// - a Chromium page (the browser's, the chat's) clips to that same part: no occlusion hole and
+    ///   no clip cutout meets it, and the clip shape holds it,
+    /// and at rest the pane has no strip mask, shows all of itself and its content fills it.
     @Test func aRightTerminalOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.terminal) }
 
     @Test func aRightPageOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.page) }
@@ -449,14 +487,18 @@ struct ChatDockLinkSplitMotionTests {
         func check(_ label: String) {
             if let error = Self.maskError(link, in: view, label) { wrong.append(error) }
             if let error = Self.centreError(link, in: view, label) { wrong.append(error) }
+            if let error = Self.strictError(link, in: view, label) { wrong.append(error) }
             if let page, let error = Self.pageError(page, in: link, screen: view, label) { wrong.append(error) }
+            if let page, let error = Self.strictPageError(page, in: link, screen: view, label) { wrong.append(error) }
         }
         func fillsItsPane(_ label: String) {
-            #expect(Self.sameX(Self.shown(link), link.bounds), "\(label): the pane is masked: \(Self.shown(link)) of \(link.bounds)")
+            #expect(!link.isHiddenOrHasHiddenAncestor, "\(label): the pane is hidden at rest")
+            #expect(link.layer?.mask == nil, "\(label): the pane at rest keeps a strip mask: \(Self.shown(link)) of \(link.bounds)")
             #expect(content.frame.size == link.contentRect.size, "\(label): the content \(content.frame) does not fill \(link.contentRect)")
             guard let page else { return }
             let holes = (page.cmuxOcclusionRects() as? [NSValue])?.map(\.rectValue) ?? []
-            #expect(page.bounds.width > 100 && !holes.contains(page.bounds), "\(label): the page is hidden: holes \(holes)")
+            #expect(page.bounds.width > 100 && !holes.contains { Self.meets($0, page.bounds) }, "\(label): the page has holes at rest: \(holes)")
+            #expect(Self.strictPageError(page, in: link, screen: view, label) == nil, "\(label): \(Self.strictPageError(page, in: link, screen: view, label) ?? "")")
             let clip = page.cmuxClipPath()?.bounds ?? page.bounds
             #expect(abs(clip.width - page.bounds.width) < 1, "\(label): the page shows \(clip) of \(page.bounds)")
         }
