@@ -76,7 +76,7 @@ import {
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
-import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS } from "../../pages/shared/webSwap";
+import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
@@ -1588,6 +1588,8 @@ export function Composer({
                   ? `acpmux-mention-${mentionSelected}`
                   : undefined,
             spellcheck: String(spellChecking),
+            // WEB-SWAP: the prompt keeps its own draft (composerDraft.ts holds until it is written).
+            [WEB_SWAP_KEPT_TEXT]: "",
           },
           onBeforeInput: stablePromptCallbacks.onBeforeInput,
           onChange: stablePromptCallbacks.onChange,

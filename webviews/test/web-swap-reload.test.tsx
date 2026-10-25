@@ -7,16 +7,18 @@
 // field that does not come back) keeps the update waiting.
 import { afterAll, afterEach, beforeAll, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { act, createRef } from "react";
+import { act, createRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { useWebSwapHold } from "../src/pages/shared/useWebSwapHold";
 import { KEPT_ATTACHMENTS_SETTLE_MS, type KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 import {
   WEB_SWAP_FOCUS,
   WEB_SWAP_FOCUS_KEY,
   WEB_SWAP_KEPT_SCROLL,
+  WEB_SWAP_KEPT_TEXT,
   installWebSwap,
   takeWebSwapFocus,
 } from "../src/pages/shared/webSwap";
@@ -328,7 +330,24 @@ test("a selection, an open menu, a scrolled list or a field that does not come b
   search.focus();
   expect(hold()).toBe("focus");
   search.blur();
+  // Blurred, its text is still only in the page: a reload would lose it.
+  expect(hold()).toBe("field");
+  search.readOnly = true;
+  expect(hold()).toBeNull();
+  search.readOnly = false;
+  search.parentElement!.setAttribute(WEB_SWAP_KEPT_TEXT, "");
+  expect(hold()).toBeNull();
   search.parentElement!.remove();
+
+  // A timeline that opens at its end holds only while it is scrolled up from there.
+  const timeline = fixture(`<div ${WEB_SWAP_KEPT_SCROLL}="end"></div>`).firstElementChild as HTMLElement;
+  Object.defineProperty(timeline, "scrollHeight", { configurable: true, value: 500 });
+  Object.defineProperty(timeline, "clientHeight", { configurable: true, value: 100 });
+  Object.defineProperty(timeline, "scrollTop", { configurable: true, value: 400 });
+  expect(hold()).toBeNull();
+  Object.defineProperty(timeline, "scrollTop", { configurable: true, value: 120 });
+  expect(hold()).toBe("scroll");
+  timeline.parentElement!.remove();
 
   document.dispatchEvent(new window.CompositionEvent("compositionstart", { bubbles: true }));
   expect(hold()).toBe("ime");
@@ -337,7 +356,7 @@ test("a selection, an open menu, a scrolled list or a field that does not come b
 });
 
 test("a focused field that restores itself gives the keyboard back after the reload", () => {
-  const owner = fixture(`<div ${WEB_SWAP_FOCUS}="composer"><textarea>draft</textarea></div>`);
+  const owner = fixture(`<div ${WEB_SWAP_FOCUS}="composer" ${WEB_SWAP_KEPT_TEXT}><textarea>draft</textarea></div>`);
   const field = owner.querySelector("textarea")!;
   field.focus();
   // The caret before the end would move: a reload puts it after the text.
@@ -351,4 +370,27 @@ test("a focused field that restores itself gives the keyboard back after the rel
   // The reloaded page: the composer takes the keyboard back, once.
   expect(takeWebSwapFocus("composer")).toBe(true);
   expect(takeWebSwapFocus("composer")).toBe(false);
+});
+
+test("a page's own hold (a New Tab's chips, a Home message on its way) keeps the update waiting", async () => {
+  let setReason: (reason: string | null) => void = () => undefined;
+  function Page() {
+    const [reason, set] = useState<string | null>("newtab.attachments");
+    setReason = set;
+    useWebSwapHold(reason);
+    return null;
+  }
+  const { createRoot } = await import("react-dom/client");
+  root = createRoot(host);
+  await act(async () => root!.render(<Page />));
+  expect(hold()).toBe("newtab.attachments");
+  await act(async () => setReason("home.sending"));
+  expect(hold()).toBe("home.sending");
+  await act(async () => setReason(null));
+  expect(hold()).toBeNull();
+  await act(async () => setReason("home.send-failed"));
+  await act(async () => root!.unmount());
+  root = undefined;
+  // Gone with its page.
+  expect(hold()).toBeNull();
 });

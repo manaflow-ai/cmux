@@ -688,19 +688,51 @@ const keptAttachments: KeptAttachments = {
 };
 /// Where chat `sessionId` rests, kept by its tab so a relaunch reopens it there (cx-6bgzj).
 const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) => {
-  const write = ++anchorWrite.sent;
-  void callNative("chat.scrollAnchor", { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 }).then(
-    () => {
-      if (write === anchorWrite.sent) anchorWrite.kept = write;
-    },
-    () => undefined,
-  );
+  const place = { sessionId, rowId: anchor?.rowId ?? null, offset: anchor?.offset ?? 0 };
+  const write = anchorWrites.get(sessionId) ?? { sent: 0, kept: 0, inFlight: 0, failed: false, place };
+  write.place = place;
+  anchorWrites.set(sessionId, write);
+  sendScrollAnchor(write);
 };
-/// The newest place sent and the newest one the host answered for (`kept` behind `sent`: not kept yet).
-const anchorWrite = { sent: 0, kept: 0 };
+type AnchorWrite = {
+  /// The newest place sent and the newest one the host answered for (`kept` behind `sent`: not kept yet).
+  sent: number;
+  kept: number;
+  inFlight: number;
+  /// The newest write was refused: the next ask sends it again.
+  failed: boolean;
+  place: { sessionId: string; rowId: string | null; offset: number };
+};
+/// Per chat, so one chat's write never stands in for another's.
+const anchorWrites = new Map<string, AnchorWrite>();
+const sendScrollAnchor = (write: AnchorWrite) => {
+  const n = ++write.sent;
+  write.failed = false;
+  write.inFlight += 1;
+  void callNative("chat.scrollAnchor", write.place)
+    .then(
+      () => {
+        if (n === write.sent) write.kept = n;
+      },
+      () => {
+        if (n === write.sent) write.failed = true;
+      },
+    )
+    .finally(() => {
+      write.inFlight -= 1;
+    });
+};
 // WEB-SWAP: a web update's reload reopens the chat at the kept place, so it waits for the newest
-// one to be kept (a refused one stays unkept until the next report, pages/shared/webSwap.ts).
-holdWebSwap(() => (anchorWrite.kept < anchorWrite.sent ? "transcript.place-unsaved" : null));
+// one to be kept. A refused one goes again on the next ask (pages/shared/webSwap.ts).
+holdWebSwap(() => {
+  let reason: string | null = null;
+  for (const write of anchorWrites.values()) {
+    if (write.kept >= write.sent) continue;
+    if (write.failed && write.inFlight === 0) sendScrollAnchor(write);
+    reason = "transcript.place-unsaved";
+  }
+  return reason;
+});
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
 /// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach. A
@@ -6024,7 +6056,7 @@ function AcpmuxPane() {
     () =>
       holdWebSwap(
         () =>
-          directClient.current?.swapHold() ??
+          directClient.current?.swapHold() ||
           (untakenSends.current > 0 || startingSends.busy || heldBack.current?.length ? "composer.send-untaken" : null),
       ),
     [startingSends],

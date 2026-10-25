@@ -45,6 +45,7 @@ import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
+import { useWebSwapHold } from "../shared/useWebSwapHold";
 
 const NOTICE_MS = 1600;
 
@@ -59,6 +60,15 @@ export function HomeChannelsPage({
   pane?: Pane;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
+  // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    snap.pending.some((entry) => !entry.failed)
+      ? "home.sending"
+      : snap.pending.length
+        ? "home.send-failed"
+        : null,
+  );
   // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
   const shell = useRef<HTMLDivElement>(null);
   const measured = useNarrow(shell);

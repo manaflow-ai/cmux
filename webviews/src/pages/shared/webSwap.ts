@@ -3,8 +3,10 @@
 // `window.cmuxWebSwap.hold()` once nobody has touched cmux for a while; the update swaps in only
 // when every page answers null. A page answers why not while a reload would lose or disturb what
 // it holds: a hold a component registered (a prompt being sent, chips the host does not keep yet),
-// an input method composing, a selection, a focused field that does not come back, a caret that
-// would move, an open menu or dialog, or a scroller away from where the page opens.
+// a field with text the page does not keep itself, an input method composing, a selection, a
+// focused field that does not come back, a caret that would move, an open menu or dialog, or a
+// scroller away from where the page opens. It fails closed: a page that keeps nothing itself
+// waits while any of its fields holds text.
 //
 // Installed with the desktop layer, so every first-party page answers. A page without it (or one
 // that does not answer) keeps the update waiting.
@@ -12,8 +14,11 @@
 /** Why a reload now would lose or disturb something, or null/undefined when it would not. */
 export type WebSwapHold = () => string | null | undefined;
 
-/** On a scroller whose place the page keeps and restores itself (the chat transcript). */
+/** On a scroller whose place the page keeps and restores itself (`kept`, the chat transcript), or
+ * that opens at its end (`end`, a timeline): the latter holds only while it is away from its end. */
 export const WEB_SWAP_KEPT_SCROLL = "data-cmux-swap-scroll";
+/** On the part of a page whose fields' text survives a reload (the composer keeps its draft). */
+export const WEB_SWAP_KEPT_TEXT = "data-cmux-swap-kept";
 /** On the part of a page that restores its own focus after a swap (the composer, `takeWebSwapFocus`). */
 export const WEB_SWAP_FOCUS = "data-cmux-swap-focus";
 /** sessionStorage (it survives a reload): the focus owner to give the keyboard back to, and when. */
@@ -53,8 +58,19 @@ export function webSwapHold(doc: Document = document): string | null {
     if (!caretAtEnd(active, selection)) return "caret";
   }
   if (doc.querySelector(OPEN_POPUP)) return "popup";
+  for (const field of doc.querySelectorAll<HTMLElement>('input, textarea, [contenteditable]')) {
+    if (field.closest(`[${WEB_SWAP_KEPT_TEXT}]`) || !isEditable(field)) continue;
+    if ((field as HTMLInputElement).readOnly || (field as HTMLInputElement).disabled) continue;
+    const text = isTextField(field) ? field.value : field.textContent;
+    if (text?.trim()) return "field";
+  }
   for (const element of doc.querySelectorAll<HTMLElement>("*")) {
-    if (element.hasAttribute(WEB_SWAP_KEPT_SCROLL)) continue;
+    const kept = element.getAttribute(WEB_SWAP_KEPT_SCROLL);
+    if (kept === "kept") continue;
+    if (kept === "end") {
+      if (element.scrollHeight - element.clientHeight - element.scrollTop > 2) return "scroll";
+      continue;
+    }
     if (Math.abs(element.scrollTop) > 1 || Math.abs(element.scrollLeft) > 1) return "scroll";
   }
   return null;
@@ -121,5 +137,5 @@ function caretAtEnd(element: Element, selection: Selection | null | undefined): 
   const after = element.ownerDocument.createRange();
   after.setStart(selection.focusNode, selection.focusOffset);
   after.setEnd(element, element.childNodes.length);
-  return after.toString().trim() === "";
+  return after.toString() === "";
 }
