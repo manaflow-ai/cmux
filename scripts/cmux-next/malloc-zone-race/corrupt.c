@@ -10,15 +10,17 @@
 //
 // Then the foreign-pointer check (the gap 3e23a9de69e closes): a caller that kept zones[0] of
 // malloc_get_all_zones before the swap holds the delegating zone itself. After the swap it hands
-// that zone a block PartitionAlloc made: realloc, then free_definite_size, through the zone's own
-// function pointers (as Chromium's shim calls the zone it captured). A delegating zone that
-// forwards them to the system zone without asking who owns the pointer fails here: the system
-// zone reports "not allocated" (an abort) or returns NULL.
+// that zone a block another zone owns (a stand-in for PartitionAlloc after CefInitialize, see
+// register_owner_zone): realloc, then free_definite_size, through the zone's own function pointers
+// (as Chromium's shim calls the zone it captured). A delegating zone that forwards them to the
+// system zone without asking who owns the pointer fails here: the system zone reports "not
+// allocated" (an abort) or returns NULL.
 //
 // argv[1] = framework binary; argv[2] = seconds of churn after the dlopen returns (default 1).
 // Exit 0: no corruption seen; 2: a live block changed (prints the slot, offset and word);
 // 3: dlopen failed; 4: a foreign realloc through the delegating zone failed (NULL or a changed
-// block); 5: no verdict (the delegating zone was not zones[0], or the swap did not happen). Run it with MallocCheckHeapStart / MallocCheckHeapEach / MallocScribble /
+// block); 5: no verdict (the delegating zone was not zones[0], or the stand-in zone does not own
+// its block). Run it with MallocCheckHeapStart / MallocCheckHeapEach / MallocScribble /
 // MallocStackLogging (run.sh corrupt) so libmalloc also checks its own free lists.
 #include <dlfcn.h>
 #include <mach/mach.h>
@@ -55,63 +57,95 @@ static int check(uint64_t* block, size_t size, unsigned slot) {
   return 1;
 }
 
-// The foreign-pointer check (see the top): 64 PartitionAlloc blocks, each reallocated and then freed
-// with its size through the delegating zone's own function pointers. 0, 4 or 5 (main's exit codes).
-static malloc_zone_t* zone_named(const char* wanted, char* names, size_t room) {
-  vm_address_t* zones = NULL;
-  unsigned count = 0;
-  malloc_zone_t* found = NULL;
-  if (names) names[0] = 0;
-  if (malloc_get_all_zones(mach_task_self(), NULL, &zones, &count) != KERN_SUCCESS) return NULL;
-  for (unsigned z = 0; z < count; z++) {
-    malloc_zone_t* zone = (malloc_zone_t*)zones[z];
-    const char* name = malloc_get_zone_name(zone);
-    if (names) {
-      strlcat(names, z ? ", " : "", room);
-      strlcat(names, name ? name : "?", room);
-    }
-    if (!found && name && strcmp(name, wanted) == 0) found = zone;
-  }
-  return found;
+// The foreign owner: a zone that owns its own blocks (a bump arena), registered after the swap. It
+// stands in for PartitionAlloc after CefInitialize: before CefInitialize PartitionAlloc's zone hands
+// out the system zone's blocks (fleet run of 49aaddf7aee: every "PartitionAlloc" block was
+// DefaultMallocZone's), and this probe cannot initialize CEF.
+enum { ARENA = 1 << 20 };
+static unsigned char arena[ARENA] __attribute__((aligned(16)));
+static size_t arena_used;
+static malloc_zone_t owner_zone;
+static malloc_introspect_t owner_introspect;
+static int in_arena(const void* p) { return (const unsigned char*)p >= arena + 16 && (const unsigned char*)p < arena + ARENA; }
+static size_t o_size(malloc_zone_t* z, const void* p) { return in_arena(p) ? *(const size_t*)((const unsigned char*)p - 16) : 0; }
+static void* o_malloc(malloc_zone_t* z, size_t size) {
+  size_t need = 16 + ((size + 15) & ~(size_t)15);
+  if (arena_used + need > ARENA) return NULL;
+  unsigned char* block = arena + arena_used + 16;
+  *(size_t*)(block - 16) = size;
+  arena_used += need;
+  return block;
+}
+static void o_free(malloc_zone_t* z, void* p) {}
+static void o_free_definite_size(malloc_zone_t* z, void* p, size_t size) {}
+static void* o_realloc(malloc_zone_t* z, void* p, size_t size) {
+  void* grown = o_malloc(z, size);
+  if (grown && p) memcpy(grown, p, o_size(z, p) < size ? o_size(z, p) : size);
+  return grown;
+}
+static kern_return_t o_enumerator(task_t t, void* c, unsigned m, vm_address_t a, memory_reader_t r, vm_range_recorder_t rec) {
+  return KERN_SUCCESS;
+}
+static size_t o_good_size(malloc_zone_t* z, size_t size) { return (size + 15) & ~(size_t)15; }
+static boolean_t o_check(malloc_zone_t* z) { return 1; }
+static void o_print(malloc_zone_t* z, boolean_t verbose) {}
+static void o_log(malloc_zone_t* z, void* address) {}
+static void o_lock(malloc_zone_t* z) {}
+static void o_statistics(malloc_zone_t* z, malloc_statistics_t* stats) { memset(stats, 0, sizeof *stats); }
+
+static malloc_zone_t* register_owner_zone(void) {
+  owner_zone.size = o_size;
+  owner_zone.malloc = o_malloc;
+  owner_zone.free = o_free;
+  owner_zone.free_definite_size = o_free_definite_size;
+  owner_zone.realloc = o_realloc;
+  owner_introspect.enumerator = o_enumerator;
+  owner_introspect.good_size = o_good_size;
+  owner_introspect.check = o_check;
+  owner_introspect.print = o_print;
+  owner_introspect.log = o_log;
+  owner_introspect.force_lock = o_lock;
+  owner_introspect.force_unlock = o_lock;
+  owner_introspect.statistics = o_statistics;
+  owner_zone.introspect = &owner_introspect;
+  owner_zone.version = 8;
+  owner_zone.zone_name = "CmuxProbeForeignOwner";
+  malloc_zone_register(&owner_zone);
+  return &owner_zone;
 }
 
+// The foreign-pointer check (see the top): 64 blocks of the foreign owner, each reallocated and then
+// freed with its size through the delegating zone's own function pointers. 0, 4 or 5 (main's exit codes).
 static int foreign_check(malloc_zone_t* delegating) {
   if (!delegating) {
     printf("NO VERDICT: the delegating zone was not zones[0] after its registration\n");
     return 5;
   }
-  // The blocks come from PartitionAlloc's zone itself (the framework's constructor registered it;
-  // whether malloc() reaches it before CefInitialize does not matter here).
-  char names[512];
-  malloc_zone_t* partition = zone_named("PartitionAlloc", names, sizeof names);
-  if (!partition) {
-    printf("NO VERDICT: no PartitionAlloc zone after the dlopen (zones: %s)\n", names);
-    return 5;
-  }
+  malloc_zone_t* owner = register_owner_zone();
   for (unsigned n = 0; n < 64; n++) {
     size_t size = 0x250;
-    uint64_t* block = partition->malloc(partition, size);
-    if (!block || malloc_zone_from_ptr(block) != partition) {
-      printf("NO VERDICT: PartitionAlloc's zone gave a block it does not own (zones: %s)\n", names);
+    uint64_t* block = owner->malloc(owner, size);
+    if (!block || malloc_zone_from_ptr(block) != owner) {
+      printf("NO VERDICT: the foreign owner zone does not own its block\n");
       return 5;
     }
     for (size_t w = 0; w < size / 8; w++) block[w] = canary(n, w);
     uint64_t* grown = delegating->realloc(delegating, block, 2 * size);
     if (!grown) {
-      printf("FOREIGN realloc of a PartitionAlloc block through the delegating zone returned NULL\n");
+      printf("FOREIGN realloc of another zone's block through the delegating zone returned NULL\n");
       return 4;
     }
     if (!check(grown, size, n)) {
       printf("FOREIGN realloc through the delegating zone changed the block\n");
       return 4;
     }
-    malloc_zone_t* grown_owner = malloc_zone_from_ptr(grown);
-    if (!grown_owner) {
-      printf("FOREIGN realloc through the delegating zone returned a block no zone owns\n");
+    if (malloc_zone_from_ptr(grown) != owner) {
+      printf("FOREIGN realloc through the delegating zone moved the block out of its owner\n");
       return 4;
     }
-    delegating->free_definite_size(delegating, grown, malloc_size(grown));
+    delegating->free_definite_size(delegating, grown, o_size(owner, grown));
   }
+  malloc_zone_unregister(owner);
   return 0;
 }
 
@@ -164,6 +198,6 @@ int main(int argc, char** argv) {
   }
   int foreign = foreign_check(delegating);
   if (foreign != 0) return foreign;
-  printf("ok %lu allocations, %lu checked frees, 64 foreign reallocs\n", i, frees);
+  printf("ok %lu allocations, %lu checked frees, 64 foreign reallocs through the delegating zone\n", i, frees);
   return 0;
 }
