@@ -202,7 +202,10 @@ const openQuick: Play = async (ctx) => {
 
 const openQuickSlider: Play = async (ctx) => {
   await openQuick(ctx);
-  await ctx.click({ selector: ".acpmux-quick-sub" });
+  // Base UI's submenu trigger opens on hover and ignores a plain mouse click; Enter on the
+  // focused Effort row exercises the same path as keyboard users and keeps this capture reliable.
+  await ctx.focus({ role: "menuitem", name: /^Effort/ });
+  await ctx.press("Enter");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
 };
 
