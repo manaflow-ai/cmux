@@ -65,7 +65,7 @@ enum { ARENA = 1 << 20 };
 static unsigned char arena[ARENA] __attribute__((aligned(16)));
 static size_t arena_used;
 static malloc_zone_t owner_zone;
-static malloc_introspect_t owner_introspect;
+static malloc_introspection_t owner_introspect;
 static int in_arena(const void* p) { return (const unsigned char*)p >= arena + 16 && (const unsigned char*)p < arena + ARENA; }
 static size_t o_size(malloc_zone_t* z, const void* p) { return in_arena(p) ? *(const size_t*)((const unsigned char*)p - 16) : 0; }
 static void* o_malloc(malloc_zone_t* z, size_t size) {
