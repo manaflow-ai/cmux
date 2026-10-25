@@ -6139,13 +6139,11 @@ function AcpmuxPane() {
   queueSideChatRef.current = queueSideChat;
   // Another agent's waiting message, from its card's ⋯ menu (conversation/QueuedMessageCard.tsx):
   // the queue row's Steer, Edit message (into the composer, its images too), Open in side chat and
-  // Delete. Stable while the chat stays connected and the side chat stays offered, so the cards do
-  // not draw again on every snapshot.
+  // Delete, Move up/down. Offered while disconnected too, as the queue row's were: a call then fails
+  // and the card stays. The menu reads them as it opens.
   const sideChatOffered = queueSideChat !== undefined;
-  const queuedMessageActions = useMemo<QueuedMessageActionsValue | undefined>(
-    () =>
-      connected
-        ? {
+  const queuedMessageActions = useMemo<QueuedMessageActionsValue>(
+    () => ({
             steer: (promptId) => editQueued(promptId, { op: "send_now" }),
             remove: removeQueued,
             edit: async (promptId, text, images) => {
@@ -6165,9 +6163,8 @@ function AcpmuxPane() {
               sideChat: (promptId: string, text: string) =>
                 queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
             }),
-          }
-        : undefined,
-    [connected, sideChatOffered, readQueuedImage],
+    }),
+    [sideChatOffered, readQueuedImage],
   );
   // Read by the cards as they draw (TurnActions `queuedMessages`): set here, before the rows draw.
   queuedMessageActionsRef.current = queuedMessageActions;
@@ -8996,12 +8993,13 @@ function AcpmuxPane() {
     ? {
         sessions: composerSnapshot.sessions,
         currentId: snapshot.sessionId,
+        // The person's own queued prompts, as the composer's queue counts them.
         queueCounts:
-          snapshot.sessionId && snapshot.queue.length > 0
-            ? new Map([[snapshot.sessionId, snapshot.queue.length]])
+          snapshot.sessionId && ownQueue(snapshot.queue).length > 0
+            ? new Map([[snapshot.sessionId, ownQueue(snapshot.queue).length]])
             : undefined,
         steeringIds:
-          snapshot.summary?.steering && snapshot.sessionId && snapshot.queue.length > 0
+          snapshot.summary?.steering && snapshot.sessionId && ownQueue(snapshot.queue).length > 0
             ? new Set([snapshot.sessionId])
             : undefined,
         onSelect: selectSession,
