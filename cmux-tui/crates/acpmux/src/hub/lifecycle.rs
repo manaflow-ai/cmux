@@ -54,6 +54,7 @@ impl Hub {
         let family = crate::config::derive_family(agent, &profile);
         // No policy asked: the defaults' when it is no wider than a starter's, else the starter's
         // own (`start_mode.rs`, "Inherit").
+        let inherits_policy = policy.is_none() && starter.is_some();
         let policy = match (policy, starter.as_deref()) {
             (Some(asked), _) => Some(asked),
             (None, Some(id)) => {
@@ -328,13 +329,19 @@ impl Hub {
                     }
                 }
             }
-            // Never asking less than the starter as it is now (it may have left full access
-            // meanwhile, or the child's family has no mode that asks): moved, else refused.
-            if mode_eligible
-                && let Some(theirs) =
-                    starter.as_deref().and_then(|id| self.resolve(id).ok().filter(|s| s.id == id))
-            {
-                self.hold_mode(&theirs.meta(), &session).await?;
+            // Never asking less than the starter as it is now (it may have narrowed or left full
+            // access meanwhile, or the child's family has no mode that asks): an inherited policy
+            // is narrowed to the starter's, and the harness moved, else refused.
+            let theirs =
+                starter.as_deref().and_then(|id| self.resolve(id).ok().filter(|s| s.id == id));
+            if let Some(theirs) = theirs.map(|s| s.meta()) {
+                if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
+                    let narrowed = self.effective_policy(&theirs).await;
+                    self.set_policy(&session, narrowed).await;
+                }
+                if mode_eligible {
+                    self.hold_mode(&theirs, &session).await?;
+                }
             }
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
