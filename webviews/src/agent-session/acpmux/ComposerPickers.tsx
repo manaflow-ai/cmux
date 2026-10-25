@@ -253,8 +253,12 @@ export function ComposerPickers({
           .map((entry) => ({
             id: entry.acpmuxHarness ?? entry.id,
             name: entry.name,
+            // The catalog harness a profile runs (`claude-sr2` is Claude Code's kin): the picker
+            // folds a family's profiles into its one rail tab, as accounts.
+            family: entry.kin ?? entry.id,
             models: entry.models,
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+            ...(entry.probeFailed ? { probeFailed: true } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
             ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
           })),

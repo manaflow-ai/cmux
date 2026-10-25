@@ -349,6 +349,8 @@ const profileExtras = [
   { id: "codex-acp", name: "codex-acp", family: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
   { id: "codex-app-server", name: "codex-app-server", family: "codex", models: [] },
   { id: "chatgpt", name: "ChatGPT", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+  // A registry agent whose id starts with a probe harness's: no catalog kin, so a harness of its own.
+  { id: "opencode-go", name: "OpenCode Go", models: [{ id: "go-1", name: "Go 1" }] },
 ];
 const railNames = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((button) => button.title.split(" · ")[0]!);
@@ -364,6 +366,7 @@ test("two dozen Claude profiles are one Claude Code tab, ChatGPT stays its own, 
     expect(names.some((name) => name.startsWith(profile.name))).toBe(false);
   expect(names.filter((name) => name.startsWith("Codex"))).toHaveLength(1);
   expect(names.filter((name) => name.startsWith("ChatGPT"))).toHaveLength(1);
+  expect(names).toContain("OpenCode Go");
   await openOn("Claude Code");
   const opus = rows().find((row) => row.dataset.key === "model:claude-opus-5-5")!;
   await act(async () => opus.click());
@@ -385,6 +388,20 @@ test("a chat on a profile shows its harness's one tab and lands a pick in place"
   const opus = rows().find((row) => row.dataset.key === "model:claude-opus-5-5")!;
   await act(async () => opus.click());
   expect(sent).toEqual([{ method: "model", value: "claude-opus-5-5" }]);
+});
+
+test("a chat on a profile whose id names no agent keeps Claude's mark on its one tab", async () => {
+  await mount({ harness: "work", extra: profileExtras });
+  await act(async () => {
+    openFullPicker();
+  });
+  const claude = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].filter((button) =>
+    button.title.startsWith("Claude"),
+  );
+  expect(claude).toHaveLength(1);
+  expect(claude[0]!.getAttribute("aria-selected")).toBe("true");
+  expect(claude[0]!.querySelector(".agent-mark")).not.toBeNull();
+  expect(railNames().some((name) => name.startsWith("Work"))).toBe(false);
 });
 
 test("before its first message, a machine profile is absent from the harness rail", async () => {

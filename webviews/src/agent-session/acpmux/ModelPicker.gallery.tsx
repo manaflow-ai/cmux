@@ -195,6 +195,28 @@ const startedFork: ModelPickerProps = {
   fork: { to: () => undefined, ready: true },
 };
 
+/// Leo 2026-10-25: "it counts too much account stuff". Two dozen installed Claude profiles: real
+/// alias ids, a `work` profile whose id names no agent (a letter tile before), and twenty numbered
+/// accounts, each its own acpmux family as a registry agent's is, so the catalog join gives each
+/// Claude Code as its `kin`. They are one Claude Code tab, and its Account row lists them; ChatGPT
+/// draws Codex's OpenAI mark but stays a harness of its own.
+const profileCatalog: ModelPickerProps["catalog"] = [
+  ...curated.catalog,
+  ...[
+    ["claude-sr2", "Claude Code (sr2)"],
+    ["claude-acp", "Claude Agent"],
+    ["work", "Work"],
+    ...Array.from({ length: 21 }, (_, index) => [`claude-${index + 1}`, `Claude account ${index + 1}`]),
+  ].map(([id, name]) => ({
+    id: id!,
+    name: name!,
+    // The catalog harness each runs (its `kin`), as ComposerPickers hands the picker its family.
+    family: "claude",
+    models: curated.catalog[0]!.models,
+  })),
+  { id: "chatgpt", name: "ChatGPT", family: "chatgpt", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] },
+];
+
 const openQuick: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
@@ -361,6 +383,22 @@ export default componentEntry<GalleryProps>({
     // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
     "quick-menu-accounts": {
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+      },
+    },
+    // One tab per harness: two dozen Claude profiles are one Claude Code tab in the full picker.
+    "profile-rail": {
+      note: "24 Claude profiles: one Claude Code tab, no letter tiles; ChatGPT stays its own harness.",
+      props: { ...curated, catalog: profileCatalog },
+      play: openModels,
+    },
+    // The compact menu: the same one tab, its Account row listing every profile.
+    "profile-rail-accounts": {
+      note: "24 Claude profiles under Claude Code's Account row, never rail tabs.",
+      props: { ...quick, catalog: profileCatalog, onHarness: () => undefined },
       play: async (ctx) => {
         await openQuick(ctx);
         await ctx.click({ role: "menuitem", name: /^Account/ });

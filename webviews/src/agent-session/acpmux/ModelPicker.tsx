@@ -38,6 +38,11 @@ type HarnessChoice = {
   id: string;
   ids: string[];
   name: string;
+  /** The harness its profiles fold into: the catalog harness a profile runs (`claude-sr2` is Claude
+   *  Code's kin, ComposerPickers), else its own id. */
+  family?: string;
+  /** The installed profiles this one tab stands for, its first among them: its accounts. */
+  members?: { id: string; name: string; unavailable?: string }[];
   models: {
     id: string;
     name?: string;
@@ -162,7 +167,11 @@ function searchModels(
   );
 }
 
-function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
+function uniqueHarnesses(
+  catalog: ModelPickerProps["catalog"],
+  running?: string,
+  signedOut: (id: string) => boolean = () => false,
+): HarnessChoice[] {
   const profiles: HarnessChoice[] = catalog
     .filter((entry) => entry.folder)
     .map((entry) => ({
@@ -176,6 +185,7 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       folder: entry.folder,
       mark: knownMark(entry.icon, entry.family, entry.id),
     }));
+  const probeFailed = new Set(catalog.filter((entry) => entry.probeFailed).map((entry) => entry.id));
   // Terminal and unknown harnesses are routing entries, not installed choices.
   const entries: HarnessChoice[] = catalog
     .filter((entry) => !entry.folder && entry.pickable !== false)
@@ -183,40 +193,74 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
       id: entry.id,
       ids: [entry.id],
       name: entry.name,
+      family: entry.family ?? entry.id,
       models: entry.models,
       unavailable: entry.unavailable,
       acpmuxHarness: entry.id,
       pickable: entry.pickable !== false,
       ...(entry.top ? { top: entry.top } : {}),
     }));
-  const result: HarnessChoice[] = [];
-  const byName = new Map<string, HarnessChoice>();
+  // One tab per harness (Leo 2026-10-25: "it counts too much account stuff"): the profiles the
+  // catalog join gave one harness as `kin` (`claude-sr2`, the registry's `claude-acp`) fold into it
+  // and stay its accounts (pickerProfiles.ts). Never by brand or id prefix: Codex and ChatGPT both
+  // draw OpenAI's mark, and an `opencode-*` agent with no kin is a harness of its own. Entries of
+  // one name fold too, as they always have, unless each names its family: two families are two
+  // harnesses whatever their names. A profile that joins two groups merges them. The app always
+  // hands a joined catalog (usePickerCatalog), so its entries all name their family.
+  let groups: HarnessChoice[][] = [];
+  const byKey = new Map<string, HarnessChoice[]>();
   for (const entry of entries) {
     const name = agentName(entry.id, entry.name);
-    const existing = byName.get(name);
-    if (!existing) {
-      const next = {
-        id: entry.id,
-        ids: [entry.id],
-        name,
-        models: [...entry.models],
-        unavailable: entry.unavailable,
-        acpmuxHarness: entry.acpmuxHarness,
-        pickable: entry.pickable,
-        ...(entry.top ? { top: entry.top } : {}),
-      };
-      result.push(next);
-      byName.set(name, next);
-      continue;
+    const named = catalog.find((each) => each.id === entry.id)?.family !== undefined;
+    const keys = named ? [`family:${entry.family}`] : [`family:${entry.family}`, `name:${name}`];
+    const found = [...new Set(keys.map((key) => byKey.get(key)).filter((group) => group !== undefined))].sort(
+      (a, b) => groups.indexOf(a) - groups.indexOf(b),
+    );
+    const group = found[0] ?? [];
+    if (!found.length) groups.push(group);
+    for (const other of found.slice(1)) {
+      group.push(...other);
+      groups = groups.filter((each) => each !== other);
+      for (const [key, value] of byKey) if (value === other) byKey.set(key, group);
     }
-    existing.ids.push(entry.id);
-    if (entry.acpmuxHarness && !existing.acpmuxHarness) existing.acpmuxHarness = entry.acpmuxHarness;
-    existing.pickable ||= entry.pickable;
-    const known = new Set(existing.models.map((model) => model.id));
-    for (const model of entry.models) if (!known.has(model.id)) existing.models.push(model);
-    existing.unavailable ??= entry.unavailable;
-    existing.top ??= entry.top;
+    group.push({ ...entry, name });
+    for (const key of keys) byKey.set(key, group);
   }
+  // A tab stands for the profile the chat runs, else its first signed-in one, and is named as its
+  // first ("Claude Code"). It lists that profile's models, and those of entries of its name: another
+  // profile's models would start the wrong one, so they stay behind its Account row.
+  const result = groups.map((group): HarnessChoice => {
+    const first = group[0]!;
+    const lead = group.find((entry) => entry.id === running) ?? group.find((entry) => !signedOut(entry.id)) ?? first;
+    // A profile runs its harness's releases, so the harness's curated top models order them.
+    const top = lead.top ?? group.find((entry) => entry.top)?.top;
+    // The tab and the chip draw the harness's mark while the chat runs a profile whose id names no
+    // agent (`work`), never its letter.
+    const mark = [lead.id, lead.family, first.id].find((id) => agentBrand(id));
+    const choice: HarnessChoice = {
+      ...lead,
+      ids: group.map((entry) => entry.id),
+      name: first.name,
+      // A failed model probe alone leaves a profile startable (familyProfiles has it so).
+      members: group.map(({ id, name, unavailable }) => ({
+        id,
+        name,
+        ...(unavailable && !probeFailed.has(id) ? { unavailable } : {}),
+      })),
+      models: [...lead.models],
+      ...(top ? { top } : {}),
+      ...(mark && mark !== lead.id ? { mark } : {}),
+    };
+    for (const entry of group) {
+      if (entry === lead || entry.name !== lead.name) continue;
+      choice.pickable ||= entry.pickable;
+      const known = new Set(choice.models.map((model) => model.id));
+      for (const model of entry.models) if (!known.has(model.id)) choice.models.push(model);
+      choice.unavailable ??= entry.unavailable;
+      choice.top ??= entry.top;
+    }
+    return choice;
+  });
   return [...result, ...profiles];
 }
 
@@ -224,30 +268,36 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
 const STARRED = "\u0000starred";
 
 /// The compact menu's rail, one tab per harness (Leo 2026-10-22: "the harnes picker exists but it's
-/// ass and it's not per-account available"): profiles that draw one brand's mark (Claude Code,
-/// claude-sr2) are that harness's accounts, listed under its Account row, never tabs of their own.
-/// Folder profiles are machine choices and stay out of this rail. A tab is the account the chat runs,
-/// else its first signed-in one, named as the harness's first profile ("Claude Code").
-/// `profiles` are the installed profiles each tab's catalog entry folded into one (pickerProfiles.ts,
-/// by tab id): `claude` and `claude-sr` are one Claude Code there, and both its accounts here.
+/// ass and it's not per-account available"): the profiles uniqueHarnesses folded into a tab (Claude
+/// Code, claude-sr2) are that harness's accounts, listed under its Account row, never tabs of their
+/// own. Folder profiles are machine choices and stay out of this rail. A tab's account is the one the
+/// chat runs, else its first; the tab is named as the harness's first profile ("Claude Code").
+/// `profiles` are the installed profiles each catalog entry folded into one (pickerProfiles.ts, by
+/// profile id): `claude` and `claude-sr` are one Claude Code there, and both its accounts here.
+/// `members` are each tab's folded profiles (HarnessChoice.members), by tab id.
 function railByHarness(
   list: QuickFamily[],
   running: string | undefined,
   profiles: Readonly<Record<string, readonly PickerProfile[]>> = {},
   signedOut: (id: string) => boolean = () => false,
+  members: ReadonlyMap<string, readonly { id: string; name: string; unavailable?: string }[]> = new Map(),
 ): QuickFamily[] {
-  const groups = new Map<string, QuickFamily[]>();
-  for (const family of list) {
-    const brand = family.starred || !family.mark ? undefined : agentBrand(family.mark);
-    const key = brand ? `brand:${brand}` : `id:${family.id}`;
-    groups.set(key, [...(groups.get(key) ?? []), family]);
-  }
-  return [...groups.values()].map((members) => {
-    const first = members[0]!;
-    const listed = members.flatMap((member): QuickAccount[] => {
-      const folded = profiles[member.id];
-      if (!folded?.length) return [{ id: member.id, name: member.name, ...(member.note ? { disabled: true } : {}) }];
-      return folded.map((profile) => ({
+  return list.map((tab) => {
+    if (tab.starred) return tab;
+    const folded = members.get(tab.id) ?? [{ id: tab.id, name: tab.name }];
+    const listed = folded.flatMap((member): QuickAccount[] => {
+      const own = profiles[member.id];
+      if (!own?.length)
+        return [
+          {
+            id: member.id,
+            name: member.name,
+            ...((member.id === tab.id && tab.note) || member.unavailable || signedOut(member.id)
+              ? { disabled: true }
+              : {}),
+          },
+        ];
+      return own.map((profile) => ({
         id: profile.id,
         name: profile.name,
         ...(profile.unavailable || signedOut(profile.id) ? { disabled: true } : {}),
@@ -260,10 +310,9 @@ function railByHarness(
         ? { ...account, name: `${account.name} (${account.id})` }
         : account,
     );
-    const lead = members.find((member) => member.id === running) ?? members.find((member) => !member.note) ?? first;
-    const account = accounts.some((choice) => choice.id === running) ? running : lead.id;
-    if (members.length === 1 && accounts.length < 2) return first;
-    return { ...lead, name: first.name, accounts, ...(account ? { account } : {}) };
+    if (folded.length === 1 && accounts.length < 2) return tab;
+    const account = accounts.some((choice) => choice.id === running) ? running : tab.id;
+    return { ...tab, accounts, ...(account ? { account } : {}) };
   });
 }
 
@@ -372,7 +421,14 @@ export function ModelPicker(props: ModelPickerProps) {
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
   const menuId = useId();
-  const allHarnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
+  // `signedOut` can be a new object each render (pickableSignedOut): its ids keep the tabs stable.
+  const signedOutIds = Object.keys(signedOut ?? {})
+    .sort()
+    .join("\n");
+  const allHarnesses = useMemo(() => {
+    const out = new Set(signedOutIds.split("\n"));
+    return uniqueHarnesses(catalog, harness, (id) => out.has(id));
+  }, [catalog, harness, signedOutIds]);
   // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
   // launch) keeps the whole rail rather than an empty menu.
   const ownHarness = useMemo(
@@ -688,7 +744,13 @@ export function ModelPicker(props: ModelPickerProps) {
           : {}),
       });
     }
-    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
+    const rail = railByHarness(
+      list,
+      harness ?? current?.id,
+      props.profiles,
+      (id) => signedOut?.[id] !== undefined,
+      new Map(startable.map((entry) => [entry.id, entry.members ?? [{ id: entry.id, name: entry.name }]])),
+    );
     if (!harnessFixed) return rail;
     // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
     // Starred keeps the chat's own models, and another account of any harness forks there.
@@ -921,7 +983,9 @@ export function ModelPicker(props: ModelPickerProps) {
   }
   const railTitle = (entry: HarnessChoice) => {
     const mark = entry.mark ?? agentBrand(entry.id) ?? entry.id;
-    const shared = (markCounts.get(mark) ?? 0) > 1 && entry.name !== entry.id;
+    // Two harnesses of one name (two families) say which is which, too.
+    const named = harnesses.filter((other) => other.name === entry.name).length > 1;
+    const shared = ((markCounts.get(mark) ?? 0) > 1 || named) && entry.name !== entry.id;
     const signIn = loginFor(entry) !== undefined ? t("harnesses.signedOut") : undefined;
     return [shared ? `${entry.name} (${entry.id})` : entry.name, folderNote(entry), signIn].filter(Boolean).join(" · ");
   };
@@ -1117,7 +1181,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 {railHarnesses.map((entry, index) => [
                   <PickerOption
                     type="button"
-                    key={entry.folder ? `folder:${entry.id}` : entry.name}
+                    key={entry.folder ? `folder:${entry.id}` : entry.id}
                     aria-selected={entry.ids.includes(selectedHarness ?? "")}
                     aria-disabled={blockedProfile(entry) || loginFor(entry) !== undefined || undefined}
                     data-signed-out={loginFor(entry) !== undefined || undefined}
