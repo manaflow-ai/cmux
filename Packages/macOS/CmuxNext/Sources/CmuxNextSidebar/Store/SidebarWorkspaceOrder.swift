@@ -38,6 +38,27 @@ public nonisolated struct SidebarWorkspaceOrder: Sendable, Equatable {
     /// - Returns: Its position, in O(1).
     public func position(of id: WorkspaceID) -> Int? { positions[id] }
 
+    /// `members` with the ones this order lists put in its order, each in a slot a listed member held; a member it
+    /// does not list (another room's, one not drawn yet) keeps its slot. A window's membership changes only when a
+    /// workspace joins or leaves it: this is the order `window list` and Search Tabs show after a move.
+    ///
+    /// - Parameter members: Workspace ids (`WorkspaceID.rawValue`), in membership order.
+    /// - Returns: The same ids, the listed ones in sidebar order.
+    public func ordering(_ members: [String]) -> [String] {
+        var slots: [Int] = []
+        var listed: [(position: Int, id: String)] = []
+        for (slot, id) in members.enumerated() {
+            guard let position = positions[WorkspaceID(id)] else { continue }
+            slots.append(slot)
+            listed.append((position, id))
+        }
+        guard !listed.isEmpty else { return members }
+        listed.sort { $0.position < $1.position }
+        var ordered = members
+        for (slot, entry) in zip(slots, listed) { ordered[slot] = entry.id }
+        return ordered
+    }
+
     /// The workspaces listed right above and right below `id` (nil at an end); nil when the window does not list it.
     ///
     /// - Parameter id: A workspace.
