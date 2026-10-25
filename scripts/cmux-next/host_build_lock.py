@@ -63,7 +63,7 @@ def acquire(lock: str, fd: int) -> int:
 
 def probe(lock: str) -> int:
     try:
-        fd = os.open(lock, os.O_RDONLY | os.O_CLOEXEC)
+        fd = os.open(lock, os.O_RDWR | os.O_CLOEXEC)
     except FileNotFoundError:
         return 0
     try:
