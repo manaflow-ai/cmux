@@ -398,13 +398,15 @@ export function AttachmentStrip({
   const edges = useScrollEdges("x");
   /// What a move says to assistive technology: the chip and where it is now.
   const [announced, setAnnounced] = useState("");
-  const live = useRef(attachments);
-  live.current = attachments;
+  // The chips and the pane's language as they are now: the move below is made once.
+  const live = useRef({ attachments, t });
+  live.current = { attachments, t };
   const [move] = useState(() => (id: string, index: number) => {
-    const chip = live.current.find((attachment) => attachment.id === id);
+    const { attachments: chips, t: translate } = live.current;
+    const chip = chips.find((attachment) => attachment.id === id);
     reorderTo.current?.(id, index);
     if (chip)
-      setAnnounced(t(ATTACHMENT_LABELS.moved, { name: chip.name, position: index + 1, count: live.current.length }));
+      setAnnounced(translate(ATTACHMENT_LABELS.moved, { name: chip.name, position: index + 1, count: chips.length }));
   });
   const reorderTo = useRef(onReorder);
   reorderTo.current = onReorder;
