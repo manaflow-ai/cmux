@@ -96,7 +96,7 @@ public final class WebUpdates {
         // task-owner: the app's activation events, for the life of the app
         observers.append(Task { [weak self] in
             for await _ in NotificationCenter.default.notifications(named: NSApplication.didResignActiveNotification) {
-                self?.updater?.foreground = false
+                self?.updater?.noteBackground()
                 self?.scheduleSafePoint()
             }
         })

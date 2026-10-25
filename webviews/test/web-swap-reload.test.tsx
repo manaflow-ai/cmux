@@ -227,14 +227,24 @@ test("a swap's reload keeps the composer's draft and its chips", async () => {
   expect(hold()).toBeNull();
 });
 
-test("a chip the host refused keeps the update waiting", async () => {
+test("a chip the host refused keeps the update waiting, and goes again when asked", async () => {
   const store = new Host();
   connectDaemon();
-  const refusing: KeptAttachments = { read: (id) => store.read(id), write: () => Promise.reject(new Error("full")) };
-  const page = await openPage("chat-a", refusing);
+  let refuse = true;
+  const flaky: KeptAttachments = {
+    read: (id) => store.read(id),
+    write: (id, chips) => (refuse ? Promise.reject(new Error("full")) : store.write(id, chips)),
+  };
+  const page = await openPage("chat-a", flaky);
   act(() => page.current!.attach(screenshot(1)));
   await settle();
   expect(hold()).toBe("composer.attachments-unsaved");
+  // The host takes writes again: the next ask sends the chips, and the one after finds them kept.
+  refuse = false;
+  await act(async () => void hold());
+  await settle();
+  expect(store.chats.get("chat-a")?.map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(hold()).toBeNull();
 });
 
 test("removing the last chip waits until the host forgot it", async () => {

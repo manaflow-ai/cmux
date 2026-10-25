@@ -36,4 +36,12 @@ struct WebSwapGateTests {
             == .later(after: WebSwapGate.retry, reason: "composer.attachments-unsaved"))
         #expect(WebSwapGate.pages(["page.no-answer"]) == .later(after: WebSwapGate.retry, reason: "page.no-answer"))
     }
+
+    @Test func aCheckIsBookedItsIntervalAfterTheLastOne() {
+        // In the front a minute after the last; behind other apps ten minutes after it.
+        #expect(WebUpdater.delay(after: 20, interval: .seconds(60)) == .seconds(40))
+        #expect(WebUpdater.delay(after: 20, interval: .seconds(600)) == .seconds(580))
+        // Overdue: now, never a negative wait.
+        #expect(WebUpdater.delay(after: 900, interval: .seconds(600)) == .zero)
+    }
 }

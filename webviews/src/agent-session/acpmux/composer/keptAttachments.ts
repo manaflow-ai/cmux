@@ -80,6 +80,8 @@ export function useKeptAttachments(
   };
   const flushNow = useRef(flush);
   flushNow.current = flush;
+  const sendNow = useRef(send);
+  sendNow.current = send;
 
   useEffect(() => {
     if (!sessionId || !store) return;
@@ -143,12 +145,17 @@ export function useKeptAttachments(
         const chips = keptChips(attachments);
         // The host's chips not read back yet: a page that reloads now reads them then.
         if (sessionId && store && readFor !== sessionId) return "composer.attachments-unread";
-        if (!chips.length) return written.current.ids === "\u0000refused" ? "composer.attachments-unsaved" : null;
-        if (!sessionId || !store) return "composer.attachments-unkept";
+        if (!sessionId || !store) return chips.length ? "composer.attachments-unkept" : null;
         const kept = written.current;
-        if (kept.sessionId !== sessionId || kept.ids !== signature(chips)) return "composer.attachments-unsaved";
-        if (chips.some((chip) => chip.data && !kept.stored.has(chip.id))) return "composer.attachments-unsaved";
-        return null;
+        const behind =
+          kept.sessionId !== sessionId ||
+          kept.ids !== signature(chips) ||
+          chips.some((chip) => chip.data && !kept.stored.has(chip.id));
+        if (!behind) return null;
+        // The host refused the last write: it goes again now, once per ask, so a passing refusal
+        // does not hold the update for good. (A host that keeps fewer bytes than shown holds it.)
+        if (kept.ids === "\u0000refused") sendNow.current(sessionId, chips);
+        return "composer.attachments-unsaved";
       }),
     [],
   );

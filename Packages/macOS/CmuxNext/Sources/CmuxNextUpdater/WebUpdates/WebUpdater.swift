@@ -184,12 +184,25 @@ public final class WebUpdater {
         guard channel != .off, phase != .checking, phase != .downloading else { return }
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
         guard since > stale else {
-            let left = max(0, WebSwapGate.seconds(interval) - since)
-            nextCheck.schedule(after: .milliseconds(Int(left * 1000))) { @MainActor [weak self] in await self?.check() }
+            nextCheck.schedule(after: Self.delay(after: since, interval: interval)) { @MainActor [weak self] in await self?.check() }
             return
         }
         // task-owner: one check; it ends by itself
         Task { await check() }
+    }
+
+    /// cmux went behind other apps: the check booked a minute out moves to ``backgroundInterval``
+    /// after the last one.
+    public func noteBackground() {
+        foreground = false
+        guard channel != .off, phase != .checking, phase != .downloading, nextCheck.isScheduled else { return }
+        let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
+        nextCheck.schedule(after: Self.delay(after: since, interval: backgroundInterval)) { @MainActor [weak self] in await self?.check() }
+    }
+
+    /// The wait from now for a check `interval` after one `since` seconds ago (none when overdue).
+    nonisolated static func delay(after since: TimeInterval, interval: Duration) -> Duration {
+        .milliseconds(Int(max(0, WebSwapGate.seconds(interval) - since) * 1000))
     }
 
     /// Reads the channel's pointer and takes a new update.

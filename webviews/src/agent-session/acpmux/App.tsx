@@ -5927,14 +5927,18 @@ function AcpmuxPane() {
         else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
       }),
   );
-  /// Prompts that left the composer and acpmux has not taken yet (`chat.send` before `accepted`).
+  /// Prompts on their way through this page before the client holds them (a chat starting, a
+  /// harness switch's row), and chats starting for a prompt (`chat.new`).
   const untakenSends = useRef(0);
   // WEB-SWAP: a web update's reload waits while a prompt that left the composer lives only in this
-  // page: one acpmux has not taken, or one waiting for a new chat (pages/shared/webSwap.ts).
+  // page: one on its way to acpmux, one waiting for a new chat, a failed one with Retry
+  // (direct.ts `swapHold`, pages/shared/webSwap.ts).
   useEffect(
     () =>
-      holdWebSwap(() =>
-        untakenSends.current > 0 || startingSends.busy || heldBack.current?.length ? "composer.send-untaken" : null,
+      holdWebSwap(
+        () =>
+          directClient.current?.swapHold() ??
+          (untakenSends.current > 0 || startingSends.busy || heldBack.current?.length ? "composer.send-untaken" : null),
       ),
     [startingSends],
   );
@@ -6665,6 +6669,27 @@ function AcpmuxPane() {
         ) => {
           // The reader sent it: the transcript goes to its latest message now, even scrolled up.
           setSends((count) => count + 1);
+          // WEB-SWAP: until the client holds the prompt (its own `swapHold`), only this call does.
+          untakenSends.current += 1;
+          let counted = true;
+          const handedOn = () => {
+            if (counted) untakenSends.current -= 1;
+            counted = false;
+          };
+          try {
+            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn);
+          } finally {
+            handedOn();
+          }
+        };
+        const sendThrough = async (
+          text: string,
+          attachments: import("./attachments").ComposerAttachment[],
+          accepted: (() => void) | undefined,
+          steer: boolean,
+          promptId: string | undefined,
+          handedOn: () => void,
+        ) => {
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
           // the prompt the composer kept. `inComposer`: the composer still holds the prompt (or got it back); else it goes back.
@@ -6718,6 +6743,8 @@ function AcpmuxPane() {
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
+          // The client counts it from here (it registers the send before its first wait).
+          handedOn();
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
@@ -7161,6 +7188,13 @@ function AcpmuxPane() {
           prewarm: (harness, cwd) => client.prewarm(harness, cwd),
           // A function, not a getter: the React Compiler skips a component with a getter.
           prewarmSupported: () => client.prewarmSupported,
+        };
+        // WEB-SWAP: a New Tab's prompt waits in its sender while its chat starts (screenActions.ts):
+        // a web update's reload waits for the start too.
+        const startChat = window.cmuxAcpmuxActions["chat.new"]!;
+        window.cmuxAcpmuxActions["chat.new"] = (params) => {
+          untakenSends.current += 1;
+          return startChat(params).finally(() => (untakenSends.current -= 1));
         };
         notifyDraftActionsChanged();
         harnessSwitch.setHandlers({
@@ -8487,14 +8521,7 @@ function AcpmuxPane() {
                   return true;
                 }
                 const holder = composerHandle.current;
-                untakenSends.current += 1;
-                let untaken = true;
-                const taken = () => {
-                  if (untaken) untakenSends.current -= 1;
-                  untaken = false;
-                };
-                callNative("chat.send", { text, attachments, steer, accepted: taken })
-                  .finally(taken)
+                callNative("chat.send", { text, attachments, steer })
                   .then(
                     () => {
                       rememberStart();
