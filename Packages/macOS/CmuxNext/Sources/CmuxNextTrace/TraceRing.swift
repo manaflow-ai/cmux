@@ -50,9 +50,10 @@ public final class TraceRing: Sendable {
         activeCell.store(UInt64(UInt(bitPattern: TraceRingActive.make(heap, slot: TraceRingActive.heapSlot))), ordering: .releasing)
     }
 
-    /// A heap ring with room for `records` records and small tables (tests and tools).
-    public convenience init(records: Int, role: Role, pid: UInt32 = UInt32(bitPattern: getpid())) {
-        self.init(sizes: Sizes(records: records), identity: Identity(pid: pid, role: role))
+    /// A heap ring with room for `records` records and small tables (tests and tools); `pid` nil is this
+    /// process.
+    public convenience init(records: Int, role: Role, pid: UInt32? = nil) {
+        self.init(sizes: Sizes(records: records), identity: Identity(pid: pid ?? UInt32(bitPattern: getpid()), role: role))
     }
 
     /// Appends one record to the active ring. Lock-free, and after the thread's first write (which
