@@ -320,17 +320,20 @@ async fn a_family_default_policy_wider_than_its_starter_is_not_inherited() {
 }
 
 /// Each field a start leaves out is inherited on its own: a named policy keeps the starter's
-/// mode, and a named mode keeps the starter's policy.
+/// mode, and a named mode keeps the starter's policy. A named policy is not held to the starter
+/// (`hub/person.rs`: open to the unix socket), so approve-all from an asking starter passes.
 #[tokio::test]
 async fn a_start_that_names_one_field_inherits_the_other() {
     let hub = hub();
     let mut app = Client::new(&hub);
-    let parent = starter(&mut app, Some("approve-edits"), Some("strict")).await;
+    let parent = starter(&mut app, None, Some("strict")).await;
     let mut agent = Client::as_session(&hub, &parent).await;
     let named_policy = id(&agent
-        .ok("session/new", new_params(json!({"harness": "fake", "policy": "approve-reads"})))
+        .ok("session/new", new_params(json!({"harness": "fake", "policy": "approve-all"})))
         .await);
-    assert_eq!(app.level(&named_policy).await, ("strict".to_owned(), json!("approve-reads")));
+    assert_eq!(app.level(&named_policy).await, ("strict".to_owned(), json!("approve-all")));
+    let parent = starter(&mut app, Some("approve-edits"), Some("strict")).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
     let named_mode = id(&agent
         .ok("session/new", new_params(json!({"harness": "fake", "mode": "normal"})))
         .await);
