@@ -16,7 +16,7 @@
 // visibility listener stop when it folds, closes or unmounts, and a page shown again registers
 // at once. The header's pull request (the chat folder's, which the App reads live) wins over
 // the cache.
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { kindTotals } from "../../../fileKinds";
 import { callChipHost } from "../chips/host";
 import {
@@ -101,9 +101,35 @@ export type ChangesStatuses = {
   readonly statuses: Readonly<Record<string, InspectorPullRequestStatus>>;
   /// The host is reading one of them now: the page asks again shortly.
   readonly reading: boolean;
+  /// One of them has no settled answer yet (none asked for, or the host still reading): a named
+  /// pull request may still turn out to be one, so Changes keeps its header.
+  readonly unsettled: boolean;
 };
 
-const EMPTY: ChangesStatuses = { statuses: {}, reading: false };
+const EMPTY: ChangesStatuses = { statuses: {}, reading: false, unsettled: false };
+const NO_URLS: readonly string[] = [];
+
+/// The URLs of `pullRequests`, as `held` when they are the same ones in the same order, so a
+/// transcript update that names no new pull request keeps the list (and everything keyed on it)
+/// and allocates nothing.
+export function stableUrls(
+  held: readonly string[] | undefined,
+  pullRequests: readonly { readonly url: string }[] | undefined,
+): readonly string[] {
+  const list = pullRequests ?? [];
+  if (!list.length) return NO_URLS;
+  if (held && held.length === list.length && list.every((pr, index) => pr.url === held[index])) return held;
+  return list.map((pr) => pr.url);
+}
+
+/// `pullRequests`' URLs, the same array while they name the same pull requests (``stableUrls``).
+export function useStableUrls(pullRequests: readonly { readonly url: string }[] | undefined): readonly string[] {
+  const [held, setHeld] = useState(NO_URLS);
+  const urls = stableUrls(held, pullRequests);
+  // Derived state: a new list replaces the held one in this render, before any effect reads it.
+  if (urls !== held) setHeld(urls);
+  return urls;
+}
 /// The last statuses built, so an unchanged list keeps the object React has, and a render is no
 /// pass over the list until the list or one of the store's answers changes.
 let cache: {
@@ -132,7 +158,11 @@ function statusesOf(key: string): ChangesStatuses {
     key,
     version,
     answers,
-    value: { statuses, reading: answers.some((answer) => answer?.reading === true) },
+    value: {
+      statuses,
+      reading: answers.some((answer) => answer?.reading === true),
+      unsettled: answers.some((answer) => answer === undefined || answer.reading),
+    },
   };
   return cache.value;
 }
@@ -156,10 +186,13 @@ export function keepChangesFresh(urls: readonly string[], every = REGISTER_EVERY
 /// What the App's cache has for `urls` while `shown` (the Inspector drawn); registered and asked
 /// for only while `active` too (Changes unfolded), when the list changes and each minute after.
 export function useChangesStatuses(urls: readonly string[], shown: boolean, active: boolean): ChangesStatuses {
-  const key = shown ? urls.join("\n") : "";
+  // Joined once per list: `urls` is the same array while the transcript names the same ones.
+  const joined = useMemo(() => urls.join("\n"), [urls]);
+  const key = shown ? joined : "";
   const live = active ? key : "";
   const read = () => statusesOf(key);
-  const { statuses, reading } = useSyncExternalStore(subscribePullRequests, read, read);
+  const value = useSyncExternalStore(subscribePullRequests, read, read);
+  const { reading } = value;
   useEffect(() => {
     if (!live) return;
     const list = live.split("\n");
@@ -176,7 +209,7 @@ export function useChangesStatuses(urls: readonly string[], shown: boolean, acti
     }, WAIT_MS);
     return () => clearInterval(timer);
   }, [live, reading]);
-  return { statuses, reading };
+  return value;
 }
 
 /// The cache's statuses with the header's live read over them, field by field: what the header
