@@ -65,4 +65,23 @@ import Testing
         try FileManager.default.removeItem(atPath: home + "/.claude.json")
         #expect(!ClaudeConfigTrustReader.isTrusted(workingDirectory: "/p", account: defaultAccount, homeDirectory: home))
     }
+
+    @Test func configNeedsTheAccountsClaudeJSON() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(atPath: home) }
+        let missing = ClaudeAccount(name: "gone", configDirectory: home + "/.claude-gone", isRegistered: true)
+        #expect(!ClaudeConfigTrustReader.hasConfig(account: missing, homeDirectory: home))
+
+        try makeWorkDir(home)
+        #expect(!ClaudeConfigTrustReader.hasConfig(account: work(home), homeDirectory: home))
+        try write("{}", to: home + "/.claude-work/.claude.json")
+        #expect(ClaudeConfigTrustReader.hasConfig(account: work(home), homeDirectory: home))
+
+        // The default account keeps its .claude.json in the home, not in ~/.claude.
+        #expect(!ClaudeConfigTrustReader.hasConfig(account: defaultAccount, homeDirectory: home))
+        try write("{}", to: home + "/.claude.json")
+        #expect(ClaudeConfigTrustReader.hasConfig(account: defaultAccount, homeDirectory: home))
+        // Checking never creates anything.
+        #expect(!FileManager.default.fileExists(atPath: home + "/.claude-gone"))
+    }
 }

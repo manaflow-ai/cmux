@@ -459,10 +459,12 @@ Default: `false`. Toggle it from **Settings > Automation > Switch Claude Account
 
 Behavior notes:
 
+- Only accounts from your user-level `~/.config/cmux/cmux.json` are used automatically; a project's `.cmux/cmux.json` can't add an account to automatic switching or redirect one. An account whose config directory or `.claude.json` is missing is skipped (the default account's `.claude.json` is `~/.claude.json`).
 - Accounts are tried in `agents.claudeAccounts` order, starting after the current one; the default `~/.claude` account comes first. An account that has already trusted the terminal's folder is preferred.
 - The account that hit its limit is skipped until it resets: at the time its limit message gives, or for five hours when the message gives none. `cmux claude-account list` shows until when.
 - Each switch shows a **Claude account: <from> → <to> (auto)** row in the sidebar and posts a notification.
-- cmux types `continue` only when the resumed session waits at an empty prompt. If the new account has not trusted the folder yet, cmux types nothing and notifies you to confirm folder trust first.
+- cmux types `continue` only into the resumed Claude's own empty prompt, while that Claude is the terminal's foreground process. It types nothing when the new account has not trusted the folder yet (the notification asks you to confirm folder trust first), and it gives up when you type in the terminal, Claude starts working or asks something, the session ends, or a minute passes; a follow-up notification says why.
+- cmux does not switch, and notifies you instead, when the terminal was used after the limit, when the stopped turn left background work running (a switch restarts the terminal), when the limit could not be recorded, or when the terminal already went through every other account without finishing a turn.
 - When every other account is at its limit, nothing changes and the terminal keeps its usage-limit status.
 - Remote, SSH, and cloud terminals are never switched.
 
@@ -607,7 +609,7 @@ Behavior notes:
 
 - The default `~/.claude` account is always available, listed first, and never sets `CLAUDE_CONFIG_DIR`. Declare `~/.claude` yourself only to give it another name.
 - Entries with an invalid name or a `configDir` that is neither absolute nor `~/`-relative are ignored. Equivalent spellings of one directory (`~/.claude-work`, `/Users/me/.claude-work/`) are the same account; the first declaration of a directory wins.
-- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`.
+- A project-level `cmux.json` (or `.cmux/cmux.json`) overrides a user-level declaration with the same `name`. This applies to switching by hand only: [`automation.claudeAccountAutoSwitch`](#automationclaudeaccountautoswitch) uses the accounts in your user-level `cmux.json` alone.
 - Switch a Claude terminal from its context menu (Switch Claude Account), the command palette, or `cmux claude-account switch <name>`. `cmux claude-account list` prints the accounts cmux sees.
 - Log in to each account once before switching to it: run `CLAUDE_CONFIG_DIR=<configDir> claude` in any terminal and use `/login`. cmux never reads, copies or stores Claude credentials.
 - Folder trust and MCP settings live in each account's own `.claude.json`, so the first switch of a project to an account may show Claude's folder-trust prompt, and the account may have different MCP servers.

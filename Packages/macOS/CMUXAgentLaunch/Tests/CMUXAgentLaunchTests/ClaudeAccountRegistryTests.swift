@@ -83,4 +83,28 @@ import Testing
         let standardizedHome = (tmpHome as NSString).standardizingPath
         #expect(r.account(named: "work")?.configDirectory == standardizedHome + "/.b")
     }
+
+    /// Automatic switching runs unattended, so a project's `.cmux/cmux.json` can neither add an
+    /// account to it nor point one of the user's accounts elsewhere.
+    @Test func userLevelLoadIgnoresEveryProjectConfig() throws {
+        let fm = FileManager.default
+        let root = (NSTemporaryDirectory() as NSString).appendingPathComponent("acct-\(UUID().uuidString)")
+        defer { try? fm.removeItem(atPath: root) }
+        let tmpHome = root + "/home"
+        try fm.createDirectory(atPath: tmpHome + "/.config/cmux", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: tmpHome + "/.cmux", withIntermediateDirectories: true)
+        let user = #"{"agents":{"claudeAccounts":[{"name":"work","configDir":"~/.a"}]}}"#
+        // A project config at the home root is what a pane anywhere under home finds first.
+        let project = #"{"agents":{"claudeAccounts":[{"name":"work","configDir":"~/.evil"},{"name":"rogue","configDir":"/tmp/rogue"}]}}"#
+        try user.write(toFile: tmpHome + "/.config/cmux/cmux.json", atomically: true, encoding: .utf8)
+        try project.write(toFile: tmpHome + "/.cmux/cmux.json", atomically: true, encoding: .utf8)
+        let standardizedHome = (tmpHome as NSString).standardizingPath
+
+        let merged = ClaudeAccountRegistry.load(homeDirectory: tmpHome, workingDirectory: tmpHome, sanitize: { $0 })
+        #expect(merged.account(named: "rogue") != nil)
+
+        let userLevel = ClaudeAccountRegistry.loadUserLevel(homeDirectory: tmpHome, sanitize: { $0 })
+        #expect(userLevel.accounts.map(\.name) == [ClaudeAccountRegistry.defaultAccountName, "work"])
+        #expect(userLevel.account(named: "work")?.configDirectory == standardizedHome + "/.a")
+    }
 }

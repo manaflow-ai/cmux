@@ -34,11 +34,17 @@ extension Workspace {
     /// Typing earlier would land while rc files still run in canonical mode, where an rc-time
     /// stdin reader can eat the command (#5473). Nothing is typed when the pane goes away or no
     /// prompt arrives in time.
+    ///
+    /// - Parameter requiresUntouchedShellLine: For the unattended automatic switch: type nothing
+    ///   when the respawned shell's line may already hold other input (see
+    ///   ``ClaudeAccountSwitchShellLine``). A manual switch was asked for by the person at the
+    ///   pane, so it types regardless.
     @MainActor
     func deliverClaudeAccountSwitchResumeInput(
         _ input: String,
         to panel: TerminalPanel,
-        panelId: UUID
+        panelId: UUID,
+        requiresUntouchedShellLine: Bool = false
     ) async -> ClaudeAccountSwitchResumeDelivery {
         switch await waitForClaudeAccountSwitchShellPrompt(
             panelId: panelId,
@@ -50,6 +56,12 @@ extension Workspace {
         case .timedOut:
             return .notTyped
         case .prompt:
+            if requiresUntouchedShellLine, !ClaudeAccountSwitchShellLine.acceptsResumeInput(
+                receivedInputSinceRespawn: panel.hasReceivedExplicitInput,
+                screen: AgentAutoResumeCoordinator.shared.screenState(for: panel.surface)
+            ) {
+                return .notTyped
+            }
             return typeClaudeAccountSwitchResumeInput(input, into: panel, panelId: panelId) ? .typed : .notTyped
         }
     }

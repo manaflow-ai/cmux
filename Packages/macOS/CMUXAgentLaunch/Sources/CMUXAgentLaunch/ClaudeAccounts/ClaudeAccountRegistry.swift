@@ -83,6 +83,25 @@ public struct ClaudeAccountRegistry: Equatable, Sendable {
         return ClaudeAccountRegistry(declarations: merged, homeDirectory: homeDirectory)
     }
 
+    /// Loads declarations from the user-level config file only, never from a project's
+    /// `.cmux/cmux.json`.
+    ///
+    /// Automatic account switching runs unattended, so it uses this: a repository can't add an
+    /// account to it or redirect one of the user's accounts to another directory.
+    ///
+    /// - Parameters:
+    ///   - homeDirectory: The home whose `.config/cmux/cmux.json` is read.
+    ///   - fileManager: Filesystem used to read the file.
+    ///   - sanitize: JSONC comment stripping applied before decoding.
+    public static func loadUserLevel(
+        homeDirectory: String,
+        fileManager: FileManager = .default,
+        sanitize: (Data) throws -> Data
+    ) -> ClaudeAccountRegistry {
+        // No working directory: no project config is searched for at all.
+        load(homeDirectory: homeDirectory, workingDirectory: nil, fileManager: fileManager, sanitize: sanitize)
+    }
+
     /// The registered account with this name.
     public func account(named name: String) -> ClaudeAccount? {
         accounts.first { $0.name == name }

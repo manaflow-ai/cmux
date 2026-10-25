@@ -10,10 +10,11 @@ import Testing
 @testable import cmux
 #endif
 
-/// After the switch: only a switch whose resume was typed may type `continue`, and nothing that
-/// left the pane alone is announced.
+/// After the switch: only a switch whose resume was typed may type `continue`, into the session
+/// it resumed, and nothing that left the pane alone is announced.
 struct ClaudeAccountAutoSwitchFollowUpTests {
     private let home = "/Users/cmux-test"
+    private let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
 
     @Test(arguments: [true, false])
     func aResumedSwitchIsAnnouncedAndContinuesOnlyWhenTrusted(sendContinue: Bool) throws {
@@ -22,6 +23,7 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
         #expect(ClaudeAccountAutoSwitchFollowUp(result: result, sendContinue: sendContinue) == .announce(
             from: ClaudeAccountRegistry.defaultAccountName,
             to: "work",
+            sessionId: sessionId,
             typeContinue: sendContinue
         ))
     }
@@ -64,7 +66,7 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
 
     private func makePlan() throws -> ClaudeAccountSwitchPlan {
         try ClaudeAccountSwitchPlanner.plan(
-            sessionID: "a22293b7-bcef-4707-8439-2f538c8517a4",
+            sessionID: sessionId,
             workingDirectory: "\(home)/project",
             launchEnvironment: nil,
             targetName: "work",
@@ -77,18 +79,49 @@ struct ClaudeAccountAutoSwitchFollowUpTests {
     }
 }
 
-/// Spec D8: `continue` is typed only into Claude's own empty prompt.
+/// Spec D8: `continue` is typed only into the resumed Claude's own idle prompt.
 @MainActor
 struct ClaudeAccountAutoSwitchContinueGateTests {
+    private typealias Gate = ClaudeAccountAutoSwitchContinueGate
+    private let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+    private let idle = Gate.Screen(state: .emptyPrompt, showsInterruptHint: false)
+
+    private func startedGate() -> Gate {
+        var gate = Gate(sessionId: sessionId)
+        gate.observe(kind: .sessionStarted, sessionId: sessionId)
+        return gate
+    }
+
+    private func step(
+        _ gate: Gate,
+        elapsed: Duration = .seconds(2),
+        isEnabled: Bool = true,
+        running: Bool = false,
+        screen: Gate.Screen? = nil,
+        foreground: Bool = true
+    ) -> Gate.Step {
+        gate.step(
+            elapsed: elapsed,
+            isEnabled: isEnabled,
+            responseRunning: running,
+            screen: { screen ?? idle },
+            claudeInForeground: { foreground }
+        )
+    }
+
     @Test
     func aShellPromptBeforeClaudeStartsIsNeverTypedInto() {
-        let gate = ClaudeAccountAutoSwitchContinueGate()
         var screenReads = 0
-
-        let step = gate.step(elapsed: .seconds(1), isEnabled: true, responseRunning: false) {
-            screenReads += 1
-            return .emptyPrompt
-        }
+        let step = Gate(sessionId: sessionId).step(
+            elapsed: .seconds(1),
+            isEnabled: true,
+            responseRunning: false,
+            screen: {
+                screenReads += 1
+                return idle
+            },
+            claudeInForeground: { true }
+        )
 
         #expect(step == .wait)
         #expect(screenReads == 0)
@@ -96,7 +129,7 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
 
     @Test
     func aShellPromptReadsAsAnEmptyPromptOnScreen() throws {
-        // Why the gate waits for Claude's SessionStart: the screen alone can't tell them apart.
+        // Why the gate waits for the resumed session's own start: the screen can't tell them apart.
         let frame = try screen(["~/project", "❯ "], cursorRow: 1)
 
         #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)
@@ -116,19 +149,50 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
         ], cursorRow: 4)
 
         #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .dialog)
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionStarted)
-        #expect(gate.step(elapsed: .seconds(1), isEnabled: true, responseRunning: false) {
-            AgentAutoResumeCoordinator.screenState(in: frame)
-        } == .wait)
+        #expect(step(startedGate(), screen: Gate.Screen(frame: frame)) == .wait)
     }
 
     @Test
-    func claudesEmptyPromptAfterItsSessionStartGetsContinue() {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionStarted)
+    func aRunningTurnIsNeverTakenForAnEmptyPrompt() throws {
+        // Claude keeps its input box empty while it works; only the hint says it is busy.
+        let frame = try screen([
+            "> Remember the codeword.",
+            "✻ Cogitating… (3s · ↑ 120 tokens · esc to interrupt)",
+            "",
+            "❯ ",
+        ], cursorRow: 3)
+        let reading = Gate.Screen(frame: frame)
 
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: true, responseRunning: false) { .emptyPrompt } == .send)
+        #expect(reading.state == .emptyPrompt)
+        #expect(reading.showsInterruptHint)
+        #expect(step(startedGate(), screen: reading) != .send)
+    }
+
+    @Test
+    func claudesIdlePromptAfterItsSessionStartGetsContinue() {
+        #expect(step(startedGate()) == .send)
+    }
+
+    @Test
+    func onlyTheResumedSessionsStartCounts() {
+        // A `claude` the user started by hand, or a `/clear`, is another session.
+        var gate = Gate(sessionId: sessionId)
+        gate.observe(kind: .sessionStarted, sessionId: "0f0e0d0c-0000-4000-8000-000000000001")
+
+        #expect(step(gate) == .giveUp(.otherSession))
+    }
+
+    @Test
+    func aClaudeThatDoesNotOwnTheTerminalIsNotTypedInto() {
+        #expect(step(startedGate(), foreground: false) == .wait)
+    }
+
+    @Test
+    func inputDuringTheWaitEndsIt() {
+        var gate = startedGate()
+        gate.userDidInput()
+
+        #expect(step(gate) == .giveUp(.userInput))
     }
 
     @Test(arguments: [
@@ -139,10 +203,7 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
         .codexResumePicker,
     ])
     func anyOtherScreenWaits(screen: AgentAutoResumeCoordinator.ScreenState) {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionStarted)
-
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: true, responseRunning: false) { screen } == .wait)
+        #expect(step(startedGate(), screen: Gate.Screen(state: screen, showsInterruptHint: false)) == .wait)
     }
 
     @Test(arguments: [
@@ -152,62 +213,47 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
         .planReviewRequested,
     ])
     func someoneElseDrivingTheSessionEndsTheWait(kind: AgentJournalEventKind) {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionStarted)
-        gate.observe(kind: kind)
+        var gate = startedGate()
+        gate.observe(kind: kind, sessionId: sessionId)
 
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: true, responseRunning: false) { .emptyPrompt }
-            == .giveUp(.sessionBusy))
+        #expect(step(gate) == .giveUp(.sessionBusy))
     }
 
     @Test
     func theReplacedClaudesSessionEndDoesNotCountButTheResumedOnesDoes() {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionEnded)
-        gate.observe(kind: .sessionStarted)
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: true, responseRunning: false) { .emptyPrompt } == .send)
+        var gate = Gate(sessionId: sessionId)
+        gate.observe(kind: .sessionEnded, sessionId: sessionId)
+        gate.observe(kind: .sessionStarted, sessionId: sessionId)
+        #expect(step(gate) == .send)
 
-        gate.observe(kind: .sessionEnded)
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: true, responseRunning: false) { .emptyPrompt }
-            == .giveUp(.sessionEnded))
+        gate.observe(kind: .sessionEnded, sessionId: sessionId)
+        #expect(step(gate) == .giveUp(.sessionEnded))
     }
 
     @Test
     func theStopFailuresOwnAttentionEchoDoesNotEndTheWait() {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .errorReported)
-        gate.observe(kind: .sessionStarted)
-        gate.observe(kind: .stateChanged)
+        var gate = Gate(sessionId: sessionId)
+        gate.observe(kind: .errorReported, sessionId: sessionId)
+        gate.observe(kind: .sessionStarted, sessionId: sessionId)
+        gate.observe(kind: .stateChanged, sessionId: sessionId)
 
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: true, responseRunning: false) { .emptyPrompt } == .send)
+        #expect(step(gate) == .send)
     }
 
     @Test
     func aRunningResponseEndsTheWait() {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionStarted)
-
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: true, responseRunning: true) { .emptyPrompt }
-            == .giveUp(.sessionBusy))
+        #expect(step(startedGate(), running: true) == .giveUp(.sessionBusy))
     }
 
     @Test
     func turningTheSettingOffEndsTheWait() {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionStarted)
-
-        #expect(gate.step(elapsed: .seconds(2), isEnabled: false, responseRunning: false) { .emptyPrompt }
-            == .giveUp(.disabled))
+        #expect(step(startedGate(), isEnabled: false) == .giveUp(.disabled))
     }
 
     @Test
     func theWaitEndsAfterOneMinute() {
-        var gate = ClaudeAccountAutoSwitchContinueGate()
-        gate.observe(kind: .sessionStarted)
-
-        #expect(gate.step(elapsed: .seconds(59), isEnabled: true, responseRunning: false) { .draft } == .wait)
-        #expect(gate.step(elapsed: .seconds(60), isEnabled: true, responseRunning: false) { .emptyPrompt }
-            == .giveUp(.timedOut))
+        #expect(step(startedGate(), elapsed: .seconds(59), screen: Gate.Screen(state: .draft, showsInterruptHint: false)) == .wait)
+        #expect(step(startedGate(), elapsed: .seconds(60)) == .giveUp(.timedOut))
     }
 
     private func screen(_ lines: [String], cursorRow: Int?) throws -> MobileTerminalRenderGridFrame {
@@ -226,6 +272,7 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
 /// holds in every locale.
 struct ClaudeAccountAutoSwitchAnnouncementTests {
     private let now = Date(timeIntervalSince1970: 1_792_897_200)
+    private let switchedTitle = String(localized: "notification.claudeAccountSwitch.title", defaultValue: "Claude account switched")
 
     @Test
     func theStatusNamesBothAccounts() {
@@ -243,26 +290,21 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
     }
 
     @Test
-    func theNotificationSharesTheSwitchTitleAndQuotesTheReset() {
+    func theNotificationSaysTheConversationResumedAndQuotesTheReset() {
         let reset = now.addingTimeInterval(2 * 3600)
-        let calendar = seoulCalendar
         let announcement = ClaudeAccountAutoSwitchAnnouncement(from: "default", to: "work", reset: reset, continues: true)
 
-        let notification = announcement.notification(now: now, calendar: calendar)
+        let notification = announcement.notification(now: now, calendar: seoulCalendar)
 
-        #expect(notification.title == String(
-            localized: "notification.claudeAccountSwitch.title",
-            defaultValue: "Claude account switched"
-        ))
+        #expect(notification.title == switchedTitle)
         #expect(notification.subtitle == announcement.statusText)
-        let resetText = ClaudeAccountAutoSwitchAnnouncement.resetText(reset, now: now, calendar: calendar)
         #expect(notification.body == String(
             format: String(
-                localized: "notification.claudeAccountAutoSwitch.continuing",
-                defaultValue: "%1$@ hit its usage limit (resets %2$@). Continuing on %3$@."
+                localized: "notification.claudeAccountAutoSwitch.resumed",
+                defaultValue: "%1$@ hit its usage limit (resets %2$@). Resumed the conversation on %3$@."
             ),
             "default",
-            resetText,
+            ClaudeAccountAutoSwitchAnnouncement.resetText(reset, now: now, calendar: seoulCalendar),
             "work"
         ))
     }
@@ -290,8 +332,8 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
         let expected = continues
             ? String(
                 format: String(
-                    localized: "notification.claudeAccountAutoSwitch.continuingNoReset",
-                    defaultValue: "%1$@ hit its usage limit. Continuing on %2$@."
+                    localized: "notification.claudeAccountAutoSwitch.resumedNoReset",
+                    defaultValue: "%1$@ hit its usage limit. Resumed the conversation on %2$@."
                 ),
                 "default",
                 "work"
@@ -309,12 +351,84 @@ struct ClaudeAccountAutoSwitchAnnouncementTests {
 
     @Test
     func aResetOnAnotherDayIncludesItsDate() {
-        let calendar = seoulCalendar
-        let sameDay = ClaudeAccountAutoSwitchAnnouncement.resetText(now.addingTimeInterval(3600), now: now, calendar: calendar)
-        let nextWeek = ClaudeAccountAutoSwitchAnnouncement.resetText(now.addingTimeInterval(6 * 86_400), now: now, calendar: calendar)
+        let sameDay = ClaudeAccountAutoSwitchAnnouncement.resetText(now.addingTimeInterval(3600), now: now, calendar: seoulCalendar)
+        let nextWeek = ClaudeAccountAutoSwitchAnnouncement.resetText(now.addingTimeInterval(6 * 86_400), now: now, calendar: seoulCalendar)
 
         #expect(!sameDay.isEmpty)
         #expect(nextWeek.count > sameDay.count)
+    }
+
+    @Test
+    func aContinueThatWasNotTypedSaysWhy() {
+        let announcement = ClaudeAccountAutoSwitchAnnouncement(from: "default", to: "work", reset: nil, continues: true)
+        let inUse = String(
+            format: String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.inUse",
+                defaultValue: "cmux didn't type continue on %@: the terminal was in use."
+            ),
+            "work"
+        )
+        let expected: [(ClaudeAccountAutoSwitchContinueGate.GiveUpReason, String)] = [
+            (.timedOut, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.timedOut",
+                defaultValue: "cmux didn't type continue on %@: Claude didn't reach an empty prompt within a minute."
+            ), "work")),
+            (.sessionEnded, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.sessionEnded",
+                defaultValue: "cmux didn't type continue on %@: the resumed Claude session ended."
+            ), "work")),
+            (.sessionBusy, inUse),
+            (.otherSession, inUse),
+            (.userInput, inUse),
+            (.disabled, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.disabled",
+                defaultValue: "cmux didn't type continue on %@: automatic account switching was turned off."
+            ), "work")),
+            (.paneGone, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.paneGone",
+                defaultValue: "cmux didn't type continue on %@: the terminal was closed."
+            ), "work")),
+        ]
+        for (reason, body) in expected {
+            let notification = announcement.notContinuedNotification(reason: reason)
+            #expect(notification.title == switchedTitle, "\(reason)")
+            #expect(notification.subtitle == announcement.statusText, "\(reason)")
+            #expect(notification.body == body, "\(reason)")
+        }
+    }
+
+    @Test
+    func aHeldBackSwitchSaysWhyAndHowToContinue() {
+        let notSwitched = String(
+            localized: "notification.claudeAccountAutoSwitch.notSwitched.title",
+            defaultValue: "Claude account not switched"
+        )
+        let expected: [(ClaudeAccountAutoSwitchAction.HoldBack, String)] = [
+            (.userInput, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.userInput",
+                defaultValue: "%@ hit its usage limit, but the terminal was used afterwards, so cmux didn't switch accounts. Switch accounts manually to continue."
+            ), "default")),
+            (.backgroundWork, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.backgroundWork",
+                defaultValue: "%@ hit its usage limit while background work was still running. Switching accounts restarts the terminal and would stop that work, so cmux didn't switch. Switch accounts manually when it's done."
+            ), "default")),
+            (.attemptLimit, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.attemptLimit",
+                defaultValue: "%@ hit its usage limit. This terminal already went through every other account without finishing a turn, so cmux stopped switching it automatically."
+            ), "default")),
+            (.notRecorded, String(format: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.notRecorded",
+                defaultValue: "%@ hit its usage limit, but cmux couldn't record that, so it didn't switch accounts automatically. Switch accounts manually to continue."
+            ), "default")),
+        ]
+        var bodies = Set<String>()
+        for (reason, body) in expected {
+            let notification = ClaudeAccountAutoSwitchAnnouncement.holdBackNotification(from: "default", reason: reason)
+            #expect(notification.title == notSwitched, "\(reason)")
+            #expect(notification.body == body, "\(reason)")
+            bodies.insert(notification.body)
+        }
+        #expect(bodies.count == expected.count)
     }
 
     private var seoulCalendar: Calendar {

@@ -673114,124 +673114,6 @@
         }
       }
     },
-    "notification.claudeAccountAutoSwitch.continuing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ hit its usage limit (resets %2$@). Continuing on %3$@."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بلغ %1$@ حد الاستخدام (يُعاد التعيين %2$@). جارٍ المتابعة على %3$@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ hat das Nutzungslimit erreicht (Zurücksetzung %2$@). Weiter mit %3$@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ alcanzó su límite de uso (se restablece: %2$@). Se continúa en %3$@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ a atteint sa limite d’utilisation (réinitialisation : %2$@). Suite sur %3$@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ が使用量の上限に達しました（リセット: %2$@）。%3$@ で続行します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 계정이 사용량 한도에 도달했습니다(초기화: %2$@). %3$@ 계정에서 계속합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 已达到用量上限（%2$@ 重置）。正在 %3$@ 上继续。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 已達到用量上限（%2$@ 重設）。正在 %3$@ 上繼續。"
-          }
-        }
-      }
-    },
-    "notification.claudeAccountAutoSwitch.continuingNoReset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ hit its usage limit. Continuing on %2$@."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "بلغ %1$@ حد الاستخدام. جارٍ المتابعة على %2$@."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ hat das Nutzungslimit erreicht. Weiter mit %2$@."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ alcanzó su límite de uso. Se continúa en %2$@."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ a atteint sa limite d’utilisation. Suite sur %2$@."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ が使用量の上限に達しました。%2$@ で続行します。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 계정이 사용량 한도에 도달했습니다. %2$@ 계정에서 계속합니다."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 已达到用量上限。正在 %2$@ 上继续。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ 已達到用量上限。正在 %2$@ 上繼續。"
-          }
-        }
-      }
-    },
     "sidebar.claudeAccountAutoSwitch.status": {
       "extractionState": "manual",
       "localizations": {
@@ -673287,6 +673169,714 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude 帳號：%1$@ → %2$@（自動）"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notContinued.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't type continue on %@: automatic account switching was turned off."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتب cmux الأمر continue على %@: أُوقف التبديل التلقائي للحساب."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat in %@ nicht „continue“ eingegeben: Der automatische Kontowechsel wurde ausgeschaltet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no escribió continue en %@: se desactivó el cambio automático de cuenta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas tapé continue sur %@ : le changement de compte automatique a été désactivé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ で continue を入力しませんでした: アカウントの自動切り替えがオフになりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@ 계정에서 continue를 입력하지 않았습니다: 자동 계정 전환이 꺼졌습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 没有在 %@ 输入 continue：已关闭自动切换账号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 沒有在 %@ 輸入 continue：已關閉自動切換帳號。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notContinued.inUse": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't type continue on %@: the terminal was in use."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتب cmux الأمر continue على %@: كانت الطرفية قيد الاستخدام."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat in %@ nicht „continue“ eingegeben: Das Terminal war in Benutzung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no escribió continue en %@: el terminal estaba en uso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas tapé continue sur %@ : le terminal était utilisé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ で continue を入力しませんでした: ターミナルが使用中でした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@ 계정에서 continue를 입력하지 않았습니다: 터미널이 사용 중이었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 没有在 %@ 输入 continue：终端正在使用中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 沒有在 %@ 輸入 continue：終端機正在使用中。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notContinued.paneGone": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't type continue on %@: the terminal was closed."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتب cmux الأمر continue على %@: أُغلقت الطرفية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat in %@ nicht „continue“ eingegeben: Das Terminal wurde geschlossen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no escribió continue en %@: se cerró el terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas tapé continue sur %@ : le terminal a été fermé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ で continue を入力しませんでした: ターミナルが閉じられました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@ 계정에서 continue를 입력하지 않았습니다: 터미널이 닫혔습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 没有在 %@ 输入 continue：终端已关闭。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 沒有在 %@ 輸入 continue：終端機已關閉。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notContinued.sessionEnded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't type continue on %@: the resumed Claude session ended."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتب cmux الأمر continue على %@: انتهت جلسة Claude المستأنفة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat in %@ nicht „continue“ eingegeben: Die fortgesetzte Claude-Sitzung wurde beendet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no escribió continue en %@: la sesión de Claude reanudada terminó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas tapé continue sur %@ : la session Claude reprise s’est terminée."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ で continue を入力しませんでした: 再開した Claude のセッションが終了しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@ 계정에서 continue를 입력하지 않았습니다: 재개한 Claude 세션이 종료되었습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 没有在 %@ 输入 continue：恢复的 Claude 会话已结束。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 沒有在 %@ 輸入 continue：恢復的 Claude 工作階段已結束。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notContinued.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux didn't type continue on %@: Claude didn't reach an empty prompt within a minute."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتب cmux الأمر continue على %@: لم يصل Claude إلى موجه فارغ خلال دقيقة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat in %@ nicht „continue“ eingegeben: Claude hat innerhalb einer Minute keine leere Eingabe erreicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no escribió continue en %@: Claude no llegó a un prompt vacío en un minuto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux n’a pas tapé continue sur %@ : Claude n’a pas atteint une invite vide en moins d’une minute."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ で continue を入力しませんでした: Claude が 1 分以内に空のプロンプトになりませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 %@ 계정에서 continue를 입력하지 않았습니다: Claude가 1분 안에 빈 프롬프트에 도달하지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 没有在 %@ 输入 continue：Claude 在一分钟内没有回到空白提示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 沒有在 %@ 輸入 continue：Claude 在一分鐘內沒有回到空白提示。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notSwitched.attemptLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hit its usage limit. This terminal already went through every other account without finishing a turn, so cmux stopped switching it automatically."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %@ حد الاستخدام. جرّبت هذه الطرفية كل الحسابات الأخرى دون إنهاء دورة، لذا توقف cmux عن تبديلها تلقائيًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat das Nutzungslimit erreicht. Dieses Terminal hat schon alle anderen Konten durchlaufen, ohne einen Durchgang abzuschließen, daher wechselt cmux es nicht mehr automatisch."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alcanzó su límite de uso. Este terminal ya pasó por todas las demás cuentas sin terminar un turno, así que cmux dejó de cambiarlo automáticamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a atteint sa limite d’utilisation. Ce terminal a déjà essayé tous les autres comptes sans terminer un tour, donc cmux a cessé d’en changer automatiquement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が使用量の上限に達しました。このターミナルは応答を一度も完了しないまま他のすべてのアカウントを試したため、cmux は自動切り替えを止めました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 계정이 사용량 한도에 도달했습니다. 이 터미널은 이미 다른 모든 계정을 거쳤지만 한 번도 응답을 마치지 못해 cmux가 자동 전환을 멈췄습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已达到用量上限。此终端已轮过所有其他账号却未完成任何一轮回复，因此 cmux 不再自动切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已達到用量上限。此終端機已輪過所有其他帳號卻未完成任何一輪回應，因此 cmux 不再自動切換。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notSwitched.backgroundWork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hit its usage limit while background work was still running. Switching accounts restarts the terminal and would stop that work, so cmux didn't switch. Switch accounts manually when it's done."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %@ حد الاستخدام بينما كان عمل في الخلفية لا يزال قيد التشغيل. تبديل الحساب يعيد تشغيل الطرفية وسيوقف ذلك العمل، لذا لم يبدّل cmux. بدّل الحساب يدويًا عند انتهائه."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat das Nutzungslimit erreicht, während noch Hintergrundarbeit lief. Ein Kontowechsel startet das Terminal neu und würde sie beenden, daher hat cmux nicht gewechselt. Wechsle das Konto manuell, wenn sie fertig ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alcanzó su límite de uso mientras había trabajo en segundo plano en curso. Cambiar de cuenta reinicia el terminal y lo detendría, así que cmux no cambió. Cambia de cuenta manualmente cuando termine."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a atteint sa limite d’utilisation alors qu’un travail en arrière-plan était en cours. Changer de compte redémarre le terminal et l’arrêterait, donc cmux n’a pas changé. Changez de compte manuellement une fois ce travail terminé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が使用量の上限に達したとき、バックグラウンドの作業がまだ実行中でした。アカウントを切り替えるとターミナルが再起動してその作業が止まるため、cmux は切り替えませんでした。作業が終わったら手動でアカウントを切り替えてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 계정이 사용량 한도에 도달했을 때 백그라운드 작업이 아직 실행 중이었습니다. 계정을 전환하면 터미널이 다시 시작되어 그 작업이 중단되므로 cmux가 전환하지 않았습니다. 작업이 끝나면 직접 계정을 전환하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 达到用量上限时仍有后台任务在运行。切换账号会重启终端并中止该任务，因此 cmux 没有切换。请在任务完成后手动切换账号。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 達到用量上限時仍有背景工作在執行。切換帳號會重新啟動終端機並中止該工作，因此 cmux 沒有切換。請在工作完成後手動切換帳號。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notSwitched.notRecorded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hit its usage limit, but cmux couldn't record that, so it didn't switch accounts automatically. Switch accounts manually to continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %@ حد الاستخدام، لكن cmux لم يتمكن من تسجيل ذلك، لذا لم يبدّل الحساب تلقائيًا. بدّل الحساب يدويًا للمتابعة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat das Nutzungslimit erreicht, aber cmux konnte das nicht speichern, daher hat es das Konto nicht automatisch gewechselt. Wechsle das Konto manuell, um fortzufahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alcanzó su límite de uso, pero cmux no pudo registrarlo, así que no cambió de cuenta automáticamente. Cambia de cuenta manualmente para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a atteint sa limite d’utilisation, mais cmux n’a pas pu l’enregistrer, donc il n’a pas changé de compte automatiquement. Changez de compte manuellement pour continuer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が使用量の上限に達しましたが、cmux はそれを記録できなかったため、アカウントを自動で切り替えませんでした。続けるには手動でアカウントを切り替えてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 계정이 사용량 한도에 도달했지만 cmux가 이를 기록하지 못해 계정을 자동으로 전환하지 않았습니다. 계속하려면 직접 계정을 전환하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已达到用量上限，但 cmux 无法记录此状态，因此没有自动切换账号。请手动切换账号以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已達到用量上限，但 cmux 無法記錄此狀態，因此沒有自動切換帳號。請手動切換帳號以繼續。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notSwitched.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude account not switched"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم تبديل حساب Claude"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto nicht gewechselt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta de Claude sin cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte Claude non changé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウントを切り替えませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정 전환 안 됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未切换 Claude 账号"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未切換 Claude 帳號"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.notSwitched.userInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hit its usage limit, but the terminal was used afterwards, so cmux didn't switch accounts. Switch accounts manually to continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %@ حد الاستخدام، لكن الطرفية استُخدمت بعد ذلك، لذا لم يبدّل cmux الحساب. بدّل الحساب يدويًا للمتابعة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat das Nutzungslimit erreicht, aber das Terminal wurde danach benutzt, daher hat cmux das Konto nicht gewechselt. Wechsle das Konto manuell, um fortzufahren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ alcanzó su límite de uso, pero el terminal se usó después, así que cmux no cambió de cuenta. Cambia de cuenta manualmente para continuar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a atteint sa limite d’utilisation, mais le terminal a été utilisé ensuite, donc cmux n’a pas changé de compte. Changez de compte manuellement pour continuer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が使用量の上限に達しましたが、その後ターミナルが使われたため、cmux はアカウントを切り替えませんでした。続けるには手動でアカウントを切り替えてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 계정이 사용량 한도에 도달했지만 그 뒤 터미널이 사용되어 cmux가 계정을 전환하지 않았습니다. 계속하려면 직접 계정을 전환하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已达到用量上限，但之后终端有输入，因此 cmux 没有切换账号。请手动切换账号以继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已達到用量上限，但之後終端機有輸入，因此 cmux 沒有切換帳號。請手動切換帳號以繼續。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.resumed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hit its usage limit (resets %2$@). Resumed the conversation on %3$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %1$@ حد الاستخدام (يُعاد التعيين %2$@). استُؤنفت المحادثة على %3$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat das Nutzungslimit erreicht (Zurücksetzung %2$@). Die Unterhaltung wurde mit %3$@ fortgesetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ alcanzó su límite de uso (se restablece: %2$@). Conversación reanudada en %3$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a atteint sa limite d’utilisation (réinitialisation : %2$@). Conversation reprise sur %3$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が使用量の上限に達しました（リセット: %2$@）。%3$@ で会話を再開しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 계정이 사용량 한도에 도달했습니다(초기화: %2$@). %3$@ 계정에서 대화를 재개했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已达到用量上限（%2$@ 重置）。已在 %3$@ 上恢复对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已達到用量上限（%2$@ 重設）。已在 %3$@ 上恢復對話。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.resumedNoReset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hit its usage limit. Resumed the conversation on %2$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %1$@ حد الاستخدام. استُؤنفت المحادثة على %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat das Nutzungslimit erreicht. Die Unterhaltung wurde mit %2$@ fortgesetzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ alcanzó su límite de uso. Conversación reanudada en %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a atteint sa limite d’utilisation. Conversation reprise sur %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が使用量の上限に達しました。%2$@ で会話を再開しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 계정이 사용량 한도에 도달했습니다. %2$@ 계정에서 대화를 재개했습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已达到用量上限。已在 %2$@ 上恢复对话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已達到用量上限。已在 %2$@ 上恢復對話。"
           }
         }
       }

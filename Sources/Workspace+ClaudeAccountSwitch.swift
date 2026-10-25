@@ -35,18 +35,40 @@ extension Workspace {
             .account(forEnvironment: snapshot.launchCommand?.environment)
     }
 
+    /// Whether a Claude account switch of the pane is in progress, from any entry point.
+    @MainActor
+    static func isClaudeAccountSwitchInFlight(panelId: UUID) -> Bool {
+        claudeAccountSwitchInFlightPanelIds.contains(panelId)
+    }
+
     /// What an automatic account switch needs to know about the pane. A pane on another machine
-    /// is settled first, so its registry is never loaded and nothing local is marked for it.
+    /// or one already switching is settled first, so nothing is loaded or marked for it.
+    ///
+    /// The accounts come from the user-level `cmux.json` only: the automatic switch runs
+    /// unattended, so a repository's `.cmux/cmux.json` must not add an account to it or point
+    /// one elsewhere. Manual switching keeps the merged registry.
     @MainActor
     func claudeAccountAutoSwitchPane(panelId: UUID) -> ClaudeAccountAutoSwitchRequest.Pane {
         guard !terminalRunsOnAnotherMachine(panelId) else { return .onAnotherMachine }
+        guard !Self.isClaudeAccountSwitchInFlight(panelId: panelId) else { return .switching }
         guard let snapshot = cachedClaudeAgentSnapshot(panelId: panelId) else { return .missing }
-        let registry = claudeAccountRegistry(forPanelId: panelId)
+        let registry = ClaudeAccountRegistry.loadUserLevel(
+            homeDirectory: NSHomeDirectory(),
+            sanitize: { try JSONCParser.preprocess(data: $0) }
+        )
         return .local(
             current: registry.account(forEnvironment: snapshot.launchCommand?.environment),
             registry: registry,
             workingDirectory: snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
         )
+    }
+
+    /// The Claude processes the pane's hooks registered, as last recorded.
+    @MainActor
+    func claudeAgentProcesses(panelId: UUID) -> [AgentPIDProcessIdentity] {
+        (agentPIDKeysByPanelId[panelId] ?? [])
+            .filter { agentStatusKey(forAgentPIDKey: $0) == Self.claudeAgentLifecycleKey }
+            .compactMap { agentPIDProcessIdentitiesByKey[$0] }
     }
 
     /// The agent lifecycle key Claude Code reports its running state under.
@@ -209,7 +231,12 @@ extension Workspace {
                 reason: .previousClaudeStillRunning(processIDs: stillRunning.map(\.pid))
             ))
         }
-        let delivery = await deliverClaudeAccountSwitchResumeInput(resumeInput, to: panel, panelId: panelId)
+        let delivery = await deliverClaudeAccountSwitchResumeInput(
+            resumeInput,
+            to: panel,
+            panelId: panelId,
+            requiresUntouchedShellLine: trigger == .automatic
+        )
 #if DEBUG
         cmuxDebugLog(
             "claudeAccount.switch panel=\(panelId.uuidString.prefix(5)) trigger=\(trigger) " +

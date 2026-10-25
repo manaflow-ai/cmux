@@ -19,6 +19,10 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
     let panelId: UUID
     /// `usage_limit: <message>`; the message carries the reset time.
     let detail: String
+    /// When the hook reported the limit, in milliseconds since 1970.
+    let occurredAtMs: Int64
+    /// Whether the stopped turn left background work running.
+    let pendingWork: Bool
 
     /// What cmux knows about the pane a report names.
     enum Pane: Equatable, Sendable {
@@ -27,7 +31,10 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         /// SSH, cloud or remote tmux. Its Claude runs under another machine's accounts, so it is
         /// never switched and nothing is marked exhausted.
         case onAnotherMachine
+        /// A switch of this pane is already running: its Claude is about to be replaced.
+        case switching
         /// A pane on this Mac whose Claude runs under `current`, resumed in `workingDirectory`.
+        /// `registry` holds the user-level accounts only.
         case local(current: ClaudeAccount, registry: ClaudeAccountRegistry, workingDirectory: String?)
     }
 
@@ -47,24 +54,44 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         self.workspaceId = workspaceId
         self.panelId = panelId
         self.detail = detail
+        self.occurredAtMs = draft.occurredAtMs
+        self.pendingWork = draft.pendingWork
     }
 
     /// What to do about this report.
     ///
-    /// The current account is exhausted until the reset time its limit message gives, or
-    /// ``ClaudeUsageLimitReset/fallbackInterval`` from `now` when it gives none. The next account
-    /// comes from ``ClaudeAccountAutoSwitchPolicy``: trusted accounts first, exhausted ones
-    /// skipped. A pane on another machine, or one without a Claude session, is ignored before
-    /// anything is marked.
+    /// Ignored, with nothing marked, when the setting went off meanwhile, the pane is not a
+    /// local Claude pane, a switch of it is running, or the report predates its last automatic
+    /// switch (it came from the replaced Claude). Otherwise the current account is exhausted
+    /// until the reset time its limit message gives, or ``ClaudeUsageLimitReset/fallbackInterval``
+    /// from `now`. The next account comes from ``ClaudeAccountAutoSwitchPolicy``, trusted ones
+    /// first, skipping exhausted accounts and ones without a Claude config. A free account is
+    /// still held back when the pane got input after the limit, the turn left background work,
+    /// or the pane already went through every other account without finishing a turn.
+    ///
+    /// - Parameters:
+    ///   - pane: What cmux knows about the pane.
+    ///   - isEnabled: The setting, read again after the asynchronous trust read.
+    ///   - storedExhaustion: The exhaustion file's entries.
+    ///   - ledger: What the coordinator remembers in memory.
+    ///   - isUsable: Whether an account has a Claude config (its `.claude.json` exists).
+    ///   - isTrusted: Whether an account already trusts the session's folder.
     func action(
         pane: Pane,
-        exhaustedKeys: Set<String>,
+        isEnabled: Bool,
+        storedExhaustion: [String: Date],
+        ledger: ClaudeAccountAutoSwitchLedger,
+        isUsable: (ClaudeAccount) -> Bool,
         isTrusted: (ClaudeAccount) -> Bool,
         now: Date,
         timeZone: TimeZone,
         homeDirectory: String
     ) -> ClaudeAccountAutoSwitchAction {
-        guard case .local(let current, let registry, _) = pane else { return .ignore }
+        guard isEnabled, case .local(let current, let registry, _) = pane else { return .ignore }
+        // The replaced Claude's report, delivered late, is not about the account the pane runs now.
+        if let lastSwitch = ledger.lastAutomaticSwitchAtMs(panelId: panelId), occurredAtMs < lastSwitch {
+            return .ignore
+        }
         let quotedReset = ClaudeUsageLimitReset.resetDate(inMessage: detail, now: now, timeZone: timeZone)
         let exhaustion = ClaudeAccountAutoSwitchAction.Exhaustion(
             account: current,
@@ -72,11 +99,15 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
             until: quotedReset ?? now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval),
             quotedReset: quotedReset
         )
+        let currentKey = exhaustion.accountKey
+        let others = registry.accounts.filter { $0.exhaustionKey(homeDirectory: homeDirectory) != currentKey }
+        // An account without a Claude config is passed over like an exhausted one.
+        let unusableKeys = others.filter { !isUsable($0) }.map { $0.exhaustionKey(homeDirectory: homeDirectory) }
         switch ClaudeAccountAutoSwitchPolicy.decide(
             failureDetail: detail,
             current: current,
             registry: registry,
-            exhaustedKeys: exhaustedKeys,
+            exhaustedKeys: ledger.exhaustedKeys(stored: storedExhaustion, now: now).union(unusableKeys),
             isTrusted: isTrusted,
             homeDirectory: homeDirectory
         ) {
@@ -86,6 +117,10 @@ struct ClaudeAccountAutoSwitchRequest: Equatable, Sendable {
         case .noAlternative:
             return .markExhaustedOnly(exhaustion)
         case .switchTo(let target, let sendContinue):
+            if pendingWork { return .holdBack(exhaustion, .backgroundWork) }
+            if ledger.receivedInput(panelId: panelId, after: occurredAtMs) { return .holdBack(exhaustion, .userInput) }
+            // Spec D4: at most one attempt per other account until a turn finishes.
+            if ledger.automaticSwitches(panelId: panelId) >= others.count { return .holdBack(exhaustion, .attemptLimit) }
             return .switchAccount(to: target, sendContinue: sendContinue, exhausted: exhaustion)
         }
     }

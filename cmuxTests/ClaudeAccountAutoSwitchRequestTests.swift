@@ -13,28 +13,25 @@ import Testing
 /// usage limit, what to do about one, what to do after the switch, and when `continue` may be
 /// typed. The coordinator only runs them.
 struct ClaudeAccountAutoSwitchRequestTests {
-    private let home = "/Users/cmux-test"
-    private let workspaceId = UUID(uuidString: "0D7C6F8B-2E64-4C1B-9A55-6B1F2C3D4E5F")!
-    private let panelId = UUID(uuidString: "6A1C2F7E-3B1D-4E55-9F0A-0C2B7D4E8F11")!
-    private let seoulMessage = "You've hit your session limit · resets 6:50pm (Asia/Seoul)"
-    /// 2026-10-25 12:00 in Seoul.
-    private let now = Date(timeIntervalSince1970: 1_792_897_200)
+    private let fixture = ClaudeAccountAutoSwitchFixture()
 
     // MARK: Which events count
 
     @Test
     func theStopFailureUsageLimitEventIsARequest() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
+        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: fixture.draft(pendingWork: true), isEnabled: true))
 
-        #expect(request.workspaceId == workspaceId)
-        #expect(request.panelId == panelId)
-        #expect(request.detail == "usage_limit: \(seoulMessage)")
+        #expect(request.workspaceId == fixture.workspaceId)
+        #expect(request.panelId == fixture.panelId)
+        #expect(request.detail == "usage_limit: \(fixture.seoulMessage)")
         #expect(request.eventId == "event-1")
+        #expect(request.occurredAtMs == fixture.nowMs)
+        #expect(request.pendingWork)
     }
 
     @Test
     func nothingHappensWhileTheSettingIsOff() {
-        #expect(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: false) == nil)
+        #expect(ClaudeAccountAutoSwitchRequest(draft: fixture.draft(), isEnabled: false) == nil)
     }
 
     @Test
@@ -46,9 +43,9 @@ struct ClaudeAccountAutoSwitchRequestTests {
             return true
         }
         let drafts = [
-            usageLimitDraft(kind: .turnCompleted),
-            usageLimitDraft(detail: "rate_limit: Rate limited"),
-            usageLimitDraft(source: "codex"),
+            fixture.draft(kind: .turnCompleted),
+            fixture.draft(detail: "rate_limit: Rate limited"),
+            fixture.draft(source: "codex"),
         ]
         for draft in drafts {
             #expect(ClaudeAccountAutoSwitchRequest(draft: draft, isEnabled: enabled()) == nil)
@@ -63,104 +60,68 @@ struct ClaudeAccountAutoSwitchRequestTests {
         "",
     ])
     func onlyTheUsageLimitTokenCounts(detail: String) {
-        #expect(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(detail: detail), isEnabled: true) == nil)
+        #expect(ClaudeAccountAutoSwitchRequest(draft: fixture.draft(detail: detail), isEnabled: true) == nil)
     }
 
     @Test
     func aUsageLimitWithoutAMessageStillCounts() {
-        #expect(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(detail: "usage_limit"), isEnabled: true) != nil)
+        #expect(ClaudeAccountAutoSwitchRequest(draft: fixture.draft(detail: "usage_limit"), isEnabled: true) != nil)
     }
 
     @Test
     func theAttentionEchoWithoutDetailDoesNotCount() {
         // The hook's second error event carries the notification and no detail.
-        #expect(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(detail: .some(nil)), isEnabled: true) == nil)
+        #expect(ClaudeAccountAutoSwitchRequest(draft: fixture.draft(detail: .some(nil)), isEnabled: true) == nil)
     }
 
     @Test
     func unattributedNestedAndForeignEventsDoNotCount() {
         let drafts = [
-            usageLimitDraft(workspaceId: .some(nil), surfaceId: .some(nil), unattributedReason: "target-unresolved"),
-            usageLimitDraft(surfaceId: .some(nil)),
-            usageLimitDraft(workspaceId: "not-a-uuid"),
-            usageLimitDraft(isSubagent: true),
-            usageLimitDraft(source: "codex"),
-            usageLimitDraft(kind: .turnCompleted),
+            fixture.draft(workspaceId: .some(nil), surfaceId: .some(nil), unattributedReason: "target-unresolved"),
+            fixture.draft(surfaceId: .some(nil)),
+            fixture.draft(workspaceId: "not-a-uuid"),
+            fixture.draft(isSubagent: true),
+            fixture.draft(source: "codex"),
+            fixture.draft(kind: .turnCompleted),
         ]
         for draft in drafts {
             #expect(ClaudeAccountAutoSwitchRequest(draft: draft, isEnabled: true) == nil, "\(draft)")
         }
     }
 
-    // MARK: What to do
+    // MARK: Which account
 
     @Test
-    func aPaneOnAnotherMachineNeverSwitchesOrMarksAnything() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
-
-        #expect(request.action(
-            pane: .onAnotherMachine,
-            exhaustedKeys: [],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
-        ) == .ignore)
+    func aPaneOnAnotherMachineNeverSwitchesOrMarksAnything() {
+        #expect(fixture.decide(fixture.request(), pane: .onAnotherMachine) == .ignore)
     }
 
     @Test
-    func aPaneWithoutAClaudeSessionIsIgnored() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
-
-        #expect(request.action(
-            pane: .missing,
-            exhaustedKeys: [],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
-        ) == .ignore)
+    func aPaneWithoutAClaudeSessionIsIgnored() {
+        #expect(fixture.decide(fixture.request(), pane: .missing) == .ignore)
     }
 
     @Test
     func aTrustedNextAccountGetsTheConversationAndAContinue() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
-        let registry = makeRegistry()
+        let registry = fixture.registry()
         let current = try #require(registry.account(named: ClaudeAccountRegistry.defaultAccountName))
         let work = try #require(registry.account(named: "work"))
-        let reset = try #require(ClaudeUsageLimitReset.resetDate(inMessage: seoulMessage, now: now, timeZone: seoul))
+        let reset = try #require(ClaudeUsageLimitReset.resetDate(
+            inMessage: fixture.seoulMessage,
+            now: fixture.now,
+            timeZone: fixture.seoul
+        ))
 
-        let action = request.action(
-            pane: .local(current: current, registry: registry, workingDirectory: "\(home)/project"),
-            exhaustedKeys: [],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
-        )
-
-        #expect(action == .switchAccount(to: work, sendContinue: true, exhausted: .init(
-            account: current,
-            accountKey: "\(home)/.claude",
-            until: reset,
-            quotedReset: reset
-        )))
+        #expect(fixture.decide(fixture.request(), pane: fixture.pane(registry: registry)) == .switchAccount(
+            to: work,
+            sendContinue: true,
+            exhausted: .init(account: current, accountKey: fixture.defaultKey, until: reset, quotedReset: reset)
+        ))
     }
 
     @Test
-    func anUntrustedNextAccountIsSwitchedToWithoutAContinue() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
-        let registry = makeRegistry()
-        let current = try #require(registry.account(named: ClaudeAccountRegistry.defaultAccountName))
-
-        let action = request.action(
-            pane: .local(current: current, registry: registry, workingDirectory: "\(home)/project"),
-            exhaustedKeys: [],
-            isTrusted: { _ in false },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
-        )
+    func anUntrustedNextAccountIsSwitchedToWithoutAContinue() {
+        let action = fixture.decide(fixture.request(), pane: fixture.pane(), isTrusted: { _ in false })
 
         guard case .switchAccount(let target, let sendContinue, _) = action else {
             Issue.record("expected a switch, got \(action)")
@@ -171,108 +132,65 @@ struct ClaudeAccountAutoSwitchRequestTests {
     }
 
     @Test
-    func whenEveryOtherAccountIsExhaustedOnlyTheLimitIsRecorded() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
-        let registry = makeRegistry()
-        let current = try #require(registry.account(named: ClaudeAccountRegistry.defaultAccountName))
-
-        let action = request.action(
-            pane: .local(current: current, registry: registry, workingDirectory: "\(home)/project"),
-            exhaustedKeys: ["\(home)/.claude-work"],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
+    func whenEveryOtherAccountIsExhaustedOnlyTheLimitIsRecorded() {
+        let action = fixture.decide(
+            fixture.request(),
+            pane: fixture.pane(),
+            stored: [fixture.workKey: fixture.now.addingTimeInterval(3600)]
         )
 
         guard case .markExhaustedOnly(let exhaustion) = action else {
             Issue.record("expected only a mark, got \(action)")
             return
         }
-        #expect(exhaustion.accountKey == "\(home)/.claude")
+        #expect(exhaustion.accountKey == fixture.defaultKey)
     }
 
     @Test
-    func withOnlyTheDefaultAccountTheLimitIsStillRecorded() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
-        let registry = ClaudeAccountRegistry(declarations: [], homeDirectory: home)
-        let current = try #require(registry.accounts.first)
+    func withOnlyTheDefaultAccountTheLimitIsStillRecorded() {
+        let registry = ClaudeAccountRegistry(declarations: [], homeDirectory: fixture.home)
 
-        let action = request.action(
-            pane: .local(current: current, registry: registry, workingDirectory: nil),
-            exhaustedKeys: [],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
-        )
+        let action = fixture.decide(fixture.request(), pane: fixture.pane(registry: registry))
 
-        #expect(action.exhaustion?.accountKey == "\(home)/.claude")
+        #expect(action.exhaustion?.accountKey == fixture.defaultKey)
         if case .switchAccount = action { Issue.record("nothing to switch to, got \(action)") }
     }
 
     @Test
     func aLimitMessageWithoutAResetTimeUsesTheFallbackAndQuotesNothing() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(
-            draft: usageLimitDraft(detail: "usage_limit: Claude usage limit reached"),
-            isEnabled: true
-        ))
-        let registry = makeRegistry()
-        let current = try #require(registry.account(named: ClaudeAccountRegistry.defaultAccountName))
+        let request = fixture.request(detail: "usage_limit: Claude usage limit reached")
 
-        let exhaustion = try #require(request.action(
-            pane: .local(current: current, registry: registry, workingDirectory: nil),
-            exhaustedKeys: [],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
-        ).exhaustion)
+        let exhaustion = try #require(fixture.decide(request, pane: fixture.pane()).exhaustion)
 
-        #expect(exhaustion.until == now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
         #expect(exhaustion.quotedReset == nil)
     }
 
     @Test
-    func theNewAccountHittingItsLimitTooNeverReturnsToTheExhaustedOne() throws {
+    func theNewAccountHittingItsLimitTooNeverReturnsToTheExhaustedOne() {
         // The first report moved default to work and marked default. When work reports a limit
         // right after, default is still exhausted: work is marked, and nothing switches back.
-        let request = try #require(ClaudeAccountAutoSwitchRequest(
-            draft: usageLimitDraft(eventId: "event-2"),
-            isEnabled: true
-        ))
-        let registry = makeRegistry()
-        let work = try #require(registry.account(named: "work"))
-
-        let action = request.action(
-            pane: .local(current: work, registry: registry, workingDirectory: "\(home)/project"),
-            exhaustedKeys: ["\(home)/.claude"],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
+        let action = fixture.decide(
+            fixture.request(eventId: "event-2"),
+            pane: fixture.pane(current: "work"),
+            stored: [fixture.defaultKey: fixture.now.addingTimeInterval(3600)]
         )
 
         guard case .markExhaustedOnly(let exhaustion) = action else {
             Issue.record("expected only a mark, got \(action)")
             return
         }
-        #expect(exhaustion.accountKey == "\(home)/.claude-work")
+        #expect(exhaustion.accountKey == fixture.workKey)
     }
 
     @Test
-    func aThirdAccountIsTriedWhenTheNextOneIsExhausted() throws {
-        let request = try #require(ClaudeAccountAutoSwitchRequest(draft: usageLimitDraft(), isEnabled: true))
-        let registry = makeRegistry(extra: [ClaudeAccountDeclaration(name: "spare", configDir: "~/.claude-spare")])
-        let work = try #require(registry.account(named: "work"))
+    func aThirdAccountIsTriedWhenTheNextOneIsExhausted() {
+        let registry = fixture.registry(extra: [ClaudeAccountDeclaration(name: "spare", configDir: "~/.claude-spare")])
 
-        let action = request.action(
-            pane: .local(current: work, registry: registry, workingDirectory: "\(home)/project"),
-            exhaustedKeys: ["\(home)/.claude-spare"],
-            isTrusted: { _ in true },
-            now: now,
-            timeZone: seoul,
-            homeDirectory: home
+        let action = fixture.decide(
+            fixture.request(),
+            pane: fixture.pane(current: "work", registry: registry),
+            stored: ["\(fixture.home)/.claude-spare": fixture.now.addingTimeInterval(3600)]
         )
 
         guard case .switchAccount(let target, true, _) = action else {
@@ -282,41 +200,22 @@ struct ClaudeAccountAutoSwitchRequestTests {
         #expect(target.isDefault)
     }
 
-    // MARK: Helpers
+    @Test
+    func anAccountWithoutAClaudeConfigIsNeverChosen() {
+        // A config directory that is gone, or has no .claude.json, is skipped: the switch would
+        // land on a login screen, or create the directory.
+        let noWork: (ClaudeAccount) -> Bool = { $0.name != "work" }
+        #expect(fixture.decide(fixture.request(), pane: fixture.pane(), isUsable: noWork).exhaustion != nil)
+        if case .switchAccount = fixture.decide(fixture.request(), pane: fixture.pane(), isUsable: noWork) {
+            Issue.record("work has no config and must not be chosen")
+        }
 
-    private var seoul: TimeZone { TimeZone(identifier: "Asia/Seoul")! }
-
-    private func makeRegistry(extra: [ClaudeAccountDeclaration] = []) -> ClaudeAccountRegistry {
-        ClaudeAccountRegistry(
-            declarations: [ClaudeAccountDeclaration(name: "work", configDir: "~/.claude-work")] + extra,
-            homeDirectory: home
-        )
-    }
-
-    private func usageLimitDraft(
-        eventId: String = "event-1",
-        kind: AgentJournalEventKind = .errorReported,
-        source: String = "claude",
-        // `.some(nil)` clears a field; leaving the argument out keeps the attributed default.
-        workspaceId: String?? = .none,
-        surfaceId: String?? = .none,
-        unattributedReason: String? = nil,
-        isSubagent: Bool = false,
-        detail: String?? = .none
-    ) -> AgentJournalEventDraft {
-        AgentJournalEventDraft(
-            eventId: eventId,
-            kind: kind,
-            occurredAtMs: Int64(now.timeIntervalSince1970 * 1000),
-            source: source,
-            agentKey: "claude_code",
-            sessionId: "a22293b7-bcef-4707-8439-2f538c8517a4",
-            workspaceId: workspaceId ?? self.workspaceId.uuidString,
-            surfaceId: surfaceId ?? panelId.uuidString,
-            unattributedReason: unattributedReason,
-            isSubagent: isSubagent,
-            nativeEvent: "StopFailure",
-            detail: detail ?? "usage_limit: \(seoulMessage)"
-        )
+        let registry = fixture.registry(extra: [ClaudeAccountDeclaration(name: "spare", configDir: "~/.claude-spare")])
+        let action = fixture.decide(fixture.request(), pane: fixture.pane(registry: registry), isUsable: noWork)
+        guard case .switchAccount(let target, _, _) = action else {
+            Issue.record("expected a switch to spare, got \(action)")
+            return
+        }
+        #expect(target.name == "spare")
     }
 }

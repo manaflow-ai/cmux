@@ -46,8 +46,8 @@ struct ClaudeAccountAutoSwitchAnnouncement: Equatable, Sendable {
         case (let reset?, true):
             return String(
                 format: String(
-                    localized: "notification.claudeAccountAutoSwitch.continuing",
-                    defaultValue: "%1$@ hit its usage limit (resets %2$@). Continuing on %3$@."
+                    localized: "notification.claudeAccountAutoSwitch.resumed",
+                    defaultValue: "%1$@ hit its usage limit (resets %2$@). Resumed the conversation on %3$@."
                 ),
                 from,
                 reset,
@@ -66,8 +66,8 @@ struct ClaudeAccountAutoSwitchAnnouncement: Equatable, Sendable {
         case (nil, true):
             return String(
                 format: String(
-                    localized: "notification.claudeAccountAutoSwitch.continuingNoReset",
-                    defaultValue: "%1$@ hit its usage limit. Continuing on %2$@."
+                    localized: "notification.claudeAccountAutoSwitch.resumedNoReset",
+                    defaultValue: "%1$@ hit its usage limit. Resumed the conversation on %2$@."
                 ),
                 from,
                 to
@@ -82,6 +82,84 @@ struct ClaudeAccountAutoSwitchAnnouncement: Equatable, Sendable {
                 to
             )
         }
+    }
+
+    /// The follow-up when cmux stopped waiting to type `continue` on `to`, and why.
+    func notContinuedNotification(
+        reason: ClaudeAccountAutoSwitchContinueGate.GiveUpReason
+    ) -> ClaudeAccountSwitchSocketOutcome.ResumeNotification {
+        let format: String
+        switch reason {
+        case .timedOut:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.timedOut",
+                defaultValue: "cmux didn't type continue on %@: Claude didn't reach an empty prompt within a minute."
+            )
+        case .sessionEnded:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.sessionEnded",
+                defaultValue: "cmux didn't type continue on %@: the resumed Claude session ended."
+            )
+        case .sessionBusy, .otherSession, .userInput:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.inUse",
+                defaultValue: "cmux didn't type continue on %@: the terminal was in use."
+            )
+        case .disabled:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.disabled",
+                defaultValue: "cmux didn't type continue on %@: automatic account switching was turned off."
+            )
+        case .paneGone:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notContinued.paneGone",
+                defaultValue: "cmux didn't type continue on %@: the terminal was closed."
+            )
+        }
+        return ClaudeAccountSwitchSocketOutcome.ResumeNotification(
+            title: String(localized: "notification.claudeAccountSwitch.title", defaultValue: "Claude account switched"),
+            subtitle: statusText,
+            body: String(format: format, to)
+        )
+    }
+
+    /// The notification when `from` hit its usage limit and another account was free, but the
+    /// pane was left alone.
+    static func holdBackNotification(
+        from: String,
+        reason: ClaudeAccountAutoSwitchAction.HoldBack
+    ) -> ClaudeAccountSwitchSocketOutcome.ResumeNotification {
+        let format: String
+        switch reason {
+        case .userInput:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.userInput",
+                defaultValue: "%@ hit its usage limit, but the terminal was used afterwards, so cmux didn't switch accounts. Switch accounts manually to continue."
+            )
+        case .backgroundWork:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.backgroundWork",
+                defaultValue: "%@ hit its usage limit while background work was still running. Switching accounts restarts the terminal and would stop that work, so cmux didn't switch. Switch accounts manually when it's done."
+            )
+        case .attemptLimit:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.attemptLimit",
+                defaultValue: "%@ hit its usage limit. This terminal already went through every other account without finishing a turn, so cmux stopped switching it automatically."
+            )
+        case .notRecorded:
+            format = String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.notRecorded",
+                defaultValue: "%@ hit its usage limit, but cmux couldn't record that, so it didn't switch accounts automatically. Switch accounts manually to continue."
+            )
+        }
+        return ClaudeAccountSwitchSocketOutcome.ResumeNotification(
+            title: String(
+                localized: "notification.claudeAccountAutoSwitch.notSwitched.title",
+                defaultValue: "Claude account not switched"
+            ),
+            subtitle: "",
+            body: String(format: format, from)
+        )
     }
 
     /// `reset` as the notification shows it: the time alone on the same day as `now`, the date
