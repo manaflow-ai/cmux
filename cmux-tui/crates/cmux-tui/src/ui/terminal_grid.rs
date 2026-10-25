@@ -818,10 +818,10 @@ mod tests {
         let resolver = resolver(&colors, &overridden);
 
         assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
-        assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Reset);
         assert_eq!(
             resolver.blank_style(),
-            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Rgb(0x44, 0x55, 0x66))
+            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Reset)
         );
     }
 
@@ -970,7 +970,7 @@ mod tests {
         let colors = PaletteResolver::from_frame(&render);
 
         assert_eq!(colors.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
-        assert_eq!(colors.resolve_bg(ColorSpec::Default), Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(colors.resolve_bg(ColorSpec::Default), Color::Reset);
         assert_eq!(resolved_cursor_color(&render), cursor);
         let implicit_cursor = render_frame_with_defaults(foreground, background, None);
         assert_eq!(resolved_cursor_color(&implicit_cursor), foreground);
@@ -994,7 +994,7 @@ mod tests {
         // viewport chrome styling, which is covered below.
         let cell = &terminal.backend().buffer()[(1, 0)];
         assert_eq!(cell.fg, Color::Rgb(0x11, 0x22, 0x33));
-        assert_eq!(cell.bg, Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(cell.bg, Color::Reset);
         assert_eq!(cell.symbol(), " ");
     }
 
