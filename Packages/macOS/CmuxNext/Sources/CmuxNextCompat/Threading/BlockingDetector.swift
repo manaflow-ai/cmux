@@ -3,7 +3,7 @@
 /// they are wired), the `debug.blocking` control method and the Debug menu.
 ///
 /// In Debug and bench builds (Nightly to come) it refers to the detector's process-wide table (see
-/// ``assertBlockingAllowed(_:fileID:line:)``); in Release it reads as empty and its calls do nothing.
+/// ``blockingCall(_:fileID:line:_:)``); in Release it reads as empty and its calls do nothing.
 ///
 /// ```swift
 /// let blocking = BlockingDetector.forProcess()      // AppServices (the composition root) only

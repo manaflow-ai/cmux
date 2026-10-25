@@ -10,7 +10,8 @@ public import Darwin
 ///
 /// This is cmux's `base::ScopedBlockingCall` (base/threading/scoped_blocking_call.h): Chrome asserts blocking is
 /// allowed when the scope opens and, in `IOJankMonitoringWindow` (base/threading/scoped_blocking_call_internal.cc),
-/// times the scopes that ran on the UI thread. Every seam that wraps a blocking primitive
+/// times the outermost scopes that ran on the UI thread. A call inside a timed call on the main thread counts at
+/// its own site without time, so the sites' times add up to main-thread time once. Every seam that wraps a blocking primitive
 /// (``Foundation/Data/init(blockingContentsOf:options:fileID:line:)``, ``Foundation/FileManager/checked``,
 /// ``Dispatch/DispatchSemaphore/blockingWait(fileID:line:)``, ``Foundation/Process/blockingWaitUntilExit(fileID:line:)``)
 /// runs the primitive through it and passes its caller's `#fileID` and `#line`, which name the call site.
@@ -22,8 +23,8 @@ public import Darwin
 /// their sink is installed.
 ///
 /// Off the main thread it is one `pthread_main_np()` call and one branch, with no clock read. On the main thread
-/// a repeat of a known site is one table probe, one atomic add and two clock reads around `body`; an allowed call
-/// is not timed.
+/// a repeat of a known site is one table probe, two clock reads around `body` and three atomic adds; an allowed
+/// call is not timed.
 ///
 /// ```swift
 /// let bytes = try blockingCall(.fileIO, fileID: fileID, line: line) { try Data(contentsOf: url) }
@@ -48,9 +49,9 @@ public func blockingCall<Result, Failure: Error>(
     #endif
 }
 
-/// Marks a call that blocks where the blocking work is not a closure (``Mutex``'s lock wait): the check of
-/// ``blockingCall(_:fileID:line:_:)`` without the timing, so its site counts calls only. A seam that wraps a
-/// blocking primitive uses ``blockingCall(_:fileID:line:_:)`` instead.
+/// The check of ``blockingCall(_:fileID:line:_:)`` without a body to time: its site counts calls with no wall
+/// time. No seam uses it; a seam runs its primitive through ``blockingCall(_:fileID:line:_:)``. It stays as the
+/// bare check that scripts/measure/blocking-checks.sh benches and finds compiled out of Release.
 ///
 /// Off the main thread the check is one `pthread_main_np()` call and one branch; a repeat of a
 /// known call site on the main thread is one table probe and one atomic add.

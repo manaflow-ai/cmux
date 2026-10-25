@@ -17,11 +17,12 @@ internal import os
 /// bind their own table with ``scoped``.
 ///
 /// Threads. Every violation happens on the main thread, so the main thread is the only writer of the
-/// call-site index, the open allowance, the pending ring and the sites' wall times: the violation path takes no
-/// lock and calls nothing it does not own. It probes the index and adds 1 to the site's atomic count; for a new
+/// call-site index, the open allowance, the open timed call, the pending ring and the sites' counts and wall
+/// times: the violation path takes no lock and calls nothing it does not own. It probes the index; for a new
 /// site it writes one ring slot, then records the site in the index, and signals a user-data dispatch source.
-/// A ``blockingCall(_:fileID:line:_:)`` violation then times its body and adds the time to the site's atomic
-/// total and maximum. The drain queue
+/// When the call ends it adds its wall time and 1 to the site's atomics, so a reset during a long call puts the
+/// whole call in the next window (Chrome's IOJankMonitoringWindow puts a call in the window it ends in). The
+/// drain queue
 /// (`com.cmuxterm.app.next.blocking-drain`, utility) empties the ring: it resolves the stack to image UUID +
 /// offset frames, publishes the site, writes the Debug log line and calls the sink, so the sink never runs on
 /// the thread that blocked or inside that thread's locks.
@@ -51,6 +52,7 @@ final class BlockingViolationTable: Sendable {
     nonisolated(unsafe) private var index = BlockingSiteIndex(capacity: BlockingViolationTable.siteLimit) // crash-allow: main thread only (every caller checks pthread_main_np() first)
     nonisolated(unsafe) private var allowance: BlockingAllowance? // crash-allow: main thread only (every caller checks pthread_main_np() first)
     nonisolated(unsafe) private var nesting = BlockingRunLoopNesting() // crash-allow: main thread only (allowBlocking and the main run loop's observer, which runs on it)
+    nonisolated(unsafe) private var timedCallOpen = false // crash-allow: main thread only (every caller checks pthread_main_np() first)
     /// One atomic count per site id; written on the main thread, read anywhere.
     nonisolated(unsafe) private let counts: UnsafeMutablePointer<UnsafeAtomic<Int>.Storage> // crash-allow: fixed allocation of atomics; every access is an atomic operation
     /// One atomic wall-time total and one maximum (nanoseconds) per site id; written on the main thread, read anywhere.
@@ -127,37 +129,53 @@ final class BlockingViolationTable: Sendable {
 
     // MARK: the violation path (main thread)
 
-    /// A blocking call that is not a closure ran on the main thread (``assertBlockingAllowed(_:fileID:line:)``).
+    /// A blocking call with no body to time ran on the main thread (``assertBlockingAllowed(_:fileID:line:)``):
+    /// its site counts it without time.
     @usableFromInline @inline(never)
     static func mainThreadBlocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) {
-        active.blocked(kind, fileID: fileID, line: line)
+        let table = active
+        guard let site = table.recordedSite(kind, fileID: fileID, line: line) else { return }
+        table.addCall(site: site, nanos: nil)
     }
 
-    /// ``blockingCall(_:fileID:line:_:)`` on the main thread: checks the call like ``mainThreadBlocked(_:fileID:line:)``
-    /// and, only when it is a recorded violation, times `body` and adds the time to the site.
+    /// ``blockingCall(_:fileID:line:_:)`` on the main thread: checks the call and, when it is a recorded
+    /// violation, times `body` and adds the time to the site. Only the outermost timed call is timed, as Chrome
+    /// times only a `ScopedBlockingCall` with no previous one (base/threading/scoped_blocking_call_internal.cc):
+    /// a call inside it (a seam in `blockingSync`'s work, or work a nested run of the main run loop does during
+    /// `waitUntilExit`, which handles no input) counts without time, so no interval is counted twice.
     @usableFromInline @inline(never)
     static func mainThreadBlockingCall<Result, Failure: Error>(
         _ kind: BlockingKind, fileID: StaticString, line: UInt, _ body: () throws(Failure) -> Result
     ) throws(Failure) -> Result {
         let table = active
-        guard let site = table.blocked(kind, fileID: fileID, line: line) else { return try body() }
+        guard let site = table.recordedSite(kind, fileID: fileID, line: line) else { return try body() }
+        guard !table.timedCallOpen else {
+            defer { table.addCall(site: site, nanos: nil) }
+            return try body()
+        }
+        table.timedCallOpen = true
         let start = table.uptimeNanos()
-        defer { table.addWallTime(table.uptimeNanos() &- start, site: site) }
+        defer {
+            let nanos = table.uptimeNanos() &- start
+            table.timedCallOpen = false
+            table.addCall(site: site, nanos: nanos)
+        }
         return try body()
     }
 
-    /// The main thread waited longer than ``lockWaitLimitNanos`` for a contended ``Mutex`` at the `withLock`
-    /// call `fileID`:`line`. Recorded only, never a trap in any mode: the measured wait includes the time the
-    /// main thread waited to be scheduled, so a loaded host must not stop the app on it.
+    /// The main thread waited `nanos`, longer than ``lockWaitLimitNanos``, for a contended ``Mutex`` at the
+    /// `withLock` call `fileID`:`line`; the wait adds to the site like a timed call (without time inside a timed
+    /// call, which already counts it). Recorded only, never a trap in any mode: the measured wait includes the
+    /// time the main thread waited to be scheduled, so a loaded host must not stop the app on it.
     @inline(never)
-    func mainThreadWaitedForLock(fileID: StaticString, line: UInt) {
-        blocked(.lockWait, fileID: fileID, line: line)
+    func mainThreadWaitedForLock(fileID: StaticString, line: UInt, nanos: UInt64) {
+        guard let site = recordedSite(.lockWait, fileID: fileID, line: line) else { return }
+        addCall(site: site, nanos: timedCallOpen ? nil : nanos)
     }
 
-    /// Records the call and returns its site id, or nil when it is allowed or not recorded (the table or
-    /// the ring was full).
-    @discardableResult
-    private func blocked(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
+    /// Checks the call and returns its site id, or nil when it is allowed or not recorded (the table or the
+    /// ring was full). The caller counts the call when it ends (``addCall(site:nanos:)``).
+    private func recordedSite(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
         guard allowance == nil else { return nil }
         #if DEBUG
         if mode == .trap && kind != .lockWait {
@@ -166,10 +184,7 @@ final class BlockingViolationTable: Sendable {
         }
         #endif
         let key = BlockingSiteKey(fileID: fileID, line: line)
-        if let id = index.find(key) {
-            UnsafeAtomic<Int>(at: counts + id).wrappingIncrement(ordering: .relaxed)
-            return id
-        }
+        if let id = index.find(key) { return id }
         guard let id = index.nextID else {
             overflowCount.wrappingIncrement(ordering: .relaxed)
             return nil
@@ -180,22 +195,24 @@ final class BlockingViolationTable: Sendable {
             overflowCount.wrappingIncrement(ordering: .relaxed)
             return nil
         }
-        UnsafeAtomic<Int>(at: counts + id).store(1, ordering: .relaxed)
         index.insert(key)
         wake.add(data: 1)
         return id
     }
 
-    /// Adds one timed call of `nanos` to `site`'s total and maximum.
-    private func addWallTime(_ nanos: UInt64, site: Int) {
-        UnsafeAtomic<UInt64>(at: totalNanos + site).wrappingIncrement(by: nanos, ordering: .relaxed)
-        let maximum = UnsafeAtomic<UInt64>(at: maxNanos + site)
-        var seen = maximum.load(ordering: .relaxed)
-        while nanos > seen {
-            let (exchanged, original) = maximum.weakCompareExchange(expected: seen, desired: nanos, ordering: .relaxed)
-            if exchanged { return }
-            seen = original
+    /// Counts one ended call at `site` and adds its `nanos` (nil: not timed) to the site's total and maximum.
+    private func addCall(site: Int, nanos: UInt64?) {
+        if let nanos {
+            UnsafeAtomic<UInt64>(at: totalNanos + site).wrappingIncrement(by: nanos, ordering: .relaxed)
+            let maximum = UnsafeAtomic<UInt64>(at: maxNanos + site)
+            var seen = maximum.load(ordering: .relaxed)
+            while nanos > seen {
+                let (exchanged, original) = maximum.weakCompareExchange(expected: seen, desired: nanos, ordering: .relaxed)
+                if exchanged { break }
+                seen = original
+            }
         }
+        UnsafeAtomic<Int>(at: counts + site).wrappingIncrement(ordering: .relaxed)
     }
 
     // MARK: allowance (main thread)

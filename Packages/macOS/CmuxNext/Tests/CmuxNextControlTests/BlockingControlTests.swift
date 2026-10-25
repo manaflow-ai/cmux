@@ -29,7 +29,7 @@ struct BlockingControlTests {
     @MainActor @Test func reportsTheWallTimeOfATimedSite() async throws {
         let table = BlockingViolationTable(mode: .record)
         BlockingViolationTable.$scoped.withValue(table) {
-            blockingCall(.syncWait) { _ = usleep(5_000) }
+            blockingCall(.sleep) { _ = usleep(5_000) }
         }
         await table.flush()
 
