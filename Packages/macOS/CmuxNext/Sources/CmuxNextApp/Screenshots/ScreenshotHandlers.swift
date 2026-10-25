@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextScreenshots
 import Foundation
 
 /// `window.screenshot`, `pane.screenshot` and `tab.screenshot`: a PNG of one

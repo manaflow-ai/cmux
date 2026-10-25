@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextScreenshots
 import Foundation
 
 /// Reasons `cmux window|pane|tab screenshot` gives. Keys live in
