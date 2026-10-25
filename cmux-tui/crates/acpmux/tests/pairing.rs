@@ -306,9 +306,8 @@ async fn pairing_a_read_only_machine_resolves_no_more_than_its_session_list_show
     }
     assert!(!found.to_string().contains(&format!("host={machine}")), "{found}");
 
-    let e = rpc(&mut ws, 4, method::MUX_RESOLVE, json!({"query": "nobody-here"}))
-        .await
-        .unwrap_err();
+    let e =
+        rpc(&mut ws, 4, method::MUX_RESOLVE, json!({"query": "nobody-here"})).await.unwrap_err();
     let text = e.to_string();
     assert!(text.contains("nobody-here"), "{text}");
     assert!(!text.contains("quiet-peer"), "{text}");

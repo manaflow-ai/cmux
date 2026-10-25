@@ -290,8 +290,7 @@ mod tests {
             "lastMessage": {"role": "agent", "text": format!("used {token}")},
             "lastTurn": {"status": "failed", "errorText": format!("bad {token}")},
         });
-        let reply =
-            json!({"session": card(&summary, Some("big-red")), "matches": [card(&summary, Some("big-red"))]});
+        let reply = json!({"session": card(&summary, Some("big-red")), "matches": [card(&summary, Some("big-red"))]});
         let msg = crate::rpc::Message::ok(json!(1), reply);
         let Some(crate::rpc::Message::Response { result: Some(masked), .. }) =
             crate::server::peer_text::masked(&msg)
