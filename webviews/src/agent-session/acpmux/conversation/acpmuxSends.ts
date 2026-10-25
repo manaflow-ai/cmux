@@ -45,6 +45,10 @@ export type AcpmuxSend = {
 /// "x"; …`), or with `--json` its error object (`{"error":{"code":"no_session",…}}`).
 const SEND_ERROR = /^acpmux: [a-z_]+: |"error"\s*:\s*\{\s*"code"/m;
 
+/// What acpmux prints when a `--no-wait` send went: how the daemon took it (`queued`, `steered`,
+/// `delivered`), as a word on its own line or a JSON field.
+const SEND_TAKEN = /^(?:queued|steered|delivered)\b|"(?:queued|steered|delivered)"\s*:\s*true/m;
+
 /// Whether the send failed: by the call's status and exit code when they are the send's, else by
 /// the error line acpmux printed; a failed background run counts either way.
 export function sendFailed(send: AcpmuxSend, status: { failed: boolean; output?: string }): boolean {
@@ -74,7 +78,9 @@ export function acpmuxSendCall(tool: Tool): AcpmuxSendCall | undefined {
     }) ||
     (send.ownsExit === true && (background === "failed" || background === "stopped"));
   const running = tool.status === "pending" || tool.status === "in_progress" || background === "running";
-  const state = failed ? "failed" : running ? "sending" : send.ownsExit || !send.unsure ? "sent" : "ended";
+  // A send that may have been skipped went when its status is its own or acpmux said it took it.
+  const went = send.ownsExit || !send.unsure || (send.noWait && SEND_TAKEN.test(tool.output ?? ""));
+  const state = failed ? "failed" : running ? "sending" : went ? "sent" : "ended";
   return { ...send, state };
 }
 
