@@ -91,7 +91,9 @@ class TaskPriorityRuleTests(suite.Fixture):
 
     def test_the_rule_is_fast(self):
         import time
-        self.write(f"{KIT}/Many.swift", "".join(swift(line) for line in (REFUSED + ALLOWED) * 200))
+        # About 5,200 calls (the first lists' 26 cases x 200), whatever the lists hold now: the budget is per call.
+        cases = REFUSED + ALLOWED
+        self.write(f"{KIT}/Many.swift", "".join(swift(line) for line in cases * (5200 // len(cases))))
         self.commit("many lines")
         started = time.monotonic()
         self.check()

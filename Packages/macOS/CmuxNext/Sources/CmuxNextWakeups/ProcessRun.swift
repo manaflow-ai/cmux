@@ -28,6 +28,9 @@ final class ProcessRun: Sendable {
         var pid: pid_t = 0
         /// The child has exited (its termination handler ran, which can be before `run()` returns).
         var ended = false
+        /// A SIGKILL came before the pid was published (the kill grace ended while onLaunch ran): the launch
+        /// sends it then.
+        var killBeforeLaunch = false
         /// The failure of the first stop (timeout, cancel). A stop before the launch makes the launch
         /// signal the child at once; a ``ProcessRequest/CancelBehavior/finish`` run resolves with it at the exit.
         var stop: (any Error)?
@@ -138,13 +141,15 @@ final class ProcessRun: Sendable {
         // Before the pid is published: no stop (a pending one below, a concurrent stop()) can signal the child
         // until onLaunch has returned, so a watcher it starts always sees the child alive.
         request.onLaunch?(pid)
-        // Under the lock with the exit's `ended`, so a signal never reaches a pid the child no longer has.
-        let stopped = state.withLock { state -> Bool in
-            guard !state.ended else { return false }
+        // Under the lock with the exit's `ended`, so a signal never reaches a pid the child no longer has. A stop
+        // that came earlier sends its signal now: SIGKILL when its kill grace already ended.
+        let pending = state.withLock { state -> Int32? in
+            guard !state.ended else { return nil }
             state.pid = pid
-            return state.stop != nil
+            if state.killBeforeLaunch { return SIGKILL }
+            return state.stop != nil ? request.stopSignal : nil
         }
-        if stopped { send(request.stopSignal) }
+        if let pending { send(pending) }
         if let input, let bytes = request.input { feed(bytes, to: input) }
     }
 
@@ -172,10 +177,12 @@ final class ProcessRun: Sendable {
         send(request.stopSignal)
     }
 
-    /// Sends signal `number` to the child while it runs; nothing before its launch or after its exit.
+    /// Sends signal `number` to the child while it runs; nothing after its exit. Before its pid is published a
+    /// SIGKILL is kept for the launch to send (a stop signal is sent then anyway: `stop` is set).
     private func send(_ number: Int32) {
         state.withLock { state in
             if state.pid > 0 { _ = Darwin.kill(state.pid, number) }
+            else if number == SIGKILL, !state.ended { state.killBeforeLaunch = true }
         }
     }
 

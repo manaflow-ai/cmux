@@ -120,6 +120,41 @@ import Testing
         #expect(exitedFirst.withLock { $0 } == false, "the child got the stop signal while onLaunch ran")
     }
 
+    /// A real clock that reports each finished sleep (the kill grace's end) just before its timer's handler runs.
+    struct WakeReportingClock: Clock {
+        typealias Duration = Swift.Duration
+        typealias Instant = ContinuousClock.Instant
+        let onWake: @Sendable () -> Void
+        var now: Instant { ContinuousClock.now }
+        var minimumResolution: Swift.Duration { ContinuousClock().minimumResolution }
+        func sleep(until deadline: Instant, tolerance: Swift.Duration?) async throws {
+            try await ContinuousClock().sleep(until: deadline, tolerance: tolerance)
+            onWake()
+        }
+    }
+
+    @Test func aKillGraceThatEndsDuringOnLaunchStillKillsTheChild() async {
+        // The stop signal is SIGURG, which sleep ignores by default (no race with a shell's trap); the caller cancels
+        // while onLaunch runs, and the kill grace ends before onLaunch returns: the SIGKILL must reach the child once
+        // its pid is published (it used to go to no pid), else the child sleeps past the suite's limit.
+        let gate = DispatchSemaphore(value: 0)
+        let child = ChildExit()
+        let (launched, launch) = AsyncStream.makeStream(of: Void.self)
+        let request = ProcessRequest(URL(fileURLWithPath: "/bin/sleep"), ["600"], stopSignal: SIGURG,
+                                     killGrace: .milliseconds(1), onLaunch: { pid in
+            child.watch(pid)
+            launch.yield()
+            gate.wait()
+        })
+        let processes = AsyncProcess(clock: WakeReportingClock { gate.signal() })
+        let run = Task { try await processes.run(request) }
+        var iterator = launched.makeAsyncIterator()
+        _ = await iterator.next()
+        run.cancel()
+        await #expect(throws: CancellationError.self) { try await run.value }
+        await child.exit()
+    }
+
     @Test func aStoppedChildThatIgnoresTheStopSignalIsKilledAfterItsGrace() async {
         // `exec`: sleep itself ignores SIGTERM (an ignored signal stays ignored across exec), so only SIGKILL
         // ends it before the suite's limit, and no orphan outlives the test.
