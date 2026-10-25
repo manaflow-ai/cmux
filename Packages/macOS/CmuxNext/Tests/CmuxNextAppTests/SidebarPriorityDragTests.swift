@@ -109,6 +109,24 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions == [.place("c", order: ["c", "a", "b"])])
     }
 
+    @Test func aPreviewHeightChangeEndsTheDragBeforeGeometryChanges() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -2.2 * height))
+        #expect(harness.panel.draggingID == "c")
+        let refreshed = Self.entries.map { entry -> SidebarPriorityEntry in
+            var entry = entry
+            if entry.id == "a" { entry.preview = "A new preview" }
+            return entry
+        }
+        harness.panel.show(SidebarPriorityPanel(entries: refreshed))
+        #expect(harness.panel.draggingID == nil)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -2.2 * height))
+        #expect(harness.actions.isEmpty)
+    }
+
     /// Released beside the list, the row goes back and nothing is placed.
     @Test func aReleaseBesideTheListPlacesNothing() throws {
         let harness = Harness()

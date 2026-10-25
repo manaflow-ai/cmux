@@ -23,6 +23,16 @@ import Testing
 
     // MARK: - The keys move to a child window while the button is held
 
+    @Test func aSharedPointerMonitorCanKeepAnotherHeldGesture() {
+        let (list, window) = G.list()
+        defer { window.close() }
+        var focusLost = false
+        list.onPointerWindowLostKey = { true }
+        list.onPointerFocusLost = { focusLost = true }
+        list.pointerWindowLostKey()
+        #expect(!focusLost, "a shared monitor cancelled a held gesture owned by another sidebar view")
+    }
+
     @Test func aHeldPressStillLiftsAfterThePageWindowTookTheKeys() throws {
         let (list, window) = G.list()
         defer { window.close() }
