@@ -883,13 +883,11 @@ fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool 
 /// Whether the session `target` names is the parent of the acpmux session this send runs in
 /// (its `startedBy`). Only a sub-session asks which session `target` is.
 async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
-    let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty())
-    else {
+    let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
         return false;
     };
-    let info = |key: &str| {
-        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false}))
-    };
+    let info =
+        |key: &str| client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false}));
     let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
         return false;
     };
@@ -897,7 +895,9 @@ async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
         return true;
     }
     let Ok(key) = orchestrate::expand_session_key(target) else { return false };
-    info(&key).await.is_ok_and(|t| t.get("sessionId").and_then(Value::as_str) == Some(parent.as_str()))
+    info(&key)
+        .await
+        .is_ok_and(|t| t.get("sessionId").and_then(Value::as_str) == Some(parent.as_str()))
 }
 
 /// The session that started the one `info` describes, if one did.

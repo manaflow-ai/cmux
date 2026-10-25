@@ -223,7 +223,10 @@ async fn a_steered_sends_timeout_leaves_the_turn_it_went_into_running() {
     assert!(e.to_string().contains("runs on"), "{e}");
     let turn = b.hub.resolve(&b.id).unwrap().turn().expect("the person's turn still runs");
     let events = b.hub.events(&b.id, 0, 1000).unwrap();
-    assert!(!events.iter().any(|e| e.kind == "turn_end" || e.kind == "turn_error"), "nothing ended");
+    assert!(
+        !events.iter().any(|e| e.kind == "turn_end" || e.kind == "turn_error"),
+        "nothing ended"
+    );
     open_gate(&b.gate);
     assert_eq!(record(&b, "turn_result", &turn.prompt_id).await["status"], "completed");
 }
