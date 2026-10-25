@@ -1166,6 +1166,11 @@ def main():
                 threading.Thread(target=finish_load, daemon=True).start()
                 continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+            # FAKE_LOAD_REPLAY_TOOL=1: the history replayed on load holds a tool call that never
+            # ended (a turn cut off mid-tool), as a real adapter replays it.
+            if os.environ.get("FAKE_LOAD_REPLAY_TOOL") == "1":
+                update(params["sessionId"], {"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Run an old build",
+                                             "kind": "execute", "status": "in_progress"})
             # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
             # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
             load_mode = os.environ.get("FAKE_LOAD_MODE")

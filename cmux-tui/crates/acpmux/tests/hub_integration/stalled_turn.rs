@@ -184,7 +184,10 @@ async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
     };
     let mut agents = BTreeMap::new();
     agents.insert("fake".to_owned(), profile(Some("fake-pool"), &[]));
-    agents.insert("fake-pool".to_owned(), profile(None, &[("FAKE_FALLBACK", "1")]));
+    // The fallback loads the chat, and its replayed history holds a tool call that never
+    // ended: not this turn's, so it gives no grace.
+    let pool_env = [("FAKE_FALLBACK", "1"), ("FAKE_LOAD_REPLAY_TOOL", "1")];
+    agents.insert("fake-pool".to_owned(), profile(None, &pool_env));
     let mut cfg =
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
@@ -202,9 +205,14 @@ async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
     let events = hub.events(&id, 0, 10_000).unwrap();
     assert_eq!(find(&events, "failover").len(), 1, "no failover");
 
+    assert_eq!(find(&events, "resumed").len(), 1, "the fallback did not load the chat");
+
     clock.advance(Duration::from_secs(61));
     let ended = until_results(&hub, &id, 1).await;
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
+    // It ended on the fallback's live agent: the chat is ready, so its idle agent can exit.
+    let summary = hub.session_summary(&hub.resolve("stall-failover").unwrap());
+    assert_eq!(summary["status"], "ready", "{summary}");
 }
 
 /// The last open tool call ending brings the turn's deadline back to one period after it: the
