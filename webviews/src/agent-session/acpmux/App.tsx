@@ -7511,7 +7511,10 @@ function AcpmuxPane() {
       )}
     />
   );
-  const environment = environmentLine();
+  // Keep the row out of a new/loading chat until the daemon has reported a cwd or branch. The
+  // EnvironmentLine itself returns null for that state, but its component wrapper would otherwise
+  // still be a truthy React element and leave an empty row behind.
+  const environment = snapshot.summary?.cwd || snapshot.summary?.branch ? environmentLine() : null;
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
