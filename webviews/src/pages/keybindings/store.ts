@@ -352,7 +352,9 @@ export class KeybindingsStore {
         await this.recapture(current);
       return;
     }
-    for (const other of prompt.conflicts) {
+    // Only entries the new keys cover everywhere lose theirs; one that runs in more places keeps
+    // its keys there (a browser-only Cmd-T never unbinds New Tab everywhere).
+    for (const other of prompt.conflicts.filter((conflict) => conflict.takesAll !== false)) {
       try {
         await this.client?.call(KeybindingOps.remove, {
           command: other.command,

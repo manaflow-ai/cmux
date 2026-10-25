@@ -104,7 +104,9 @@ enum KeybindingReports {
     /// before they are saved: where both hold, one takes the key from the
     /// other (a browser-only Cmd-T takes New Tab's in the browser).
     /// `when` is the condition the write would carry (`KeybindingPageWrites.savedWhen`).
-    /// `asDefault`: the keys are the action's shipped default again
+    /// Each row's `takesAll`: the new keys' `when` holds wherever that entry runs
+    /// (`WhenClause.implies`), so Overwrite removes its keys; else the entry keeps them outside
+    /// the new keys' context. `asDefault`: the keys are the action's shipped default again
     /// (`KeybindingPageWrites.restoresDefault`); as in ``list``, two shipped defaults never conflict.
     static func conflicts(_ params: [String: JSONValue], when: WhenClause?, asDefault: Bool = false,
                           registry: ActionRegistry) -> JSONValue {
@@ -124,6 +126,9 @@ enum KeybindingReports {
             guard case .object(var object) = json(entries[index], registry: registry) else { return .null }
             object["id"] = JSONValue(index)
             object["conflicts"] = []
+            // The new keys hold wherever this entry runs: Overwrite takes them from it. Else they
+            // only win where their own `when` holds, and the entry keeps them everywhere else.
+            object["takesAll"] = .bool(WhenClause.implies(entries[index].when, when))
             return .object(object)
         }
         return ["bindings": .array(rows)]

@@ -366,6 +366,9 @@ function Recorder({
   const prompt = recording.prompt;
   // Taken: the actions the new keys would take; the title names them.
   const owners = prompt ? [...new Set(prompt.conflicts.map((other) => other.title))].join(", ") : "";
+  // Every owner runs in more places than the new keys: Overwrite takes the keys where they run
+  // and leaves the owners theirs everywhere else; the hint says so.
+  const scoped = Boolean(prompt?.conflicts.length) && prompt!.conflicts.every((other) => other.takesAll === false);
   // After a save: the saved keys' conflicts.
   const titles = prompt ? [] : [...new Set(saved.map((other) => other.title))];
   const taken = Boolean(prompt || recording.refusal);
@@ -453,7 +456,11 @@ function Recorder({
           <span className="keys-placeholder">{t("keybindings.page.pressKeys")}</span>
         )}
       </button>
-      {prompt ? (
+      {prompt && scoped ? (
+        <div className="keys-recorder-hint">
+          {fill(t("keybindings.page.recorder.keepsBoth"), [recording.binding.title, owners])}
+        </div>
+      ) : prompt ? (
         <div className="keys-recorder-hint">{t("keybindings.page.recorder.overwriteOrRecord")}</div>
       ) : recording.refusal && recording.refusalOwner ? (
         <div className="keys-recorder-hint">{recording.refusal}</div>

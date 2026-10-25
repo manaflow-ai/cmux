@@ -369,7 +369,8 @@ export class MockKeybindingsProvider implements PageClient {
       ...(owner
         ? { refusal: `${displayFor(params.key)} is ${owner}, which always runs. Choose another shortcut.`, owner }
         : {}),
-      bindings: taken,
+      // As the app (`WhenClause.implies`): the new keys' `when` holds wherever the entry runs.
+      bindings: taken.map((b) => ({ ...b, takesAll: (params.when ?? null) === null || b.when === params.when })),
     };
   }
 

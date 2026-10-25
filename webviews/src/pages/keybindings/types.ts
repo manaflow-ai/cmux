@@ -37,6 +37,12 @@ export interface Binding {
   removedBy?: "ghostty";
   /** Set on a system-wide key (Start Agent from Any App) cmux could not register: another app holds it. */
   heldElsewhere?: boolean;
+  /**
+   * Optional, on a `conflicts` reply: the new keys' `when` holds wherever this entry runs, so
+   * Overwrite removes its keys. False: the new keys win only in their own context, and this entry
+   * keeps its keys everywhere else (Overwrite leaves it).
+   */
+  takesAll?: boolean;
 }
 
 export interface BindingListResult {
