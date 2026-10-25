@@ -158,10 +158,11 @@ function unwrap(
       return again(skipFlags(rest, []));
     }
     case "nohup":
-    case "exec":
     case "time":
     case "sr":
       return again(skipFlags(rest, []));
+    case "exec":
+      return again(skipFlags(rest, ["-a"]));
     case "nice":
       return again(skipFlags(rest, ["-n"]));
     case "caffeinate":
@@ -175,18 +176,35 @@ function unwrap(
       return again(after.slice(1));
     }
     case "perl": {
-      // `perl -e 'alarm 600; exec @ARGV' codex exec …`: the script runs the words after it.
-      const script = rest.indexOf("-e");
+      // `perl -e 'alarm 600; exec @ARGV' [--] codex exec …`: the script, among its leading options,
+      // runs the words after them. A word before it is a program file, which runs instead.
+      let at = 0;
+      let script: string | undefined;
+      while (at < rest.length && rest[at]!.startsWith("-")) {
+        const word = rest[at]!;
+        at += 1;
+        if (word === "--") break;
+        if (word === "-e" || word === "-E") script = rest[at++];
+      }
       // Only a script that is the timeout itself: an alarm, then exec of the words after it.
-      if (script < 0 || !PERL_TIMEOUT.test(rest[script + 1] ?? "")) return undefined;
-      return again(rest.slice(script + 2));
+      if (script === undefined || !PERL_TIMEOUT.test(script)) return undefined;
+      return again(rest.slice(at));
     }
     case "sh":
     case "bash":
     case "zsh":
     case "dash": {
-      const flag = rest.findIndex((word) => /^-[a-z]*c[a-z]*$/.test(word));
-      const script = flag >= 0 ? rest[flag + 1] : undefined;
+      // Its leading options, `-c` among them (`-lc`): the script is the first word after them. A
+      // word before `-c` is a script file, which runs instead.
+      let at = 0;
+      let command = false;
+      while (at < rest.length && /^[-+]./.test(rest[at]!) && rest[at] !== "--") {
+        const word = rest[at]!;
+        if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(word)) command = true;
+        at += SHELL_VALUES.includes(word) ? 2 : 1;
+      }
+      if (rest[at] === "--") at += 1;
+      const script = command ? rest[at] : undefined;
       return script === undefined ? undefined : runIn(script, stdin, host, depth + 1);
     }
     case "reach": {
@@ -206,6 +224,7 @@ function unwrap(
 }
 
 const PERL_TIMEOUT = /^\s*(?:alarm\s+\d+\s*;\s*)?exec\s*\(?\s*@ARGV\s*\)?\s*;?\s*$/;
+const SHELL_VALUES = spaced("-o +o -O +O --rcfile --init-file");
 const SSH_VALUES = spaced("-i -p -o -l -F -J -L -R -D -W -b -c -E -m -O -S -w");
 
 /// `env [options] [NAME=value …] command …`: its options (`-u NAME`, `-C DIR`), and `-S STRING`
@@ -218,18 +237,27 @@ function env(args: readonly string[], run: (words: string[]) => AgentRun | undef
     const word = args[at]!;
     at += 1;
     if (word === "--") break;
-    if (word === "-u" || word === "-C" || word === "--unset" || word === "--chdir") at += 1;
-    else if (word === "-S" || word === "--split-string") split = splitWords(args[at++] ?? "");
-    else if (word.startsWith("--split-string=")) split = splitWords(word.slice("--split-string=".length));
-    else if (word.startsWith("-S")) split = splitWords(word.slice(2));
+    if (word === "-u" || word === "-C" || word === "--unset" || word === "--chdir") {
+      at += 1;
+      continue;
+    }
+    let text: string | undefined | null = null;
+    if (word === "-S" || word === "--split-string") text = args[at++];
+    else if (word.startsWith("--split-string=")) text = word.slice("--split-string=".length);
+    else if (word.startsWith("-S")) text = word.slice(2);
+    if (text === null) continue;
+    // A string that is not one simple command: env runs what it splits it to, which this does not read.
+    const words = text === undefined ? undefined : splitWords(text);
+    if (!words) return undefined;
+    split = words;
   }
   return run(withoutAssignments([...split, ...args.slice(at)]));
 }
 
-/// A string's words as a shell reads one simple command's; none when it holds more than one.
-function splitWords(text: string): string[] {
+/// A string's words as a shell reads one simple command's; undefined when it holds more than one.
+function splitWords(text: string): string[] | undefined {
   const commands = simpleCommands(text);
-  return commands.length === 1 ? commands[0]!.argv : [];
+  return commands.length === 1 ? commands[0]!.argv : commands.length === 0 ? [] : undefined;
 }
 
 /// The words after the leading options; `values` are the options that take the next word.
