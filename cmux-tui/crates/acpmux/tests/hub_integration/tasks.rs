@@ -362,3 +362,71 @@ async fn a_lane_that_closes_or_is_deleted_with_its_task_open_orphans_it_and_the_
     let ended = from_coordinator.call("_acpmux/report", done).await;
     assert_eq!(ended["brief"]["status"], "done", "{ended}");
 }
+
+/// A store that cannot list its sessions, as a daemon start whose inventory read failed: every
+/// other call goes to `0`.
+struct ListFails(Box<dyn acpmux::store::Store>);
+
+impl acpmux::store::Store for ListFails {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> {
+        anyhow::bail!("the session inventory could not be read")
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> {
+        self.0.load(id)
+    }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> {
+        self.0.save(meta)
+    }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> {
+        self.0.append(id, record)
+    }
+    fn events(
+        &self,
+        id: &str,
+        after: u64,
+        limit: usize,
+    ) -> anyhow::Result<Vec<acpmux::store::EventRecord>> {
+        self.0.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.0.delete(id)
+    }
+    fn briefs_path(&self) -> Option<std::path::PathBuf> {
+        self.0.briefs_path()
+    }
+}
+
+/// A daemon that starts without its sessions (the store's list failed) does not orphan their
+/// tasks: a lane is gone only when the store says so, not when it is merely not loaded.
+#[tokio::test]
+async fn a_daemon_that_could_not_list_its_sessions_orphans_none_of_their_tasks() {
+    let root = std::env::temp_dir().join(format!("acpmux-orphan-list-{}", uuid::Uuid::now_v7()));
+    let cfg = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+            "defaultHarness": "fake",
+            "permissionPolicy": "approve-all"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        cfg
+    };
+    let first = Hub::new(cfg(), acpmux::store::open(&cfg().store, &root).unwrap());
+    let mut person = Client::open(&first);
+    let coordinator = person.new_session().await;
+    let lane = person.new_session().await;
+    let given = Client::in_session(&first, &coordinator)
+        .await
+        .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Keep going"}))
+        .await;
+    let id = given["task"]["taskId"].as_str().unwrap().to_owned();
+
+    let store = ListFails(acpmux::store::open(&cfg().store, &root).unwrap());
+    let next = Hub::new(cfg(), Box::new(store));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let listed = Client::open(&next).call("_acpmux/tasks", json!({"all": true})).await;
+    let task = listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str());
+    let task = task.unwrap_or_else(|| panic!("{listed}"));
+    assert_ne!(task["status"], "orphaned", "{task}");
+    let _ = std::fs::remove_dir_all(&root);
+}

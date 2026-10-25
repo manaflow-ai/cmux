@@ -578,6 +578,12 @@ pub trait Store: Send + Sync {
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         None
     }
+    /// Where the brief and task ledger is saved (`hub/dispatch.rs`): `briefs.json` beside
+    /// `sessions/`, or none (in memory) for the memory store, so a hub's tasks always name
+    /// sessions of its own store.
+    fn briefs_path(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -1231,6 +1237,10 @@ impl Store for LocalStore {
 
     fn peer_cache_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("peers"))
+    }
+
+    fn briefs_path(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("briefs.json"))
     }
 }
 

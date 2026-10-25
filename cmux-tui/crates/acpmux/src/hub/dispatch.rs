@@ -10,8 +10,9 @@ pub(crate) struct Briefs {
 }
 
 impl Briefs {
-    pub(crate) fn open() -> Self {
-        let path = crate::config::home().join("briefs.json");
+    /// The ledger saved at `path` (`Store::briefs_path`), or one in memory only.
+    pub(crate) fn open(path: Option<std::path::PathBuf>) -> Self {
+        let Some(path) = path else { return Self::default() };
         let (rows, load_failed) = match std::fs::read(&path) {
             Ok(bytes) => match serde_json::from_slice(&bytes) {
                 Ok(rows) => (rows, false),
