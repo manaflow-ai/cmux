@@ -45,4 +45,15 @@ struct SignpostMetricKitMirrorTests {
         #expect(!pump.isMirrored)
         signposter(.cef).end(.cefPump, pump)
     }
+
+    @Test func catalogNamesThatFirePerFrameOrPerHopAreNotMirrored() {
+        let perFrameOrHop: [SignpostName] = [
+            .frameTick, .frameCommit, .ghosttyRender, .keyEchoLineOut, .keyEchoRenderer, .motionDragFrame, .taskPost,
+            .taskRun, .resizeFrame, .cefGeometry, .cefHostInput, .daemonRequest, .controlRequest, .inputFrame,
+        ]
+        for name in perFrameOrHop { #expect(!SignpostMetricKitMirror.mirrors(name), "\(name)") }
+        let mirrored = SignpostName.allCases.filter(SignpostMetricKitMirror.mirrors)
+        #expect(mirrored.allSatisfy { $0.traceCategory != .stall })
+        #expect(Set(mirrored.map(\.traceCategory)) == [.action, .motion, .key, .switch, .create, .cef, .launch])
+    }
 }

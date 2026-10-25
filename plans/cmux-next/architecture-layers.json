@@ -115,6 +115,8 @@
     "CmuxNextAppPermissions": {"layer": "ui"},
     "CmuxNextTestExitTrace": {"layer": "core"},
     "CmuxNextSignposts": {"layer": "core"},
+    "CmuxNextTrace": {"layer": "core", "note": "TraceRuntime, Release trace rings, crash keys, HangWatch slots (p09-observability); depends on Compat only"},
+    "CmuxNextMetrics": {"layer": "core", "note": "field histograms (HistogramID, Metrics.record; p09-observability); depends on Compat and Trace only"},
     "CmuxNextFeatures": {"layer": "core", "note": "base::FeatureList: feature declarations and the immutable resolved snapshot (p12-perf-process 3.9)"},
     "CmuxNextDesignTokens": {"layer": "core", "plan": "labeled core by its imports (72673e48762) but holds state and I/O, so arch-layers.py lists it under impure core; the label stays until the code moves (the layer gate refuses a relabel without the code change that moves the target). It is values only once its state moves out: TunableStore and TunableFile to a service target with Tunable.value reading an injected store (lead decision 2026-10-23), RecoveryDraftStore to the Quit domain, LowPowerMode and MuseumArtSearch (URLSession) to a service, BackdropRevision to CmuxNextAppearance with DesignSettings and ThemeStore (B3)"},
 

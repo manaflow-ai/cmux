@@ -22,10 +22,12 @@ public final class SignpostMetricKitMirror: Sendable {
 
     private let on = Atomic<Bool>(false)
 
-    /// One MetricKit log per category, made at the first read (``setOn(_:)`` with true, never while off).
+    /// One MetricKit log per category of a mirrored name, made at the first read (``setOn(_:)`` with true,
+    /// never while off).
     // crash-allow: OSLog handles are immutable and thread-safe (OSLog is not marked Sendable); a static let is initialized once (dispatch_once) and never written, so readers need no lock.
     nonisolated(unsafe) private static let logs: [SignpostCategory: OSLog] = Dictionary(
-        uniqueKeysWithValues: SignpostCategory.allCases.map { ($0, MXMetricManager.makeLogHandle(category: $0.rawValue)) })
+        uniqueKeysWithValues: Set(SignpostName.allCases.filter(mirrors).map(\.traceCategory))
+            .map { ($0, MXMetricManager.makeLogHandle(category: $0.rawValue)) })
 
     init() {}
 
@@ -38,19 +40,25 @@ public final class SignpostMetricKitMirror: Sendable {
         on.store(value, ordering: .relaxed)
     }
 
-    /// Whether `name` is mirrored. Per-frame, per-pump-pass and per-scroll-event intervals are not
-    /// (Apple advises against high-frequency custom MetricKit signposts), nor is the `stall`
-    /// category, which a report leaves out (the watchdog reports stalls itself).
+    /// Whether `name` is mirrored: an allowlist of the action, switch, create and launch intervals and the
+    /// other once-per-gesture intervals. A name added to the catalog is not mirrored until it is listed here:
+    /// per-frame, per-hop, per-pump-pass and per-scroll-event names never are (Apple advises against
+    /// high-frequency custom MetricKit signposts), nor is the `stall` category, which a report leaves out
+    /// (the watchdog reports stalls itself).
     public static func mirrors(_ name: SignpostName) -> Bool {
         switch name {
-        case .motionFrame, .cefPump, .scrollToFrame, .stallMainTask: false
-        default: name.category.map { $0 != .stall } ?? false
+        case .actionPerform, .actionCommit, .actionGate, .motionRun, .keyToFrame, .keyFlow, .switchWorkspace,
+             .switchTab, .switchPaneFocus, .switchAppActivation, .createTab, .createWorkspace, .cefCreateBrowser,
+             .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
+             .launchFirstTerminalOutput:
+            true
+        default: false
         }
     }
 
     /// Mirrors a begin; returns the id the end needs, nil while off or for a name not mirrored.
     func begin(_ name: SignpostName) -> OSSignpostID? {
-        guard isOn, Self.mirrors(name), let category = name.category, let log = Self.logs[category] else { return nil }
+        guard isOn, Self.mirrors(name), let log = Self.logs[name.traceCategory] else { return nil }
         let id = OSSignpostID(log: log)
         mxSignpost(.begin, log: log, name: name.staticName, signpostID: id)
         return id
@@ -58,7 +66,7 @@ public final class SignpostMetricKitMirror: Sendable {
 
     /// Mirrors the end of an interval whose begin was mirrored (even if mirroring went off since).
     func end(_ name: SignpostName, id: OSSignpostID) {
-        guard let category = name.category, let log = Self.logs[category] else { return }
+        guard let log = Self.logs[name.traceCategory] else { return }
         mxSignpost(.end, log: log, name: name.staticName, signpostID: id)
     }
 }

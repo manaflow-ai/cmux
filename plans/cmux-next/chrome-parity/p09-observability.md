@@ -357,9 +357,10 @@ from memory and are not checked. Where cmux differs from Chrome, the reason is w
    observability-audit.py, crash-matrix.py, hang-matrix.py and field-histograms.py are run by hand. Task
    041 changes only message text in guardrails.py. Task 085 extends only the path list of an existing
    continue-on-error upload loop.
-2. **After task 000 lands,** no task edits SignpostName.swift, SignpostCategory.swift, HistogramID.swift or
-   Package.swift. A missing name is added in a short follow-up to 000 that the lead merges, never inside an
-   emitter task.
+2. **After task 000 lands,** no task edits SignpostName.swift, SignpostCategory.swift, HistogramID.swift,
+   HistogramID+Dimensions.swift (a dimension value is the last part of a histogram name) or Package.swift. A
+   missing name is added in a short follow-up to 000 that the lead merges, never inside an emitter task. The
+   category bits, ring roles and phases are the tables of trace.md; the Swift and Rust tests pin each number.
 3. **Hot path.** A disabled trace point is one inlined relaxed load and one branch. A write has no lock, no
    malloc, no syscall and no Foundation call. Prove it with a bench (task 090) before rolling out to
    per-frame sites (037, 057, 113).
@@ -2097,7 +2098,9 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Test phase: fleet: `swift test --filter ConcurrencyHookTests`; a bench-typing A/B within 0.05 ms.
 
 ### 124 TracedTask.detached with FROM_HERE
-- Files: S/CmuxNextWakeups/TracedTask.swift, plus one MQ14 batch (<= 30 hits) per follow-up task.
+- Files: S/CmuxNextWakeups/TracedTask.swift, plus one MQ14 batch (<= 30 hits) per follow-up task. Task 000
+  gave every target that calls `Task.detached` a CmuxNextWakeups dependency, so no batch edits Package.swift.
+  CmuxNextCompat's sites are out of scope: Wakeups depends on Compat, so Compat cannot call TracedTask.
 - Change: `TracedTask.detached(priority:file:line:operation:)` writes a flow-out at the post and a task.run
   scope with the queue wait. Convert one batch per task. Each site names a priority.
 - Acceptance: MQ14 = 0 for the batch. 3 tasks decode as 3 flows with the correct sites.
