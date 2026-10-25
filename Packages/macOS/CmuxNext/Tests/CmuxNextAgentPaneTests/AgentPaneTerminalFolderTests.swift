@@ -43,4 +43,36 @@ struct AgentPaneTerminalFolderTests {
         chat.transport.sessions.observeFolder(["result": ["session": ["sessionId": "h", "cwd": base + "/w"]]], replyTo: "_acpmux/attach")
         #expect(chat.terminalFolder == nil)
     }
+
+    /// Ctrl-` (and every other terminal from the chat) after the person picks a project on the
+    /// New Tab page's folder chip, before the first send (`workspace.useFolder`): the terminal
+    /// starts in the pick, not in the folder the page opened with (#22225, #22230).
+    @Test func aTerminalBeforeTheFirstSendStartsInThePickedProject() async throws {
+        let opened = try Self.folder()
+        let picked = try Self.folder()
+        let chat = AgentPaneModel(host: NoHost())
+        chat.transport.homeFolder = "/nonexistent-home-\(UUID().uuidString)"
+        chat.startFolders.resolve = { proposed in AgentPaneStartFolder(kind: .seed, cwd: proposed, agentHome: nil) }
+        chat.handshakeCwd = opened
+        #expect(chat.terminalFolder == opened)
+
+        chat.transport.gestures.record(click: true) // the click on the project in the chip's menu
+        _ = await chat.respond(to: .useFolder(picked, confirm: false))
+        #expect(chat.terminalFolder.map(Self.canonical) == Self.canonical(picked))
+    }
+
+    /// A page script's pick of a folder the pane may not use, with no person behind it, never
+    /// moves where a terminal starts.
+    @Test func aPickWithoutThePersonLeavesTheTerminalFolder() async throws {
+        let opened = try Self.folder()
+        let elsewhere = try Self.folder()
+        let chat = AgentPaneModel(host: NoHost())
+        chat.transport.homeFolder = "/nonexistent-home-\(UUID().uuidString)"
+        chat.startFolders.resolve = { proposed in AgentPaneStartFolder(kind: .seed, cwd: proposed, agentHome: nil) }
+        chat.handshakeCwd = opened
+        _ = await chat.respond(to: .useFolder(elsewhere, confirm: false))
+        #expect(chat.terminalFolder == opened)
+    }
+
+    private static func canonical(_ path: String) -> String { AcpmuxPathPolicy.canonical(path) ?? path }
 }
