@@ -194,3 +194,25 @@ test("a copy of a placed attachment pastes as a copy of it", async () => {
   expect(ids).toContain("word");
   expect(ids.find((id) => id !== "word")).toMatch(/^word~copy-[0-9a-f]{8}$/);
 });
+
+// Review (root): the editor read the draft's tokens with no ids, so the person's U+FFFC before a
+// word took the attachment's opening mark: `before` became an attachment and `one` stayed text.
+test("the person's U+FFFC just before a word and an attachment stays their text", async () => {
+  const MARK = "\uFFFC";
+  const draft = `x ${MARK}before${inlineToken("one")}after${MARK} y`;
+  const told: string[][] = [];
+  const changes: string[] = [];
+  const editor = await render((views) => told.push([...views.keys()]), {
+    value: draft,
+    onChange: (markdown) => changes.push(markdown),
+    isInlineAttachment: (id) => id === "one",
+  });
+  const ids = [...editor.querySelectorAll("[data-inline-attachment]")].map((node) =>
+    node.getAttribute("data-inline-attachment"),
+  );
+  expect(ids).toEqual(["one"]);
+  expect(told.at(-1)).toEqual(["one"]);
+  expect(editor.textContent).toBe(`x ${MARK}beforeafter${MARK} y`);
+  expect(handle.current!.value()).toBe(draft);
+  for (const markdown of changes) expect(markdown).toBe(draft);
+});

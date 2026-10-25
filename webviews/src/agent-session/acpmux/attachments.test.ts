@@ -7,6 +7,7 @@ import {
   inlineCopyParent,
   inlineToken,
   inlineTokenIds,
+  inlineTokenSpans,
   orderedByMarks,
   orderedDraftParts,
   placeInline,
@@ -247,4 +248,15 @@ test("a copy's id keeps the whole id it was copied from", () => {
   expect(inlineCopyParent(`${uuid}~abcd1234`)).toBe(uuid);
   expect(inlineCopyParent(path)).toBeUndefined();
   expect(inlineCopyParent("link:/tmp/x~deadbeef")).toBeUndefined();
+});
+
+test("tokens read against the ids leave the person's U+FFFC on either side as text", () => {
+  const text = `x ${MARK}before${inlineToken("one")}after${MARK} y ${inlineToken("gone")}`;
+  const spans = inlineTokenSpans(text, (id) => id === "one");
+  expect(spans.map((span) => [text.slice(span.from, span.to), span.id, span.place])).toEqual([
+    [inlineToken("one"), "one", true],
+    [inlineToken("gone"), "gone", false],
+  ]);
+  // Read against no ids, the first token-shaped run is taken: only the ids can tell.
+  expect(inlineTokenSpans(text, () => true)[0]!.id).toBe("before");
 });
