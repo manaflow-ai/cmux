@@ -9,6 +9,9 @@
   --acpmux-permission-pill-inset: 8px;
   --acpmux-permission-pill-radius: 999px;
   --acpmux-permission-pill-gap: 16px;
+  /* Claude desktop's hovered footer sits close under the card; both harness looks share this
+     measured gap so the hover wash never makes the row jump. */
+  --acpmux-composer-footer-gap: 4px;
 }
 
 /* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,
