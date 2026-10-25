@@ -20,6 +20,12 @@ extension RenderStats {
         let replacement: IMP
     }
 
+    /// The hooks of one scan and the generation their blocks count for.
+    struct HookSet {
+        var hooks: [Hook] = []
+        var generation = 0
+    }
+
     /// The classes that define one hooked selector themselves.
     nonisolated struct Definers: Sendable {
         let classes: Set<ObjectIdentifier>
@@ -43,15 +49,37 @@ extension RenderStats {
         (NSWindow.self, [#selector(NSWindow.setFrame(_:display:)), #selector(setter: NSWindow.alphaValue)]),
     ]
 
-    /// Every loaded class under a root that defines a hooked selector itself,
-    /// with a counting replacement that forwards to its original IMP. Reads
-    /// the runtime with C calls only (no message to an unknown class).
-    static func buildHooks(ledger: Ledger) -> [Hook] {
+    /// The hooks for the classes loaded now: `previous` when the same methods
+    /// still have the IMPs it replaces, else a new set of a new generation (the
+    /// old blocks, should another swizzler still call one, stop counting).
+    static func hooks(reusing previous: HookSet, ledger: Ledger) -> HookSet {
+        let definers = scanDefiners()
+        let methods = Set(definers.values.flatMap { $0.map(\.method) })
+        if !previous.hooks.isEmpty, Set(previous.hooks.map(\.method)) == methods,
+           previous.hooks.allSatisfy({ method_getImplementation($0.method) == $0.original }) {
+            return previous
+        }
+        var set = HookSet(generation: previous.generation + 1)
+        for (selector, entries) in definers {
+            let chain = Definers(classes: Set(entries.map { ObjectIdentifier($0.type) }))
+            for entry in entries {
+                let original = method_getImplementation(entry.method)
+                let hook = RenderCountingHook(ledger: ledger, generation: set.generation, chain: chain, owner: ObjectIdentifier(entry.type))
+                guard let block = hook.block(for: selector, calling: original) else { continue }
+                set.hooks.append(Hook(method: entry.method, original: original, replacement: imp_implementationWithBlock(block)))
+            }
+        }
+        return set
+    }
+
+    /// Every loaded class under a root that defines a hooked selector itself.
+    /// Reads the runtime with C calls only (no message to an unknown class).
+    private static func scanDefiners() -> [Selector: [(type: AnyClass, method: Method)]] {
         var definers: [Selector: [(type: AnyClass, method: Method)]] = [:]
         // A lookup on the root resolves a method its class adds lazily, so the method list below has it.
         for (root, selectors) in hookedSelectors { for selector in selectors { _ = class_getInstanceMethod(root, selector) } }
         var classCount: UInt32 = 0
-        guard let list = objc_copyClassList(&classCount) else { return [] }
+        guard let list = objc_copyClassList(&classCount) else { return [:] }
         defer { free(UnsafeMutableRawPointer(list)) }
         for index in 0..<Int(classCount) {
             let type: AnyClass = list[index]
@@ -63,17 +91,7 @@ extension RenderStats {
                 definers[method_getName(method), default: []].append((type, method))
             }
         }
-        var hooks: [Hook] = []
-        for (selector, entries) in definers {
-            let chain = Definers(classes: Set(entries.map { ObjectIdentifier($0.type) }))
-            for entry in entries {
-                let original = method_getImplementation(entry.method)
-                let hook = RenderCountingHook(ledger: ledger, chain: chain, owner: ObjectIdentifier(entry.type))
-                guard let block = hook.block(for: selector, calling: original) else { continue }
-                hooks.append(Hook(method: entry.method, original: original, replacement: imp_implementationWithBlock(block)))
-            }
-        }
-        return hooks
+        return definers
     }
 
     private static func isClass(_ type: AnyClass, kindOf root: AnyClass) -> Bool {
@@ -93,11 +111,12 @@ extension RenderStats {
 /// state, so they count on the main thread only.
 nonisolated struct RenderCountingHook {
     let ledger: RenderStats.Ledger
+    let generation: Int
     let chain: RenderStats.Definers
     let owner: ObjectIdentifier
 
     private func counts(_ object: AnyObject, onMainOnly: Bool) -> Bool {
-        ledger.isArmed && (!onMainOnly || Thread.isMainThread) && chain.isOutermost(object, at: owner)
+        ledger.isArmed(generation: generation) && (!onMainOnly || Thread.isMainThread) && chain.isOutermost(object, at: owner)
     }
 
     /// The block for `imp_implementationWithBlock` that counts and calls `imp`; nil for a selector it does not know.

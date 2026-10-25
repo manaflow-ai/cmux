@@ -10,13 +10,15 @@ import Testing
 @MainActor
 @Suite(.serialized) struct RenderStatsTests {
     #if DEBUG || CMUX_BENCH_HOOKS
-    final class PlainView: NSView {}
+    // Not final, and called through an `NSView` reference: a call Swift could devirtualize would skip
+    // the Objective-C dispatch that AppKit (and the hooks) use.
+    class PlainView: NSView {}
 
-    final class SuperCallingView: NSView {
+    class SuperCallingView: NSView {
         override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize) }
     }
 
-    final class DrawingView: NSView {
+    class DrawingView: NSView {
         override var wantsUpdateLayer: Bool { true }
         override func updateLayer() {}
         override func draw(_ dirtyRect: NSRect) {}
@@ -63,7 +65,7 @@ import Testing
     }
 
     @Test func threeFrameSetsCountThreeAndAnEqualSetCountsZero() {
-        let view = PlainView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        let view: NSView = PlainView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         let stats = RenderStats()
         stats.arm()
         view.setFrameSize(NSSize(width: 20, height: 20))
@@ -81,7 +83,7 @@ import Testing
 
     /// An override that calls `super` is one set, counted at the override's class.
     @Test func anOverrideCallingSuperCountsOnce() {
-        let view = SuperCallingView(frame: .zero)
+        let view: NSView = SuperCallingView(frame: .zero)
         let stats = RenderStats()
         stats.arm()
         defer { stats.disarm() }
@@ -91,7 +93,7 @@ import Testing
     }
 
     @Test func updateLayerAndDrawCountDamageRectsAndArea() {
-        let view = DrawingView(frame: NSRect(x: 0, y: 0, width: 10, height: 20))
+        let view: NSView = DrawingView(frame: NSRect(x: 0, y: 0, width: 10, height: 20))
         let stats = RenderStats()
         stats.arm()
         defer { stats.disarm() }
@@ -102,7 +104,7 @@ import Testing
     }
 
     @Test func trackingAreaAddsCount() {
-        let view = PlainView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
+        let view: NSView = PlainView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         let stats = RenderStats()
         stats.arm()
         defer { stats.disarm() }
@@ -111,7 +113,7 @@ import Testing
     }
 
     @Test func windowCallsCountOnlyChanges() {
-        let window = ProbeWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
+        let window: NSWindow = ProbeWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
                                  backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let stats = RenderStats()
@@ -165,6 +167,31 @@ import Testing
         context.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
         return context.makeImage()
     }
+
+    /// A method a class gains while disarmed (TypingFrameProbe adds `setContents:` to a layer class at runtime)
+    /// is hooked by the next arm, and the call it forwards to `CALayer` counts once.
+    @Test func aMethodAddedWhileDisarmedIsHookedByTheNextArm() {
+        let stats = RenderStats()
+        stats.arm()
+        stats.disarm()
+        let layerClass: AnyClass = AddedMethodLayer.self
+        let selector = #selector(setter: CALayer.contents)
+        typealias SetContents = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
+        if let inherited = class_getInstanceMethod(CALayer.self, selector) {
+            let forward = unsafeBitCast(method_getImplementation(inherited), to: SetContents.self)
+            let block: @convention(block) (AnyObject, AnyObject?) -> Void = { layer, contents in forward(layer, selector, contents) }
+            class_addMethod(layerClass, selector, imp_implementationWithBlock(block), method_getTypeEncoding(inherited))
+        }
+        stats.arm()
+        defer { stats.disarm() }
+        let layer = AddedMethodLayer()
+        layer.contents = Self.image(gray: 0)
+        layer.contents = Self.image(gray: 1)
+        #expect(count(stats, .contentsSets, owner: AddedMethodLayer.self) == 2)
+        #expect(stats.owners().filter { $0.name.contains("AddedMethodLayer") }.count == 1)
+    }
+
+    nonisolated final class AddedMethodLayer: CALayer {}
 
     @Test func armingRoutesLayoutPassGuardLayoutCalls() {
         let guardian = LayoutPassGuard.shared

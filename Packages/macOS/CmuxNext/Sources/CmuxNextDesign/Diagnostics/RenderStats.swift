@@ -24,11 +24,14 @@ import QuartzCore
 /// (an equal frame, size, origin, alpha or the same contents object) counts 0.
 /// Counters are lock-free atomics, so a contents set from a renderer thread
 /// counts without a race; frame, window and `updateLayer` calls count on the
-/// main thread only (they read view state). Classes loaded after the first
-/// ``arm()`` count at their nearest hooked superclass.
+/// main thread only (they read view state). Each ``arm()`` rescans the
+/// loaded classes, so a class loaded or a method added while disarmed is
+/// hooked too. One `-[NSView setFrame:]` that moves and resizes counts 2 (AppKit
+/// sends `setFrameOrigin:` and `setFrameSize:`). Share one instance per app:
+/// two armed instances count separately.
 @MainActor
 public final class RenderStats {
-    public enum Counter: Int, CaseIterable, Sendable {
+    public nonisolated enum Counter: Int, CaseIterable, Sendable {
         case frameSets, layouts, damageRects, damageArea, contentsSets, windowCalls, trackingAreaAdds
 
         /// The `debug.frames` / `debug.damage` key.
@@ -46,7 +49,7 @@ public final class RenderStats {
     }
 
     /// One value per ``Counter``.
-    public struct Totals: Sendable, Equatable {
+    public nonisolated struct Totals: Sendable, Equatable {
         public private(set) var values = [Int](repeating: 0, count: Counter.allCases.count)
 
         public init() {}
@@ -66,7 +69,7 @@ public final class RenderStats {
         }
     }
 
-    public struct Owner: Sendable, Equatable {
+    public nonisolated struct Owner: Sendable, Equatable {
         public var id: ObjectIdentifier
         public var name: String
         public var totals: Totals
@@ -86,7 +89,7 @@ public final class RenderStats {
     nonisolated let ledger: Ledger
     private let layoutGuard: LayoutPassGuard?
     #if DEBUG || CMUX_BENCH_HOOKS
-    private var hooks: [Hook]?
+    private var hooks = HookSet()
     #endif
 
     /// `layoutGuard` counts `layout()` calls while armed (it hooks `-[NSView layout]` for the app already).
@@ -104,10 +107,9 @@ public final class RenderStats {
         armers += 1
         guard armers == 1 else { return true }
         ledger.reset()
-        ledger.isArmed = true
-        let hooks = hooks ?? Self.buildHooks(ledger: ledger)
-        self.hooks = hooks
-        for hook in hooks { method_setImplementation(hook.method, hook.replacement) }
+        hooks = Self.hooks(reusing: hooks, ledger: ledger)
+        ledger.arm(generation: hooks.generation)
+        for hook in hooks.hooks { method_setImplementation(hook.method, hook.replacement) }
         layoutGuard?.renderStats = self
         return true
         #else
@@ -121,9 +123,9 @@ public final class RenderStats {
         guard armers > 0 else { return }
         armers -= 1
         guard armers == 0 else { return }
-        ledger.isArmed = false
-        // A hook another swizzler chained onto stays and forwards (its armed check fails).
-        for hook in hooks ?? [] where method_getImplementation(hook.method) == hook.replacement {
+        ledger.disarm()
+        // A hook another swizzler chained onto stays and forwards (its generation check fails from now on).
+        for hook in hooks.hooks where method_getImplementation(hook.method) == hook.replacement {
             method_setImplementation(hook.method, hook.original)
         }
         if layoutGuard?.renderStats === self { layoutGuard?.renderStats = nil }
@@ -187,17 +189,21 @@ public final class RenderStats {
         let total = Cell()
         let overflow = Cell()
         let cells: [Cell]
-        private let armed = Atomic<Bool>(false)
+        /// The generation of the armed hooks; 0 while disarmed. A hook counts only while it is its own.
+        private let armedGeneration = Atomic<Int>(0)
         static let probes = 16
 
         init(capacity: Int) {
             cells = (0..<max(1, capacity)).map { _ in Cell() }
         }
 
-        var isArmed: Bool {
-            get { armed.load(ordering: .acquiring) }
-            set { armed.store(newValue, ordering: .releasing) }
-        }
+        var isArmed: Bool { armedGeneration.load(ordering: .acquiring) != 0 }
+
+        func isArmed(generation: Int) -> Bool { armedGeneration.load(ordering: .acquiring) == generation }
+
+        func arm(generation: Int) { armedGeneration.store(generation, ordering: .releasing) }
+
+        func disarm() { armedGeneration.store(0, ordering: .releasing) }
 
         func add(_ counter: Counter, _ amount: Int = 1, owner: AnyClass) {
             guard isArmed else { return }
@@ -205,8 +211,9 @@ public final class RenderStats {
             cell(for: owner).add(counter, amount)
         }
 
+        /// The class pointer itself (an `AnyClass` is one class pointer), so ``owners()`` can turn it back.
         private func cell(for owner: AnyClass) -> Cell {
-            let key = UInt(bitPattern: ObjectIdentifier(owner))
+            let key = unsafeBitCast(owner, to: UInt.self)
             var index = Int((key >> 4) % UInt(cells.count))
             for _ in 0..<min(Self.probes, cells.count) {
                 let cell = cells[index]
