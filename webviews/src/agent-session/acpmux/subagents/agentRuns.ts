@@ -356,7 +356,8 @@ const unquote = (value: string) => value.replace(/^(["'])(.*)\1$/s, "$2");
 
 // ---- the tokenizer
 
-type Token = { word: string } | { op: string; heredoc?: number };
+/// A word keeps its source (`raw`): a quoted `}` closes nothing.
+type Token = { word: string; raw: string } | { op: string; heredoc?: number };
 
 /// The simple commands of a shell command line, each with what its standard input reads when a
 /// redirection says (`< file`, a heredoc, a here-string). Pipelines, lists and groups split into
@@ -372,6 +373,12 @@ export function simpleCommands(src: string): Simple[] {
   for (let at = 0; at < tokens.length; at += 1) {
     const token = tokens[at]!;
     if ("word" in token) {
+      // `args=(codex exec "x")` assigns an array: its words are data.
+      const open = tokens[at + 1];
+      if (/^[A-Za-z_]\w*\+?=$/.test(token.raw) && open && "op" in open && open.op === "(") {
+        at = bodyEnd(tokens, at + 1);
+        continue;
+      }
       // `function f { … }` defines one too.
       if (current.argv.length === 0 && token.word === "function" && tokens[at + 1] && "word" in tokens[at + 1]!) {
         const paren = tokens[at + 2];
@@ -424,13 +431,13 @@ function bodyEnd(tokens: readonly Token[], from: number): number {
   while (at < tokens.length && "op" in tokens[at]! && (tokens[at] as { op: string }).op === ";") at += 1;
   const first = tokens[at];
   if (!first) return tokens.length;
-  const group = "word" in first && first.word === "{";
+  const group = "word" in first && first.raw === "{";
   if (!group && !("op" in first && first.op === "(")) return at - 1;
   let depth = 0;
   for (; at < tokens.length; at += 1) {
     const token = tokens[at]!;
-    const opens = group ? "word" in token && token.word === "{" : "op" in token && token.op === "(";
-    const closes = group ? "word" in token && token.word === "}" : "op" in token && token.op === ")";
+    const opens = group ? "word" in token && token.raw === "{" : "op" in token && token.op === "(";
+    const closes = group ? "word" in token && token.raw === "}" : "op" in token && token.op === ")";
     if (opens) depth += 1;
     else if (closes && --depth === 0) return at;
   }
@@ -490,15 +497,16 @@ function lex(src: string): { tokens: Token[]; bodies: string[] } {
         const index = bodies.length;
         bodies.push("");
         pending.push({ index, delimiter: word, strip: op === "<<-" });
-        tokens.push({ op, heredoc: index }, { word });
+        tokens.push({ op, heredoc: index }, { word, raw: word });
       } else tokens.push({ op });
       continue;
     }
     const [word, after] = readWord(src, at);
+    const raw = src.slice(at, after);
     at = after;
     // A file descriptor before a redirection (`2>&1`) is part of it.
     if (/^\d+$/.test(word) && (src[at] === ">" || src[at] === "<")) continue;
-    tokens.push({ word });
+    tokens.push({ word, raw });
   }
   return { tokens, bodies };
 }
