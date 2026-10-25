@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// One row of the notifications panel: a daemon ledger entry
@@ -9,7 +10,7 @@ struct NotificationsPanelRow: Hashable, Identifiable {
     let subtitle: String?
     let body: String
     let level: NotificationLevel
-    /// Producer category supplied by the daemon (`extra.source`).
+    /// The producer the daemon named for the row (`source`).
     let source: String?
     /// The source workspace's sidebar title, when its tab still exists.
     let workspaceTitle: String?
@@ -20,13 +21,13 @@ struct NotificationsPanelRow: Hashable, Identifiable {
     /// The terminal's public id (`term_…`), for Clear.
     let terminal: String?
 
-    /// A short, user-facing producer label. Unknown future values remain
-    /// visible so source identity is never silently lost.
+    /// The producer's name, the one Settings gives it, so a row reads the way
+    /// the `notifications.sources.<source>` setting that governs it does. The
+    /// app's one wire mapping decides, so `daemon` and a value this build does
+    /// not know read as agent-side, as they do everywhere else.
     var sourceLabel: String? {
         guard let source, !source.isEmpty else { return nil }
-        switch source {
-        default: source
-        }
+        return NotificationCenterService.source(source).settingsTitle.text
     }
 
     /// Every ledger entry, newest first (the daemon's order). `workspace`

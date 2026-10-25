@@ -102,7 +102,8 @@ final class NotificationRowView: NSView {
         header.alignment = .firstBaseline
 
         var lines: [NSView] = [header]
-        if let context = [row.sourceLabel, row.workspaceTitle].compactMap({ $0 }).joined(separator: " · ").nilIfEmpty {
+        let context = [row.sourceLabel, row.workspaceTitle].compactMap { $0 }.joined(separator: " · ")
+        if !context.isEmpty {
             let label = Self.label(context, font: Typography.caption)
             tinted.append((label, .tertiary))
             lines.append(label)
