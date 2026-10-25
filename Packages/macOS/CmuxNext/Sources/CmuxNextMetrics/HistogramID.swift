@@ -6,7 +6,8 @@
 /// Here the cases are the catalog, as `SignpostName` is for trace points: a hang report sends only
 /// these names, and `allCases` is the list readers enumerate. An expired id records nothing (task 052).
 /// The catalog was frozen for the p09-observability program (task 000): a task that records a
-/// histogram uses these cases and does not edit this file; a missing one is a follow-up to task 000.
+/// histogram uses these cases and edits neither this file nor HistogramID+Dimensions.swift (a dimension
+/// value is part of a histogram's name); a missing one is a follow-up to task 000.
 ///
 /// A case with a dimension is one histogram per dimension value (`key.frame.view`,
 /// `key.frame.terminal`); the dimensions are in HistogramID+Dimensions.swift.

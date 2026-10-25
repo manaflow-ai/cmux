@@ -9,7 +9,8 @@
 /// per-category `category_group_enabled` flag, base/trace_event/builtin_categories.h). The black box
 /// records the ``isBlackBoxDefault`` categories from launch; a `trace.start` recording adds the others
 /// (plans/cmux-next/chrome-parity/p09-observability.md section 3A). Owners of the list: PL-arch and
-/// PL-telemetry. A new category takes the next free bit: the Swift, Rust and C writers share the bits.
+/// PL-telemetry. The bits are the table in plans/cmux-next/trace.md ("Category bits"), which the Swift,
+/// Rust (`cmux_trace::category`) and C writers follow; a new category takes the next free bit there first.
 public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     /// Keyboard, menu, palette, context-menu and CLI actions (`ActionRegistry`).
     case action
@@ -64,27 +65,28 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     /// The unified-log subsystem every cmux signpost uses.
     public static let subsystem = "com.cmuxterm.app.next"
 
-    /// This category's bit (0-63) in the trace ring's category flags. A bit never changes or moves to
-    /// another category: rings written by an older build decode with the same bits.
-    public var traceBit: UInt8 {
+    /// This category's bit (0-63) in the trace ring's category flags (trace.md "Category bits"). A bit never
+    /// changes or moves to another category: rings written by an older build decode with the same bits.
+    /// The black-box defaults hold bits 0-8. Inlinable, so a disabled trace point folds it to a constant.
+    @inlinable public var traceBit: UInt8 {
         switch self {
         case .action: 0
-        case .motion: 1
-        case .key: 2
-        case .switch: 3
-        case .create: 4
-        case .cef: 5
-        case .launch: 6
-        case .stall: 7
-        case .burst: 8
-        case .daemon: 9
+        case .key: 1
+        case .switch: 2
+        case .create: 3
+        case .cef: 4
+        case .launch: 5
+        case .daemon: 6
+        case .hang: 7
+        case .crash: 8
+        case .motion: 9
         case .frame: 10
-        case .task: 11
-        case .hang: 12
-        case .input: 13
-        case .webview: 14
-        case .remote: 15
-        case .crash: 16
+        case .stall: 11
+        case .task: 12
+        case .burst: 13
+        case .input: 14
+        case .webview: 15
+        case .remote: 16
         case .control: 17
         case .ghostty: 18
         case .resize: 19

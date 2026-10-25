@@ -96,18 +96,29 @@ extension HangWatch {
     }
 }
 
-/// One open hang-watch scope (Chrome's `WatchHangsInScope`). Not copyable: it closes exactly once,
-/// with ``close()`` or when it goes away, and restores the enclosing scope's deadline.
-public struct HangWatchScope: ~Copyable, Sendable {
+/// One open hang-watch scope (Chrome's `WatchHangsInScope`). Not copyable: it closes exactly once, with
+/// ``close()`` or when it goes away, and restores the enclosing scope's deadline in its slot. Not
+/// `Sendable`: the slot's nesting belongs to the thread (or the lane job) that opened the scope, so the
+/// scope closes there too, as Chrome's scope is bound to its thread.
+public struct HangWatchScope: ~Copyable {
     /// The slot the scope watches.
     let registration: HangWatch.Registration
     /// The packed deadline the scope replaced (the enclosing scope's), restored at close.
     let previousDeadline: UInt64
 
-    /// Closes the scope now (before the end of the code block that holds it).
-    public consuming func close() {}
+    /// Closes the scope now (before the end of the code block that holds it). It restores the deadline,
+    /// then discards itself, so the deinit does not restore a second time.
+    public consuming func close() {
+        restore()
+        discard self
+    }
 
     deinit {
-        // Task 066: restore `previousDeadline` in the slot.
+        restore()
+    }
+
+    /// Puts `previousDeadline` back in the slot: the one place close and deinit restore.
+    private func restore() {
+        // Task 066: store `previousDeadline` in the slot.
     }
 }

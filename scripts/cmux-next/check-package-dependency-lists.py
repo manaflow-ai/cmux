@@ -51,7 +51,7 @@ REQUIRED = ("CmuxNextAppTests",)
 IMPORT_BASELINE = frozenset((
     "CmuxNextActionsTests: CmuxNextWakeups",
     "CmuxNextApp: CmuxNextFileGrid",
-    "CmuxNextBridge: CmuxNextDesign", "CmuxNextBridge: CmuxNextWakeups",
+    "CmuxNextBridge: CmuxNextDesign",
     "CmuxNextControlTests: CmuxNextDesign",
     "CmuxNextCookieImport: CmuxNextCompat",
     "CmuxNextMobileHostTests: CmuxNextMobile",

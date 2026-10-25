@@ -88,7 +88,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     // MARK: key echo hops (reserved: task 102, PL-trace)
     // The 12 thread handoffs of a key's echo (ghostty-integration-DESIGN.md, "Key to frame"): a flow-out
     // when a thread queues the item, a flow-in when the next thread takes it, under the same name. Ring:
-    // arg0 the key's flow id, arg1 the terminal hash. The Rust and C writers use the same strings.
+    // arg0 the terminal hash, arg1 the key's flow id. The Rust and C writers use the same strings.
 
     /// Reserved (task 102, PL-trace). The terminal host's PTY thread: the echo read from the PTY.
     case keyEchoHostPTYRead = 21
@@ -208,7 +208,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: task (reserved: task 042, Performance Lead)
     /// Reserved (task 042, Performance Lead). A work item posted (Chrome's `PostTask` with `FROM_HERE`).
-    /// Ring: flow-out; arg0 the item's flow id, arg1 the interned post site.
+    /// Ring: flow-out; arg0 the interned post site, arg1 the item's flow id.
     case taskPost = 50
     /// Reserved (task 042, Performance Lead). A work item run, with the flow-in from its post. Ring: B/E;
     /// arg0 the lane and priority, arg1 the queue wait in us.
@@ -356,9 +356,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     }
 
     /// The category whose ``Signposter`` emits this name and whose flag gates its ring records: the
-    /// part of the name before the first dot (the catalog test checks the two agree). A switch, so the
-    /// ring writer reads it with no `String`.
-    public var traceCategory: SignpostCategory {
+    /// part of the name before the first dot (the catalog test checks the two agree). An inlinable switch,
+    /// so a disabled trace point folds it to a constant and reads no `String`.
+    @inlinable public var traceCategory: SignpostCategory {
         switch self {
         case .actionPerform, .actionCommit, .actionGate: .action
         case .motionFrame, .motionRun, .motionDragFrame: .motion

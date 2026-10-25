@@ -25,12 +25,15 @@ public final class TraceRuntime: Sendable {
     // lint:allow singleton: the one reviewed TraceRuntime exception in plans/cmux-next/arch-ratchet.json (2026-10-25).
     public static let shared = TraceRuntime(role: .app)
 
-    /// The process kind this runtime records (the ring header's role byte).
+    /// The process kind this runtime records (the ring header's `role`).
     public let role: Role
     /// The hang-watch slots of this process's watched threads and lanes.
     public let hangWatch: HangWatch
     /// One bit per category (`SignpostCategory.traceBit`); a trace point records only while its bit is set.
     private let categoryFlags = Atomic<UInt64>(0)
+    /// Stub until task 003 adds the ring: the records the `write` methods let through their category
+    /// gate, so tests can see the gate.
+    let stubRecordCount = Atomic<UInt64>(0)
 
     /// A runtime for a process of kind `role`, with every category off.
     public init(role: Role) {
@@ -59,7 +62,7 @@ public final class TraceRuntime: Sendable {
     /// Writes one 32-byte ring record when the category is on. Never locks, allocates or calls the system.
     ///
     /// - Parameters:
-    ///   - name: The catalog id (`SignpostName.rawValue`) or an interned id (``intern(_:)``).
+    ///   - name: The catalog id (`SignpostName.rawValue`).
     ///   - categoryBit: The category's bit (`SignpostCategory.traceBit`).
     ///   - phase: What the record marks.
     ///   - flags: How to read the arguments.
@@ -68,20 +71,17 @@ public final class TraceRuntime: Sendable {
     public func write(name: UInt16, categoryBit: UInt8, phase: Phase, flags: RecordFlags = [],
                       arg0: UInt64 = 0, arg1: UInt64 = 0) {
         guard isEnabled(categoryBit: categoryBit) else { return }
-        // Task 003: claim a slot in this thread's chunk and publish the record.
+        stubRecordCount.add(1, ordering: .relaxed) // Task 003: claim a slot in this thread's chunk and publish.
     }
 
-    /// The ring id of a name outside the catalog (a task's post site, an acpmux callsite), registered
-    /// once in the ring header's name table. Interned ids start at ``firstInternedID``. `StaticString`
-    /// only, so no person's text can become a name.
-    ///
-    /// - Returns: The id, or 0 when the table is full (the record then has no name).
-    public func intern(_ name: StaticString) -> UInt16 {
-        0 // Task 004: the header name table.
+    /// Writes one record under a name outside the catalog (a task's post site, an acpmux callsite) when
+    /// its category is on. The name has one id per ring, claimed at its first record there
+    /// (trace.md "Name table": interned ids follow the ring's catalog and category entries, from the
+    /// ring's `name_cursor`); past the ring's `name_capacity` the record has no name.
+    public func write(_ name: InternedName, phase: Phase, flags: RecordFlags = [], arg0: UInt64 = 0, arg1: UInt64 = 0) {
+        guard isEnabled(categoryBit: name.categoryBit) else { return }
+        stubRecordCount.add(1, ordering: .relaxed) // Tasks 003 and 004: intern in the active ring, then publish.
     }
-
-    /// The first id ``intern(_:)`` gives; catalog ids (`SignpostName`) stay below it.
-    public static let firstInternedID: UInt16 = 0x4000
 
     // MARK: recording
 
@@ -118,46 +118,63 @@ public final class TraceRuntime: Sendable {
 }
 
 extension TraceRuntime {
-    /// The process kind of a ring (the header's role byte, shared with the Rust and C writers). Fixed values.
-    public enum Role: UInt8, Sendable, CaseIterable {
+    /// The process kind of a ring: the header's `role` u16 at offset 20, the table in plans/cmux-next/trace.md
+    /// ("Release trace ring v1", Header) that Rust's `cmux_trace::Role` and the C writer also follow. Fixed values.
+    public enum Role: UInt16, Sendable, CaseIterable {
         /// The cmux app.
         case app = 1
         /// The cmux-tui daemon.
         case daemon = 2
-        /// A terminal host (`cmux-tui-host`).
-        case terminalHost = 3
         /// The PTY holder (`cmux-holder`).
-        case holder = 4
+        case holder = 3
+        /// A terminal host (`cmux-tui-host`).
+        case terminalHost = 4
         /// The acpmux daemon.
         case acpmux = 5
-        /// An acpmux agent host.
-        case agentHost = 6
-        /// `cmux-app-host`.
-        case appHost = 7
-        /// `cmux-browser-host`.
-        case browserHost = 8
         /// The out-of-process Chromium host.
-        case chromiumHost = 9
+        case chromiumHost = 6
+        /// The `cmux` CLI.
+        case cli = 7
     }
 
-    /// What a record marks (the record's phase byte; plans/cmux-next/trace.md "Release trace ring v1").
+    /// What a record marks: the record's phase byte, Chrome's ASCII `TRACE_EVENT_PHASE_*` codes
+    /// (base/trace_event/common/trace_event_common.h), as in plans/cmux-next/trace.md "Release trace ring v1".
     public enum Phase: UInt8, Sendable, CaseIterable {
-        /// B: a same-thread slice begins.
-        case begin = 1
-        /// E: the innermost open slice on this thread ends.
-        case end = 2
-        /// I: a point event.
-        case instant = 3
-        /// AB: an async slice begins (any thread; arg1 is its id).
-        case asyncBegin = 4
-        /// AE: the async slice with that id ends.
-        case asyncEnd = 5
-        /// A flow leaves this point (arg0 is the flow id).
-        case flowOut = 6
-        /// A flow arrives at this point (arg0 is the flow id).
-        case flowIn = 7
-        /// A counter value (arg0).
-        case counter = 8
+        /// `B`: a same-thread slice begins.
+        case begin = 0x42
+        /// `E`: the innermost open slice on this thread ends.
+        case end = 0x45
+        /// `I`: a point event.
+        case instant = 0x49
+        /// `b` (AB): an async slice begins (any thread; arg1 is its id, with ``RecordFlags/asyncID``).
+        case asyncBegin = 0x62
+        /// `e` (AE): the async slice with id arg1 ends, on any thread.
+        case asyncEnd = 0x65
+        /// `s`: a flow leaves this point (arg1 is the flow id).
+        case flowOut = 0x73
+        /// `f`: a flow arrives at this point (arg1 is the flow id).
+        case flowIn = 0x66
+        /// `C`: a counter value (arg0; arg1 a track id with ``RecordFlags/asyncID``).
+        case counter = 0x43
+    }
+
+    /// A trace point named at run time, outside the catalog: a `static let` at its site. It keeps its
+    /// id in each of the process's three rings (heap, black box, recording) in one atomic word, bits
+    /// `16 * slot`, 0 until it is interned there (trace.md "Name table"; Rust's `InternedName`).
+    /// `StaticString` only, so no person's text can become a name.
+    public final class InternedName: Sendable {
+        /// The name's text (at most 55 UTF-8 bytes in a ring entry).
+        public let text: StaticString
+        /// The category bit that gates its records (`SignpostCategory.traceBit`).
+        public let categoryBit: UInt8
+        /// Its id per ring slot (task 004 fills it).
+        let ringIDs = Atomic<UInt64>(0)
+
+        /// A name in category bit `categoryBit`.
+        public init(_ text: StaticString, categoryBit: UInt8) {
+            self.text = text
+            self.categoryBit = categoryBit
+        }
     }
 
     /// How to read a record's arguments (the record's flags byte).

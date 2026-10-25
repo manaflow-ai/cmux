@@ -107,7 +107,9 @@ impl Role {
     }
 }
 
-/// Trace categories: one bit each in the process's category set ([`enabled`]).
+/// Trace categories: one bit each in the process's category set ([`enabled`]). The bits are the
+/// table in plans/cmux-next/trace.md ("Release trace ring: category bits"), shared with Swift's
+/// `SignpostCategory.traceBit` and the C writer; `tests/shared_values.rs` pins every one.
 pub mod category {
     pub const ACTION: u64 = 1 << 0;
     pub const KEY: u64 = 1 << 1;
@@ -126,11 +128,24 @@ pub mod category {
     pub const INPUT: u64 = 1 << 14;
     pub const WEBVIEW: u64 = 1 << 15;
     pub const REMOTE: u64 = 1 << 16;
+    pub const CONTROL: u64 = 1 << 17;
+    pub const GHOSTTY: u64 = 1 << 18;
+    pub const RESIZE: u64 = 1 << 19;
 
     /// What the black box records while no recording runs.
     pub const BLACKBOX: u64 = ACTION | KEY | SWITCH | CREATE | CEF | LAUNCH | DAEMON | HANG | CRASH;
     /// What a recording adds.
-    pub const RECORDING: u64 = MOTION | FRAME | STALL | TASK | BURST | INPUT | WEBVIEW | REMOTE;
+    pub const RECORDING: u64 = MOTION
+        | FRAME
+        | STALL
+        | TASK
+        | BURST
+        | INPUT
+        | WEBVIEW
+        | REMOTE
+        | CONTROL
+        | GHOSTTY
+        | RESIZE;
     pub const ALL: u64 = BLACKBOX | RECORDING;
 }
 

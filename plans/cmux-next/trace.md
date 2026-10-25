@@ -256,6 +256,43 @@ Classes: `lock` (mutex, unfair lock, dispatch_sync, semaphore), `daemon` (the ap
 `cef` (the Chromium pump and the shim), `windowserver` (Core Animation commit, SkyLight), `xpc`, `io`,
 `ghostty`, `other`.
 
+## Release trace ring: category bits
+
+Status: frozen (p09-observability-000, 2026-10-25). Every writer of the Release trace ring (the section
+"Release trace ring v1" below) uses these bits in the header's `categories` u64, in a name entry's `category`
+byte and in its process's category flags: Swift `SignpostCategory.traceBit` (CmuxNextSignposts), Rust
+`cmux_trace::category` and the C writer. Each side pins every number in a test (`SignpostTraceCatalogTests`,
+`cmux-trace/tests/shared_values.rs`). A bit never changes or moves to another category. A new category takes
+the next free bit here first, then in every writer in the same change.
+
+| Bit | Category | Black box default |
+|---|---|---|
+| 0 | `action` | yes |
+| 1 | `key` | yes |
+| 2 | `switch` | yes |
+| 3 | `create` | yes |
+| 4 | `cef` | yes |
+| 5 | `launch` | yes |
+| 6 | `daemon` | yes |
+| 7 | `hang` | yes |
+| 8 | `crash` | yes |
+| 9 | `motion` | no |
+| 10 | `frame` | no |
+| 11 | `stall` | no |
+| 12 | `task` | no |
+| 13 | `burst` | no |
+| 14 | `input` | no |
+| 15 | `webview` | no |
+| 16 | `remote` | no |
+| 17 | `control` | no |
+| 18 | `ghostty` | no |
+| 19 | `resize` | no |
+
+The black box records bits 0-8 from launch (section 3A of plans/cmux-next/chrome-parity/p09-observability.md);
+a `trace.start` recording turns on the others. The role (header byte 20) and phase (record byte 14) values are
+the tables of "Release trace ring v1"; the Swift `TraceRuntime.Role` and `TraceRuntime.Phase` and the Rust
+`Role` and `Phase` pin the same numbers.
+
 ## Limits and open span requests
 
 - Daemon spans cover the create paths only (workspace, pane, tab and terminal creates), and a span
