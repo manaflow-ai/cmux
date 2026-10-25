@@ -351,7 +351,7 @@ import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
-import { PendingSteer, takeBackSteer } from "./conversation/PendingSteer";
+import { PendingSteer, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
@@ -672,6 +672,12 @@ const sendWhenTaken = (steer: boolean) => (text: string, attachments: ComposerAt
 const resumeAgentPair = (peer: string) => callNative("chat.agentPair.resume", { peer });
 
 /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
+/// Where a steer's Send now and X are drawn (PendingSteer.tsx): while it waits, and once read under
+/// a prompt with text (its action row stays), so they fold away there. A prompt of images alone
+/// never gains a row once read.
+const steerControls = (row: AcpmuxRow) =>
+  row.steer === "waiting" || (row.steer === "landed" && Boolean(row.text?.trim()));
+
 const editQueued = (promptId: string, edit: QueueEdit) =>
   callNative<{ ok?: boolean } | null>("chat.queue.edit", { promptId, ...edit }).then((result) => result?.ok === true);
 
@@ -920,17 +926,18 @@ const MessageRow = memo(
               <PromptActions
                 row={row}
                 text={envelope ? envelope.task : (row.text ?? "")}
-                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={steerControls(row) ? <PendingSteer row={row} send={editQueued} /> : undefined}
               />
             </>
           ) : (
             // A waiting steer's Send now leads the action row under the queued prompt (Leo,
             // 2026-10-24). A prompt of images alone gets the same row under the images.
+            // `steerControls` keeps it mounted once the agent read it, so it folds away.
             <>
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
-                pending={row.steer === "waiting" ? <PendingSteer row={row} send={editQueued} /> : undefined}
+                pending={steerControls(row) ? <PendingSteer row={row} send={editQueued} /> : undefined}
               />
             </>
           )}
@@ -5341,16 +5348,15 @@ function AcpmuxPane() {
           },
         }),
       // The X beside a steer the agent has not read: it comes back into the composer to edit. Only
-      // Claude Code takes one back (acpmux `_acpmux/steer_withdraw`).
-      ...(connected &&
-        snapshot.summary?.family === "claude" && {
-          unsteer: (row: AcpmuxRow) =>
-            takeBackSteer(row, {
-              withdraw: (promptId) => editQueued(promptId, { op: "withdraw" }),
-              attachments: (rowId) => directClient.current?.promptAttachments(rowId) ?? Promise.resolve([]),
-              restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
-            }),
-        }),
+      // Claude Code's adapter takes one back (acpmux `_acpmux/steer_withdraw`), under any family.
+      ...(takesSteersBack({ backgroundsWork: snapshot.summary?.backgroundsWork }, connected) && {
+        unsteer: (row: AcpmuxRow) =>
+          takeBackSteer(row, {
+            withdraw: (promptId) => editQueued(promptId, { op: "withdraw" }),
+            attachments: (rowId) => directClient.current?.promptAttachments(rowId) ?? Promise.resolve([]),
+            restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
+          }),
+      }),
       ...(connected &&
         loginCommand &&
         snapshot.summary?.hostKind !== "cloud" && {
@@ -5388,7 +5394,7 @@ function AcpmuxPane() {
       snapshot.summary?.cwd,
       snapshot.summary?.harness,
       snapshot.summary?.model,
-      snapshot.summary?.family,
+      snapshot.summary?.backgroundsWork,
       retryModels,
       retryHarnessName,
       retryTop,

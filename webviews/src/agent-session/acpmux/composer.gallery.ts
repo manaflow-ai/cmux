@@ -131,6 +131,29 @@ const waitingSteers = () =>
     { isWorking: true },
   );
 
+// One steer Claude has not read yet, in a Claude Code chat under its own family name (Leo's
+// claude-sr2): it steers, so Send now and the X lead the steer's action row.
+const waitingSteerSr2 = () => {
+  const running = chat(
+    [
+      user("Add retries", 6),
+      assistant("Adding retries to the fetch loop…", 3, { streaming: true }),
+      user("Also keep the old flag working", 0.5, { steer: "waiting", steerPromptId: "p-steer" }),
+    ],
+    { isWorking: true },
+  );
+  return {
+    ...running,
+    summary: {
+      ...running.summary!,
+      harness: "claude-sr2",
+      family: "claude-sr2",
+      steering: true,
+      backgroundsWork: true,
+    },
+  };
+};
+
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
@@ -1203,6 +1226,36 @@ export default agentPaneEntry({
           if (!actions.previousElementSibling?.classList.contains("cv-user__bubble"))
             throw new Error("Send now action row is not under the bubble");
         }
+      },
+    },
+    // Leo, 2026-10-24: "where's the, like, X button? All I see is the send now. There's no, like,
+    // you know, sort of retract and send now."
+    "steer-waiting-x": {
+      note: "Play: hover a steer Claude has not read, in a Claude Code chat under its own family name (claude-sr2): Send now and the X (take it back to edit) lead its action row.",
+      snapshot: waitingSteerSr2(),
+      play: async (ctx) => {
+        await ctx.hover({ text: "Also keep the old flag working" });
+        const pending = ctx.document.querySelector(".cv-user__pending");
+        if (!pending?.querySelector(".cv-user__send-now")) throw new Error("no Send now on the waiting steer");
+        if (!pending.querySelector(".cv-user__take-back")) throw new Error("no X on the waiting steer");
+      },
+    },
+    // Leo, 2026-10-24: "after i clicked send now and it worked it should just disappear" and "with
+    // the animation as well".
+    "steer-send-now-leaves": {
+      note: "Play: Send now on a steer Claude has not read: acpmux says it worked, and Send now and the X fade and fold away while the steer still waits for Claude to read it. The action row keeps its line: the bubble, the row and the transcript do not move.",
+      snapshot: waitingSteerSr2(),
+      native: { "chat.queue.edit": { ok: true } },
+      play: async (ctx) => {
+        await ctx.hover({ text: "Also keep the old flag working" });
+        const steer = ctx.find({ text: "Also keep the old flag working" }).closest(".cv-user");
+        const actions = steer?.querySelector<HTMLElement>(".cv-user__actions");
+        const before = actions?.getBoundingClientRect();
+        await ctx.click({ selector: ".cv-user__send-now" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".cv-user__pending"));
+        const after = actions?.getBoundingClientRect();
+        if (!before || !after || before.top !== after.top || before.height !== after.height)
+          throw new Error("the steer's action row moved when Send now left");
       },
     },
     "steer-marks": {
