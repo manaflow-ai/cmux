@@ -180,3 +180,59 @@ test("storage keeps the newest chats of the last 30 days, and always the pane's 
   expect(localStorage.getItem(`${PREFIX}chat-now`)).not.toBeNull();
   expect(pane("chat-now").current().open).toBe(false);
 });
+
+/// `real` counting its reads.
+function countingView(real: Storage) {
+  const counts = { getItem: 0, key: 0, length: 0 };
+  const view: Storage = {
+    get length() {
+      counts.length++;
+      return real.length;
+    },
+    key: (index: number) => {
+      counts.key++;
+      return real.key(index);
+    },
+    getItem: (key: string) => {
+      counts.getItem++;
+      return real.getItem(key);
+    },
+    setItem: (key: string, value: string) => real.setItem(key, value),
+    removeItem: (key: string) => real.removeItem(key),
+    clear: () => real.clear(),
+  };
+  return { view, counts };
+}
+
+test("a toggle reads a bounded number of keys, however full the storage is", async () => {
+  const { createInspectorStore, PANES_KEPT } = await page("unbound");
+  for (let index = 0; index < 1000; index++) localStorage.setItem(`other.app.key.${index}`, String(index));
+  for (let index = 0; index < PANES_KEPT; index++) {
+    const store = createInspectorStore(() => localStorage);
+    store.bind(`chat-${index}`);
+  }
+  const { view, counts } = countingView(localStorage);
+  const store = createInspectorStore(() => view);
+  store.bind("chat-0");
+  // The page's one sweep (its first save) has run; every toggle after it reads only the chat's
+  // state and the small index.
+  store.setOpen(false);
+  counts.getItem = counts.key = counts.length = 0;
+  for (let toggle = 0; toggle < 10; toggle++) store.setOpen(toggle % 2 === 0);
+  store.setSection("context", true);
+  store.setWidth(400);
+  expect({ key: counts.key, length: counts.length }).toEqual({ key: 0, length: 0 });
+  expect(counts.getItem).toBeLessThanOrEqual(12 * 2);
+  expect(Object.keys(localStorage).filter((key) => key.startsWith(PREFIX)).length).toBe(PANES_KEPT);
+});
+
+test("a chat's key that no index lists is still pruned", async () => {
+  const { createInspectorStore, PANES_KEPT } = await page("unbound");
+  // Another pane's index write lost this chat (its key is there, the index does not list it).
+  localStorage.setItem(`${PREFIX}chat-lost`, JSON.stringify({ open: false, at: Date.UTC(2026, 7, 1) }));
+  setSystemTime(new Date("2026-10-25T00:00:00Z"));
+  const store = createInspectorStore(() => localStorage);
+  store.bind("chat-a");
+  expect(localStorage.getItem(`${PREFIX}chat-lost`)).toBeNull();
+  expect(PANES_KEPT).toBe(200);
+});

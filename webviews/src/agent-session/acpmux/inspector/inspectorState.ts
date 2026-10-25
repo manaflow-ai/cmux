@@ -44,6 +44,9 @@ const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
 /// Each chat's own state, one key per chat (`{ open, width, sections, at }`): a pane writes only its
 /// chat's key, so two panes saving at once never undo each other's change.
 export const INSPECTOR_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
+/// The chats that have a key, newest first: `[sessionId, savedAt]` pairs, at most ``PANES_KEPT``.
+/// A save prunes from it, so a toggle reads one small key, never every key in the page's storage.
+export const INSPECTOR_INDEX_KEY = "cmux.agentPane.inspector.index";
 /// The chats kept: the newest ``PANES_KEPT`` seen in the last ``PANE_DAYS`` days, the pane's own always.
 export const PANES_KEPT = 200;
 const PANE_DAYS = 30;
@@ -118,22 +121,46 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
   });
-  /// Drops chats past the newest ``PANES_KEPT`` or older than ``PANE_DAYS``, never `own` (a clock
-  /// set back, or a tie, must not drop the chat the pane shows).
-  const prune = (own: string, now: number) => {
-    const others = paneKeys()
-      .filter((key) => key !== own)
-      .map((key) => ({ key, at: (parse(read(key)) as Stored | undefined)?.at }))
-      .sort((a, b) => (typeof b.at === "number" ? b.at : -Infinity) - (typeof a.at === "number" ? a.at : -Infinity));
-    others.forEach(({ key, at }, index) => {
-      if (index >= PANES_KEPT - 1 || typeof at !== "number" || now - at >= PANE_DAYS * 86_400_000) write(key, null);
-    });
+  const indexOf = (): [string, number][] => {
+    const value = parse(read(INSPECTOR_INDEX_KEY));
+    if (!Array.isArray(value)) return [];
+    return value.filter(
+      (entry): entry is [string, number] =>
+        Array.isArray(entry) && typeof entry[0] === "string" && typeof entry[1] === "number",
+    );
   };
+  /// Once per page: a chat whose key is in no index (a save another pane's index write lost) joins
+  /// the index, so pruning reaches it. The only full scan of the storage.
+  let swept = false;
+  const adoptStrays = (index: [string, number][]) => {
+    if (swept) return index;
+    swept = true;
+    const known = new Set(index.map(([sessionId]) => sessionId));
+    const strays: [string, number][] = [];
+    for (const key of paneKeys()) {
+      const sessionId = key.slice(INSPECTOR_PANE_PREFIX.length);
+      if (known.has(sessionId)) continue;
+      const at = (parse(read(key)) as Stored | undefined)?.at;
+      strays.push([sessionId, typeof at === "number" ? at : 0]);
+    }
+    return strays.length > 0 ? [...index, ...strays] : index;
+  };
+  /// Saves `sessionId`'s state, and drops chats past the newest ``PANES_KEPT`` or older than
+  /// ``PANE_DAYS`` from the index and their keys; never the pane's own (a clock set back, or a tie,
+  /// must not drop the chat the pane shows). Only the small index is read and written again: a save
+  /// another pane's index write loses delays its pruning, it never loses a chat's state.
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
-    const key = INSPECTOR_PANE_PREFIX + sessionId;
-    write(key, JSON.stringify({ ...next, at: now }));
-    prune(key, now);
+    write(INSPECTOR_PANE_PREFIX + sessionId, JSON.stringify({ ...next, at: now }));
+    const others = adoptStrays(indexOf())
+      .filter(([id]) => id !== sessionId)
+      .sort((a, b) => b[1] - a[1]);
+    const kept: [string, number][] = [[sessionId, now]];
+    for (const [id, at] of others) {
+      if (kept.length < PANES_KEPT && now - at < PANE_DAYS * 86_400_000) kept.push([id, at]);
+      else write(INSPECTOR_PANE_PREFIX + id, null);
+    }
+    write(INSPECTOR_INDEX_KEY, JSON.stringify(kept));
   };
 
   let pane: string | undefined;
@@ -193,9 +220,10 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       write(SECTIONS_KEY, JSON.stringify(sections));
       update({ ...current(), sections }, true);
     },
-    /// Forgets every choice, every chat's too.
+    /// Forgets every choice, every chat's too (the gallery and tests; it scans the storage).
     reset() {
-      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, ...paneKeys()]) write(key, null);
+      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, INSPECTOR_INDEX_KEY, ...paneKeys()]) write(key, null);
+      swept = false;
       pane = undefined;
       state = undefined;
       peeked = undefined;
