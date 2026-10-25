@@ -620,7 +620,7 @@ test("a raw model id is named as people say it, and an unresolved effort draws n
 
 test("a switch acpmux refuses is named on the Account row", async () => {
   const { sent } = await mount(
-    { routes: [{ id: "work", name: "Work Max", serves: true }], family: "claude" },
+    { routes: [{ id: "work", name: "Work Max", kind: "direct-subscription", serves: true }], family: "claude" },
     { refuse: true },
   );
   await open();
