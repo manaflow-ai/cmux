@@ -147,19 +147,10 @@ public final class TraceRing: Sendable {
         currentStorage?.decode() ?? []
     }
 
-    /// A copy of the current storage's bytes (header and chunks), read with atomic loads, so it is safe
-    /// while threads write. ``records(inImage:)`` decodes it.
+    /// A v1 ring image of the current storage (header and chunks) that holds only whole records, safe
+    /// while threads write. ``records(inImage:)`` decodes it; the exporter writes it out.
     public func image() -> [UInt8] {
-        guard let storage = currentStorage else { return [] }
-        let words = storage.byteCount / 8
-        var bytes = [UInt8](repeating: 0, count: words * 8)
-        bytes.withUnsafeMutableBytes { buffer in
-            for index in 0 ..< words {
-                buffer.storeBytes(of: TraceRingStorage.word(storage.base, index * 8).load(ordering: .relaxed),
-                                  toByteOffset: index * 8, as: UInt64.self)
-            }
-        }
-        return bytes
+        currentStorage?.image() ?? []
     }
 
     /// Decodes a ring image (``image()`` or a ring file's bytes); nil when it is not a whole v1 ring.

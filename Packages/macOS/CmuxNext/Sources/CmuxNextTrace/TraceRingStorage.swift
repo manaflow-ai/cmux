@@ -179,40 +179,87 @@ struct TraceRingStorage {
 
     /// Appends the chunk's whole records of its current lap; none when the chunk changed lap meanwhile.
     private func decodeChunk(_ index: Int, chunkCount: Int, into records: inout [TraceRecord]) {
-        let chunk = chunk(index)
-        let lapWord = Self.word(chunk, Self.chunkLap)
-        let before = lapWord.load(ordering: .acquiring) & Self.lapMask
-        guard before != 0 else { return }
-        let lap = before - 1
-        let wanted = UInt32(truncatingIfNeeded: lap &* 2 &+ 2)
-        let published = min(Int(truncatingIfNeeded: Self.word(chunk, Self.chunkPublished).load(ordering: .acquiring)), TraceRing.recordsPerChunk)
-        guard published > 0 else { return }
         let start = records.count
-        for slot in 1 ... published {
-            let record = chunk + slot * TraceRing.recordBytes
-            let header = Self.word(record, 8)
-            let first = header.load(ordering: .acquiring)
-            guard UInt32(truncatingIfNeeded: first) == wanted else { continue }
-            let timestamp = Self.word(record, 0).load(ordering: .acquiring)
-            let arg0 = Self.word(record, 16).load(ordering: .acquiring)
-            let arg1 = Self.word(record, 24).load(ordering: .acquiring)
-            guard header.load(ordering: .relaxed) == first else { continue }
+        let stable = readChunk(index) { slot, lap, header, timestamp, arg0, arg1 in
             records.append(TraceRecord(
-                timestamp: timestamp, name: UInt16(truncatingIfNeeded: first >> 32),
-                phaseCode: UInt8(truncatingIfNeeded: first >> 48), flags: UInt8(truncatingIfNeeded: first >> 56),
+                timestamp: timestamp, name: UInt16(truncatingIfNeeded: header >> 32),
+                phaseCode: UInt8(truncatingIfNeeded: header >> 48), flags: UInt8(truncatingIfNeeded: header >> 56),
                 arg0: arg0, arg1: arg1, threadIndex: 0, threadGeneration: 0,
                 ticket: lap &* UInt64(chunkCount) &+ UInt64(index), slot: slot
             ))
         }
-        let thread = Self.word(chunk, Self.chunkThread).load(ordering: .acquiring)
-        guard lapWord.load(ordering: .relaxed) & Self.lapMask == before else {
+        guard let stable else {
             records.removeSubrange(start...)
             return
         }
         for position in start ..< records.count {
-            records[position].threadIndex = UInt32(truncatingIfNeeded: thread)
-            records[position].threadGeneration = UInt32(truncatingIfNeeded: thread >> 32)
+            records[position].threadIndex = UInt32(truncatingIfNeeded: stable.thread)
+            records[position].threadGeneration = UInt32(truncatingIfNeeded: stable.thread >> 32)
         }
+    }
+
+    /// The seqlock read of one chunk: calls `record(slot, lap, header word, timestamp, arg0, arg1)` for each
+    /// slot below the published count that holds the chunk lap's published sequence and kept it across the
+    /// read. Returns the chunk's lap word and thread word, or nil when the chunk was never claimed or
+    /// changed lap during the read (then the records it reported are not whole).
+    private func readChunk(_ index: Int,
+                           record: (Int, UInt64, UInt64, UInt64, UInt64, UInt64) -> Void) -> (lapWord: UInt64, thread: UInt64)? {
+        let chunk = chunk(index)
+        let lapWord = Self.word(chunk, Self.chunkLap)
+        let before = lapWord.load(ordering: .acquiring) & Self.lapMask
+        guard before != 0 else { return nil }
+        let lap = before - 1
+        let wanted = UInt32(truncatingIfNeeded: lap &* 2 &+ 2)
+        let published = min(Int(truncatingIfNeeded: Self.word(chunk, Self.chunkPublished).load(ordering: .acquiring)), TraceRing.recordsPerChunk)
+        if published > 0 {
+            for slot in 1 ... published {
+                let slotBase = chunk + slot * TraceRing.recordBytes
+                let header = Self.word(slotBase, 8)
+                let first = header.load(ordering: .acquiring)
+                guard UInt32(truncatingIfNeeded: first) == wanted else { continue }
+                let timestamp = Self.word(slotBase, 0).load(ordering: .acquiring)
+                let arg0 = Self.word(slotBase, 16).load(ordering: .acquiring)
+                let arg1 = Self.word(slotBase, 24).load(ordering: .acquiring)
+                guard header.load(ordering: .relaxed) == first else { continue }
+                record(slot, lap, first, timestamp, arg0, arg1)
+            }
+        }
+        let thread = Self.word(chunk, Self.chunkThread).load(ordering: .acquiring)
+        guard lapWord.load(ordering: .relaxed) & Self.lapMask == before else { return nil }
+        return (before, thread)
+    }
+
+    /// A copy of the storage that holds only whole records: the header words, then each chunk through the
+    /// seqlock read (a slot being written is left zero, a chunk that changed lap is left unclaimed). A
+    /// plain word-by-word copy would pair one record's payload with another's sequence.
+    func image() -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        bytes.withUnsafeMutableBytes { buffer in
+            for offset in stride(from: 0, to: TraceRing.headerBytes, by: 8) {
+                buffer.storeBytes(of: Self.word(base, offset).load(ordering: .relaxed), toByteOffset: offset, as: UInt64.self)
+            }
+            for index in 0 ..< chunkCount {
+                let chunkOffset = TraceRing.headerBytes + index * TraceRing.chunkBytes
+                var highest = 0
+                let stable = readChunk(index) { slot, _, header, timestamp, arg0, arg1 in
+                    let recordOffset = chunkOffset + slot * TraceRing.recordBytes
+                    for (field, value) in [(0, timestamp), (8, header), (16, arg0), (24, arg1)] {
+                        buffer.storeBytes(of: value, toByteOffset: recordOffset + field, as: UInt64.self)
+                    }
+                    highest = slot
+                }
+                guard let stable else {
+                    for offset in stride(from: chunkOffset, to: chunkOffset + TraceRing.chunkBytes, by: 8) {
+                        buffer.storeBytes(of: UInt64(0), toByteOffset: offset, as: UInt64.self)
+                    }
+                    continue
+                }
+                buffer.storeBytes(of: stable.thread, toByteOffset: chunkOffset + Self.chunkThread, as: UInt64.self)
+                buffer.storeBytes(of: stable.lapWord, toByteOffset: chunkOffset + Self.chunkLap, as: UInt64.self)
+                buffer.storeBytes(of: UInt64(highest), toByteOffset: chunkOffset + Self.chunkPublished, as: UInt64.self)
+            }
+        }
+        return bytes
     }
 
     /// Copies every whole record of `source` into this storage, one claimed chunk per source chunk, in

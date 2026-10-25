@@ -52,17 +52,20 @@ struct TraceRingTests {
         #expect(ring.counters.overwrittenChunks == 0)
     }
 
-    /// Writers overwrite a small ring while a reader decodes it: every record the reader accepts is whole.
+    /// Writers overwrite a small ring while a reader decodes it, live and through an image: every record
+    /// the reader accepts is whole.
     @Test func aReaderNeverAcceptsATornRecord() {
         let ring = TraceRing(records: 16 * TraceRing.recordsPerChunk, role: "test")
         let writersDone = SharedCount()
         let reads = SharedCount()
-        let torn = SharedCount()
+        let tornLive = SharedCount()
+        let tornImage = SharedCount()
         runOnThreads(5) { tag in
             if tag == 4 {
                 while writersDone.value.load(ordering: .acquiring) < 4 {
-                    torn.value.add(ring.records().filter { !Self.isWhole($0) }.count, ordering: .relaxed)
-                    torn.value.add((TraceRing.records(inImage: ring.image()) ?? []).filter { !Self.isWhole($0) }.count, ordering: .relaxed)
+                    tornLive.value.add(ring.records().filter { !Self.isWhole($0) }.count, ordering: .relaxed)
+                    let imaged = TraceRing.records(inImage: ring.image()) ?? []
+                    tornImage.value.add(imaged.filter { !Self.isWhole($0) }.count, ordering: .relaxed)
                     reads.value.add(1, ordering: .relaxed)
                 }
                 return
@@ -73,7 +76,8 @@ struct TraceRingTests {
             writersDone.value.add(1, ordering: .releasing)
         }
         #expect(reads.value.load(ordering: .relaxed) > 0)
-        #expect(torn.value.load(ordering: .relaxed) == 0)
+        #expect(tornLive.value.load(ordering: .relaxed) == 0, "the live decoder accepted torn records")
+        #expect(tornImage.value.load(ordering: .relaxed) == 0, "an image held torn records")
         #expect(ring.records().allSatisfy(Self.isWhole))
     }
 
