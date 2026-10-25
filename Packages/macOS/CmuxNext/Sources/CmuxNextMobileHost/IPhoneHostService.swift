@@ -106,8 +106,11 @@ public final class IPhoneHostService {
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
     private(set) var knownPhones: [MobileHostKnownPhone] = []
-    /// ``knownPhones`` is the signed-in account's list, read since it signed in.
-    @ObservationIgnored private(set) var phonesRead = false
+    /// Which phones may hold an acpmux credential is known: ``knownPhones`` is the signed-in
+    /// account's list, read since it signed in, or iPhone connections are off (none may).
+    @ObservationIgnored private(set) var phonesKnown = false
+    /// The setting has been read once (``allowed`` false before that is not "off").
+    @ObservationIgnored private var allowedRead = false
     /// Why the last list read or removal failed, shown under the list; nil when it worked.
     private(set) var phonesError: String?
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
@@ -176,7 +179,9 @@ public final class IPhoneHostService {
         listing?.cancel()
         guard allowed, account != nil, let dependencies else {
             knownPhones = []
-            phonesRead = false
+            // Connections turned off: no phone holds a credential and their records end. Before the
+            // setting or the account is read, which phones may is not known yet.
+            phonesKnown = allowedRead && !allowed && account != nil
             phonesError = nil
             return pushListedPhones()
         }
@@ -187,7 +192,7 @@ public final class IPhoneHostService {
                 let phones = try await directory.phones(token: dependencies.accessToken(false))
                 guard !Task.isCancelled else { return }
                 self?.knownPhones = phones
-                self?.phonesRead = true
+                self?.phonesKnown = true
                 self?.phonesError = nil
                 self?.pushListedPhones()
             } catch {
@@ -229,7 +234,7 @@ public final class IPhoneHostService {
             clearRemoval()
         }
         self.account = account
-        phonesRead = false
+        phonesKnown = false
         loadPaired(signedOut: signedOut)
         reconcile()
         refreshPhones()
@@ -328,7 +333,13 @@ public final class IPhoneHostService {
     }
 
     private func setAllowed(_ allowed: Bool) {
-        guard allowed != self.allowed else { return }
+        let first = !allowedRead
+        allowedRead = true
+        guard allowed != self.allowed else {
+            // Read off at launch: the phones' records end too (``refreshPhones()``).
+            if first { refreshPhones() }
+            return
+        }
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
         self.allowed = allowed

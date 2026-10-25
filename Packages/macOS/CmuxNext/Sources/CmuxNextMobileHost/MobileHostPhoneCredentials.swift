@@ -11,10 +11,11 @@ import Foundation
 ///   and no record is revoked for being unlisted (a saved setting survives the launch).
 /// - Credentials live in memory only. Each new connection lists acpmux's phone records
 ///   (`_acpmux/pair_list`) first, revokes every live one it must, then issues the missing ones.
-/// - A phone that leaves (unpaired, or no longer listed) is ``removed``: its live record is
-///   revoked at once when its id is known, and it gets no new credential until a list taken
-///   after its last issue and revoke shows no live record of its name. So a pairing again never
-///   inherits the setting, and an issue whose reply was lost is found by the next list.
+/// - A phone that leaves (unpaired, or no longer listed), and an unlisted record, are
+///   ``ending``: the live record of that name is revoked (at once when its id is known), and no
+///   credential goes under that name until a list taken after its last issue and revoke shows no
+///   live record of it. So a new record never inherits a setting meant to end, and an issue whose
+///   reply was lost is found by the next list.
 /// - A refusal is retried on a new connection (``refused``), which the sync opens after its backoff.
 struct MobileHostPhoneCredentials {
     /// One request for the connection.
@@ -47,8 +48,9 @@ struct MobileHostPhoneCredentials {
     /// The phones that get a credential (link ids); nil until the account's list is read.
     private(set) var phones: Set<String>?
     private var paired: Set<String> = []
-    /// Phones whose records must end before any new credential.
-    private(set) var removed: Set<String> = []
+    /// Record names (`phone-<id>`) whose live records must end before any new credential under
+    /// them: a phone that left, or an unlisted record being revoked.
+    private(set) var ending: Set<String> = []
     /// Each phone's credential by phone device id, as hostd gets them.
     var tokens: [String: String] { issued.mapValues(\.token) }
     private var issued: [String: (record: String, token: String)] = [:]
@@ -57,30 +59,38 @@ struct MobileHostPhoneCredentials {
     /// acpmux refused a request: a new connection retries it.
     private(set) var refused = false
     private var connected = false
-    /// This connection's list has answered: issues may go (never racing its revocations).
+    /// This connection's list has answered: issues may go.
     private var reconciled = false
     private var issuing: [Int: String] = [:]
-    private var revoking: [Int: (record: String, phone: String?)] = [:]
+    private var revoking: [Int: (record: String, name: String)] = [:]
     private var listing: Int?
 
     /// Whether the sync must keep (or open) its connection for these credentials.
     var needsConnection: Bool {
-        !issued.isEmpty || !removed.isEmpty || refused || phones.map { !$0.isEmpty || listOwed } ?? false
+        !issued.isEmpty || !ending.isEmpty || refused || phones.map { !$0.isEmpty || listOwed } ?? false
     }
 
-    /// The paired phones (link ids) and, once the account's list is read, those it lists.
+    private static func name(_ phone: String) -> String { MobileHostPairedDevices.acpmuxRecordName(phone) }
+
+    /// The paired phones (link ids) and, once the account's list is read, those it lists. A phone
+    /// that leaves either has its record end: at once when this connection holds its id, else by
+    /// the next list.
     mutating func update(paired: Set<String>, listed: Set<String>?, ids: inout Int) -> [Request] {
         let wanted = listed?.intersection(paired)
-        removed.formUnion(self.paired.subtracting(paired))
-        if let wanted, let phones { removed.formUnion(phones.subtracting(wanted)) }
+        var left = self.paired.subtracting(paired)
+        if let wanted, let phones { left.formUnion(phones.subtracting(wanted)) }
         if phones == nil, wanted != nil { listOwed = true }
         self.paired = paired
         phones = wanted
+        let names = Set(left.map(Self.name))
+        ending.formUnion(names)
         var requests: [Request] = []
         for phone in issued.keys.sorted() where wanted?.contains(phone) != true {
-            guard let record = issued.removeValue(forKey: phone)?.record, removed.contains(phone) else { continue }
-            requests += revoke(record, phone: phone, ids: &ids)
+            guard let record = issued.removeValue(forKey: phone)?.record, ending.contains(Self.name(phone)) else { continue }
+            requests += revoke(record, name: Self.name(phone), ids: &ids)
         }
+        // A removal with nothing under way for it: a list finds its record, if any.
+        if names.contains(where: { !busy($0) }) { listOwed = true }
         return requests + list(ids: &ids) + issueMissing(ids: &ids)
     }
 
@@ -109,12 +119,13 @@ struct MobileHostPhoneCredentials {
     mutating func reply(id: Int, _ message: [String: Any], ids: inout Int) -> [Request]? {
         let result = message["result"] as? [String: Any]
         if let phone = issuing.removeValue(forKey: id) {
+            let name = Self.name(phone)
             guard let result, let record = result["deviceId"] as? String, let token = result["token"] as? String else {
                 refused = true
-                return settle(phone, ids: &ids)
+                return settle(name, ids: &ids)
             }
             refused = false
-            if removed.contains(phone) { return revoke(record, phone: phone, ids: &ids) }
+            if ending.contains(name) { return revoke(record, name: name, ids: &ids) }
             if phones?.contains(phone) == true { issued[phone] = (record, token) }
             return []
         }
@@ -122,8 +133,7 @@ struct MobileHostPhoneCredentials {
             let reason = ((message["error"] as? [String: Any])?["data"] as? [String: Any])?["reason"] as? String
             // Already gone counts as revoked.
             refused = result == nil && reason != "not_found"
-            guard let phone = revoked.phone else { return [] }
-            return settle(phone, ids: &ids)
+            return settle(revoked.name, ids: &ids)
         }
         guard id == listing else { return nil }
         listing = nil
@@ -134,7 +144,7 @@ struct MobileHostPhoneCredentials {
         }
         refused = false
         reconciled = true
-        let owned = Set((phones ?? []).subtracting(removed).map(MobileHostPairedDevices.acpmuxRecordName))
+        let owned = Set((phones ?? []).map(Self.name)).subtracting(ending)
         let held = Set(issued.values.map(\.record))
         var live: Set<String> = []
         var requests: [Request] = []
@@ -142,24 +152,27 @@ struct MobileHostPhoneCredentials {
         where device["role"] as? String == "phone" && device["revoked_at"] is NSNull {
             guard let record = device["id"] as? String, let name = device["name"] as? String else { continue }
             live.insert(name)
-            let gone = removed.first { MobileHostPairedDevices.acpmuxRecordName($0) == name }
-            // Unlisted records go only once the account's list is read; a removed phone's always.
-            guard gone != nil || (phones != nil && !owned.contains(name) && !held.contains(record)) else { continue }
-            requests += revoke(record, phone: gone, ids: &ids)
+            if !ending.contains(name) {
+                // An unlisted record ends only once the account's list is read (a saved setting
+                // survives the launch); a phone that left ends always.
+                guard phones != nil, !owned.contains(name), !held.contains(record) else { continue }
+                ending.insert(name)
+            }
+            requests += revoke(record, name: name, ids: &ids)
         }
-        for phone in removed where !live.contains(MobileHostPairedDevices.acpmuxRecordName(phone)) && !busy(phone) {
-            removed.remove(phone)
+        for name in ending where !live.contains(name) && !busy(name) {
+            ending.remove(name)
         }
         return requests + list(ids: &ids) + issueMissing(ids: &ids)
     }
 
-    private func busy(_ phone: String) -> Bool {
-        issuing.values.contains(phone) || revoking.values.contains { $0.phone == phone }
+    private func busy(_ name: String) -> Bool {
+        issuing.values.contains { Self.name($0) == name } || revoking.values.contains { $0.name == name }
     }
 
-    /// A removed phone's last open request ended: a new list shows whether its record is gone.
-    private mutating func settle(_ phone: String, ids: inout Int) -> [Request] {
-        guard removed.contains(phone), !busy(phone) else { return [] }
+    /// The last open request under an ending name ended: a new list shows whether its record is gone.
+    private mutating func settle(_ name: String, ids: inout Int) -> [Request] {
+        guard ending.contains(name), !busy(name) else { return [] }
         listOwed = true
         return list(ids: &ids)
     }
@@ -172,21 +185,22 @@ struct MobileHostPhoneCredentials {
         return [Request(id: ids, kind: .list)]
     }
 
-    /// Issues wait for the connection's first list and for any list in flight, so they never
-    /// race the revocations a list leads to.
+    /// Issues wait for the connection's first list and for any list in flight, and never go under
+    /// an ending name, so a new record never inherits a setting that was meant to end.
     private mutating func issueMissing(ids: inout Int) -> [Request] {
         guard connected, reconciled, listing == nil, let phones else { return [] }
-        return phones.subtracting(removed).sorted().filter { issued[$0] == nil && !issuing.values.contains($0) }.map { phone in
+        let open = Set(issuing.values)
+        return phones.sorted().filter { !ending.contains(Self.name($0)) && issued[$0] == nil && !open.contains($0) }.map { phone in
             ids += 1
             issuing[ids] = phone
             return Request(id: ids, kind: .issue(phone: phone))
         }
     }
 
-    private mutating func revoke(_ record: String, phone: String?, ids: inout Int) -> [Request] {
+    private mutating func revoke(_ record: String, name: String, ids: inout Int) -> [Request] {
         guard connected, !revoking.values.contains(where: { $0.record == record }) else { return [] }
         ids += 1
-        revoking[ids] = (record, phone)
+        revoking[ids] = (record, name)
         return [Request(id: ids, kind: .revoke(record: record))]
     }
 }
