@@ -72,8 +72,9 @@ export type Fold = {
 /// A collapsible's body: `present` while it is open or closing, and the ref for its `.cv-fold` box.
 /// Each change of `open` after the first render plays the fold when `animates()` says so (a folded
 /// thought plays only the reader's toggle, not its automatic fold). A fold that turns back midway
-/// starts from where it was drawn.
-export function useFold(open: boolean, animates: () => boolean = always): Fold {
+/// starts from where it was drawn. With `fadeIn` false the body opens at full opacity, only its
+/// height moving (Leo, 2026-10-24: "No fade in. Just boom ... Fade out, yes"); it still fades out.
+export function useFold(open: boolean, animates: () => boolean = always, fadeIn = true): Fold {
   const ref = useRef<HTMLDivElement>(null);
   const [closing, setClosing] = useState(false);
   const [shownOpen, setShownOpen] = useState(open);
@@ -150,7 +151,7 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     // height again, content that loaded meanwhile included.
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
-    const fromOpacity = turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
+    const fromOpacity = open && !fadeIn ? 1 : turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
     cancelRunning();
     const toHeight = open ? node.scrollHeight : 0;
     node.style.overflow = "hidden";
