@@ -295,13 +295,20 @@ def legacy_lag(now: dt.datetime, next_xml: str, legacy_xml: str,
                max_lag_minutes: float = LEGACY_MAX_LAG_MINUTES) -> tuple[int | None, str]:
     """(the build cmux NIGHTLY's feed has waited for past the limit, or None; what was found).
     Reads only the two feeds, so an API error never hides a stale feed."""
-    old = max((build for build, _ in nightly_builds(legacy_xml)), default=0)
+    legacy = nightly_builds(legacy_xml)
+    old, old_published = max(legacy, default=(0, None))
     # Every Nightly build cmux NIGHTLY's feed lacks. The wait runs from the oldest of them, so a
     # newer publication never restarts it; the newest is the one the legacy jobs should publish.
-    missing = sorted(item for item in nightly_builds(next_xml) if item[0] > old)
+    builds = nightly_builds(next_xml)
+    missing = sorted(item for item in builds if item[0] > old)
     if not missing:
         return None, f"current at build {old}"
-    waited = (now - min(published for _, published in missing)).total_seconds() / 60
+    since = min(published for _, published in missing)
+    # A skipped republish leaves cmux NEXT's feed without its earlier items (cx-urd.67), so the
+    # oldest missing build may be gone: then the wait runs from cmux NIGHTLY's own newest build.
+    if old_published is not None and not any(build <= old for build, _ in builds):
+        since = min(since, old_published)
+    waited = (now - since).total_seconds() / 60
     build = missing[-1][0]
     if waited < max_lag_minutes:
         return None, f"build {build} is {waited:.0f} min behind; the legacy jobs have {max_lag_minutes:g}"

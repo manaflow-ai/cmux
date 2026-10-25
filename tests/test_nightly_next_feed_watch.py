@@ -271,7 +271,7 @@ class LegacyFeedTests(unittest.TestCase):
 
     def test_current_or_fresh_is_not_behind(self):
         self.assertIsNone(self.lag(old_xml=feed((4023540480101, 30, "cmux-next")))[0])
-        self.assertIsNone(self.lag(next_xml=feed((4023540480101, 5, "cmux-next")))[0])
+        self.assertIsNone(self.lag(next_xml=feed((4023540480101, 5, "cmux-next"), (4020374816001, 450, "cmux-next")))[0])
 
     def test_a_newer_publication_never_restarts_the_wait(self):
         # 40 minutes waiting for one build, and a second one published 5 minutes ago: still behind,
@@ -279,6 +279,13 @@ class LegacyFeedTests(unittest.TestCase):
         build, _ = self.lag(next_xml=feed((4024000000101, 5, "cmux-next"), (4023540480101, 40, "cmux-next"),
                                           (4020374816001, 450, "cmux-next")))
         self.assertEqual(build, 4024000000101)
+
+    def test_a_feed_that_dropped_its_earlier_items_never_restarts_the_wait(self):
+        # A skipped republish leaves cmux NEXT's feed with only its newest item (cx-urd.67).
+        build, _ = self.lag(next_xml=feed((4024000000101, 5, "cmux-next")))
+        self.assertEqual(build, 4024000000101)
+        # With cmux NIGHTLY's build still listed, the oldest missing build's own date counts.
+        self.assertIsNone(self.lag(next_xml=feed((4024000000101, 5, "cmux-next"), (4020374816001, 450, "cmux-next")))[0])
 
     def test_only_items_tagged_cmux_next_count(self):
         # nightly_next_ring.py select keeps only explicit cmux-next tags.
