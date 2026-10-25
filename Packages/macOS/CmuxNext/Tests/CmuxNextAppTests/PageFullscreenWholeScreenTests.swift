@@ -35,6 +35,10 @@ struct PageFullscreenWholeScreenTests {
 
         tab.simulate(.contentFullscreenChanged(true))
         fixture.frame()
+        // DIAG
+        let content = try #require(fixture.controller.content)
+        let chrome = try #require(pane.view.subviews.first { $0 is BrowserChromeView } as? BrowserChromeView)
+        Issue.record("diag: state=\(tab.state.isContentFullscreen) delegateIsController=\(chrome.window?.delegate is WindowController) hasCallback=\(chrome.onContentFullscreenChange != nil) visiblePanes=\(content.panes.values.filter(\.isVisible).count) allPanes=\(content.panes.count) parkedDrawing=\(fixture.controller.parked.values.filter { !$0.drawsNothing }.count) chromeHidden=\(chrome.isHiddenOrHasHiddenAncestor) inPane=\(chrome.isDescendant(of: pane.view)) windowSame=\(chrome.window === fixture.controller.window)")
         #expect(fixture.controller.pagePresentation?.entersWindowFullScreen == true, "the window enters full screen for the page")
         #expect(root.contentHost.frame == root.bounds, "the page fills the window, edge to edge")
         #expect(root.sidebar.isHiddenOrHasHiddenAncestor, "the sidebar steps aside")
