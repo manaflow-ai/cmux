@@ -199,20 +199,21 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     // MARK: PaneContentChrome
 
-    var paneFramesContent: Bool {
-        let kept = paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil }
-        return !((kept ?? (hostsContent ? content : nil)) is AgentPaneView)
+    private var visibleContent: NSView? {
+        paintHold.kept.flatMap { $0.superview === contentHost ? $0 : nil } ?? (hostsContent ? content : nil)
     }
+
+    var paneFramesContent: Bool { !(visibleContent is AgentPaneView) }
 
     /// The hosted content's own header, if it reports one (a browser's
     /// toolbar does not: it is inside the content area).
-    private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
+    private var innerChrome: PaneContentChrome? { visibleContent as? PaneContentChrome }
 
     /// A chat with its native tab strip hidden still owns the top strip in its
     /// webview. Keep the pane ring below that strip so focus does not draw an
     /// extra hairline above the chat header (Austin, 2026-10-23).
     private var hiddenAgentHeaderHeight: CGFloat {
-        guard hidesStrip, content is AgentPaneView else { return 0 }
+        guard hidesStrip, visibleContent is AgentPaneView else { return 0 }
         return PaneChromeMetrics.current.resolvedStripHeight(scale: window?.backingScaleFactor ?? 2)
     }
 

@@ -77,10 +77,12 @@ import Testing
         host.applyShape(padding: 4, cornerRadius: 12)
         pane.layoutSubtreeIfNeeded()
         updateChrome(host)
+        let outgoingHeader = pane.paneHeaderHeight
         pane.show(page)
         try #require(pane.paintHold.kept === outgoing)
         #expect(host.chrome.showsRing, "the visible outgoing pane lost its focus frame before the chat painted")
         #expect(pane.contentHost.layer?.cornerRadius == 12, "the outgoing pane's clip changed before the swap")
+        #expect(pane.paneHeaderHeight == outgoingHeader, "the visible outgoing pane's frame moved before the chat painted")
 
         page.model.markPainted()
         #expect(pane.paintHold.kept == nil)
