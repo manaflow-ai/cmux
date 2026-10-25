@@ -163,7 +163,8 @@ impl Translator {
                                 .get("cache_creation_input_tokens")
                                 .and_then(Value::as_u64)
                                 .unwrap_or(0);
-                            let output = u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
+                            let output =
+                                u.get("output_tokens").and_then(Value::as_u64).unwrap_or(0);
                             let used = input + cache_read + cache_write;
                             // A subagent's usage is its own context, not the chat's.
                             if parent.is_none() {
