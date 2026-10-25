@@ -569,8 +569,7 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
   if (found.unsure || skippable || before.includes("&&")) send.unsure = true;
   // `! acpmux send …` inverts the status: it is not the send's.
   const inverted = commands[at]!.words[0]?.literal === true && commands[at]!.words[0]!.text === "!";
-  const last =
-    !inverted && at === commands.length - 1 && commands[at]!.op !== "|" && commands[at]!.op !== "&";
+  const last = !inverted && at === commands.length - 1 && commands[at]!.op !== "|" && commands[at]!.op !== "&";
   if (last && !skippable && (direct || found.ownsExit)) send.ownsExit = true;
   return send;
 }
