@@ -62,10 +62,12 @@ jobs:
         run: |
           # Keep the sticky disk's Git object store for fetch speed, but never
           # trust metadata written by a prior command or source snapshot.
-          if [[ -L .git ]]; then
-            rm -f .git
+          if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
+            rm -rf -- .git
           elif [[ -d .git ]]; then
-            if find -L .git/objects -type l -print -quit | grep -q .; then
+            # -P is required here: -L would follow a linked objects directory
+            # and could miss the link, preserving an attacker-controlled store.
+            if find -P .git -type l -print -quit | grep -q .; then
               rm -rf -- .git
             else
               rm -rf .git/hooks .git/logs .git/refs
