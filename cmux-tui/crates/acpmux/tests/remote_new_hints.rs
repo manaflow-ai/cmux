@@ -116,7 +116,12 @@ async fn each_remote_new_refusal_names_its_reason_and_a_peer_hears_the_allowed_r
     assert_eq!(reason(&r), "remote.mode_refused", "{r}");
     let r = web.call(method::SESSION_NEW, new(json!({}), Some(&root.join("missing")))).await;
     assert_eq!(reason(&r), "remote.cwd_missing", "{r}");
+    assert_eq!(r["error"]["data"]["cause"], "missing", "{r}");
     assert!(!root.join("missing").exists(), "a Web connection never makes a folder");
+    // A file is no folder, and no `mkdir -p` makes one there.
+    std::fs::write(root.join("file"), "x").unwrap();
+    let r = web.call(method::SESSION_NEW, new(json!({}), Some(&root.join("file")))).await;
+    assert_eq!(r["error"]["data"]["cause"], "unusable", "{r}");
     let r = web.call(method::SESSION_NEW, new(json!({}), Some(&outside))).await;
     assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
     // The Web is not told which folders this machine has.

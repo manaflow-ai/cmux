@@ -334,7 +334,7 @@ async fn check_inner(
                     let made = make_inside_root(cwd, roots, deferred.is_none()).await;
                     made.map_err(|e| e.unwrap_or_else(|| outside("cwd")))?
                 }
-                None => return Err(folder_refused("cwd")),
+                None => return Err(cwd_refused(cwd).await),
             };
             if let Some(canonical) = canonical {
                 if !inside(&canonical) {
@@ -918,9 +918,10 @@ async fn make_inside_root(
     if inside(Path::new(&canonical)) { Ok(Some(canonical)) } else { Err(None) }
 }
 
-/// Make each name of `rest` below `base`, one folder at a time through descriptors that
-/// never follow a link: a link (dangling or not) or a file in the way fails the make, so
-/// no folder is ever made outside `base`.
+/// Make each name of `rest` below `base` (canonical), one folder at a time through
+/// descriptors that never follow a link, from `/` down: a link (dangling or not) or a file
+/// anywhere on the way, `base`'s own folders included, fails the make, so no folder is ever
+/// made outside `base` even when one of them is swapped for a link meanwhile.
 #[cfg(unix)]
 fn make_below(base: &Path, rest: &Path) -> std::io::Result<()> {
     use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -940,7 +941,10 @@ fn make_below(base: &Path, rest: &Path) -> std::io::Result<()> {
     let c = |bytes: &[u8]| {
         std::ffi::CString::new(bytes).map_err(|_| std::io::Error::other("a NUL in the path"))
     };
-    let mut dir = open(libc::AT_FDCWD, &c(base.as_os_str().as_bytes())?)?;
+    let mut dir = open(libc::AT_FDCWD, &c(b"/")?)?;
+    for part in base.components().filter(|p| matches!(p, std::path::Component::Normal(_))) {
+        dir = open(dir.as_raw_fd(), &c(part.as_os_str().as_bytes())?)?;
+    }
     for part in rest.components() {
         let name = c(part.as_os_str().as_bytes())?;
         // SAFETY: as above; mkdirat never follows a link in the last component.
@@ -958,6 +962,53 @@ fn make_below(base: &Path, rest: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn make_below(_base: &Path, _rest: &Path) -> std::io::Result<()> {
     Err(std::io::Error::other("folders are made for a peer on unix only"))
+}
+
+/// `folder_refused` for a `cwd` that names no directory, with `data.cause`: `missing` when
+/// `mkdir -p` on this machine would make it (nothing is there, and its nearest existing
+/// folder is a directory), else `unusable` (a file, a link, no absolute path).
+async fn cwd_refused(cwd: &str) -> RpcError {
+    let mut e = folder_refused("cwd");
+    let path = Path::new(cwd);
+    let mut cause = "unusable";
+    for (i, ancestor) in path.ancestors().enumerate().take_while(|_| path.is_absolute()) {
+        match tokio::fs::symlink_metadata(ancestor).await {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Ok(_) if i > 0 && tokio::fs::metadata(ancestor).await.is_ok_and(|m| m.is_dir()) => {
+                cause = "missing";
+            }
+            _ => {}
+        }
+        break;
+    }
+    if let Some(data) = e.data.as_mut() {
+        data["cause"] = Value::from(cause);
+    }
+    e
+}
+
+#[cfg(all(test, unix))]
+mod make_below_tests {
+    use super::*;
+
+    #[test]
+    fn a_folder_is_made_below_its_base_and_never_through_a_link_on_the_way() {
+        let dir = std::env::temp_dir().join(format!("make-below-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (root, outside) = (dir.join("root"), dir.join("outside"));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        let root = std::fs::canonicalize(&root).unwrap();
+        make_below(&root, Path::new("a/b")).unwrap();
+        assert!(root.join("a/b").is_dir());
+        // A folder of the base swapped for a link after the base was checked.
+        std::fs::remove_dir_all(root.join("a")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("a")).unwrap();
+        assert!(make_below(&root.join("a"), Path::new("b")).is_err());
+        assert!(make_below(&root, Path::new("a/b")).is_err());
+        assert!(!outside.join("b").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only

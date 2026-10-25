@@ -34,7 +34,10 @@ pub(super) fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> 
     let first_root = roots.and_then(|r| r.first()).and_then(Value::as_str);
     let ssh = crate::peer::ssh_target(&peer.url).ok().map(|t| t.destination);
     let mut run_on = None;
-    let (command, why) = match suggest(&Start::of(params), reason, served_as_peer, first_root) {
+    // `missing` (mkdir -p makes it) or `unusable`; an older peer does not say.
+    let cause = data.and_then(|d| d.get("cause")).and_then(Value::as_str);
+    let found = Found { served_as_peer, first_root, cause };
+    let (command, why) = match suggest(&Start::of(params), reason, found) {
         Hint::Here(start) => (start.command(Some(&peer.name)), String::new()),
         Hint::OnHost(start) => {
             let then = start
@@ -179,12 +182,25 @@ enum Hint {
     OnHost(Start),
 }
 
+/// What the refusal says besides its reason.
+#[derive(Clone, Copy, Default)]
+struct Found<'a> {
+    served_as_peer: bool,
+    first_root: Option<&'a str>,
+    cause: Option<&'a str>,
+}
+
 /// The start that works after `reason`. A peer that serves this daemon as a remote Web
 /// client takes only its own roots (which it does not name) and asking policies, so the
-/// way out there is HOST's own CLI. A mode is dropped either way.
-fn suggest(start: &Start, reason: &str, served_as_peer: bool, first_root: Option<&str>) -> Hint {
+/// way out there is HOST's own CLI, in the folder asked for unless no `mkdir -p` makes it
+/// (then in the shell's own). A mode is dropped either way.
+fn suggest(start: &Start, reason: &str, found: Found) -> Hint {
+    let Found { served_as_peer, first_root, cause } = found;
     let mut next = Start { mode: None, ..start.clone() };
     if !served_as_peer || reason == POLICY_REFUSED {
+        if reason == CWD_MISSING && cause.is_some_and(|c| c != "missing") {
+            next.cwd = None;
+        }
         return Hint::OnHost(next);
     }
     match reason {
@@ -230,29 +246,37 @@ mod tests {
         assert_eq!(odd.command(None), r"acpmux new --cwd '/tmp/a b/it'\''s' -d");
     }
 
+    fn peer(first_root: Option<&str>) -> Found<'_> {
+        Found { served_as_peer: true, first_root, cause: None }
+    }
+
     #[test]
     fn each_refusal_suggests_a_start_the_peer_takes() {
         let s = start();
         // From a peer that serves us as a peer: a folder in its first root, or none; never
         // a mode.
-        let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, true, Some("/home/cmux/Projects"))
+        let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, peer(Some("/home/cmux/Projects")))
         else {
             panic!()
         };
         assert_eq!(next.cwd.as_deref(), Some("/home/cmux/Projects/x"));
         assert_eq!(next.mode, None);
-        let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, true, None) else { panic!() };
+        let Hint::Here(next) = suggest(&s, CWD_OUTSIDE_ROOTS, peer(None)) else { panic!() };
         assert_eq!(next.cwd, None);
-        let Hint::Here(next) = suggest(&s, MODE_REFUSED, true, None) else { panic!() };
+        let Hint::Here(next) = suggest(&s, MODE_REFUSED, peer(None)) else { panic!() };
         assert_eq!((next.mode, next.policy.as_deref()), (None, Some("approve-all")));
         // A policy it refused, or anything from a peer that serves us as Web: on the host,
         // its folder made first, with no mode.
-        assert!(matches!(suggest(&s, POLICY_REFUSED, true, None), Hint::OnHost(_)));
-        let Hint::OnHost(next) = suggest(&s, CWD_MISSING, false, None) else { panic!() };
+        assert!(matches!(suggest(&s, POLICY_REFUSED, peer(None)), Hint::OnHost(_)));
+        let web = |cause| Found { cause, ..Found::default() };
+        let Hint::OnHost(next) = suggest(&s, CWD_MISSING, web(Some("missing"))) else { panic!() };
         assert_eq!(
             next.on_host_command(),
             "mkdir -p /home/cmux/hb-acpmux/x && acpmux new -m codex/gpt-6 -n lane --cwd /home/cmux/hb-acpmux/x --policy approve-all -d"
         );
+        // A path no `mkdir -p` makes (a file, a link) is left out.
+        let Hint::OnHost(next) = suggest(&s, CWD_MISSING, web(Some("unusable"))) else { panic!() };
+        assert_eq!(next.cwd, None);
     }
 
     #[test]
