@@ -59,7 +59,7 @@ rm -f "$phase_stamp"
 # would make the app claim CEF is unavailable while still shipping stale code.
 remove_embed() {
   rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
-  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
+  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app" "$app/Contents/MacOS/"*" Chromium Host"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
   return 0

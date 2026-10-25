@@ -91,7 +91,15 @@ embed Debug
 grep -q "warning: the Chromium host app did not build" "$TMP/embed-Debug.log" || fail "no warning for a host that did not build"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Debug embed whose host did not build lost the base helper"
 
-# 4. The same with CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1: the build fails.
+# 4. CMUX_NEXT_SKIP_CEF=1 removes the whole CEF payload, the host with it.
+rm -f "$TMP/host-fails"
+embed Debug
+[[ -f "$host_app" ]] || fail "a Debug embed has no Chromium host before the skip"
+embed Debug CMUX_NEXT_SKIP_CEF=1
+[[ ! -e "$host_app" ]] || fail "a CMUX_NEXT_SKIP_CEF=1 embed keeps the Chromium host"
+: > "$TMP/host-fails"
+
+# 5. The same failing host with CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1: the build fails.
 if run_embed Debug CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1; then
   fail "CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1 let a Debug embed pass without the host"
 fi
