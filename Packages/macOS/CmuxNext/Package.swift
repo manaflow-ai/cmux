@@ -1242,6 +1242,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
+        // VERIFY ONLY (p09-observability-002): task 000 adds these targets.
+        .target(
+            name: "CmuxNextTrace",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTraceTests",
+            dependencies: ["CmuxNextTrace"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextWakeups",
             // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
