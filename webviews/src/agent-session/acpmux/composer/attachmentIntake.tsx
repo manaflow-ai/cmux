@@ -62,7 +62,7 @@ export type AttachmentIntakeOptions = {
   /// files for the next prompt and uploads nothing (a chat's shell mode).
   pasteTarget(target: Node): { uploads: boolean } | undefined;
   /// The chat's host saves what the composer can't attach (cloudUploads.ts); its chip sends the path.
-  upload?(files: File[]): Promise<UploadResult>;
+  upload?(files: File[], cancelled?: (index: number) => boolean): Promise<UploadResult>;
   /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
   /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
   localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
@@ -117,7 +117,16 @@ export function appendAttachments(
 /// be attached stays, saying why (`failed`), with Retry (Leo, 2026-10-24: "why don't you put a
 /// spinner on the attachment rather than this placeholder that doesn't do anything... I can't even
 /// cancel these").
-export type PendingAttachment = { id: string; name: string; image: boolean; scope?: string; failed?: string };
+export type PendingAttachment = {
+  id: string;
+  name: string;
+  image: boolean;
+  scope?: string;
+  failed?: string;
+  /// Streaming to the session's machine (a file of any size): a send goes without waiting for it,
+  /// and it stays for the next prompt (Leo, 2026-10-25: "...prevent new things from happening").
+  uploading?: boolean;
+};
 
 /// What Retry needs of a pending chip: its file and how it came in.
 type PendingSource = { file: File; uploads: boolean };
@@ -229,6 +238,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         {
           ready,
           failed,
+          uploading: (index) => {
+            const id = shown[index]!.id;
+            setPending((chips) => chips.map((chip) => (chip.id === id ? { ...chip, uploading: true } : chip)));
+          },
           original: (index, path, name) => {
             const id = made[index];
             setAttachments((staged) =>
@@ -291,8 +304,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
-  /// The chips still loading (a failed one waits for its Retry or ×, not the send).
-  const loading = shown.filter((chip) => !chip.failed).length;
+  /// The chips still loading that a send waits for: a failed one waits for its Retry or x, and one
+  /// streaming to the session's machine stays for the next prompt, neither holds the send.
+  const loading = shown.filter((chip) => !chip.failed && !chip.uploading).length;
   /// The landing animation ended: the overlay hides.
   const [dropLanded] = useState(() => () => showDrop(HIDDEN_DROP));
   return {
