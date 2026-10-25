@@ -850,7 +850,8 @@ impl Hub {
         };
         match m {
             method::SESSION_SET_MODE => {
-                session.meta.lock().unwrap().mode_set_by_cmux = asked_mode;
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+                    asked_mode;
                 if let Some(mode) = res.get("currentModeId").or(res.get("modeId")).cloned() {
                     self.write_mode_state(session, [ModeWrite::CurrentMode(mode)]);
                 }
