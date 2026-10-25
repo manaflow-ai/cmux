@@ -125,7 +125,7 @@ function inlineRuns(text: string, attachments: readonly { id: string }[]): Inlin
   const flush = (at: number) => {
     if (at > start) runs.push({ type: "text", text: text.slice(start, at) });
   };
-  for (let at = text.indexOf(INLINE_ATTACHMENT_MARK); at >= 0; ) {
+  for (let at = text.indexOf(INLINE_ATTACHMENT_MARK); at >= 0;) {
     const token = tokenAt(at);
     if (token && known.has(token.id) && !placed.has(token.id)) {
       flush(at);

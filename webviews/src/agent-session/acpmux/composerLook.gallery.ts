@@ -216,7 +216,7 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "codex"),
     },
     "codex-chat-dots": {
-      note: "Codex's look with the pointer in the band under the box (the dead space Codex leaves): the two dots show there, Codex marked.",
+      note: "Codex's look with the pointer in the box's internal dead-space row: the two dots show there, Codex marked.",
       snapshot: startedChat(),
       play: async (ctx) => {
         await look(ctx, "codex");

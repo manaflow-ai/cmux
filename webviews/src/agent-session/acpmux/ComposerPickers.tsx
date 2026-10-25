@@ -229,7 +229,7 @@ export function ComposerPickers({
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
   // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
   // non-toggleable Fast remains in the model menu.
-  const { showContextUsage, harnessSwitch } = useComposerSettings();
+  const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
@@ -853,6 +853,7 @@ export function ComposerPickers({
             pending.current = undefined;
             onEffort(effort.id, value);
           },
+          ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
         }
       : heldLevels.length > 1 && chipHarness && !profileDeclaresNoEffort
         ? {
@@ -863,6 +864,7 @@ export function ComposerPickers({
               setHeldPick({ harness: chipHarness, value });
               onEffort(heldOption?.id ?? "effort", value);
             },
+            ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
           }
         : undefined;
   // Accounts are this Mac's acpmux routes: a chat on another machine has none here.
@@ -1079,7 +1081,7 @@ function AccessMenu({
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
   onMode(modeId: string): void | Promise<unknown>;
-  /// The menu's heading, as the harness's own menu titles it ("Mode", "How should actions be approved?").
+  /// The harness menu's mode supplies the icon layout even though its explanatory heading is not drawn.
   heading?: string;
   /// Rows show their number keys, as Claude Code's mode menu does (the keys pick either way).
   numbered?: boolean;
@@ -1178,11 +1180,6 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
-          {heading && modes.length > 0 && (
-            <div className="acpmux-access-heading" aria-hidden="true">
-              {heading}
-            </div>
-          )}
           {modes.length > 0 && (
             <MenuRadioGroup value={value} onValueChange={pick}>
               {modes.map((choice, index) => (
