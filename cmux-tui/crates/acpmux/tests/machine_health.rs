@@ -34,7 +34,9 @@ async fn host_health() -> Value {
             .await
             .expect("timeout")
             .expect("closed");
-        if let Message::Response { id: 2, result, error } = Message::parse(&line).unwrap() {
+        if let Message::Response { id, result, error } = Message::parse(&line).unwrap()
+            && id == 2
+        {
             assert!(error.is_none(), "{line}");
             return result.unwrap_or(Value::Null);
         }
