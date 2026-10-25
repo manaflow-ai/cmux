@@ -17,7 +17,10 @@ extension TerminalSurfaceView: PaneMotionSettling {
 /// pane is smaller and beside the terminal background while it is larger: it reflows once, not per frame.
 extension TerminalSurfaceView: PaneMotionTargeting {
     public func paneMotionWillRest(sizeChange: CGSize) -> PaneMotionAnchor {
-        restAt(restSize(sizeChange: sizeChange), growing: sizeChange.height > 0.5)
+        // A hidden or parked terminal does no resize work (an unselected tab): shown, it sizes once
+        // (`syncWindowState`, which joins a spring still under way).
+        guard isShown else { return .top }
+        return restAt(restSize(sizeChange: sizeChange), growing: sizeChange.height > 0.5)
     }
 
     /// The view joined a pane already on a layout spring (a split's new pane gets its terminal from the
