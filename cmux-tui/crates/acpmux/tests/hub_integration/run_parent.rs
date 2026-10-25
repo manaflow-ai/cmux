@@ -183,6 +183,9 @@ async fn a_chat_starts_a_child_of_another_family_from_its_shell() {
     assert_eq!(result["reply"], "echo: hello", "{end}");
     assert!(result["turnId"].is_string(), "{end}");
     assert!(result["error"].is_null(), "{end}");
+    // One cycle, in order: `started` before its turn's end, each once.
+    let cycle = records(&hub, &parent, &child);
+    assert_eq!(cycle, ["started", "turn_ended"], "{cycle:?}");
 
     // A turn that fails says so, with its error.
     let params = json!({"parent": parent, "prompt": "fail-once: x", "harness": "coder"});
@@ -191,7 +194,34 @@ async fn a_chat_starts_a_child_of_another_family_from_its_shell() {
     assert_eq!(end["state"], "failed", "{end}");
     assert_eq!(end["result"]["state"], "failed", "{end}");
     assert!(end["result"]["error"].is_string(), "{end}");
-    assert_eq!(app.summary(&parent).await["children"], 2);
+
+    // A turn stopped while it runs ends cancelled.
+    let params = json!({"parent": parent, "prompt": "until-cancel", "harness": "coder"});
+    let slow = shell.ok(START, params).await["sessionId"].as_str().unwrap().to_owned();
+    record(&hub, &parent, &slow, "started").await;
+    // Once its agent streams, as the person's Stop.
+    for _ in 0..200 {
+        let events = hub.events(&slow, 0, 10_000).unwrap();
+        if events.iter().any(|e| e.kind == "agent_message_chunk") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let cancel = Message::notification("session/cancel", json!({"sessionId": slow}));
+    app.0.send(cancel.to_line()).await.unwrap();
+    let end = record(&hub, &parent, &slow, "turn_ended").await;
+    assert_eq!(end["state"], "cancelled", "{end}");
+    assert_eq!(end["result"]["stopReason"], "cancelled", "{end}");
+    assert_eq!(app.summary(&parent).await["children"], 3);
+}
+
+/// The `subsession` events of `child` on `parent`'s log, oldest first.
+fn records(hub: &Hub, parent: &str, child: &str) -> Vec<String> {
+    let events = hub.events(parent, 0, 10_000).unwrap();
+    let ours = events
+        .into_iter()
+        .filter(|e| e.dir == "mux" && e.kind == "subsession" && e.msg["childSessionId"] == child);
+    ours.map(|e| e.msg["event"].as_str().unwrap_or_default().to_owned()).collect()
 }
 
 #[tokio::test]

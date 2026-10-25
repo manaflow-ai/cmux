@@ -9,20 +9,25 @@
 //!   title, prompt, state: "running"}` once the child's first prompt is accepted. `model` and
 //!   `effort` are the child's current ones, else what the start asked for, else null.
 //! - `{event: "turn_ended", childSessionId, shortName, startedBy, depth, harness, model, effort,
-//!   title, state, result}` at the end of each of the child's turns. `state` is `done` (it
-//!   completed), `failed` or `cancelled`; `result` is `{state, turnId, stopReason, reply, error}`:
-//!   `reply` is the child's last agent message of the turn (masked, at most 4000 characters, null
-//!   when it said nothing) and `error` the failed turn's message (masked).
+//!   title, state, result}` at the end of each of the child's turns, written where the turn's
+//!   end is recorded (`Hub::record_last_turn`, every path: a finished, failed, unstarted, quit or
+//!   unknown turn), so once per turn and in turn order. `state` is `done` (it completed),
+//!   `failed` or `cancelled`; `result` is `{state, turnId, stopReason, reply, error}`: `reply` is
+//!   the turn's agent text (its last 2000 bytes, from memory: no log read on the turn's path),
+//!   null when it said nothing, and `error` the failed turn's message.
 //!
-//! Each record's text is masked (`secret_scan`): the parent's log is read by another chat's agent
-//! and by its clients. Nothing here prompts the parent: its agent reads a child with
-//! `get_session` or `wait_for_sessions`, or `acpmux run --parent` prints the reply in its shell.
+//! Each record's text (title, prompt, reply, error) is masked (`secret_scan`): the parent's log
+//! is read by another chat's agent and by its clients. Nothing here prompts the parent: its agent
+//! reads a child with `get_session` or `wait_for_sessions`, or `acpmux run --parent` prints the
+//! reply in its shell.
 
 use super::subsessions::RECORD_KIND;
 use super::*;
 
 /// Longest prompt a `started` record quotes, in characters.
 const MAX_PROMPT_CHARS: usize = 500;
+/// The most of a turn's agent text the session keeps (`hub/permissions.rs`, `preview`).
+const PREVIEW_BYTES: usize = 2000;
 
 /// A turn's end `status` (`turn_result`) as a sub-session's state.
 fn end_state(status: Option<&str>) -> &'static str {
@@ -42,7 +47,7 @@ impl Hub {
             let id = super::model_options::resolve_config_id(m, "effort");
             super::model_options::current_option(m, &id)
         });
-        let title = m.title.as_deref().map(crate::secret_scan::mask);
+        let title = m.title.as_deref().unwrap_or(&m.name);
         json!({
             "childSessionId": m.id,
             "shortName": link.map(|l| &l.short_name),
@@ -51,18 +56,19 @@ impl Hub {
             "harness": m.harness,
             "model": super::model_options::current_model(m).or(asked.0.map(str::to_owned)),
             "effort": effort.or(asked.1.map(str::to_owned)),
-            "title": title.unwrap_or_else(|| m.name.clone()),
+            "title": crate::secret_scan::mask(title),
         })
     }
 
-    /// Tells `parent` that `child` started on `prompt`.
+    /// Tells `parent` that `child` started on `prompt`: when its first prompt is accepted.
     pub(super) fn subsession_started(
         &self,
         parent: &Session,
         child: &Session,
         prompt: &str,
-        asked: (Option<&str>, Option<&str>),
+        asked: (Option<String>, Option<String>),
     ) {
+        let asked = (asked.0.as_deref(), asked.1.as_deref());
         let mut record = Self::subsession_fields(&child.meta(), asked);
         record["event"] = json!("started");
         record["state"] = json!("running");
@@ -70,37 +76,59 @@ impl Hub {
         self.append(parent, "mux", RECORD_KIND, record);
     }
 
-    /// Tells `child`'s parent how its turn that just ended went, with its typed result. Nothing
-    /// for a session that is no sub-session, or whose parent is gone. Off the turn's path: the
-    /// reply is read from the child's log.
-    pub(super) fn subsession_turn_ended(self: &Arc<Self>, child: &Arc<Session>) {
-        let m = child.meta();
-        let (Some(link), Some(last)) = (m.subsession.clone(), m.last_turn.clone()) else {
-            return;
-        };
+    /// Tells `child`'s parent how the turn that just ended (`turn_result`, its record) went,
+    /// with its typed result. Nothing for a session that is no sub-session, or whose parent is
+    /// gone.
+    pub(super) fn subsession_turn_ended(&self, child: &Session, turn_result: &Value) {
+        // Every session's turn passes here: only a sub-session's copies its meta.
+        let link = child.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.clone();
+        let Some(link) = link else { return };
         let Ok(parent) = self.resolve(&link.started_by) else { return };
-        let (hub, child) = (self.clone(), child.clone());
-        tokio::spawn(async move {
-            let state = end_state(last.get("status").and_then(Value::as_str));
-            let error = last.get("errorText").and_then(Value::as_str).map(crate::secret_scan::mask);
-            let mut record = Self::subsession_fields(&child.meta(), (None, None));
-            record["event"] = json!("turn_ended");
-            record["state"] = json!(state);
-            record["result"] = json!({
-                "state": state,
-                "turnId": last.get("turnId"),
-                "stopReason": last.get("stopReason"),
-                "reply": hub.last_reply(&child),
-                "error": error,
-            });
-            hub.append(&parent, "mux", RECORD_KIND, record);
+        let m = child.meta();
+        let text = |key: &str| turn_result.get(key).and_then(Value::as_str);
+        let state = end_state(text("status"));
+        let error = text("errorText").or_else(|| text("error")).map(crate::secret_scan::mask);
+        let mut record = Self::subsession_fields(&m, (None, None));
+        record["event"] = json!("turn_ended");
+        record["state"] = json!(state);
+        record["result"] = json!({
+            "state": state,
+            "turnId": turn_result.get("turnId"),
+            "stopReason": turn_result.get("stopReason"),
+            "reply": m.preview.as_deref().and_then(reply_text),
+            "error": error,
         });
+        self.append(&parent, "mux", RECORD_KIND, record);
     }
+}
+
+/// A turn's agent text (`SessionMeta::preview`, its last [`PREVIEW_BYTES`]) as a result's reply:
+/// masked, null when empty. A preview at the cap may start inside a secret, whose cut head the
+/// scanner would not know: its first word goes.
+fn reply_text(preview: &str) -> Option<String> {
+    let mut text = preview.trim();
+    if preview.len() >= PREVIEW_BYTES {
+        text = text.split_once(char::is_whitespace).map_or("", |(_, rest)| rest.trim_start());
+    }
+    if text.is_empty() {
+        return None;
+    }
+    let masked = crate::secret_scan::mask(text);
+    Some(if preview.len() >= PREVIEW_BYTES { format!("…{masked}") } else { masked })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::end_state;
+    use super::{PREVIEW_BYTES, end_state, reply_text};
+
+    #[test]
+    fn a_reply_is_the_turns_text_without_a_cut_head() {
+        assert_eq!(reply_text("  done.  "), Some("done.".to_owned()));
+        assert_eq!(reply_text(" "), None);
+        let long = format!("tail-of-a-cut-word {}", "x".repeat(PREVIEW_BYTES));
+        let reply = reply_text(&long).unwrap();
+        assert!(reply.starts_with('…') && !reply.contains("tail-of"), "{reply}");
+    }
 
     #[test]
     fn a_turn_end_is_done_failed_or_cancelled() {

@@ -22,6 +22,7 @@ fn refused_flags(args: &NewArgs) -> Option<String> {
         (args.reuse, "--reuse", "each start makes a new child"),
         (args.group.is_some(), "--group", "the child lists under its parent's chat"),
         (args.prompt_id.is_some(), "--prompt-id", "the daemon sends the first prompt"),
+        // `wait` is what a child does: its permissions wait for the person.
         (args.on_permission != "wait", "--on-permission", "the person answers the child's"),
     ];
     let (_, flag, why) = flags.into_iter().find(|(given, _, _)| *given)?;
@@ -79,8 +80,10 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
         return Ok(());
     }
     let row = wait_turn(&client, &id, args.timeout).await?;
-    let reply = last_replies(&client, &id, 1).await?.pop();
+    // Masked as the sub-session tools mask what they hand another session's agent; whole, not cut.
+    let reply = last_replies(&client, &id, 1).await?.pop().map(|r| crate::secret_scan::mask(&r));
     let last = &row["lastTurn"];
+    let error = last["errorText"].as_str().map(crate::secret_scan::mask);
     let state = match last["status"].as_str() {
         Some("completed") => "done",
         Some("cancelled") => "cancelled",
@@ -91,21 +94,22 @@ pub(super) async fn run(args: NewArgs, json_out: bool) -> Result<()> {
             "sessionId": id, "name": name, "parent": parent, "harness": started["harness"],
             "state": state,
             "result": {"state": state, "turnId": last["turnId"], "stopReason": last["stopReason"],
-                       "reply": reply, "error": last["errorText"]},
+                       "reply": reply, "error": error},
         }));
-    } else {
-        if let Some(reply) = &reply {
-            println!("{reply}");
-        }
-        if state != "done" {
-            let why = last["errorText"].as_str().unwrap_or(state);
-            eprintln!("acpmux: {name}'s turn {state}: {why}");
-        }
+    } else if let Some(reply) = &reply {
+        println!("{reply}");
     }
-    if state != "done" {
-        std::process::exit(1);
+    if state == "done" {
+        return Ok(());
     }
-    Ok(())
+    // Exit 1, as `acpmux wait` for a failed turn.
+    let why = error.unwrap_or_else(|| state.to_owned());
+    let e = errors::AppError::new(
+        errors::Code::Runtime,
+        state,
+        format!("{name}'s turn {state}: {why}"),
+    );
+    Err(e.with_session(&id).into())
 }
 
 /// The child's summary once its turn ended (`_acpmux/wait` until ready): a question or

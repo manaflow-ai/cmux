@@ -702,7 +702,6 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
-        self.subsession_turn_ended(session);
         result
     }
 
@@ -762,7 +761,6 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
-        self.subsession_turn_ended(session);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
@@ -791,6 +789,8 @@ impl Hub {
         }
         last.insert("endedAt".into(), json!(now_ms()));
         session.meta.lock().unwrap().last_turn = Some(Value::Object(last));
+        // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
+        self.subsession_turn_ended(session, turn_result);
     }
 
     /// The profile to fall over to, when the current one names one that exists.

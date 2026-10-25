@@ -691,11 +691,15 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         let cm = probe.meta();
-        // Before its prompt goes: the parent's log has `started` before the turn's end.
-        let asked = (req.model.as_deref(), req.effort.as_deref());
-        self.subsession_started(parent, &probe, &req.prompt, asked);
-        let accepted =
-            self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
+        // At its prompt's acceptance: the parent's log has `started` only for a child that runs,
+        // and before that turn's `turn_ended`.
+        let (hub, to, child) = (self.clone(), parent.clone(), probe.clone());
+        let (prompt, asked) = (req.prompt.clone(), (req.model.clone(), req.effort.clone()));
+        let started: Box<dyn FnOnce() + Send> =
+            Box::new(move || hub.subsession_started(&to, &child, &prompt, asked));
+        let accepted = self
+            .send_family_prompt(parent, &probe, &req.prompt, None, false, false, Some(started))
+            .await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -765,7 +769,9 @@ impl Hub {
 
     /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
     /// is accepted (started or queued). `steer`: into the running turn (`Delivery::NextStep`);
-    /// `interrupt`: `Hub::interrupt_once_queued`.
+    /// `interrupt`: `Hub::interrupt_once_queued`. `accepted` runs at the acceptance, before the
+    /// turn can end.
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
@@ -774,6 +780,7 @@ impl Hub {
         prompt_id: Option<String>,
         steer: bool,
         interrupt: bool,
+        accepted: Option<Box<dyn FnOnce() + Send>>,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let mut provenance = json!({
@@ -799,6 +806,9 @@ impl Hub {
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
                 stop(&v);
+                if let Some(accepted) = accepted {
+                    accepted();
+                }
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
