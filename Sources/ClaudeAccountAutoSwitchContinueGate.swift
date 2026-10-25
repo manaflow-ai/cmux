@@ -81,9 +81,11 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
     private(set) var claudeStarted = false
     /// Set by an event that ends the wait.
     private(set) var interruption: GiveUpReason?
-    /// Polls in a row that found the resumed session started and its Claude registered in the
-    /// terminal's foreground.
-    private var settledPolls = 0
+    /// When the resumed session's `SessionStart` happened (producer clock, ms since 1970).
+    private(set) var sessionStartedAtMs: Int64?
+    /// Whether that session's `SessionStart` hook got as far as its status report, which it
+    /// sends after clearing the pane's notifications.
+    private var sessionSettled = false
     /// Whether the switch notification was handed out.
     private(set) var announced = false
 
@@ -91,14 +93,16 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
         self.sessionId = sessionId
     }
 
-    /// Folds in one journal event from the pane's top-level Claude.
-    mutating func observe(kind: AgentJournalEventKind, sessionId: String?) {
+    /// Folds in one journal event from the pane's top-level Claude, which happened at
+    /// `occurredAtMs` (the producer's clock, milliseconds since 1970).
+    mutating func observe(kind: AgentJournalEventKind, sessionId: String?, occurredAtMs: Int64) {
         switch kind {
         case .sessionStarted:
             // Only the resumed conversation counts; a `claude` started by hand or a `/clear` is
             // another session, and cmux must not type into it.
             if sessionId == self.sessionId {
                 claudeStarted = true
+                sessionStartedAtMs = max(occurredAtMs, sessionStartedAtMs ?? occurredAtMs)
             } else {
                 interrupt(.otherSession)
             }
@@ -131,24 +135,27 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
 
     /// One poll of the wait.
     ///
-    /// The resumed Claude's `SessionStart` hook clears every notification on the pane right after
-    /// it registers Claude's process, through an asynchronous queue that reports no completion.
-    /// So the switch notification, and `continue` after it, wait until the resumed session
-    /// started and its Claude stayed registered in the foreground for a whole poll interval,
-    /// which orders them after that clear. A wait that ends without that announces the switch
-    /// together with why `continue` was not typed.
+    /// The resumed Claude's `SessionStart` hook clears every notification on the pane, then
+    /// reports the pane's `claude_code` status. Both go through the app's one ordered socket
+    /// mutation queue, and the hook waits for each reply, so a status applied at or after the
+    /// session start proves the clear is done. The switch notification, and `continue` after
+    /// it, wait for that status. A wait that ends first announces the switch together with why
+    /// `continue` was not typed.
     ///
     /// - Parameters:
     ///   - elapsed: Time since the switch typed the resume command.
     ///   - isEnabled: Whether `automation.claudeAccountAutoSwitch` is still on.
     ///   - responseRunning: Whether the pane's Claude is mid-turn.
+    ///   - paneStatusUpdatedAtMs: When the pane's `claude_code` status was last applied (app
+    ///     clock, ms since 1970), `nil` when it has none; read until the session settles.
     ///   - screen: Reads the pane's screen; called only when everything else allows typing.
     ///   - claudeInForeground: Whether the Claude registered for the pane after the switch is
-    ///     alive and owns the terminal's foreground; called once the resumed session started.
+    ///     alive and owns the terminal's foreground; called last, only when the screen allows.
     mutating func poll(
         elapsed: Duration,
         isEnabled: Bool,
         responseRunning: Bool,
+        paneStatusUpdatedAtMs: () -> Int64?,
         screen: () -> Screen,
         claudeInForeground: () -> Bool
     ) -> Poll {
@@ -156,11 +163,12 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
             elapsed: elapsed,
             isEnabled: isEnabled,
             responseRunning: responseRunning,
+            paneStatusUpdatedAtMs: paneStatusUpdatedAtMs,
             screen: screen,
             claudeInForeground: claudeInForeground
         )
         // A wait that ends carries the announcement if it is still owed; a settled wait owes it now.
-        let due = step != .wait || settledPolls >= Self.settledPollsBeforeTyping
+        let due = step != .wait || sessionSettled
         return Poll(step: step, announce: due && announceIfOwed())
     }
 
@@ -172,15 +180,11 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
         return true
     }
 
-    /// Polls in a row the resumed Claude must be found registered in the foreground before the
-    /// switch is announced and `continue` typed: one whole poll interval past its registration,
-    /// after which its `SessionStart` hook's notification clear has been applied.
-    private static let settledPollsBeforeTyping = 2
-
     private mutating func nextStep(
         elapsed: Duration,
         isEnabled: Bool,
         responseRunning: Bool,
+        paneStatusUpdatedAtMs: () -> Int64?,
         screen: () -> Screen,
         claudeInForeground: () -> Bool
     ) -> Step {
@@ -189,13 +193,15 @@ struct ClaudeAccountAutoSwitchContinueGate: Equatable, Sendable {
         guard elapsed < Self.timeout else { return .giveUp(.timedOut) }
         guard claudeStarted else { return .wait }
         guard !responseRunning else { return .giveUp(.sessionBusy) }
-        // Read every poll once the session started: the announcement needs it too. A Claude not
-        // yet registered may still be starting.
-        settledPolls = claudeInForeground() ? settledPolls + 1 : 0
-        guard settledPolls >= Self.settledPollsBeforeTyping else { return .wait }
+        if !sessionSettled, let startedAt = sessionStartedAtMs,
+           let statusAt = paneStatusUpdatedAtMs(), statusAt >= startedAt {
+            sessionSettled = true
+        }
+        guard sessionSettled else { return .wait }
         let reading = screen()
         guard reading.state == .emptyPrompt, !reading.showsInterruptHint else { return .wait }
-        return .send
+        // Checked last: it reads the kernel. A Claude not yet registered may still be starting.
+        return claudeInForeground() ? .send : .wait
     }
 
     private mutating func interrupt(_ reason: GiveUpReason) {

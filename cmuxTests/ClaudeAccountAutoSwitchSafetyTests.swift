@@ -38,6 +38,24 @@ struct ClaudeAccountAutoSwitchHoldBackTests {
     }
 
     @Test
+    func aLateReportLeavesAWaitingContinueAlone() {
+        // The replaced Claude's report, delivered after the switch, must not cancel the
+        // `continue` the resumed Claude is waiting for.
+        var ledger = ClaudeAccountAutoSwitchLedger()
+        ledger.noteAutomaticSwitch(panelId: fixture.panelId, atMs: fixture.nowMs + 1)
+        let late = fixture.decide(fixture.request(), pane: fixture.pane(current: "work"), ledger: ledger)
+
+        #expect(late == .ignore)
+        #expect(!late.supersedesPendingContinue)
+        #expect(fixture.decide(fixture.request(), pane: fixture.pane()).supersedesPendingContinue)
+        #expect(fixture.decide(
+            fixture.request(),
+            pane: fixture.pane(),
+            stored: [fixture.workKey: fixture.now.addingTimeInterval(3600)]
+        ).supersedesPendingContinue)
+    }
+
+    @Test
     func backgroundWorkHoldsTheSwitchBack() {
         let action = fixture.decide(fixture.request(pendingWork: true), pane: fixture.pane())
 

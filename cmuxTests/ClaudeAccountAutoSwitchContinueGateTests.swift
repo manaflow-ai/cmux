@@ -10,18 +10,21 @@ import Testing
 #endif
 
 /// Spec D8: `continue` is typed only into the resumed Claude's own idle prompt. The switch is
-/// announced once that Claude settled (its `SessionStart` hook clears the pane's notifications),
-/// or with the reason when the wait ends first, and never twice.
+/// announced once the resumed session's `SessionStart` hook got as far as its status report,
+/// which it sends after clearing the pane's notifications, or with the reason when the wait ends
+/// first, and never twice.
 @MainActor
 struct ClaudeAccountAutoSwitchContinueGateTests {
     private typealias Gate = ClaudeAccountAutoSwitchContinueGate
     private let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
     private let idle = Gate.Screen(state: .emptyPrompt, showsInterruptHint: false)
     private let busyScreen = Gate.Screen(state: .draft, showsInterruptHint: false)
+    /// When the resumed session's SessionStart was journaled.
+    private let startMs: Int64 = 1_000
 
     private func startedGate() -> Gate {
         var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: sessionId)
+        gate.observe(kind: .sessionStarted, sessionId: sessionId, occurredAtMs: startMs)
         return gate
     }
 
@@ -30,23 +33,26 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
         elapsed: Duration = .seconds(2),
         isEnabled: Bool = true,
         running: Bool = false,
+        statusAtMs: Int64?? = .none,
         screen: Gate.Screen? = nil,
         foreground: Bool = true
     ) -> Gate.Poll {
         let reading = screen ?? idle
+        // By default the hook's status report landed after the session started.
+        let status = statusAtMs ?? startMs + 300
         return gate.poll(
             elapsed: elapsed,
             isEnabled: isEnabled,
             responseRunning: running,
+            paneStatusUpdatedAtMs: { status },
             screen: { reading },
             claudeInForeground: { foreground }
         )
     }
 
-    /// Polls until the gate settles and returns the second poll.
+    /// One poll after the resumed session's own status report landed.
     private func settle(_ gate: inout Gate, screen: Gate.Screen? = nil) -> Gate.Poll {
-        _ = poll(&gate, screen: screen)
-        return poll(&gate, screen: screen)
+        poll(&gate, screen: screen)
     }
 
     // MARK: Typing
@@ -60,6 +66,7 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
             elapsed: .seconds(1),
             isEnabled: true,
             responseRunning: false,
+            paneStatusUpdatedAtMs: { startMs + 300 },
             screen: {
                 screenReads += 1
                 return idle
@@ -115,18 +122,21 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
     }
 
     @Test
-    func claudesIdlePromptGetsContinueOnceItSettledAndAfterTheAnnouncement() {
+    func claudesIdlePromptGetsContinueOnceTheSessionsOwnStatusLanded() {
+        // The hook reports the status right after clearing the pane's notifications, through the
+        // same ordered queue, so that status proves the clear is done.
         var gate = startedGate()
 
-        #expect(poll(&gate) == Gate.Poll(step: .wait, announce: false))
-        #expect(poll(&gate) == Gate.Poll(step: .send, announce: true))
+        #expect(poll(&gate, statusAtMs: .some(startMs - 100)) == Gate.Poll(step: .wait, announce: false))
+        #expect(poll(&gate, statusAtMs: .some(nil)) == Gate.Poll(step: .wait, announce: false))
+        #expect(poll(&gate, statusAtMs: .some(startMs)) == Gate.Poll(step: .send, announce: true))
     }
 
     @Test
     func onlyTheResumedSessionsStartCounts() {
         // A `claude` the user started by hand, or a `/clear`, is another session.
         var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: "0f0e0d0c-0000-4000-8000-000000000001")
+        gate.observe(kind: .sessionStarted, sessionId: "0f0e0d0c-0000-4000-8000-000000000001", occurredAtMs: startMs)
 
         #expect(poll(&gate).step == .giveUp(.otherSession))
     }
@@ -135,7 +145,7 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
     func aClaudeThatDoesNotOwnTheTerminalIsNotTypedInto() {
         var gate = startedGate()
         for _ in 0..<3 {
-            #expect(poll(&gate, foreground: false) == Gate.Poll(step: .wait, announce: false))
+            #expect(poll(&gate, foreground: false).step == .wait)
         }
     }
 
@@ -167,7 +177,7 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
     ])
     func someoneElseDrivingTheSessionEndsTheWait(kind: AgentJournalEventKind) {
         var gate = startedGate()
-        gate.observe(kind: kind, sessionId: sessionId)
+        gate.observe(kind: kind, sessionId: sessionId, occurredAtMs: startMs)
 
         #expect(poll(&gate).step == .giveUp(.sessionBusy))
     }
@@ -175,21 +185,20 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
     @Test
     func theReplacedClaudesSessionEndDoesNotCountButTheResumedOnesDoes() {
         var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .sessionEnded, sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: sessionId)
-        _ = poll(&gate, screen: busyScreen)
+        gate.observe(kind: .sessionEnded, sessionId: sessionId, occurredAtMs: startMs)
+        gate.observe(kind: .sessionStarted, sessionId: sessionId, occurredAtMs: startMs)
         #expect(poll(&gate, screen: busyScreen).step == .wait)
 
-        gate.observe(kind: .sessionEnded, sessionId: sessionId)
+        gate.observe(kind: .sessionEnded, sessionId: sessionId, occurredAtMs: startMs)
         #expect(poll(&gate).step == .giveUp(.sessionEnded))
     }
 
     @Test
     func theStopFailuresOwnAttentionEchoDoesNotEndTheWait() {
         var gate = Gate(sessionId: sessionId)
-        gate.observe(kind: .errorReported, sessionId: sessionId)
-        gate.observe(kind: .sessionStarted, sessionId: sessionId)
-        gate.observe(kind: .stateChanged, sessionId: sessionId)
+        gate.observe(kind: .errorReported, sessionId: sessionId, occurredAtMs: startMs)
+        gate.observe(kind: .sessionStarted, sessionId: sessionId, occurredAtMs: startMs)
+        gate.observe(kind: .stateChanged, sessionId: sessionId, occurredAtMs: startMs)
 
         #expect(settle(&gate).step == .send)
     }
@@ -216,25 +225,33 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
     // MARK: Announcing
 
     @Test
-    func theSwitchIsAnnouncedOnceTheResumedClaudeSettledEvenWithoutContinue() {
-        // The resumed session's SessionStart clears the pane's notifications right after it
-        // registers Claude, so the announcement waits one full poll past that.
+    func theSwitchIsAnnouncedOnceTheSessionsOwnStatusLandedEvenWithoutContinue() {
+        // A status from before the resumed SessionStart (the replaced Claude's "Usage limit")
+        // says nothing about the clear.
         var gate = startedGate()
+        let stale: Int64?? = .some(startMs - 100)
 
-        #expect(poll(&gate, screen: busyScreen) == Gate.Poll(step: .wait, announce: false))
+        #expect(poll(&gate, statusAtMs: stale, screen: busyScreen) == Gate.Poll(step: .wait, announce: false))
         #expect(poll(&gate, screen: busyScreen) == Gate.Poll(step: .wait, announce: true))
         #expect(poll(&gate, screen: busyScreen) == Gate.Poll(step: .wait, announce: false))
         #expect(poll(&gate) == Gate.Poll(step: .send, announce: false))
     }
 
     @Test
-    func aStartedSessionThatNeverSettlesIsAnnouncedWhenTheWaitEnds() {
+    func aStartedSessionWhoseStatusNeverLandsIsAnnouncedWhenTheWaitEnds() {
         var gate = startedGate()
-        _ = poll(&gate, foreground: false)
-        _ = poll(&gate, foreground: false)
+        let stale: Int64?? = .some(startMs - 100)
+        _ = poll(&gate, statusAtMs: stale)
+        _ = poll(&gate, statusAtMs: stale)
 
-        #expect(poll(&gate, elapsed: .seconds(60)) == Gate.Poll(step: .giveUp(.timedOut), announce: true))
-        #expect(poll(&gate, elapsed: .seconds(61)) == Gate.Poll(step: .giveUp(.timedOut), announce: false))
+        #expect(poll(&gate, elapsed: .seconds(60), statusAtMs: stale) == Gate.Poll(step: .giveUp(.timedOut), announce: true))
+        #expect(poll(&gate, elapsed: .seconds(61), statusAtMs: stale) == Gate.Poll(step: .giveUp(.timedOut), announce: false))
+    }
+
+    @Test
+    func aStatusBeforeTheResumedSessionStartedNeverAnnounces() {
+        var gate = Gate(sessionId: sessionId)
+        #expect(poll(&gate) == Gate.Poll(step: .wait, announce: false))
     }
 
     @Test(arguments: [
@@ -253,12 +270,12 @@ struct ClaudeAccountAutoSwitchContinueGateTests {
         case .timedOut:
             elapsed = .seconds(60)
         case .sessionEnded:
-            gate.observe(kind: .sessionStarted, sessionId: sessionId)
-            gate.observe(kind: .sessionEnded, sessionId: sessionId)
+            gate.observe(kind: .sessionStarted, sessionId: sessionId, occurredAtMs: startMs)
+            gate.observe(kind: .sessionEnded, sessionId: sessionId, occurredAtMs: startMs)
         case .sessionBusy:
-            gate.observe(kind: .turnStarted, sessionId: sessionId)
+            gate.observe(kind: .turnStarted, sessionId: sessionId, occurredAtMs: startMs)
         case .otherSession:
-            gate.observe(kind: .sessionStarted, sessionId: "0f0e0d0c-0000-4000-8000-000000000001")
+            gate.observe(kind: .sessionStarted, sessionId: "0f0e0d0c-0000-4000-8000-000000000001", occurredAtMs: startMs)
         case .userInput:
             gate.userDidInput()
         case .disabled:

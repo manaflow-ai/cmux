@@ -70,6 +70,12 @@ enum ClaudeAccountAutoSwitchAction: Equatable, Sendable {
         }
     }
 
+    /// Whether this report replaces a `continue` still waiting on the pane. A report ignored as
+    /// late or duplicate (it came from the replaced Claude) leaves the wait alone.
+    var supersedesPendingContinue: Bool {
+        self != .ignore
+    }
+
     /// This action once the exhaustion was (or failed to be) written: a switch whose source
     /// account could not be recorded is held back.
     func recording(succeeded: Bool) -> ClaudeAccountAutoSwitchAction {

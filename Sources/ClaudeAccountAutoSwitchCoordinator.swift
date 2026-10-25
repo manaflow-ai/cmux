@@ -31,7 +31,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     private var handledEventIds: [UUID: String] = [:]
     /// The pane's Claude events seen while its switch runs, replayed into its gate, so a
     /// `SessionStart` that lands before the switch returns still counts.
-    private var eventsDuringSwitch: [UUID: [(kind: AgentJournalEventKind, sessionId: String?)]] = [:]
+    private var eventsDuringSwitch: [UUID: [(kind: AgentJournalEventKind, sessionId: String?, occurredAtMs: Int64)]] = [:]
     /// Panes waiting for the resumed Claude's idle prompt to be typed `continue` into.
     private var pendingContinues: [UUID: PendingContinue] = [:]
     /// When each pane got its auto-switch status row; its Claude session ending after that
@@ -83,8 +83,6 @@ final class ClaudeAccountAutoSwitchCoordinator {
             return
         }
         handledEventIds[panelId] = request.eventId
-        // A new limit supersedes a continue still waiting from an earlier switch.
-        cancelContinue(panelId: panelId)
         Task { [weak self] in
             await self?.handle(request, workspace: workspace)
             self?.inFlightPanelIds.remove(panelId)
@@ -106,9 +104,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
         guard draft.source == "claude", !draft.isSubagent, draft.unattributedReason == nil,
               let panelId = draft.surfaceId.flatMap(UUID.init(uuidString:)) else { return }
         if inFlightPanelIds.contains(panelId) {
-            eventsDuringSwitch[panelId, default: []].append((draft.kind, draft.sessionId))
+            eventsDuringSwitch[panelId, default: []].append((draft.kind, draft.sessionId, draft.occurredAtMs))
         }
-        pendingContinues[panelId]?.gate.observe(kind: draft.kind, sessionId: draft.sessionId)
+        pendingContinues[panelId]?.gate.observe(kind: draft.kind, sessionId: draft.sessionId, occurredAtMs: draft.occurredAtMs)
         if draft.kind == .turnCompleted {
             ledger.noteTurnCompleted(panelId: panelId)
         }
@@ -138,6 +136,9 @@ final class ClaudeAccountAutoSwitchCoordinator {
             timeZone: .current,
             homeDirectory: home
         )
+        // A report that counts supersedes a continue still waiting from an earlier switch; a late
+        // one from the replaced Claude leaves it alone.
+        if action.supersedesPendingContinue { cancelContinue(panelId: panelId) }
         // The limit is a fact whether or not a switch follows. It is remembered even when the
         // file write fails; a switch whose source could not be written is held back.
         if let exhaustion = action.exhaustion {
@@ -340,7 +341,7 @@ final class ClaudeAccountAutoSwitchCoordinator {
     ) {
         var gate = gate
         for event in eventsDuringSwitch[panelId] ?? [] {
-            gate.observe(kind: event.kind, sessionId: event.sessionId)
+            gate.observe(kind: event.kind, sessionId: event.sessionId, occurredAtMs: event.occurredAtMs)
         }
         pendingContinues[panelId] = PendingContinue(
             gate: gate,
@@ -351,8 +352,10 @@ final class ClaudeAccountAutoSwitchCoordinator {
         pendingContinues[panelId]?.task = Task { [weak self] in
             let clock = ContinuousClock()
             let start = clock.now
-            // The terminal grid publishes no change events, so Claude's prompt is polled: a
-            // bounded wait (the gate gives up after its timeout), cancelled by a newer report.
+            // Polled because nothing signals a change of the terminal grid: the screen is read
+            // with the pull-only mobileRenderGridFrame. Bounded (the gate gives up after 60 s),
+            // cancelled by a newer report or the pane's input; the session start, the hook's
+            // status and user input that gate it are events, not timing.
             while !Task.isCancelled {
                 try? await clock.sleep(for: ClaudeAccountAutoSwitchContinueGate.pollInterval)
                 guard !Task.isCancelled, let self,
@@ -378,6 +381,10 @@ final class ClaudeAccountAutoSwitchCoordinator {
             elapsed: elapsed,
             isEnabled: isEnabled,
             responseRunning: workspace.isClaudeResponseRunning(panelId: panelId),
+            paneStatusUpdatedAtMs: {
+                workspace.agentStatusEntry(key: Workspace.claudeAgentLifecycleKey, panelId: panelId)
+                    .map { Int64($0.timestamp.timeIntervalSince1970 * 1000) }
+            },
             screen: {
                 guard let frame = terminal.surface.mobileRenderGridFrame(
                     stateSeq: 0,

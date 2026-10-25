@@ -167,6 +167,18 @@ struct ClaudeAccountAutoSwitchRequestTests {
     }
 
     @Test
+    func aQuotedResetThatAlreadyPassedUsesTheFallback() throws {
+        // "Oct 25 at 9am" read at noon that day parses to this morning: recording it would
+        // expire at once and leave the account looking free.
+        let request = fixture.request(detail: "usage_limit: You've hit your weekly limit · resets Oct 25 at 9am (Asia/Seoul)")
+
+        let exhaustion = try #require(fixture.decide(request, pane: fixture.pane()).exhaustion)
+
+        #expect(exhaustion.until == fixture.now.addingTimeInterval(ClaudeUsageLimitReset.fallbackInterval))
+        #expect(exhaustion.quotedReset == nil)
+    }
+
+    @Test
     func theNewAccountHittingItsLimitTooNeverReturnsToTheExhaustedOne() {
         // The first report moved default to work and marked default. When work reports a limit
         // right after, default is still exhausted: work is marked, and nothing switches back.

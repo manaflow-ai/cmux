@@ -5,6 +5,12 @@ import Foundation
 /// File format: `{"version":1,"exhaustedUntil":{"<accountKey>":<epochSeconds>}}`. The app is
 /// the only writer; the CLI only reads. Corrupt or wrong-version files read as empty and the
 /// next write replaces them. Reads never rewrite the file; pruning happens on writes.
+///
+/// A class guarded by `NSLock` rather than an actor: the `cmux claude-account list` CLI reads it
+/// synchronously, outside any concurrency context, and each locked section is one small file
+/// read or an atomic rename. `@unchecked Sendable` is sound because every access to the file
+/// goes through `lock`, and the stored properties are immutable `let`s (the clock is
+/// `@Sendable`).
 public final class ClaudeAccountExhaustionStore: @unchecked Sendable {
     private static let version = 1
 
