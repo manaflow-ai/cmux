@@ -69,7 +69,12 @@ export function QueuedMessageCard({
         >
           <Icon name="action.more" size={14} />
         </MenuButton>
-        <MenuPopup side="bottom" align="end" className="acpmux-quick-menu acpmux-queued-more" label={t("composer.queueActions")}>
+        <MenuPopup
+          side="bottom"
+          align="end"
+          className="acpmux-quick-menu acpmux-queued-more"
+          label={t("composer.queueActions")}
+        >
           {act &&
             !queued.next &&
             !steered &&
@@ -78,7 +83,8 @@ export function QueuedMessageCard({
           {act?.sideChat &&
             !row.images?.length &&
             item("composer.queueSideChat", () => void act.sideChat!(promptId, text).catch(fail))}
-          {at && item("composer.queueMoveUp", () => void act!.move!(promptId, at.index - 1).catch(fail), at.index === 0)}
+          {at &&
+            item("composer.queueMoveUp", () => void act!.move!(promptId, at.index - 1).catch(fail), at.index === 0)}
           {at &&
             item(
               "composer.queueMoveDown",
