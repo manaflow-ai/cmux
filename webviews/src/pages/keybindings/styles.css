@@ -69,9 +69,13 @@
   color: var(--page-text-3);
 }
 
-/* The field's clear button is a button: it gets the pointer. */
+/* The field's clear button is a button: it gets the pointer, and it shows whenever the field has
+   text, focused or not (Chromium shows it only on focus or hover; search by keys keeps the focus
+   on the page, not the field). */
 .keys-search::-webkit-search-cancel-button {
   cursor: pointer;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* Search by keys: "Recording Keys" at the field's end; how to leave it on hover. */
