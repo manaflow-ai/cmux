@@ -237,9 +237,77 @@ test("the card labels the scoped target on the card and persistent action", asyn
   const card = await mount(bash({ permissionId: "scoped", scope: { kind: "app", value: "Calculator" } }));
   expect(card.host.querySelector(".acpmux-permission-scope")?.textContent).toBe("In Calculator");
   const scope = card.host.querySelector<HTMLElement>(".acpmux-permission-scope")!;
-  expect(card.host.querySelector('[aria-label="Always allow"]')?.textContent).toContain("In Calculator");
+  // The scope is the line's, never a button's (Leo 2026-10-25): each answer points at it instead.
+  expect(card.host.querySelector('[aria-label="Always allow"]')?.textContent).not.toContain("In Calculator");
   expect(card.host.querySelector('[aria-label="Always allow"]')?.getAttribute("aria-describedby")).toBe(scope.id);
   expect(card.host.querySelector('[aria-label="Deny"]')?.getAttribute("aria-describedby")).toBe(scope.id);
+  expect(card.host.textContent!.split("In Calculator").length - 1).toBe(1);
+  await card.unmount();
+});
+
+// Leo 2026-10-25, on a Claude Code ffmpeg ask: "the allow button, like this, it shouldn't be
+// encompassing so much. Like I'm pretty sure we can have, like, this be, I mean, just always
+// allow. But then this other, like, thing shouldn't be the same thing." Always allow held the whole
+// session rule, and the same rule showed again under the buttons.
+test("Always allow is just its label; its rule shows once, on the line under the answers", async () => {
+  const rule = "Allow //Users/you/reel/**, rm f/*, ffmpeg -v error -i reel.mp4 sheet.jpg for this session";
+  const card = await mount(
+    bash({
+      permissionId: "ruled",
+      options: [
+        claudeOptions[0]!,
+        { id: "always", name: "Always Allow", kind: "allow_always", allow: true, rule },
+        claudeOptions[2]!,
+      ],
+    }),
+  );
+  const always = card.host.querySelector('[aria-label="Always allow"]')!;
+  expect(always.querySelector(".acpmux-permission-action-label")?.textContent).toBe("Always allow");
+  expect(always.textContent).not.toContain("ffmpeg");
+  expect(card.host.textContent!.split(rule).length - 1).toBe(1);
+  const line = card.host.querySelector<HTMLElement>(".acpmux-permission-scope")!;
+  expect(line.textContent).toBe(rule);
+  // Cut to one line by the card's style: the whole rule is its tooltip.
+  expect(line.title).toBe(rule);
+  expect(always.getAttribute("aria-describedby")).toBe(line.id);
+  await card.unmount();
+});
+
+test("every answer the agent offers is a button in the one row, the extra ones by their own names", async () => {
+  const card = await mount(
+    bash({
+      permissionId: "codex",
+      scope: { kind: "directory", value: "/repo" },
+      options: [
+        { id: "approved", name: "Yes", kind: "allow_once", allow: true },
+        {
+          id: "session",
+          name: "Yes, and don't ask again for commands that start with `git push`",
+          kind: "allow_always",
+          allow: true,
+        },
+        { id: "denied", name: "No, continue without running it", kind: "reject_always", allow: false },
+        { id: "abort", name: "No, and tell Codex what to do differently", kind: "reject_once", allow: false },
+        { id: "plan", name: "Show me the plan", kind: "custom", allow: false },
+      ],
+    }),
+    "codex",
+  );
+  expect(card.buttons()).toEqual([
+    "Allow once",
+    "Always allow",
+    "Deny",
+    "No, continue without running it",
+    "Show me the plan",
+  ]);
+  expect(card.host.querySelector(".acpmux-permission-others")).toBeNull();
+  // The folder and what the grant covers share the one line, each once.
+  const line = card.host.querySelector<HTMLElement>(".acpmux-permission-scope")!;
+  expect(line.textContent).toContain("In /repo");
+  expect(line.textContent).toContain("start with `git push`");
+  expect(card.host.textContent!.split("start with `git push`").length - 1).toBe(1);
+  await card.click('[aria-label="Show me the plan"]');
+  expect(card.answers).toEqual(["plan"]);
   await card.unmount();
 });
 
