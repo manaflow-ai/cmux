@@ -47,14 +47,10 @@ else
   out="$(mkdir -p "$1" && cd "$1" && pwd)"
 fi
 root="$(git rev-parse --show-toplevel)"
-exports=(
-  docs/mdm/com.manaflow.cmux.json
-  docs/mdm/com.manaflow.cmux.plist
-  docs/mdm/com.manaflow.cmux.intune.plist
-  docs/mdm/cmux-example.mobileconfig
-  docs/mdm/managed-preferences.md
-  schemas/settings/settings-schema.json
-)
+exports=()
+while IFS= read -r path; do exports+=("$path"); done < <(
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
+(( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 
 cd "$root/Packages/macOS/CmuxNext"
 swift build --build-tests

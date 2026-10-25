@@ -20,15 +20,12 @@ run="${3:?$usage}"
 made="${4:-}"
 dir="${5:?$usage}"
 [[ -n "$made" ]] || made="$run"
-# Every file of the settings export (regenerate-settings-exports.sh writes the same list).
-exports=(
-  docs/mdm/com.manaflow.cmux.json
-  docs/mdm/com.manaflow.cmux.plist
-  docs/mdm/com.manaflow.cmux.intune.plist
-  docs/mdm/cmux-example.mobileconfig
-  docs/mdm/managed-preferences.md
-  schemas/settings/settings-schema.json
-)
+# Every file of the settings export: scripts/cmux-next/settings-exports.txt is the one list, which
+# regenerate-settings-exports.sh exports and check-settings-exports.sh restores.
+exports=()
+while IFS= read -r cmux_next_export; do exports+=("$cmux_next_export"); done < <(
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
+(( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 guard="$(git rev-parse --show-toplevel)/scripts/ci/defaults_guard.py"
 git fetch --quiet --no-tags "$remote" "refs/heads/$branch"
 tip="$(git rev-parse FETCH_HEAD)"

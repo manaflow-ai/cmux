@@ -158,7 +158,8 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
     def repo(self, rewrites: bool = True) -> tuple[Path, dict[str, str]]:
         work = Path(tempfile.mkdtemp())
         repo, bin_dir = work / "repo", work / "bin"
-        for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh"):
+        for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh",
+                    "scripts/cmux-next/settings-exports.txt"):
             (repo / rel).parent.mkdir(parents=True, exist_ok=True)
             (repo / rel).write_bytes((ROOT / rel).read_bytes())
             (repo / rel).chmod(0o755)

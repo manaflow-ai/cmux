@@ -3308,7 +3308,7 @@ jobs:
             echo "### Generated cmux-next files are stale"
             echo
             [[ "${{ steps.actions.outcome }}" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports and source stamp: scripts/cmux-next/regenerate-settings-exports.sh"
+            [[ "${{ steps.settings.outcome }}" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
             echo
             echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
           } | tee -a "$GITHUB_STEP_SUMMARY"

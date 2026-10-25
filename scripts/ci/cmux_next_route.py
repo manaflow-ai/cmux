@@ -133,6 +133,8 @@ GENERATED_INPUTS = (
     "schemas/settings/settings-schema.json",
     "docs/mdm/",
     "scripts/cmux-next/regenerate-settings-exports.sh",
+    "scripts/cmux-next/check-settings-exports.sh",
+    "scripts/cmux-next/settings-exports.txt",
 )
 
 # The path classes of the original routing: these never need a Mac.

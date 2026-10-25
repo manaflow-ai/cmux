@@ -61,15 +61,12 @@ attempts="${CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS:-5}"
 # SHA after "at" is the tree the repair was made from. Only the subject counts.
 autofix_subject='^chore\(next\): base autofix at ([0-9a-f]{7,40})([^0-9a-f]|$)'
 snapshot=schemas/defaults/cmux-next.json
-# Every file of the settings export (regenerate-settings-exports.sh writes the same list).
-settings_exports=(
-  docs/mdm/com.manaflow.cmux.json
-  docs/mdm/com.manaflow.cmux.plist
-  docs/mdm/com.manaflow.cmux.intune.plist
-  docs/mdm/cmux-example.mobileconfig
-  docs/mdm/managed-preferences.md
-  schemas/settings/settings-schema.json
-)
+# Every file of the settings export: scripts/cmux-next/settings-exports.txt is the one list, which
+# regenerate-settings-exports.sh exports and check-settings-exports.sh restores.
+settings_exports=()
+while IFS= read -r cmux_next_export; do settings_exports+=("$cmux_next_export"); done < <(
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
+(( ${#settings_exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 # Every file of the action export (regenerate-action-exports.sh writes the same list).
 action_exports=(plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json)
 areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$(dirname "${BASH_SOURCE[0]}")/autofix-areas.sh}"

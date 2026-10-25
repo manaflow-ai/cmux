@@ -55,10 +55,10 @@ repo="$tmp/repo"
 mkdir -p "$repo/plans/cmux-next" "$repo/web/data" "$repo/.github/workflows"
 mkdir -p "$repo/cmux-tui/crates/cmux-app-host/generated"
 mkdir -p "$repo/schemas/settings" "$repo/schemas/settings-export" "$repo/docs/mdm"
-# Exactly the files regenerate-settings-exports.sh lists (its `exports` array).
+# Exactly the files the settings export writes: the one list both the exporter and the checker read.
 settings_exports=()
 while IFS= read -r file; do settings_exports+=("$file"); done < <(
-  sed -n '/^exports=(/,/^)/p' "$ROOT_DIR/scripts/cmux-next/regenerate-settings-exports.sh" | grep -oE '(docs|schemas)/[^ )]+')
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$ROOT_DIR/scripts/cmux-next/settings-exports.txt")
 (( ${#settings_exports[@]} >= 3 )) || fail "could not read the settings export list"
 for file in plans/cmux-next/action-surfaces.json plans/cmux-next/actions.md plans/cmux-next/links.json \
   web/data/cmux-shortcuts.generated.json cmux-tui/crates/cmux-app-host/generated/scopes.json .github/workflows/x.yml \

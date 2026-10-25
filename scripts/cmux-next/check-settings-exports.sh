@@ -12,8 +12,28 @@
 # would go red for the base's staleness; that is the base autofix's, which regenerates the exports
 # after the merge. The defaults snapshot and the CI target graph are bot-only (#21946): they are
 # stale on every event between a merge and the base autofix's commit, so no event checks them here.
+#
+# Whose staleness a stale export is takes a second export from the base parent's settings sources
+# (the stamp's inputs, all the export reads), checked out in place so only CmuxNextSettings
+# rebuilds. In place means this script MUST put the checkout back on every exit path, because both
+# callers keep using it afterwards (all three found by the review of #23915):
+#   - the "Regenerate stale files" step collects `git diff` of the export paths, and the base
+#     export rewrites EVERY export, not just the ones that were stale to begin with, so a
+#     base-version export left on disk is pushed as if it were the repair;
+#   - the daemon-test job runs its suites with `swift test --skip-build` AFTER this step, so the
+#     base export's own `swift build` would leave them testing base settings binaries;
+#   - a base export that fails must not skip the restore either.
+# So the restore re-exports from HEAD's sources, which rewrites every export and rebuilds the
+# package, it runs from a trap as well as in line, and if it cannot run it falls back to the
+# committed exports: collecting nothing is right, collecting the base's bytes is not.
 set -euo pipefail
 temp="${RUNNER_TEMP:-$(mktemp -d)}"
+root="$(git rev-parse --show-toplevel)"
+exports=()
+while IFS= read -r path; do exports+=("$path"); done < <(
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
+(( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
+
 base_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)")"
 head_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref HEAD)"
 # An event that changes an export itself is checked even with the sources unchanged (a merge
@@ -25,29 +45,48 @@ fi
 scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-exports" | tee "$temp/settings-exported.txt"
 stale=()
 while IFS= read -r file; do stale+=("$file"); done < <(sed -n 's/^regenerated: //p' "$temp/settings-exported.txt")
+# Nothing stale: the exports are HEAD's own fresh export and the build is HEAD's. Nothing to put back.
 ((${#stale[@]})) || exit 0
-# Whose staleness is it? Export again from the base parent's settings sources (the stamp's
-# inputs, all the export reads), checked out in place so only CmuxNextSettings rebuilds. A
-# file this event did not edit whose fresh export is the same both ways is the base's lag
-# (the base autofix regenerates it): a warning. Anything else is this event's.
-merged="$temp/settings-merged"
-based="$temp/settings-based"
-for file in "${stale[@]}"; do mkdir -p "$merged/${file%/*}" && cp "$file" "$merged/$file"; done
+
+# The settings sources the export reads, from either stamp (a source added or removed between the
+# two appears in only one of them).
 inputs=()
-while IFS= read -r path; do inputs+=("$path"); done < <(printf '%s\n%s\n' "$base_stamp" "$head_stamp" | awk 'NF == 2 { print $2 }' | sort -u)
+while IFS= read -r path; do inputs+=("$path"); done < <(
+  printf '%s\n%s\n' "$base_stamp" "$head_stamp" | awk 'NF == 2 { print $2 }' | sort -u)
+
+restored=0
+restore() {
+  (( restored )) && return 0
+  restored=1
+  for path in "${inputs[@]}"; do
+    if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f "$path"; fi
+  done
+  # From HEAD's sources again: this rewrites every export and rebuilds the package's test
+  # products, so both the checkout and the built binaries are HEAD's.
+  if scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-head-exports" > "$temp/settings-head-exported.txt" 2>&1; then
+    return 0
+  fi
+  cat "$temp/settings-head-exported.txt" >&2
+  echo "::error::the settings export could not be redone from HEAD's sources; restoring the committed exports instead" >&2
+  git checkout -q HEAD -- "${exports[@]}"
+  return 1
+}
+trap 'restore || true' EXIT
+
 for path in "${inputs[@]}"; do
   if git cat-file -e "HEAD^1:$path" 2>/dev/null; then git checkout -q HEAD^1 -- "$path"; else rm -f "$path"; fi
 done
 scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
-for file in "${stale[@]}"; do mkdir -p "$based/${file%/*}" && { cp "$file" "$based/$file" 2>/dev/null || true; }; done
-for path in "${inputs[@]}"; do
-  if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f "$path"; fi
-done
-git checkout -q HEAD -- "${stale[@]}"
-for file in "${stale[@]}"; do cp "$merged/$file" "$file"; done
+based="$temp/settings-based"
+for file in "${stale[@]}"; do mkdir -p "$based/${file%/*}" && cp "$file" "$based/$file"; done
+
+restore || exit 1
+
+# A file this event did not edit whose fresh export is the same from either side's sources is the
+# base's lag (the base autofix regenerates it): a warning. Anything else is this event's.
 own=()
 for file in "${stale[@]}"; do
-  if ! git diff --quiet HEAD^1 HEAD -- "$file" || ! cmp -s "$merged/$file" "$based/$file"; then own+=("$file"); fi
+  if ! git diff --quiet HEAD^1 HEAD -- "$file" || ! cmp -s "$file" "$based/$file"; then own+=("$file"); fi
 done
 if ((${#own[@]})); then
   echo "::error::the committed settings exports differ from a fresh export: ${own[*]}"

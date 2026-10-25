@@ -41,7 +41,10 @@ main() {
   actions_made_at="${5:-}"
   actions_current=0 settings_current=0
   action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
-  settings_exports='^(schemas/settings/settings-schema\.json|docs/mdm/(com\.manaflow\.cmux(\.intune)?\.plist|com\.manaflow\.cmux\.json|cmux-example\.mobileconfig|managed-preferences\.md))$'
+  # From scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes,
+  # so this does not become a fourth hand-kept copy of it (review of #23915).
+  settings_exports="^($(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[.]/[.]/g' \
+    "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt" | paste -sd'|' -))$"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
@@ -57,6 +60,7 @@ main() {
   push_script="${CMUX_BASE_AUTOFIX_PUSH:-}"
   if [[ -z "$push_script" ]]; then
     cp "$here/base-autofix-push.sh" "$work/push.sh"
+    cp "$here/settings-exports.txt" "$work/settings-exports.txt"
     push_script="$work/push.sh"
     export CMUX_BASE_AUTOFIX_AREAS="$areas_script"
   fi
