@@ -25,6 +25,8 @@ struct FeedColors: Equatable {
     var shadow = ThemeTokens.unresolved.shadow.swiftUIColor
     /// Draw hairlines at all (`appearance.borders`).
     var borders = true
+    /// The same colors as AppKit values, for the AppKit reports basket.
+    var basket = ReportsBasketColors()
 }
 
 @Observable
@@ -48,7 +50,7 @@ extension FeedColors {
             separator: color(Palette.separator), attention: color(Palette.attention),
             danger: color(Palette.danger), success: color(Palette.success),
             onPrimary: color(Palette.textOnPrimary), shadow: color(Palette.shadow),
-            borders: Borders.drawsLines)
+            borders: Borders.drawsLines, basket: .resolved(background: background))
     }
 
     /// A static color: dynamic ones would re-resolve outside the theme scope.
