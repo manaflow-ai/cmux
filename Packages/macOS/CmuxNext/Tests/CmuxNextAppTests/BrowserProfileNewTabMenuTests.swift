@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import Foundation
@@ -131,6 +132,9 @@ struct BrowserProfileNewTabMenuTests {
             try await PasswordManagerRouteTests.until({ services.daemon.store.tab(surface: surface) != nil && services.cache.tabModel(services.daemon.store.tab(surface: surface)?.id ?? "") != nil },
                                                        report: { WindowStateReport.describe(services, surface: surface) })
             let tab = try #require(services.daemon.store.tab(surface: surface))
+            // The menu's run targets the tab by its strip: wait until the pane's strip lists it.
+            try await PasswordManagerRouteTests.until({ pane.stripModel.tab(StripTabID(tab.id)) != nil },
+                                                       report: { "the strip of \(pane.paneKey) does not list \(tab.id) yet" })
             #expect(window.focusedPane === focused, "opening the tab moved the focus")
             let before = Set(Self.browserTabs(pane, services).map(\.id))
             let menu = try #require(services.cache.profileBadgeMenu?(tab.id), "the badge has no menu")
