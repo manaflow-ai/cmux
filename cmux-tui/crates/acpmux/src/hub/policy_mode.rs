@@ -320,6 +320,8 @@ impl Hub {
             .await
         {
             Ok(_) => {
+                session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+                    Some(wanted.clone());
                 let mut writes = vec![ModeWrite::CurrentMode(json!(wanted))];
                 if let Some(options) = with_mode_option(&session.meta(), &wanted) {
                     writes.push(ModeWrite::ConfigOptions(options));
