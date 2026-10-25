@@ -346,3 +346,27 @@ async fn url_mode_and_nested_schemas_keep_the_unsupported_reply() {
         assert_eq!(replies[0]["response"]["request_id"], "e1");
     }
 }
+
+/// A number field says so (`input: "number"`), so a client sends digits to
+/// its text rather than to option shortcuts (`tui/answering.rs`).
+#[tokio::test]
+async fn a_number_field_is_marked_as_typed_number() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let (_, p) = asked(&t, &deploy_form()).await.expect("a question");
+    let items = p["toolCall"]["_meta"]["acpmux"]["question"]["items"].as_array().expect("items");
+    let inputs: Vec<&Value> = items.iter().map(|i| &i["input"]).collect();
+    assert_eq!(inputs, [&Value::Null, &json!("number"), &Value::Null, &Value::Null, &Value::Null]);
+}
+
+/// Typed text reaches the server as the hub gave it, spaces and all.
+#[tokio::test]
+async fn typed_text_is_sent_as_given() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let line = ask(json!({"mcp_server_name": "s", "message": "m", "requested_schema": {
+        "type": "object", "required": ["x"], "properties": {"x": {"type": "string"}}}}));
+    let (id, _) = asked(&t, &line).await.expect("a question");
+    let outcome = json!({"outcome": "selected", "optionId": "allow_once",
+        "_meta": {"updatedInput": {"answers": {"m": "  two  words "}}}});
+    let response = answer(&t, id, outcome).await["response"]["response"].clone();
+    assert_eq!(response, json!({"action": "accept", "content": {"x": "  two  words "}}));
+}
