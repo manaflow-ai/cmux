@@ -23,7 +23,6 @@ export function SoundEditor({ row, value, disabled, labelId }: EditorProps) {
         type="button"
         className="icon-button"
         aria-label={t("settingsPage.playSound")}
-        title={t("settingsPage.playSound")}
         disabled={current === "none"}
         onClick={() => store.playSound(current)}
       >

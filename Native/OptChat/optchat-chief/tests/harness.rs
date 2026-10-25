@@ -379,6 +379,18 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
     assert_eq!(agents_md, system_text(None, &setup.tools));
     assert!(!paths.session.join("CLAUDE.md").exists());
+    // The Chief's own tools never wait on an approval: acpmux takes an
+    // allow only from the person's app (2026-10-20 stuck turn).
+    for name in ["settings.json", "settings.local.json"] {
+        let settings: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(paths.session.join(".claude").join(name)).unwrap(),
+        )
+        .unwrap();
+        let allow = settings["permissions"]["allow"].as_array().unwrap();
+        for tool in optchat_chief::approval::turn_allowed_tools() {
+            assert!(allow.iter().any(|v| v == tool), "{name}: {tool}");
+        }
+    }
 }
 
 #[test]
@@ -710,7 +722,8 @@ fn an_isolated_claude_turn_keeps_the_users_login() {
 
 /// The reference's Claude Code path: Chief turns and compactor nodes load
 /// no user settings, user MCP servers, user skills or slash commands
-/// (`--setting-sources project --disable-slash-commands`; checked on Claude
+/// (`--setting-sources project` or `project,local` for turns, and
+/// `--disable-slash-commands`; checked on Claude
 /// Code 2.1.287: a user MCP server and a user skill leave the session's
 /// init, the session directory's .mcp.json and denied tools stay).
 /// Subagents keep the user's environment: they do real work.
@@ -732,7 +745,7 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
             turn.args,
             [
                 "--setting-sources",
-                "project",
+                "project,local",
                 "--disable-slash-commands",
                 "--tools",
                 "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"
@@ -762,7 +775,10 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
         "SUB",
         &Default::default(),
     );
-    assert!(sub.args.is_empty(), "{:?}", sub.args);
+    // Only the deny list (tests/subagent_preset_tools.rs): no setting-source limit.
+    for word in isolated {
+        assert!(!sub.args.iter().any(|a| a == word), "{:?}", sub.args);
+    }
     assert!(!sub.env.contains_key("CLAUDE_CODE_DISABLE_CLAUDE_MDS"));
 }
 

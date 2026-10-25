@@ -14,11 +14,13 @@ struct WorkspaceAutoNameWiring {
             enabled: { [weak services] in services?.settings?.snapshot.sidebarSections.autoNamesWorkspaces ?? true },
             isNewTabPage: { [weak services] tab in services.map { RestoredNewTabPages.shows(tab, in: $0.agentTabs) } ?? false },
             livePage: { [weak services] tab in services?.cache.existingBrowser(tab.id).map { ($0.tab.state.title, $0.tab.state.url) } },
-            incognitoTitle: { [weak services] tab in
-                guard let services, services.cache.browserTabs.isIncognitoTab(tab.id) else { return nil }
-                return .some(services.cache.incognitoDisplay(tab).title)
-            },
-            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) })
+            incognitoTitle: { [weak services] tab in services.flatMap { s -> String?? in s.cache.browserTabs.isIncognitoTab(tab.id) ? .some(s.cache.incognitoDisplay(tab).title) : nil } },
+            terminal: { [weak services] tab in services.map { TabMoves.nameInput(tab, services: $0) } ?? .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+            hold: services.autoNameHold,
+            allowsLegacyDefaults: { [weak services] workspace in
+                guard let services, let daemon = services.machines.daemon(forWorkspace: workspace.id) else { return true }
+                return !daemon.supports(DaemonCapability.workspaceNameSource.rawValue)
+            })
     }
 
     /// Variant B's one-time rename (`WorkspaceAutoNamer`) on every daemon that
@@ -33,7 +35,7 @@ struct WorkspaceAutoNameWiring {
                         WorkspaceAutoNamer.Target(
                             machineID: daemon.machineID,
                             workspace: workspace,
-                            supportsNameSource: daemon.supports(DaemonCapabilities.shared.workspaceNameSource),
+                            supportsNameSource: daemon.supports(DaemonCapability.workspaceNameSource.rawValue),
                             daemonGeneration: identity?.generation,
                             nameSource: workspace.nameSource,
                             nameRevision: workspace.nameRevision)
@@ -47,7 +49,7 @@ struct WorkspaceAutoNameWiring {
             rename: { [weak services] target, name in
                 guard let services, target.supportsNameSource, let key = target.workspace.key,
                       let daemon = services.machines.daemon(machine: target.machineID),
-                      daemon.supports(DaemonCapabilities.shared.workspaceNameSource) else { return }
+                      daemon.supports(DaemonCapability.workspaceNameSource.rawValue) else { return }
                 daemon.send("auto-rename workspace") {
                     _ = try await $0.renameWorkspace(key, to: name, source: .auto,
                                                       expectedNameRevision: target.nameRevision)

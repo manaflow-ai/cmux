@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER = ROOT / "scripts/cmux-next/check-app-store-rules.py"
 
 CLEAN_INFO = {
-    "CFBundleExecutable": "CnxApp",
+    "CFBundleExecutable": "CmuxMobileApp",
     "NSMicrophoneUsageDescription": "Record audio messages for Chief and your agents.",
     "NSSpeechRecognitionUsageDescription": "Turn your voice notes into text on this device.",
     "NSLocalNetworkUsageDescription": "Connect directly to your Mac on this network.",
@@ -34,7 +34,7 @@ def actions(description: str, phrase: str = "Call Chief in ${applicationName}") 
         "actions": {
             "RecordChiefVoiceNoteIntent": {
                 "identifier": "RecordChiefVoiceNoteIntent",
-                "fullyQualifiedTypeName": "CnxApp.RecordChiefVoiceNoteIntent",
+                "fullyQualifiedTypeName": "CmuxMobileApp.RecordChiefVoiceNoteIntent",
                 "title": {"key": "Record Voice Note for Chief"},
                 "descriptionMetadata": {"descriptionText": {"key": description}},
             }
@@ -52,11 +52,11 @@ def actions(description: str, phrase: str = "Call Chief in ${applicationName}") 
 def make_app(root: Path, *, description: str = "It is transcribed on this device.", info: dict | None = None,
              binary: bytes = b"_OBJC_CLASS_$_AVAudioApplication _OBJC_CLASS_$_SFSpeechRecognizer",
              phrase: str = "Call Chief in ${applicationName}", tables: dict[str, dict[str, str]] | None = None) -> Path:
-    app = root / "CnxApp.app"
+    app = root / "CmuxMobileApp.app"
     (app / "Metadata.appintents").mkdir(parents=True)
     (app / "Metadata.appintents/extract.actionsdata").write_text(json.dumps(actions(description, phrase)))
     (app / "Info.plist").write_bytes(plistlib.dumps(CLEAN_INFO if info is None else info))
-    (app / "CnxApp").write_bytes(binary)
+    (app / "CmuxMobileApp").write_bytes(binary)
     for rel, table in (tables or {}).items():
         (app / rel).parent.mkdir(parents=True, exist_ok=True)
         (app / rel).write_bytes(plistlib.dumps(table, fmt=plistlib.FMT_BINARY))
@@ -64,10 +64,10 @@ def make_app(root: Path, *, description: str = "It is transcribed on this device
 
 
 def make_source(root: Path, intents: str, project_props: str) -> Path:
-    (root / "cnx-ios/App").mkdir(parents=True)
-    (root / "cnx-ios/App/ChiefVoiceIntents.swift").write_text(intents)
-    (root / "cnx-ios/project.yml").write_text(
-        "targets:\n  CnxApp:\n    type: application\n    info:\n      path: App/Info.plist\n      properties:\n"
+    (root / "cmux-next-ios/App").mkdir(parents=True)
+    (root / "cmux-next-ios/App/ChiefVoiceIntents.swift").write_text(intents)
+    (root / "cmux-next-ios/project.yml").write_text(
+        "targets:\n  CmuxMobileApp:\n    type: application\n    info:\n      path: App/Info.plist\n      properties:\n"
         + "".join(f"        {line}\n" for line in project_props.strip().splitlines()))
     return root
 
@@ -170,7 +170,7 @@ class Source(unittest.TestCase):
             result = check("--source", str(root))
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertEqual(result.stdout.count("90626-reserved-term"), 1, result.stdout)
-            self.assertIn("cnx-ios/App/ChiefVoiceIntents.swift", result.stdout)
+            self.assertIn("cmux-next-ios/App/ChiefVoiceIntents.swift", result.stdout)
 
     def test_clean_sources_pass(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -186,7 +186,7 @@ class Source(unittest.TestCase):
     def test_speech_without_a_purpose_string_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = make_source(Path(tmp), INTENTS % ("Fine.", ""), PROPS)
-            (root / "cnx-ios/App/Transcriber.swift").write_text("import Speech\nlet r = SFSpeechRecognizer()\n")
+            (root / "cmux-next-ios/App/Transcriber.swift").write_text("import Speech\nlet r = SFSpeechRecognizer()\n")
             self.assertIn("uses SFSpeechRecognizer", check("--source", str(root)).stdout)
 
     def test_this_checkout_passes(self) -> None:

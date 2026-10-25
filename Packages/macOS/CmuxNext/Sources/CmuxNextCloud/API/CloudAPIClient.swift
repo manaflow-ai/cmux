@@ -16,8 +16,20 @@ public struct CloudAPIClient: Sendable {
     let session: URLSession
     let appVersion: String
 
+    /// Requests that carry the account's bearer token: ephemeral, no URL
+    /// cache, no cookies, so no answer (or the request headers stored with
+    /// it) lands in `~/Library/Caches/<bundle id>/Cache.db`.
+    public static let noStoreTransport: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: configuration)
+    }()
+
     public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID,
-                session: URLSession = .shared, appVersion: String = "cmux-next") {
+                session: URLSession = CloudAPIClient.noStoreTransport, appVersion: String = "cmux-next") {
         baseURL = configuration.apiBaseURL
         if case .localOnly = configuration.backend { backendIsLocalOnly = true } else { backendIsLocalOnly = false }
         self.tokens = tokens
@@ -29,8 +41,14 @@ public struct CloudAPIClient: Sendable {
     // MARK: Machines
 
     public func listMachines() async throws -> [CloudMachine] {
-        struct List: Decodable { var vms: [CloudMachine] }
-        return try await send("GET", "/api/vm", as: List.self).vms
+        try await listMachinesAndLimits().machines
+    }
+
+    /// `GET /api/vm`: the machines and the account's machine cap (`limits`;
+    /// nil when the server sent none or sent one this client cannot read).
+    public func listMachinesAndLimits() async throws -> (machines: [CloudMachine], limits: CloudMachineLimits?) {
+        let list = try await send("GET", "/api/vm", as: CloudMachineList.self)
+        return (list.vms, list.limits)
     }
 
     public func machine(_ id: String) async throws -> CloudMachine {
@@ -70,9 +88,23 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
     }
 
-    public func attachEndpoint(_ id: String) async throws -> CloudAttachEndpoint {
-        try await send("POST", "/api/vm/\(id)/attach-endpoint", body: ["transport": "cmux-remote"], timeout: .seconds(30),
+    /// `PUT /api/vm/{id}/idle-pause`: minutes of idle before the server
+    /// pauses the machine, one of ``CloudMachine/idlePauseChoices``; 0 is Off.
+    public func setIdlePause(_ id: String, minutes: Int) async throws {
+        let value: any Sendable = minutes == 0 ? "off" : minutes
+        _ = try await send("PUT", "/api/vm/\(id)/idle-pause", body: ["minutes": value], timeout: .seconds(30), as: Ignored.self)
+    }
+
+    public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
+        var body: [String: any Sendable] = ["transport": "cmux-remote"]
+        if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }
+        return try await send("POST", "/api/vm/\(id)/attach-endpoint", body: body, timeout: .seconds(30),
                        as: CloudAttachEndpoint.self)
+    }
+
+    public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
+        try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
+                       timeout: .seconds(60), as: CloudEnrollmentApproval.self)
     }
 
     public func stats(_ id: String) async throws -> CloudMachineStats {
@@ -84,10 +116,11 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resize", body: ["cpu": cpu, "memoryMb": memoryMb], timeout: .seconds(120), as: Ignored.self)
     }
 
-    public func snapshot(_ id: String, name: String?) async throws -> CloudSnapshot {
+    public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
         var body: [String: any Sendable] = [:]
         if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, timeout: .seconds(300), as: CloudSnapshot.self)
+        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, idempotencyKey: idempotencyKey,
+                              timeout: .seconds(300), as: CloudSnapshot.self)
     }
 
     public func snapshots(_ id: String) async throws -> [CloudSnapshot] {

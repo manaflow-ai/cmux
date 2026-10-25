@@ -13,13 +13,20 @@
 //! - A folder field (`cwd`, `additionalDirectories`) of `session/new`,
 //!   `session/fork`, `session/load`, `session/resume` and `acp.trust.set`
 //!   must be an absolute path to an existing directory; the request goes on
-//!   with the canonical path (symlinks resolved, no `..`).
+//!   with the canonical path (symlinks resolved, no `..`). An `acp.trust.set`
+//!   for a peer's session names the peer's folder: it goes on to that peer
+//!   unchanged, and the peer's own guard checks the folder there.
 //! - A session method acpmux does not handle itself is not passed to the
 //!   harness (`requests.rs` catch-all), so no harness extension method can
 //!   take caller params that spawn or read. LocalApp may pass
 //!   `_acpmux/subagent_stop`, which only stops a task the agent already runs
 //!   (`forwards`).
 //!
+//! - A chat's own narrower policy holds its mode for every client (`hub/policy_mode.rs`), so
+//!   a chat a remote connection started (policy `ask`, below) never leaves the asking modes,
+//!   unless a paired machine the person let run chats in Full access sends the switch
+//!   (`full_access_device`); deny-all still holds it then, and a chat started on this machine
+//!   keeps its policy's mode whoever asks.
 //! - Web only (ACP-REMOTE-GUARD), allow lists: only the `ask` and `deny-all`
 //!   policies, rules that cannot auto-approve, the cited asking modes
 //!   (`ASKING_MODES`) and the listed config options; every other value,
@@ -41,15 +48,45 @@
 //! - Web and Peer: no `_acpmux/btw` (`btw.remote`). A side session is a new
 //!   session on this machine, in the chat's harness and folder, with a policy
 //!   that approves reads: the app and the unix socket only.
-//! - Web and LocalApp: no `_acpmux/peer_add` or `_acpmux/peer_remove` (they
-//!   change which machines this daemon reaches with the user's ssh keys and
-//!   tokens); `peer_reconnect` only retries a configured peer.
+//! - Web and LocalApp: no `_acpmux/peer_add`, `_acpmux/peer_remove` or
+//!   `_acpmux/peer_lease` (they change which machines this daemon reaches
+//!   with the user's ssh keys and tokens); `peer_reconnect` only retries a
+//!   configured peer.
+//! - Web only: no `_acpmux/file_put` (`filePut.remote`). It writes a file
+//!   of the caller's bytes on this machine (under acpmux's own `uploads`
+//!   folder, never a path of the caller's), for a file the person dropped
+//!   into a chat in the app: the unix socket, the app (LocalApp) and a peer
+//!   forwarding for either take it; a peer forwarding for its own Web client
+//!   does not. The app sends it over the unix socket after the person's
+//!   gesture, but a LocalApp page could send it itself with no gesture: that
+//!   is accepted, since the page can already prompt the agent, and it writes
+//!   at most `MAX_BYTES` owner-only into a fresh folder under `uploads`.
+//! - Web only: no `_acpmux/workflows` (`workflows.remote`): it names the
+//!   daemon's chats and their workflows' args.
+//! - Web only: no `_acpmux/media_open` or `_acpmux/media_range`
+//!   (`mediaRead.remote`). They read a chat's images and videos on this
+//!   machine for the app's pane (`hub/media_read.rs`): the unix socket, the
+//!   app and a peer forwarding for either.
+//! - Web only: no `_acpmux/subagent_transcript` (`transcriptRead.remote`),
+//!   which reads a subagent's transcript from the chat's Claude store
+//!   (`hub/subagent_transcript.rs`): the unix socket, the app and a peer
+//!   forwarding for either.
 //!
 //! The unix socket keeps today's behavior.
 
+use crate::no_panic::JsonExt;
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+pub(super) mod hint;
+mod peer_folder;
+pub(super) use hint::check;
+use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
+use peer_folder::{
+    configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
+};
 
 /// Whether a session method acpmux does not handle itself goes on to the
 /// harness from `origin`: anything from the unix socket, and from the app only
@@ -84,6 +121,25 @@ pub(super) fn control_of(
     }
 }
 
+/// The paired machine whose Full-access setting covers this request
+/// (`crate::pairing` module docs), or None: the connection presented that
+/// machine's own `client` or `phone` credential (`ConnAuth::Device`; never the shared
+/// dashboard token, a peer token, LocalApp or a read-only machine), the
+/// request is held to the Web's rules (it forwards for that machine's Web
+/// client, `via: web`), and the setting is on now, read from the pairing
+/// store for this request. Which machine it is comes from the handshake
+/// (`Conn::device`), never from the request.
+pub(super) fn full_access_device(
+    hub: &crate::hub::Hub,
+    conn: &super::Conn,
+    params: &Value,
+) -> Option<String> {
+    let id = conn.device.as_deref().filter(|_| conn.auth == super::ConnAuth::Device)?;
+    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web
+        && hub.pairing.full_access(id))
+    .then(|| id.to_owned())
+}
+
 /// A request forwarded to a peer, which serves this daemon as Peer: one
 /// this daemon holds to the Web's rules says so, and the peer applies them.
 /// One from the app's pane says `via: app`, so the peer's folder-trust gate
@@ -113,11 +169,12 @@ fn refused(what: &str) -> RpcError {
 }
 
 /// Check (and canonicalize the folder fields of) a request from a
-/// connection that is not the unix socket.
-pub(super) async fn check(
+/// connection that is not the unix socket (`hint::check` adds `servedAs`).
+async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
     auth: super::ConnAuth,
+    device: Option<&str>,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
@@ -126,7 +183,26 @@ pub(super) async fn check(
     if !auth.authenticated() {
         return Err(super::conn_auth::refused());
     }
+    // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
+    // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
+    // phone presented its own credential: it runs only when that phone's Full-access setting
+    // covers it (`device`, from `full_access_device`). The mark only narrows.
+    if params.pointer("/_meta/acpmux/requireFullAccess").and_then(Value::as_bool) == Some(true)
+        && device.is_none()
+    {
+        return Err(RpcError::new(
+            -32000,
+            "Full access is off for this device: turn it on for this device in Settings > Devices on the Mac",
+        )
+        .with_data(serde_json::json!({"reason": "remote.full_access_required"})));
+    }
     let web = origin.web_class();
+    // Taking over a watched conversation starts its harness on this machine (`hub/watch.rs`):
+    // only a local client does that.
+    if web && m == method::MUX_WATCH_TAKE_OVER {
+        return Err(RpcError::new(-32602, "a watched chat is taken over only on this machine")
+            .with_data(serde_json::json!({"reason": "watch.origin_refused"})));
+    }
     if m == method::SESSION_CANCEL && web {
         check_cancel_ownership(hub, params)?;
     }
@@ -150,6 +226,7 @@ pub(super) async fn check(
         .with_data(serde_json::json!({"reason": "route.origin_refused"})));
     }
     // So is a prompt's provenance (prompt_provenance.rs): no remote text passes as an agent's.
+    // Nor does the app pane's: its reply in place is no prompt (`app_reply.rs`).
     if m == method::SESSION_PROMPT
         && crate::prompt_provenance::present(params.pointer("/_meta/acpmux"))
     {
@@ -159,9 +236,15 @@ pub(super) async fn check(
     if m == method::MUX_PROMPT_WITHDRAW {
         return Err(crate::prompt_provenance::withdraw_origin_refused());
     }
+    // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
+    if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "resuming agent pairs is accepted only from this machine's app or unix socket",
+        ));
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
-    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
+    if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove" | "_acpmux/peer_lease") {
         return Err(refused("changing peers"));
     }
     // The native relay reads the guard's own table and lists over the unix
@@ -204,8 +287,15 @@ pub(super) async fn check(
             return Err(refused("an import from outside acpmux's bundle directory"));
         }
     }
+    // A new session's folder is judged first, so one refusal names every field the caller
+    // must change; nothing is made for a start the policy or mode check refuses anyway.
+    let mut deferred = None;
     if web {
-        web_only(m, params)?;
+        let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
+        match web_only(m, params, peer) {
+            Err(e) if m == method::SESSION_NEW => deferred = Some(e),
+            other => other?,
+        }
         // A remote-origin session (a Web device, or a peer) never resumes a
         // local harness session (REMOTE-FLOOR v3, D13).
         if m == method::SESSION_NEW
@@ -217,14 +307,25 @@ pub(super) async fn check(
             .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
         }
     }
-    let folders = matches!(
-        m,
-        method::SESSION_NEW
-            | method::SESSION_FORK
-            | method::SESSION_LOAD
-            | method::SESSION_RESUME
-            | method::ACP_TRUST_SET
-    );
+    // The pane's Trust for a chat on a peer names a folder on that peer, which this machine
+    // may not have: the set is forwarded whole (`peer_forward.rs`), and the peer, which serves
+    // it as Peer, checks the folder on its own disk. Only its spelling is checked here.
+    let peers_folder = m == method::ACP_TRUST_SET && names_a_peers_session(hub, params);
+    if peers_folder
+        && let Some(cwd) = params.get("cwd").filter(|v| !v.is_null())
+        && !cwd.as_str().is_some_and(|c| Path::new(c).is_absolute())
+    {
+        return Err(folder_refused("cwd"));
+    }
+    let folders = !peers_folder
+        && matches!(
+            m,
+            method::SESSION_NEW
+                | method::SESSION_FORK
+                | method::SESSION_LOAD
+                | method::SESSION_RESUME
+                | method::ACP_TRUST_SET
+        );
     if folders {
         // A Web folder must also sit inside a root (`web_roots`); LocalApp
         // keeps the native relay's pane roots (no daemon root check).
@@ -232,16 +333,42 @@ pub(super) async fn check(
         let inside = |c: &str| {
             roots.as_ref().is_none_or(|r| r.iter().any(|root| Path::new(c).starts_with(root)))
         };
+        // The owner's own daemon starting a session: told the configured roots when its
+        // folder is outside them, and a missing folder inside one is made for it.
+        let peer_new = m == method::SESSION_NEW
+            && control_of(origin, auth, params) == crate::hub::Control::Peer;
+        let told = if peer_new { Some(configured_web_roots(hub).await) } else { None };
         if let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) {
             let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
-            let canonical = canonical_dir(cwd).await.ok_or_else(|| folder_refused("cwd"))?;
-            if !inside(&canonical) {
+            let canonical = match canonical_dir(cwd).await {
+                Some(canonical) => Some(canonical),
+                None if peer_new => {
+                    let roots = roots.as_deref().unwrap_or_default();
+                    match make_inside_root(cwd, roots, deferred.is_none()).await {
+                        Ok(made) => made,
+                        Err(Some(e)) => return Err(e),
+                        Err(None) => return Err(outside_told(cwd, &told).await),
+                    }
+                }
+                None => return Err(cwd_refused(cwd).await),
+            };
+            if let Some(canonical) = canonical {
+                if !inside(&canonical) {
+                    return Err(outside_told(cwd, &told).await);
+                }
+                params.set("cwd", Value::String(canonical));
+            }
+        } else if web && m == method::SESSION_NEW {
+            // An absent cwd means the home directory, which is never a root. A proven
+            // peer (the owner's own daemon) gets a scratch folder named after the
+            // session instead: "acpmux is too belt and suspenders there" (Leo).
+            if control_of(origin, auth, params) != crate::hub::Control::Peer {
                 return Err(outside_roots("cwd"));
             }
-            params["cwd"] = Value::String(canonical);
-        } else if web && m == method::SESSION_NEW {
-            // An absent cwd means the home directory, which is never a root.
-            return Err(outside_roots("cwd"));
+            if deferred.is_none() {
+                let scratch = peer_scratch(params).await?;
+                params.set("cwd", Value::String(scratch));
+            }
         }
         if let Some(dirs) = params.get("additionalDirectories").filter(|v| !v.is_null()) {
             let list = dirs.as_array().ok_or_else(|| folder_refused("additionalDirectories"))?;
@@ -256,8 +383,11 @@ pub(super) async fn check(
                 }
                 out.push(Value::String(c));
             }
-            params["additionalDirectories"] = Value::Array(out);
+            params.set("additionalDirectories", Value::Array(out));
         }
+    }
+    if let Some(e) = deferred {
+        return Err(e);
     }
     // The folder-trust question is the user's: a remote browser cannot answer
     // it for itself (`trust_gate.rs`). After the folder checks, so a bad path
@@ -276,9 +406,94 @@ pub(super) async fn check(
         )
         .with_data(serde_json::json!({"reason": "tools.remote"})));
     }
+    // A dropped file is saved from the app or the unix socket only (`hub/file_uploads.rs`).
+    if matches!(
+        m,
+        method::MUX_FILE_PUT
+            | method::MUX_FILE_PUT_BEGIN
+            | method::MUX_FILE_PUT_CHUNK
+            | method::MUX_FILE_PUT_FINISH
+            | method::MUX_FILE_PUT_CANCEL
+    ) && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "filePut.remote: a file is saved for a chat only from the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "filePut.remote"})));
+    }
+    // So is a chat's media read (`hub/media_read.rs`).
+    if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "mediaRead.remote: a chat's media is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "mediaRead.remote"})));
+    }
+    // And a subagent's transcript (`hub/subagent_transcript.rs`).
+    if m == method::MUX_SUBAGENT_TRANSCRIPT
+        && control_of(origin, auth, params) == crate::hub::Control::Web
+    {
+        return Err(RpcError::invalid_params(
+            "transcriptRead.remote: a subagent's transcript is read only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "transcriptRead.remote"})));
+    }
+    // The daemon's workflows name its chats and their workflows' args
+    // (`hub/workflow_index.rs`): the app and the unix socket only.
+    if m == method::MUX_WORKFLOWS && control_of(origin, auth, params) == crate::hub::Control::Web {
+        return Err(RpcError::invalid_params(
+            "workflows.remote: the daemon's workflows are listed only for the app or over the local unix socket",
+        )
+        .with_data(serde_json::json!({"reason": "workflows.remote"})));
+    }
     // After the folder checks: what the request starts from, and its mode.
     if web {
         web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
+    }
+    // A chat in Full access by a machine's setting: every request that controls or changes its
+    // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
+    // `full_access_device`).
+    if matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::SESSION_CANCEL
+            | method::MUX_QUEUE_EDIT
+            | method::MUX_QUEUE_REMOVE
+            | method::MUX_PERMISSION_RESPOND
+            | method::MUX_PERMISSION_GROUP_RESPOND
+    ) && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
+    {
+        hub.full_access_hold(&s.meta(), control_of(origin, auth, params), device)?;
+    }
+    Ok(())
+}
+
+/// Whether the request's session lives on a peer: what `peer_forward::forward` forwards an
+/// `acp.trust.*` request on. A session this daemon holds, an unknown key or none is not one.
+fn names_a_peers_session(hub: &crate::hub::Hub, params: &Value) -> bool {
+    super::session_key(params)
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some())
+}
+
+/// The folder an `acp.trust.set` from a connection that is not the unix socket records on this
+/// daemon: one `check` made canonical (inside a root for a Web or Peer connection), or none.
+/// `check` passes a peer's folder on unchecked for the peer to judge; if that peer's session is
+/// gone before the forward, the set lands here and is refused rather than recorded unchecked.
+pub(super) async fn local_trust_folder(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    origin: super::Origin,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) else { return Ok(()) };
+    let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
+    if canonical_dir(cwd).await.as_deref() != Some(cwd) {
+        return Err(folder_refused("cwd"));
+    }
+    if origin.web_class()
+        && !web_roots(hub).await.iter().any(|root| Path::new(cwd).starts_with(root))
+    {
+        return Err(outside_roots("cwd"));
     }
     Ok(())
 }
@@ -356,11 +571,6 @@ pub(super) async fn settle_web_session_mode(
     hub: &std::sync::Arc<crate::hub::Hub>,
     s: &std::sync::Arc<crate::hub::Session>,
 ) -> Result<(), RpcError> {
-    let refuse = || {
-        RpcError::invalid_params(
-            "this harness has no reviewed asking mode for a remote WebSocket connection",
-        )
-    };
     // The Codex bridge takes any mode from an authenticated Web connection
     // (`any_mode_for_web`), but a session the Web STARTS begins in a mode
     // that asks before every change (`BRIDGE_ASKING_MODES`), never in the
@@ -373,10 +583,13 @@ pub(super) async fn settle_web_session_mode(
         if asks(&s.meta()) {
             return Ok(());
         }
-        let start = crate::web_modes::BRIDGE_ASKING_MODES[0];
+        let Some(&start) = crate::web_modes::BRIDGE_ASKING_MODES.first() else {
+            let _ = hub.kill(s, true).await;
+            return Err(no_reviewed_asking_mode());
+        };
         if hub.set_mode(s, start).await.is_err() || !asks(&s.meta()) {
             let _ = hub.kill(s, true).await;
-            return Err(refuse());
+            return Err(no_reviewed_asking_mode());
         }
         hub.restore_web_control(s);
         return Ok(());
@@ -386,11 +599,11 @@ pub(super) async fn settle_web_session_mode(
     }
     let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
-        return Err(refuse());
+        return Err(no_reviewed_asking_mode());
     };
     if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta()).await {
         let _ = hub.kill(s, true).await;
-        return Err(refuse());
+        return Err(no_reviewed_asking_mode());
     }
     // The daemon's own move to the asking default clears the flag its
     // starting mode set.
@@ -398,26 +611,36 @@ pub(super) async fn settle_web_session_mode(
     Ok(())
 }
 
+fn no_reviewed_asking_mode() -> RpcError {
+    RpcError::invalid_params(
+        "this harness has no reviewed asking mode for a remote WebSocket connection",
+    )
+    .with_data(serde_json::json!({"reason": "remote.mode_not_asking"}))
+}
+
 /// What a Web (remote-origin) connection may never do; LocalApp and the
 /// unix socket may. The daemon cannot see user gestures: for LocalApp the
 /// native relay enforces a fresh gesture before it sends a policy that
 /// skips asking.
-fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
+fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
     let refused = |what: &str| {
         RpcError::invalid_params(format!(
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
         ))
     };
+    let because =
+        |what: &str, reason: &str| refused(what).with_data(serde_json::json!({"reason": reason}));
     // Absent: nothing is set. Present: one of the asking policies, exactly
     // (`ask`, `deny-all`; the person rule's list, `hub/person.rs`).
     let policy_ok = crate::hub::person::asking_policy_value;
-    let policy_refused = || refused("a permission policy other than ask or deny-all");
+    let policy_refused =
+        || because("a permission policy other than ask or deny-all", POLICY_REFUSED);
     if m == method::SESSION_NEW
         && crate::web_modes::MODE_FIELDS.iter().any(|f| {
             params.get(*f).is_some() || params.pointer(&format!("/_meta/acpmux/{f}")).is_some()
         })
     {
-        return Err(refused("a mode at session start"));
+        return Err(because("a mode at session start", MODE_REFUSED));
     }
     // Defaults and preset writes: only the fields known not to shape what
     // runs without asking (no `mode`, `env`, `args`, unknown fields).
@@ -440,6 +663,11 @@ fn web_only(m: &str, params: &Value) -> Result<(), RpcError> {
         return Err(refused("this warm field"));
     }
     match m {
+        // A proven peer (`Control::Peer`: the owner's own daemon, by the peer token
+        // or a `client` pairing) starts a session with any policy, as the same user
+        // would over ssh: "acpmux is too belt and suspenders there" (Leo). Its
+        // modes, rules, defaults and presets keep the rules below.
+        method::SESSION_NEW if peer => Ok(()),
         method::SESSION_NEW
             if !policy_ok(params.get("policy"))
                 || !policy_ok(params.pointer("/_meta/acpmux/policy")) =>
@@ -494,12 +722,30 @@ async fn web_starts_asking(
         cfg!(target_os = "macos"),
         control == crate::hub::Control::Peer,
     );
+    if m == method::SESSION_NEW {
+        let meta = params.pointer("/_meta/acpmux");
+        let pick = |key: &str| {
+            meta.and_then(|m| m.get(key))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
+        };
+        let cwd = params.get("cwd").and_then(Value::as_str).map(Path::new).map(Path::to_path_buf);
+        let (family, any_mode) =
+            hub.preflight_remote_new(pick("harness"), pick("preset"), pick("model"), cwd).await?;
+        if !any_mode && asking_modes(hub, &family).await.is_empty() {
+            return Err(no_reviewed_asking_mode());
+        }
+    }
     if m == method::SESSION_NEW
         && !vm_host_peer
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {
-        params["policy"] = Value::String("ask".into());
+        // Fail closed: params that are not an object cannot carry the forced policy.
+        if !params.set("policy", Value::String("ask".into())) {
+            return Err(RpcError::invalid_params("session/new params must be an object"));
+        }
     }
     let copies = matches!(
         m,
@@ -654,12 +900,86 @@ fn folder_refused(field: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{field} is refused: from a WebSocket connection it must be an absolute path to an existing directory"
     ))
+    .with_data(serde_json::json!({"reason": CWD_MISSING, "field": field}))
+}
+
+/// The folder a proven peer's `session/new` with no `cwd` runs in: an owner-only
+/// temporary `scratch/<name>` directory, one per session name (a lane's `-n`),
+/// else one per request. It must stay outside `~/.acpmux`: remote Claude's
+/// Seatbelt rejects hidden children of the home directory as settings or
+/// programs, even though the peer is trusted.
+async fn peer_scratch(params: &Value) -> Result<String, RpcError> {
+    let name = params
+        .pointer("/_meta/acpmux/name")
+        .or_else(|| params.get("name"))
+        .and_then(Value::as_str)
+        .map(scratch_name)
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("session-{}", uuid::Uuid::now_v7().simple()));
+    let dir = peer_scratch_root()?.join(name);
+    let made = {
+        let dir = dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            builder.create(&dir)
+        })
+        .await
+    };
+    let failed = |why: String| {
+        RpcError::invalid_params(format!("the peer's scratch folder could not be made: {why}"))
+    };
+    made.map_err(|e| failed(e.to_string()))?.map_err(|e| failed(e.to_string()))?;
+    crate::config::private_state_dir(&dir).map_err(|e| failed(e.to_string()))?;
+    canonical_dir(&dir.to_string_lossy()).await.ok_or_else(|| folder_refused("cwd"))
+}
+
+fn peer_scratch_root() -> Result<PathBuf, RpcError> {
+    static ROOT: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let uid = {
+            #[cfg(unix)]
+            {
+                unsafe { libc::getuid() }.to_string()
+            }
+            #[cfg(not(unix))]
+            {
+                "user".to_owned()
+            }
+        };
+        let root = std::env::temp_dir()
+            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&root).map_err(|e| format!("{}: {e}", root.display())).and_then(|_| {
+            crate::config::private_state_dir(&root).map(|_| root).map_err(|e| e.to_string())
+        })
+    })
+    .clone()
+    .map_err(|e| {
+        RpcError::invalid_params(format!("the peer's scratch root could not be made: {e}"))
+    })
+}
+
+/// A session name as one folder name: letters, digits, `.`, `-` and `_`; anything
+/// else is `-`, and no name of dots only.
+fn scratch_name(name: &str) -> String {
+    let n: String = name
+        .chars()
+        .take(80)
+        .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '-' })
+        .collect();
+    if n.chars().all(|c| c == '.') { String::new() } else { n }
 }
 
 fn outside_roots(field: &str) -> RpcError {
     RpcError::invalid_params(format!(
         "{field} is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
     ))
+    .with_data(serde_json::json!({"reason": CWD_OUTSIDE_ROOTS, "field": field}))
 }
 
 /// The folders a Web connection may work in: `webRoots` from config.json,
@@ -676,20 +996,7 @@ async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::Path
     raw.extend(hub.person.workspace_roots());
     raw.sort();
     raw.dedup();
-    let home = match dirs::home_dir() {
-        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
-        None => std::path::PathBuf::from("/"),
-    };
-    let mut roots = Vec::new();
-    for r in raw {
-        if let Some(root) = fs_spelling(&r).await
-            && !home.starts_with(&root)
-            && !roots.contains(&root)
-        {
-            roots.push(root);
-        }
-    }
-    roots
+    guarded_roots(raw).await
 }
 
 /// `path` resolved (symlinks, `..`) and spelled as the filesystem stores it:

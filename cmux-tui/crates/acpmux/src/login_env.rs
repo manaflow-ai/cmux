@@ -29,6 +29,7 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -429,6 +430,31 @@ pub fn agent_path() -> Option<OsString> {
     joined.or(path)
 }
 
+/// A profile's, preset's or session's own PATH `own`, then every
+/// [`agent_path`] directory it does not list, each directory once. A PATH a
+/// preset saved (the Chief's built-in subagent preset takes the daemon's PATH
+/// when it is installed, which can be before the login import, or a launchd
+/// start's bare `/usr/bin:/bin:/usr/sbin:/sbin`) must not hide the login
+/// PATH's tools: the harness is looked up on this PATH (`claude`), and so is
+/// every tool it runs.
+pub fn with_agent_path(own: &str) -> String {
+    let login = agent_path();
+    let login =
+        login.iter().flat_map(std::env::split_paths).map(|p| p.to_string_lossy().into_owned());
+    merge_paths(own.split(':').map(str::to_owned).chain(login))
+}
+
+/// The non-empty entries of `dirs`, first occurrence kept, joined with `:`.
+fn merge_paths(dirs: impl Iterator<Item = String>) -> String {
+    let mut merged: Vec<String> = Vec::new();
+    for dir in dirs {
+        if !dir.is_empty() && !merged.contains(&dir) {
+            merged.push(dir);
+        }
+    }
+    merged.join(":")
+}
+
 /// The app's bundled `cmux` (BundledCLIEnvironment.swift).
 pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
 
@@ -607,9 +633,15 @@ fn extra_prefix(key: &str) -> bool {
     })
 }
 
-/// Login keys the daemon itself reads (routing), passed to a child only
+/// Login keys the daemon itself reads (routing and installation discovery), passed to a child only
 /// when the allow-list passes them.
-const INTERNAL: [&str; 2] = ["SUBROUTER_URL", "ACPMUX_CODEROUTER_CLAUDE_ROUTE"];
+const INTERNAL: [&str; 5] = [
+    "SUBROUTER_URL",
+    "ACPMUX_CODEROUTER_CLAUDE_ROUTE",
+    "BUN_INSTALL_GLOBAL_DIR",
+    "BUN_INSTALL_BIN",
+    "XDG_CONFIG_HOME",
+];
 
 /// Whether a login variable is kept at all (memory and cache): allowed for
 /// some family (its Bedrock or Vertex condition aside), or read by the daemon.
@@ -723,6 +755,19 @@ pub fn apply_tokio_for(
             Some(user) => cmd.env(AGENT_USER_ZDOTDIR_ENV, user),
             None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
         };
+    }
+}
+
+/// The fixed login-derived subset a remote-origin harness may receive.
+///
+/// Only the resolved executable search path crosses this boundary. The
+/// person's `loginEnvAllow`, provider variables, proxy variables and shell
+/// startup layer are local authority and are never inherited by a remote
+/// process. A remote profile may still name an explicit `${env:...}` value;
+/// resolving that reference is the profile owner's authorization.
+pub fn apply_remote_tokio(cmd: &mut tokio::process::Command) {
+    if let Some(path) = agent_path() {
+        cmd.env("PATH", path);
     }
 }
 
@@ -901,7 +946,9 @@ fn cache_path() -> PathBuf {
 }
 
 fn load_cache() -> Option<Cache> {
-    let bytes = std::fs::read(cache_path()).ok()?;
+    let mut file = crate::config::private_state_file(&cache_path()).ok()?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).ok()?;
     let cache: Cache = serde_json::from_slice(&bytes).ok()?;
     (cache.version == CACHE_VERSION).then_some(cache)
 }

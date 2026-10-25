@@ -38,9 +38,11 @@ extension AppOnboardingServices {
 
     /// Runs Import Workspaces from Classic cmux: every classic workspace not
     /// already open here (the migration ledger knows which ones came over),
-    /// with its window, group, color and pin. See ``migrateClassic(_:firstWorkspace:)``.
-    func importClassicSessions() async throws -> ClassicImportSummary {
-        try await migrateClassic(.manual).summary
+    /// with its window, group, color and pin. `progress` hears the share of classic workspaces
+    /// handled, 0...1. See ``migrateClassic(_:firstWorkspace:confirmation:progress:)``.
+    func importClassicSessions(progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicImportSummary? {
+        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport, progress: progress)
+        return outcome.confirmed ? outcome.summary : nil
     }
 
     /// Opens one classic workspace here: a local or SSH workspace with its
@@ -77,7 +79,7 @@ extension AppOnboardingServices {
         }
         // A workspace with nothing that comes over (only a markdown viewer, or
         // only pages on a daemon without browser tabs) is not opened.
-        let browsers = daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
+        let browsers = daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue)
         if saved.leftOutPanels { summary.leftTabs = true }
         guard let layout = saved.layout.keeping({ browsers || $0.url == nil }) else { return nil }
         if saved.remote != nil, layout.tabs.contains(where: { $0.scrollback != nil }) { summary.leftSSHScrollback = true }
@@ -86,7 +88,7 @@ extension AppOnboardingServices {
             node = blueprintNode(layout, replays: saved.remote == nil)
             // Recreated in their saved order: each one after the last loose row. An
             // explicit slot, because the daemon itself puts a new workspace at the
-            // `workspaces.newPlacement` slot (top by default).
+            // `workspaces.newPlacement` slot (after the current workspace by default).
             var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
             spawn.slot = .bottom(anchor: nil)
             // The workspace's first terminal is the first tab's.

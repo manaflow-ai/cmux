@@ -99,11 +99,11 @@ class SidebarRowView: NSView {
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
     @objc dynamic func hoverChanged() {
-        // Hover entry is immediate; only clearing a row may use the short
-        // exit transition. A pointer sweep should never leave a delayed
-        // highlight behind the row the pointer is currently over.
+        // Hover entry is immediate; clearing a row's fill uses the `hoverOut` token (instant by
+        // default). Its hover controls clear at once too: a pointer moving to the next row never
+        // leaves the old row's buttons behind (Leo 2026-10-20: no exit delay on hover-out).
         fadesNextFill = !isHovered
-        fadesNextHover = !isHovered
+        fadesNextHover = false
         needsDisplay = true
     }
 
@@ -143,6 +143,8 @@ class SidebarRowView: NSView {
     /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
     /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
     var debugIcon: String? { nil }
+    /// The row draws the archived look (plans/cmux-next/archiving-DESIGN.md).
+    var debugArchived: Bool { false }
     /// The address of the favicon the row draws (a link row), for proofs.
     var debugIconAddress: String? { nil }
 

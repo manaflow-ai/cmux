@@ -52,7 +52,7 @@ extension SidebarRegionView {
         let point = convert(event.locationInWindow, from: nil)
         if reorder == nil {
             let origin = convert(start, from: nil)
-            guard hypot(point.x - origin.x, point.y - origin.y) >= SidebarStyle.dragThreshold else { return false }
+            guard SidebarPress.movedPastThreshold(from: origin, to: point) else { return false }
             beginDrag(subject, at: origin)
         }
         updateDrag(to: point)
@@ -131,6 +131,16 @@ extension SidebarRegionView {
         itemViews[id]?.alphaValue = 1
         if let content { update(content, width: bounds.width) }
         relayout(animated: false)
+    }
+
+    /// A new press on an item: a drag the last press left held (its release went to another window) is
+    /// cancelled, here or in the list that draws this region, as a press on the list's rows does.
+    func endStaleDrag() {
+        guard let docList else { return cancelDrag() }
+        docList.endPointerGesture()
+        // The old press's release never comes: its tile shows again and the new press may drag.
+        docSpentPress = nil
+        endDocPress()
     }
 
     func cancelDrag() {

@@ -98,7 +98,7 @@ nonisolated extension CatalogArgument {
         let pinned = [
             ActionEnumCase(value: paneBackgroundInherit, title: t("argument.value.paneBackground.inherit", "Same as Workspace")),
             ActionEnumCase(value: "none", title: t("argument.value.paneBackground.none", "None")),
-            ActionEnumCase(value: "daily", title: t("argument.value.paneBackground.daily", "Shuffle Daily")),
+            ActionEnumCase(value: "daily", title: t("argument.value.paneBackground.shufflePaintings", "Shuffle Paintings")),
             ActionEnumCase(value: "desktop", title: t("argument.value.paneBackground.desktop", "Desktop Wallpaper")),
         ]
         return ActionArgument(name: "background", title: t("argument.paneBackground", "Background"), kind: .string,

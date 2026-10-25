@@ -4,6 +4,7 @@ import { type StringKey, useT } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import {
+  activityTime,
   listed,
   sessionTitle,
   sessionMark,
@@ -76,9 +77,8 @@ const status = (session: AcpmuxSessionEntry, selected: boolean): ChiefStatus => 
   return "idle";
 };
 
-const STATUS_ICONS: Record<Exclude<ChiefStatus, "idle">, string> = {
+const STATUS_ICONS: Record<Exclude<ChiefStatus, "idle" | "attention">, string> = {
   streaming: "status.running",
-  attention: "status.needsinput",
   error: "status.disconnected",
   complete: "status.complete",
   unread: "status.dot",
@@ -114,7 +114,7 @@ export function ChiefDock({
       withoutChildren(sessions.filter(listed)).sort(
         (left, right) =>
           urgency(right, right.sessionId === currentId) - urgency(left, left.sessionId === currentId) ||
-          (right.updatedAt ?? 0) - (left.updatedAt ?? 0),
+          (activityTime(right) ?? 0) - (activityTime(left) ?? 0),
       ),
     [currentId, sessions],
   );
@@ -169,6 +169,7 @@ export function ChiefDock({
                   id: "move-to-tab",
                   label: t("floating.moveToTab"),
                   icon: <Icon name="link.open.newtab" size={14} />,
+                  symbol: "link.open.newtab",
                   onSelect: () => onMoveToTab(session.sessionId),
                 },
               ];
@@ -201,7 +202,12 @@ export function ChiefDock({
                         <strong>
                           {cardStatus !== "idle" && (
                             <span className="acpmux-chief-dock-status" data-status={cardStatus} aria-hidden="true">
-                              <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
+                              {cardStatus === "attention" ? (
+                                // The one Needs you mark (needsYou/needsYou.css), as the sidebar draws it.
+                                <span className="acpmux-needs-you-dot" />
+                              ) : (
+                                <Icon name={STATUS_ICONS[cardStatus]} size={20} row />
+                              )}
                             </span>
                           )}
                           <span className="acpmux-chief-card-title">{title}</span>

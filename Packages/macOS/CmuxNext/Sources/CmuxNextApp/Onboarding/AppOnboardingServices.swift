@@ -32,13 +32,16 @@ final class AppOnboardingServices: OnboardingServices {
     func importPasswordsFromCSV(into profile: String?) { try? PasswordCSVFiles(services: services).chooseImport(profile: profile ?? BrowserProfileRecord.defaultID) }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
-        let cache = services.cache
-        let destination = AppImportDestination(store: owner.importStore, bookmarks: services.importedBookmarkSink) { id in
-            cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
-        }
-        let cef = cache.cef
         // One Keychain prompt per browser for cookies and passwords together; the keys go when the run ends.
-        let keys = OneReadSafeStorage(SafeStorageKeys().live())
+        try await runImport(plan, keys: OneReadSafeStorage(SafeStorageKeys().live()), progress: progress)
+    }
+
+    /// The import run with the caller's Keychain reads, so a job of several plans (the import
+    /// cards' one plan per profile) asks macOS once per browser rather than once per plan.
+    func runImport(_ plan: ImportPlan, keys: any SafeStorageKeyProviding,
+                   progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
+        let destination = SavingImportDestination.app(services, bookmarks: services.importedBookmarkSink)
+        let cef = services.cache.cef
         let cookies = CookieImporter(destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
                                      keys: keys)
         // Passwords only from profiles the user agreed to on the consent screen (the plan carries no others).
@@ -65,6 +68,9 @@ final class AppOnboardingServices: OnboardingServices {
             throw error
         }
         owner.browserImportOffer.importFinished(summary)
+        await owner.historySync.reconcile()
+        ImportedTabsOpener.open(summary, services: services)
+        if let engine = summary.searchEngine, let settings = services.settings { await BrowserOmnibarSetting.applyImported(engine.setting(builtIn: BrowserSearchEngine.templates), in: settings) }
         // The app window, not the tool window: closing that with Done would take the offer with it.
         let windows = services.windows
         if let hold { BrowserImportConflictOffer.offer(hold) { windows.active?.window ?? NSApp.mainWindow } }
@@ -72,6 +78,9 @@ final class AppOnboardingServices: OnboardingServices {
     }
 
     func canImportPasswords() async -> Bool { await services.cache.cef.canImportPasswords() }
+
+    func importTargets() async -> [ImportTargetChoice] { services.browserProfiles.ordered.map { ImportTargetChoice(id: $0.id, name: $0.name) } }
+    func earlierImportTargets() async -> [String: String] { await owner.importStore.movedSources() }
 
     /// Touch ID, or the Mac's password where there is none. Only a Mac with
     /// no login password at all goes on without it; any other failure stops

@@ -1,12 +1,13 @@
 import { CMUX_TUI_SESSION } from "./drivers/cmuxTuiDaemon";
 import { freestyleCmuxRemoteRoute } from "./drivers/freestyle";
 import type { VmImageManifestEntry } from "./images/resolver";
+import { cloudClientGrantRequired } from "./clientGrant";
 
 /** The authenticated, dial-ready part of a snapshot-v2 create receipt. */
 export type VmAttachBlock = {
   readonly transport: "cmux-remote";
   readonly route: string;
-  /** Trusted-carrier listeners authenticate by the carrier marker, so no bearer token is needed. */
+  /** Compatibility-only route token; grant-required creates use attach-endpoint instead. */
   readonly token: string;
   readonly session: string;
   readonly trustedCarrier: boolean;
@@ -31,7 +32,11 @@ export function createAttachBlock(input: {
   readonly entry: VmAttachEntry;
   readonly manifestEntry: VmImageManifestEntry | null;
 }): VmAttachBlock | null {
+  // A create receipt cannot mint a daemon invitation without contacting the
+  // guest. In grant-required mode the client follows with attach-endpoint,
+  // which owns that authenticated mint and its lease ledger entry.
   const { entry, manifestEntry } = input;
+  if (cloudClientGrantRequired() || manifestEntry?.cmuxRemoteAuth === "client-grant") return null;
   const ipv4 = entry.addressIpv4?.trim() || undefined;
   const ipv6 = entry.addressIpv6?.trim() || undefined;
   if (!manifestEntry || entry.cmuxTuiContract !== "snapshot-v2" || (!ipv4 && !ipv6)) return null;

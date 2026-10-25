@@ -3,7 +3,7 @@ public import Foundation
 
 /// Test-only, DEBUG builds only: phones a tagged test instance trusts without its
 /// person-only "Allow … to connect?" prompt, so a hidden rig app can pair a simulator
-/// (cnx-ios/SECURITY.md "Test-only pairing seed"). The app reads
+/// (cmux-next-ios/SECURITY.md "Test-only pairing seed"). The app reads
 /// `CMUX_NEXT_IPHONE_PAIRING_SEED` once at launch; a Release build compiles none of
 /// this and ignores the variable. The file is read when a phone asks, so a rig can
 /// write it after the app started:
@@ -39,7 +39,7 @@ public nonisolated struct IPhonePairingSeed: Sendable, Equatable {
         var identityKey: String?
         var approvalKey: String?
 
-        func matches(_ request: CnxPairRequest) -> Bool {
+        func matches(_ request: MobileHostPairRequest) -> Bool {
             guard id != nil || name != nil else { return false }
             return (id.map { $0.lowercased() == request.phoneDeviceID.lowercased() } ?? true)
                 && (name.map { $0 == request.name } ?? true)
@@ -53,7 +53,7 @@ public nonisolated struct IPhonePairingSeed: Sendable, Equatable {
     }
 
     /// Whether the seed trusts `request` now (an unreadable file trusts nothing).
-    public func trusts(_ request: CnxPairRequest) -> Bool {
+    public func trusts(_ request: MobileHostPairRequest) -> Bool {
         guard let data = try? Data(contentsOf: file), let seed = try? JSONDecoder().decode(File.self, from: data) else {
             return false
         }

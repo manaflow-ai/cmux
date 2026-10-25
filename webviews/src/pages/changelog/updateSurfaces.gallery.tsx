@@ -1,11 +1,13 @@
 // l10n-allow-file: gallery fixtures (public-safe release notes from release-notes/next/highlights), not shipped UI.
 // The Updated card and the update-ready highlights (cx-urd.61) on the app theme, at sidebar width.
-// The card draws the composer's translucent surface, so each card state shows on a plain page and
+// The card is liquid glass (.ui-glass), so each card state shows on a plain page and
 // on a wallpaper (Leo 2026-10-13): the page is transparent over the wallpaper in the app.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
+import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
+import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
 
@@ -41,7 +43,39 @@ const base: UpdateHighlights = {
   changelog: { from: "1.0.0-nightly.410", to: "1.0.0-nightly.414" },
 };
 
-type Props = { surface: "card" | "popover"; data: UpdateHighlights; wallpaper?: boolean; maxHeight?: number };
+type Props = {
+  surface: "card" | "popover";
+  data: UpdateHighlights;
+  /** The notes of every build the update spans, as the card loads them from the host. */
+  span?: ReleaseNotes[];
+  wallpaper?: boolean;
+  maxHeight?: number;
+};
+
+// Ten real nightly-next builds (2026-10-18), newest first, and what the host sent for the newest
+// one alone: its one summary line, which the card used to show as its whole headline.
+const span = nightlySpan as ReleaseNotes[];
+const spanData: UpdateHighlights = {
+  ...base,
+  version: span[0]!.shortVersion,
+  build: span[0]!.build,
+  fromVersion: "1.0.0-nightly.3912500000000",
+  fromBuild: "3912500000000",
+  date: span[0]!.date,
+  source: "summary",
+  items: [{ id: "summary-0", title: "A static status look, on under Reduce Motion", summary: null, category: "new" }],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.3912500000000", to: span[0]!.shortVersion },
+};
+const internalOnly: ReleaseNotes[] = [
+  {
+    ...span[0]!,
+    highlights: [],
+    whatsNew: undefined,
+    summary: [],
+    items: [{ title: "ci: shard the gallery capture" }, { title: "chore(next): base autofix at 659726b04ea9" }],
+  },
+];
 
 // A stand-in screenshot (the host inlines real ones as data: URLs): a window with a sidebar.
 function shot(background: string, sidebar: string, line: string): string {
@@ -84,7 +118,7 @@ const longNotes: UpdateHighlights = {
 // A stand-in wallpaper: a busy photo-like gradient, so the card's translucency shows.
 const wallpaper = "linear-gradient(160deg, #3b5b7a 0%, #c98b5a 45%, #e7c9a0 60%, #2f4a3a 100%)";
 
-function UpdateSurfacesGallery({ surface, data, wallpaper: onWallpaper = false, maxHeight }: Props) {
+function UpdateSurfacesGallery({ surface, data, span: notes, wallpaper: onWallpaper = false, maxHeight }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
   return (
@@ -97,7 +131,7 @@ function UpdateSurfacesGallery({ surface, data, wallpaper: onWallpaper = false, 
       }}
     >
       {surface === "card" ? (
-        <UpdatedCard data={data} strings={strings} actions={{ openChangelog: noop, dismiss: noop }} />
+        <UpdatedCard data={data} span={notes} strings={strings} actions={{ openChangelog: noop, dismiss: noop }} />
       ) : (
         <div
           style={{
@@ -131,11 +165,23 @@ export default componentEntry<Props>({
   },
   variants: {
     card: {
-      note: "Card #01 Compact list (u2441): \"Updated to nightly 3845050\", the top changes one line each, the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page.",
+      note: "Card #01 Compact list (u2441): \"Updated to Nightly · Oct 12\", what changed one line per area (updateSummary.ts), the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page. Without the span's notes the card groups the host's items.",
       props: { surface: "card", data: base },
     },
+    "card-span": {
+      note: "An update across ten skipped nightlies (real nightly-next notes, 2026-10-18): every build counts, one line per area, internal work left out, +N more. It used to show the newest build's one line as the whole card.",
+      props: { surface: "card", data: spanData, span },
+    },
+    "card-span-wallpaper": {
+      note: "The same on a wallpaper.",
+      props: { surface: "card", data: spanData, span, wallpaper: true },
+    },
+    "card-maintenance": {
+      note: "An update whose builds hold only internal work (CI, autofixes): Maintenance and fixes, no count.",
+      props: { surface: "card", data: { ...spanData, items: [], source: "none" }, span: internalOnly },
+    },
     "card-wallpaper": {
-      note: "The same card on a wallpaper: the composer's surface, the text at 13% over it with an 18% edge (Leo 2026-10-13).",
+      note: "The same card on a wallpaper: the liquid glass (.ui-glass); under plain glass the composer's surface, the text at 13% over it (Leo 2026-10-13).",
       props: { surface: "card", data: base, wallpaper: true },
     },
     "card-one-change": {

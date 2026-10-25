@@ -9,6 +9,10 @@ nonisolated public extension Dictionary where Key == String, Value == Any {
     var acpmuxShownCommand: String? { AcpmuxPermissionPrompt.shownCommand(self["command"]) }
     /// A tool input's other fields, scrubbed and cut, and whether anything was cut or dropped.
     var acpmuxInputSummary: (fields: [String: String], truncated: Bool)? { AcpmuxPermissionPrompt.inputSummary(self) }
+    /// True when the request is a question an agent asks a person, never a tool permission.
+    var acpmuxIsQuestion: Bool { AcpmuxPermissionPrompt.isQuestion(self) }
+    /// The request's normalized question (`toolCall._meta.acpmux.question`), when it has one.
+    var acpmuxQuestion: [String: Any]? { AcpmuxPermissionPrompt.question(self) }
 }
 
 nonisolated public extension Array where Element == [String: Any] {

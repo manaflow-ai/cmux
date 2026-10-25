@@ -54,9 +54,9 @@ Key surface: `actions`, named entries with `type: "command"` (`command`) or `typ
    test -f ~/.config/cmux/cmux-next.json && cp -p ~/.config/cmux/cmux-next.json ~/.config/cmux/cmux-next.json."$stamp".bak
    ```
 
-3. For app settings, use `cmux settings set <key> <value>` and read it back with `cmux settings get <key>`.
+3. For app settings, use `cmux settings set <key> <value>` and read it back with `cmux settings get <key>`. Never hand-write a settings key: the app ignores a value its build refuses and keeps the default.
 4. For actions, edit the JSONC by hand and preserve unrelated sections.
-5. `cmux settings reload-configuration` (the app also reloads on save).
+5. Run `cmux settings validate`; it must report no problems. It checks schema values only: an unknown action id, an unsupported chord or a removed key shows only in the app's toast and on the Settings row. Then `cmux settings reload-configuration` (the app also reloads on save). A refused value also shows a toast in the app that names the key, the value and why ([cmux-settings](../cmux-settings/SKILL.md#when-the-app-ignores-a-value)).
 6. Verify the configured entrypoint exists: confirm the action ID and where it should appear.
 
 For viewer changes, verify the exact path or command state from the matrix. If

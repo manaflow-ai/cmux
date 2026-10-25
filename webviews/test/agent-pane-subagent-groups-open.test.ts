@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
-// A transcript group of subagents (subagents/SubagentGroup.tsx) starts open while its agents run
+// With Debug Settings agentPane.debug.subagentTray off (the tray is the default), a transcript group of subagents (subagents/SubagentGroup.tsx) starts open while its agents run
 // in the working turn, so their lines show without a click, after Codex and Claude Code. A finished
 // chat's groups start closed. A group the person closes stays closed as its agents work, and the
 // open and closed groups are the chat's own: another chat's group at the same place starts as its
@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -145,8 +146,13 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
   const open = async (session: string, shown: string) => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(session));
-    await page.getByText(shown).waitFor({ timeout: 25_000 });
+    await page.getByText(shown).first().waitFor({ timeout: 25_000 });
+    // Group cards are the older presentation: by default running subagents sit in the tray above
+    // the composer (agent-pane-agents-pill.test.ts). The host turns the tray off with the theme
+    // (Debug Settings agentPane.debug.subagentTray).
+    await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };
   const select = (page: Page, sessionId: string) =>
@@ -157,14 +163,38 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     }, sessionId);
   const groups = (page: Page) => page.locator("button.cv-subagents");
   const lines = (page: Page) => page.locator(".cv-subagent");
-  /// Waits a moment for the page to settle, then reads the open groups and the lines they list.
-  const settled = async (page: Page) => {
-    await page.waitForTimeout(300);
-    return {
-      open: await groups(page).evaluateAll((nodes) => nodes.map((node) => node.getAttribute("aria-expanded"))),
-      lines: await lines(page).count(),
-    };
+  type Groups = { open: (string | null)[]; lines: number };
+  /// The open groups and the lines they list, as the page draws them.
+  const shown = (page: Page) =>
+    page.evaluate(() => {
+      const open = [...document.querySelectorAll("button.cv-subagents")].map((node) =>
+        node.getAttribute("aria-expanded"),
+      );
+      return { open, lines: document.querySelectorAll(".cv-subagent").length };
+    });
+  /// Expects the page to show `want`: once it does (or after 4 s, so the expect says what it was), and
+  /// still so once the next frame has painted.
+  const expectGroups = async (page: Page, want: Groups) => {
+    await page
+      .waitForFunction(
+        (want) => {
+          const open = [...document.querySelectorAll("button.cv-subagents")].map((node) =>
+            node.getAttribute("aria-expanded"),
+          );
+          return JSON.stringify({ open, lines: document.querySelectorAll(".cv-subagent").length }) === want;
+        },
+        JSON.stringify(want),
+        { timeout: 4_000 },
+      )
+      .catch(() => {});
+    await page.evaluate(() => window.cmuxPaintFrame());
+    expect(await shown(page)).toEqual(want);
   };
+  /// Waits until the first group's line (its count and states) is no longer `before`.
+  const lineChanged = (page: Page, before: string) =>
+    page.waitForFunction((before) => document.querySelector("button.cv-subagents")?.textContent !== before, before, {
+      timeout: 5_000,
+    });
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -213,10 +243,10 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
   test("a group of running agents starts open; a finished chat's starts closed", async () => {
     const page = await open(LIVE, "Read src/app.ts");
     await lines(page).first().waitFor({ timeout: 5_000 });
-    expect(await settled(page)).toEqual({ open: ["true"], lines: 2 });
+    await expectGroups(page, { open: ["true"], lines: 2 });
     await page.close();
     const finished = await open(DONE, "Both reviews are in.");
-    expect(await settled(finished)).toEqual({ open: ["false"], lines: 0 });
+    await expectGroups(finished, { open: ["false"], lines: 0 });
     await finished.close();
   });
 
@@ -224,28 +254,31 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     const page = await open(LIVE, "Read src/app.ts");
     await lines(page).first().waitFor({ timeout: 5_000 });
     await groups(page).first().click();
-    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    await expectGroups(page, { open: ["false"], lines: 0 });
+    const line = await groups(page).first().innerText();
     push(finished("a1", "Reviewer"));
-    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    // The group heard it: its line now counts one done.
+    await lineChanged(page, line);
+    await expectGroups(page, { open: ["false"], lines: 0 });
     // The turn goes on: the agent writes, then starts another batch.
     push(reply("Both reviews started; now a lint pass."));
     push(spawned("a3", "Linter"));
     await page.getByText("Linter").waitFor({ timeout: 5_000 });
-    expect(await settled(page)).toEqual({ open: ["false", "true"], lines: 1 });
+    await expectGroups(page, { open: ["false", "true"], lines: 1 });
     await page.close();
   });
 
   test("a chat's open groups are its own: another chat's group at the same place starts closed", async () => {
     const page = await open(DONE, "Both reviews are in.");
     await groups(page).first().click();
-    expect(await settled(page)).toEqual({ open: ["true"], lines: 2 });
+    await expectGroups(page, { open: ["true"], lines: 2 });
     await select(page, OTHER);
     await page.getByText("The other review is in.").waitFor({ timeout: 10_000 });
-    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    await expectGroups(page, { open: ["false"], lines: 0 });
     // Back in the first chat, its group is open as it was left.
     await select(page, DONE);
     await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
-    expect(await settled(page)).toEqual({ open: ["true"], lines: 2 });
+    await expectGroups(page, { open: ["true"], lines: 2 });
     await page.close();
   });
 
@@ -253,18 +286,18 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     const page = await open(LIVE, "Read src/app.ts");
     await lines(page).first().waitFor({ timeout: 5_000 });
     await groups(page).first().click();
-    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    await expectGroups(page, { open: ["false"], lines: 0 });
     await select(page, DONE);
     await page.getByText("Both reviews are in.").waitFor({ timeout: 10_000 });
     await select(page, LIVE);
     await page.getByText("Read src/app.ts").waitFor({ timeout: 10_000 });
-    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    await expectGroups(page, { open: ["false"], lines: 0 });
     await page.close();
   });
 
   test("an earlier turn's agent a cancel left running opens nothing when the next turn works", async () => {
     const page = await open(STALE, "Read src/tests.ts");
-    expect(await settled(page)).toEqual({ open: ["false"], lines: 0 });
+    await expectGroups(page, { open: ["false"], lines: 0 });
     await page.close();
   });
 });

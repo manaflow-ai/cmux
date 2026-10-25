@@ -67,7 +67,7 @@ on the first-run page. Also kept: the furthest stage reached (`shown`, `projectP
 Has-data rule (pure `FirstRunGate.decide`, evaluated once per launch after the daemon snapshot in
 `WindowManager.restore`). The first-run page shows only when ALL are true:
 1. The state file is not finished (`takeLaunchShow() != .none`).
-2. `FirstWorkspace.isNeeded` was true at this launch (no workspace of the user's own).
+2. `needsFirstWorkspace` (CmuxNextHomeEngine) was true at this launch (no workspace of the user's own).
 3. acpmux history has 0 sessions (`services.history.agents.sessions`).
 4. cmux.json was not seeded from classic `cmux.json` and is `{}` or absent before seeding
    (`CmuxConfigFile.swift:38-60`; the gate reads the seed source, not file existence).

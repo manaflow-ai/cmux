@@ -2,7 +2,7 @@ import Foundation
 
 /// Delivers a voice note to a Chief that takes text messages only.
 ///
-/// The cnx-ios Chief conversation (`ChiefSession.send`) carries text and
+/// The cmux-next-ios Chief conversation (`ChiefSession.send`) carries text and
 /// images, not audio. This adapter sends the on-device transcript as the
 /// message text, or a short fallback line built from the note's duration when
 /// there is no transcript. The audio stays on the phone until delivery

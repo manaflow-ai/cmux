@@ -160,6 +160,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "antenna.radiowaves.left.and.right.circle", surfaces: [.palette, .menu],
                 arguments: [CatalogArgument.channelChoice], cliName: "settings switch-update-channel", mainMenu: .app
             ),
+            // Drop back to the build before the last update (kept by `updates.keepPreviousVersions`):
+            // refused, with the reason, when nothing is kept or a store holds data the kept build
+            // cannot read. Relaunches, so every entrypoint confirms first.
+            ActionDescriptor(
+                id: "updates.rollback",
+                title: String(localized: "action.updates.rollback", defaultValue: "Roll Back to Previous Version…", bundle: .module),
+                keywords: ["rollback", "roll back", "downgrade", "previous", "revert", "update", "nightly", "drop back"],
+                category: .settings, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .menu],
+                cliName: "settings rollback-update", mainMenu: .app, destructive: true
+            ),
             ActionDescriptor(
                 id: "palette.pro.upgrade",
                 title: String(localized: "action.palette.pro.upgrade", defaultValue: "Upgrade to cmux Pro", bundle: .module),
@@ -429,6 +439,36 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.titlebar.standard", defaultValue: "Use Standard Titlebar", bundle: .module),
                 keywords: ["titlebar", "title bar", "window", "workspace name", "show", "appearance"], category: .settings,
                 symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
+            ),
+            // Leo 2026-10-21: the lens is a toggle to see and feel before it is the default. Flips the
+            // Debug choice `glass.lens` between Plain Glass (the default) and Lens, live, from the
+            // palette or the Debug menu (DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "appearance.glass.lens.toggle",
+                title: String(localized: "action.appearance.glass.lens.toggle", defaultValue: "Toggle Liquid Glass Lens", bundle: .module),
+                keywords: ["glass", "liquid glass", "lens", "refraction", "wallpaper", "plain glass", "appearance"],
+                category: .settings, symbol: "drop", surfaces: [.palette, .menu], mainMenu: .debug, isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // The per-action budget's HUD (zero-latency.md, the budget contract): the newest action runs
+            // and their perform-to-commit times, over-budget ones in red (Debug menu, DEV and NIGHTLY).
+            ActionDescriptor(
+                id: "debug.actionLatencyHUD",
+                title: String(localized: "action.debug.actionLatencyHUD", defaultValue: "Toggle Action Latency HUD", bundle: .module),
+                keywords: ["latency", "budget", "10 ms", "slow", "action", "hud", "perf", "frame", "debug"],
+                category: .settings, symbol: "gauge.with.dots.needle.67percent", surfaces: [.palette, .menu], mainMenu: .debug,
+                isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
+            // Debug menu > Main-Thread Blocking (N) > Reset Counts (threading-model.md): zeroes the blocking
+            // detector's per-site counts. `BlockingCallsMenu` places the row in its submenu, so no `mainMenu`.
+            ActionDescriptor(
+                id: "debug.blockingCalls.reset",
+                title: String(localized: "action.debug.blockingCalls.reset", defaultValue: "Reset Main-Thread Blocking Counts",
+                              bundle: .module),
+                keywords: ["blocking", "main thread", "hang", "stall", "reset", "counts", "debug"],
+                category: .settings, symbol: "arrow.counterclockwise", surfaces: [.palette, .menu], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
             ActionDescriptor(
                 id: "appearance.customize",

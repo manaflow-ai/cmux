@@ -53,6 +53,12 @@ public struct PalettePageSpec {
     /// Rows made from the query itself, shown first (a save picker's "Save
     /// “name”" row): the query is an answer here, not only a search.
     public var queryItems: (@MainActor (String) -> [PaletteItem])?
+    /// Rows the page finds for the query itself, in the order given, instead
+    /// of the ranker's search of its providers' rows (Search All Windows
+    /// reads every terminal's text). Asked on open and on every edit; an edit
+    /// cancels the task of the query before it, and the rows on screen stay
+    /// until the new ones land.
+    public var queryResults: (@MainActor (String) async -> [PaletteItem])?
     /// False: the query never filters the providers' rows (a save picker's
     /// folders stay listed while the name is typed).
     public var filtersByQuery: Bool
@@ -85,6 +91,7 @@ public struct PalettePageSpec {
         hierarchy: PaletteHierarchy? = nil,
         emptyQuerySelectionID: String? = nil,
         queryItems: (@MainActor (String) -> [PaletteItem])? = nil,
+        queryResults: (@MainActor (String) async -> [PaletteItem])? = nil,
         filtersByQuery: Bool = true,
         initialQuerySelection: Int? = nil,
         hint: String? = nil,
@@ -109,6 +116,7 @@ public struct PalettePageSpec {
         self.hierarchy = hierarchy
         self.emptyQuerySelectionID = emptyQuerySelectionID
         self.queryItems = queryItems
+        self.queryResults = queryResults
         self.filtersByQuery = filtersByQuery
         self.initialQuerySelection = initialQuerySelection
         self.hint = hint

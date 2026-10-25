@@ -2,6 +2,7 @@
 //! controller started, and exchange frames with it.
 
 use super::*;
+use crate::no_panic::LockExt;
 use std::ffi::OsString;
 use std::sync::Arc;
 #[cfg(unix)]
@@ -19,7 +20,8 @@ pub struct HostLauncher {
 impl HostLauncher {
     /// This process's own binary, with the prefix it starts its daemon with.
     pub fn current() -> Result<Self> {
-        Ok(Self { exe: std::env::current_exe()?, prefix: crate::daemon::daemon_prefix() })
+        let this = crate::self_command::SelfCommand::current()?;
+        Ok(Self { exe: this.exe, prefix: this.prefix })
     }
 }
 
@@ -41,10 +43,25 @@ pub async fn spawn_within(
     let mut cmd = tokio::process::Command::new(&launcher.exe);
     cmd.args(&launcher.prefix)
         .arg(HOST_ARG)
+        // The host itself is inspectable by its same-uid harness child on
+        // some platforms. It needs only OS identity/locale; the complete
+        // child environment arrives over the private bootstrap pipe.
+        .env_clear()
+        .envs(crate::agent::host_environment())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(false);
+    // Debug builds only: the hello-stall test seam (`host.rs`) names a folder
+    // of marker files and carries no authority; release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os(super::host::HELLO_STALL_DIR_ENV) {
+        cmd.env(super::host::HELLO_STALL_DIR_ENV, dir);
+    }
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
+        cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
+    }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.
     unsafe {
@@ -55,11 +72,20 @@ pub async fn spawn_within(
             Ok(())
         });
     }
-    let mut child = cmd.spawn().with_context(|| format!("start {}", launcher.exe.display()))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| crate::agent::spawn_error(&format!("start {}", launcher.exe.display()), e))?;
     let mut stdin = child.stdin.take().context("host stdin")?;
     let mut stdout = child.stdout.take().context("host stdout")?;
+    // The host moves into its own scope before the spec: it starts its
+    // harness only once it has it, so the harness starts there too
+    // (`scope.rs`).
+    let pid = child.id();
     // A host that never reports ready must not hold the session's spawn.
     let bootstrap = within("start", budget, async {
+        if let Some(pid) = pid {
+            super::scope::place(pid).await;
+        }
         write_frame(&mut stdin, spec).await?;
         read_frame::<_, BootstrapReply>(&mut stdout).await
     })
@@ -234,7 +260,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                         modes,
                         config_options,
                     })) => {
-                        if let Some(reply) = queries.lock().unwrap().remove(&id) {
+                        if let Some(reply) = queries.lock_or_recover().remove(&id) {
                             let _ =
                                 reply.send(QueryReply { claude_session_id, modes, config_options });
                         }
@@ -243,7 +269,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
                 }
             }
             closed.store(true, std::sync::atomic::Ordering::SeqCst);
-            queries.lock().unwrap().clear();
+            queries.lock_or_recover().clear();
         });
     }
     tx.send((ControllerFrame::Resume { after: resume_after }, None))
@@ -326,12 +352,12 @@ impl Link {
     pub async fn query_within(&self, budget: std::time::Duration) -> Result<QueryReply> {
         let id = self.next_query.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.queries.lock().unwrap().insert(id, tx);
+        self.queries.lock_or_recover().insert(id, tx);
         self.send(ControllerFrame::Query { id }).await?;
         match within("query", budget, rx).await {
             Ok(reply) => reply.map_err(|_| anyhow!("agent host closed before it answered")),
             Err(timeout) => {
-                self.queries.lock().unwrap().remove(&id);
+                self.queries.lock_or_recover().remove(&id);
                 Err(timeout.into())
             }
         }

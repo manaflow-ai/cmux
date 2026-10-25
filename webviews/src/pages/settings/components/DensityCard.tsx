@@ -179,13 +179,18 @@ export function DensityCard() {
     <section className="group" data-card="density">
       <h3 className="group-title">{t("settings.appearance.density")}</h3>
       <p className="density-help">{t("settings.appearance.density.help")}</p>
-      <div className="density-tiles" role="radiogroup" aria-label={t("settings.appearance.density")}>
+      <div
+        className="density-tiles"
+        // ui-allow: the density tiles are buttons in the ARIA radio pattern (see the tile below).
+        role="radiogroup"
+        aria-label={t("settings.appearance.density")}
+      >
         {all.map((density) => {
           const on = density.id === current;
           const custom = !PRESETS.some((preset) => preset.id === density.id);
           return (
             <button
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the ARIA radio pattern on a tile button; an <input type="radio"> would change the tile's keys and look.
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- ui-allow: the ARIA radio pattern on a tile button; an <input type="radio"> would change the tile's keys and look.
               role="radio"
               key={density.id}
               type="button"

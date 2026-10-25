@@ -1,14 +1,15 @@
 public import CoreGraphics
 
-/// Which row the pointer hovers (Leo 2026-10-19). A row with hover controls
-/// (a workspace or a tab row) takes the hover only inside its hover pill, a
-/// hit shape inside the drawn fill (nothing draws it): the row's frame inset
-/// by `inset` top and bottom, with corners rounded by `cornerRadius`.
-/// The gap between rows, a pill's corners and the margin beside it never hand
-/// the hover to a new row, so a pointer leaving a row up and to the left does
-/// not light the row above and put its "..." and close buttons in the way.
-/// The row hovered now keeps the hover across the gap to its neighbors' pills,
-/// so a sweep down or up the list never drops it between rows (#20315).
+/// Which row the pointer hovers. From rest, a row with hover controls (a
+/// workspace or a tab row) takes the hover only inside its hover pill, a hit
+/// shape inside the drawn fill (nothing draws it): the row's frame inset by
+/// `inset` top and bottom, with corners rounded by `cornerRadius` (Leo
+/// 2026-10-19). Once a row is hovered, the hover follows the pointer: inside
+/// another row's drawn frame that row takes it at once, so the old row never
+/// stays lit under a pointer on the next one (Leo 2026-10-20: "hover must
+/// follow the pointer instantly ... only one row hovered at a time"). Only the
+/// gap between rows keeps the row hovered now, so a sweep down or up the list
+/// never drops it between rows (#20315). The margin beside a row hovers nothing.
 /// Other rows (headers, empty sections, blocks) hover on their whole tile.
 extension SidebarLayout {
     /// Main actor: `frame` is the list view's own `frame(for:)`.
@@ -19,6 +20,8 @@ extension SidebarLayout {
         if let row = row(at: point.y) {
             guard row.key.hasHoverPill else { return row }
             if Self.pill(frame(row), inset: inset, cornerRadius: cornerRadius, contains: point) { return row }
+            // A pointer moving off the hovered row onto another row's fill: that row, at once.
+            if let current, current != row.key, frame(row).contains(point) { return row }
         }
         guard let current, let held = row(for: current), held.key.hasHoverPill else { return nil }
         let band = frame(held)

@@ -17,6 +17,8 @@ is staged (downloaded and verified, delta when the feed has one), then:
      the chat's unsent draft is kept;
   2. (--click) a second older build, staged the same way, installs with the
      one-click action and Sparkle relaunches it by itself.
+  3. (--idle) an older build with the nightly-next idle-install policy stages
+     and replaces itself without a click, while its daemon terminal survives.
 
 Rollback refusal is reported PENDING until `cmux update rollback` exists.
 
@@ -27,7 +29,7 @@ cmux NEXT has its own identity (cx-x7hwx) and this run never touches it.
 Everything this run creates (scratch folder, Sparkle cache, defaults domain,
 state dirs) is removed at the end; anything that existed before is kept.
 
-  scripts/cmux-next/update-e2e.py [--feed URL] [--from BUILD] [--to BUILD] [--click] [--keep]
+  scripts/cmux-next/update-e2e.py [--feed URL] [--from BUILD] [--to BUILD] [--click] [--idle] [--keep]
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 
@@ -48,6 +50,7 @@ parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/
 parser.add_argument("--from", dest="from_build", help="installed build (default: the feed's second item)")
 parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the feed's newest)")
 parser.add_argument("--click", action="store_true", help="also prove the one-click install with an older build")
+parser.add_argument("--idle", action="store_true", help="also prove automatic install after a quiet idle window")
 parser.add_argument("--keep", action="store_true", help="keep the scratch folder (debugging)")
 opts = parser.parse_args()
 
@@ -428,14 +431,24 @@ def staged(app):
     return s if s.get("phase") == "installing" else None
 
 
-def stage_update(app, label):
+def stage_update(app, label, expected_build=None):
     app.rpc("action.run", {"id": "palette.checkForUpdates"})
-    s = wait(lambda: staged(app), 900, 2)
+    def ready():
+        state = staged(app)
+        if state:
+            return state
+        if expected_build and bundle_build(app.path) == expected_build:
+            return {"phase": "replaced", "build": expected_build}
+        return None
+    s = wait(ready, 900, 2)
     log = "\n".join(app.status().get("log", []))
     record(f"{label}: update downloaded, verified and staged", bool(s), f"detected {s.get('detected_version') if s else None}")
     # A staged update is the footer pill ("badge" = its label), never a card
     # (Lawrence 2026-10-05, "more minimal").
-    if s is not None and "badge" in s:
+    if label == "idle path" and s is not None and s.get("phase") == "replaced":
+        record(f"{label}: update installed before a staged card was observed", True,
+               f"bundle build {s.get('build')}")
+    elif s is not None and "badge" in s:
         ok = bool(s.get("badge")) and s.get("card") is None
         record(f"{label}: the footer pill shows the staged update, no card", ok,
                json.dumps({"badge": s.get("badge"), "card": s.get("card")}))
@@ -508,9 +521,12 @@ def main():
         screen = lambda: app.cli("terminal", term or "-", "screen", "read").stdout
         record("terminal ran before the update", bool(term and wait(lambda: token in screen(), 20)), f"terminal {term}")
         shell_pid = wait(lambda: open(f"{work}/shell.pid").read().strip() if os.path.exists(f"{work}/shell.pid") else None, 10)
-        agent_session, gate, agent_pid = start_agent_turn(work)
-        record("agent turn running before the update", bool(agent_session and agent_pid),
-               f"session {agent_session}, agent pid {agent_pid}")
+        agent_session, gate, agent_pid = (None, None, None) if opts.idle else start_agent_turn(work)
+        if opts.idle:
+            record("idle path has no active agent turn", True, "the gate is intentionally idle")
+        else:
+            record("agent turn running before the update", bool(agent_session and agent_pid),
+                   f"session {agent_session}, agent pid {agent_pid}")
         if agent_session:
             acp = Acpmux()
             acp.prompt(agent_session, "queued one")
@@ -524,17 +540,25 @@ def main():
                    f"queued events {queued_count(acp, agent_session)}")
             record("draft set before the update", draft(acp, agent_session) == DRAFT, repr(draft(acp, agent_session)))
 
-        s, sparkle_log = stage_update(app, "quit path")
+        s, sparkle_log = stage_update(app, "idle path" if opts.idle else "quit path",
+                                      expected_build=to_item["build"] if opts.idle else None)
         if to_item["deltas"].get(from_item["build"]):
             # Sparkle keeps the download in its cache until it installs.
             cache = f"{HOME}/Library/Caches/{BUNDLE_ID}"
             files = [f for _, _, names in os.walk(cache) for f in names]
             deltas = [f for f in files if f.endswith(".delta")]
             record("delta update used", bool(deltas), ", ".join(deltas) or f"no .delta in the Sparkle cache ({len(files)} files)")
-        app.quit()
-        record("install on quit replaced the bundle", bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2)),
-               f"bundle build {bundle_build(path)}")
-        record("relaunched", bool(app.launch(log)))
+        if opts.idle:
+            replaced = wait(lambda: bundle_build(path) == to_item["build"], 300, 2)
+            record("idle install replaced the bundle without a click", bool(replaced),
+                   f"bundle build {bundle_build(path)}")
+            record("idle install relaunched", bool(wait(lambda: app.status().get("build") == to_item["build"], 90)),
+                   app.status().get("build"))
+        else:
+            app.quit()
+            record("install on quit replaced the bundle", bool(wait(lambda: bundle_build(path) == to_item["build"], 300, 2)),
+                   f"bundle build {bundle_build(path)}")
+            record("relaunched", bool(app.launch(log)))
         record("running the newest build", app.status().get("build") == to_item["build"], app.status().get("build"))
         record("terminal output kept across the update", bool(wait(lambda: token in screen(), 20)))
         alive = shell_pid and run("kill", "-0", shell_pid).returncode == 0

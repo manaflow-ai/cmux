@@ -92,9 +92,15 @@ import Testing
         source.isSigningIn = true
         source.signInWaitsInBrowser = true
         #expect(CmuxAccountState(source) == CmuxAccountState(signedIn: false, signingIn: true, waitingForBrowser: true))
+        // The sign-in finishes: Cloud auth is signed in and no longer signing in.
+        source.isSigningIn = false
+        source.signInWaitsInBrowser = false
         source.isSignedIn = true
         source.accountEmail = "leo@example.com"
         #expect(CmuxAccountState(source) == CmuxAccountState(signedIn: true, label: "l…@e…"))
+        // Switch Account signs in again while signed in; the row shows both.
+        source.isSigningIn = true
+        #expect(CmuxAccountState(source) == CmuxAccountState(signedIn: true, label: "l…@e…", signingIn: true))
     }
 
     @Test func gesturesRunTheSourcesSignInAndTheAppsSignOut() async {

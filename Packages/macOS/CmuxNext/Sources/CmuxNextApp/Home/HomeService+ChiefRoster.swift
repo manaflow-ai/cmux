@@ -9,6 +9,13 @@ import CmuxNextHostedChief
 extension HomeService {
     /// The Home list's Chiefs: all of them, the main one on the host the user picked.
     var chiefRoster: HomeChiefRoster {
+        let live = liveChiefRoster
+        // Until the cloud Chiefs are read, the last launch's Main and places (HomeService+LaunchList).
+        guard !cloudChiefsRead, let last = launchRoster else { return live }
+        return live.launching(last: last)
+    }
+
+    private var liveChiefRoster: HomeChiefRoster {
         let tab = tabChiefs
         let rows: [InboxRow] = homeStore.rows
         let chiefRows = rows.filter { $0.kind == .chief }
@@ -34,6 +41,11 @@ extension HomeService {
         case nil: break
         }
         return line
+    }
+
+    /// The cloud Chief whose main conversation is `conversation` (``HomeCloudChiefs/placement(of:records:)``).
+    func cloudChiefPlacement(of conversation: String) -> (id: String, placed: Bool)? {
+        cloudChiefs.placement(of: conversation, records: directory.chiefs)
     }
 
     /// The paired server's name for a placed Chief (its host id while the server is not paired here).

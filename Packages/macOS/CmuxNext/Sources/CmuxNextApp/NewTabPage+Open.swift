@@ -3,13 +3,14 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextMacScreen
 import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
 import Foundation
-import os
 
 /// Runs a new tab page's close on the frame after its replacement shows.
 @MainActor private let closeFrame = FrameBatcher(owner: "NewTabPage.close")
@@ -91,8 +92,7 @@ extension NewTabPage {
     }
 
     /// The page chose a terminal or browser: open it, then close the page,
-    /// which held nothing yet (the open-beside rule's one replace case). The
-    /// page closes only once the new tab exists, so a refused or failed open
+    /// which held nothing yet. The page closes only once the new tab exists, so a refused or failed open
     /// leaves it, and what was typed, in place. A chat that has a session
     /// (`keep`: its Log In, Update or Open in Terminal) stays; the new tab opens beside it.
     /// A static of the page, not the pane, so PaneController stays one
@@ -102,6 +102,9 @@ extension NewTabPage {
         let services = pane.services
         services.keyRouter.newTabInputCoordinator.cancel(in: pane.view.window)
         openingPanes.remove(ObjectIdentifier(pane))
+        // A pairing link (its room secret) is never searched, loaded or typed: the
+        // page stays, with what was typed, and Mac Screen says why.
+        if let refusal = MacScreenPages.pairingLinkRefusal(for: request.text) { return services.registry.refuse(refusal) }
         // The page closes one frame after the new tab shows, so the frame that builds the
         // terminal surface does not also pay for the page (R81: 17.8 ms frames at 120 Hz).
         let close: @MainActor (SurfaceID) -> Void = { [weak pane] _ in
@@ -109,8 +112,8 @@ extension NewTabPage {
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
-        // What the page opens lands right of its pane (LinkOpener, `layout.linkPlacement`), like
-        // every link; only Same Pane keeps the replace in place (Lawrence 2026-10-19).
+        // The pick takes the page's place, like a browser's new tab (Leo 2026-10-20); the Debug toggle
+        // `newTab.picksFollowLinks` lands it where links do (Lawrence 2026-10-19).
         if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
@@ -138,14 +141,15 @@ extension NewTabPage {
         }
     }
 
-    /// Whether what New Tab page `key` in `pane` opens goes beside it: the link placement is not
-    /// Same Pane, the page shares its pane with another tab (a lone page has nothing to keep in
-    /// view, so it is replaced in place), and it is no split's (a split's page, which lists Open
-    /// Tabs, fills the pane the person just made, NewTabPage.split).
-    static func opensBeside(_ key: String, in pane: PaneController) -> Bool {
+    /// Whether what New Tab page `key` in `pane` opens goes beside it: the Debug toggle
+    /// `newTab.picksFollowLinks` is on, the link placement is not Same Pane, the page shares its pane
+    /// with another tab (a lone page has nothing to keep in view, so it is replaced in place), and it is no split's (a split's page, which lists Open
+    /// Tabs, fills the pane the person just made, NewTabPage.split). `mainPane` false for a chat pick:
+    /// main pane layout keeps chats out of the column right of the chat dock (NewChatPlacement).
+    static func opensBeside(_ key: String, in pane: PaneController, mainPane: Bool = true) -> Bool {
         let tabs = pane.services.agentTabs, page = tabs.resolve(key)
-        guard tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
-        return pane.services.linkOpener.target(from: pane) != .pane(pane.layoutPaneID)
+        guard AgentPaneTunables.newTabPicksFollowLinks.value, tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        return pane.services.linkOpener.target(from: pane, mainPane: mainPane) != .pane(pane.layoutPaneID)
     }
 
     /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens through

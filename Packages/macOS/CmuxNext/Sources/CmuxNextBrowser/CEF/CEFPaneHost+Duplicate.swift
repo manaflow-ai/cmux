@@ -15,7 +15,7 @@ extension CEFPaneHost {
     /// tab with nothing committed yet.
     @discardableResult
     public func duplicate(_ tab: CEFTab) -> CEFTab? {
-        guard let browserID = tab.browserID, let shim = runtime.shim,
+        guard let browserID = tab.browserID, runtime.acceptsNewBrowsers, let shim = runtime.shim,
               runtime.forkAPIVersion >= Self.duplicateForkAPI, let anchor = anchorBrowser else { return nil }
         let window = shim.tabWindowID(anchor)
         if window != 0 {

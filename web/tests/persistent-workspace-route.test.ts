@@ -18,6 +18,8 @@ const user: AuthedUser = {
 };
 
 let fakeService: PersistentWorkspaceService;
+let allocationRefusal: Response | null = null;
+const enforceVmAllocationRateLimit = mock(async () => allocationRefusal);
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -35,6 +37,7 @@ mock.module("../services/vms/routeHelpers", () => ({
   resolveVmRouteAccountScope: () => ({ ok: true, entitlements: { billingTeamId: "team-route" } }),
   jsonResponse,
 }));
+mock.module("../services/vms/allocationRateLimit", () => ({ enforceVmAllocationRateLimit }));
 
 const { configurePersistentWorkspaceService } = await import("../services/vms/persistentWorkspace");
 const collectionRoute = await import("../app/api/workspaces/route");
@@ -50,6 +53,8 @@ function responseRequest(path: string, body?: unknown, headers: Record<string, s
 
 describe("persistent workspace routes", () => {
   beforeEach(() => {
+    allocationRefusal = null;
+    enforceVmAllocationRateLimit.mockClear();
     fakeService = {
       create: mock(async () => ({ runtimeId: "runtime-route", workspaceId: "workspace-route", provider: "freestyle", lifecycle: "running", workspaceName: "route", attachable: true, createdAt: "now", updatedAt: "now", attachTarget: null })),
       get: mock(async () => ({ runtimeId: "runtime-route", workspaceId: "workspace-route", provider: "freestyle", lifecycle: "running", workspaceName: "route", attachable: true, createdAt: "now", updatedAt: "now" })),
@@ -74,6 +79,22 @@ describe("persistent workspace routes", () => {
     expect(response.status).toBe(201);
     expect(await response.json()).toMatchObject({ runtimeId: "runtime-route", lifecycle: "running" });
     expect((fakeService.create as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0]).toMatchObject({ tenantId: "team-route", ownerId: "user-route", idempotencyKey: "route-key" });
+  });
+
+  test("allocation refusal precedes persistent workspace provider composition", async () => {
+    allocationRefusal = jsonResponse({ error: "vm_allocation_rate_limited" }, 429);
+    const response = await collectionRoute.POST(responseRequest(
+      "/api/workspaces",
+      { name: "route" },
+      { "idempotency-key": "route-key" },
+    ));
+
+    expect(response.status).toBe(429);
+    expect(enforceVmAllocationRateLimit).toHaveBeenCalledWith(expect.objectContaining({
+      route: "workspace.create",
+      billingTeamId: "team-route",
+    }));
+    expect((fakeService.create as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(0);
   });
 
   test("lifecycle route rejects unknown actions and returns attach output", async () => {

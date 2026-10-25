@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -34,7 +35,8 @@ struct NotificationPreviewTests {
 
     @Test func aFinishedTurnsBannerSaysWhatTheAgentSaid() throws {
         let posted = try #require(try banner(Self.finished))
-        #expect(posted.title == "Claude finished")
+        #expect(posted.title == "api-server", "the banner says where: the workspace (the tab has no name)")
+        #expect(posted.subtitle == "Claude finished")
         #expect(posted.body == "Fixed the flaky login test and pushed the branch.")
     }
 
@@ -56,7 +58,7 @@ struct NotificationPreviewTests {
     @Test func aNotifySubtitleReachesTheBanner() throws {
         let wire = #"{"notification":6,"title":"Deploy","subtitle":"staging","body":"done","level":"info","surface":1,"source":"cli"}"#
         let posted = try #require(try banner(wire))
-        #expect(posted.subtitle == "staging")
+        #expect(posted.subtitle == "Deploy · staging")
         #expect(posted.body == "done")
     }
 }

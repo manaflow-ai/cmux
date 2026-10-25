@@ -17,9 +17,14 @@ struct CloudLinkReconnectingTests {
             guard let url = request.url,
                   let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
                                                  headerFields: ["Content-Type": "application/json"]) else { return }
-            let body = url.path.hasSuffix("/attach-endpoint")
-                ? #"{"transport":"cmux-remote","route":"ws://10.9.0.2:1337/v1/link","session":"s","trustedCarrier":true}"#
-                : #"{"tunnelId":"t","clientConfig":"[Interface]\n[Peer]\n","routes":[]}"#
+            let body: String
+            if url.path.hasSuffix("/attach-endpoint") {
+                body = #"{"transport":"cmux-remote","route":"ws://10.9.0.2:1337/v1/link","session":"s","trustedCarrier":false,"invitation":{"uri":"cmux://enroll/inv_test?secret=test-secret","invitationId":"inv_test","expiresAtUnix":2000000000}}"#
+            } else if url.path.hasSuffix("/cmux-remote/approve") {
+                body = #"{"approved":true,"state":"approved","deviceFingerprint":"device-test"}"#
+            } else {
+                body = #"{"tunnelId":"t","clientConfig":"[Interface]\n[Peer]\n","routes":[]}"#
+            }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: Data(body.utf8))
             client?.urlProtocolDidFinishLoading(self)
@@ -48,7 +53,12 @@ struct CloudLinkReconnectingTests {
                   printf '{"event":"hub-ready","socket":"%s","routes":[]}\\n' "$H"
                   exec sleep 60 ;;
                 remote)
-                  while [ $# -gt 0 ]; do [ "$1" = --local-socket ] && S=$2; shift; done
+                  while [ $# -gt 0 ]; do
+                    [ "$1" = --local-socket ] && S=$2
+                    [ "$1" = --invite-file ] && I=$2
+                    shift
+                  done
+                  [ -n "$I" ] && grep -q 'cmux://enroll/inv_test' "$I" || exit 41
                   : > "$S"
                   snap() { printf '{"event":"connection-snapshot","local_socket":"%s","connection":{"session_id":"s","generation":1,"state":"%s","lane_bindings":[],"physical_link_count":1,"transport":{"provider":"cloud","route":"ws://10.9.0.2:1337/v1/link"}}}\\n' "$S" "$1"; }
                   snap connected

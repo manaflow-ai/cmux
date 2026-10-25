@@ -34,6 +34,22 @@ fn caller_secret() -> &'static [u8; 32] {
     })
 }
 
+/// Caller tokens of an earlier daemon run, by session: the one each host
+/// this run adopted started its harness with (`Hub::adopt_caller_token`).
+/// An agent host outlives its daemon (an update restarts acpmux), and its
+/// harness and MCP servers keep the earlier run's token, so the host keeps
+/// it in its owner-only record (`HostRecord::caller_token`) beside its
+/// `owner_token`, which grants more (the harness's own stdio): reading the
+/// record gains nothing that token did not already give. The run that adopts
+/// the host accepts it for that one session until a new host of the session
+/// starts. A token that proves nothing is refused with how to get a new one
+/// (`acpmux session restart`, `server/subsessions.rs`).
+fn adopted_callers() -> &'static std::sync::Mutex<HashMap<String, String>> {
+    static ADOPTED: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    ADOPTED.get_or_init(Default::default)
+}
+
 /// The caller token of session `session_id` on this daemon run (`hub/person.rs`
 /// (a)): lowercase hex HMAC-SHA256(run secret,
 /// "acpmux-caller-session-v1" 0 session id).
@@ -191,11 +207,43 @@ impl Hub {
     /// (`hub/person.rs` (a)): `(sessionId, token)` from [`take_caller`],
     /// when the token is that session's on this run and the session is here.
     pub fn proven_caller(&self, (id, token): (String, String)) -> Option<String> {
-        if caller_proves(&id, &token) && self.resolve(&id).is_ok_and(|s| s.id == id) {
-            Some(id)
-        } else {
-            None
-        }
+        let proves = caller_proves(&id, &token) || self.adopted_caller_proves(&id, &token);
+        if proves && self.resolve(&id).is_ok_and(|s| s.id == id) { Some(id) } else { None }
+    }
+
+    /// Whether `token` is the caller token session `session_id`'s adopted
+    /// host started its harness with under an earlier daemon run (constant time).
+    fn adopted_caller_proves(&self, session_id: &str, token: &str) -> bool {
+        let adopted = adopted_callers().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        adopted
+            .get(session_id)
+            .is_some_and(|known| valid_key(token) && cmux_local_auth::tokens_match(token, known))
+    }
+
+    /// A host of session `session_id` was adopted (`hosts.rs`): its harness
+    /// and the MCP servers it started keep the caller token from the host's
+    /// record, so this run knows the session by that token too. A token of
+    /// this run, a malformed one or none (a host of an older build) records
+    /// nothing. Answers whether the agent holds a token this run knows: false
+    /// asks for a restart between turns (`Hub::restart_unproven`).
+    pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) -> bool {
+        let known = token.as_deref().is_some_and(valid_key);
+        let mut adopted =
+            adopted_callers().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match token.filter(|t| valid_key(t) && !caller_proves(session_id, t)) {
+            Some(token) => adopted.insert(session_id.to_owned(), token),
+            None => adopted.remove(session_id),
+        };
+        known
+    }
+
+    /// A new host of session `session_id` started: its harness has this
+    /// run's token, and the adopted one's process group is gone.
+    pub(super) fn forget_adopted_caller(&self, session_id: &str) {
+        adopted_callers()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(session_id);
     }
 
     /// A `session/new` without the person (module docs, (a), (b)): a mode
@@ -277,19 +325,19 @@ impl Hub {
 
     /// Whether a `session/new` keeps the harness's own start mode rather
     /// than the default one (`hub/start_mode.rs`): it names its own
-    /// (`StartMode`, set after the start), or a caller session that is not
-    /// the person runs in a mode that asks, so a chat it starts is never
-    /// wider than it ((a)).
-    pub(crate) async fn keeps_harness_mode(
-        &self,
-        person: bool,
-        caller: Option<&str>,
-        params: &Value,
-    ) -> bool {
+    /// (`StartMode`, set after the start), or a caller session (`caller`,
+    /// never the person) runs in a mode that asks, so a chat it starts is
+    /// never wider than it ((a)). A caller that is the chat's starter
+    /// ([`Hub::starter_of`]) instead gives it its own level (`start_mode.rs`,
+    /// "Inherit").
+    pub(crate) async fn keeps_harness_mode(&self, caller: Option<&str>, params: &Value) -> bool {
         if StartMode::of(params, &*self.config.read().await).is_some() {
             return true;
         }
-        let caller = caller.filter(|_| !person).and_then(|id| self.resolve(id).ok());
+        if self.starter_of(false, caller).is_some() {
+            return false;
+        }
+        let caller = caller.and_then(|id| self.resolve(id).ok());
         caller.is_some_and(|s| {
             let m = s.meta();
             let family = crate::web_modes::family_of(&m);
@@ -299,6 +347,15 @@ impl Hub {
                 crate::web_modes::mode_of(&m).as_deref(),
             )
         })
+    }
+
+    /// The caller session a `session/new` inherits from (`start_mode.rs`, "Inherit"): the one
+    /// `caller` proved (an agent's call, never the person), unless the connection is `web` (a
+    /// remote one, which has none), or the session is one a remote connection started.
+    pub(crate) fn starter_of(&self, web: bool, caller: Option<&str>) -> Option<String> {
+        let id = caller.filter(|_| !web)?;
+        let s = self.resolve(id).ok().filter(|s| s.id == id)?;
+        (!s.meta().remote_origin).then(|| s.id.clone())
     }
 
     /// A `_acpmux/presets` write without the person (module docs, (b)): no
@@ -347,6 +404,19 @@ impl Hub {
         adopting: bool,
     ) -> Result<(), RpcError> {
         let Some((start, bound)) = self.bound_start(params, s).await else { return Ok(()) };
+        // A start mode that would not ask, on a chat whose narrower policy needs one that does
+        // (`policy_mode.rs`): the chat keeps its policy's mode and starts anyway.
+        let wanted = json!({"modeId": start.mode});
+        if let Err(e) = self.refuse_wider_mode(s, method::SESSION_SET_MODE, &wanted).await {
+            tracing::warn!(session = %s.id, mode = %start.mode, "start mode skipped: {}", e.message);
+            self.append(
+                s,
+                "mux",
+                "start_default_skipped",
+                json!({"modeId": start.mode, "error": e.message}),
+            );
+            return Ok(());
+        }
         let checked = if person {
             Ok(StartGrant::Person)
         } else {
@@ -355,6 +425,13 @@ impl Hub {
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
                 Ok(_) => {
+                    // A mode granted because the caller runs in it is cmux's own only when the
+                    // caller's is: a mode the caller's harness reported by itself passes on no
+                    // `mode_set_by_cmux` (`trust_wait.rs` `full_access_by_cmux`).
+                    if matches!(grant, StartGrant::Inherit) && !self.mode_is_cmux_set(caller) {
+                        s.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
+                        self.save_meta(s);
+                    }
                     self.note_start_grant(s, grant, bound);
                     Ok(())
                 }
@@ -369,5 +446,46 @@ impl Hub {
             return Err(e);
         }
         Ok(())
+    }
+
+    /// Whether session `caller` runs in the mode cmux last set on it (`SessionMeta::mode_set_by_cmux`).
+    fn mode_is_cmux_set(&self, caller: Option<&str>) -> bool {
+        caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)).is_some_and(|s| {
+            let m = s.meta();
+            m.mode_set_by_cmux.is_some() && crate::web_modes::mode_of(&m) == m.mode_set_by_cmux
+        })
+    }
+
+    /// A bare "agent process closed" from a process that died while it
+    /// started (`initialize`, `session/new`): the same error with the last
+    /// stderr line that says why, once the inbound loop has taken what the
+    /// process printed. Any other error is returned as is.
+    pub(super) async fn explain_start_failure(session: &Session, mut e: RpcError) -> RpcError {
+        if e.message != "agent process closed" {
+            return e;
+        }
+        let last = || {
+            session
+                .stderr_tail
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .map(|l| l.trim().to_owned())
+                .find(|l| super::exit_reason::explains_exit(l))
+        };
+        Self::drain_inbound(session).await;
+        let mut found = last();
+        if found.is_none() {
+            // The stderr reader can trail stdout's close by a moment: one
+            // bounded wait for its last lines, then the bare error.
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            Self::drain_inbound(session).await;
+            found = last();
+        }
+        if let Some(line) = found {
+            e.message = format!("agent process closed ({}): {line}", session.meta().harness);
+        }
+        e
     }
 }

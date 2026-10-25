@@ -11,6 +11,8 @@ import Foundation
 struct ClassicMigrationOutcome: Equatable {
     var decision: ClassicMigrationPlanner.Decision
     var summary = ClassicImportSummary()
+    /// False when the person declined the exact plan before it wrote anything.
+    var confirmed = true
     /// The cmux-next workspaces it made, in order.
     var opened: [String] = []
     /// Why classic workspaces did not open, by classic key (the next manual run tries them again).
@@ -53,12 +55,14 @@ extension AppOnboardingServices {
     /// The launch's run: after restore, once per classic save. Never throws;
     /// a failure is logged and the ledger keeps what came over.
     ///
-    /// - Parameter firstWorkspace: the New Tab page workspace launch made for
-    ///   an empty tree; closed when the migration brought workspaces into its window.
+    /// - Parameter firstWorkspace: the workspace launch landed on for an empty
+    ///   tree: a New Tab page workspace, closed when the migration brought workspaces
+    ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace)
+            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
+                                                   confirmation: confirmClassicImport)
             guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
@@ -66,18 +70,29 @@ extension AppOnboardingServices {
         }
     }
 
-    /// One migration run. Runs never overlap: a second one waits for the first.
-    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil) async throws -> ClassicMigrationOutcome {
+    /// One migration run. Runs never overlap: a second one waits for the first. `progress`
+    /// hears the share of the plan's classic workspaces handled (opened or left), 0...1.
+    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil,
+                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool,
+                        progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicMigrationOutcome {
         let previous = owner.classicMigrationRun
         let run = Task { @MainActor in
             _ = await previous?.result
-            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace)
+            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace, confirmation: confirmation, progress: progress)
         }
         owner.classicMigrationRun = run
         return try await run.value
     }
 
-    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?) async throws -> ClassicMigrationOutcome {
+    /// The one confirmation path for launch and manual migration.
+    func confirmClassicImport(_ plan: ClassicImportPlan) async -> Bool {
+        if let confirmation = owner.classicMigrationConfirmation { return await confirmation(plan) }
+        return await ClassicImportConfirmation(plan: plan, services: services).ask()
+    }
+
+    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?,
+                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool,
+                                     progress: (@MainActor (Double) -> Void)?) async throws -> ClassicMigrationOutcome {
         let repository = ClassicMigrationRepository(directory: classicMigrationDirectory)
         let load = await repository.load()
         let planner = ClassicMigrationPlanner()
@@ -138,6 +153,12 @@ extension AppOnboardingServices {
             return outcome
         }
 
+        let preview = ClassicImportPlan(source: read.source, migration: plan)
+        guard await confirmation(preview) else {
+            outcome.confirmed = false
+            return outcome
+        }
+
         // The classic files this run read, copied before anything changes here.
         let stamp = Self.backupStamp()
         try await repository.backup(read.backups, stamp: stamp)
@@ -169,7 +190,7 @@ extension AppOnboardingServices {
         }
         let hosts = connecting
         let run = ClassicMigrationRunState(
-            ledger: ledger, outcome: outcome, mode: mode, plan: plan, groups: groups, hosts: hosts, repository: repository,
+            ledger: ledger, outcome: outcome, mode: mode, plan: plan, groups: groups, hosts: hosts, repository: repository, progress: progress,
             targets: plan.windows.indices.map { $0 == 0 ? windows.targetWindow(preferring: firstWindow) : UUID().uuidString.lowercased() })
 
         // One window after another: creating windows side by side was five
@@ -205,9 +226,10 @@ extension AppOnboardingServices {
         if mode == .automatic, !outcome.opened.isEmpty { owner.classicImportNotice = ClassicImportStrings.notice(outcome.summary) }
 
         if let reveal { _ = windows.reveal(workspaceID: reveal) }
-        // The New Tab page launch made for an empty tree gives way to classic's workspaces.
-        if openedInFirstWindow, let firstWorkspace, let key = store.workspace(id: firstWorkspace)?.key,
-           let connection = services.daemon.connection {
+        // The New Tab page launch made for an empty tree gives way to classic's workspaces. A first
+        // launch that landed on Home (FirstWorkspaceLaunch) made none: Home stays.
+        if openedInFirstWindow, let firstWorkspace, let made = store.workspace(id: firstWorkspace), made.kind != "home",
+           let key = made.key, let connection = services.daemon.connection {
             _ = try? await connection.closeWorkspace(key, endTerminals: true, ifEmpty: false)
         }
         return outcome
@@ -229,6 +251,7 @@ extension AppOnboardingServices {
 
     /// Makes one classic workspace, recording it in the ledger before, while and after.
     fileprivate func makeClassicWorkspace(_ saved: ClassicSessionWorkspace, window index: Int, run: ClassicMigrationRunState) async throws {
+        defer { run.handled() }
         let window = run.plan.windows[index]
         let frame = index == 0 ? nil : window.frame.flatMap(Self.onScreen)
         let repository = run.repository
@@ -275,7 +298,7 @@ extension AppOnboardingServices {
     /// keeps running: its shell prints the scrollback at its first prompt.
     private func parkClassicTerminals(of id: String, saved: ClassicSessionWorkspace) async {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.shared.tabPark), local.supports(DaemonCapabilities.shared.tabRestartKeptLayout),
+        guard local.supports(DaemonCapability.tabPark.rawValue), local.supports(DaemonCapability.tabRestartKeptLayout.rawValue),
               saved.remote == nil, !saved.layout.tabs.contains(where: { $0.scrollback != nil || $0.agent != nil }),
               let connection = local.connection else { return }
         let store = local.store
@@ -380,8 +403,8 @@ extension AppOnboardingServices {
                 let id = try await connection.state.createWorkspaceGroup(name: name, room: nil, color: group.classic.color).id
                 ledger.groups[group.classic.id] = id
                 made[group.classic.id] = WorkspaceGroupID(rawValue: id)
-                let icon = local.supports(DaemonCapabilities.shared.workspaceGroupIcon) ? group.classic.icon : nil
-                let pinned: Bool? = local.supports(DaemonCapabilities.shared.workspaceGroupPin) && group.classic.pinned ? true : nil
+                let icon = local.supports(DaemonCapability.workspaceGroupIcon.rawValue) ? group.classic.icon : nil
+                let pinned: Bool? = local.supports(DaemonCapability.workspaceGroupPin.rawValue) && group.classic.pinned ? true : nil
                 if group.classic.collapsed || icon != nil || pinned != nil {
                     try await connection.state.updateWorkspaceGroup(id, collapsed: group.classic.collapsed ? true : nil,
                                                                     icon: icon.map { .set($0) } ?? .unchanged, pinned: pinned)
@@ -407,7 +430,7 @@ extension AppOnboardingServices {
             if let color = saved.color {
                 try await connection.state.setWorkspaceIdentity(key, resource: store.stateResourceID(workspace: key), color: .set(color))
             }
-            if saved.pinned, local.supports(DaemonCapabilities.shared.workspacePin) {
+            if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) {
                 _ = try await connection.setWorkspaceMetadata(key, pinned: true)
             }
             if let classic = saved.groupID, let group = groups[classic], let session = store.registryID {
@@ -442,52 +465,6 @@ extension AppOnboardingServices {
         formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
         return formatter.string(from: Date()) + "-" + UUID().uuidString.prefix(4).lowercased()
     }
-}
-
-/// A classic workspace and the index of the classic window it belongs to.
-fileprivate struct ClassicWorkspaceTurn: Sendable {
-    var index: Int
-    var saved: ClassicSessionWorkspace
-}
-
-/// One run's state, which each workspace it makes writes.
-@MainActor
-fileprivate final class ClassicMigrationRunState {
-    var ledger: ClassicMigrationLedger
-    var outcome: ClassicMigrationOutcome
-    /// Who started the run (only the launch's run parks background workspaces).
-    let mode: ClassicMigrationPlanner.Mode
-    let plan: ClassicMigrationPlan
-    /// cmux-next group ids by classic group id.
-    let groups: [String: WorkspaceGroupID]
-    /// The daemon of each SSH destination, connecting since the run's start.
-    let hosts: [String: DaemonService]
-    let repository: ClassicMigrationRepository
-    /// The window each classic window's workspaces go to, by index.
-    let targets: [String]
-    var unreachable = Set<String>()
-    var lastError: (any Error)?
-    var reveal: String?
-    var openedInFirstWindow = false
-
-    init(ledger: ClassicMigrationLedger, outcome: ClassicMigrationOutcome, mode: ClassicMigrationPlanner.Mode, plan: ClassicMigrationPlan,
-         groups: [String: WorkspaceGroupID], hosts: [String: DaemonService], repository: ClassicMigrationRepository, targets: [String]) {
-        self.ledger = ledger
-        self.outcome = outcome
-        self.mode = mode
-        self.plan = plan
-        self.groups = groups
-        self.hosts = hosts
-        self.repository = repository
-        self.targets = targets
-    }
-}
-
-/// Classic's session as read, the save it came from, and the files to back up.
-private struct ClassicSnapshotRead {
-    var snapshot: ClassicSessionSnapshot
-    var source: ClassicMigrationSource
-    var backups: [URL]
 }
 
 private enum ClassicMigrationFailure: Error {

@@ -75,7 +75,10 @@ impl Hub {
                 "only Claude Code chats fork on adopt; open this {family} chat anyway or close it where it runs"
             )));
         }
-        if let Some(existing) = self.adopted_session(family, &a.agent_session_id) {
+        // A fork is a new conversation, never the chat that already adopted (or views) this one.
+        if a.if_live != IfLive::Fork
+            && let Some(existing) = self.adopted_session(family, &a.agent_session_id)
+        {
             return Ok(Adoption::Existing(existing));
         }
         // The store the resuming harness reads: its spawn env's home, else
@@ -83,8 +86,20 @@ impl Hub {
         // store walk, the record read and the holder check are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
-        let (fam, id, check) =
-            (family.to_owned(), a.agent_session_id.clone(), a.if_live == IfLive::Refuse);
+        if a.watch && !matches!(family, "claude" | "codex") {
+            return Err(RpcError::invalid_params(format!(
+                "only Claude Code and Codex chats can be watched, not {family}"
+            )));
+        }
+        // A watch forks nothing: Take Over chooses that, for a chat still live in its app.
+        if a.watch && a.if_live == IfLive::Fork {
+            return Err(RpcError::invalid_params(
+                "a watched chat is forked by Take Over, not when it opens",
+            ));
+        }
+        // Watching starts nothing on the conversation, so it may watch one that runs elsewhere.
+        let check = a.if_live == IfLive::Refuse && !a.watch;
+        let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
         let ((found, store), live) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
@@ -405,9 +420,16 @@ impl Hub {
     /// Appends the adopted conversation's past turns (`adopt_replay::read`) as this session's
     /// history, unless the session already shows some (a harness that sent history after its load).
     pub(super) async fn replay_adopted(&self, session: &Arc<Session>, family: &str, file: PathBuf) {
-        let has_history = self.store.events(&session.id, 0, 100_000).is_ok_and(|events| {
-            events.iter().any(|e| e.kind == "user_message" || e.kind == "agent_message_chunk")
-        });
+        // Stops at the first message; no other record is parsed.
+        let mut has_history = false;
+        let _ = self.store.scan_kinds(
+            &session.id,
+            &["user_message", "agent_message_chunk"],
+            &mut |_| {
+                has_history = true;
+                false
+            },
+        );
         if has_history {
             return;
         }
@@ -429,18 +451,23 @@ impl Hub {
                 m.title = Some(short_text(first.trim(), 80));
             }
             if let Some(last) = turns.last() {
-                m.last_prompt = Some(short_text(&last.prompt, 200));
+                let line = super::prompt_line::prompt_line(&last.prompt, "adopt", None);
+                m.last_prompt = Some(short_text(&line, 200));
             }
             m.turn_count += turns.len() as u64;
         }
         self.save_meta(session);
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
+        let update = |fields: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": fields}});
         for (i, turn) in turns.iter().enumerate() {
             let turn_id = format!("adopted-{i}");
             let prompt_id = format!("adopted-prompt-{i}");
             // Each record keeps the transcript's time, so a fork through it cuts Claude's
-            // transcript there (`fork_at.rs`) and the turn shows its real time.
-            let (started, ended) = (turn.prompt_at, turn.answer_at.or(turn.prompt_at));
+            // transcript there (`fork_at.rs`) and the turn shows its real time. The turn ends
+            // with its answer, or its last tool call when that ended later.
+            let started = turn.prompt_at;
+            let answered = turn.answer_at.or(started);
+            let ended = turn.tools.iter().filter_map(|t| t.ended_at).chain(answered).max();
             let turn_seq = self
                 .append_at(
                     session,
@@ -460,14 +487,35 @@ impl Hub {
                 None,
                 started,
             );
+            // The turn's tool calls, before its answer, as a live turn sends them: each starts
+            // running and its update settles it, so the pane folds them under "Worked for".
+            for tool in &turn.tools {
+                let start = tool.started_at.or(tool.ended_at).or(started);
+                let mut call = tool.call.clone();
+                call["sessionUpdate"] = json!("tool_call");
+                call["toolCallId"] = json!(tool.id);
+                call["status"] = json!("in_progress");
+                self.append_at(session, "in", "tool_call", update(call), None, start);
+                let mut done = tool.done.clone();
+                done["sessionUpdate"] = json!("tool_call_update");
+                done["toolCallId"] = json!(tool.id);
+                self.append_at(
+                    session,
+                    "in",
+                    "tool_call_update",
+                    update(done),
+                    None,
+                    tool.ended_at.or(start),
+                );
+            }
             if !turn.answer.is_empty() {
                 self.append_at(
                     session,
                     "in",
                     "agent_message_chunk",
-                    json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}}}}),
+                    update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}})),
                     None,
-                    ended,
+                    answered,
                 );
             }
             self.append_at(

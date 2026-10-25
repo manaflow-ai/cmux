@@ -23,6 +23,14 @@ final class HostedChiefCopy {
 
         /// The status and the decoded JSON object (empty when the body is not one).
         func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: [String: Any]? = nil) async throws -> (status: Int, json: [String: Any]) {
+            // The memory batches are measured in this form (no escaped slashes).
+            let data = try body.map { try JSONSerialization.data(withJSONObject: $0, options: [.withoutEscapingSlashes]) }
+            let reply = try await send(method, path, query: query, data: data)
+            return (reply.status, await Self.decode(reply.body))
+        }
+
+        /// The status and the body of one request whose body is already encoded.
+        func send(_ method: String, _ path: String, query: [URLQueryItem] = [], data: Data?) async throws -> (status: Int, body: Data) {
             var components = URLComponents(url: base.appendingPathComponent(path), resolvingAgainstBaseURL: false)
             if !query.isEmpty { components?.queryItems = query }
             guard let url = components?.url else { throw HostedChiefError.badReply }
@@ -31,11 +39,9 @@ final class HostedChiefCopy {
             request.timeoutInterval = 60
             request.setValue("application/json", forHTTPHeaderField: "content-type")
             request.setValue("Bearer \(try await token())", forHTTPHeaderField: "authorization")
-            // The memory batches are measured in this form (no escaped slashes).
-            if let body { request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [.withoutEscapingSlashes]) }
-            let (data, response) = try await URLSession.shared.data(for: request)
-            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return (status, await Self.decode(data))
+            request.httpBody = data
+            let (reply, response) = try await URLSession.shared.data(for: request)
+            return ((response as? HTTPURLResponse)?.statusCode ?? 0, reply)
         }
 
         /// The reply's JSON object off the main actor (a history page can be large).
@@ -67,7 +73,7 @@ final class HostedChiefCopy {
     // MARK: Brain
 
     /// A well-formed agent id no account owns: the brain route answers it 403
-    /// where Chief brains run and 404 where they do not (cnx-ios lookUp).
+    /// where Chief brains run and 404 where they do not (cmux-next-ios lookUp).
     nonisolated static let probeAgent = "agent_00000000000000000000000000"
 
     /// Whether this service runs Cloud Chief brains (nil: unknown, the probe failed).

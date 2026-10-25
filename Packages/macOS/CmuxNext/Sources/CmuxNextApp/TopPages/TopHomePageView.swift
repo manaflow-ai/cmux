@@ -41,6 +41,7 @@ final class TopHomePageView: NSView {
     private var chiefObservation: Task<Void, Never>?
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
+    private var unreadColorObservation: Task<Void, Never>?
 
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
@@ -62,15 +63,14 @@ final class TopHomePageView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            rowsObservation?.cancel()
-            selectionObservation?.cancel()
-            chiefObservation?.cancel()
-            accountObservation?.cancel()
-            requestsObservation?.cancel()
-        }
+        rowsObservation?.cancel()
+        selectionObservation?.cancel()
+        chiefObservation?.cancel()
+        accountObservation?.cancel()
+        requestsObservation?.cancel()
+        unreadColorObservation?.cancel()
     }
 
     /// Redraws the list after a pin change (`home.togglePin`).
@@ -115,7 +115,7 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Usage… and Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -129,8 +129,10 @@ final class TopHomePageView: NSView {
                 // Chief Usage (chief.openUsage) reads this Mac's Chiefs: left out in a build without one.
                 let usage = registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
                     ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage }
-                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)])
+                // Delete for any Chief but the default one; Archive for a cloud Chief (this Mac's have no archive).
+                let delete = home.deletableChief(of: row).map { item("home.deleteChief", nil, ["chief": .string($0.id)]) } ?? []
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage + delete }
+                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
@@ -181,9 +183,14 @@ final class TopHomePageView: NSView {
             // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
             var picturedRows: [HomeInboxRequest.Response?]?
             var picturedChiefs: Set<String>?
-            for await (all, archived, _, _, _, _, owned, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
-                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster)
+            // Each Chief's pet character is its avatar when it has none of its own: a new pick redraws the list.
+            for await (all, archived, _, _, _, _, owned, _, _, _, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces,
+                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot,
+                 // The team is read after the page opens: its teammates are rows once it lands.
+                 home.directory.teamMembers,
+                 // A rename of a Chief redraws its tile.
+                 home.chiefNames)
             }) {
                 guard let self else { return }
                 let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
@@ -227,6 +234,13 @@ final class TopHomePageView: NSView {
         // task-owner: lives as long as this view; event-driven (Observation)
         requestsObservation = Task { [weak self] in
             for await count in ObservationStream({ home.requests.items.count }) { self?.list.showRequests(count) }
+        }
+        // task-owner: lives as long as this view; event-driven (Observation). The unread dot is
+        // the unread rings' color (`notifications.attention.color`, nil: the notification blue).
+        unreadColorObservation = Task { [weak self] in
+            for await color in ObservationStream({ home.services.settings?.snapshot.attention.color }) {
+                self?.list.unreadDotColor = color?.nsColor
+            }
         }
         // task-owner: lives as long as this view; event-driven (Observation)
         selectionObservation = Task { [weak self] in
@@ -272,17 +286,24 @@ final class TopHomePageView: NSView {
         return store.isInboxCurrent && store.isCacheOnly(shown)
     }
 
-    /// Shows the live Chief instead of a gone conversation; the text the user
-    /// typed there goes with it (after the Chief's own draft), so nothing typed is lost.
+    /// Shows the live Chief instead of a gone conversation; the text and pictures the user
+    /// put there go with it (after the Chief's own draft), so nothing typed or pasted is lost.
     private func replaceGone(with chief: ConversationID, store: HomeStore) {
         guard let gone = shown, gone != chief, store.summary(chief) != nil else { return }
-        if let text = store.draft(for: gone), !text.isEmpty {
+        let pictures = store.draftAttachments(for: gone)
+        if !pictures.isEmpty {
+            let own = store.draftAttachments(for: chief)
+            store.setDraftAttachments(own + pictures.filter { p in !own.contains { $0.ref.hash == p.ref.hash } }, for: chief)
+            store.setDraftAttachments([], for: gone)
+        }
+        let text = store.draft(for: gone) ?? ""
+        if !text.isEmpty {
             let own = store.draft(for: chief) ?? ""
             store.setDraft(own.isEmpty ? text : own + "\n" + text, for: chief)
             store.setDraft("", for: gone)
-            // Its view says the Chief restarted and that Return sends the text.
-            store.noteCarriedDraft(to: chief)
         }
+        // Its view says the Chief restarted and that Return sends what was carried.
+        if !text.isEmpty || !pictures.isEmpty { store.noteCarriedDraft(to: chief) }
         show(chief)
     }
 
@@ -360,6 +381,7 @@ final class TopHomePageView: NSView {
         }
         page.isHidden = false
         host?.isHidden = true
+        split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
@@ -400,6 +422,7 @@ final class TopHomePageView: NSView {
         } else {
             page.isHidden = true
             host?.isHidden = false
+            split.composing = false
         }
         return true
     }
@@ -411,6 +434,7 @@ final class TopHomePageView: NSView {
         page.stop()
         page.removeFromSuperview()
         host?.isHidden = false
+        split.composing = false
         list.setDraftRow(nil)
     }
 

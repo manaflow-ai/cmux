@@ -38,6 +38,8 @@ protocol FilePageHosting: AnyObject {
     /// The native omnibar shows the file's path above the page (the Markdown omnibar), so the
     /// page's toolbar drops its own file name (config `omnibar: true`).
     var showsOmnibar: Bool { get }
+    /// The page's link history moved (`cmux.markdown.history`): the omnibar's Back and Forward follow.
+    func historyChanged(canBack: Bool, canForward: Bool)
     /// A page's edit of `url` (the R96 quit hook): the document's unsaved state and its draft.
     func edited(_ url: URL, text: String, baseHash: String?, writable: Bool) -> RecoveryDraftAcceptance
     /// A normal save of `url` wrote `hash`.
@@ -46,6 +48,7 @@ protocol FilePageHosting: AnyObject {
 
 extension FilePageHosting {
     var showsOmnibar: Bool { false }
+    func historyChanged(canBack: Bool, canForward: Bool) {}
 }
 
 /// One file page tab's `cmux.markdown.*` or `cmux.editor.*` namespace (diff-host.md S6 "Markdown
@@ -86,9 +89,15 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// A recovered crash draft of the tab's file: the next config carries it once (the markdown and
     /// editor pages load it as an unsaved edit).
     var recoveredText: String?
+    /// Where the editor puts the cursor on the tab's file (a Find result's line and column): the
+    /// next config of that file carries it once as `reveal`. The markdown page ignores it.
+    var reveal: FilePosition?
     /// Whether the tab's file may be saved (the last config's answer).
     private var writable = false
     var isWritable: Bool { writable }
+    /// The page shows its file read only (the last config said `readOnly`): bare keys are the
+    /// user's bindings there, not typing (`markdownReadOnlyFocused`, K1).
+    private(set) var showsReadOnly = false
     /// Documents this tab has shown (it may reopen them, its own back and forward).
     private var shown: Set<String> = []
     private(set) var isClosed = false
@@ -97,9 +106,12 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown page's viewer comments live between opens (nil: none are kept).
     /// ``FilePageProvider+Comments.swift``.
-    let comments: (any MarkdownTableWidthStoring)?
+    let comments: (any MarkdownCommentStoring)?
     /// Sends the page a changed comment list (the service sets it: the `comments` page command).
     var onCommentsChanged: ((JSONValue) -> Void)?
+    /// The newest persisted comment mutation already published to this page. A later callback can
+    /// finish parsing before an older one, so stale mutations must not overwrite the page.
+    var latestCommentsSequence = 0
     /// The table the page last reported under a right-click (its index), for the native menu's
     /// Reset Column Widths; nil when the right-click was outside every table.
     var contextTable: Int?
@@ -113,7 +125,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
     /// the document read only whoever opened it (a chat transcript).
     init(kind: FilePageKind, file: URL?, userChose: Bool = true, readOnly: Bool = false, host: any FilePageHosting,
          clock: any Clock<Duration> = ContinuousClock(), libraries: URL?, images: any RemoteImageFetching,
-         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownTableWidthStoring)? = nil) {
+         tableWidths: (any MarkdownTableWidthStoring)? = nil, comments: (any MarkdownCommentStoring)? = nil) {
         self.kind = kind
         self.tableWidths = tableWidths
         self.comments = comments
@@ -158,6 +170,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             return try await config(for: file)
         case kind.op("open"):
             return try await open(path(params["path"]))
+        case kind.op("history") where kind == .markdown:
+            host.historyChanged(canBack: params["canBack"]?.boolValue ?? false, canForward: params["canForward"]?.boolValue ?? false)
+            return .object([:])
         case kind.op("edited"):
             return try edited(params, host: host)
         case kind.op("save"):
@@ -315,6 +330,10 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
             recoveredText = nil
             config["recoveredText"] = .string(recovered)
         }
+        if kind == .editor, let reveal, file.url == self.file {
+            self.reveal = nil
+            config["reveal"] = reveal.jsonValue
+        }
         if let reason = file.readOnlyReason {
             config["readOnly"] = true
             config["readOnlyReason"] = .string(reason.rawValue)
@@ -334,6 +353,9 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case .editor:
             config["size"] = JSONValue(file.size)
         }
+        // Set after the awaits above, so overlapping opens leave the flag
+        // matching the config the page applies last.
+        showsReadOnly = file.readOnlyReason != nil
         return merged(.object(config), host?.look() ?? .object([:]))
     }
 
@@ -438,11 +460,17 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
 
     // MARK: Links
 
+    /// Whether `url` exists, off the main actor.
+    @concurrent nonisolated private static func exists(_ url: URL) async -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
+    }
+
     private func openLink(_ params: JSONValue, host: any FilePageHosting, userGesture: Bool) async throws {
         guard let href = params["href"]?.stringValue else { throw PageError.invalidParams("href is required") }
         if kind == .markdown, params["kind"]?.stringValue == "file" {
             let target = Self.canonical(try path(params["target"]))
-            guard FileManager.default.fileExists(atPath: target.path) else { throw PageError(code: kind.op("not_found"), message: target.path) }
+            // A stat can hang on a network or sleeping volume: never on the main actor.
+            guard await Self.exists(target) else { throw PageError(code: kind.op("not_found"), message: target.path) }
             // Inside a granted document's folder (links resolved): opens. Anything else asks,
             // naming the resolved path; a refused or unshown sheet refuses the link.
             if !inGrantedFolder(target) {

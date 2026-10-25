@@ -26,7 +26,6 @@ struct OwnerNotRunningView: View {
                     Icon(.actionCopy, size: 12)
                 }
                 .buttonStyle(.plain).foregroundStyle(colors.secondary)
-                .themedHelp(TasksStrings.copyCommand)
                 .accessibilityLabel(TasksStrings.copyCommand).accessibilityIdentifier("cmux.tasks.copyCommand")
             }
             .padding(.horizontal, 10).padding(.vertical, 6)

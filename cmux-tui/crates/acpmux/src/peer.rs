@@ -1,7 +1,11 @@
 //! A peer is a remote acpmux daemon. This daemon is an ACP client of it:
 //! it watches the peer's sessions, forwards requests for them, and relays
-//! the peer's notifications to local clients. Reconnects with backoff.
+//! the peer's notifications to local clients. Reconnects with backoff and
+//! jitter, forever; a slow peer is `degraded`, a lost one `reconnecting`
+//! (`peer_link.rs`).
 
+use crate::no_panic::LockExt;
+use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -12,6 +16,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_health.rs"]
+mod health;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -20,6 +27,14 @@ static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 /// reconnect/update would prefix the name with another peer hop.
 fn is_mirrored_session(summary: &Value) -> bool {
     summary.get("peer").and_then(Value::as_str).is_some()
+}
+
+/// The link's own `_acpmux/attach` of a peer's session `id`: it subscribes and reads no history,
+/// and names its byte limit all the same, as `bound_page` does for a client's attach. A peer on an
+/// older build reads `limit: 0` as no limit and has none of its own, so it answers with the whole
+/// log in one frame, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
+pub fn hidden_attach(id: &str) -> Value {
+    json!({"sessionId": id, "limit": 0, "visible": false, "maxBytes": crate::hub::page_bytes(&json!({}))})
 }
 
 /// What the hub receives from a peer, tagged with the peer's name and
@@ -69,6 +84,12 @@ pub struct Peer {
     person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
+    /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
+    file_put: AtomicBool,
+    /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
+    media_read: AtomicBool,
+    /// Whether the peer serves `_acpmux/subagent_transcript` (`hub/subagent_transcript.rs`).
+    subagent_transcript: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -80,6 +101,15 @@ pub struct Peer {
     /// Counts connect attempts that settled (ready or failed), bumped by the
     /// hub once it applied the outcome, so a caller can await the next one.
     settled: tokio::sync::watch::Sender<u64>,
+    /// Connected, degraded or reconnecting, and since when (`peer_link.rs`).
+    link: StdMutex<Link>,
+    timings: LinkTimings,
+    /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
+    pub(crate) cache_saved_at: AtomicU64,
+    /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
+    health: StdMutex<Option<(u64, Value)>>,
+    /// An ask for it is out.
+    health_asking: AtomicBool,
 }
 
 impl Peer {
@@ -108,13 +138,50 @@ impl Peer {
             served_as: StdMutex::new(None),
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
+            file_put: AtomicBool::new(false),
+            media_read: AtomicBool::new(false),
+            subagent_transcript: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
             notices,
             stop: AtomicBool::new(false),
             stop_signal: Notify::new(),
             settled: tokio::sync::watch::channel(0).0,
+            link: StdMutex::new(Link::default()),
+            timings: LinkTimings::from_env(),
+            cache_saved_at: AtomicU64::new(0),
+            health: StdMutex::new(None),
+            health_asking: AtomicBool::new(false),
         })
+    }
+
+    pub fn link(&self) -> Link {
+        self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn with_link<T>(&self, f: impl FnOnce(&mut Link) -> T) -> T {
+        f(&mut self.link.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    pub fn state(&self) -> PeerState {
+        self.link().state()
+    }
+
+    /// Carry what an earlier instance (a replaced peer, or a saved list from
+    /// an earlier run) knew of when the peer was last seen.
+    pub fn seed_last_seen(&self, last_seen: Option<u64>) {
+        self.with_link(|l| l.seed(last_seen));
+    }
+
+    /// The refusal for a request while the link is down (`peer_link.rs`).
+    pub fn unreachable_error(&self) -> RpcError {
+        let error = self.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        crate::peer_link::unreachable_error(
+            &self.name,
+            &self.link(),
+            error.as_deref(),
+            crate::store::now_ms(),
+        )
     }
 
     /// Receives every later settled connect attempt.
@@ -180,28 +247,40 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let out = tokio::process::Command::new("ssh")
+        let read = tokio::process::Command::new("ssh")
             .args(read_config_argv(&host))
-            .output()
+            .kill_on_drop(true)
+            .output();
+        let out = tokio::time::timeout(self.timings.connect, read)
             .await
+            .map_err(|_| {
+                format!(
+                    "reading the remote config timed out after {}s",
+                    self.timings.connect.as_secs()
+                )
+            })?
             .map_err(|e| format!("read remote config: {e}"))?;
+        // The read ends with the token `cat`, which fails when there is no
+        // token: only an empty answer is a failed ssh.
+        if out.stdout.is_empty() && !out.status.success() {
+            return Err(format!("ssh to {host} failed ({})", out.status));
+        }
         let (config, peer) = split_remote_read(&out.stdout);
         let peer = self.peer_token.clone().or(peer);
         if let Some(t) = &self.token {
             return Ok((t.clone(), peer));
         }
-        let cfg: Value = serde_json::from_slice(config)
-            .map_err(|_| format!("remote {host} has no readable ~/.acpmux/config.json"))?;
-        let token = cfg
-            .pointer("/websocket/token")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .ok_or_else(|| format!("remote {host} config has no websocket token"))?;
-        Ok((token, peer))
+        let remote = remote_daemon_config(config).map_err(|why| match why {
+            RemoteConfigError::Unreadable => {
+                format!("remote {host} has no readable ~/.acpmux/config.json")
+            }
+            RemoteConfigError::NoToken => format!("remote {host} config has no websocket token"),
+        })?;
+        Ok((remote.token, peer))
     }
 
     pub fn remote_build(&self) -> Option<String> {
-        self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone())
+        self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
 
     /// The daemon run the peer named at its last handshake.
@@ -213,35 +292,65 @@ impl Peer {
         self.trust_gate.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it takes `_acpmux/file_put`.
+    pub fn supports_file_put(&self) -> bool {
+        self.file_put.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it serves the media reader.
+    pub fn supports_media_read(&self) -> bool {
+        self.media_read.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it serves subagent transcripts.
+    pub fn supports_subagent_transcript(&self) -> bool {
+        self.subagent_transcript.load(Ordering::SeqCst)
+    }
+
     pub fn summary(&self) -> Value {
+        let link = self.link();
+        let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
             "url": self.url,
             "connected": self.connected.load(Ordering::SeqCst),
-            "error": self.last_error.lock().unwrap().clone(),
-            "remoteVersion": self.remote_version.lock().unwrap().as_ref().map(|(v, _)| v.clone()),
-            "remoteBuild": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone()),
+            "error": self.last_error.lock_or_recover().clone(),
+            "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
+            "remoteBuild": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone()),
             "localBuild": crate::hub::BUILD,
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
-            "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "canonicalEndpoint": canonical_endpoint(&self.url),
+            "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "state": link.state().as_str(),
+            "lastSeen": link.last_seen,
+            "downSince": link.down_since,
+            "attempts": link.attempts,
+            "health": health,
+            "healthAt": health_at,
         })
     }
 
     /// Remember that local clients want this session's stream, so it is
     /// re-attached after a reconnect.
     pub fn mark_attached(&self, session_id: &str) -> bool {
-        self.attached.lock().unwrap().insert(session_id.to_owned())
+        self.attached.lock_or_recover().insert(session_id.to_owned())
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
         if !self.connected.load(Ordering::SeqCst) {
-            return Err(RpcError::internal(format!("peer {} is not connected", self.name)));
+            return Err(self.unreachable_error());
         }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(Value::from(id).to_string(), tx);
-        if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
+        let key = Value::from(id).to_string();
+        self.pending.lock().await.insert(key.clone(), tx);
+        // A request that times out, or whose caller stops waiting, takes its
+        // entry with it rather than leaving it until the connection drops.
+        let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
+        // One frame larger than the peer reads with would drop the link and every chat on it.
+        let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
+        if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         match tokio::time::timeout(Duration::from_secs(600), rx).await {
@@ -254,26 +363,35 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+        let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
-            .send(Message::notification(m, params).to_line())
+            .send(line)
             .await
             .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
     }
 
     /// Run the connect loop until `stop`.
     pub async fn run(self: Arc<Self>) {
-        let mut backoff = 1u64;
-        let mut out_rx = self.out_rx.lock().await.take().expect("peer run called twice");
+        let mut backoff = Backoff::default();
+        let Some(mut out_rx) = self.out_rx.lock().await.take() else {
+            // A second run: the first owns the outbound queue and the link.
+            tracing::warn!(peer = %self.name, "peer link already running");
+            return;
+        };
         while !self.stop.load(Ordering::SeqCst) {
-            match self.connect_once(&mut out_rx).await {
-                Ok(()) => backoff = 1,
-                Err(e) => {
-                    *self.last_error.lock().unwrap() = Some(e.clone());
-                    let notice = PeerNotice::Disconnected(e);
-                    let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
-                }
-            }
+            let outcome = self.connect_once(&mut out_rx).await;
             self.connected.store(false, Ordering::SeqCst);
+            // A link that held a while starts over; one that flaps (up, then
+            // reset seconds later) keeps backing off, so a loaded host is
+            // not hit with a reconnect every second.
+            if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
+                backoff.reset();
+            }
+            if let Err(e) = outcome {
+                *self.last_error.lock_or_recover() = Some(e.clone());
+                let notice = PeerNotice::Disconnected(e);
+                let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
+            }
             let mut p = self.pending.lock().await;
             for (_, tx) in p.drain() {
                 let _ = tx.send(Err(RpcError::internal("peer disconnected")));
@@ -282,8 +400,11 @@ impl Peer {
             if self.stop.load(Ordering::SeqCst) {
                 break;
             }
-            tokio::time::sleep(Duration::from_secs(backoff)).await;
-            backoff = (backoff * 2).min(30);
+            let delay = backoff.next(crate::peer_link::jitter());
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = self.stop_signal.notified() => break,
+            }
         }
     }
 
@@ -299,12 +420,17 @@ impl Peer {
                 Some(&token),
                 peer_token.as_deref(),
             )?;
+            // A peer forwards the pane's prompts and their images: the listener's limits.
             let (ws, _) = tokio::time::timeout(
-                Duration::from_secs(10),
-                tokio_tungstenite::client_async(req, stream),
+                self.timings.connect,
+                tokio_tungstenite::client_async_with_config(
+                    req,
+                    stream,
+                    Some(crate::server::ws_config()),
+                ),
             )
             .await
-            .map_err(|_| "connect timed out".to_owned())?
+            .map_err(|_| connect_timed_out(self.timings.connect))?
             .map_err(|e| e.to_string())?;
             return self.serve(ws, out_rx).await;
         }
@@ -319,11 +445,16 @@ impl Peer {
             other => other,
         };
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
-        let (ws, _) =
-            tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(req))
-                .await
-                .map_err(|_| "connect timed out".to_owned())?
-                .map_err(|e| e.to_string())?;
+        // A peer forwards the pane's prompts and their images: the listener's limits.
+        let connect = tokio_tungstenite::connect_async_with_config(
+            req,
+            Some(crate::server::ws_config()),
+            false,
+        );
+        let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
+            .await
+            .map_err(|_| connect_timed_out(self.timings.connect))?
+            .map_err(|e| e.to_string())?;
         self.serve(ws, out_rx).await
     }
 
@@ -358,9 +489,11 @@ impl Peer {
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
+        use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
         self.connected.store(true, Ordering::SeqCst);
-        *self.last_error.lock().unwrap() = None;
+        *self.last_error.lock_or_recover() = None;
+        self.with_link(|l| l.opened(crate::store::now_ms()));
         tracing::info!(peer = %self.name, "connected to {}", self.url);
 
         // Handshake in a task so the read loop below can serve the responses.
@@ -382,7 +515,7 @@ impl Peer {
                 .and_then(Value::as_str)
                 .unwrap_or("unknown")
                 .to_owned();
-            *me.remote_version.lock().unwrap() = Some((v, b));
+            *me.remote_version.lock_or_recover() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
             *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
@@ -394,6 +527,15 @@ impl Peer {
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
                 ) || init.pointer("/_meta/acpmux/trustGate").and_then(Value::as_bool) == Some(true);
             me.trust_gate.store(advertised, Ordering::SeqCst);
+            let lists = |feature: &str| {
+                init.pointer("/_meta/acpmux/features")
+                    .and_then(Value::as_array)
+                    .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
+            };
+            me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
+            me.subagent_transcript
+                .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             let watch = me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             let sessions = watch
                 .get("sessions")
@@ -407,24 +549,63 @@ impl Peer {
                 .notices
                 .send((me.name.clone(), me.generation, PeerNotice::Sessions(sessions)))
                 .await;
+            me.with_link(|l| l.ready(crate::store::now_ms()));
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
-            let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();
+            let attached: Vec<String> = me.attached.lock_or_recover().iter().cloned().collect();
             for sid in attached {
-                let attach = json!({"sessionId": sid, "limit": 0, "visible": false});
-                let _ = me.request(method::MUX_ATTACH, attach).await;
+                let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
+            me.refresh_health();
             Ok::<(), RpcError>(())
         });
 
+        // Keepalive: a ping each interval; any frame is an answer. A peer
+        // silent for the whole budget, or one that stops reading so a send
+        // cannot go out, is dropped and reconnected; one interval of silence
+        // only marks it degraded.
+        let timings = self.timings;
+        let budget = timings.silence_budget();
+        let mut ping = tokio::time::interval_at(
+            tokio::time::Instant::now() + timings.ping_every,
+            timings.ping_every,
+        );
+        ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_frame = tokio::time::Instant::now();
+        let mut ticks: u64 = 0;
+        let handshake_deadline = tokio::time::sleep(timings.handshake);
+        tokio::pin!(handshake_deadline);
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(());
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
+                _ = &mut handshake_deadline, if !self.link().is_ready() => {
+                    break Err(format!("handshake timed out after {}s", timings.handshake.as_secs()));
+                }
+                _ = ping.tick() => {
+                    let silent = last_frame.elapsed();
+                    if silent >= budget {
+                        break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
+                    }
+                    if silent >= timings.ping_every {
+                        self.with_link(Link::overdue);
+                    }
+                    match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(budget)),
+                    }
+                    ticks += 1;
+                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                        self.refresh_health();
+                    }
+                }
                 frame = source.next() => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
+                    last_frame = tokio::time::Instant::now();
+                    self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
                         tokio_tungstenite::tungstenite::Message::Close(_) => break Err("peer closed the connection".to_owned()),
@@ -472,8 +653,10 @@ impl Peer {
                 line = out_rx.recv() => {
                     let Some(line) = line else { break Ok(()) };
                     let text = line.trim_end_matches('\n').to_owned();
-                    if let Err(e) = sink.send(tokio_tungstenite::tungstenite::Message::Text(text.into())).await {
-                        break Err(e.to_string());
+                    match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(budget)),
                     }
                 }
             }
@@ -481,6 +664,14 @@ impl Peer {
         handshake.abort();
         result
     }
+}
+
+fn connect_timed_out(after: Duration) -> String {
+    format!("connect timed out after {}s", after.as_secs())
+}
+
+fn stopped_reading(budget: Duration) -> String {
+    format!("peer stopped reading (a send waited {}s)", budget.as_secs())
 }
 
 /// The default WebSocket port of an `ssh://` peer.
@@ -530,6 +721,17 @@ pub fn ssh_target(url: &str) -> Result<SshTarget, &'static str> {
     Ok(SshTarget { destination, port })
 }
 
+/// A peer's canonical endpoint (hq plans/cmux-next/acpmux-one-daemon.md):
+/// `ssh://HOST`, the ssh config's user and the machine's one daemon on
+/// [`SSH_PEER_PORT`]. Some(it) when `url` is an `ssh://` URL that names a user
+/// or another port, so a listing can say where it should point; None when it
+/// already is canonical or is not an `ssh://` peer. It never re-points one.
+pub fn canonical_endpoint(url: &str) -> Option<String> {
+    let t = ssh_target(url).ok()?;
+    let host = t.destination.rsplit_once('@').map_or(t.destination.as_str(), |(_, h)| h);
+    (t.destination != host || t.port != SSH_PEER_PORT).then(|| format!("ssh://{host}"))
+}
+
 fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
     let host = what == "host";
     if part.is_empty() {
@@ -573,7 +775,7 @@ pub fn tunnel_argv(destination: &str, port: u16) -> Vec<String> {
         "-o",
         "ServerAliveCountMax=3",
         "-o",
-        "ConnectTimeout=10",
+        "ConnectTimeout=20",
         "-W",
     ]
     .iter()
@@ -592,7 +794,7 @@ pub fn read_config_argv(destination: &str) -> Vec<String> {
         "-o",
         "BatchMode=yes",
         "-o",
-        "ConnectTimeout=10",
+        "ConnectTimeout=20",
         "--",
         destination,
         "cat ~/.acpmux/config.json; printf '\\0'; cat ~/.acpmux/run/peer.token 2>/dev/null",
@@ -624,7 +826,117 @@ pub fn carries_peer_token(url: &str) -> bool {
 /// (None when absent or not a 64-digit hex token).
 pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
     let Some(at) = out.iter().position(|b| *b == 0) else { return (out, None) };
-    let token = std::str::from_utf8(&out[at + 1..]).ok().map(str::trim);
-    let token = token.filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()));
-    (&out[..at], token.map(str::to_owned))
+    let (config, rest) = out.split_at_checked(at).unwrap_or((out, &[]));
+    (config, peer_token_text(rest.get(1..).unwrap_or_default()))
+}
+
+/// A daemon's `run/peer.token` file: the token, trimmed, when it is 64 hex
+/// digits; None for anything else.
+pub fn peer_token_text(bytes: &[u8]) -> Option<String> {
+    let token = std::str::from_utf8(bytes).ok().map(str::trim);
+    token.filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit())).map(str::to_owned)
+}
+
+/// What a peer reads from another daemon's `~/.acpmux/config.json`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteDaemonConfig {
+    /// The dashboard token (`websocket.token`).
+    pub token: String,
+    /// The WebSocket listen address (`websocket.listen`), when set.
+    pub listen: Option<String>,
+}
+
+/// Why [`remote_daemon_config`] found no token. The reason never quotes
+/// the file (it holds a secret).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteConfigError {
+    /// Not JSON.
+    Unreadable,
+    /// JSON without a `websocket.token` string.
+    NoToken,
+}
+
+/// Parse another daemon's `config.json` bytes, as an `ssh://` peer reads
+/// them at each connect and the Cloud link's peer bridge reads them over
+/// the remote tunnel.
+pub fn remote_daemon_config(config: &[u8]) -> Result<RemoteDaemonConfig, RemoteConfigError> {
+    let cfg: Value = serde_json::from_slice(config).map_err(|_| RemoteConfigError::Unreadable)?;
+    let token = cfg
+        .pointer("/websocket/token")
+        .and_then(Value::as_str)
+        .filter(|t| !t.is_empty())
+        .ok_or(RemoteConfigError::NoToken)?
+        .to_owned();
+    let listen = cfg.pointer("/websocket/listen").and_then(Value::as_str).map(str::to_owned);
+    Ok(RemoteDaemonConfig { token, listen })
+}
+
+type PendingReplies = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>;
+
+/// Removes a request's pending entry when `Peer::request` returns or is
+/// dropped; the reader has already removed it when the reply came.
+struct ForgetPending {
+    pending: PendingReplies,
+    key: Option<String>,
+}
+
+impl Drop for ForgetPending {
+    fn drop(&mut self) {
+        let Some(key) = self.key.take() else { return };
+        if let Ok(mut map) = self.pending.try_lock() {
+            map.remove(&key);
+        } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            let pending = self.pending.clone();
+            rt.spawn(async move {
+                pending.lock().await.remove(&key);
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod remote_config_tests {
+    use super::*;
+
+    #[test]
+    fn the_links_own_attach_names_its_byte_limit() {
+        let attach = hidden_attach("s");
+        assert_eq!(attach["sessionId"], "s");
+        assert_eq!(attach["limit"], 0);
+        assert_eq!(attach["visible"], false);
+        assert_eq!(attach["maxBytes"], crate::hub::page_bytes(&json!({})));
+    }
+
+    #[test]
+    fn a_remote_config_gives_its_token_and_listen_address() {
+        let cfg = br#"{"websocket": {"listen": "127.0.0.1:47811", "token": "abc"}}"#;
+        let parsed = remote_daemon_config(cfg).unwrap();
+        assert_eq!(parsed.token, "abc");
+        assert_eq!(parsed.listen.as_deref(), Some("127.0.0.1:47811"));
+        let no_listen = remote_daemon_config(br#"{"websocket": {"token": "abc"}}"#).unwrap();
+        assert_eq!(no_listen.listen, None);
+    }
+
+    #[test]
+    fn a_remote_config_without_a_token_is_refused_without_quoting_it() {
+        assert_eq!(remote_daemon_config(b"not json"), Err(RemoteConfigError::Unreadable));
+        for cfg in [
+            &br#"{}"#[..],
+            br#"{"websocket": {"listen": "x"}}"#,
+            br#"{"websocket": {"token": ""}}"#,
+        ] {
+            assert_eq!(remote_daemon_config(cfg), Err(RemoteConfigError::NoToken));
+        }
+    }
+
+    #[test]
+    fn a_peer_token_is_64_hex_digits() {
+        let good = "a".repeat(64);
+        assert_eq!(peer_token_text(format!("{good}\n").as_bytes()), Some(good.clone()));
+        assert_eq!(peer_token_text(b""), None);
+        assert_eq!(peer_token_text("g".repeat(64).as_bytes()), None);
+        assert_eq!(peer_token_text("a".repeat(63).as_bytes()), None);
+        let read = [br#"{"websocket":{"token":"t"}}"#.as_slice(), b"\0", good.as_bytes()].concat();
+        assert_eq!(split_remote_read(&read).1, Some(good));
+    }
 }

@@ -7,6 +7,7 @@ import {
   withCallerName,
 } from "../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
+import { readVmRunningSince, vmCostFields } from "../../../services/vms/machineCost";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
@@ -97,6 +98,7 @@ import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
+import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
 // Provisioning can run minutes; without an explicit budget the platform
@@ -125,6 +127,14 @@ function createResourceFields(resourceReservation: { readonly vcpus: number; rea
     resources: resourceReservation,
     resourceReservation,
   };
+}
+
+function setVmServerTiming(response: Response, timing: VmTimingRecorder): void {
+  try {
+    response.headers.set("Server-Timing", timing.serverTimingHeader());
+  } catch {
+    // Immutable headers on a passthrough Response: the span still has them.
+  }
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -192,16 +202,30 @@ export async function GET(request: Request): Promise<Response> {
       const freeAccessWindowDays = listEntitlements && !isPaidVmPlan(listEntitlements.planId)
         ? vmFreeAccessWindowDays()
         : 0;
-      // Who made each machine. A team list is scoped by owner team, so this is
-      // the only thing separating one member's machines from another's.
-      const creatorNames = await readCreatorNames({
-        userIds: creatorUserIds(entries),
-        teamId: billingTeamId,
-        caller: user,
-        onFailure: (error) => setSpanAttributes(span, {
-          "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+      // Who made each machine, and when each live machine last started (its
+      // running time and cost line). Both reads are bounded and best effort,
+      // and they run together so a stalled database delays the list once.
+      // A team list is scoped by owner team, so the names are the only thing
+      // separating one member's machines from another's.
+      const [creatorNames, runningSince] = await Promise.all([
+        readCreatorNames({
+          userIds: creatorUserIds(entries),
+          teamId: billingTeamId,
+          caller: user,
+          onFailure: (error) => setSpanAttributes(span, {
+            "cmux.vm.creator_lookup_error": error instanceof Error ? error.name : "unknown",
+          }),
         }),
-      });
+        readVmRunningSince(
+          entries.filter((entry) => entry.status === "running" || entry.status === "provisioning")
+            .map((entry) => entry.providerVmId),
+          {
+            onFailure: (error) => setSpanAttributes(span, {
+              "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
+            }),
+          },
+        ),
+      ]);
       // A migration lagging in one environment turns every row into "Unknown"
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
@@ -238,6 +262,10 @@ export async function GET(request: Request): Promise<Response> {
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
         // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
         agentUpdates: entry.agentUpdates,
+        // Minutes without activity before the machine pauses by itself (0 is
+        // Off), and why a paused machine is paused ("idle" or "user", else null).
+        idlePauseMinutes: entry.idlePauseMinutes,
+        pauseReason: entry.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
@@ -247,6 +275,10 @@ export async function GET(request: Request): Promise<Response> {
         // clients can use the measured live shape for grow-only checks.
         resources: poolShare(entry),
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
+        // Display cost: the size's hourly rate (null when the size is not
+        // measured yet) and when a live machine last started (epoch ms; null
+        // while paused). Clients show rate x elapsed as an estimate.
+        ...vmCostFields(entry, runningSince.get(entry.providerVmId)),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements
@@ -327,11 +359,6 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      // Start the provider probe after authentication, but never make machine
-      // creation wait for it. The provider request owns its connection setup;
-      // a best-effort probe cannot guarantee socket reuse and otherwise adds
-      // its full latency to the first create.
-      void preconnectFreestyle();
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
       /** Records request validation even when it exits before provisioning. */
@@ -351,11 +378,7 @@ export async function POST(request: Request): Promise<Response> {
         timing.finish({ status: response.status });
         // Per-stage timings travel with the response too, so a client or a
         // smoke run sees where a create spent its time without Axiom.
-        try {
-          response.headers.set("Server-Timing", timing.serverTimingHeader());
-        } catch {
-          // Immutable headers on a passthrough Response: the span still has them.
-        }
+        setVmServerTiming(response, timing);
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
 
@@ -363,9 +386,13 @@ export async function POST(request: Request): Promise<Response> {
       if (!parsed.ok) return parsed.response;
       const { candidate, body, idempotencyKey } = parsed;
 
-      const scope = await resolveCreateAccount({ request, span, timing, user: initialUser, body });
+      const scope = await resolveCreateAdmission({ request, span, timing, user: initialUser, body });
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
+
+      // Start the provider probe only after admission. The request itself owns
+      // provider connection setup; this best-effort warmup never gates create.
+      void preconnectFreestyle();
 
       // Let the workflow inspect an idempotent existing row before rejecting
       // an old, now-over-limit shape. New allocations still receive the same
@@ -794,6 +821,23 @@ async function resolveCreateAccount(input: {
     "cmux.vm.max_active": entitlements.maxActiveVms,
   });
   return { ok: true, user, entitlements };
+}
+
+async function resolveCreateAdmission(input: {
+  readonly request: Request;
+  readonly span: Span;
+  readonly timing: VmTimingRecorder;
+  readonly user: AuthedUser;
+  readonly body: CreateBody;
+}): Promise<CreateAccountScope> {
+  const scope = await resolveCreateAccount(input);
+  if (!scope.ok) return scope;
+  const limited = await enforceVmAllocationRateLimit({
+    request: input.request,
+    route: "vm.create",
+    billingTeamId: scope.entitlements.billingTeamId,
+  });
+  return limited ? { ok: false, response: limited } : scope;
 }
 
 /**

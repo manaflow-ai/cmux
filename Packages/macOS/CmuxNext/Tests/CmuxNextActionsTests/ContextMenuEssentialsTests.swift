@@ -38,7 +38,7 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
                                "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
@@ -48,6 +48,50 @@ struct ContextMenuEssentialsTests {
         // The rest moved, not gone.
         #expect(allActions(menu).contains("palette.copyWorkspaceID"))
         #expect(allActions(menu).contains("workspace.duplicate"))
+    }
+
+    /// A menu opened on one of several selected rows is Chrome's menu for several tabs (Leo
+    /// 2026-10-20): New Workspace Below and Add to New Group; Duplicate, Move ▸, Pin, Mute; More;
+    /// Close, Close Other and Close Below; then Reopen Closed. The color row is the header's swatches.
+    @Test func theSelectionMenuFollowsChromesMenuForSeveralTabs() {
+        let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
+        let shown = rows(menu)
+        #expect(shown == ["palette.workspaceColor", "workspace.newBelow", "workspace.moveToNewGroup", "—",
+                          "workspace.duplicate", "palette.moveWorkspaceToTop", "palette.toggleWorkspacePin", "workspace.toggleAudioMute", "—",
+                          "More", "—", "closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "—",
+                          "reopenClosedWorkspace"])
+        #expect(shown.filter { $0 != "—" }.count <= 12)
+        // The rest moved into More, not gone.
+        for id in ["renameWorkspace", "moveWorkspaceToGroup", "palette.closeWorkspacesAbove", "palette.copyWorkspaceID"] {
+            #expect(allActions(menu).contains(id), "\(id)")
+        }
+    }
+
+    /// A one-row menu keeps its layout; Reopen Closed Workspace joins its More (Close section).
+    @Test func theOneRowMenuOffersReopenClosedInMore() {
+        let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        #expect(!rows(menu).contains("reopenClosedWorkspace"))
+        #expect(allActions(menu).contains("reopenClosedWorkspace"))
+    }
+
+    /// The selection menu's rows say they act on every selected workspace, each way of a toggle.
+    @Test func theSelectionMenuNamesItsRowsForTheSelection() {
+        let entries = ContextMenuCatalog.shared.selectionEntries(for: .workspaceRow)
+        func titles(pins: Bool, mutes: Bool) -> [ActionID: String] {
+            let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"), entries: entries)
+                .namingWorkspaceSelection(pins: pins, mutes: mutes)
+            return Dictionary(menu.items.compactMap { item in ActionRegistry.menuRun(of: item).map { ($0.id, item.title) } }) { first, _ in first }
+        }
+        let on = titles(pins: true, mutes: true), off = titles(pins: false, mutes: false)
+        for id: ActionID in ["workspace.moveToNewGroup", "workspace.duplicate", "palette.toggleWorkspacePin", "workspace.toggleAudioMute"] {
+            #expect(on[id] == NSMenu.workspaceSelectionTitle(id, pins: true, mutes: true), "\(id)")
+        }
+        #expect(on["palette.toggleWorkspacePin"] != off["palette.toggleWorkspacePin"])
+        #expect(on["workspace.toggleAudioMute"] != off["workspace.toggleAudioMute"])
+        // A row with no selection wording keeps the action's title.
+        #expect(NSMenu.workspaceSelectionTitle("workspace.newBelow", pins: true, mutes: true) == nil)
+        #expect(on["workspace.newBelow"] == registry().title(for: "workspace.newBelow"))
     }
 
     /// A row that only says it is not in this version never ships.
@@ -83,5 +127,24 @@ struct ContextMenuEssentialsTests {
         for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart", "browser.resetPinnedTab"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
+    }
+}
+
+/// Every right-click row shows its action's icon, as Chrome's menus do (Leo 2026-10-20), and a
+/// folder its own; an action with only the catalog's placeholder symbol shows none.
+@MainActor
+struct ContextMenuIconTests {
+    @Test func theWorkspaceMenusRowsAndFoldersHaveIcons() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("moveWorkspaceToGroup", invoke: { _ in })
+        let menu = registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        let rows = menu.items.filter { !$0.isSeparatorItem }
+        #expect(!rows.isEmpty)
+        for item in rows {
+            #expect(item.image != nil, "\(item.title) has no icon")
+            #expect(item.image?.isTemplate != false, "\(item.title)'s icon takes the row's ink")
+        }
+        #expect(ActionRegistry.menuIcon("command") == nil)
+        #expect(ActionRegistry.menuIcon("pin") != nil)
     }
 }

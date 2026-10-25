@@ -43,6 +43,10 @@ extension ChiefPetController {
         defer { closingReply = false }
         replyPanel.orderOut(nil)
         render(animated: false)
+        // The pet Message the Chief showed with the setting off goes with its box.
+        guard transient, !isOn else { return }
+        transient = false
+        panel?.dismiss()
     }
 
     func submit(_ target: ChiefPetReplyTarget, text: String, command: Bool) {

@@ -29,10 +29,14 @@ use std::collections::{BTreeMap, BTreeSet};
 /// launcher sets, and custom tools, plugins, MCP tools (default allow) and
 /// `!` command templates run without the edit/bash/webfetch asks.
 /// `OPENCODE_DISABLE_PROJECT_CONFIG` and `--pure` leave the global config,
-/// org config, managed config and custom tools in place. No config entry,
-/// preset or default adds them back; a harness that gains a verifiable mode
-/// that asks before each change goes back into `ASKING_MODES` after a review
-/// (plans/cmux-next/acp-remote-guard.md).
+/// org config, managed config and custom tools in place. acpmux still asks
+/// OpenCode to ask for a chat whose permission policy is narrower than
+/// approve-all (`opencode_ask.rs`): `OPENCODE_CONFIG_CONTENT` with
+/// `"permission": {"*": "ask"}`, which holds unless something above comes
+/// after it, so that chat logs `policy_unenforced` and the Web refusal stays.
+/// No config entry, preset or default adds them back; a harness that gains a
+/// verifiable mode that asks before each change goes back into `ASKING_MODES`
+/// after a review (plans/cmux-next/acp-remote-guard.md).
 pub(crate) const REFUSED_FAMILIES: &[&str] = &["codex", "opencode"];
 
 /// Per harness family, the exact mode ids that ask before they act; the
@@ -62,8 +66,9 @@ pub(crate) const BRIDGE_ASKING_MODES: &[&str] = &["ask"];
 
 /// Why a refused family cannot start from a remote device (shown on the phone).
 pub(crate) const NO_ASKING_MODE: &str = "this agent has no mode that asks before each change";
-/// opencode can ask, but its own config on the Mac (an agent file, a global or
-/// managed config) can turn the asks off after anything acpmux sets
+/// opencode can ask, and acpmux asks it to for a narrower policy
+/// (`opencode_ask.rs`), but its own config on the Mac (an agent file, a global
+/// or managed config) can turn the asks off after anything acpmux sets
 /// (`REFUSED_FAMILIES`).
 pub(crate) const OPENCODE_REFUSAL: &str =
     "opencode's own settings on this Mac can let it edit and run commands without asking";
@@ -96,6 +101,18 @@ pub fn remote_start(
         return Err("this agent has no reviewed mode that asks before each change".into());
     }
     Ok(modes.to_vec())
+}
+
+/// `remote_start` against one immutable configuration snapshot. The session
+/// owner uses this while resolving the exact profile it will spawn, so a
+/// request-layer preflight is never the authority boundary.
+pub(crate) fn remote_start_for_config(
+    cfg: &Config,
+    name: &str,
+    profile: &HarnessProfile,
+) -> Result<Vec<String>, String> {
+    let (table, _) = WebModeTable::build_refusing(&cfg.web_asking_modes, &refused_families(cfg));
+    remote_start(&table, name, profile)
 }
 
 /// Modes the reviewed sources name as NOT asking. A config.json

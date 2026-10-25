@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The one cmux dialog view: an overlay panel (Liquid Glass, opaque under
 /// Reduce Transparency) with the title, the asking origin, the lines, the
@@ -82,10 +83,11 @@ public final class CmuxDialogView: NSView {
     }
 
     /// Gives the keyboard to the first text field, else the default button,
-    /// else the first control.
+    /// else Cancel (a question with no default: a key typed on must not tick
+    /// a check box), else the first control.
     public func focusInitial() {
         let field = focusables.first { $0 is NSTextField }
-        let fallback = buttonViews.first { $0.button.role == .default } ?? focusables.first
+        let fallback = buttonViews.first { $0.button.role == .default } ?? buttonViews.first { $0.button.role == .cancel } ?? focusables.first
         guard let target = field ?? fallback else { return }
         window?.makeFirstResponder(target)
     }

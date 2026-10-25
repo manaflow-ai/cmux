@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 #[cfg(unix)]
-use anyhow::{Context, anyhow};
-use std::path::PathBuf;
+use anyhow::anyhow;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The daemon lock, held while the daemon runs. Dropping it unlocks
@@ -21,18 +21,30 @@ impl Drop for DaemonLock {
     }
 }
 
+/// Another daemon holds the lock: one that is stopping or starting. Any other failure to take
+/// the lock (permissions, a symlink, an I/O error) is a plain error.
+#[derive(Debug)]
+pub(super) struct LockHeld(PathBuf);
+
+impl std::fmt::Display for LockHeld {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "another acpmux daemon holds {}", self.0.display())
+    }
+}
+
+impl std::error::Error for LockHeld {}
+
 #[cfg(unix)]
-pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
+pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
     use std::os::unix::io::AsRawFd;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+    let file = crate::config::private_state_rw(path)?;
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
-        return Err(anyhow!("another acpmux daemon holds {}", path.display()));
+        let e = std::io::Error::last_os_error();
+        if e.kind() == std::io::ErrorKind::WouldBlock {
+            return Err(LockHeld(path.to_owned()).into());
+        }
+        return Err(anyhow!("lock {}: {e}", path.display()));
     }
     Ok(DaemonLock(file))
 }
@@ -40,19 +52,12 @@ pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
 /// while the file stays open; the system releases it when the daemon exits
 /// (a child gets no copy: the daemon starts children with a handle list).
 #[cfg(windows)]
-pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
-    use anyhow::{Context, anyhow};
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .with_context(|| format!("open {}", path.display()))?;
+pub(super) fn acquire_lock(path: &Path) -> Result<DaemonLock> {
+    use anyhow::Context;
+    let file = crate::config::private_state_rw(path)?;
     match file.try_lock() {
         Ok(()) => Ok(DaemonLock(file)),
-        Err(std::fs::TryLockError::WouldBlock) => {
-            Err(anyhow!("another acpmux daemon holds {}", path.display()))
-        }
+        Err(std::fs::TryLockError::WouldBlock) => Err(LockHeld(path.to_owned()).into()),
         Err(std::fs::TryLockError::Error(e)) => {
             Err(anyhow::Error::new(e).context(format!("lock {}", path.display())))
         }
@@ -65,7 +70,7 @@ pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
 #[cfg(unix)]
 pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
     use std::os::unix::io::AsRawFd;
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+    let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
     let deadline = tokio::time::Instant::now() + budget;
@@ -88,7 +93,7 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
 /// the Unix arm polls `flock`.
 #[cfg(windows)]
 pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
-    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+    let Ok(file) = crate::config::private_state_rw(&lock) else {
         return true;
     };
     let deadline = tokio::time::Instant::now() + budget;
@@ -127,5 +132,28 @@ pub(super) fn fork_a_child_for_tests() {
                 libc::_exit(0);
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn daemon_lock_refuses_a_symlink() {
+        let dir = std::env::temp_dir().join(format!(
+            "acpmux-lock-link-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("outside");
+        let lock = dir.join("daemon.lock");
+        std::fs::write(&target, "outside").unwrap();
+        std::os::unix::fs::symlink(&target, &lock).unwrap();
+
+        assert!(acquire_lock(&lock).is_err(), "the daemon locked through a symlink");
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "outside");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

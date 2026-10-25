@@ -157,4 +157,29 @@ git_q -C "$src" add scripts/ci/macos-stubs/Security.tbd
 git_q -C "$src" commit -m stubs
 [[ "$(key --version v2)" != "$before" ]] || fail "a framework stub change kept the tree key"
 
+# A revision the checkout does not have fails at once, in a partial clone too:
+# one lazy promisor fetch per input pegged a Mac for 19 minutes on a
+# placeholder sha (2026-10-20). The promisor's upload-pack records any fetch.
+cat > "$TMP/upload-pack" <<EOF
+#!/bin/sh
+touch "$TMP/lazy-fetched"
+exec git-upload-pack "\$@"
+EOF
+chmod +x "$TMP/upload-pack"
+git_q -c uploadpack.allowFilter=true clone --filter=blob:none --no-checkout "file://$src" "$TMP/partial"
+git_q -C "$TMP/partial" config remote.origin.uploadpack "$TMP/upload-pack"
+git_q -C "$TMP/partial" config uploadpack.allowFilter true
+mkdir -p "$TMP/partial/scripts/ci" "$TMP/partial/scripts/cmux-next"
+cp "$src/scripts/ci/cmux_tui_tree_key.py" "$TMP/partial/scripts/ci/"
+cp "$src/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$TMP/partial/scripts/cmux-next/"
+rm -f "$TMP/lazy-fetched"
+missing=$(printf 'a%.0s' {1..40})
+status=0
+out=$(cd "$TMP/partial" && python3 scripts/ci/cmux_tui_tree_key.py --version v1 "$missing" 2>&1) || status=$?
+[[ ! -e "$TMP/lazy-fetched" ]] || fail "a missing revision fetched from the promisor remote"
+[[ "$status" == 1 && "$out" == *"$missing is not a commit in this checkout"* ]] \
+  || fail "a missing revision did not fail with its own error (exit $status): $out"
+[[ "$(cd "$TMP/partial" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 HEAD)" == "$(key --version v2)" ]] \
+  || fail "a partial clone computed a different key for a present revision"
+
 printf 'tree-key-v2 tests: ok\n'

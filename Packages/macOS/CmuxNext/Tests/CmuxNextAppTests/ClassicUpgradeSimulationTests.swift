@@ -200,7 +200,8 @@ struct ClassicUpgradeSimulationTests {
         let services = sim.services
         let manual = Task { @MainActor in
             while services.onboarding.classicMigrationRun == nil { try? await Task.sleep(for: .milliseconds(10)) }
-            return try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.manual)
+            return try await AppOnboardingServices(owner: services.onboarding)
+                .migrateClassic(.manual) { _ in true }
         }
         _ = await sim.launch()
         _ = try await manual.value

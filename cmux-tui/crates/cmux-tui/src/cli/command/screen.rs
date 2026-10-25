@@ -25,6 +25,7 @@ pub(super) fn parse_screen_strings(
         ["create"] => {
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "name", "name");
+            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::ScreenCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -73,7 +74,8 @@ pub(super) fn parse_screen_strings(
 }
 
 /// `screen <selector> column <split_id> update`: the resource op
-/// `column.update` (pin, unpin, or resize one viewport column).
+/// `column.update` (pin, unpin, or resize one viewport column; make a docked
+/// column the pinned dock and choose whether it takes more tabs).
 fn column_update(
     column: &str,
     selectors: &mut Selectors,
@@ -81,8 +83,12 @@ fn column_update(
 ) -> Result<CommandPlan, UsageError> {
     validate_prefixed_id("column", "split", column)?;
     let mut params = map_with("column", Value::String(column.to_string()));
-    if let Some(dock) = flags.take("dock") {
-        params.insert("dock".into(), Value::Bool(parse_bool("--dock", &dock)?));
+    // pinned-dock-v1: --pinned true makes a docked column the pinned (Home)
+    // dock, one way; --allow-tabs lets a pinned column take more tabs.
+    for (flag, field) in [("dock", "dock"), ("pinned", "pinned"), ("allow-tabs", "allow_tabs")] {
+        if let Some(value) = flags.take(flag) {
+            params.insert(field.into(), Value::Bool(parse_bool(&format!("--{flag}"), &value)?));
+        }
     }
     let choices: [(&str, &[&str], &str); 2] = [
         ("edge", &["left", "right", "top", "bottom"], "left, right, top, or bottom"),

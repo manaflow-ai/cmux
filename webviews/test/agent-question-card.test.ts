@@ -3,7 +3,7 @@
 // A pending ask shows a "Needs your input" pill over a card with the question as its header; the
 // card has the keyboard when it arrives on an empty composer, so arrows move between the options,
 // ⌘↩ submits, Esc hands the keyboard back to the composer without answering (Skip declines), a
-// click on the last single-choice question sends it, and a number key picks Other to type an answer. What the card sends is the
+// click chooses an option and Submit sends it, and a number key picks Other to type an answer. What the card sends is the
 // host's `chat.permission` call, which the pane relay sends as `_acpmux/permission_respond` and
 // acpmux hands the agent (cmux-tui/crates/acpmux/tests/hub_integration/questions.rs).
 //
@@ -13,6 +13,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -70,9 +71,14 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
 
   /// The `chat.permission` calls so far, once at least `count` arrived.
   async function permissionCalls(page: Page, count: number): Promise<Call[]> {
-    const read = () => page.evaluate(() => (window as unknown as { permissionCalls: Call[] }).permissionCalls);
-    for (let i = 0; i < 100 && (await read()).length < count; i++) await page.waitForTimeout(50);
-    return read();
+    await page
+      .waitForFunction(
+        (count) => (window as unknown as { permissionCalls: Call[] }).permissionCalls.length >= count,
+        count,
+        { timeout: 5_000 },
+      )
+      .catch(() => {});
+    return page.evaluate(() => (window as unknown as { permissionCalls: Call[] }).permissionCalls);
   }
 
   const highlighted = (page: Page) =>
@@ -90,7 +96,10 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
     if (draft) await page.keyboard.type(draft);
     await page.locator(".acpmux-preview-controls select").selectOption("question-pending-single");
     await page.locator(".acpmux-question").waitFor();
-    await page.waitForTimeout(300);
+    // The card takes an idle keyboard in an effect after it renders; React has run its effects by
+    // the time the next frame has painted.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame());
     return page;
   }
 
@@ -148,7 +157,8 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         Object.assign(window, { escapesSeen: seen });
       });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      // The pane heard the key; by then the card had its say.
+      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
       expect(await permissionCalls(page, 0)).toEqual([]);
       expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([false]);
       expect(await focusedInCard(page)).toBe(false);
@@ -162,7 +172,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("Esc on the card while the turn runs is the double press's first: Stop shows the Esc hint, the next Esc stops", async () => {
+    test("Esc on the card while the turn runs is the double press's first: Stop is armed, the next Esc stops", async () => {
       // The card's Esc falls through to the composer's double press (escapeStop.ts), so a card Esc
       // and one more stop the turn: never three presses, and never an answer.
       const page = await pendingQuestion();
@@ -189,16 +199,24 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         Object.assign(window, { escapesSeen: seen });
       });
       await page.keyboard.press("Escape");
-      await page.waitForTimeout(100);
+      // The pane heard the key; by then the card had its say.
+      await page.waitForFunction(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen.length > 0);
       expect(await permissionCalls(page, 0)).toEqual([]);
       expect(await page.evaluate(() => (window as unknown as { escapesSeen: boolean[] }).escapesSeen)).toEqual([true]);
       expect(await focusedInCard(page)).toBe(false);
       await page.close();
     });
 
-    test("one click on the last single-choice question sends it", async () => {
+    test("one click on an option chooses it and Submit sends it", async () => {
+      // Leo 2026-10-24: "just clicking it directly just automatically sends the input. So it makes
+      // the skip and submit buttons redundant".
       const page = await pendingQuestion();
       await page.locator(".acpmux-question-row", { hasText: "Passkeys" }).click();
+      expect(await page.locator(".acpmux-question-row", { hasText: "Passkeys" }).getAttribute("aria-checked")).toBe(
+        "true",
+      );
+      expect(await permissionCalls(page, 0)).toEqual([]);
+      await page.locator(".acpmux-question-submit").click();
       expect(await permissionCalls(page, 1)).toEqual([
         {
           method: "chat.permission",
@@ -226,6 +244,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         };
       });
       await page.locator(".acpmux-question-row", { hasText: "API keys" }).click();
+      await page.locator(".acpmux-question-submit").click();
       const error = page.locator(".acpmux-question-error");
       await error.waitFor();
       expect((await error.innerText()).replace(/\s+/g, " ").trim()).toBe(
@@ -233,7 +252,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       );
       expect(await page.locator(".acpmux-question").getAttribute("aria-busy")).toBeNull();
       expect(await page.locator(".acpmux-question-skip").isDisabled()).toBe(false);
-      await page.locator(".acpmux-question-row", { hasText: "API keys" }).click();
+      await page.locator(".acpmux-question-submit").click();
       const calls = await permissionCalls(page, 2);
       expect(calls.length).toBe(2);
       expect(calls[1]).toEqual({

@@ -26,8 +26,8 @@ use tokio::task::JoinSet;
 
 use crate::connection::{ConnectionError, LinkRejection, send_link_ready, send_link_rejection};
 use crate::crypto::{
-    AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, authorize_secure_link,
-    verify_secure_link,
+    AcceptedSecureLink, AuthKind, ConnectionAttemptId, CryptoError, ServiceAuthority,
+    authorize_secure_link, verify_secure_link,
 };
 pub use crate::crypto::{
     InboundAuthEvidence, NetworkPeer, VerifiedKernelPeer, VerifiedSshPrincipal,
@@ -141,6 +141,7 @@ struct ClientKey {
 pub struct ServerConnection {
     pub device_id: String,
     pub session_id: SessionId,
+    service_authority: ServiceAuthority,
     key: ClientKey,
     owner: Weak<RemoteDaemon>,
     self_weak: Weak<ServerConnection>,
@@ -291,6 +292,7 @@ impl ServerConnection {
     fn new(
         owner: &Arc<RemoteDaemon>,
         key: ClientKey,
+        service_authority: ServiceAuthority,
         session: ReliableSession,
         lane_bindings: Vec<Vec<Lane>>,
     ) -> Arc<Self> {
@@ -303,6 +305,7 @@ impl ServerConnection {
         Arc::new_cyclic(move |self_weak| Self {
             device_id,
             session_id,
+            service_authority,
             key,
             owner,
             self_weak: self_weak.clone(),
@@ -330,6 +333,10 @@ impl ServerConnection {
 
     fn current_generation(&self) -> u64 {
         *self.generation.borrow()
+    }
+
+    pub(crate) fn service_authority(&self) -> &ServiceAuthority {
+        &self.service_authority
     }
 
     pub async fn snapshot(&self) -> ServerConnectionSnapshot {
@@ -756,6 +763,7 @@ struct PendingLinks {
     assigned: BTreeSet<Lane>,
     client_resume: BTreeMap<Lane, u64>,
     grant_generation: u64,
+    service_authority: ServiceAuthority,
 }
 
 struct ReconnectRegistration<'a> {
@@ -764,6 +772,7 @@ struct ReconnectRegistration<'a> {
     link: Arc<dyn FrameLink>,
     lane_bindings: Vec<Vec<Lane>>,
     peer_resume: &'a BTreeMap<Lane, u64>,
+    service_authority: &'a ServiceAuthority,
 }
 
 impl RemoteDaemon {
@@ -933,7 +942,8 @@ impl RemoteDaemon {
             let duplicate_lane =
                 accepted.lanes.iter().copied().find(|lane| pending.assigned.contains(lane));
             let metadata_mismatch = pending.client_resume != accepted.resume
-                || pending.grant_generation != accepted.grant.revocation_generation;
+                || pending.grant_generation != accepted.grant.revocation_generation
+                || pending.service_authority != accepted.grant.authority;
             if metadata_mismatch || duplicate_lane.is_some() {
                 let stale = state.pending.remove(&pending_key);
                 drop(state);
@@ -959,6 +969,7 @@ impl RemoteDaemon {
                 assigned: BTreeSet::new(),
                 client_resume: accepted.resume.clone(),
                 grant_generation: accepted.grant.revocation_generation,
+                service_authority: accepted.grant.authority.clone(),
             }
         });
         for lane in &accepted.lanes {
@@ -1008,6 +1019,7 @@ impl RemoteDaemon {
                         link: mux,
                         lane_bindings,
                         peer_resume: &pending.client_resume,
+                        service_authority: &pending.service_authority,
                     },
                 )
                 .await
@@ -1021,7 +1033,13 @@ impl RemoteDaemon {
             (connection, false)
         } else {
             let reliable = ReliableSession::new(key.session, mux, self.limits);
-            let connection = ServerConnection::new(self, key.clone(), reliable, lane_bindings);
+            let connection = ServerConnection::new(
+                self,
+                key.clone(),
+                pending.service_authority,
+                reliable,
+                lane_bindings,
+            );
             let mut state = self.state.lock().await;
             if state.clients.contains_key(&key) {
                 drop(state);
@@ -1068,6 +1086,11 @@ impl RemoteDaemon {
         connection: &Arc<ServerConnection>,
         registration: ReconnectRegistration<'_>,
     ) -> Result<(), DaemonError> {
+        if connection.service_authority() != registration.service_authority {
+            return Err(DaemonError::Protocol(
+                "client service authority changed across reconnect".into(),
+            ));
+        }
         let still_registered = {
             let state = self.state.lock().await;
             state.clients.get(key).is_some_and(|current| {

@@ -21,6 +21,11 @@ extension DaemonStore {
     /// carrying `transaction`, then calls `noteSettled` after the reply or
     /// `rejectIntent` when it failed.
     public func intend(_ intent: Intent, transaction: ClientTransactionID) {
+        // A script batch's intent waits for its stage to commit (DaemonStore+Stage.swift).
+        if let stage, stage.holds(intent, transaction: transaction, in: self) {
+            _ = intentLog.append(intent, transaction: transaction, held: true)
+            return
+        }
         if overlayLifted {
             // Applied with the rest when the lift ends.
             _ = intentLog.append(intent, transaction: transaction)
@@ -140,11 +145,29 @@ extension DaemonStore {
             return nil
         })
         provisionalPanes = provisionalPanes.filter { pending.contains($0.key) }
+        releaseStandInTargets()
+    }
+
+    /// A stand-in handle stays resolvable while a pending create names it as its target.
+    private func releaseStandInTargets() {
+        guard !standInTargets.isEmpty else { return }
+        let targets = Set(intentLog.entries.compactMap { entry -> PaneID? in
+            if case .splitPane(let target, _, _, _) = entry.kind { return target }
+            return nil
+        })
+        standInTargets = standInTargets.filter { targets.contains($0.key) }
     }
 
     /// The record of a pane the daemon reports: the provisional pane's own model when a pending
     /// split shows it under the same public id, updated in place, so its observers keep their
     /// object and see only the fields that changed (perf I3); else a new model.
+    /// The daemon pane a command about `handle` must name: `handle` itself for a daemon pane, the
+    /// daemon's pane that took a pending create's stand-in over (same public id), or nil while the
+    /// stand-in is not confirmed yet (a create pressed on a create still in flight waits for it).
+    public func daemonHandle(showing handle: PaneID) -> PaneID? {
+        ProvisionalSplit.daemonHandle(showing: handle, in: self)
+    }
+
     func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
         guard let model = provisionalPanes.removeValue(forKey: PaneModel.identity(snapshot)) else { return PaneModel(snapshot) }
         model.update(snapshot)
@@ -155,20 +178,20 @@ extension DaemonStore {
     /// pending create shows it under the same key, updated in place (as ``confirmedPane(_:)``);
     /// else a new model.
     func confirmedWorkspace(_ snapshot: WorkspaceSnapshot) -> WorkspaceModel {
-        guard let model = provisionalWorkspaces.workspaces[WorkspaceModel.identity(snapshot)] else { return WorkspaceModel(snapshot) }
+        guard let model = provisionalWorkspaces.workspacesByID[WorkspaceModel.identity(snapshot)] else { return WorkspaceModel(snapshot) }
         model.update(snapshot)
         return model
     }
 
     /// The models of a workspace create that left the log (settled or refused) are no longer provisional.
     private func releaseSettledProvisionalWorkspaces() {
-        guard !provisionalWorkspaces.workspaces.isEmpty || !provisionalWorkspaces.screens.isEmpty else { return }
+        guard !provisionalWorkspaces.workspacesByID.isEmpty || !provisionalWorkspaces.screensByID.isEmpty else { return }
         let pending = Set(intentLog.entries.compactMap { entry -> String? in
             if case .createWorkspace(let provisional, _) = entry.kind { return provisional.key.rawValue }
             return nil
         })
-        provisionalWorkspaces.workspaces = provisionalWorkspaces.workspaces.filter { pending.contains($0.key) }
-        provisionalWorkspaces.screens = provisionalWorkspaces.screens.filter { pending.contains($0.key) }
+        provisionalWorkspaces.workspacesByID = provisionalWorkspaces.workspacesByID.filter { pending.contains($0.key) }
+        provisionalWorkspaces.screensByID = provisionalWorkspaces.screensByID.filter { pending.contains($0.key) }
     }
 
     /// A new connection replaces the last one (`run(connection:)`): its
@@ -176,6 +199,9 @@ extension DaemonStore {
     /// sequences reset, and intents whose reply came settle with its first
     /// snapshot.
     func beginConnection() {
+        // A stage of the old connection holds its events and sequences: the new one's snapshot is the truth.
+        stage?.discard()
+        sequenceWaits = [:]
         snapshotBarrier = 0
         if appliedSequence != 0 { appliedSequence = 0 }
         intentLog.connectionReplaced()
@@ -191,7 +217,7 @@ extension DaemonStore {
 
     /// Applies every pending intent in order, recording each inverse.
     private func restoreOverlay() {
-        for (index, entry) in intentLog.entries.enumerated() { // IntentOverlay never writes the log
+        for (index, entry) in intentLog.entries.enumerated() where !entry.held { // IntentOverlay never writes the log
             if !intentLog.setUndo(IntentOverlay.restore(entry, to: self), at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
     }

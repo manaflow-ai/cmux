@@ -27,6 +27,13 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// A cmux Cloud team of the signed-in account, by id (Team Picker): the palette lists the teams
+    /// and marks the current one.
+    static var cloudTeam: ActionArgument {
+        ActionArgument(name: "team", title: String(localized: "argument.team", defaultValue: "Team", bundle: .module), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.cloudTeams, pinned: []))
+    }
+
     static var nameString: ActionArgument {
         ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string)
     }
@@ -149,6 +156,19 @@ nonisolated enum CatalogArgument {
 
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
+    }
+
+    /// The idle auto-pause choice (`cloudSetIdlePause`): Off, or the minutes
+    /// of idle after which cmux Cloud pauses the machine. The server
+    /// (`web/services/vms/idlePause.ts`) takes exactly these values.
+    static var idlePauseChoice: ActionArgument {
+        ActionArgument(name: "minutes", title: String(localized: "argument.idlePause", defaultValue: "Pause When Idle", bundle: .module), kind: .enumeration([
+            ActionEnumCase(value: "off", title: String(localized: "argument.value.idlePauseOff", defaultValue: "Off", bundle: .module)),
+            ActionEnumCase(value: "15", title: String(localized: "argument.value.idlePause15", defaultValue: "After 15 Minutes", bundle: .module)),
+            ActionEnumCase(value: "30", title: String(localized: "argument.value.idlePause30", defaultValue: "After 30 Minutes", bundle: .module)),
+            ActionEnumCase(value: "60", title: String(localized: "argument.value.idlePause60", defaultValue: "After 1 Hour", bundle: .module)),
+            ActionEnumCase(value: "120", title: String(localized: "argument.value.idlePause120", defaultValue: "After 2 Hours", bundle: .module)),
+        ]))
     }
 
     static var settingString: ActionArgument {

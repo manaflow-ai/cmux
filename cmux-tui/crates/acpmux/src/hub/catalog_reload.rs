@@ -67,11 +67,18 @@ impl Hub {
             current.web_roots = next.web_roots;
             current.vm_host = next.vm_host;
             current.web_asking_modes = next.web_asking_modes;
+            // The start budget applies from the next start, like a restart would.
+            current.agent_start_timeout_ms = next.agent_start_timeout_ms;
+            current.uploads_max_age_days = next.uploads_max_age_days;
+            current.silent_turn_ms = next.silent_turn_ms;
+            current.stalled_turn_ms = next.stalled_turn_ms;
+            current.stalled_turn_end_ms = next.stalled_turn_end_ms;
             let start_changed = current.default_permission_mode != next.default_permission_mode
                 || current.last_permission_mode != next.last_permission_mode
-                || current.last_permission_mode_setting != next.last_permission_mode_setting;
+                || current.last_permission_mode_change != next.last_permission_mode_change;
             current.default_permission_mode = next.default_permission_mode;
             current.last_permission_mode = next.last_permission_mode;
+            current.last_permission_mode_change = next.last_permission_mode_change;
             current.last_permission_mode_setting = next.last_permission_mode_setting;
             if start_changed {
                 self.start_mode_changed();
@@ -83,6 +90,8 @@ impl Hub {
                 retained,
             )
         };
+        // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
+        self.idle_wake.notify_one();
         // Pooled sessions started under the old catalog are never served.
         self.drain_pool();
         self.probe_models_with(true, false, None).await;

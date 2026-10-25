@@ -125,7 +125,7 @@
   overflow: auto;
   border-inline-end: 1px solid var(--sa-line);
   background: var(--cmux-app-sidebar, transparent);
-  transition: width 0.2s ease;
+  transition: width var(--cmux-motion-standard) ease;
 }
 .sa-mac-content {
   flex: 1;
@@ -304,7 +304,7 @@
   background: var(--sa-raised);
   box-shadow: var(--elevation-2);
   overflow: auto;
-  animation: sa-sheet-in 0.35s ease-out;
+  animation: sa-sheet-in var(--cmux-motion-large) ease-out;
 }
 .sa-sheet-grabber {
   width: 36px;
@@ -453,7 +453,7 @@
 .sa-chevron {
   flex: none;
   color: var(--sa-text-3);
-  transition: transform 0.18s ease;
+  transition: transform var(--cmux-motion-standard) ease;
 }
 .sa-chevron[data-open] {
   transform: rotate(90deg);
@@ -1229,7 +1229,7 @@
   padding: 14px 18px;
   border-inline-start: 1px solid var(--sa-line);
   overflow: auto;
-  animation: sa-side-in 0.2s ease-out;
+  animation: sa-side-in var(--cmux-motion-standard) ease-out;
 }
 @keyframes sa-side-in {
   from {

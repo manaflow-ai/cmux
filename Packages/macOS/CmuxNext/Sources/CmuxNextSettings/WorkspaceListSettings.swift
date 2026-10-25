@@ -4,11 +4,13 @@ public import CmuxNextDesign
 /// sidebar when its entry point names no place (Cmd-N, the palette, the
 /// sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace,
 /// a link or an agent opening one).
-/// `top` (the default): first in the group of the workspace the window shows;
-/// outside a group, first in the workspace list, below the Pinned section and
-/// the Home row, above every group. `afterCurrent`: right after the
-/// workspace the window shows, inside its group when it has one (top when that
-/// workspace is pinned, Home, or on another machine). `bottom`: last in the
+/// `top` (the default; the daemon places a new workspace by the same rule in
+/// its create): right below the workspace the window shows when that one is in
+/// a group; outside a group, first in the workspace list, below the Pinned
+/// section and the Home row, above every group. `afterCurrent` (cmux classic's
+/// default): right after the workspace the window shows, inside its group when
+/// it has one (top when that workspace is pinned, Home, or on another machine).
+/// `bottom`: last in the
 /// group of the workspace the window shows; outside a group, after the last
 /// loose workspace, where the daemon puts it. An explicit place (a drop on a
 /// sidebar gap, New Workspace Above or Below) always wins; a reopened workspace
@@ -18,7 +20,9 @@ public nonisolated enum NewWorkspacePlacement: String, Hashable, Sendable, CaseI
 }
 
 /// The workspace list's shape (Lawrence 2026-10-08, cx-plf5): new workspaces
-/// at the top (`workspaces.newPlacement`) and one list without computer
+/// at the top (`workspaces.newPlacement`; #23014 made it afterCurrent on
+/// 2026-10-20, back to top the same day: Lawrence asked for Cmd-N to always put
+/// it at the top, and the daemon's default is top) and one list without computer
 /// headers unless `sidebar.groupByComputer` is on
 /// (`SidebarSectionsPreferences.groupsByComputer`). A workspace the user
 /// never named takes its front tab's name unless `workspaces.autoName` is

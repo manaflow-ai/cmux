@@ -14,8 +14,12 @@ trusted run. It lists the runners through the org route App
 (pr_runner_pool.GitHub.runners(), as admission_placement.py does) and places
 JOBS, in priority order, with pr_runner_pool.idle_placement(), the rule the
 main picker places the light side lanes with: one job per runner carrying
-SIDE_LABEL that is online and idle now. When no online runner carries the side
-label, jobs use its owned pool label so the std minis can accept them. When a
+the route that is online and idle now. The route is SIDE_LABEL or the same
+side label on a wider class (compatible_labels(): a light job runs on a std
+mini, never the reverse), whichever has the most idle, then online, runners
+live (side_route()), so a starved light pool spills onto idle std side
+runners. When no online runner carries a compatible side label, jobs use the
+owned pool label so the minis can accept them. When a
 side label is online but busy, jobs remain on it and the rescue supplies the
 measured overflow boundary after the mini queue drains.
 
@@ -47,6 +51,13 @@ contains(' <key> ') matches whole keys only:
   workflow reads it as `free_retry_runner`);
 - `hosted_jobs` and `hosted_runner`: the overflow hosted macos-26 takes, and
   that label when it takes any (next_macos_cascade.py).
+- `nightly_runner_ready`: `true` when the dedicated cmux NEXT nightly runner
+  is online and idle for this placement; an empty value keeps the Blacksmith
+  overflow route.
+
+PROMOTE_LABEL, set on attempt 1 of a feat-cmux-next push, is the promotion
+mini's label. When the dedicated nightly labels are supplied, its idle state
+is preferred for Release compile and Blacksmith is the immediate overflow.
 """
 from __future__ import annotations
 
@@ -82,23 +93,73 @@ def _cascade():
 cascade = _cascade()
 
 
-def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
-    """Use the side label while online, otherwise its owned pool label."""
+def compatible_labels(label: str) -> tuple[str, ...]:
+    """`label`, then the same label on each wider class: every label whose runners can run its jobs.
+
+    pr_runner_pool.RUN_CLASSES lists the owned classes widest first (std: 48 GB
+    minis with GUI runners; light: 16 GB minis with two runners and none), so
+    a job sized for a class also runs on any class before it, never after.
+    Only the class token changes: the role (side, gui, session), the trust and
+    fleet namespace (trusted, promote, aws) and the Xcode stay as they are, so
+    no route crosses a trust boundary. Any other label is its own only label.
+    """
+    if not pool.persistent(label):
+        return (label,) if label else ()
+    parts = label.split("-")
+    own = next((index for index, part in enumerate(parts) if part in pool.RUN_CLASSES), None)
+    if own is None:
+        return (label,)
+    wider = pool.RUN_CLASSES[:pool.RUN_CLASSES.index(parts[own])]
+    return (label, *("-".join([*parts[:own], name, *parts[own + 1:]]) for name in reversed(wider)))
+
+
+def _online(label: str, runners: Sequence[Mapping[str, Any]]) -> int:
+    return sum(1 for runner in runners
+               if runner.get("status") == "online" and pool.carries_office_pool_label(runner, label))
+
+
+def side_route(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
+    """The compatible side label the run's jobs take, or "" when no online runner carries one.
+
+    The job's own class first, while its idle runners can take all `want`
+    jobs of the run. Otherwise the compatible label with the most live room:
+    the most idle runners now, then the most online (the queue that drains
+    fastest), ties to the own class. Live room is the runners API itself (the
+    fleet's registered labels), not a count kept in a variable. On 2026-10-20
+    at 22:22Z the light side label had 133 jobs queued on its 3 online
+    runners while 51 std side runners sat idle; the light jobs could have run
+    on any of them.
+    """
+    if runners is None or not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
+        return ""
+    best, room = "", (0, 0)
+    for candidate in compatible_labels(label):
+        online = _online(candidate, runners)
+        if not online:
+            continue
+        here = (pool.live_owned_free(runners, [candidate])[candidate], online)
+        if candidate == label and want > 0 and here[0] >= want:
+            return candidate
+        if not best or here > room:
+            best, room = candidate, here
+    return best
+
+
+def route_label(label: str, runners: Sequence[Mapping[str, Any]] | None, want: int = 0) -> str:
+    """side_route(), else the owned pool label while no compatible side runner is online."""
     if runners is None:
         return ""
-    if any(runner.get("status") == "online" and label in pool.runner_labels(runner)
-           for runner in runners):
-        return label
-    return pool.pool_label(label)
+    return side_route(label, runners, want) or pool.pool_label(label)
 
 
 def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, role) -> str:
     """The first online `role` label (pr_runner_pool.gui_label or session_label) for an owned side label.
 
-    The light minis run no GUI or session runner, so a light lane borrows the
-    std minis' before the workflow's Blacksmith fallback: on 2026-10-18 every
-    glaeda-gui-light job sampled waited for a runner until the rescue moved its
-    run to Blacksmith while the std GUI runners sat idle.
+    The light minis run no GUI or session runner, so a light lane borrows a
+    wider class's (compatible_labels()) before the workflow's Blacksmith
+    fallback: on 2026-10-18 every glaeda-gui-light job sampled waited for a
+    runner until the rescue moved its run to Blacksmith while the std GUI
+    runners sat idle.
     """
     if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
         return ""
@@ -109,12 +170,7 @@ def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, ro
         return ""
     if runners is None:
         return ""
-    candidates = [role(owned)]
-    parts = owned.split("-")
-    if pool.LIGHT_CLASS in parts:
-        parts[parts.index(pool.LIGHT_CLASS)] = "std"
-        candidates.append(role("-".join(parts)))
-    for candidate in candidates:
+    for candidate in (role(name) for name in compatible_labels(owned)):
         if candidate and any(runner.get("status") == "online" and candidate in pool.runner_labels(runner)
                              for runner in runners):
             return candidate
@@ -142,6 +198,36 @@ def session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None)
     return _live_role_label(label, runners, pool.session_label) or gui_route_label(label, runners)
 
 
+def _free_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, role) -> str:
+    """Return a compatible role label with at least one idle online runner.
+
+    GUI and logged-in-session jobs should take a free owned Mac when one is
+    visible. Returning an empty label when every compatible role runner is busy
+    lets the workflow's Blacksmith fallback run immediately instead of joining
+    an unbounded GUI queue; the five-minute rescue remains the last admission
+    guard if that fallback is itself stalled.
+    """
+    if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label) or runners is None:
+        return ""
+    owned = pool.pool_label(label)
+    if owned.startswith("glaeda-aws-"):
+        return ""
+    for candidate in (role(name) for name in compatible_labels(owned)):
+        if candidate and any(runner.get("status") == "online" and not runner.get("busy")
+                             and candidate in pool.runner_labels(runner) for runner in runners):
+            return candidate
+    return ""
+
+
+def free_gui_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    return _free_role_label(label, runners, pool.gui_label)
+
+
+def free_session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
+    return (_free_role_label(label, runners, pool.session_label)
+            or free_gui_route_label(label, runners))
+
+
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
            ) -> tuple[tuple[str, ...], tuple[str, ...], str]:
     """(owned jobs, fallback jobs, why); ((), (), why) decides nothing and keeps today's route."""
@@ -154,14 +240,43 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         return (), (), f"`{label or 'no label'}` is not an owned side label"
     if runners is None:
         return (), (), f"owned runners could not be read live; the jobs keep `{label}`"
-    owned = pool.idle_placement(runners, label, jobs)
+    # The jobs take the compatible side label with the most room (side_route()), so idle runners
+    # are counted where they go.
+    route = side_route(label, runners, len(jobs)) or label
+    owned = pool.idle_placement(runners, route, jobs)
     # A busy fleet is a queue, not an instantaneous Blacksmith decision. The
     # rescue moves a job only after the side queue budget has elapsed.
     fallback: tuple[str, ...] = ()
     if not owned:
-        return owned, fallback, f"no idle `{label}` runner now; every job stays queued on the owned label"
-    return owned, fallback, (f"{len(owned)} idle `{label}` runner(s) now take {', '.join(owned)}"
+        return owned, fallback, f"no idle `{route}` runner now; every job stays queued on the owned label"
+    return owned, fallback, (f"{len(owned)} idle `{route}` runner(s) now take {', '.join(owned)}"
                              + "; remaining jobs stay queued on the owned label")
+
+
+def promote_busy(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether PROMOTE_LABEL (a feat-cmux-next push's promotion mini) has no idle runner now.
+
+    Unset, or runners that could not be read: False, so the promoted jobs keep that label.
+    """
+    label = (env.get("PROMOTE_LABEL") or "").strip()
+    if not label or runners is None:
+        return False
+    return pool.live_owned_free(runners, [label])[label] == 0
+
+
+def nightly_runner_ready(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether the dedicated cmux NEXT nightly runner can take this compile."""
+    pool_label = (env.get("NIGHTLY_POOL") or "").strip()
+    runner_label = (env.get("NIGHTLY_RUNNER") or "").strip()
+    if not pool_label or not runner_label or runners is None:
+        return False
+    return any(
+        runner.get("status") == "online"
+        and not runner.get("busy")
+        and pool.carries_office_pool_label(runner, pool_label)
+        and runner_label in pool.runner_labels(runner)
+        for runner in runners
+    )
 
 
 def delimited(jobs: Sequence[str]) -> str:
@@ -178,18 +293,24 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             print(f"::warning title=side-lane placement::could not list runners ({error})")
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
-    route = route_label(label, runners)
+    route = route_label(label, runners, len((env.get("JOBS") or "").split()))
     gui_route = gui_route_label(label, runners)
     session_route = session_route_label(label, runners)
     if route and route != label:
-        why += f"; no online side runner, routing jobs on `{route}`"
+        why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
+                if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
     print(f"side-lane placement: {why}")
     watch = "false" if fallback and not owned else "true"
+    dedicated_ready = nightly_runner_ready(env, runners)
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
+            free_gui = free_gui_route_label(label, runners)
+            free_session = free_session_route_label(label, runners)
             handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
                          f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
+                         f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
+                         f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
                          f"watch={watch}\n")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
@@ -198,7 +319,20 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
     # queue moves, then hosted macos-26 for the jobs it can run.
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
-    placed = cascade.place(env, owned, live, waiting, seen)
+    # The dedicated nightly runner is preferred for Release compile. When it is
+    # configured but busy/offline, send the compile to Blacksmith immediately
+    # instead of queueing it on the reserved promotion label.
+    promotion_busy = promote_busy(env, runners)
+    dedicated_configured = bool((env.get("NIGHTLY_POOL") or "").strip()
+                                and (env.get("NIGHTLY_RUNNER") or "").strip())
+    if dedicated_ready:
+        promotion_busy = False
+    elif dedicated_configured:
+        # An unreadable runner list is not evidence that the dedicated builder
+        # is free. Treat it as unavailable so the Release compile overflows to
+        # Blacksmith instead of queueing indefinitely on the promotion mini.
+        promotion_busy = True
+    placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy)
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0

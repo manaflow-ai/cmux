@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebarActions
 import os
 
 /// Binds catalog actions to handlers. Menus, shortcuts, the palette, and
@@ -16,8 +18,12 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        // Pin/Unpin Chat on a history row: bound with the app's actions, with or without a local acpmux (the
+        // Chats feed only fills the history; a launch without one used to leave the action unbound).
+        SidebarChatHistoryFeed.bind(into: registry)
         FilesPaneHandlers.bind(into: registry, context: context)
         HistoryHandlers.bind(into: registry, context: context)
+        StashHandlers.bind(into: registry, context: context)
         TabSearchHandlers.bind(into: registry, context: context)
         PaletteScopeHandlers.bind(into: registry, context: context)
         BookmarkHandlers.bind(into: registry, context: context)
@@ -38,6 +44,7 @@ enum AppActions {
         WorkspaceNotesHandlers.bind(into: registry, context: context)
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
+        SidebarArchiveActions(host: services).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
@@ -48,6 +55,7 @@ enum AppActions {
         RightSidebarHandlers.bind(into: registry, context: context)
         SidebarSectionHandlers.bind(into: registry, context: context)
         SidebarHiddenSections.bind(into: registry, context: context)
+        SidebarPriorityFeed.bind(into: registry, context: context)
         SidebarGroupByActions.bind(into: registry, context: context)
         SidebarWorkspaceTabsToggle.bind(into: registry, context: context)
         SidebarMinimalToggle.bind(into: registry, context: context)
@@ -79,8 +87,10 @@ enum AppActions {
         HintHandlers.bind(into: registry, context: context)
         MusicHandlers.bind(into: registry, context: context)
         NowPlayingCardHandlers.bind(into: registry, context: context)
+        PictureInPictureHandlers.bind(into: registry, context: context)
         StatsPageTab.bind(into: registry, context: context)
         ChiefUsagePageTab.bind(into: registry, context: context)
+        ChiefViewsPageTab.bind(into: registry, context: context)
         PhoneHandlers.bind(into: registry, context: context)
         MobilePairingPageService.bind(into: registry, context: context)
         BrowserHitHandlers.bind(into: registry, context: context)
@@ -95,6 +105,8 @@ enum AppActions {
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
+        AgentChatMenuHandlers.bind(into: registry, context: context)
+        AgentConfigurationHandlers.bind(into: registry, context: context)
         AgentChatKeyHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
         AccountsHandlers.bind(into: registry, context: context)
@@ -110,6 +122,7 @@ enum AppActions {
         IconMenuVisibility.install(registry, context: context)
         TabSelectionTitles(context: context).install(in: registry)
         TopPages.installTabTargetReasons(services)
+        ActionTargetReasons.refuseHeadlessNameEditors(in: registry) { RefusalStrings.nameArgumentRequired }
         HomeRules.install(services)
         TopPages.registerProviders(services)
         context.observeRefusals()
@@ -120,8 +133,7 @@ enum AppActions {
         // One owner per action: a second binding silently replaces the first. The check is a test
         // (noActionIsBoundTwice); at runtime a Debug dogfood build must not crash, so only a fault.
         if !registry.duplicateBindings.isEmpty {
-            Logger(subsystem: "com.cmuxterm.app.next", category: "actions")
-                .fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
+            Logger(subsystem: "com.cmuxterm.app.next", category: "actions").fault("actions bound twice: \(registry.duplicateBindings.map(\.rawValue).joined(separator: ", "), privacy: .public)")
         }
     }
 

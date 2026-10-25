@@ -39,6 +39,8 @@ public nonisolated struct DeepLinkExport: Sendable {
 
     /// Example ids that fit each kind's grammar.
     static let exampleHex = "0123456789abcdef0123456789abcdef"
+    /// An example harness session id (a Claude Code session).
+    static let exampleAgentSession = "0f3c2a91-7d4e-4b8a-9c11-2e5f6a7b8c9d"
 
     /// The export as pretty-printed, key-sorted JSON (a trailing newline).
     public func json() -> String {
@@ -48,6 +50,7 @@ public nonisolated struct DeepLinkExport: Sendable {
         }
         let resourceRule = "<prefix> + \(DeepLink.resourceHexDigits) lowercase hex digits [0-9a-f]"
         let tokenRule = "\(DeepLink.tokenLengths.lowerBound) to \(DeepLink.tokenLengths.upperBound) ASCII letters, digits, '-', '_' or '.'"
+        let agentSessionRule = "\(DeepLink.agentSessionLengths.lowerBound) to \(DeepLink.agentSessionLengths.upperBound) ASCII letters, digits, '-', '_', '.', or ':'"
         let kinds: [[String: Any]] = [
             ["kind": "workspace", "id_prefix": "ws_", "id_rule": resourceRule,
              "example": example(.workspace("ws_" + Self.exampleHex))],
@@ -59,9 +62,28 @@ public nonisolated struct DeepLinkExport: Sendable {
              "turn": "optional fragment #\(DeepLink.turnFragmentPrefix)<turnId>; the turn id follows the same rule",
              "example": example(.session("ses-01.example_a", turn: nil)),
              "example_with_turn": example(.session("ses-01.example_a", turn: "turn_7"))],
+            ["kind": "agent", "path": "agent/<harness>/<session>",
+             "id_rule": "harness: an acpmux harness name, \(DeepLink.shortTokenLengths.lowerBound) to "
+                + "\(DeepLink.shortTokenLengths.upperBound) lowercase ASCII letters, digits or '-'; "
+                + "session: the harness's own session id, \(agentSessionRule)",
+             "hints": "optional ?\(DeepLink.hostHintKey)=<machine name>&\(DeepLink.nameHintKey)=<agent name>, for display only: "
+                + "\(DeepLink.shortTokenLengths.lowerBound) to \(DeepLink.shortTokenLengths.upperBound) characters of the session id rule; "
+                + "a malformed hint is dropped",
+             "message": "optional ?\(DeepLink.messageKey)=<harness message id>, the session's own id for one message "
+                + "(\(tokenRule)): the chat scrolls to it and marks it, and leaves the view where it is when its "
+                + "transcript has no such message. A malformed or repeated one is dropped, never the link",
+             "schema": "schemas/deeplinks/agent-link.json states these parameters and their vectors for every emitter "
+                + "and parser (cmux.com/deeplink/agent writes links by it)",
+             "opens": "only a tab this app already shows the session in (the chat tab that adopted it, else the terminal "
+                + "running it); it never starts, resumes or connects to anything",
+             "example": example(.agent(harness: "claude", session: Self.exampleAgentSession)),
+             "example_with_hints": DeepLink(.agent(harness: "claude", session: Self.exampleAgentSession),
+                                            hostHint: "build-mac", nameHint: "Lanternfish").url(scheme: scheme)?.absoluteString ?? "",
+             "example_with_message": DeepLink(.agent(harness: "claude", session: Self.exampleAgentSession),
+                                              message: "msg_01hq9f4c7k").url(scheme: scheme)?.absoluteString ?? ""],
         ]
         let root: [String: Any] = [
-            "description": "cmux-next object links (Copy Workspace/Pane/Tab Link, agent chat sessions), generated from "
+            "description": "cmux-next object links (Copy Workspace/Pane/Tab Link, agent chat sessions, outside agent sessions), generated from "
                 + "CmuxNextActions/DeepLink (DeepLink.url) and CloudConfiguration.callbackScheme. Do not edit: "
                 + "CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter LinkExportTests rewrites it.",
             "shape": "<scheme>://<kind>/<id>[?machine=machine_<\(DeepLink.resourceHexDigits) hex>][#\(DeepLink.turnFragmentPrefix)<turnId>, session only]",

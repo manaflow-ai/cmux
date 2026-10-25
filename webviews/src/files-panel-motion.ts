@@ -1,4 +1,5 @@
 import { isAgentMotionOff } from "./agent-session/shared/motion";
+import { MOTION_MS } from "./motion/scale.generated";
 
 /**
  * The files panel's open and close motion.
@@ -6,18 +7,21 @@ import { isAgentMotionOff } from "./agent-session/shared/motion";
  * The panel is a fixed-width layer pinned to the right edge of #content. A
  * toggle never lays out the diff in its own frame (plans/cmux-next/zero-latency.md,
  * rule g): the panel starts a composited Web Animations slide at once, and the
- * diff column changes width once, when the slide ends (`data-files-hidden`
- * flips then). Only `transform` changes during the slide, so no animation
- * frame lays out, recalculates style for, or paints the diff.
+ * diff column changes width once per slide, two frames after the click
+ * (`data-files-hidden` flips then), so the auto layout and the toolbar change
+ * with it near the click and nothing jumps when the slide ends. Otherwise only
+ * `transform` changes during the slide.
  *
  * Nothing blank shows at any frame:
- * - opening, the diff keeps its full width under the panel until the end;
- * - closing, the diff keeps its narrow width until the end, and the curtain (a
- *   layer pinned where the panel's left edge rests, scaled on the compositor
- *   with the slide) covers the strip the panel uncovers.
+ * - closing, the diff takes its full width under the panel that still covers
+ *   that strip, so the slide uncovers real rows;
+ * - opening, the diff takes its narrow width and the curtain (a layer pinned
+ *   where the panel's left edge rests, scaled on the compositor with the slide)
+ *   fills the strip it gave up until the panel arrives over it.
  *
  * Toggling again mid-way starts from the panel's current on-screen position,
- * so the motion reverses with no jump, and the diff stays at the width it has.
+ * so the motion reverses with no jump, and the diff takes the new resting width
+ * two frames later.
  * The curve is the app's own spring (`appear` to open, `disappear` to close,
  * as for the cmux-next sidebar), sampled from the spring's step response into
  * keyframes, so WebKit runs it in Core Animation at the display rate (120 Hz
@@ -28,22 +32,30 @@ import { isAgentMotionOff } from "./agent-session/shared/motion";
 export type SpringParameters = { response: number; dampingFraction: number };
 
 /**
- * The cmux-next motion springs the webviews use (this panel, the changes tree), at speed "fast"
- * (Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift,
- * cmux-tui/crates/cmux-motion/src/spring.rs; plans/cmux-next/motion.md owns
- * the values): `appear` for sidebar show, `disappear` for sidebar hide.
+ * The cmux-next motion springs the webviews use (this panel, the changes tree, the sync lists), at
+ * speed "fast": MotionTunables.springDefaults (Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/
+ * Motion/MotionTunables.swift), critically damped, so a move is visibly at rest within the motion
+ * scale's standard step (180 ms). `appear` for sidebar show, `disappear` for sidebar hide.
  */
 export const MOTION_SPRINGS = {
-  move: { response: 0.2, dampingFraction: 0.9 },
-  appear: { response: 0.18, dampingFraction: 0.9 },
-  disappear: { response: 0.15, dampingFraction: 0.9 },
+  move: { response: 0.15, dampingFraction: 1 },
+  appear: { response: 0.135, dampingFraction: 1 },
+  disappear: { response: 0.11, dampingFraction: 1 },
 } as const satisfies Record<string, SpringParameters>;
 
 /**
- * The cmux-next fade tokens the webviews use, in ms at speed "fast" (MotionFadeTokens.swift;
- * plans/cmux-next/motion.md). Under Reduce Motion a fade is at most `crossfade` long.
+ * The cmux-next fade tokens the webviews use, in ms at speed "fast" (MotionTunables.fadeDefaults),
+ * on the motion scale (MOTION_MS). Under Reduce Motion a fade is at most `crossfade` long: Swift's
+ * crossfade, the scale's quick step (80 ms), as in design-tokens.json. `highlight` is a settled
+ * row's long fade out (1.2 s), not a transition.
  */
-export const MOTION_FADES = { hover: 80, fadeIn: 120, fadeOut: 80, crossfade: 100, highlight: 1200 } as const;
+export const MOTION_FADES = {
+  hover: MOTION_MS.quick,
+  fadeIn: MOTION_MS.micro,
+  fadeOut: MOTION_MS.quick,
+  crossfade: MOTION_MS.quick,
+  highlight: 1200,
+} as const;
 
 /** Seconds until the spring reaches 95% of its travel (cmux-next `perceivedDuration`, Motion.duration(spring)). */
 export function springPerceivedDuration(spring: SpringParameters): number {
@@ -233,16 +245,46 @@ export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMo
       const timing = { duration: durationMs, easing: "linear", fill: "forwards" } as const;
       const slide = panel.animate(keyframes, timing);
       running = [slide];
-      // The diff is narrow (laid out beside the panel) until the slide ends: the curtain covers
-      // what the panel uncovers. A diff at full width is already under the panel everywhere.
-      const curtain = host.body.dataset.filesHidden === "false" ? host.curtain?.() : null;
-      if (curtain) running.push(curtain.animate(curtainKeyframes(spring, from, target, width), timing));
       const start = host.timelineTime?.() ?? null;
-      if (start != null) for (const animation of running) animation.startTime = start;
+      if (start != null) slide.startTime = start;
+      // A diff laid out beside the panel: the curtain covers what the panel uncovers, in lockstep
+      // with the slide (same keyframes and start time). A diff at full width is already under the
+      // panel everywhere and needs none.
+      const curtain = host.curtain?.() ?? null;
+      const startCurtain = () => {
+        if (!curtain) return null;
+        const animation = curtain.animate(curtainKeyframes(spring, from, target, width), timing);
+        const lockstep = slide.startTime ?? start;
+        if (lockstep != null) animation.startTime = lockstep;
+        running.push(animation);
+        return animation;
+      };
+      const curtainSlide = host.body.dataset.filesHidden === "false" ? startCurtain() : null;
+      if (host.body.dataset.filesHidden !== resting) {
+        // The one reflow, two frames in (the click's own frame and the slide's first frame stay
+        // free of it): the diff takes its new width, and with it its auto layout and the toolbar's
+        // columns, all at once, near the click rather than as a jump when the slide ends.
+        // Closing, the panel still covers the strip the diff grows into, so the slide uncovers real
+        // rows; the curtain's fill is no longer needed. Opening, the curtain now fills the strip
+        // the diff gave up until the panel arrives over it.
+        host.requestFrame(() =>
+          host.requestFrame(() => {
+            // A slide that already ended (finish(), a long task) settled everything itself.
+            if (token !== generation || !running.includes(slide)) return;
+            host.body.dataset.filesHidden = resting;
+            if (next) {
+              startCurtain();
+            } else if (curtainSlide) {
+              curtainSlide.cancel();
+              running = running.filter((animation) => animation !== curtainSlide);
+            }
+          }),
+        );
+      }
       slide.finished.then(
         () => {
           if (token !== generation) return;
-          // The one reflow: the diff takes its new width in the frame the slide ends.
+          // Normally already in place (two frames in); set again for a slide that ended sooner.
           host.body.dataset.filesHidden = resting;
           delete panel.dataset.filesMotion;
           delete panel.dataset.filesMotionTarget;

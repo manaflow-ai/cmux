@@ -30,7 +30,11 @@ pub fn read(family: &str, envs: &[&BTreeMap<String, String>]) -> Choice {
 
 /// `key` from the profile's envs, the daemon's environment or the imported login environment,
 /// else `~/<default>`.
-fn config_dir(key: &str, default: &str, envs: &[&BTreeMap<String, String>]) -> Option<PathBuf> {
+pub(crate) fn config_dir(
+    key: &str,
+    default: &str,
+    envs: &[&BTreeMap<String, String>],
+) -> Option<PathBuf> {
     envs.iter()
         .find_map(|env| env.get(key).filter(|v| !v.is_empty()).cloned())
         .or_else(|| std::env::var(key).ok().filter(|v| !v.is_empty()))

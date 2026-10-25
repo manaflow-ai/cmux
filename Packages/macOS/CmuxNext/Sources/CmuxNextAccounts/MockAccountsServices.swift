@@ -1,9 +1,11 @@
 public import CmuxNextCodeRouter
+public import CmuxNextCloud
 public import Foundation
+public import Observation
 
 /// Sample data for the demo and tests: a signed-in Codex and Claude Code,
 /// one env key, Ollama running, and one CodeRouter account. Records calls.
-@MainActor
+@MainActor @Observable
 public final class MockAccountsServices: AccountsServices {
     public var detections: [ProviderDetection] = [
         ProviderDetection(provider: .codex, status: .signedIn, account: AccountLabel.demo("codex", display: "pro"), plan: "pro",
@@ -20,12 +22,24 @@ public final class MockAccountsServices: AccountsServices {
                       account: AccountLabel.demo("codex", display: "d…@e…"), state: "active"),
     ]
     public var isSignedInToCmux = true
+    @ObservationIgnored private let teamSource = MockTeamSource()
+    @ObservationIgnored private let team: ActiveTeam
+    public var activeTeam: ActiveTeam? { isSignedInToCmux ? team : nil }
+    /// What the next team switch throws, if anything.
+    public var teamFailure: (any Error)? {
+        get { teamSource.failure }
+        set { teamSource.failure = newValue }
+    }
     public var failure: (any Error)?
     /// Fails only the account list (CodeRouter answered the add or remove, then not the reload).
     public var linkedFailure: (any Error)?
+    /// False: no local pane, so a login or logout opens nothing.
+    public var opensTabs = true
     public private(set) var calls: [String] = []
 
-    public init() {}
+    public init() {
+        team = ActiveTeam(source: teamSource)
+    }
 
     public func detect() async -> [ProviderDetection] {
         calls.append("detect")
@@ -77,8 +91,10 @@ public final class MockAccountsServices: AccountsServices {
         linked.removeAll { $0.id == account.id }
     }
 
-    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) {
-        calls.append("reauth:\(provider.rawValue)")
+    @discardableResult
+    public func reauthenticate(_ provider: AIProvider, plan: ReauthPlan) -> Bool {
+        calls.append(plan == provider.signOutPlan ? "signOut:\(provider.rawValue)" : "reauth:\(provider.rawValue)")
+        return opensTabs
     }
 
     public func runClaudeSetupToken() { calls.append("setupToken") }

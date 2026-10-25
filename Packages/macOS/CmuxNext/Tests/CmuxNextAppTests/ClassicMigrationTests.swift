@@ -3,6 +3,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
+@testable import CmuxNextImportCards
+import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 import Foundation
 import Testing
@@ -65,7 +67,7 @@ struct ClassicMigrationTests {
     }
 
     /// The first app launch on `mac`: restore and the launch's migration, then `after`.
-    private func launch(_ mac: Mac, state: String = "state",
+    private func launch(_ mac: Mac, state: String = "state", confirm: Bool = true,
                         after: @MainActor (AppServices) async throws -> Void = { _ in }) async throws -> Tree {
         let binary = try #require(SameTreeDaemonBinary.url)
         let launcher = DaemonLauncher(
@@ -80,6 +82,7 @@ struct ClassicMigrationTests {
         services.onboarding.classicMigrationDirectory = mac.migration
         services.onboarding.classicMigrationAtLaunch = true
         services.onboarding.classicRunning = { false }
+        services.onboarding.classicMigrationConfirmation = { _ in confirm }
         services.onboarding.classicChatPlan = { _, _ in nil }
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
@@ -117,7 +120,7 @@ struct ClassicMigrationTests {
     /// A later launch's run, on the same tree.
     @discardableResult
     private static func relaunch(_ services: AppServices) async throws -> ClassicMigrationOutcome {
-        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic)
+        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in true }
     }
 
     private static func read(_ services: AppServices) -> Tree {
@@ -142,6 +145,14 @@ struct ClassicMigrationTests {
     }
 
     private static let classicNames = ["split api", "pinned one", "second window"]
+
+    @Test func launchMigrationRestoresNothingWhenThePreviewIsCancelled() async throws {
+        let mac = try Mac()
+        let tree = try await launch(mac, confirm: false)
+        #expect(tree.names.allSatisfy { !Self.classicNames.contains($0) }, "\(tree.names)")
+        #expect(!FileManager.default.fileExists(atPath: mac.ledger.path))
+        #expect(!FileManager.default.fileExists(atPath: mac.migration.appendingPathComponent("backups").path))
+    }
 
     /// First launch after the upgrade: every classic window comes back with its
     /// workspaces, groups, colors and pin; the Cloud VM workspace and the
@@ -182,6 +193,51 @@ struct ClassicMigrationTests {
         #expect(classic(tree.names) == classic(first) && classic(first) == Self.classicNames.sorted(), "\(first) then \(tree.names)")
         // The Cloud VM workspace still stays in classic, and the toast still says so.
         #expect(tree.notice?.hasPrefix(ClassicImportStrings.allHere) == true, "\(tree.notice ?? "no toast")")
+    }
+
+    /// What the cmux Classic card's runs reported.
+    @MainActor private final class CardRuns {
+        var progress: [Double] = []
+        var opened: [Int?] = []
+        var statuses: [String?] = []
+    }
+
+    /// The cmux Classic card in Settings › Import runs the action's own import as a tracked job:
+    /// progress that moves with each classic workspace, then "Imported N sessions". Run again,
+    /// the migration ledger opens nothing twice and the card says "Imported 0 sessions".
+    @Test func theClassicCardImportsAsAJobAndASecondRunOpensNothing() async throws {
+        let mac = try Mac()
+        let runs = CardRuns()
+        let tree = try await launch(mac, confirm: false) { services in
+            services.onboarding.classicMigrationConfirmation = { _ in true }
+            let defaults = try #require(UserDefaults(suiteName: "cn-migrate-cards-\(UUID().uuidString)"))
+            let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: mac.root.appendingPathComponent("import-jobs.json"))
+            center.scanThisMac = { _ in [ImportFinding(id: "cmux.classic", kind: .cmuxClassic, name: "cmux Classic", count: 3)] }
+            var host = OnboardingHandlers.importCardsHost(services)
+            let shared = host.importClassic
+            host.importClassic = { report in
+                let opened = try await shared { fraction in
+                    runs.progress.append(fraction)
+                    report(fraction)
+                }
+                runs.opened.append(opened)
+                return opened
+            }
+            center.host = host
+            await withCheckedContinuation { done in center.scan { done.resume() } }
+            for _ in 0..<2 {
+                try center.perform("cmux.classic", .start)
+                await center.settled("cmux.classic")
+                runs.statuses.append(center.list().cards.first { $0.id == "cmux.classic" }?.status)
+            }
+        }
+        let first = try #require(runs.opened.first ?? nil)
+        #expect(first >= 3 && runs.opened.count == 2 && runs.opened.last == 0, "\(runs.opened)")
+        #expect(runs.statuses == ["Imported \(first) sessions", "Imported 0 sessions"], "\(runs.statuses)")
+        // Progress moved up as each workspace was handled, to the whole run.
+        #expect(runs.progress.count >= first && runs.progress == runs.progress.sorted() && runs.progress.last == 1, "\(runs.progress)")
+        let classic = tree.names.filter(Self.classicNames.contains).sorted()
+        #expect(classic == Self.classicNames.sorted(), "\(tree.names)")
     }
 
     /// Downgrade to classic, which makes a workspace in the Backend group and

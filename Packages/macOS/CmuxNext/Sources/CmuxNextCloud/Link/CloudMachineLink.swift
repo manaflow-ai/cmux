@@ -99,14 +99,24 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        try paths.prepare()
+        let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
-        let endpoint = try await api.attachEndpoint(machineID)
+        let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
         try checkGeneration(generation)
         let hubSocket = try await hub.socketPath()
         try checkGeneration(generation)
-        try paths.prepare()
         unlink(paths.linkSocket(machineID: machineID))
+        let inviteFile = endpoint.invitation.map { _ in
+            paths.linkState.appendingPathComponent("invite-\(UUID().uuidString.lowercased())")
+        }
+        if let invitation = endpoint.invitation, let inviteFile {
+            try paths.writeSecret(invitation.uri + "\n", to: inviteFile)
+        }
+        defer {
+            if let inviteFile { try? FileManager.default.removeItem(at: inviteFile) }
+        }
         var arguments = [
             "remote", "connect", endpoint.route,
             "--device-name", deviceName,
@@ -115,7 +125,11 @@ public actor CloudMachineLink {
             "--headless", "--json", "--exit-with-parent", "--lanes", "single",
             "--connect-timeout-seconds", "20",
         ]
-        if endpoint.trustedCarrier { arguments.append("--carrier") }
+        if let inviteFile {
+            arguments += ["--invite-file", inviteFile.path]
+        } else if endpoint.trustedCarrier {
+            arguments.append("--carrier")
+        }
         arguments += ["--wireguard-hub", hubSocket]
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.linkState.path
@@ -124,18 +138,37 @@ public actor CloudMachineLink {
         try child.start()
         self.child = child
         do {
-            let path = try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect") { line in
-                if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
-                return nil
+            let socketTask = Task {
+                try await child.firstLine(within: .seconds(60), label: "cmux-tui remote connect") { line in
+                    if case .connected(let socket) = CloudLinkEvent.parse(line) { return socket }
+                    return nil
+                }
             }
+            defer { socketTask.cancel() }
+            if let invitation = endpoint.invitation {
+                let approval = try await api.approveCmuxRemoteEnrollment(machineID, invitationID: invitation.invitationId)
+                guard approval.approved, approval.state == "approved" || approval.state == "already_enrolled" else {
+                    socketTask.cancel()
+                    throw CloudAPIError.decoding("/api/vm/\(machineID)/cmux-remote/approve")
+                }
+                if let fingerprint = approval.deviceFingerprint, !fingerprint.isEmpty {
+                    try paths.writeSecret(fingerprint + "\n", to: paths.linkDeviceFingerprint(machineID: machineID))
+                }
+            }
+            let path = try await socketTask.value
             try checkGeneration(generation)
-            socket = path
+            self.socket = path
             let redial = redial
             await MainActor.run { redial.isRedialing = false }
             watchSnapshots(child)
             logger.info("link up for \(self.machineID, privacy: .public) pid \(child.pid ?? 0)")
             return path
         } catch {
+            if endpoint.invitation == nil, !endpoint.trustedCarrier, deviceFingerprint != nil {
+                // The local hint may name an enrollment revoked or absent on
+                // this machine. The next retry mints a fresh invitation.
+                paths.clearLinkDeviceFingerprint(machineID: machineID)
+            }
             child.terminate()
             if self.child === child { self.child = nil }
             logger.error("link for \(self.machineID, privacy: .public) failed: \(String(describing: error), privacy: .public)")

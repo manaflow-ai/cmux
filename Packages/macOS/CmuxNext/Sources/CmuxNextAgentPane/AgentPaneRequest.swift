@@ -11,9 +11,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The page lost its daemon and wants a fresh handshake (a restarted
     /// daemon has a new port and token), without starting one.
     case reconnect
+    /// A bounded element report from the debug app-owned webview picker.
+    case uiPointerReport(String)
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
+    /// `chat.missing` with `{session, reason}`: the page says this tab's chat isn't available
+    /// (`notListedAtOpen`, `leftListWhileShown`); the host logs it, so the views can be counted.
+    case missingChat(session: String, reason: String)
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
@@ -29,6 +34,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
+    /// Opens a redeemed durable Run attempt's terminal on its enrolled worker (`run.attach`).
+    case runAttach(AgentPaneRunAttach)
+    /// `run.attach` whose params break its contract or whose endpoint expired; nothing opens.
+    case invalidRunAttach
     /// Shell mode (`!` first in the composer or the new tab field): run
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.
@@ -50,9 +59,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The agent picked on the new tab screen, to remember for the next
     /// new tab (`newTab.remember`).
     case rememberNewTab(AgentPaneRememberedPick)
-    /// The new tab page's style switch (`newTab.setTemplate`): the template to
-    /// save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
+    /// The new tab page's style switch (`newTab.setTemplate`) or edit mode (`newTab.editWidgets`):
+    /// ``AgentPaneNewTabEdit``.
+    case editNewTab(AgentPaneNewTabEdit)
     /// The New Tab page player's control (`nowPlaying.command {command, seconds}`).
     case nowPlaying(AgentPaneNowPlaying.Command)
     /// The new tab page got its first user input (`newTab.touched`); a
@@ -84,6 +93,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case useFolder(String, confirm: Bool)
     /// Choose Folder… for a chat whose folder is missing (`chat.folder.choose`, cx-nn3e.1).
     case chooseChatFolder
+    /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
+    /// after a real gesture, for a chat on this Mac.
+    case chooseAttachments
+    /// `chat.attach.dropped {kind, names}`: where on this Mac the files of the person's last native
+    /// drop or paste are, for a chat on this Mac (``AgentPaneDroppedPaths``). The names are the
+    /// person's files: never logged.
+    case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
@@ -93,8 +109,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChat(String)
     /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
     case openChatInTerminal(String)
+    /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
+    case watchChat(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
+    /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
+    case environment(AgentPaneEnvironmentRequest)
     /// The new-tab omnibar invoked a host-owned action id.
     case appAction(String)
     /// The chat header's tools and "..." menu: run app action `id` (one of
@@ -103,6 +123,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// header/quickActions.ts) closes the split this tab's button opened
     /// when it is still there, else opens one.
     case paneAction(String, cwd: String? = nil, toggle: Bool = false)
+    /// The header's Changes or an edited-files card naming a chat turn (`pane.action {id:
+    /// "openDiffViewer", cwd, mode, turn}`): the diff beside the chat, with that turn as its Last
+    /// turn (``AgentPaneDiffTurn``).
+    case diffTurn(AgentPaneDiffTurn, cwd: String?, toggle: Bool)
     /// The header's Preview (`pane.action {id: "preview", url, mode}`): toggles or opens a browser tab
     /// beside the chat on `url`, the local page its last turn started or mentioned. A loopback
     /// address only; a click that closes the open preview may name none.
@@ -118,8 +142,16 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabRowTools(width: Double)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
-    /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
-    case chatTab(String)
+    /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
+    /// a split, a new workspace or a new window (`placement`; none is a tab).
+    case chatTab(String, AgentForkDestination)
+    /// `chat.offer.open {sessionId, sender?}`: the person opened a session the chat shows (a
+    /// sub-session its agent started, the session that started it, with `sender` the chat that sent
+    /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
+    case offerOpen(String, sender: Bool)
+    /// `chat.asks.open {sessionId}`: Needs you went to another chat's ask: that chat's tab, else a
+    /// new tab beside this chat; never this chat replaced in place (``AgentPaneAskOpen``).
+    case asksOpen(String)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)
@@ -132,8 +164,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
     /// `pane.painted`: the document drew its first frame after the handshake
-    /// (once per document).
-    case painted
+    /// (once per document). `fromKeptTail` is the page's own account of what it
+    /// drew there: a chat it took from a kept tail (tailCache.ts), which is
+    /// already on screen in that frame, or a chat read cold, which the pane's
+    /// loading state fades in. An older page says nothing, which means cold.
+    case painted(fromKeptTail: Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)
@@ -224,6 +259,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case toolCard(card: String, action: String, value: AgentPaneToolCard.Entered?)
     /// `chat.upload {files: [{name, data}]}`: files the person dropped or pasted, for the chat's Cloud machine (``AgentPaneUpload``).
     case upload([AgentPaneUpload])
+    case uploadStage(AgentPaneUploadStageRequest)
     case unsupported(String)
 
     /// Most frames in one `transport.send` (the page sends what one task wrote).
@@ -246,6 +282,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// An upload: the person's files, never logged.
     public var carriesFiles: Bool {
         if case .upload = self { return true }
+        if case .uploadStage = self { return true }
         return false
     }
 

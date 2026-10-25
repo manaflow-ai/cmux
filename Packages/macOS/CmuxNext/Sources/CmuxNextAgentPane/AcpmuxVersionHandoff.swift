@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import CmuxNextWakeups
 import os
 import CmuxNextCompat
 
@@ -70,20 +71,8 @@ nonisolated enum AcpmuxVersionHandoff {
 
     /// The bundled acpmux's build (`<executable> --version`).
     static func bundledBuild(_ environment: AcpmuxEnvironment) async -> String? {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = environment.executable
-            process.arguments = ["--version"]
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            do { try process.run() } catch { return nil }
-            // concurrency-allow: a detached task off the main thread; `--version` prints one line and exits
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            // concurrency-allow: same detached task; the process has closed its output
-            process.waitUntilExit()
-            return build(fromVersion: String(decoding: data, as: UTF8.self))
-        }.value
+        guard let outcome = try? await AsyncProcess().run(ProcessRequest(environment.executable, ["--version"])) else { return nil }
+        return build(fromVersion: outcome.text)
     }
 
     /// Hands the daemon described by `status` off when it runs another build or
@@ -136,7 +125,8 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         }
     }
 
-    public func event(within timeout: Duration) async -> Bool {
+    /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
+    public func event(within timeout: Duration?) async -> Bool {
         let pid = self.pid
         return await withCheckedContinuation { continuation in
             let once = Once()
@@ -148,13 +138,15 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
                 once.deadline.withLock { $0?.cancel() }
                 continuation.resume(returning: exited)
             }
-            // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
-            let timer = Task {
-                // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
-                try? await Task.sleep(for: timeout)
-                if !Task.isCancelled { finish(false) }
+            if let timeout {
+                // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
+                let timer = Task {
+                    // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
+                    try? await Task.sleep(for: timeout)
+                    if !Task.isCancelled { finish(false) }
+                }
+                once.deadline.withLock { $0 = timer }
             }
-            once.deadline.withLock { $0 = timer }
             source.setEventHandler { finish(true) }
             source.resume()
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }

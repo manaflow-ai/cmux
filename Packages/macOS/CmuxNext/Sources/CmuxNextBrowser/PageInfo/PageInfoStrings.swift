@@ -24,7 +24,6 @@ nonisolated enum PageInfoStrings {
     static var identityNotVerified: String { String(localized: "pageInfo.security.identityNotVerified", defaultValue: "The identity of this website isn't verified.", table: "PageInfo", bundle: .module) }
     static var learnMore: String { String(localized: "pageInfo.learnMore", defaultValue: "Learn more", table: "PageInfo", bundle: .module) }
     static var securityHeader: String { String(localized: "pageInfo.security.header", defaultValue: "Security", table: "PageInfo", bundle: .module) }
-    static var showConnectionDetails: String { String(localized: "pageInfo.security.showDetails", defaultValue: "Show connection details", table: "PageInfo", bundle: .module) }
     static var certificateValid: String { String(localized: "pageInfo.certificate.valid", defaultValue: "Certificate is valid", table: "PageInfo", bundle: .module) }
     static var certificateInvalid: String { String(localized: "pageInfo.certificate.invalid", defaultValue: "Certificate is not valid", table: "PageInfo", bundle: .module) }
     static func showCertificateIssuedBy(_ issuer: String) -> String {
@@ -71,19 +70,14 @@ nonisolated enum PageInfoStrings {
     static var resetPermissions: String { String(localized: "pageInfo.reset.many", defaultValue: "Reset permissions", table: "PageInfo", bundle: .module) }
     static var reloadToApply: String { String(localized: "pageInfo.reload.text", defaultValue: "Reload this page to apply your updated settings on this site", table: "PageInfo", bundle: .module) }
     static var reload: String { String(localized: "pageInfo.reload.button", defaultValue: "Reload", table: "PageInfo", bundle: .module) }
-    static func permissionDetailsTooltip(_ name: String) -> String {
-        String(localized: "pageInfo.permission.detailsTooltip", defaultValue: "Show \(name) permission details", table: "PageInfo", bundle: .module)
-    }
     static var manage: String { String(localized: "pageInfo.permission.manage", defaultValue: "Manage", table: "PageInfo", bundle: .module) }
 
     // Cookies
     static var cookiesHeader: String { String(localized: "pageInfo.cookies.header", defaultValue: "Cookies and site data", table: "PageInfo", bundle: .module) }
-    static var cookiesTooltip: String { String(localized: "pageInfo.cookies.tooltip", defaultValue: "Options for cookies and site data", table: "PageInfo", bundle: .module) }
     static var cookiesDescription: String { String(localized: "pageInfo.cookies.description", defaultValue: "Cookies and other site data are used to remember you, for example to sign you in or to personalize ads.", table: "PageInfo", bundle: .module) }
     static var thirdPartyCookies: String { String(localized: "pageInfo.cookies.thirdParty", defaultValue: "Third-party cookies", table: "PageInfo", bundle: .module) }
     static var thirdPartyBlocked: String { String(localized: "pageInfo.cookies.thirdPartyBlocked", defaultValue: "Blocked by this browser engine", table: "PageInfo", bundle: .module) }
     static var manageSiteData: String { String(localized: "pageInfo.cookies.manage", defaultValue: "Manage on-device site data", table: "PageInfo", bundle: .module) }
-    static var manageSiteDataTooltip: String { String(localized: "pageInfo.cookies.manageTooltip", defaultValue: "Review a list of on-device site data in a new window", table: "PageInfo", bundle: .module) }
     static func cookieCount(_ count: Int) -> String {
         String(localized: "pageInfo.cookies.count", defaultValue: "Cookies from this site: \(count)", table: "PageInfo", bundle: .module)
     }
@@ -95,7 +89,6 @@ nonisolated enum PageInfoStrings {
 
     // Rows
     static var siteSettings: String { String(localized: "pageInfo.siteSettings", defaultValue: "Site settings", table: "PageInfo", bundle: .module) }
-    static var siteSettingsTooltip: String { String(localized: "pageInfo.siteSettings.tooltip", defaultValue: "Go to site settings", table: "PageInfo", bundle: .module) }
     static var aboutThisPage: String { String(localized: "pageInfo.about.title", defaultValue: "About this page", table: "PageInfo", bundle: .module) }
     static var aboutThisPageDescription: String { String(localized: "pageInfo.about.description", defaultValue: "Learn about its source and topic", table: "PageInfo", bundle: .module) }
     static var close: String { String(localized: "pageInfo.close", defaultValue: "Close", table: "PageInfo", bundle: .module) }

@@ -234,7 +234,7 @@ impl Node {
         }
         for member in &mut self.members {
             if let Some(output) = &member.output {
-                member.output_json = serde_json::to_vec(output).expect("strings serialize");
+                member.output_json = Value::String(output.clone()).to_string().into_bytes();
                 member.output_json.push(b':');
             }
         }

@@ -421,6 +421,7 @@ impl Brain {
         self.phase = Phase::Running;
         self.stop_wanted = false;
         self.tool_stopped = false;
+        self.denial_stopped = None;
         // A user message or a report replaces the `until: event` wakes.
         self.drop_event_wakes(
             items
@@ -429,37 +430,21 @@ impl Brain {
         );
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // Per-turn ambient state is read before choosing the policy. The whole
-        // Home view is untrusted: terminal/browser titles and URLs are just as
-        // attacker-controlled as terminal screen text. Asking whenever Home is
-        // available also covers a later `chief workspace` refresh in this turn.
         let home = self
             .settings
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        let ambient_requires_approval = self.settings.home_view.is_some();
-        // The strictest origin wins. Paired-device work asks unless the owner
-        // explicitly opted into auto-approval; another participant and
-        // ambient Home text always ask.
-        self.turn_remote = std::mem::take(&mut self.remote_taint)
-            || items.iter().any(|i| {
-                matches!(
-                    i.source,
-                    Source::Message {
-                        remote: Some(_),
-                        ..
-                    } | Source::Resume { remote: true, .. }
-                )
-            });
-        let participant_requires_approval = items.iter().any(Queued::requires_approval);
-        self.turn_ask = participant_requires_approval
-            || ambient_requires_approval
-            || (self.turn_remote && !self.chief.remote_auto_approve);
-        self.clear_turn_approvals();
+        // The Chief never asks (Lawrence, 2026-10-20). The owner's turns, from
+        // this Mac, a paired device or Home, run with the configured policy;
+        // a turn that carries another person's text runs with policy `ask`
+        // and every local effect it asks for is refused at once
+        // (`turn_permission`), with no question to anyone.
+        self.turn_ask = items.iter().any(Queued::requires_approval);
+        self.last_turn_ask = self.turn_ask;
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
-        // The shared rule (cmux_chief::policy::turn_policy, the corpus's
-        // `policy` cases).
         let policy = if self.turn_ask {
             crate::approval::ASK.to_owned()
         } else {
@@ -577,9 +562,19 @@ impl Brain {
             ),
         };
         // The kept session, when this turn has the same session shape and
-        // keeps the frozen view: only what it has not read goes to it.
-        let sig =
-            keep.then(|| keep_sig(&engine, &preset, system_prompt.as_deref(), &view.text, ttl));
+        // keeps the frozen view: only what it has not read goes to it. The
+        // policy is part of the shape: an approve-all session never serves a
+        // turn another person started, and an `ask` one never an owner turn.
+        let sig = keep.then(|| {
+            keep_sig(
+                &engine,
+                &preset,
+                system_prompt.as_deref(),
+                &view.text,
+                ttl,
+                &policy,
+            )
+        });
         let kept = self.kept.take();
         let stale = self
             .state
@@ -814,7 +809,7 @@ impl Brain {
         // its turn is never passed by later ones).
         // Messages never set the interrupt now; only chief.stop does, and a
         // boundary must not clear it.
-        if !self.owner_stopped && !self.tool_stopped {
+        if !self.owner_stopped && !self.tool_stopped && self.denial_stopped.is_none() {
             self.interrupt.clear();
         }
         let side = self.turn_side();
@@ -873,32 +868,13 @@ impl Brain {
         true
     }
 
-    /// A human message arrived during a turn (decision 2026-10-04): the
-    /// model is interrupted at once, even mid-thinking, and a running tool
-    /// call finishes first. The native engine aborts its stream and calls
-    /// the model again with the message; the acpmux engine stops the turn
-    /// (`session/cancel`, sent by the turn's runner once no tool runs, and
-    /// again until the turn ends), and the next fresh turn answers with the
-    /// view of everything the stopped turn did. "thanks" interrupts too.
+    /// A human message arrived during a turn. acpmux: it is steered in at
+    /// once; a steer refused or unread past the deadline stops the turn
+    /// (`steer.rs`, user 2026-10-21). Native: the engine delivers it after
+    /// the next tool results.
     pub(super) fn interrupt_for_newer(&mut self) {
         if self.phase != Phase::Running {
             return;
-        }
-        // Decision 2026-10-09 (interruptions, parity with the reference): a
-        // message never stops a turn, on any engine. acpmux: it is steered
-        // in between tool calls when the session steers, else it waits and
-        // the next turn starts the moment this one ends. Native: the engine
-        // delivers it after the next tool results. Only chief.stop stops.
-        let side = self.turn_side();
-        let human = self
-            .queue
-            .iter()
-            .filter(|q| q.conversation == side)
-            .any(|q| matches!(q.source, Source::Message { .. }));
-        if human {
-            // A pending approval holds the tool call: a newer message denies
-            // it, so the turn reaches its next tool boundary and reads it.
-            self.deny_pending("a newer message");
         }
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.try_steer();
@@ -1152,6 +1128,7 @@ impl Brain {
             return;
         }
         self.cuts = 0;
+        self.steer_due.take_if(|(_, turn)| turn == key);
         let outcome_done = outcome.done_draft.take();
         self.keep_turn_session(key, &mut outcome);
         if self.state.turn.as_ref().is_some_and(|t| t.key == key) {
@@ -1187,7 +1164,10 @@ impl Brain {
         // meant to say went by send, reply or react, so its last text is not
         // posted and the cancel is no failure; unlike an owner stop, the
         // turn still closes its messages.
-        let tool_stopped = std::mem::take(&mut self.tool_stopped);
+        // A turn stopped for asking again for what it was denied ends like
+        // a Chief stop, but says so in one line.
+        let denial_stopped = self.denial_stopped.take();
+        let tool_stopped = std::mem::take(&mut self.tool_stopped) || denial_stopped.is_some();
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
@@ -1226,14 +1206,40 @@ impl Brain {
         // NO_REPLY posts nothing: a Chief that reads every message stays
         // quiet with it (membership), and any Chief ends with it when a
         // reaction or its `reply` calls said it all (brain/replies.rs).
-        let text = if crate::membership::is_no_reply(&text) {
-            (self.log)(&format!(
-                "turn {key} answered {}: nothing posted",
-                crate::membership::NO_REPLY
-            ));
+        let said_no_reply = crate::membership::is_no_reply(&text);
+        let text = if said_no_reply {
+            // Never for a person's message of the Chief conversation: it
+            // stays in the reply ledger, and a retry turn answers it
+            // (reply_ledger.rs, user 2026-10-21).
+            let main = conversation.is_some() && conversation == self.state.conversation;
+            let person = main
+                && self.state.turn.as_ref().is_some_and(|t| {
+                    t.key == key
+                        && t.answers
+                            .iter()
+                            .any(|id| self.state.awaiting.iter().any(|a| &a.id == id))
+                });
+            if person {
+                (self.log)(&format!(
+                    "turn {key} answered {} with a person's message in the batch: refused; a retry turn answers it",
+                    crate::membership::NO_REPLY
+                ));
+            } else {
+                (self.log)(&format!(
+                    "turn {key} answered {}: nothing posted",
+                    crate::membership::NO_REPLY
+                ));
+            }
             String::new()
         } else {
             text
+        };
+        let text = match &denial_stopped {
+            Some((what, why)) if !quiet => {
+                (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
+                format!("I stopped: I kept trying to {what}, and {}.", why.reason())
+            }
+            _ => text,
         };
         if let Some(note) = &failure_note
             && let Err(e) = self.chat.append(Kind::Note, note)
@@ -1242,12 +1248,10 @@ impl Brain {
         }
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
-            // The turn that answers both keeps this one's remote origin.
-            self.remote_taint |= self.turn_remote;
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.clear_turn_approvals();
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
@@ -1310,6 +1314,13 @@ impl Brain {
             }
             thread
         };
+        // The owner stopped the turn: its messages need no reply (the person
+        // asked for the silence; reply_ledger.rs).
+        let not_needed = if owner_stopped {
+            answers.clone()
+        } else {
+            Vec::new()
+        };
         match conversation {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
@@ -1354,10 +1365,17 @@ impl Brain {
             _ => Vec::new(),
         };
         let main = self.turn_side().is_none();
+        // Any other end leaves what no post answered to a retry check.
+        self.reply_not_needed(&not_needed);
         self.state.turn = None;
         self.stop_wanted = false;
         self.save_with(extra);
         self.flush_outbox();
+        self.schedule_reply_checks(if said_no_reply {
+            super::reply_ledger::WHY_NO_REPLY
+        } else {
+            super::reply_ledger::WHY_SILENT
+        });
         // After the reply: a client drops the draft as the message lands.
         if let (Some(done), Some(conversation)) = (outcome_done, &done_conversation) {
             self.publish_draft(conversation, &done);
@@ -1446,6 +1464,7 @@ impl Brain {
         if self.stop_wanted
             || self.owner_stopped
             || self.tool_stopped
+            || self.denial_stopped.is_some()
             || self.cuts >= MAX_CUTS
             || self.state.turn.as_ref().is_none_or(|t| t.key != key)
         {
@@ -1557,12 +1576,17 @@ impl Brain {
                 logged: false,
             });
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.clear_turn_approvals();
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
+        self.denial_stopped = None;
         self.interrupt.set_gate(false);
         self.stop_wanted = false;
         self.save_with(extra);
+        self.schedule_reply_checks(&format!(
+            "the turn was cut ({})",
+            optchat_core::cut_at_bytes(&error, 120)
+        ));
         if main {
             self.set_typing(false);
         }
@@ -1807,6 +1831,7 @@ fn keep_sig(
     system: Option<&str>,
     view: &str,
     ttl: CacheTtl,
+    policy: &str,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -1818,6 +1843,7 @@ fn keep_sig(
         system,
         view,
         ttl.as_str(),
+        policy,
     )
         .hash(&mut h);
     h.finish()

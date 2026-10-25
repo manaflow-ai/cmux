@@ -169,6 +169,31 @@
     "expiredBody": "{machine} and everything on it are fine — only this link's session ended. Reopen the desktop from cmux (right-click the machine, then Open Desktop) to get a fresh one."
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM request delayed",
+      "message": "Cloud VM allocation is temporarily unavailable.",
+      "action": "Wait a minute, then retry with the same idempotency key."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot request needs a retry key",
+      "message": "Cloud VM snapshots require an idempotency key.",
+      "action": "Retry with a stable Idempotency-Key of at most 128 characters."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot still in progress",
+      "message": "A snapshot with this idempotency key is still running for this Cloud VM.",
+      "action": "Wait for the first snapshot to finish, then retry with the same idempotency key."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot retry key already used",
+      "message": "This idempotency key was already used for another snapshot request on this Cloud VM.",
+      "action": "Use a new idempotency key for a snapshot with another name."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot limit reached",
+      "message": "This Cloud VM has reached its snapshot limit.",
+      "action": "Delete an existing snapshot, then retry with the same idempotency key."
+    },
     "guestInstall": {
       "title": "Cloud VM setup did not finish.",
       "reason": "The Cloud VM guest setup did not complete.",
@@ -3674,6 +3699,18 @@
       "chordsRuleSingle": "Use a plain string for a one-step shortcut.",
       "chordsRuleArray": "Use a two-item array for a chord. The first item is the prefix stroke, the second is the key that follows it.",
       "chordsRuleSyntax": "Each item uses the same syntax as regular bindings, for example cmd+b, ctrl+b, shift+/, or ctrl+1.",
+      "presetsTitle": "Base keymap presets",
+      "presetsIntro": "If you are coming from another terminal, choose a base keymap from the Command Palette's Base Keymap… action. You can also run `cmux settings base-keymap --keymap iterm2` (or use cmux, terminal, or tmux).",
+      "presetCmuxLabel": "cmux (Default)",
+      "presetIterm2Label": "iTerm2",
+      "presetTerminalLabel": "Terminal.app",
+      "presetTmuxLabel": "Prefix chords (Ctrl-B)",
+      "presetCmux": "The built-in cmux shortcuts, with no preset overrides.",
+      "presetIterm2": "Uses ⌘1…9 for tabs, ⌥⌘1…9 for workspaces, ⇧⌘C for terminal copy mode, and ⌃⌘ arrow keys for pane resizing.",
+      "presetTerminal": "Uses ⌥⌘W to close other tabs and ⇧⌘I to rename a tab; the Feed action moves to ⌃⇧⌘I.",
+      "presetTmux": "Uses Ctrl-B prefix chords for tabs, workspaces, panes, navigation, zoom, and terminal copy mode.",
+      "presetsApply": "Selecting a preset in the app applies its shortcuts immediately and shows a toast with an Undo action when bindings change. A CLI run applies the preset without an Undo toast.",
+      "presetsPreserve": "Presets change only the shortcuts.bindings entries that some preset sets. Choosing a preset writes its overrides and removes overrides another preset wrote, so switching presets or back to cmux leaves nothing stale. Bindings no preset touches stay as they are, as does a hand-authored value that no preset uses.",
       "searchPlaceholder": "Search shortcuts...",
       "searchLabel": "Search keyboard shortcuts",
       "noResults": "No shortcuts found",
@@ -4253,6 +4290,18 @@
       "tui": "cmux TUI",
       "concepts": "Concepts",
       "base": "Base",
+      "nextSection": "cmux-next",
+      "nextGettingStarted": "Getting started",
+      "nextUpdates": "Install and update",
+      "nextHome": "Home and Chief",
+      "nextAgents": "Agents and subagents",
+      "nextWorkspaces": "Workspaces, panes, tabs",
+      "nextBrowser": "Browser",
+      "nextMarkdown": "Markdown and files",
+      "nextCloud": "Cloud machines",
+      "nextShortcuts": "Keyboard shortcuts",
+      "nextCli": "CLI and MCP reference",
+      "nextSettings": "Settings reference",
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
       "sessionRestore": "Session Restore",

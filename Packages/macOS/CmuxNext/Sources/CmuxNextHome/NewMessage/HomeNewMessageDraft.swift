@@ -111,12 +111,26 @@ public struct HomeNewMessageDraft: Hashable, Sendable {
         return Array(result.prefix(limit))
     }
 
-    /// The Chiefs strip under the To: field (plans/cmux-next/chief-group-chats-DESIGN.md): the
-    /// user's Chiefs not chosen yet, in the contacts' order, at most `limit`. One click on one
-    /// adds it as a token; two Chiefs (or a Chief and a person) make a group.
+    /// The Chiefs listed under the To: field before anything is typed
+    /// (plans/cmux-next/chief-group-chats-DESIGN.md): the user's Chiefs not chosen yet, in the
+    /// contacts' order, at most `limit`. Choosing one adds it as a token.
     public func chiefShortcuts(contacts: [HomeContact], limit: Int = 6) -> [HomeContact] {
         let chosen = Set(recipients)
         return Array(contacts.filter { $0.source == .agent && !chosen.contains(.contact($0)) }.prefix(limit))
+    }
+
+    /// The people listed under the To: field before anything is typed: the Chiefs
+    /// (``chiefShortcuts(contacts:limit:)``), then every team member not chosen yet, in the
+    /// contacts' order (the user, 2026-10-21: everyone on the team is someone to chat to).
+    ///
+    /// - Parameters:
+    ///   - contacts: Everyone New Message offers (``HomeContact/merged(team:connections:agents:)``).
+    ///   - chiefLimit: At most this many Chiefs lead the list.
+    /// - Returns: The Chiefs, then the team members, none already a token.
+    public func idleSuggestions(contacts: [HomeContact], chiefLimit: Int = 6) -> [HomeContact] {
+        let chosen = Set(recipients)
+        let team = contacts.filter { $0.source == .team && !chosen.contains(.contact($0)) }
+        return chiefShortcuts(contacts: contacts, limit: chiefLimit) + team
     }
 
     /// The conversation that already has exactly the chosen people (one

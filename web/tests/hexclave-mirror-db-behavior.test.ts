@@ -249,3 +249,15 @@ dbTest("snapshot writes skip entities the mirror wrote or tombstoned after the s
   expect(await mirror.applySnapshotUser(staleUser, laterSnapshot)).toBe(true);
   expect(await sql`select team_id from hexclave_team_memberships`).toEqual([{ team_id: TEAM_ID }]);
 });
+
+dbTest("a snapshot write cannot clear a pending membership revocation", async () => {
+  const mirror = store();
+  await mirror.reconcileUser(USER_ID, async () => present());
+  await mirror.reconcileUser(USER_ID, async () => present({ teams: [], teamPermissions: [] }));
+  expect(await mirror.isRevocationPending({ teamId: TEAM_ID, userId: USER_ID })).toBe(true);
+
+  const state = present() as Extract<HexclaveUserState, { kind: "present" }>;
+  expect(await mirror.applySnapshotUser(state, new Date(Date.now() + 60_000))).toBe(false);
+  expect(await mirror.isRevocationPending({ teamId: TEAM_ID, userId: USER_ID })).toBe(true);
+  expect(await sql`select count(*)::int as n from hexclave_team_memberships`).toEqual([{ n: 0 }]);
+});

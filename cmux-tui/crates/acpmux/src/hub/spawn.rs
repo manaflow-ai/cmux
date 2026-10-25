@@ -15,8 +15,12 @@ impl Hub {
         meta: &SessionMeta,
         profile: &HarnessProfile,
         session_id: Option<&str>,
+        child: &crate::agent::ChildAgent,
     ) -> Value {
-        let all = crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env);
+        let all =
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        // A fork through this child asks for the same list (`fork.rs`).
+        child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
@@ -44,9 +48,11 @@ impl Hub {
     ) -> Result<Spawn, RpcError> {
         // A fork resumes its parent's conversation: it runs in the parent's folder.
         let forking = session.fork_from.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        let meta = session.meta();
+        let opencode = super::policy_mode::is_opencode(&meta, profile);
         let (profile, preset_digest, account_home) =
-            self.spawn_profile_read(&session.meta(), forking, profile, defaults_env).await?;
-        Ok(Spawn { profile, preset_digest, account_home })
+            self.spawn_profile_read(&meta, forking, profile, defaults_env).await?;
+        Ok(Spawn { profile, preset_digest, account_home, opencode })
     }
 
     /// `spawn_profile` for a session's meta, also before the session exists
@@ -109,6 +115,10 @@ impl Hub {
                 }
             }
         }
+        if meta.remote_origin {
+            let cfg = self.config.read().await;
+            super::resolve::admit_remote_profile(&cfg, &meta.harness, &mut p, defaults_env)?;
+        }
         let home = dirs::home_dir().unwrap_or_default();
         let model = meta.model_request.clone().unwrap_or_default();
         for v in p.env.values_mut() {
@@ -130,6 +140,25 @@ impl Hub {
         // The bound route last: it owns the provider variables (routes.rs).
         let account_home = self.apply_route(meta, forking, profile, &mut p.env).await?;
         p.argv = self.resolved_launcher_argv(p.argv);
+        p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
+        if meta.remote_origin {
+            // Validate every executable after expansion and launcher
+            // substitution. The Codex bridge replaces argv0 with CODEX_PATH
+            // inside `harness_command`, so freeze that final program too.
+            if crate::codex_app_server::is_profile_launch(&p.argv) {
+                if let Some(program) = p.env.get_mut("CODEX_PATH").filter(|p| !p.is_empty()) {
+                    *program = super::resolve::remote_executable(program)?;
+                    super::resolve::refuse_remote_cwd_executable(program, &meta.cwd)?;
+                } else {
+                    super::resolve::fix_remote_executable(&mut p)?;
+                    super::resolve::refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
+                }
+            } else {
+                super::resolve::fix_remote_executable(&mut p)?;
+                super::resolve::refuse_remote_cwd_executable(&p.argv[0], &meta.cwd)?;
+            }
+            p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
+        }
         // After expansion: the path is acpmux's own, never expanded.
         if let Some(file) = prompt_file {
             p.argv.push("--system-prompt-file".into());
@@ -148,8 +177,47 @@ impl Hub {
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {
             p.argv.extend(super::tools::disallowed_args(&meta.tools));
+            // cmux's own servers run behind the cmux server (code mode), so
+            // they leave its fold instead (`agent_tools::OFF_ENV`).
+            let off: Vec<&str> =
+                meta.tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")).collect();
+            p.env.remove(crate::agent_tools::OFF_ENV);
+            if !off.is_empty() {
+                p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
+            }
+        }
+        // OpenCode asked to ask (`opencode_ask.rs`, `policy_mode.rs`), never by a profile's own marker.
+        p.env.remove(crate::opencode_ask::MARKER);
+        let default_policy = self.config.read().await.permission_policy;
+        if super::policy_mode::asks_opencode(meta, profile, default_policy) {
+            p.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
         }
         Ok((p, digest, account_home))
+    }
+
+    /// `spawn` with OpenCode asked to ask as `session`'s policy stands now (`policy_mode.rs`),
+    /// or `None` when it already is: `ensure_child` reads it again under the spawn lock, so a
+    /// narrowing after `spawn_profile` read the policy (`ask_opencode` then finds no agent
+    /// running) still holds for this start.
+    pub(super) async fn opencode_ask_now(&self, session: &Session, spawn: &Spawn) -> Option<Spawn> {
+        let default = self.config.read().await.permission_policy;
+        let asks =
+            spawn.opencode && super::policy_mode::narrow_policy(&session.meta(), default).is_some();
+        if asks == spawn.env.contains_key(crate::opencode_ask::MARKER) {
+            return None;
+        }
+        let mut profile = spawn.profile.clone();
+        if asks {
+            profile.env.insert(crate::opencode_ask::MARKER.to_owned(), "1".to_owned());
+        } else {
+            profile.env.remove(crate::opencode_ask::MARKER);
+        }
+        Some(Spawn {
+            profile,
+            preset_digest: spawn.preset_digest.clone(),
+            account_home: spawn.account_home.clone(),
+            opencode: spawn.opencode,
+        })
     }
 }
 
@@ -160,6 +228,8 @@ pub(super) struct Spawn {
     pub preset_digest: Option<String>,
     /// The account home a new chat starts in (route_account.rs `record`).
     pub account_home: Option<std::path::PathBuf>,
+    /// Whether the harness is OpenCode, from the profile as configured (`policy_mode::is_opencode`).
+    pub opencode: bool,
 }
 
 impl std::ops::Deref for Spawn {

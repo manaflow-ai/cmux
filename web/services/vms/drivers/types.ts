@@ -282,15 +282,11 @@ export type CmuxRemoteEndpoint = {
     remoteProtocol: number | null;
     version: string | null;
   };
-  /**
-   * The daemon's cloud listener grants carrier authentication: the client dials
-   * `remote connect --carrier` with no enrollment and no invitation, because the
-   * route is reachable only inside the owner's private network. False only for
-   * a daemon the provider could not bring to the trusted build, in which case
-   * an already-enrolled device may still dial with its stored key.
-   */
+  /** Compatibility mode: true only while this endpoint still relies on the
+   * private network for carrier authentication. Grant-required endpoints are
+   * false and carry a short-lived invitation below. */
   trustedCarrier: boolean;
-  /** @deprecated Never returned since the trusted listener; kept so older clients decode. */
+  /** A short-lived cryptographic grant for a client not yet admitted. */
   invitation?: {
     /** Single-use `cmux://enroll/...` URI; the client must pass it via `--invite-file`, never argv. */
     uri: string;

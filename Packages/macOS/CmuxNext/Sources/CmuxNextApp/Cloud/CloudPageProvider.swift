@@ -31,12 +31,18 @@ final class CloudPageProvider: PageProvider {
     ///   - op: Runs one Cloud app server op (the app passes ``CloudAppLinks/ops(local:)``; tests a fake).
     ///   - signIn: The app's Cloud sign-in; true when the person signed in.
     ///   - signOut: The app's Cloud sign-out.
-    init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = { false },
-         signOut: @escaping @MainActor () async -> Void = {}) {
+    ///   Both default to named functions, not async closure literals (cx-bsue).
+    init(op: @escaping CloudAppOp, signIn: @escaping @MainActor () async -> Bool = CloudPageProvider.noSignIn,
+         signOut: @escaping @MainActor () async -> Void = CloudPageProvider.noSignOut) {
         self.op = op
         self.signIn = signIn
         self.signOut = signOut
     }
+
+    /// The default sign-in: nobody signs in.
+    static func noSignIn() async -> Bool { false }
+    /// The default sign-out: nothing to end.
+    static func noSignOut() async {}
 
     /// Live watch streams (one per Cloud page that loaded its list).
     var watcherCount: Int { watchers.count }

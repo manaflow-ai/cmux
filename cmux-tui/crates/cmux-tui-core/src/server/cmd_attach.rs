@@ -4,6 +4,7 @@
 //! arm of `handle_command_with_cancellation`.
 
 use super::size_state_for_client;
+use crate::panic_free::RecoverPoison;
 
 use super::AttachWireShape;
 use super::AttachWorkerCommit;
@@ -52,6 +53,10 @@ use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
 
+/// How long a sized terminal attach waits for its hosted PTY's resize before
+/// it builds the replay anyway (then a `resized` replay follows, as before).
+const INITIAL_HOSTED_RESIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
 pub(super) fn detach_client(
     mux: &Arc<Mux>,
     client: u64,
@@ -75,6 +80,7 @@ pub(super) fn detach_client(
         // A relay sub-view leaves alone; its relay stays attached and
         // forwards the notice to that leaf only.
         mux.detach_terminal_sub_view(placement, relay, &view);
+        mux.release_terminal_grid_holds(&[placement]);
         let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
         mux.control_clients.send_surface_event(
             relay,
@@ -135,7 +141,11 @@ pub(super) fn detach_attached_view(
     let lease = match (lease, view) {
         (Some(lease), None) => lease,
         (None, Some(view)) => {
-            return Ok(match mux.detach_terminal_sub_view(surface, client, &view) {
+            let detached = mux.detach_terminal_sub_view(surface, client, &view);
+            // A relay detaches its leaf: no departed-view hold for this
+            // terminal (a relay does not say whether its leaf's link dropped).
+            mux.release_terminal_grid_holds(&[surface]);
+            return Ok(match detached {
                 Some(_) => json!({"outcome": "applied"}),
                 None => json!({"outcome": "superseded"}),
             });
@@ -337,11 +347,12 @@ pub(super) fn attach_surface(
             resize_completion,
         } = mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
         if let Some(reservation) = resize_reservation
-            && let Err(error) = wait_for_initial_browser_resize(
-                resize_completion.as_ref().expect("sized browser attach has a completion receiver"),
-                surface_id,
-                reservation,
-            )
+            && let Err(error) = match resize_completion.as_ref() {
+                Some(completion) => {
+                    wait_for_initial_browser_resize(completion, surface_id, reservation)
+                }
+                None => Err(anyhow::anyhow!("sized browser attach has no completion receiver")),
+            }
         {
             lifecycle.cancel();
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
@@ -406,7 +417,7 @@ pub(super) fn attach_surface(
                         break;
                     }
                 }
-                let update = std::mem::take(&mut *frames.slot.lock().unwrap());
+                let update = std::mem::take(&mut *frames.slot.lock().recover_poison());
                 // A frame event applies its bitmap and authority
                 // atomically. Publish it before a paired state
                 // snapshot can expose the same positive token.
@@ -444,6 +455,15 @@ pub(super) fn attach_surface(
     }
     let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
         mark_client_attached(mux, client, surface_id, outbound_stream.clone(), initial_size)?;
+    if initial_size.is_some() {
+        // A hosted PTY applies the attach's resize when its host answers. Build
+        // the replay after that, so this view gets one replay at the grid it
+        // will show, not one at the old grid followed by a `resized` replay
+        // (cnx-ios termqa D4). A host that keeps another size times out here
+        // and the replay is built at the current grid.
+        surface
+            .settle_hosted_viewer_size(std::time::Instant::now() + INITIAL_HOSTED_RESIZE_TIMEOUT);
+    }
     lifecycle.set_resumes_pending_sequence(
         mux.control_clients.supports_capability(client, TERMINAL_PENDING_SEQUENCE_CAPABILITY),
     );

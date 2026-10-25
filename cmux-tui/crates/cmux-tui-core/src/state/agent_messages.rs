@@ -229,7 +229,8 @@ impl Mux {
     /// acpmux decides each acpmux recipient's outcome, and every answer
     /// commits (a refusal is that recipient's `failed` outcome) whatever
     /// else committed while acpmux answered: acpmux already acted on it.
-    /// The pump hands nothing over meanwhile.
+    /// The pump claims no hand-over and records no outcome meanwhile; one
+    /// already out counts as tried, so acpmux decides it.
     pub(crate) fn agent_message_unsend(
         &self,
         mutation: &WorkspaceMutation,

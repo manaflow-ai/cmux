@@ -1,16 +1,21 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
-/// The people under New Message's To: field as the person types (Messages'
-/// suggestion list): a name and where it comes from (Team, Contact, Chief,
-/// Email, Phone). A click chooses one; the field moves the highlight with
-/// Up and Down and chooses it with Return.
+/// The people under New Message's To: field (Messages' suggestion list):
+/// each row an avatar, the full name and under it what the recipient is
+/// (Team, Contact, Email, Phone; a Chief with where it runs, "Chief · Main ·
+/// Cloud", so two Chiefs with one name tell apart). Before anything is typed
+/// it lists the Chiefs. A click chooses one; the field moves the highlight
+/// with Up and Down and chooses it with Return.
 public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     /// A suggestion was clicked.
     public var onChoose: (HomeRecipient) -> Void = { _ in }
+    /// The avatar and the line under the name the page knows for a recipient.
+    public var look: (HomeRecipient) -> HomeRecipientLook = { _ in HomeRecipientLook() }
     /// The rows shown, best first.
     public private(set) var items: [HomeRecipient] = []
-    /// The highlighted row (Return chooses it); nil when nothing is shown.
+    /// The highlighted row (Return chooses it); nil when nothing is shown or nothing is highlighted yet.
     public private(set) var highlighted: Int?
     /// A line shown instead of rows (the + button with nobody to pick).
     private(set) var emptyText: String?
@@ -18,7 +23,11 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     let table = NSTableView()
     let scroll = NSScrollView()
     let emptyLabel = ThemedLabel(wrappingLabelWithString: "")
-    static let rowHeight: CGFloat = 36
+    /// The list floats over the page: the shared overlay glass, never the solid popup surface
+    /// (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
+    let glass = Glass.makeOverlayPanel(cornerRadius: 10, interactive: false)
+    static let rowHeight: CGFloat = 44
+    static let avatarSize: CGFloat = 28
     static let maxRows = 6
 
     public override init(frame: NSRect) {
@@ -26,7 +35,10 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         wantsLayer = true
         layer?.cornerRadius = 10
         layer?.masksToBounds = true
-        layer?.borderWidth = 0.5
+        glass.translatesAutoresizingMaskIntoConstraints = true
+        glass.autoresizingMask = [.width, .height]
+        glass.frame = bounds
+        addSubview(glass)
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("recipient"))
         table.addTableColumn(column)
         table.headerView = nil
@@ -50,18 +62,20 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
         isHidden = true
+        HomeRecipientAvatarView.forgetPictures()
         applyColors()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    /// Shows `items` with the first highlighted, or `empty` when there are
-    /// none and a line should say why; hidden when both are empty.
-    public func show(_ items: [HomeRecipient], empty: String? = nil) {
+    /// Shows `items` with the first highlighted (with `highlightFirst` off,
+    /// none until Down), or `empty` when there are none and a line should
+    /// say why; hidden when both are empty.
+    public func show(_ items: [HomeRecipient], empty: String? = nil, highlightFirst: Bool = true) {
         self.items = items
         emptyText = items.isEmpty ? empty : nil
-        highlighted = items.isEmpty ? nil : 0
+        highlighted = items.isEmpty || !highlightFirst ? nil : 0
         emptyLabel.stringValue = emptyText ?? ""
         emptyLabel.isHidden = emptyText == nil
         scroll.isHidden = items.isEmpty
@@ -93,8 +107,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     }
 
     @objc func clicked() {
-        let row = table.clickedRow
-        guard items.indices.contains(row) else { return }
+        guard let row = table.clickedRowIfValid, items.indices.contains(row) else { return }
         onChoose(items[row])
     }
 
@@ -106,8 +119,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     }
 
     func applyColors() {
-        layer?.backgroundColor = performWithTheme { Palette.popupSurface.cgColor }
-        layer?.borderColor = performWithTheme { Palette.separator.cgColor }
+        glass.applyTheme()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -123,25 +135,32 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let item = items[row]
+        let shown = self.look(item)
         let cell = NSTableCellView()
+        let avatar = HomeRecipientAvatarView()
+        avatar.show(shown.avatar, name: item.label)
         let name = ThemedLabel(labelWithString: item.label)
         name.font = Typography.body
         name.lineBreakMode = .byTruncatingTail
-        let detail = ThemedLabel(labelWithString: Self.detail(item))
+        let detail = ThemedLabel(labelWithString: ([Self.detail(item)] + [shown.tag].compactMap { $0 }).joined(separator: " \u{00B7} "))
         detail.font = Typography.caption
         detail.ink = .secondary
-        detail.alignment = .right
-        for label in [name, detail] {
-            label.translatesAutoresizingMaskIntoConstraints = false
-            cell.addSubview(label)
+        detail.lineBreakMode = .byTruncatingTail
+        for view in [avatar, name, detail] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(view)
         }
-        detail.setContentCompressionResistancePriority(.required, for: .horizontal)
         NSLayoutConstraint.activate([
-            name.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Metrics.space4),
-            name.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-            detail.leadingAnchor.constraint(greaterThanOrEqualTo: name.trailingAnchor, constant: Metrics.space3),
-            detail.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -Metrics.space4),
-            detail.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            avatar.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: Metrics.space4),
+            avatar.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            avatar.widthAnchor.constraint(equalToConstant: Self.avatarSize),
+            avatar.heightAnchor.constraint(equalToConstant: Self.avatarSize),
+            name.leadingAnchor.constraint(equalTo: avatar.trailingAnchor, constant: Metrics.space3),
+            name.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Metrics.space4),
+            name.bottomAnchor.constraint(equalTo: cell.centerYAnchor, constant: 1),
+            detail.leadingAnchor.constraint(equalTo: name.leadingAnchor),
+            detail.trailingAnchor.constraint(lessThanOrEqualTo: cell.trailingAnchor, constant: -Metrics.space4),
+            detail.topAnchor.constraint(equalTo: cell.centerYAnchor, constant: 1),
         ])
         cell.setAccessibilityLabel("\(item.label), \(detail.stringValue)")
         return cell
@@ -152,7 +171,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         if row >= 0 { highlighted = row }
     }
 
-    /// Where a suggestion comes from, as its row's right-hand label.
+    /// Where a suggestion comes from, as the line under its name (a Chief's tag follows it).
     static func detail(_ item: HomeRecipient) -> String {
         switch item {
         case .address(let address): address.isEmail ? HomeConversationStrings.addressEmail : HomeConversationStrings.addressPhone

@@ -84,11 +84,23 @@ nonisolated enum AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                                SettingChoice(BackdropSelectionSetting.dailyID,
-                                             SettingsText.keyed("settings.choice.shuffleDaily", "Shuffle Daily"))] + backgroundChoices),
+                                             SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings"))] + backgroundChoices),
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
-                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
+                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré", "shuffle", "folder"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.rotationPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture."),
+                summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
+                kind: .choice([SettingChoice("15m", SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
+                               SettingChoice("hourly", SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
+                               SettingChoice("daily", SettingsText.keyed("settings.choice.everyDay", "Every Day"))]),
+                default: .string(BackdropRotation.defaultRotation.rawValue),
+                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
             PaneBackgroundsSetting.descriptor(group: window),
+            ReducedBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
@@ -122,6 +134,15 @@ nonisolated enum AppearanceSettingsSchema {
                 ]),
                 default: nil, defaultLabel: ghostty,
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
+            ),
+            SettingDescriptor(
+                WindowBackgroundSetting.inactiveDimPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help",
+                                        "How much more theme color covers a window while another one is in front. 0 keeps the same look."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction, placeholder: 0)),
+                default: .number(0),
+                keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
             ),
             SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
@@ -197,6 +218,10 @@ nonisolated enum AppearanceSettingsSchema {
                    keywords: ["sidebar", "width", "size", "sidebarWidth"]),
             metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
                    keywords: ["column", "gap", "spacing", "columnGap"]),
+            metric(.dividerThickness, SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]),
+            metric(.dividerHitWidth, SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]),
             metric(.titlebarHeight, SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"), look, densityDefault,
                    keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]),
             SettingDescriptor(
@@ -227,7 +252,7 @@ nonisolated enum AppearanceSettingsSchema {
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",
-                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
@@ -379,11 +404,11 @@ nonisolated enum AppearanceSettingsSchema {
     /// An `appearance.metrics.*` size row: its default is the density's (the compact one is the
     /// placeholder). cmux-next and cmux-browser read it.
     private static func metric(_ metric: LayoutMetricSetting, _ title: SettingText, _ group: SettingText, _ densityDefault: SettingText,
-                               keywords: [String]) -> SettingDescriptor {
+                               consumers: Set<SettingConsumer> = [.cmuxNext, .cmuxBrowser], keywords: [String]) -> SettingDescriptor {
         SettingDescriptor(
             metric.configPath, section: .appearance, group: group, title: title,
             kind: .number(SettingNumber(metric.range, step: 1, unit: .points, placeholder: metric.compact)),
             default: nil, defaultLabel: densityDefault, keywords: keywords
-        ).consumed(by: [.cmuxNext, .cmuxBrowser])
+        ).consumed(by: consumers)
     }
 }

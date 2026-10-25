@@ -236,9 +236,12 @@ impl Mux {
                     },
                 ));
             }
+            let hold_snapshot =
+                sizing.terminal_sizing.get(&runtime).map(Self::terminal_grid_hold_snapshot);
             let (target, applied) =
                 sizing.terminal_sizing.get(&runtime).map_or((requested, None), |entry| {
-                    ((entry.engine.state().cols, entry.engine.state().rows), Some(&entry.applied))
+                    let decided = (entry.engine.state().cols, entry.engine.state().rows);
+                    (self.terminal_grid_target(entry, runtime, decided), Some(&entry.applied))
                 });
             if applied.is_some_and(|applied| applied.get() == Some(target))
                 || requested_geometry == Some(target)
@@ -294,6 +297,11 @@ impl Mux {
                         None => {
                             sizing.report_order.remove(&(id, client));
                         }
+                    }
+                    if let Some(snapshot) = hold_snapshot
+                        && let Some(entry) = sizing.terminal_sizing.get(&runtime)
+                    {
+                        Self::restore_terminal_grid_hold(entry, snapshot);
                     }
                     self.sync_terminal_view_locked(sizing, runtime, id, client);
                     Err(error)
@@ -691,6 +699,7 @@ impl Mux {
                 changed |= entry.engine.detach(&id);
             }
             sizing.note_size_state(runtime, changed);
+            self.refresh_host_policy_locked(&mut sizing, runtime);
             self.apply_terminal_grid(&sizing, runtime);
             let owners_after = sizing.terminal_owner_clients(runtime);
             owner_changes.extend(owners_before.symmetric_difference(&owners_after).copied());

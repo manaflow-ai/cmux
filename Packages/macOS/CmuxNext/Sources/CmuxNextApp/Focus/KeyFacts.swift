@@ -22,6 +22,9 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// The focused React page's id (`cmux.markdown`): context key
     /// `pageId`; the markdown page also sets `markdownFocused`.
     var pageID: String?
+    /// The focused markdown page shows a file it cannot save
+    /// (`markdownReadOnlyFocused`, else `markdownEditorFocused`).
+    var markdownReadOnly = false
     /// A list-like control in the focused page has the keyboard (R85;
     /// the sidebar list and its field imply it without this).
     var listFocus = false
@@ -46,4 +49,14 @@ nonisolated struct KeyFacts: Equatable, Sendable {
     /// A terminal's TextBox composer has the keyboard (`textBoxFocused`): its Shift-Tab cycles the
     /// submit action instead of reaching the terminal.
     var textBoxFocused = false
+    /// The window's sidebar has two or more rows selected (`sidebar.multiSelection` while it has the keyboard).
+    var sidebarMultiSelection = false
+    /// The right sidebar's file explorer list has the keyboard (`fileExplorerFocused`).
+    var fileExplorerFocused = false
+    /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabs`): context key `sidebar.workspacesAsTabs`.
+    var workspacesAsTabs = false
+    /// The focused browser page reports the keys it did not handle (a Chromium tab, through
+    /// `CefKeyboardHandler::OnKeyEvent`): Find and content shortcuts go to it first
+    /// (``KeyRouter/offersToPage(_:focus:facts:)``).
+    var pageReportsUnhandledKeys = false
 }

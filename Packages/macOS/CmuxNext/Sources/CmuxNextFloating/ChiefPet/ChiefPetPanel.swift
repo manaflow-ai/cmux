@@ -1,11 +1,13 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextCompat
 
 /// The Chief pet: a small pixel character over a glass rail, floating over every app and every
 /// Space as the references draw it (`cmux-design-references` chief-water-reference: the pet,
 /// then the rail under it). It never activates cmux and never takes the keys; a drag anywhere
 /// but a tool moves it (the spot is kept per screen, `ChiefPetPlacement`), and a click on the
-/// character or the rail's compose runs `onClick`.
+/// character or the rail's compose runs `onClick`. A right-click (or Control-click) offers
+/// Chief Pet Settings… and Hide Chief Pet (`contextMenu()`).
 public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public static let accessibilityID = "cmux.chiefPet"
     /// The character's box and the panel's: the reference's pet is 60 x 80 pt over a 40 pt rail,
@@ -19,6 +21,12 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     public var onClick: (() -> Void)?
     /// The rail's chevron.
     public var onExpand: (() -> Void)?
+    /// The right-click menu's Chief Pet Settings… item.
+    public var onSettings: (() -> Void)?
+    /// The right-click menu's Hide Chief Pet item.
+    public var onHide: (() -> Void)?
+    /// Whether Hide Chief Pet can run now (false while `home.chiefPetEnabled` is managed).
+    public var hideAllowed: (() -> Bool)?
     let placement: ChiefPetPlacement
     let pet: ChiefPetView
     private var expandTool: ChiefPetTool?
@@ -27,7 +35,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
     /// The pet was pulled back on its screen after a screen change (the bubble and reply box take their side again).
     var onKeptOnScreen: (() -> Void)?
     /// The didChangeScreenParameters observer's token, kept for the panel's life.
-    private var screenObserver: (any NSObjectProtocol)?
+    private var screenObserver: MainActorObservation?
 
     /// `notifications`: where screen-parameter changes are posted (AppKit posts to `.default`); tests give their own.
     public init(mascot: ChiefPetMascot = .initial, defaults: UserDefaults = .standard, notifications: NotificationCenter = .default) {
@@ -47,6 +55,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         isFloatingPanel = true
         level = .floating
         hidesOnDeactivate = false
+        // Not hidden with cmux (⌘H, Hide Others): Message the Chief from Any App orders it in without unhiding the app.
+        canHide = false
         // Agent output and replies stay out of screen shares and recordings.
         sharingType = .none
         becomesKeyOnlyIfNeeded = true
@@ -60,16 +70,35 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.rail.addTool(.actionEdit, label: ChiefPetStrings.compose) { [weak self] in self?.onClick?() }
         expandTool = pet.rail.addTool(.disclosureCollapsed, label: ChiefPetStrings.expand, turned: 90) { [weak self] in self?.onExpand?() }
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
+        pet.contextMenu = { [weak self] in self?.contextMenu() }
         contentView = pet
         delegate = self
         visibleFrame = { [weak self] in self?.screen?.visibleFrame }
         // A resolution change, or the Dock or menu bar resizing, keeps the screen, so AppKit sends no
         // didChangeScreen; the visible frame still changes under the pet.
-        screenObserver = notifications.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
-                                                   object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.keepOnScreen() } // main-proof: observer on queue: .main
+        screenObserver = MainActorObservation(NSApplication.didChangeScreenParametersNotification, center: notifications) { [weak self] in
+            self?.keepOnScreen()
         }
     }
+
+    /// The pet's right-click menu: its settings (the Chief Settings popover, or Settings), and
+    /// Hide Chief Pet, which turns `home.chiefPetEnabled` off as the settings' switch does.
+    func contextMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let settings = NSMenuItem(title: ChiefPetStrings.settings, action: #selector(openSettings), keyEquivalent: "")
+        let hide = NSMenuItem(title: ChiefPetStrings.hide, action: #selector(hidePet), keyEquivalent: "")
+        for item in [settings, hide] {
+            item.target = self
+            menu.addItem(item)
+        }
+        hide.isEnabled = hideAllowed?() ?? true
+        return menu
+    }
+
+    @objc private func openSettings() { onSettings?() }
+
+    @objc private func hidePet() { onHide?() }
 
     /// The chevron points down while the notices are unfolded.
     func setExpanded(_ expanded: Bool) {
@@ -131,6 +160,8 @@ final class ChiefPetView: NSView {
     /// After each step of a drag, with the panel already moved (the notices follow it live).
     var onDragMoved: (() -> Void)?
     var onDragEnded: (() -> Void)?
+    /// The right-click menu (the panel's `contextMenu()`).
+    var contextMenu: (() -> NSMenu?)?
     /// The pointer in screen points; tests drive their own.
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     let rail = ChiefPetRail()
@@ -161,7 +192,7 @@ final class ChiefPetView: NSView {
         character.setAccessibilityRole(.button)
         character.setAccessibilityLabel(ChiefPetStrings.accessibilityLabel)
         character.onPress = { [weak self] in self?.onClick?() }
-        toolTip = ChiefPetStrings.accessibilityLabel
+        themedToolTip = ChiefPetStrings.accessibilityLabel
     }
 
     @available(*, unavailable)
@@ -200,7 +231,15 @@ final class ChiefPetView: NSView {
         return self
     }
 
+    /// A right-click on the pet opens its menu (AppKit asks here on a right mouse down).
+    override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() }
+
     override func mouseDown(with event: NSEvent) {
+        // Control-click is a right-click: the menu, never a drag or the reply box.
+        if event.modifierFlags.contains(.control), let menu = menu(for: event) {
+            press = nil
+            return NSMenu.popUpContextMenu(menu, with: event, for: self)
+        }
         let local = convert(event.locationInWindow, from: nil)
         press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false

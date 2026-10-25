@@ -17,9 +17,11 @@ private final class SplitPageKey {
 /// and then moves it to a new split on `edge`, the way a new chat reaches its dock (NewChatPlacement.dock).
 extension NewTabPage {
     /// Whether a person's split of `pane` opens the New Tab page: its selected tab is a browser
-    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal.
+    /// tab, the New Tab page or an agent chat. Terminal splits keep the terminal, and so does every
+    /// split with `tabs.terminalFirst` on (#23021).
     static func splitsToPage(_ pane: PaneController?, direction: PaneDirection, byPerson: Bool) -> Bool {
-        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey else { return false }
+        guard byPerson, direction == .right || direction == .down, let pane, let key = pane.currentTabKey,
+              !NewTabKind.terminalFirst(pane.services) else { return false }
         return NewTabKind.of(key, tab: pane.selectedTab, services: pane.services) != .terminal
     }
 
@@ -51,13 +53,18 @@ extension NewTabPage {
             guard target == .here else { return jump(target, id) }
             if let services, let key = opened.value { Self.moveHere(id, page: key, services: services) }
         }
-        let split: SplitDirection? = !source.daemon.supports(DaemonCapabilities.shared.conversationTabSplit) ? nil
+        let split: SplitDirection? = !source.daemon.supports(DaemonCapability.conversationTabSplit.rawValue) ? nil
             : edge == .right ? .right : edge == .bottom ? .down : nil
         // Even split sizing, as a terminal split (PaneHandlers.split), once the store's pane is placed.
         let sizing = split.flatMap { source.workspace?.layoutModel.splitSizingChanges(splitting: source.layoutPaneID, axis: $0 == .right ? .horizontal : .vertical) } ?? []
         // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
         let layoutModel = source.workspace?.layoutModel
         let shownSizing = split == nil ? nil : layoutModel?.showSplitSizing(sizing)
+        // A refused or cancelled page: the split's sizing goes, and the held keys go now, not at the hold's own limit.
+        let release = { [weak input] in
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
+            input?.endIncoming(keys, pageMade: false)
+        }
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
                                                  focuses: focusesPage) { [weak source] key in
             opened.value = key
@@ -66,13 +73,8 @@ extension NewTabPage {
             if let shownSizing { layoutModel?.commitSplitSizing(shownSizing) }
             if swapsBack { source.daemon.send("swap-pane") { [handle = source.pane.handle] in try await $0.swapPane(handle, with: .direction(split == .right ? .right : .down)) } }
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
-        } failed: {
-            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
-        }
-        if !started {
-            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
-            input.endIncoming(keys, pageMade: false)
-        }
+        } failed: { release() }
+        if !started { release() }
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
@@ -85,7 +86,9 @@ const github = {
       // Git trees: each commit's tree is its first parent's tree plus its own
       // files (blob = the commit that wrote it), unless the scenario gives an
       // explicit tree (a merge that resolves a conflict).
-      getCommit: async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: `T|${commit_sha}|` } } }),
+      // A train commit's message and parents (readTrainCommit()) come from
+      // scenario.gitCommits; any other commit has neither, so it is no train.
+      getCommit: async ({ commit_sha }) => ({ data: { sha: commit_sha, tree: { sha: `T|${commit_sha}|` }, ...((scenario.gitCommits || {})[commit_sha] || {}) } }),
       getTree: async ({ tree_sha, recursive }) => {
         const [, commitSha, dir] = tree_sha.split('|');
         calls.trees += 1;
@@ -196,6 +199,11 @@ const decision = scenario.newest
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
       surfaceText: scenario.surface, sleep: async () => {},
+      // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
+      verifyTrain: scenario.trainVerify === undefined ? null : async () => {
+        if (scenario.trainVerify === 'throw') throw new Error('merge-tree crashed');
+        return scenario.trainVerify;
+      },
     });
 const approvers = await guard.approvedBy({ github, owner: 'manaflow-ai', repo: 'cmux', runId: 1 });
 let policy = { require_non_lander_approver: true };
@@ -279,18 +287,27 @@ def run(case: dict) -> dict:
     return json.loads(result.stdout)
 
 
-LANDER_RULE_ON = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver on")
+def policy_surface(value: str) -> str:
+    return re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                  f"@require_non_lander_approver {value}", SURFACE)
+
+
+LANDER_RULE_ON = policy_surface("on")
+LANDER_RULE_OFF = policy_surface("off")
 
 
 def surface_change(lander_rule: bool = True) -> dict:
     case = scenario(rangeFiles=[{"filename": ".github/workflows/nightly.yml"}],
-                    surface=LANDER_RULE_ON if lander_rule else SURFACE)
+                    surface=LANDER_RULE_ON if lander_rule else LANDER_RULE_OFF)
     case["commits"][0]["files"] = [{"filename": ".github/workflows/nightly.yml"}]
     return case
 
 
-def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
-    assert "@require_non_lander_approver off" in SURFACE
+def test_lander_rule_ships_on() -> None:
+    assert "@require_non_lander_approver on" in SURFACE.splitlines()
+
+
+def test_with_lander_rule_off_a_lander_may_approve() -> None:
     case = surface_change(lander_rule=False)
     case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
                           "environments": [{"name": "release-surface-ack"}]}]
@@ -301,7 +318,8 @@ def test_lander_rule_ships_off_and_a_lander_may_approve() -> None:
 
 def test_an_unknown_policy_line_refuses_the_promotion() -> None:
     case = surface_change()
-    case["surface"] = SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver ON")
+    case["surface"] = re.sub(r"(?m)^@require_non_lander_approver (?:on|off)$",
+                             "@require_non_lander_approver ON", SURFACE)
     out = run(case)
     assert out["decision"]["action"] == "refuse"
     assert "unknown policy line" in out["decision"]["reason"]
@@ -341,6 +359,53 @@ def test_same_named_job_in_another_workflow_does_not_admit() -> None:
     assert out["decision"]["action"] == "refuse"
 
 
+def test_tip_without_release_compile_promotes_newest_earlier_green_commit() -> None:
+    # The tip SHA has no exact green Release job, but its immediate parent does.
+    # Promotion should use that parent while retaining the exact-job safety gate.
+    case = scenario(
+        runs=[gate_run(id=8, head_sha=MID)],
+        jobs={"8": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == MID, out
+    assert any("newest green source commit" in note for note in out["notices"]), out["notices"]
+
+
+def test_fallback_ranks_green_commits_by_ancestry_not_run_time() -> None:
+    older, newer, tip = "e" * 40, "d" * 40, "f" * 40
+    commits = [
+        {"sha": tip, "parents": [{"sha": newer}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": newer, "parents": [{"sha": older}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": older, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(
+        sha=tip, sourceHead=tip, onSource={tip: "identical"}, commits=commits,
+        runs=[gate_run(id=8, head_sha=older, created_at="2026-10-24T01:00:00Z"), gate_run(id=9, head_sha=newer, created_at="2026-10-24T00:59:00Z")],
+        jobs={"8": GREEN, "9": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == newer, out
+
+
+def test_fallback_never_promotes_a_descendant_of_an_older_requested_sha() -> None:
+    requested, later = "d" * 40, "e" * 40
+    commits = [
+        {"sha": later, "parents": [{"sha": requested}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": requested, "parents": [{"sha": CURRENT}], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+        {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
+    ]
+    case = scenario(
+        sha=requested, sourceHead=later, onSource={requested: "ahead"}, commits=commits,
+        runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN},
+    )
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out
+    assert "no earlier green source commit" in out["decision"]["reason"], out
+
+
 def test_admission_retries_while_the_index_lags() -> None:
     out = run(scenario(emptyRuns=2))
     assert out["decision"]["action"] == "promote"
@@ -360,6 +425,16 @@ def test_surface_change_needs_a_non_lander_approval() -> None:
     assert decision["surfaceFiles"] == [".github/workflows/nightly.yml"]
     assert decision["landers"] == ["teamleaderleo"]
     assert not out["ack"]["ok"]  # nobody approved yet
+
+
+def test_first_promotion_refuses_when_commit_authors_cannot_be_bounded() -> None:
+    case = surface_change()
+    case["current"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "teamleaderleo"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "does not exist" in out["decision"]["reason"]
 
 
 def test_lander_cannot_approve_their_own_surface_change() -> None:
@@ -403,6 +478,16 @@ def test_unknown_push_actor_fails_closed() -> None:
     out = run(case)
     assert out["decision"]["action"] == "refuse"
     assert "push actor" in out["decision"]["reason"]
+
+
+def test_unknown_surface_commit_author_fails_closed() -> None:
+    case = surface_change()
+    case["commits"][0]["author"] = None
+    case["approvals"] = [{"state": "approved", "user": {"login": "austinywang"},
+                          "environments": [{"name": "release-surface-ack"}]}]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "author" in out["decision"]["reason"]
 
 
 def test_activity_pages_are_followed_and_one_push_covers_its_commits() -> None:
@@ -824,7 +909,12 @@ def test_the_request_title_names_its_commit() -> None:
 
     data = yaml.safe_load(WORKFLOW)
     # guard.evictedPromotions() parses this title (REQUEST_TITLE).
-    assert data["run-name"] == "${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha) || '' }}"
+    # A promotion request is named first; a scheduled run names its schedule (#24647).
+    assert " ".join(data["run-name"].split()) == (
+        "${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)"
+        " || github.event_name == 'schedule' && format('Nightly macOS build · {0}', github.event.schedule)"
+        " || '' }}"
+    )
     assert data["jobs"]["promote-nightly-next"]["permissions"]["checks"] == "read"
 
 
@@ -839,14 +929,15 @@ def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "guard.decideNewest({" in WORKFLOW
 
 
-def test_only_the_wait_for_the_approval_is_cancellable() -> None:
+def test_no_promotion_job_cancels_a_started_one() -> None:
     import yaml
 
     jobs = yaml.safe_load(WORKFLOW)["jobs"]
     wait, move, decide_job = jobs["await-release-surface-ack"], jobs["promote-nightly-next-acked"], jobs["promote-nightly-next"]
-    # The waiter: one shared cancel-in-progress group (a per-run group when the
-    # scan failed), the approval environment only for needs-ack, no secrets.
-    assert wait["concurrency"]["cancel-in-progress"] is True
+    # The waiter: one shared group (a per-run group when the scan failed) that
+    # never cancels a started promotion (#24647), the approval environment only
+    # for needs-ack, no secrets.
+    assert wait["concurrency"]["cancel-in-progress"] is False
     assert wait["concurrency"]["group"].startswith("nightly-next-promote-ack${{")
     assert "scan_failed == 'true' && format('-wait-{0}', github.run_id)" in wait["concurrency"]["group"]
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
@@ -860,6 +951,134 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert move["needs"] == ["promote-nightly-next", "await-release-surface-ack"]
     assert move["environment"] == "nightly-next-promote"
     assert "requireNonLander: policy.require_non_lander_approver" in WORKFLOW
+
+
+def test_workflow_executes_the_release_surface_approval_gate() -> None:
+    import yaml
+
+    jobs = yaml.safe_load(WORKFLOW)["jobs"]
+    decide = jobs["promote-nightly-next"]
+    steps = {step["name"]: step for step in decide["steps"]}
+    direct = "steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'"
+    assert steps["Mint release App token"]["if"] == direct
+    assert steps["Move nightly-next"]["if"] == direct
+
+    wait = jobs["await-release-surface-ack"]
+    assert wait["if"] == (
+        "(needs.promote-nightly-next.outputs.action == 'needs-ack' || "
+        "needs.promote-nightly-next.outputs.action == 'promote') && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
+    acknowledged = jobs["promote-nightly-next-acked"]
+    assert acknowledged["if"] == (
+        "needs.await-release-surface-ack.result == 'success' && "
+        "needs.promote-nightly-next.outputs.action == 'needs-ack' && "
+        "needs.promote-nightly-next.outputs.dry_run != 'true'"
+    )
+
+
+# ------------------------------------------------------------ train commits (G1'/G2')
+
+TRAIN = "e" * 40
+TRAIN_GATE = [{"name": "nightly-next train Release compile", "status": "completed", "conclusion": "success"}]
+
+
+def train_run(**overrides) -> dict:
+    run = {
+        "id": 9, "head_sha": TRAIN, "head_branch": "nightly-train/123/1", "event": "workflow_dispatch",
+        "path": ".github/workflows/nightly-next-train.yml", "head_repository": {"full_name": "manaflow-ai/cmux"},
+    }
+    run.update(overrides)
+    return run
+
+
+def train_case(**overrides) -> dict:
+    """TRAIN = nightly-next train commit: parents CURRENT (nightly-next) and
+    SHA (a feat-cmux-next commit), trailer `Nightly-Train: v1`."""
+    case = scenario(sha=TRAIN, runs=[train_run()], jobs={"9": TRAIN_GATE},
+                    trainVerify={"ok": True, "reason": "tree is the tip minus 0 revert(s)"})
+    case["commits"].insert(0, {"sha": TRAIN, "parents": [{"sha": CURRENT}, {"sha": SHA}],
+                               "author": {"login": "github-actions[bot]"}, "committer": {"login": "github-actions[bot]"},
+                               "files": []})
+    case["gitCommits"] = {TRAIN: {"message": "nightly-next train: x\n\nNightly-Train: v1\n",
+                                  "parents": [{"sha": CURRENT}, {"sha": SHA}]}}
+    case.update(overrides)
+    case["jobs"] = {str(k): v for k, v in case["jobs"].items()}
+    return case
+
+
+def test_a_verified_green_train_commit_promotes() -> None:
+    decision = run(train_case())["decision"]
+    assert decision["action"] == "promote", decision
+
+
+def test_a_train_commit_without_a_tree_verifier_is_refused() -> None:
+    case = train_case()
+    del case["trainVerify"]
+    decision = run(case)["decision"]
+    assert decision["action"] == "refuse" and "no train tree verifier" in decision["reason"], decision
+
+
+def test_a_train_commit_whose_tree_is_not_its_reverts_is_refused() -> None:
+    decision = run(train_case(trainVerify={"ok": False, "reason": "the tree is not the tip minus its reverts"}))["decision"]
+    assert decision["action"] == "refuse" and "minus its reverts" in decision["reason"], decision
+
+
+def test_a_crashed_tree_check_is_refused() -> None:
+    decision = run(train_case(trainVerify="throw"))["decision"]
+    assert decision["action"] == "refuse" and "failed to run" in decision["reason"], decision
+
+
+def test_a_train_commit_needs_its_own_train_gate_run() -> None:
+    # The cmux-next.yml push run of its second parent is not the train's gate.
+    decision = run(train_case(runs=[gate_run(head_sha=TRAIN)], jobs={"7": GREEN}))["decision"]
+    assert decision["action"] == "refuse" and "nightly-next-train.yml" in decision["reason"], decision
+    decision = run(train_case(runs=[train_run(head_branch="feat-cmux-next")]))["decision"]
+    assert decision["action"] == "refuse", decision
+    decision = run(train_case(jobs={"9": [{**TRAIN_GATE[0], "conclusion": "failure"}]}))["decision"]
+    assert decision["action"] == "refuse", decision
+
+
+def test_a_train_commit_on_an_old_nightly_head_is_refused() -> None:
+    case = train_case()
+    case["gitCommits"][TRAIN]["parents"] = [{"sha": MID}, {"sha": SHA}]
+    decision = run(case)["decision"]
+    assert decision["action"] == "refuse" and "was made on" in decision["reason"], decision
+
+
+def test_a_train_commit_whose_tip_is_not_on_the_source_is_refused() -> None:
+    # SHA is not reachable from the feat-cmux-next head MID ("behind").
+    decision = run(train_case(sourceHead=MID))["decision"]
+    assert decision["action"] == "refuse" and "second parent" in decision["reason"], decision
+
+
+def test_a_plain_commit_still_takes_g1_and_g2() -> None:
+    # No trailer: the train path is not taken even with a verifier present.
+    case = scenario(trainVerify={"ok": True, "reason": "unused"})
+    assert run(case)["decision"]["action"] == "promote"
+
+
+def test_the_train_verifier_reads_the_script_verdict() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const answer = (status, stdout, stderr = '') => () => ({ status, stdout, stderr });
+const ok = await guard.trainVerifier('x.py', { spawn: answer(0, 'log\n{"ok": true, "reason": "fine"}\n') })('a'.repeat(40));
+const bad = await guard.trainVerifier('x.py', { spawn: answer(1, '{"ok": false, "reason": "differs"}') })('a'.repeat(40));
+let crashed = null;
+try { await guard.trainVerifier('x.py', { spawn: answer(1, '', 'Traceback') })('a'.repeat(40)); } catch (e) { crashed = e.message; }
+console.log(JSON.stringify({ ok, bad, crashed }));
+"""
+    out = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT, capture_output=True, text=True,
+                         env={**os.environ, "GUARD": str(GUARD)}, check=True)
+    result = json.loads(out.stdout)
+    assert result["ok"] == {"ok": True, "reason": "fine"}
+    assert result["bad"] == {"ok": False, "reason": "differs"}
+    assert result["crashed"] and "Traceback" in result["crashed"]
+
+
+def test_both_promote_decisions_pass_the_train_verifier() -> None:
+    assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
+    assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
 
 
 def main() -> None:

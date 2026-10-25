@@ -7,10 +7,27 @@ import { STATUS_GLYPHS, STATUS_GLYPH_SETS, type StatusGlyphName } from "./status
 /** One row of a sheet: a state, the glyph it draws and the color it is tinted with. */
 type Row = { state: string; note: string; name: StatusGlyphName; tint: string };
 
-const SETS: Record<"static" | "codex", Row[]> = {
-  static: (Object.keys(STATUS_GLYPHS) as StatusGlyphName[])
-    .filter((name) => STATUS_GLYPHS[name].set === "static")
-    .map((name) => ({ state: name, note: STATUS_GLYPHS[name].for, name, tint: STATUS_GLYPHS[name].tint })),
+type SetName = "static" | "codex" | "dots" | "pictograms";
+
+/** A set that draws every state with its own glyph, idle first (the Static set and its hq#1957
+ * competitors, Dots and Pictograms): each row is named for the Static state it stands in for. */
+const ownGlyphs = (set: "static" | "dots" | "pictograms"): Row[] => {
+  const names = (Object.keys(STATUS_GLYPHS) as StatusGlyphName[]).filter((name) => STATUS_GLYPHS[name].set === set);
+  const states = (Object.keys(STATUS_GLYPHS) as StatusGlyphName[]).filter(
+    (name) => STATUS_GLYPHS[name].set === "static",
+  );
+  return names.map((name, index) => ({
+    state: states[index]!,
+    note: STATUS_GLYPHS[name].for,
+    name,
+    tint: STATUS_GLYPHS[name].tint,
+  }));
+};
+
+const SETS: Record<SetName, Row[]> = {
+  static: ownGlyphs("static"),
+  dots: ownGlyphs("dots"),
+  pictograms: ownGlyphs("pictograms"),
   codex: Object.entries(STATUS_GLYPH_SETS.codex).map(([state, pick]) => ({
     state,
     note:
@@ -50,13 +67,7 @@ function Pixels({ row, pixels, zoom }: { row: Row; pixels: 10 | 20; zoom: number
   );
 }
 
-function StatusGlyphSheet({
-  onWallpaper = false,
-  set = "static",
-}: {
-  onWallpaper?: boolean;
-  set?: "static" | "codex";
-}) {
+function StatusGlyphSheet({ onWallpaper = false, set = "static" }: { onWallpaper?: boolean; set?: SetName }) {
   return (
     <div className="status-glyphs-stage" style={onWallpaper ? { backgroundImage: wallpaper } : undefined}>
       <table className="status-glyphs-sheet" data-set={set}>
@@ -99,7 +110,7 @@ function StatusGlyphSheet({
   );
 }
 
-export default componentEntry<{ onWallpaper?: boolean; set?: "static" | "codex" }>({
+export default componentEntry<{ onWallpaper?: boolean; set?: SetName }>({
   id: "ui.status-glyphs",
   title: "Static status glyphs",
   area: "UI primitives",
@@ -123,6 +134,22 @@ export default componentEntry<{ onWallpaper?: boolean; set?: "static" | "codex" 
     "codex-wallpaper": {
       note: "The Codex-like set on a wallpaper.",
       props: { set: "codex", onWallpaper: true },
+    },
+    dots: {
+      note: "The Dots set (hq#1957 status glyph thunderdome, Debug only): one small dot per state, hollow while nothing needs you, solid with a bar, check or x cut out when something does. Same theme colors as the Static set.",
+      props: { set: "dots" },
+    },
+    "dots-wallpaper": {
+      note: "The Dots set on a wallpaper.",
+      props: { set: "dots", onWallpaper: true },
+    },
+    pictograms: {
+      note: "The Pictograms set (hq#1957 status glyph thunderdome, Debug only): a moon, an hourglass, a chat bubble, a padlock, a check and a warning triangle. Same theme colors as the Static set.",
+      props: { set: "pictograms" },
+    },
+    "pictograms-wallpaper": {
+      note: "The Pictograms set on a wallpaper.",
+      props: { set: "pictograms", onWallpaper: true },
     },
   },
 });

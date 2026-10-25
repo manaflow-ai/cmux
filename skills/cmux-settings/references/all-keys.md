@@ -90,6 +90,8 @@ Terminal presentation settings from Settings > Terminal.
 | `terminal.textBoxSubmitActions` | array<object> | `[]` | Configurable TextBox submit actions shown on the submit button, Shift-Tab cycle, and right-click menu. |
 | `terminal.resumeCommands` | array<object> | `[]` | Signed command-prefix approvals for restoring non-agent terminal surfaces. cmux writes this list when you approve a surface resume command. |
 | `terminal.uploadCommands` | array<object> | `[]` | Host-scoped rules that replace the built-in scp for terminal file drops and pastes over SSH. When the ssh destination matches a rule, cmux runs that rule's command once per file instead of scp, and inserts the command's stdout at the cursor (verbatim, with control characters stripped); if the command prints nothing, cmux inserts the shell-escaped remote path it chose instead. Per-file outputs are space-joined. First matching enabled rule wins; no match runs the built-in scp unchanged. A non-zero exit, timeout, or cancel inserts nothing. |
+| `terminal.linkOpener.default` | string | `"cmux"` | cmux-next. Where a URL goes when a program in a cmux terminal opens a browser (aws login, gh auth login, gcloud, npm login, Python webbrowser, `open <url>`): `cmux` (a cmux browser tab by the link rules), `system`, `chrome`, `safari`, `arc`, `firefox`, `edge`, `brave`, `app:<name, bundle id or path>`, a profile after `@` (`chrome@Profile 1`), or `command:<shell command>` (gets `CMUX_LINK_URL`, `CMUX_LINK_CALLERS` and the URL on stdin; opens it itself or prints a target). A `BROWSER` you set wins. See docs/cmux-next/terminal-link-opener.md. |
+| `terminal.linkOpener.rules` | array<string> | `[]` | cmux-next. Ordered `<match> -> <target>` rules checked before the default; first match wins. `caller:<glob>[,<glob>]` matches the program that opened the URL or a parent process; text, `*`/`?` or `re:` match the URL. Example: `caller:aws -> chrome@Work`. |
 
 ## notifications
 
@@ -193,8 +195,7 @@ Socket control and automation settings from Settings > Automation.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `automation.socketControlMode` | `"off"` or `"cmuxOnly"` or `"automation"` or `"password"` or `"allowAll"` or `"openAccess"` or `"fullOpenAccess"` or `"notifications"` or `"full"` | `"cmuxOnly"` | Socket control mode. Legacy aliases are accepted and normalized. |
-| `automation.socketPassword` | string or null | `""` | Password for password-mode socket access. Use null or an empty string to clear it. |
+| `automation.socketControlMode` | `"off"` or `"cmuxOnly"` or `"automation"` or `"notifications"` | `"automation"` | Socket control mode. The automation default admits processes running as the same OS user; choose cmuxOnly to restrict calls to processes started inside this cmux. Legacy aliases are accepted and normalized. |
 | `automation.claudeCodeIntegration` | boolean | `true` | Enable cmux integration hooks for Claude Code. |
 | `automation.codexIntegration` | boolean | `true` | Enable cmux integration hooks for Codex. When disabled, cmux no longer wraps the codex command but still tracks live Codex sessions it can observe. |
 | `automation.canonicalAgentScratch` | boolean | `false` | Use a cmux-owned scratch directory for native agent panels, organized per session. |

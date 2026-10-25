@@ -4,9 +4,10 @@
 //! Codex names its threads (`session_info_update.title`); Claude Code's `-p`
 //! stream-json has no title event, so a Claude chat kept its first prompt's
 //! line ("Plan a three-dish picnic menu") and so did the workspace named
-//! after it. After such a chat's first turn the title command is asked once
-//! for 3-6 words, on the title model (haiku), never for a chat the person
-//! named (`NAMED`). A harness title, then or later, always wins.
+//! after it. After such a chat's first turn the title command is asked for
+//! 3-6 words, on the title model (haiku), never for a chat the person named
+//! (`NAMED`); an empty answer is asked again after a later turn, from the
+//! latest prompt (`wants_title`). A harness title, then or later, always wins.
 
 use super::*;
 use std::process::Stdio;
@@ -26,23 +27,81 @@ pub(super) const NAMED: &str = "named";
 const COMMAND_ENV: &str = "ACPMUX_TITLE_COMMAND";
 const DEFAULT_MODEL: &str = "haiku";
 const TIMEOUT: Duration = Duration::from_secs(20);
-const SYSTEM: &str = "You title chats. Reply with a title of 3 to 6 words for the chat and nothing else: no quotes, no trailing punctuation.";
+const SYSTEM: &str = "You title chats. Reply in the user's language with a title of 3 to 6 words for the chat and nothing else: no quotes, no trailing punctuation.";
 const MAX_WORDS: usize = 6;
 const MAX_CHARS: usize = 60;
-
-/// A chat's first prompt titles it until a better title comes.
+/// A chat's first prompt titles it until a better title comes. A probe ("Reply with only:
+/// OK", `probe_prompt.rs`) titles nothing: the first real message does, also in a chat a
+/// probe titled before (its title still that prompt's line).
 pub(super) fn set_fallback_title(m: &mut SessionMeta, text: &str) {
+    fallback_title_fields(&mut m.title, &mut m.title_source, &mut m.title_prompt, text);
+}
+
+fn fallback_title_fields(
+    title: &mut Option<String>,
+    source: &mut Option<String>,
+    title_prompt: &mut Option<String>,
+    text: &str,
+) {
+    if crate::probe_prompt::is_probe(text) {
+        return;
+    }
+    if source.as_deref() == Some(PROMPT)
+        && title.as_deref().is_some_and(crate::probe_prompt::is_probe)
+    {
+        *title = None;
+    }
     let gist = prompt_gist(text);
-    if m.title.is_some() || gist.line.is_empty() {
+    if title.is_some() || gist.line.is_empty() {
         return;
     }
-    m.title = Some(short_text(gist.line, 80));
+    *title = Some(short_text(gist.line, 80));
     // A chat the person named keeps the prompt line as its title, and asks no model for one.
-    if m.title_source.as_deref() == Some(NAMED) {
+    if source.as_deref() == Some(NAMED) {
         return;
     }
-    m.title_source = Some(PROMPT.to_owned());
-    m.title_prompt = Some(short_text(gist.body.trim(), 2000));
+    *source = Some(PROMPT.to_owned());
+    *title_prompt = Some(short_text(gist.body.trim(), 2000));
+}
+
+/// A rename of a chat no title has settled yet (by its prompt, or by a request that came back
+/// empty and may ask again, `wants_title`) makes it `NAMED`: no title is generated after it.
+pub(super) fn title_renamed(m: &mut SessionMeta) {
+    if renamed_source(&mut m.title_source) {
+        m.title_prompt = None;
+    }
+}
+
+fn renamed_source(source: &mut Option<String>) -> bool {
+    if !matches!(source.as_deref(), None | Some(PROMPT) | Some(ASKED)) {
+        return false;
+    }
+    *source = Some(NAMED.to_owned());
+    true
+}
+
+/// A sub-session's title as it starts (2026-10-20: seven sub-sessions all read
+/// "Read /Users/…/COMMON.md fi…", their prompts' shared first line). Its
+/// session name (`parent/short`) is the mux's, not the person's, so it is not
+/// `NAMED` for that: a name the starter gave titles it, and without one the
+/// prompt and then a generated title do, as for any chat.
+pub(super) fn title_subsession(m: &mut SessionMeta, requested: Option<&str>) {
+    subsession_title_fields(&mut m.title, &mut m.title_source, requested);
+}
+
+fn subsession_title_fields(
+    title: &mut Option<String>,
+    source: &mut Option<String>,
+    requested: Option<&str>,
+) {
+    match requested.map(str::trim).filter(|n| !n.is_empty()) {
+        Some(name) => {
+            *title = Some(short_text(name, 80));
+            *source = Some(NAMED.to_owned());
+        }
+        None if source.as_deref() == Some(NAMED) => *source = None,
+        None => {}
+    }
 }
 
 /// What a first prompt says, for its title: `line` names the chat, `body` is
@@ -120,8 +179,8 @@ pub(super) fn keep_adopted_title(m: &mut SessionMeta) {
 }
 
 impl Hub {
-    /// Title chats as their turns complete (a local `turn_result` with
-    /// status `completed`), off the turn's own path.
+    /// Retry a thin first-message title after its first turn completes. The normal request starts
+    /// when the first prompt is accepted; this watcher is only the optional refresh path.
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
@@ -147,32 +206,72 @@ impl Hub {
         });
     }
 
-    /// After a completed turn: ask for a title once if the chat still has
-    /// only its first prompt's line.
-    fn title_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
-        let (harness, request) = {
+    /// Ask for a title as soon as the first user prompt is accepted. The fallback line is already
+    /// visible to clients; this replaces it asynchronously without waiting for the agent reply.
+    pub(super) fn title_after_prompt(self: &Arc<Self>, session: &Arc<Session>) {
+        let request = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            if m.title_source.as_deref() != Some(PROMPT) {
+            if m.title_source.as_deref() != Some(PROMPT) || m.title_asking {
                 return;
             }
-            let Some(prompt) = m.title_prompt.take().or_else(|| m.title.clone()) else {
+            // `title_prompt` is ephemeral. A daemon restart before the request was written can
+            // leave a persisted prompt placeholder with source `PROMPT`; recover from it.
+            let Some(prompt) =
+                m.title_prompt.take().or_else(|| m.title.clone()).or_else(|| m.last_prompt.clone())
+            else {
                 return;
             };
+            m.title_thin = is_thin_prompt(&prompt);
             m.title_source = Some(ASKED.to_owned());
-            // The reply is the first turn's only while no later turn has started.
-            let reply = match m.turn_count {
-                1 => m.preview.as_deref().map(|p| short_text(p.trim(), 600)).unwrap_or_default(),
-                _ => String::new(),
-            };
-            (m.harness.clone(), request(&prompt, &reply))
+            m.title_asking = true;
+            request(&prompt, "", true)
         };
+        self.spawn_title_request(session.clone(), request);
+    }
+
+    /// After a completed first turn, refresh once when the first prompt was too thin to name.
+    fn title_after_turn(self: &Arc<Self>, session: &Arc<Session>) {
+        let request = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let thin_retry = m.title_thin && m.title_failures == 1;
+            // `title_source` is persisted but the in-flight fields are not. On a daemon restart,
+            // one completed turn recovers an interrupted request from the latest prompt.
+            let restarted_request = !m.title_thin
+                && m.title_prompt.is_none()
+                && m.title_failures == 0
+                && !m.title_asking;
+            if m.title_source.as_deref() != Some(ASKED)
+                || (!thin_retry && !restarted_request)
+                || m.title_asking
+                || m.turn_count == 0
+            {
+                return;
+            }
+            // Only one refresh is allowed. It reads the latest prompt because the first one was
+            // too thin; a later empty answer keeps the first-message placeholder.
+            m.title_thin = false;
+            let Some(prompt) = m.last_prompt.clone().or_else(|| m.title.clone()) else { return };
+            m.title_source = Some(ASKED.to_owned());
+            m.title_asking = true;
+            request(&prompt, "", false)
+        };
+        self.spawn_title_request(session.clone(), request);
+    }
+
+    fn spawn_title_request(self: &Arc<Self>, session: Arc<Session>, request: String) {
         let hub = self.clone();
-        let session = session.clone();
         tokio::spawn(async move {
-            let title = match hub.title_command(&harness).await {
-                Some(cmd) => run(cmd, &request).await,
-                None => None,
+            // Let a harness's own session-info title and a manual rename win before spending a
+            // completion. This is also the debounce between the prompt placeholder and the model.
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let (source, harness) = {
+                let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                (m.title_source.clone(), m.harness.clone())
             };
+            if source.as_deref() != Some(ASKED) {
+                return;
+            }
+            let title = hub.generate_title(&session, &harness, &request).await;
             hub.apply_generated_title(&session, title);
         });
     }
@@ -238,24 +337,112 @@ impl Hub {
         }
     }
 
-    fn apply_generated_title(&self, session: &Session, title: Option<String>) {
-        let Some(title) = title else { return };
-        {
-            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            // A harness title that came meanwhile wins.
-            if m.title_source.as_deref() != Some(ASKED) {
-                return;
-            }
-            m.title = Some(title.clone());
-            m.title_source = Some(GENERATED.to_owned());
+    async fn generate_title(
+        self: &Arc<Self>,
+        session: &Session,
+        harness: &str,
+        request: &str,
+    ) -> Option<String> {
+        let (custom, model, enabled) = {
+            let cfg = self.config.read().await;
+            let custom = std::env::var(COMMAND_ENV)
+                .ok()
+                .filter(|c| !c.trim().is_empty())
+                .map(|c| vec![c])
+                .or_else(|| cfg.titles.command.clone().filter(|c| !c.is_empty()));
+            (custom, cfg.titles.model.clone(), cfg.titles.generate != Some(false))
+        };
+        if !enabled {
+            return None;
         }
+        if custom.is_some() {
+            let command = self.title_command(harness).await?;
+            if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
+                != Some(ASKED)
+            {
+                return None;
+            }
+            let started = std::time::Instant::now();
+            let title = run(command, request).await;
+            tracing::info!(
+                event = "chat_title",
+                harness,
+                model = "custom",
+                ms = started.elapsed().as_millis() as u64,
+                input_bytes = request.len(),
+                output_words = title.as_deref().map_or(0, |t| t.split_whitespace().count()),
+                estimated_input_tokens = request.len().div_ceil(4),
+                estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
+                "chat title completion"
+            );
+            return title;
+        }
+        let mut params = json!({"prompt": request, "harness": harness, "maxTokens": 16});
+        if let Some(model) = model {
+            params["model"] = json!(model);
+        }
+        if session.meta.lock().unwrap_or_else(|e| e.into_inner()).title_source.as_deref()
+            != Some(ASKED)
+        {
+            return None;
+        }
+        let started = std::time::Instant::now();
+        let result = self.complete(crate::server::Origin::Local, &params).await.ok()?;
+        let title = result.get("text").and_then(Value::as_str).and_then(clean);
+        tracing::info!(
+            event = "chat_title",
+            harness,
+            model = result.get("model").and_then(serde_json::Value::as_str).unwrap_or("default"),
+            ms = started.elapsed().as_millis() as u64,
+            input_bytes = request.len(),
+            output_words = title.as_deref().map_or(0, |t| t.split_whitespace().count()),
+            estimated_input_tokens = request.len().div_ceil(4),
+            estimated_output_tokens = title.as_deref().map_or(0, |t| t.len().div_ceil(4)),
+            "chat title completion"
+        );
+        title
+    }
+
+    fn apply_generated_title(self: &Arc<Self>, session: &Arc<Session>, title: Option<String>) {
+        let (title, retry) = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.title_asking = false;
+            match title {
+                // An empty answer: a thin first prompt may get one refresh after its turn.
+                None => {
+                    m.title_failures = m.title_failures.saturating_add(1);
+                    let completed = m
+                        .last_turn
+                        .as_ref()
+                        .and_then(|turn| turn.get("status"))
+                        .and_then(Value::as_str)
+                        == Some("completed");
+                    (None, m.title_thin && completed && m.title_failures == 1)
+                }
+                Some(title) => {
+                    // A harness title that came meanwhile wins.
+                    if m.title_source.as_deref() != Some(ASKED) {
+                        return;
+                    }
+                    m.title = Some(title.clone());
+                    m.title_source = Some(GENERATED.to_owned());
+                    (Some(title), false)
+                }
+            }
+        };
+        if retry {
+            self.title_after_turn(session);
+            return;
+        }
+        let Some(title) = title else { return };
         self.append(session, "mux", "titled", json!({"title": title}));
         self.save_meta(session);
     }
 }
 
-fn request(prompt: &str, reply: &str) -> String {
-    let mut text = format!("Title this chat.\n\nThe person's first message:\n{prompt}\n");
+fn request(prompt: &str, reply: &str, first: bool) -> String {
+    let which = if first { "first" } else { "latest" };
+    let mut text = format!("{SYSTEM}\n\nThe person's {which} message:\n{prompt}\n");
     if !reply.is_empty() {
         text.push_str(&format!("\nThe start of the agent's reply:\n{reply}\n"));
     }
@@ -314,9 +501,112 @@ fn clean(out: &str) -> Option<String> {
     (!title.is_empty()).then_some(title)
 }
 
+/// A short acknowledgement or control word is not enough context for a stable title. Such a
+/// first prompt gets one optional refresh after its first agent turn; ordinary prompts are never
+/// retitled.
+fn is_thin_prompt(prompt: &str) -> bool {
+    let words: Vec<_> = prompt.split_whitespace().collect();
+    words.is_empty()
+        || words.len() <= 1
+        || (words.len() <= 2 && words[0].trim_matches(|c: char| !c.is_alphanumeric()).len() <= 12)
+        || words.iter().any(|word| {
+            matches!(
+                word.trim_matches(|c: char| !c.is_alphanumeric()).to_ascii_lowercase().as_str(),
+                "hi" | "hello" | "hey" | "ok" | "okay" | "continue" | "thanks" | "thankyou"
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_thin_first_messages_are_eligible_for_a_refresh() {
+        for prompt in ["hi", "continue", "OK", "thanks"] {
+            assert!(is_thin_prompt(prompt), "{prompt}");
+        }
+        for prompt in ["Plan a three-dish picnic menu", "Fix the sidebar spinner"] {
+            assert!(!is_thin_prompt(prompt), "{prompt}");
+        }
+    }
+
+    #[test]
+    fn a_rename_after_an_empty_title_request_stops_title_requests() {
+        for unsettled in [None, Some(PROMPT), Some(ASKED)] {
+            let mut source = unsettled.map(str::to_owned);
+            assert!(renamed_source(&mut source));
+            assert_eq!(source.as_deref(), Some(NAMED), "{unsettled:?} renamed title is final");
+        }
+        for done in [GENERATED, HARNESS, ADOPTED] {
+            let mut source = Some(done.to_owned());
+            assert!(!renamed_source(&mut source));
+            assert_eq!(source.as_deref(), Some(done));
+        }
+    }
+
+    #[test]
+    fn a_retried_title_reads_the_latest_prompt() {
+        assert!(
+            request("Reply with only: OK", "", true)
+                .contains("first message:\nReply with only: OK")
+        );
+        assert!(
+            request("Fix the sidebar spinner", "", false)
+                .contains("latest message:\nFix the sidebar spinner")
+        );
+    }
+
+    #[test]
+    fn a_named_subsession_is_titled_by_its_name_not_its_prompt() {
+        // The session name made it NAMED (`lifecycle.rs`); the requested name titles it.
+        let (mut title, mut source) = (None, Some(NAMED.to_owned()));
+        subsession_title_fields(&mut title, &mut source, Some("  sidebar-cleanup "));
+        assert_eq!(title.as_deref(), Some("sidebar-cleanup"));
+        assert_eq!(source.as_deref(), Some(NAMED));
+    }
+
+    #[test]
+    fn an_unnamed_subsession_gets_a_generated_title() {
+        // Not NAMED: the first prompt's line is only the fallback, and a title is generated after it.
+        let (mut title, mut source) = (None, Some(NAMED.to_owned()));
+        subsession_title_fields(&mut title, &mut source, Some(" "));
+        assert_eq!((title, source), (None, None));
+    }
+
+    #[test]
+    fn a_probe_titles_no_chat_and_the_first_real_message_does() {
+        let (mut title, mut source, mut prompt) = (None, None, None);
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Reply with only: OK");
+        assert_eq!((title.as_deref(), source.as_deref()), (None, None), "a probe titles nothing");
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
+        assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"));
+        assert_eq!(source.as_deref(), Some(PROMPT));
+        assert_eq!(
+            prompt.as_deref(),
+            Some("Fix the sidebar spinner"),
+            "the title request reads it"
+        );
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Now add a test");
+        assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"), "a later message keeps it");
+    }
+
+    #[test]
+    fn a_chat_a_probe_titled_before_takes_the_first_real_message() {
+        let mut title = Some("Reply with only: OK".to_owned());
+        let mut source = Some(PROMPT.to_owned());
+        let mut prompt = None;
+        fallback_title_fields(&mut title, &mut source, &mut prompt, "Fix the sidebar spinner");
+        assert_eq!(title.as_deref(), Some("Fix the sidebar spinner"));
+        assert_eq!(prompt.as_deref(), Some("Fix the sidebar spinner"));
+        // A title the person or a model gave stays, even one that reads like a probe.
+        for kept in [NAMED, GENERATED, HARNESS] {
+            let mut title = Some("Reply with only: OK".to_owned());
+            let mut source = Some(kept.to_owned());
+            fallback_title_fields(&mut title, &mut source, &mut None, "Fix the sidebar spinner");
+            assert_eq!(title.as_deref(), Some("Reply with only: OK"), "{kept}");
+        }
+    }
 
     #[test]
     fn a_plain_prompt_is_titled_by_its_first_line() {

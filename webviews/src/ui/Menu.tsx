@@ -9,6 +9,7 @@ import {
   useState,
   type ComponentProps,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
@@ -40,6 +41,8 @@ interface MenuContextValue {
   /** The last input in the open menu was a key (Base UI's close type names how it opened). */
   keyed: RefObject<boolean>;
   beginPointer(event: PointerEvent<HTMLElement>): void;
+  /** Whether a mouse press already opened or closed the menu on its pointerdown (once per press). */
+  takePress(): boolean;
   movePointer(event: PointerEvent<HTMLElement>): void;
   activatePointer(event: PointerEvent<HTMLElement>, activate: () => void): boolean;
   endPointer(): void;
@@ -55,6 +58,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
   const opener = useRef<Element | null>(null);
   const keyed = useRef(false);
   const captured = useRef(false);
+  // Set by a mouse press that opened or closed the menu on its pointerdown; the press's mousedown
+  // takes it (MenuButton).
+  const pressed = useRef(false);
   const isOpen = open ?? internalOpen;
   const setMenuOpen = (next: boolean) => {
     if (next && !isOpen) {
@@ -71,7 +77,9 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
     opener,
     keyed,
     beginPointer(event) {
+      pressed.current = false;
       if (!isMousePress(event)) return;
+      pressed.current = true;
       const wasOpen = isOpen;
       pointerCleanup.current?.();
       pointerCleanup.current = null;
@@ -101,6 +109,11 @@ export function Menu({ open, onOpenChange, onOpenChangeComplete, children }: Men
           session.current = null;
         },
       });
+    },
+    takePress() {
+      const taken = pressed.current;
+      pressed.current = false;
+      return taken;
     },
     movePointer(event) {
       const current = session.current;
@@ -199,10 +212,17 @@ export function MenuButton({
         context?.beginPointer(event);
         if (event.pointerType === "mouse" && event.button === 0) event.preventDefault();
       }}
-      onMouseDown={(event) => {
-        // WebKit dispatches a native mousedown after pointerdown. While an open trigger is
-        // closing the menu on press, cancel that follow-up so Base UI cannot reopen it on click.
-        if (context?.isOpen && event.button === 0) event.preventDefault();
+      onMouseDown={(event: MouseEvent<HTMLButtonElement> & { preventBaseUIHandler?: () => void }) => {
+        // WebKit dispatches a native mousedown after pointerdown. The press already opened or
+        // closed the menu, so Base UI's own mousedown toggle must not act on it again: once React
+        // has drawn the opened menu before this mousedown (a busy page, Leo's long chat on nightly
+        // 3a63d6d), that toggle read it as open and closed it a frame later, and the click did
+        // nothing. On a close, it would reopen it.
+        if (event.button !== 0) return;
+        if (context?.takePress()) {
+          event.preventDefault();
+          event.preventBaseUIHandler?.();
+        } else if (context?.isOpen) event.preventDefault();
       }}
       onClick={(event) => {
         // A mouse click has already opened on press; keep it open after release. Keyboard clicks
@@ -233,6 +253,12 @@ export interface MenuPopupProps {
   finalFocus?: boolean | RefObject<HTMLElement | null>;
   /** Keys the menu takes beyond Base UI's own (a mode menu's number keys). */
   onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+  /**
+   * A selector for the box the menu (and its submenus) stays inside, found from the menu button
+   * (the agent pane's chat column). Base UI sizes `--available-width` and `--available-height` to
+   * it; without one, or when the button has no such ancestor, the box is the window.
+   */
+  boundary?: string;
   children: ReactNode;
 }
 
@@ -241,6 +267,8 @@ export interface MenuPopupProps {
 const PopupSurface = createContext<string | undefined>(undefined);
 /// Inside a menu's popup: a submenu's popup leaves its focus return to Base UI (its own item).
 const InPopup = createContext(false);
+/// The box a menu's popups stay inside (`MenuPopupProps.boundary`), so its submenus keep to it too.
+const PopupBoundary = createContext<Element | undefined>(undefined);
 
 export function MenuPopup({
   id,
@@ -252,6 +280,7 @@ export function MenuPopup({
   anchor,
   finalFocus,
   onKeyDown,
+  boundary,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
@@ -259,6 +288,15 @@ export function MenuPopup({
   const host = usePopupHost();
   const menu = use(MenuContext);
   const nested = use(InPopup);
+  // The boundary box, found from the menu button as the menu opens; a submenu inherits it.
+  const inherited = use(PopupBoundary);
+  const [own, setOwn] = useState<Element | undefined>(undefined);
+  const triggerRef = menu?.trigger;
+  const menuOpen = menu?.isOpen ?? false;
+  useLayoutEffect(() => {
+    if (menuOpen) setOwn(boundary ? (triggerRef?.current?.closest(boundary) ?? undefined) : undefined);
+  }, [boundary, triggerRef, menuOpen]);
+  const collisionBoundary = boundary ? own : inherited;
   const [popup, setPopup] = useState<HTMLElement | null>(null);
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
@@ -283,6 +321,7 @@ export function MenuPopup({
         anchor={anchor}
         side={side}
         collisionAvoidance={flip ? undefined : { side: "none" }}
+        {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
@@ -291,7 +330,7 @@ export function MenuPopup({
           ref={attachPopup}
           id={id}
           aria-label={label}
-          className={cx("ui-popup ui-menu", className)}
+          className={cx("ui-popup ui-glass ui-menu", className)}
           finalFocus={
             finalFocus ?? (nested ? undefined : (closeType) => focusAfterClose(closeType, menu, popupNode.current))
           }
@@ -313,7 +352,9 @@ export function MenuPopup({
           }}
         >
           <InPopup value>
-            <PopupSurface value={className}>{children}</PopupSurface>
+            <PopupBoundary value={collisionBoundary}>
+              <PopupSurface value={className}>{children}</PopupSurface>
+            </PopupBoundary>
           </InPopup>
         </BaseMenu.Popup>
       </BaseMenu.Positioner>
@@ -502,6 +543,36 @@ export function MenuSeparator() {
   return <BaseMenu.Separator className="ui-separator" />;
 }
 
+/** Keys a menu search field passes on to its menu: the arrows into the rows, Tab, Escape. */
+const MENU_SEARCH_PASSES = new Set(["ArrowDown", "ArrowUp", "Tab", "Escape"]);
+
+export interface MenuSearchFieldProps {
+  value: string;
+  onChange(value: string): void;
+  /** The field's accessible name and placeholder. */
+  label: string;
+}
+
+/** A search field at the top of a long menu: what it types narrows the rows below. The menu's
+ * typeahead and Home/End never see its keys; the arrows move into the rows, Escape closes. */
+export function MenuSearchField({ value, onChange, label }: MenuSearchFieldProps) {
+  return (
+    <input
+      className="ui-field ui-menu-search"
+      type="search"
+      value={value}
+      aria-label={label}
+      placeholder={label}
+      spellCheck={false}
+      autoComplete="off"
+      onChange={(event) => onChange(event.target.value)}
+      onKeyDown={(event) => {
+        if (!MENU_SEARCH_PASSES.has(event.key)) event.stopPropagation();
+      }}
+    />
+  );
+}
+
 export interface SubmenuProps {
   label: ReactNode;
   className?: string;
@@ -512,18 +583,44 @@ export interface SubmenuProps {
 }
 
 /** A submenu: its item opens the nested popup at the inline end (right in LTR, left in RTL). Its popup
- * wears the parent popup's surface unless `popupClassName` names another. */
+ * wears the parent popup's surface unless `popupClassName` names another.
+ *
+ * It grows toward the room its row has: down from the row's top, or, for a row nearer the bottom of
+ * the menu's box (a composer's menu opened up from the window's foot), up from the row's bottom, as
+ * Claude Code's and macOS's menus do (Leo 2026-10-21: "this effort should open up top instead of
+ * bottom"). Base UI's collision avoidance still flips or shifts it when that side has no room. */
 export function Submenu({ label, className, popupClassName, disabled, children }: SubmenuProps) {
   const surface = use(PopupSurface);
+  const boundary = use(PopupBoundary);
+  const trigger = useRef<HTMLDivElement | null>(null);
+  const [align, setAlign] = useState<"start" | "end">("start");
   return (
-    <BaseMenu.SubmenuRoot>
-      <BaseMenu.SubmenuTrigger className={cx("ui-menu-item ui-submenu-trigger", className)} disabled={disabled}>
+    <BaseMenu.SubmenuRoot
+      onOpenChange={(open) => {
+        const row = trigger.current;
+        if (open && row) setAlign(growsUp(row, boundary) ? "end" : "start");
+      }}
+    >
+      <BaseMenu.SubmenuTrigger
+        ref={trigger}
+        className={cx("ui-menu-item ui-submenu-trigger", className)}
+        disabled={disabled}
+      >
         {label}
         <span className="ui-submenu-chevron" aria-hidden="true" />
       </BaseMenu.SubmenuTrigger>
-      <MenuPopup side="inline-end" align="start" className={popupClassName ?? surface}>
+      <MenuPopup side="inline-end" align={align} className={popupClassName ?? surface}>
         {children}
       </MenuPopup>
     </BaseMenu.SubmenuRoot>
   );
+}
+
+/// Whether a submenu row has more room above it than below it, inside the menu's box (the window
+/// when it has none).
+function growsUp(row: Element, boundary: Element | undefined): boolean {
+  const view = row.ownerDocument.defaultView;
+  const box = boundary?.getBoundingClientRect() ?? { top: 0, bottom: view?.innerHeight ?? 0 };
+  const rect = row.getBoundingClientRect();
+  return rect.bottom - box.top > box.bottom - rect.top;
 }

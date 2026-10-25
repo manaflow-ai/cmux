@@ -6,9 +6,11 @@ import Testing
 /// Leo 2026-10-19: moving the pointer up and to the left out of a sidebar
 /// row, it crossed the gap and the rounded corner of the row above, which
 /// took the hover and showed its "..." and close buttons in his way. A row
-/// takes the hover only inside its rounded pill, never in the gap, a
+/// takes the hover from rest only inside its rounded pill, never in the gap, a
 /// corner, or the margin beside it. The row already hovered keeps it across
-/// the gap, so a sweep down or up the list never flickers (#20315).
+/// the gap, so a sweep down or up the list never flickers (#20315). Since Leo
+/// 2026-10-20 a hovered row hands the hover to any row whose fill the pointer
+/// is on (`SidebarRowHoverFollowTests`).
 @MainActor @Suite(.serialized) struct SidebarRowHoverInsetTests {
     private static func list(grouped: Bool = false) -> (SidebarListView, NSWindow, [SidebarRow]) {
         let titles = ["newtab", "workspace-2", "workspace-3", "Agent Activity"]
@@ -48,15 +50,15 @@ import Testing
         }
     }
 
-    @Test func aRowsRoundedCornerDoesNotTakeTheHoverFromTheRowBelow() throws {
+    @Test func aRowsRoundedCornerTakesNoHoverFromRest() throws {
         let (list, window, rows) = Self.list()
         defer { window.orderOut(nil) }
         try #require(rows.count == 4)
-        let above = rows[1], below = rows[2]
-        let frameAbove = list.frame(for: above), frameBelow = list.frame(for: below)
-        #expect(Self.hover(list, x: frameBelow.midX, y: frameBelow.midY) == below.key)
-        // Up and to the left: into the bottom-left corner of the row above.
+        let above = rows[1]
+        let frameAbove = list.frame(for: above)
+        // The bottom-left corner of a row, with no row hovered.
         for (dx, dy) in [(0.5, 0.5), (1.0, 1.0), (1.5, 0.5), (0.5, 1.5)] as [(CGFloat, CGFloat)] {
+            list.setHovered(nil)
             let key = Self.hover(list, x: frameAbove.minX + dx, y: frameAbove.maxY - dy)
             #expect(key != above.key, "the corner at (+\(dx), -\(dy)) took the hover")
         }
@@ -93,8 +95,8 @@ import Testing
     }
 
     /// Review of #22294: a click acts on the row that shows the hover. The
-    /// hovered row keeps the hover in the bottom of the row above's frame
-    /// (outside that row's pill), so a click there must not act on the row above.
+    /// hovered row keeps the hover in the gap, on the row above's side of it,
+    /// so a click there must not act on the row above.
     @Test func aClickActsOnTheHoveredRowNotTheTileUnderThePointer() throws {
         let (list, window, rows) = Self.list()
         defer { window.orderOut(nil) }
@@ -102,7 +104,8 @@ import Testing
         let above = rows[1], below = rows[2]
         let frameAbove = list.frame(for: above), frameBelow = list.frame(for: below)
         #expect(Self.hover(list, x: frameBelow.midX, y: frameBelow.midY) == below.key)
-        let point = NSPoint(x: frameAbove.midX, y: frameAbove.maxY - 1)
+        try #require(frameBelow.minY - frameAbove.maxY > 0.5, "the rows have no gap")
+        let point = NSPoint(x: frameAbove.midX, y: frameAbove.maxY + 0.25)
         #expect(Self.hover(list, x: point.x, y: point.y) == below.key, "the row below lost the hover")
         let location = list.convert(point, to: nil)
         func event(_ type: NSEvent.EventType) throws -> NSEvent {
