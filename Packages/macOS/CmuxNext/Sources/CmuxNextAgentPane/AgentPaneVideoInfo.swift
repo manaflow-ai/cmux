@@ -142,10 +142,11 @@ extension AgentPaneModel {
         return AgentPaneReply.success(info.reply)
     }
 
-    /// `video.quickLook {src}`: plays the video in Quick Look, on the person's click.
+    /// `video.quickLook {src}`: plays the video in Quick Look, on the person's click. The click is
+    /// spent before the file is checked, so a request that waits on the disk never takes a later one.
     func quickLookVideo(_ src: String) async -> [String: Any] {
-        guard let file = await videoFile(src) else { return Self.replyFailure(.mediaRefused) }
         guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
+        guard let file = await videoFile(src) else { return Self.replyFailure(.mediaRefused) }
         replyLinks.quickLookFile(file)
         return AgentPaneReply.success()
     }

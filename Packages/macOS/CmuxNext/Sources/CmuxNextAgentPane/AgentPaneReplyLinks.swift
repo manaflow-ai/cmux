@@ -115,15 +115,15 @@ extension AgentPaneModel {
         AgentPaneReplyPaths(replyPathScope())
     }
 
-    /// What ``replyPaths()`` is made of, read on the main actor; making the paths from it reads the
-    /// disk (each root made canonical), which a caller off the main actor can do there.
+    /// What ``replyPaths()`` is made of, read on the main actor without touching the disk: the
+    /// folders as spelled. Making the paths from it reads the disk (each folder made canonical,
+    /// ``sessionRoots()``'s rule applied), which a caller off the main actor can do there.
     func replyPathScope() -> AgentPaneReplyPaths.Scope {
-        let base = sessionRoots().first ?? primaryRoot()
-        let local = !remoteChat
-        let imageRoots = local ? [base, "/tmp", replyLinks.home].compactMap { $0 } : []
+        let session = sessionId.flatMap { transport.sessions.contains($0) ? transport.sessions.folder(of: $0) : nil }
         // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
         // roots as a fallback: a same-named local file must not be read or opened here.
-        return AgentPaneReplyPaths.Scope(roots: local ? fileOpenRoots() : [], imageRoots: imageRoots, home: replyLinks.home, base: local ? base : nil)
+        return AgentPaneReplyPaths.Scope(local: !remoteChat, roots: roots() + transport.addedRoots, session: session,
+                                         primary: primaryRoot(), home: replyLinks.home)
     }
 
     /// The reply for one reply link request.

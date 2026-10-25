@@ -216,14 +216,49 @@ struct AgentPaneVideoInfoTests {
         #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
         model.remoteChat = false
 
-        // Quick Look plays it on a click only, and only a video the host would read.
+        // Quick Look plays it on a click only, and only a video the host would read. The click is
+        // spent before the file is checked: a request waiting on the disk never takes a later one.
         #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": clip.path])) == AgentPaneReplyError.gestureRequired.rawValue)
         #expect(looked.isEmpty)
         model.transport.gestures.record(click: true)
         #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": outside.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+        #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": clip.path])) == AgentPaneReplyError.gestureRequired.rawValue)
+        model.transport.gestures.record(click: true)
         let played = await Self.ask(model, "video.quickLook", ["src": clip.path])
         #expect(Self.errorCode(played) == nil, "\(played)")
         #expect(looked.map { $0.resolvingSymlinksInPath().path } == [clip.resolvingSymlinksInPath().path])
+    }
+
+    @Test func aVideoInTheChatsSessionFolderIsReadWithTheFolderMadeCanonicalOffTheMainActor() async throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let worktree = folder.appendingPathComponent("worktree", isDirectory: true)
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        for dir in [worktree, home] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        let clip = worktree.appendingPathComponent("demo.mp4")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let model = AgentPaneModel(host: NoHost(), sessionId: "s")
+        model.replyLinks.home = home.path
+        model.transport.sessions.observeFolder(["result": ["session": ["sessionId": "s", "cwd": worktree.path]]], replyTo: "_acpmux/attach")
+
+        // The folder acpmux reported is the chat's only when the pane has the session.
+        #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+        model.transport.sessions.add("s")
+        let scope = model.replyPathScope()
+        #expect(scope.session == worktree.path)
+        let reply = await Self.ask(model, "video.info", ["src": clip.path])
+        #expect(Self.errorCode(reply) == nil, "\(reply)")
+        // A path relative to it starts there; the scope's paths are the ones `replyPaths()` gave before.
+        #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": "demo.mp4"])) == nil)
+        let canonical = try #require(AcpmuxPathPolicy.canonical(worktree.path))
+        #expect(model.replyPaths().roots.contains(canonical))
+        #expect(model.replyPaths().base == canonical)
+        // Never `/` or the home folder as a root (`sessionRoots`): the workspace's root is the base then.
+        for cwd in ["/", NSHomeDirectory()] {
+            let paths = AgentPaneReplyPaths(.init(local: true, roots: [], session: cwd, primary: "/w", home: home.path))
+            #expect(paths.roots.isEmpty && paths.base == "/w", "\(cwd)")
+        }
+        #expect(AgentPaneReplyPaths(.init(local: false, roots: [worktree.path], session: worktree.path, primary: "/w", home: home.path)).roots.isEmpty)
     }
 
     @Test func theRequestsTakeOnlyTheirSource() {

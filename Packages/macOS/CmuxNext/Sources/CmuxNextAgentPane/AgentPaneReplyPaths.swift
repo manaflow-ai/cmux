@@ -40,16 +40,33 @@ nonisolated struct AgentPaneReplyPaths {
         self.base = base
     }
 
-    /// The folders as spelled, before they are made canonical (which reads the disk).
+    /// A chat's folders as spelled (``AgentPaneModel/replyPathScope()``), before they are made
+    /// canonical, which reads the disk.
     struct Scope: Equatable, Sendable {
+        /// A chat on this Mac; a remote chat's paths are its host's, never this Mac's.
+        var local: Bool
+        /// The pane's roots and the folders the person added.
         var roots: [String]
-        var imageRoots: [String]
+        /// The folder acpmux reported for the chat's session, when the pane has it.
+        var session: String?
+        /// The pane's workspace root (``AgentPaneModel/primaryRoot()``).
+        var primary: String?
         var home: String
-        var base: String?
     }
 
+    /// The paths of `scope`: its roots and its session's folder (never `/` or the home folder,
+    /// ``AgentPaneModel/sessionRoots()``'s rule), and for images and videos also the chat's folder
+    /// (the session's, else the workspace's), `/tmp` and home.
     init(_ scope: Scope) {
-        self.init(roots: scope.roots, imageRoots: scope.imageRoots, home: scope.home, base: scope.base)
+        let home = AcpmuxPathPolicy.canonical(NSHomeDirectory()) ?? NSHomeDirectory()
+        let session = scope.session.flatMap(AcpmuxPathPolicy.canonical).flatMap { $0 != "/" && $0 != home ? $0 : nil }
+        let base = session ?? scope.primary
+        guard scope.local else {
+            self.init(roots: [], imageRoots: [], home: scope.home, base: nil)
+            return
+        }
+        self.init(roots: scope.roots + (session.map { [$0] } ?? []), imageRoots: [base, "/tmp", scope.home].compactMap { $0 },
+                  home: scope.home, base: base)
     }
 
     /// Longest path the page may send (a path is far shorter).
