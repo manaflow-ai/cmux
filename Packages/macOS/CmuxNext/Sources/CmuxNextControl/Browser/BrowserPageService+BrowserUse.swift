@@ -5,6 +5,11 @@ import Foundation
 /// (`selector`, `files`: absolute paths) for `cmux browser <tab> drag|upload`
 /// (browser use thread, user 2026-10-19). Both announce to the agent cursor:
 /// a drag glides from the grab to the drop, an upload clicks the input.
+/// An upload goes through the page's own file chooser (``BrowserPageUpload``),
+/// so a button or a hidden input works and the files keep their size; a file
+/// input whose page opens no chooser gets them through a page script.
+/// `browser.page.downloads` and `browser.page.download.wait` read the app's
+/// downloads list for `cmux browser <tab|page> download …`.
 extension BrowserPageService {
     /// The most bytes one upload sends into the page (the files ride in a page script).
     static let uploadLimit = 25 * 1024 * 1024
@@ -18,12 +23,117 @@ extension BrowserPageService {
             },
             .async("browser.page.upload") { call in
                 let selector = try Self.string(call, "selector")
-                let files = try Self.uploadFiles(call)
-                return try await Self.runInput(engine, call, BrowserPageScripts.upload(selector, files: files)) {
-                    .from(kind: .click, answer: $0)
+                let files = try Self.uploadURLs(call)
+                let tab = try Self.tab(call)
+                let within = Duration.milliseconds(Self.uploadChooserWait(call))
+                let upload = BrowserPageUpload(script: BrowserPageScripts.openFileChooser(selector), files: files, within: within)
+                let answer = try await Self.run(engine, .upload(upload), tab)
+                let value = answer["value"] ?? .null
+                if let error = value["error"]?.stringValue {
+                    throw ControlError(code: value["code"]?.stringValue ?? "not_found", message: error, data: ["selector": .string(selector)])
+                }
+                switch answer["chooser"]?.stringValue {
+                case "chosen"?:
+                    if let input = BrowserPageAgentInput.from(kind: .click, answer: value) {
+                        await engine.announce(Self.attributed(input, call), tabID: tab.id)
+                    }
+                    var result = Self.base(tab)
+                    result["value"] = ["files": .array(files.map { .string($0.lastPathComponent) }), "chooser": true]
+                    return .object(result)
+                case "withdrawn"? where value["value"]?["fileInput"]?.boolValue != true:
+                    throw ControlError(code: "no_file_chooser",
+                                       message: ControlStrings.format("control.error.uploadNoChooser", "Clicking %@ opened no file chooser", selector),
+                                       data: ["selector": .string(selector)])
+                case "withdrawn"?, "unsupported"?, nil:
+                    // A file input whose page opened no chooser (or an engine without one): the files go in
+                    // through the page, as before (at most ``uploadLimit`` bytes).
+                    let inline = try Self.uploadFiles(call)
+                    return try await Self.runInput(engine, call, BrowserPageScripts.upload(selector, files: inline)) {
+                        .from(kind: .click, answer: $0)
+                    }
+                case let refusal?:
+                    throw ControlError(code: refusal, message: Self.refusalMessage(refusal), data: ["selector": .string(selector)])
                 }
             },
+            .async("browser.page.downloads") { call in
+                let limit = call.request.params["limit"]?.intValue
+                return try await engine.downloads(BrowserPageDownloadQuery(tabID: try Self.downloadTab(call), limit: limit))
+            },
+            .async("browser.page.download.wait") { call in
+                let ms = min(max(call.request.params["timeout_ms"]?.intValue ?? Self.downloadWaitDefaultMs, 1), Self.downloadWaitMaxMs)
+                var answer = try await engine.downloads(BrowserPageDownloadQuery(
+                    tabID: try Self.downloadTab(call), id: Self.optionalString(call, "id"), wait: .milliseconds(ms)))
+                if let target = Self.optionalString(call, "path"), let source = answer["download"]?["path"]?.stringValue {
+                    let saved = try Self.copyDownload(from: source, to: target)
+                    answer = .object(["download": answer["download"] ?? .null, "path": .string(saved)])
+                }
+                return answer
+            },
         ]
+    }
+
+    /// How long `browser.page.upload` waits for a chooser after its click: `params.timeout_ms`, 3 s by default.
+    static func uploadChooserWait(_ call: ControlCall) -> Int {
+        min(max(call.request.params["timeout_ms"]?.intValue ?? 3_000, 100), 60_000)
+    }
+
+    /// A `browser.page.download.wait` lasts `params.timeout_ms`: 30 s by default, at most 10 min.
+    static let downloadWaitDefaultMs = 30_000
+    static let downloadWaitMaxMs = 600_000
+
+    /// The tab whose downloads a download method reads: `params.tab` when given (resolved as every page
+    /// method does); without one, every tab's.
+    static func downloadTab(_ call: ControlCall) throws -> String? {
+        guard optionalString(call, "tab") != nil else { return nil }
+        return try tab(call).id
+    }
+
+    /// Copies a finished download to `target` (a folder takes the file's name) and answers the copy's path.
+    static func copyDownload(from source: String, to target: String) throws -> String {
+        let manager = FileManager.default
+        let from = URL(fileURLWithPath: source)
+        var to = URL(fileURLWithPath: target)
+        var isFolder: ObjCBool = false
+        if target.hasSuffix("/") || (manager.fileExists(atPath: to.path, isDirectory: &isFolder) && isFolder.boolValue) {
+            to = to.appendingPathComponent(from.lastPathComponent)
+        }
+        do {
+            try manager.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if manager.fileExists(atPath: to.path) { try manager.removeItem(at: to) }
+            try manager.copyItem(at: from, to: to)
+        } catch {
+            throw ControlError(code: "io_error", message: ControlStrings.format("control.error.downloadCopyFailed",
+                                                                                "Could not save the download to %1$@: %2$@",
+                                                                                to.path, error.localizedDescription))
+        }
+        return to.path
+    }
+
+    /// The message for a chooser that could not take the files (``BrowserAgentFiles``'s refusal codes).
+    static func refusalMessage(_ code: String) -> String {
+        switch code {
+        case "too_many_files": ControlStrings.text("control.error.uploadTooManyFiles", "The file input takes one file")
+        case "needs_folder": ControlStrings.text("control.error.uploadNeedsFolder", "The file input takes one folder")
+        case "needs_files": ControlStrings.text("control.error.uploadNeedsFiles", "The file input takes files, not folders")
+        default: ControlStrings.text("control.error.uploadSaveChooser", "The page asked where to save a file, not for files to upload")
+        }
+    }
+
+    /// `params.files` as file URLs: absolute paths of files or folders that exist (a folder's URL has
+    /// `hasDirectoryPath`). Nothing is read: the page's chooser takes the files themselves.
+    static func uploadURLs(_ call: ControlCall) throws -> [URL] {
+        let paths = (call.request.params["files"]?.arrayValue ?? []).compactMap(\.stringValue)
+        guard !paths.isEmpty else {
+            throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@",
+                                                                   call.request.method, "files"))
+        }
+        return try paths.map { path in
+            var isDirectory: ObjCBool = false
+            guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+                throw ControlError(code: "not_found", message: ControlStrings.format("control.error.uploadFileMissing", "No file to upload at %@", path))
+            }
+            return URL(fileURLWithPath: path, isDirectory: isDirectory.boolValue)
+        }
     }
 
     /// Reads `params.files` (absolute paths of regular files, at most

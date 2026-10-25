@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+public import Foundation
 
 /// One page operation on a browser tab the app hosts (WebKit or Chromium).
 /// The daemon owns the tab's placement; the app owns its page, so page
@@ -22,6 +23,46 @@ public enum BrowserPageOperation: Sendable, Hashable {
     /// `{"native": true}` when the engine delivered it; any other result (`{"native": false,
     /// "reason": …}`, an engine without native input) makes the caller fall back to page events.
     case input(BrowserPageInput)
+    /// Offers files to the next file chooser the page opens, runs `script` (it clicks the element that opens
+    /// one) and waits for the chooser (``BrowserPageUpload``). Result: `{"value": <the script's answer>,
+    /// "chooser": "chosen" | "withdrawn" | "unsupported" | <refusal code>}`.
+    case upload(BrowserPageUpload)
+}
+
+/// `browser.page.upload` through the page's own file chooser, as a person's click does: real files, any
+/// size, from any element that opens a chooser (a hidden input, a button, a label).
+public struct BrowserPageUpload: Sendable, Hashable {
+    /// A page script that clicks the element; answers `{value, at}` or `{error, code}`.
+    public var script: String
+    /// Absolute file URLs; a folder's has `hasDirectoryPath`.
+    public var files: [URL]
+    /// How long after the click a chooser may open.
+    public var within: Duration
+
+    public init(script: String, files: [URL], within: Duration) {
+        self.script = script
+        self.files = files
+        self.within = within
+    }
+}
+
+/// `browser.page.downloads` and `browser.page.download.wait`: the app's downloads list.
+public struct BrowserPageDownloadQuery: Sendable, Hashable {
+    /// Only downloads this tab started (public id); nil for every tab's.
+    public var tabID: String?
+    /// One download by id (`list` rows' `id`); for a wait.
+    public var id: String?
+    /// The newest rows at most, for a list.
+    public var limit: Int?
+    /// How long a wait lasts; nil lists without waiting.
+    public var wait: Duration?
+
+    public init(tabID: String?, id: String? = nil, limit: Int? = nil, wait: Duration? = nil) {
+        self.tabID = tabID
+        self.id = id
+        self.limit = limit
+        self.wait = wait
+    }
 }
 
 /// Runs page operations for the app. The App hops to the main actor itself;
@@ -34,8 +75,18 @@ public protocol BrowserPageEngine: Sendable {
     /// An agent input a `browser.page.*` command made in tab `tabID`, after
     /// it ran: the app draws its agent cursor there. The default does nothing.
     func announce(_ input: BrowserPageAgentInput, tabID: String) async
+
+    /// The downloads `query` names. A list answers `{"downloads": [row]}`, oldest first; a wait answers
+    /// `{"download": row}` once a matching download ends, `timeout` when none ends in time. A row:
+    /// `id`, `filename`, `status`, `url`, `path`, `tab`, `received`, `total`. The default has no downloads.
+    func downloads(_ query: BrowserPageDownloadQuery) async throws -> JSONValue
 }
 
 extension BrowserPageEngine {
     public func announce(_ input: BrowserPageAgentInput, tabID: String) async {}
+
+    public func downloads(_ query: BrowserPageDownloadQuery) async throws -> JSONValue {
+        throw ControlError(code: "unsupported", message: ControlStrings.text("control.error.downloadsUnsupported",
+                                                                              "This app keeps no browser downloads"))
+    }
 }

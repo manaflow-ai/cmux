@@ -489,6 +489,8 @@ final class AppServices {
                                                                           profile: profile.map(BrowserProfileRecord.wireID(for:)))
         }
         cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
+        // A Chromium page's file chooser that reaches the app with no agent offer asks with the same panel WebKit tabs use.
+        cache.cef.fileInput = openPanel
         cache.browserTabs.isIncognitoTab = { [weak self] key in
             guard let self, let workspace = workspaceID(ofTab: key) else { return false }
             return windows.isIncognito(workspace: workspace)

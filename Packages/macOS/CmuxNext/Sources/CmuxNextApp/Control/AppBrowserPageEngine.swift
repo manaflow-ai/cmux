@@ -9,6 +9,10 @@ nonisolated struct AppBrowserPageEngine: BrowserPageEngine {
         try await AppBrowserPage.run(operation, tabID: tabID, services: services)
     }
 
+    func downloads(_ query: BrowserPageDownloadQuery) async throws -> JSONValue {
+        try await AppBrowserDownloads.answer(query, services: services)
+    }
+
     func announce(_ input: BrowserPageAgentInput, tabID: String) async {
         await MainActor.run { services.browserHost?.pageInputCursor.publish(input, tabID: tabID) }
     }

@@ -185,16 +185,27 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
             params.insert("target".into(), json!(target));
             "browser.page.drag"
         }
-        ("upload", [selector, files @ ..]) if !files.is_empty() => {
+        // `upload SELECTOR FILE… [--timeout-ms N]`: the app clicks SELECTOR and answers the page's file
+        // chooser with the files (N: how long the chooser may take to open, default 3 s).
+        ("upload", _) => {
+            let (words, options) = words_and_options(rest, &["timeout-ms"], &[])?;
+            let [selector, files @ ..] = words.as_slice() else { return Err(usage()) };
+            if files.is_empty() {
+                return Err(usage());
+            }
             params.insert("selector".into(), json!(selector));
-            let cwd = std::env::current_dir().unwrap_or_default();
-            let files: Vec<String> = files
-                .iter()
-                .map(|file| cwd.join(file.as_str()).to_string_lossy().into_owned())
-                .collect();
+            let files: Vec<String> = files.iter().map(|file| absolute(file)).collect();
             params.insert("files".into(), json!(files));
+            if let Some(ms) = options.value("timeout-ms") {
+                let ms: u64 = ms.parse().map_err(|_| usage())?;
+                params.insert("timeout_ms".into(), json!(ms));
+                timeout = READ_TIMEOUT + Duration::from_millis(ms);
+            }
             "browser.page.upload"
         }
+        // `download list [--limit N]`, `download [wait] [--id ID] [--path P] [--timeout-ms N]` (the old
+        // CLI's verbs): the app's downloads, this tab's (`page`: every tab's).
+        ("download" | "downloads", _) => download(rest, &mut params, &mut timeout).ok_or_else(usage)??,
         ("cookies", _) => cookies(rest, &mut params).ok_or_else(usage)??,
         ("storage", _) => storage(rest, &mut params).ok_or_else(usage)?,
         _ => return Err(usage()),
@@ -218,6 +229,9 @@ pub(super) fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, Us
         "scroll",
         "cookies",
         "storage",
+        "upload",
+        "download",
+        "downloads",
     ];
     if !flagged.contains(&verb.as_str()) && words.len() != rest.len() {
         return Err(usage());
@@ -490,6 +504,58 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
             result["path"] = json!(path);
             super::super::wire::print_local_success(&result, output)
         }
+    }
+}
+
+/// `path` against the working directory: the app resolves no relative path.
+fn absolute(path: &str) -> String {
+    std::env::current_dir().unwrap_or_default().join(path).to_string_lossy().into_owned()
+}
+
+/// A download wait's own default (the app's `browser.page.download.wait`).
+const DEFAULT_DOWNLOAD_WAIT_MS: u64 = 30_000;
+
+/// `download list [--limit N]` and `download [wait] [--id ID] [--path P] [--timeout-ms N]`. None is a
+/// usage error.
+fn download(
+    args: &[String],
+    params: &mut Map<String, Value>,
+    timeout: &mut Duration,
+) -> Option<Result<&'static str, UsageError>> {
+    let (words, options) =
+        match words_and_options(args, &["limit", "id", "path", "timeout-ms"], &[]) {
+            Ok(parsed) => parsed,
+            Err(error) => return Some(Err(error)),
+        };
+    match words.as_slice() {
+        [list] if list == "list" || list == "ls" => {
+            if ["id", "path", "timeout-ms"].iter().any(|flag| options.value(flag).is_some()) {
+                return None;
+            }
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(limit.parse::<u32>().ok()?));
+            }
+            Some(Ok("browser.page.downloads"))
+        }
+        [] | [_] if words.first().is_none_or(|word| word == "wait") => {
+            if options.value("limit").is_some() {
+                return None;
+            }
+            if let Some(id) = options.value("id") {
+                params.insert("id".into(), json!(id));
+            }
+            if let Some(path) = options.value("path") {
+                params.insert("path".into(), json!(absolute(path)));
+            }
+            let ms = match options.value("timeout-ms") {
+                Some(ms) => ms.parse::<u64>().ok()?,
+                None => DEFAULT_DOWNLOAD_WAIT_MS,
+            };
+            params.insert("timeout_ms".into(), json!(ms));
+            *timeout = Duration::from_millis(ms) + WAIT_MARGIN;
+            Some(Ok("browser.page.download.wait"))
+        }
+        _ => None,
     }
 }
 

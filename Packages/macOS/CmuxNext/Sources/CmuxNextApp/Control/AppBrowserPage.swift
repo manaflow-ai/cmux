@@ -94,6 +94,9 @@ enum AppBrowserPage {
             // Trusted input after the page's first load, as a script acts on the loaded document.
             _ = await awaitPendingNavigation(page, within: actionWait)
             return try await services.browserNativeInputs.deliver(input, to: page, key: tabID)
+        case .upload(let upload):
+            _ = await awaitPendingNavigation(page, within: actionWait)
+            return try await self.upload(upload, page: page)
         }
         return [:]
     }
@@ -107,7 +110,7 @@ enum AppBrowserPage {
     /// ``BrowserNativeInputs``; navigation and `state` do not need it.
     static func needsLiveBrowser(_ operation: BrowserPageOperation) -> Bool {
         switch operation {
-        case .evaluate, .evaluateAsync, .screenshot, .cookies: true
+        case .evaluate, .evaluateAsync, .screenshot, .cookies, .upload: true
         case .navigate, .back, .forward, .reload, .state, .input: false
         }
     }
