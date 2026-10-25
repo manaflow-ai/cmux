@@ -41,6 +41,8 @@ fn hub() -> Arc<Hub> {
             "lax": {"argv": ["python3", FAKE], "family": "lax", "env": {"FAKE_FULL_ACCESS": "1"}},
             // The starter's family, with a session/new that takes a while.
             "slow": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_FULL_ACCESS": "1", "FAKE_NEW_DELAY_MS": "1500"}},
+            // The starter's family, with mode changes that take a while.
+            "sticky": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "2000"}},
         },
         "defaults": {"lax": {"policy": "approve-all"}},
         "defaultHarness": "fake",
@@ -363,4 +365,28 @@ async fn a_starter_that_narrows_while_its_child_starts_holds_the_child_to_it() {
     let (mode, policy) = app.level(&child).await;
     assert_eq!(policy, json!("ask"), "the starter's policy now");
     assert_ne!(mode, "full-access", "not the starter's earlier full access");
+}
+
+/// A starter that narrows again while its child is being held to it: the hold reads the starter
+/// once more and holds the child to that, so the child never ends wider than the starter is.
+#[tokio::test]
+async fn a_starter_that_narrows_during_the_hold_holds_the_child_to_it() {
+    let hub = hub();
+    let mut app = Client::new(&hub);
+    let parent = starter(&mut app, Some("approve-all"), Some("full-access")).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    // The child's first mode change (to the starter's full access) takes 2 s, then its hold
+    // moves it to `strict` (another 2 s).
+    let start = tokio::spawn(async move {
+        agent.ok("session/new", new_params(json!({"harness": "sticky"}))).await
+    });
+    tokio::time::sleep(Duration::from_millis(1000)).await;
+    app.prompt(&parent, "set-mode: strict").await;
+    // While the hold moves the child's harness, the starter's policy narrows too.
+    tokio::time::sleep(Duration::from_millis(2500)).await;
+    app.ok("_acpmux/set_policy", json!({"sessionId": parent, "policy": "ask"})).await;
+    let child = id(&start.await.unwrap());
+    let (mode, policy) = app.level(&child).await;
+    assert_eq!(policy, json!("ask"), "the starter's policy at the end of the hold");
+    assert_eq!(mode, "strict");
 }
