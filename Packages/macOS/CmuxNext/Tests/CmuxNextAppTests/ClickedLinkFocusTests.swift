@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextPages
 import CmuxNextTabs
 import Foundation
 import Testing
@@ -120,6 +121,41 @@ struct ClickedLinkFocusTests {
                                             report: { Self.describe(content, opened) })
             let after = Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id))
             #expect(after.subtracting(before).isEmpty, "the second click opened another tab of the same page: \(after.subtracting(before))")
+        }
+    }
+
+    /// A chip clicked in an agent chat goes through ``LinkRouter`` (the page's link navigation), not
+    /// the card's Open: clicked again, it too selects the tab the pane on the right has for the page.
+    /// The dogfood of the first fix found this path still opening a tab per click.
+    @Test func aChatChipClickedAgainSelectsItsTabOnTheRight() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let right = try await Self.splitRight(services, content)
+            try await PinnedPageTests.until({ Self.page(in: pane.view) != nil }, report: { "the source pane shows no agent page" })
+            let chat = try #require(pane.currentTabKey)
+            #expect(services.agentTabs.isAgentTab(chat), "the source tab is not an agent chat")
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            services.linkOpener.placement = { .splitRight }
+            let tabs = { Set(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).map(\.id)) }
+
+            let before = tabs()
+            LinkRouter.shared.openInCmux(Self.link, false, chat)
+            let opened = { tabs().subtracting(before).first { !ProvisionalTab.isProvisional($0) } }
+            try await PinnedPageTests.until({ opened().map { id in right.pane.tabs.contains { $0.id == id } && Self.shownURL(services, id) != nil } == true },
+                                            report: { "the chip's tab is not on the right with its page" })
+            let first = try #require(opened())
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+
+            let again = tabs()
+            LinkRouter.shared.openInCmux(Self.link, false, chat)
+            try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == first },
+                                            report: { Self.describe(content, first) })
+            #expect(tabs().subtracting(again).isEmpty, "the second chip click opened another tab of the same page: \(tabs().subtracting(again))")
         }
     }
 
