@@ -89,7 +89,7 @@ class Terminal:
     """A counter in one terminal of the tag's cmux-tui session."""
 
     COUNTER = ("$|=1; use Time::HiRes qw(time); while (1) { open(my $f, '>>', $ARGV[0]) or die; "
-               "printf $f \"%.3f\\n\", time; close $f; select(undef, undef, undef, 0.1) }")
+               "printf $f \"%.3f %d\\n\", time, $$; close $f; select(undef, undef, undef, 0.1) }")
 
     def __init__(self, app, work, log, session):
         # The app's own session (`cmux-app-<tag slug>`); Chief sessions run beside it.
@@ -152,15 +152,14 @@ class Terminal:
             return str(error)
 
     def process_pid(self):
-        """The counter's pid: the terminal's foreground process."""
-        shown = json.loads(self.run("terminal", self.term, "process", "show"))
-        text = json.dumps(shown)
-        pids = [int(p) for p in re.findall(r'"(?:foreground_)?pid"\s*:\s*(\d+)', text)]
-        return pids[0] if pids else None
+        """The counter records its own PID; the terminal API may name only its shell."""
+        with open(self.file) as f:
+            rows = [line.split() for line in f if line.strip()]
+        return int(rows[-1][1]) if rows else None
 
     def samples(self):
         with open(self.file) as f:
-            return [float(line) for line in f if line.strip()]
+            return [float(line.split()[0]) for line in f if line.strip()]
 
     def check(self, root, click_unix, relaunched_unix, handoff=True):
         """After the relaunch: the same terminal, the same process, counting through the swap."""
