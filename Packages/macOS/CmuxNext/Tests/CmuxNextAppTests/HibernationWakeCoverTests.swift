@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A woken tab must look instant (Chrome's Memory Saver reloads on show; cmux keeps the last frame).
 /// A hibernated tab showed its picture only until its page was recreated: the live page then took

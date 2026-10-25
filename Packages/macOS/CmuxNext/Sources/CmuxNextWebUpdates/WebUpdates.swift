@@ -40,11 +40,9 @@ public final class WebUpdates {
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     @ObservationIgnored private var started = false
 
-    /// NIGHTLY bundles only (`com.cmuxterm.app.nightly[.<tag>]`): Debug builds keep a developer's
-    /// own web, and Release and RC builds the web they were built with.
-    static func isAvailable(bundleID: String?) -> Bool {
-        guard let bundle = bundleID else { return false }
-        return bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.")
+    /// NIGHTLY bundles and the tip app only (``WebUpdater/takesUpdates(_:)``).
+    static func isAvailable(_ bundle: Bundle) -> Bool {
+        WebUpdater.takesUpdates(UpdateBuildIdentity(infoDictionary: bundle.infoDictionary ?? [:]))
     }
 
     /// Starts the launch check with the launch settings before any restored or prewarmed page can
@@ -59,7 +57,7 @@ public final class WebUpdates {
     private func start(bundle: Bundle, settings: UpdatesSettings? = nil) {
         guard !started else { return }
         started = true
-        guard Self.isAvailable(bundleID: bundle.bundleIdentifier),
+        guard Self.isAvailable(bundle),
               let pages = WebBundleOverlay.bundledPages,
               let app = WebUpdater.App.bundled(pages: pages, infoPlist: bundle.bundleURL.appending(path: "Contents/Info.plist")),
               let store = WebUpdateStore.standard(bundleIdentifier: bundle.bundleIdentifier)

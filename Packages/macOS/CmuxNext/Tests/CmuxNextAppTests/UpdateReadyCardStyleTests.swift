@@ -7,6 +7,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
 /// switch in front of its label (Debug Settings brings the checkbox back), Restart to Update is

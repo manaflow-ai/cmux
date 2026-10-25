@@ -98,6 +98,10 @@ CASES = {
                     "    registry.bind(\"renamePane\", invoke: { _ in ctx.send(\"rename-pane\") { try await $0.rename() } })\n}\n",
                     "func bind(_ registry: ActionRegistry) {\n"
                     "    registry.bind(\"renamePane\", effect: { _ in daemon.intentEffect(\"rename-pane\", intent) { try await $0.rename() } })\n}\n"),
+    "appkit-index": ("@objc func clicked() {\n    guard let item = browser.item(atRow: browser.clickedRow, inColumn: browser.clickedColumn) else { return }\n}\n",
+                     "@objc func clicked() {\n    guard let item = browser.clickedItemIfValid else { return }\n}\n"),
+    "undo-text-write": ("func build() {\n    textView.allowsUndo = true\n}\n",
+                        "func build() {\n    textView.allowsUndo = true // undo-safe: TextBoxTextView.replaceText\n}\n"),
     "row-store": ("import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n"
                   "    @Environment(SidebarStore.self) private var store\n    var body: some View { Text(title) }\n}\n",
                   "import SwiftUI\nstruct WorkspaceRow: View {\n    let title: String\n    let onSelect: () -> Void\n"

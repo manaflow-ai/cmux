@@ -17,7 +17,7 @@ updates ship that code on its own, signed, minutes after each merge to `feat-cmu
    environment. The job runs no bun or node: only this checkout's scripts touch the key. It never
    moves the pointer back (`web-ota-pointer.py newer`: the published pointer's `committed_at` must
    be older), and it verifies what it uploaded.
-3. **App** (`WebUpdater` in CmuxNextUpdater, `WebUpdates` in CmuxNextWebUpdates): on NIGHTLY bundles only, it
+3. **App** (`WebUpdater` in CmuxNextUpdater, `WebUpdates` in CmuxNextWebUpdates): on NIGHTLY bundles and the tip app only, it
    reads the pointer (a conditional GET: every minute while cmux is in the front, every 10 minutes
    behind other apps, and when it comes to the front a minute or more after the last read), verifies it, downloads and checks the archive, unpacks it into Application
    Support and checks the tree, then serves it from the next safe point.
@@ -108,7 +108,8 @@ Web updates start when the app first reads `updates.*`. From then until the chec
 `nightly` or `off`. Off returns to the bundled web at the next safe point, and at launch it serves
 the bundled web before any page loads. Switching to the other channel returns to the bundled web
 until that channel has an update newer than the last one taken. Only NIGHTLY bundles
-(`com.cmuxterm.app.nightly[.<tag>]`) take web updates: a Debug build keeps the developer's own web,
+(`com.cmuxterm.app.nightly[.<tag>]`) and the tip app (cmux NEXT DEV with the tip feed stamped in,
+`UpdateBuildIdentity.isTipBuild`) take web updates: another Debug or DEV build keeps the developer's own web,
 and Release and RC builds the web they were built with. Downloads follow `updates.meteredNetwork`
 (Low Data Mode and expensive links through `URLRequest`). A failed download is tried again at the
 next check: the pointer's ETag is kept only once it was taken or refused for good.

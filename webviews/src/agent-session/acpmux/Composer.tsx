@@ -450,7 +450,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, spellChecking, escapeDoublePress } = useComposerSettings();
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -1587,6 +1587,7 @@ export function Composer({
                 : mentionAt && mentionSelected >= 0
                   ? `acpmux-mention-${mentionSelected}`
                   : undefined,
+            spellcheck: String(spellChecking),
           },
           onBeforeInput: stablePromptCallbacks.onBeforeInput,
           onChange: stablePromptCallbacks.onChange,
@@ -1620,7 +1621,7 @@ export function Composer({
                 value={shellText}
                 aria-label={t("composer.shell")}
                 placeholder={t("composer.shellPlaceholder")}
-                spellCheck={false}
+                spellCheck={spellChecking}
                 autoCapitalize="off"
                 autoCorrect="off"
                 onChange={(event) => setShellText(event.target.value)}
