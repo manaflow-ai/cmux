@@ -185,14 +185,7 @@ function panel(done: number, running = 2) {
     ...base,
     sessions: [
       ...base.sessions,
-      child(
-        "child-infra",
-        "claude-sr2/fanout-infra",
-        6,
-        true,
-        INFRA_DOING,
-        INFRA_DOING,
-      ),
+      child("child-infra", "claude-sr2/fanout-infra", 6, true, INFRA_DOING, INFRA_DOING),
       child(
         "child-card",
         "claude-sr2/subsession-card",
