@@ -2144,8 +2144,10 @@ fi
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${PRODUCT_APP_NAME}"
   # A startup process may not service its quit request yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; the helper forces only
-  # this tag's executables after a bounded graceful window.
+  # resource-bearing bundle while it is still mapped: the helper waits for the
+  # clean quit (it saves sessions and agent wake states), sends a second
+  # SIGTERM (the app's force exit) after a bounded window, never SIGKILLs, and
+  # fails (stopping this script under set -e) when the app is still running.
   cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" \
     "${XCODEBUILD_SOURCE_APP_PATH:+$XCODEBUILD_SOURCE_APP_PATH/Contents/MacOS/${PRODUCT_APP_NAME}}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
