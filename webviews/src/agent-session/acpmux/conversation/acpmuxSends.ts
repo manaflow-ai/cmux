@@ -412,8 +412,7 @@ function afterOptions(words: ShellWord[], runner: Runner, assignments = false): 
       // A value that looks like an option is a missing value: the runner refuses the line.
       if (!text.includes("=") && (words[index + 1]?.text ?? "-").startsWith("-")) return undefined;
       index += text.includes("=") ? 1 : 2;
-    }
-    else if (text.startsWith("-") && (text.length > 1 || assignments)) {
+    } else if (text.startsWith("-") && (text.length > 1 || assignments)) {
       if (!runner.flags.test(text)) return undefined;
       index += 1;
     } else break;
