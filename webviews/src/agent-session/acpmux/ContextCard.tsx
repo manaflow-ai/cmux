@@ -44,7 +44,7 @@ type CompactBreakdownRow = { name: string; tokens: number; share: number; tone: 
 export function compactBreakdownRows(breakdown: Breakdown): CompactBreakdownRow[] {
   const used = breakdown.rows.filter((row) => row.kind === "used");
   const grouped: Array<{ name: string; rows: BreakdownRow[] }> = [
-    { name: used.find((row) => /message/i.test(row.name))?.name ?? "Messages", rows: used.filter((row) => /message/i.test(row.name)) },
+    { name: "Messages", rows: used.filter((row) => /message/i.test(row.name)) },
     { name: "Tools", rows: used.filter((row) => /tool/i.test(row.name)) },
     {
       name: "System",
@@ -123,7 +123,7 @@ export function ContextCardBody({
                 {row.name === "Tools"
                   ? t("chatInspector.context.mcpTools")
                   : row.name === "System"
-                    ? t("chatInspector.context.memoryFiles")
+                    ? t("context.setup")
                     : row.name}
               </span>
               <span className="acpmux-context-card-part-tokens">{tokens.format(row.tokens)}</span>

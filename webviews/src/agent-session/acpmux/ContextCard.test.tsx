@@ -150,7 +150,7 @@ test("reported breakdowns stay to Messages, Tools and System rows", async () => 
     expect.arrayContaining([
       expect.stringMatching(/^Messages\s*92K$/),
       expect.stringMatching(/MCP tools\s*29\.4K$/),
-      expect.stringMatching(/Memory files\s*10K$/),
+      expect.stringMatching(/Agent setup\s*10K$/),
     ]),
   );
   expect(rows).toHaveLength(3);
