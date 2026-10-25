@@ -1,3 +1,4 @@
+import CryptoKit
 public import Foundation
 import os
 
@@ -52,6 +53,10 @@ public actor CloudTunnelHub {
     /// The hub's client token: one per app launch, held only in memory and handed to every hub
     /// this launch starts, so a restarted hub still accepts the links that already have it.
     private let clientToken = CloudTunnelHub.makeClientToken()
+    /// This Mac's WireGuard key: made per app launch and held only in memory. Each start enrolls its
+    /// public key (`POST /api/vm/tunnel` rotates the device's peer to it), so the key is never on
+    /// disk for another program to copy into a second tunnel, and an old copy stops working.
+    private let key = Curve25519.KeyAgreement.PrivateKey()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.hub")
 
     /// 32 bytes from the system's cryptographic generator, hex encoded.
@@ -124,7 +129,6 @@ public actor CloudTunnelHub {
     private func start(generation: UInt64) async throws -> CloudHubEndpoint {
         terminateChild()
         try paths.prepare()
-        let key = try paths.loadOrCreateKey()
         let request = CloudTunnelEnrollment.Request(
             clientPublicKey: key.publicKey.rawRepresentation.base64EncodedString(),
             deviceID: try paths.loadOrCreateDeviceID(),

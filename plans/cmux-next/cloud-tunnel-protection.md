@@ -59,11 +59,13 @@ stdin, nothing on disk).
 
 ## What is left
 
-- The private key file itself (`cloud-next/wireguard.private.key`, `0600`) is still
-  plaintext, as in classic. Moving it into the Keychain needs a keychain
-  access group, which next-dev (Developer ID without a provisioning profile)
-  does not have; the legacy file keychain would prompt after every re-signed
-  dev build. Recommended once next ships with a profile.
+- 2026-10-25: the WireGuard key is now per app launch and only in memory
+  (`CloudTunnelHub.key`); each start enrolls its public key, and the server
+  rotates the device's peer to it, so an old key file stops working. Found
+  live: a Chief subagent had read `cloud-next/wireguard.private.key`, started a
+  second hub on it and a `127.0.0.1:16901` bridge; the two hubs knocked each
+  other's session off and the desktop's mouse froze. The Keychain is no
+  longer needed for this.
 - A same-user program without the token can still hold the hub's 256
   connection slots open for the 10-second handshake deadline and so delay the
   app's own dials (denial of service, not access). A program that can do that
@@ -81,6 +83,6 @@ Recommend: require the per-launch client token for every app-started hub
 (shipped here), keep the hub the only way into a VM for app panes, and do
 not add a system-wide VPN to next until there is a user need for VM access
 from programs outside cmux. If that need comes, ship it as the classic
-opt-in `cmux vpn up` routing only the account's VPC CIDRs. Move the WireGuard
-key into the Keychain (this device only) when next has a provisioning
-profile.
+opt-in `cmux vpn up` routing only the account's VPC CIDRs. Keep the WireGuard
+key per launch and in memory only (shipped here), so no program on the Mac
+can reuse it.

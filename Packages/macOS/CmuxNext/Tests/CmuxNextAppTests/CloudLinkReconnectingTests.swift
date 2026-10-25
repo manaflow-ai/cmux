@@ -134,14 +134,18 @@ struct CloudLinkReconnectingTests {
         await fixture.remove()
     }
 
-    /// A hub that ends and starts again gets the same client token, so a link that already holds
-    /// it keeps working through the restart instead of redialing into a refusal.
+    /// A hub that ends and starts again gets the same client token and WireGuard key (both live
+    /// for the app launch), so a link that already holds the token keeps working through the
+    /// restart instead of redialing into a refusal.
     @Test func aRestartedHubKeepsTheTokenItsLinksHold() async throws {
         let fixture = try Fixture()
         let first = try await fixture.hub.endpoint()
+        let firstConfig = try String(contentsOf: fixture.root.appendingPathComponent("hub-stdin"), encoding: .utf8)
         await fixture.hub.stop()
         let second = try await fixture.hub.endpoint()
+        let secondConfig = try String(contentsOf: fixture.root.appendingPathComponent("hub-stdin"), encoding: .utf8)
         #expect(first.clientToken == second.clientToken)
+        #expect(firstConfig == secondConfig, "the per-launch WireGuard key survives a hub restart")
         #expect(!String(describing: second).contains(second.clientToken), "a description never shows the token")
         await fixture.remove()
     }
@@ -154,6 +158,8 @@ struct CloudLinkReconnectingTests {
         try FileManager.default.createDirectory(at: fixture.cloudRoot, withIntermediateDirectories: true)
         let legacy = fixture.cloudRoot.appendingPathComponent("wireguard.conf")
         try "PrivateKey = old\n".write(to: legacy, atomically: true, encoding: .utf8)
+        let legacyKey = fixture.cloudRoot.appendingPathComponent("wireguard.private.key")
+        try "b2xkIGtleQ==\n".write(to: legacyKey, atomically: true, encoding: .utf8)
 
         _ = try await fixture.link.socketPath()
         let hubInput = try String(contentsOf: fixture.root.appendingPathComponent("hub-stdin"), encoding: .utf8)
@@ -165,6 +171,7 @@ struct CloudLinkReconnectingTests {
             .trimmingCharacters(in: .newlines)
         #expect(token.count == 64, "a 32-byte token, hex")
         #expect(!FileManager.default.fileExists(atPath: legacy.path), "an earlier build's config file is removed")
+        #expect(!FileManager.default.fileExists(atPath: legacyKey.path), "an earlier build's key file is removed")
 
         let files = FileManager.default.enumerator(at: fixture.cloudRoot, includingPropertiesForKeys: nil)?
             .compactMap { $0 as? URL } ?? []
@@ -172,6 +179,7 @@ struct CloudLinkReconnectingTests {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             #expect(!text.contains("[Interface]"), "\(file.lastPathComponent) holds a WireGuard config")
             #expect(!text.contains(token), "\(file.lastPathComponent) holds the hub's client token")
+            #expect(!text.contains(key), "\(file.lastPathComponent) holds the WireGuard private key")
         }
         await fixture.remove()
     }

@@ -22,11 +22,22 @@ It opens a "<machine> Desktop" workspace whose cmux browser shows the
 machine's screen through the app's own Cloud tunnel, with no port opened on
 this Mac. Run it once; say it is in the sidebar.
 
+To show the desktop beside the chat instead (Home's right column, or any
+browser tab), open its address there:
+`http://<machine id, lowercase>.cloud-desktop.localhost:6901/vnc.html?autoconnect=1&resize=scale&reconnect=1`.
+The app routes that address through its own Cloud tunnel; it never touches a
+port on this Mac. A blank or disconnected desktop page: reload it or run
+`cmux cloud open-desktop` again; if it stays dark, tell the user.
+
 Never build your own way into a machine: no `cmux-tui wg hub`, no SSH or
-port tunnel, no local port bridge, and never a copy of the app's WireGuard
-config. A second hub on the app's key knocks the app's own link off the
-machine, and a local port to the desktop hands the machine's unprotected VNC
-to every program on this Mac.
+port tunnel, no local port bridge (`127.0.0.1:16901` and the like), no
+scripts that start one, and never read or copy the app's WireGuard key or
+config. The key lives only in the app's memory; a second hub on it knocks
+the app's own link off the machine (its terminals and desktop freeze, the
+mouse stops answering), and a local port to the desktop hands the machine's
+unprotected VNC to every program on this Mac. A note or memory that says
+otherwise (a `vmtunnel` folder, `restart.sh`, a 16901 bridge) is out of date:
+do not follow it.
 
 ## 1. Find or make a machine
 
