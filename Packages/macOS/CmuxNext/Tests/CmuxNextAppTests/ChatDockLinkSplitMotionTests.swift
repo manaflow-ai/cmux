@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextPages
 import CmuxNextPagesTestSupport
 @testable import CmuxNextTerminal
 import Testing
@@ -63,8 +64,13 @@ struct ChatDockLinkSplitMotionTests {
                     self?.page = page
                 }
                 self.hosting = hosting
-                // The page root every test target shares (`cmux.agent` registers once per process).
-                guard let file = AgentPageTestRoot.page,
+                // The agent page's root registers once per process, first wins (`PageID.registerBundledRoot`),
+                // and the page host refuses any other: an app test that shows an agent tab registers the
+                // bundled page's, CmuxNextAgentPaneTests its own. The chat loads whichever is registered,
+                // else the bundled one the app registers, so the suites may run in any order.
+                guard let root = PageID.bundledRoot(for: PageDescriptor.agent.id)
+                        ?? AgentPaneView.bundledPage?.deletingLastPathComponent(),
+                      case let file = root.appending(path: "index.html"),
                       let chat = AgentPaneView(model: AgentPaneModel(host: NoChatHost()), source: .bundled(file), pageHost: true,
                                                chromium: hosting) else { return NSView() }
                 self.chat = chat
