@@ -424,17 +424,29 @@ pub(crate) async fn stream_prompt(
         .with_session(id)
         .into());
     }
+    // A steer's reply is the reply of the turn it went into, from the log: the stream may have
+    // missed it (a resend after that turn ended, dropped events).
+    let streamed = t.items.iter().rev().find_map(|i| match i {
+        Item::Assistant { text } => Some(text.clone()),
+        _ => None,
+    });
+    let logged = match (steered.turn(), &result) {
+        (Some(turn), Ok(_)) => Some(turn_reply(&client, id, turn).await?),
+        _ => None,
+    };
     match result {
         Ok(v) => {
             if quiet {
-                if let Some(Item::Assistant { text }) =
-                    t.items.iter().rev().find(|i| matches!(i, Item::Assistant { .. }))
-                {
+                if let Some(text) = logged.or(streamed) {
                     println!("{text}");
                 }
             } else if json_out {
                 print_json(&v);
             } else {
+                // What the stream missed of it.
+                if let Some(text) = logged.filter(|l| !l.is_empty() && Some(l) != streamed.as_ref()) {
+                    println!("\n{text}");
+                }
                 let stop = v.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn");
                 if stop != "end_turn" {
                     eprintln!("\n\x1b[2m[{stop}]\x1b[0m");

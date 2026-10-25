@@ -13,8 +13,8 @@
 //! same `--prompt-id` answered with the first run's `steered`), the daemon dropped events for a
 //! slow reader (`_acpmux/lagged`), or a peer went away. So beside the events the send asks the
 //! daemon itself (`wait_end`): it reads the turn's end from the log if the turn no longer runs,
-//! else blocks in `_acpmux/wait` (server side, never dropped) until the session is ready or
-//! closed, and reads it then. An error of either is the send's error.
+//! else blocks in `_acpmux/wait` (server side, never dropped) until that turn ended. An error of
+//! either is the send's error.
 
 use crate::client::Client;
 use crate::rpc::method;
@@ -110,34 +110,63 @@ impl SteerReply {
     }
 }
 
-/// The end of turn `turn` of session `id`, from the daemon rather than the events: at once when
-/// the turn no longer runs, else once `_acpmux/wait` says the session is ready or closed. A
-/// session that is ready or closed with no end of that turn in its log is an error, as is a
-/// failed request: the send never waits on a turn nobody can see end.
+/// The end of turn `turn` of session `id`, from the daemon rather than the events. While the
+/// turn runs, `_acpmux/wait` (server side, never dropped) blocks until it ended
+/// (`turnEnded`, `server/wait.rs`), and the session's `lastTurn` gives the end; a turn that no
+/// longer runs has its end in the log. A failed request, a session on a machine that is
+/// unreachable, and a session that ended with no end of that turn are errors: the send never
+/// waits on a turn nobody can see end.
 pub(crate) async fn wait_end(client: Arc<Client>, id: String, turn: String) -> Result<Value> {
-    if let Some(end) = settled(&client, &id, &turn).await? {
-        return end;
-    }
-    let wait = json!({"sessions": [id], "until": ["ready", "closed"]});
-    let resolved = client.request(method::MUX_WAIT, wait).await?;
-    if let Some(end) = settled(&client, &id, &turn).await? {
-        return end;
-    }
-    let status = resolved.pointer("/resolved/0/status").and_then(Value::as_str);
-    Err(anyhow!(
-        "the session is {} and its log has no end of the turn the message steered into (acpmux last {id})",
-        status.unwrap_or("ready")
-    ))
-}
-
-/// The end of turn `turn` of session `id` when it no longer runs, read from the session's log;
-/// `None` while it runs, or while its end is still being written.
-async fn settled(client: &Arc<Client>, id: &str, turn: &str) -> Result<Option<Result<Value>>> {
     let info = json!({"sessionId": id, "waitLogs": false});
     let info = client.request(method::MUX_INFO, info).await?;
-    if info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn) {
-        return Ok(None);
+    if info.get("stale").and_then(Value::as_bool) == Some(true) {
+        return Err(anyhow!("the machine of {id} is unreachable; the turn it steered into may run on"));
     }
+    let running = info.pointer("/turn/turnId").and_then(Value::as_str) == Some(turn.as_str());
+    if !running && let Some(end) = logged_end(&client, &id, &turn).await? {
+        return end;
+    }
+    // Running: it ends at or after its start. Gone but not in the log yet: its end is being
+    // written, and `lastTurn` names it shortly; that wait is bounded.
+    let started_at = info.pointer("/turn/startedAt").and_then(Value::as_u64).filter(|_| running);
+    let mut wait = json!({
+        "sessions": [id],
+        "until": ["ready", "closed"],
+        "turnEnded": {"turnId": turn, "startedAt": started_at.unwrap_or(u64::MAX)},
+    });
+    if !running {
+        wait["timeoutMs"] = json!(WRITING_END_MS);
+    }
+    let resolved = client.request(method::MUX_WAIT, wait).await?;
+    let row = resolved.pointer("/resolved/0").cloned().unwrap_or(Value::Null);
+    if let Some(end) = last_turn_end(&row, &turn) {
+        return end;
+    }
+    if let Some(end) = logged_end(&client, &id, &turn).await? {
+        return end;
+    }
+    let status = row.get("status").and_then(Value::as_str).unwrap_or("ended");
+    Err(anyhow!("{id} is {status} with no end of the turn the message steered into (acpmux last {id})"))
+}
+
+/// How long a turn that no longer runs may take to record its end.
+const WRITING_END_MS: u64 = 30_000;
+
+/// Turn `turn`'s end as a session row's `lastTurn` gives it, when it is that turn's.
+fn last_turn_end(row: &Value, turn: &str) -> Option<Result<Value>> {
+    let last = row.get("lastTurn").filter(|t| t.get("turnId").and_then(Value::as_str) == Some(turn))?;
+    let msg = json!({
+        "turnId": turn,
+        "status": last.get("status"),
+        "stopReason": last.get("stopReason"),
+        "error": last.get("errorText"),
+    });
+    turn_end(method::MUX_EVENT, &json!({"dir": "mux", "kind": "turn_result", "msg": msg}))
+        .map(|(_, end)| end)
+}
+
+/// Turn `turn`'s end in session `id`'s log, if it is there.
+async fn logged_end(client: &Arc<Client>, id: &str, turn: &str) -> Result<Option<Result<Value>>> {
     let query = json!({"sessionId": id, "limit": 2000, "kinds": ["turn_result"]});
     let events = crate::cli::output::with_older(client, query).await?;
     let of_turn = |e: &Value| turn_end(method::MUX_EVENT, e).filter(|(t, _)| t == turn);
@@ -244,6 +273,18 @@ mod tests {
         started.heard(method::MUX_EVENT, &own);
         assert!(!started.in_another_turn(), "a steer to an idle session started its own turn");
         assert!(!SteerReply::new("p1", false).in_another_turn(), "never sent as a steer");
+    }
+
+    #[test]
+    fn a_rows_last_turn_gives_its_end_only_when_it_is_that_turn() {
+        let row = |last: Value| json!({"sessionId": "s", "lastTurn": last});
+        let done = row(json!({"turnId": "t1", "status": "completed", "stopReason": "end_turn"}));
+        assert_eq!(last_turn_end(&done, "t1").unwrap().unwrap()["stopReason"], "end_turn");
+        assert!(last_turn_end(&done, "t2").is_none(), "another turn's");
+        let failed = row(json!({"turnId": "t1", "status": "failed", "errorText": "agent process closed"}));
+        let e = last_turn_end(&failed, "t1").unwrap().unwrap_err();
+        assert_eq!(e.to_string(), "agent process closed");
+        assert!(last_turn_end(&json!({"sessionId": "s", "lastTurn": null}), "t1").is_none());
     }
 
     #[test]
