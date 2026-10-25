@@ -1242,7 +1242,7 @@ function measuredRowHeight(
   // Summing attachment slots is intentionally conservative when text and a file share a line;
   // underestimating would make virtual scrolling jump as thumbnails decode.
   const inline = row.inlineParts;
-  if (row.kind === "user" && inline?.length) {
+  if (row.kind === "user" && inline?.some((part) => part.kind !== "text")) {
     let inlineHeight = 0;
     const { lineHeight } = metrics();
     const inlineWidth = Math.max(80, USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES);

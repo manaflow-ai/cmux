@@ -10,6 +10,8 @@ export type ComposerAttachment = {
   id: string;
   /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
   kind: "image" | "text" | "document" | "link" | "audio" | "pasted";
+  /** Placed in the draft by the composer: its INLINE_ATTACHMENT_MARK is in the text, in order. */
+  inline?: boolean;
   name: string;
   mimeType: string;
   size: number;
@@ -46,6 +48,14 @@ export type PromptBlock =
 
 /** The replacement character stored in the editor for one inline attachment. */
 export const INLINE_ATTACHMENT_MARK = "\uFFFC";
+
+/** Whether `input`'s marks are the composer's: one per inline attachment, in order. Otherwise every
+ * U+FFFC is the person's own text (a pasted object character), kept as written. */
+export function hasInlineMarks(input: string, chips: readonly ComposerAttachment[]): boolean {
+  const inline = chips.filter((attachment) => attachment.inline).length;
+  if (!inline || !input.includes(INLINE_ATTACHMENT_MARK)) return false;
+  return input.split(INLINE_ATTACHMENT_MARK).length - 1 === inline;
+}
 
 export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
@@ -280,7 +290,7 @@ export function base64(bytes: Uint8Array): string {
 
 /// The prompt's text with each text file appended as a fenced block under its name.
 export function promptText(text: string, attachments: ComposerAttachment[]): string {
-  const visibleText = text.replaceAll(INLINE_ATTACHMENT_MARK, "");
+  const visibleText = hasInlineMarks(text, attachments) ? text.replaceAll(INLINE_ATTACHMENT_MARK, "") : text;
   const files = attachments
     .filter((attachment) => attachment.kind === "text")
     .map((attachment) => {
@@ -302,7 +312,7 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
 /// A `data:` image written into the text goes as an image block, never as text (inlineImages.ts).
 /** The editor's ordered runs. Attachments without a mark remain at the end for old drafts. */
 export function orderedDraftParts(input: string, chips: readonly ComposerAttachment[]): OrderedDraftPart[] {
-  if (!input.includes(INLINE_ATTACHMENT_MARK))
+  if (!hasInlineMarks(input, chips))
     return input
       ? [
           { type: "text", text: input },
@@ -310,18 +320,20 @@ export function orderedDraftParts(input: string, chips: readonly ComposerAttachm
         ]
       : chips.map((attachment): OrderedDraftPart => ({ type: "attachment", attachment }));
   const parts: OrderedDraftPart[] = [];
+  const inline = chips.filter((attachment) => attachment.inline);
   let start = 0;
   let next = 0;
   for (let at = input.indexOf(INLINE_ATTACHMENT_MARK); at >= 0; at = input.indexOf(INLINE_ATTACHMENT_MARK, at + 1)) {
     const text = input.slice(start, at);
     if (text) parts.push({ type: "text", text });
-    const attachment = chips[next++];
+    const attachment = inline[next++];
     if (attachment) parts.push({ type: "attachment", attachment });
     start = at + INLINE_ATTACHMENT_MARK.length;
   }
   const tail = input.slice(start);
   if (tail) parts.push({ type: "text", text: tail });
-  for (const attachment of chips.slice(next)) parts.push({ type: "attachment", attachment });
+  // The attachments not placed in the text (the strip's) go after it, in their order.
+  for (const attachment of chips) if (!attachment.inline) parts.push({ type: "attachment", attachment });
   return parts;
 }
 
@@ -347,7 +359,7 @@ export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] 
 /** ACP content in the same order as the editor. Unmarked legacy drafts keep their old shape. */
 export function promptBlocks(input: string, chips: ComposerAttachment[]): PromptBlock[] {
   const { text, attachments } = liftInlineImages(input, chips);
-  if (!text.includes(INLINE_ATTACHMENT_MARK)) {
+  if (!hasInlineMarks(text, attachments)) {
     const blocks: PromptBlock[] = [];
     const body = promptText(text, attachments);
     if (body) blocks.push({ type: "text", text: body });

@@ -40,6 +40,15 @@ test("ordered prompt estimates reserve inline thumbnail slots before the DOM mou
   expect(twoHeight! - oneHeight!).toBe(124);
 });
 
+// Review (Codex): the daemon records ordered parts for every prompt; a prompt of text alone keeps the
+// plain bubble's estimate (its collapse), not one that lays every word out.
+test("a prompt of text alone estimates as plain text even with ordered parts", () => {
+  const long = "word ".repeat(1000).trim();
+  const plain = { ...prompt("plain"), text: long };
+  const ordered = { ...plain, id: "ordered", inlineParts: [{ kind: "text", text: long }] };
+  expect(heightsOf([ordered])).toEqual(heightsOf([plain]));
+});
+
 test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);

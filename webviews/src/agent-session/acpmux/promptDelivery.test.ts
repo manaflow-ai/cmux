@@ -86,6 +86,7 @@ test("ordered prompt blocks and a delayed echo retain image-caption order", asyn
     mimeType: "image/png",
     size: 3,
     data: "AQID",
+    inline: true,
   });
   try {
     await client.send(`${INLINE_ATTACHMENT_MARK}caption one${INLINE_ATTACHMENT_MARK}caption two`, [

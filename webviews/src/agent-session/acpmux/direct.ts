@@ -30,6 +30,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import {
   INLINE_ATTACHMENT_MARK,
+  hasInlineMarks,
   attachmentBlocks,
   orderedDraftParts,
   promptBlocks,
@@ -551,7 +552,7 @@ function inlineDisplayParts(
   input: string,
   attachments: readonly ComposerAttachment[],
 ): InlineDisplayPart[] | undefined {
-  if (!input.includes(INLINE_ATTACHMENT_MARK)) return undefined;
+  if (!hasInlineMarks(input, attachments)) return undefined;
   const parts: InlineDisplayPart[] = [];
   let blockIndex = 0;
   for (const part of orderedDraftParts(input, attachments)) {
@@ -645,7 +646,9 @@ function recordedInlineParts(msg: any): PromptContentPart[] | undefined {
     const normalized = normalizePromptContentPart(part);
     return normalized ? [normalized] : [];
   });
-  return parts.length ? parts : undefined;
+  // A prompt of text alone keeps the plain bubble (its collapse, its height); only media in the
+  // order makes it an ordered one.
+  return parts.some((part: PromptContentPart) => part.kind !== "text") ? parts : undefined;
 }
 
 /// `images` named by acpmux, each keeping the bytes the pane already had for it.
@@ -4073,10 +4076,11 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
     const supportsAudio = takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions);
-    if (!supportsAudio) {
+    if (!supportsAudio && hasInlineMarks(input, attachments)) {
+      const inline = attachments.filter((attachment) => attachment.inline);
       let mark = 0;
       input = input.replaceAll(INLINE_ATTACHMENT_MARK, () =>
-        attachments[mark++]?.kind === "audio" ? "" : INLINE_ATTACHMENT_MARK,
+        inline[mark++]?.kind === "audio" ? "" : INLINE_ATTACHMENT_MARK,
       );
     }
     const sendAttachments = supportsAudio
