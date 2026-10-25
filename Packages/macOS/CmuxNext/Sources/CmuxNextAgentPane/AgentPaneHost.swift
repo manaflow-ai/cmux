@@ -369,10 +369,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         } catch AcpmuxDaemonLauncher.Failure.exited {
             logger.error("acpmux launcher exited before ready log=\(environment.logPath, privacy: .public)")
             // Another client may have started the daemon first; the loser
-            // exits because the socket is taken. Ask the winner.
+            // exits because the socket is taken. Ask the winner, and give it this launch's
+            // person key as every other path does before a pane connects: a signed daemon gets
+            // the key only by enroll, and a pane that connects first proves nothing, so every
+            // Allow stayed refused until the app relaunched (cosmic-gray, 2026-10-24).
             do {
+                let endpoint = try await Self.verifiedEndpoint(environment)
+                if let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath),
+                   status.serves(home: environment.home) {
+                    _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+                }
                 await AcpmuxComputerUse.enroll(environment)
-                return try await Self.verifiedEndpoint(environment)
+                return endpoint
             } catch let refusal as AcpmuxServerPeer.Refusal {
                 throw Self.refused(refusal, environment)
             } catch {
