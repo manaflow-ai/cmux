@@ -116,7 +116,7 @@ struct BlockingWallTimeTests {
     /// nested run makes counts without time, so the interval is not counted twice. Alone in a child process (a
     /// nested run would run other tests' main-actor work).
     @Test func aCallInTheRunLoopAProcessWaitRunsCountsWithoutTime() async {
-        await #expect(processExitsWith: .exitCode(0)) {
+        let result = await #expect(processExitsWith: .exitCode(0), observing: [\.standardErrorContent]) {
             let table = BlockingViolationTable(mode: .record)
             try? await BlockingViolationTable.$scoped.withValue(table) {
                 try await MainActor.run {
@@ -137,11 +137,13 @@ struct BlockingWallTimeTests {
             }
             await table.flush()
             let sites = BlockingDetector(table: table).sites
-            // 0: right; 3: wrong kinds; 4: wrong counts; 5: the wait has no time; 6: the nested call has time.
-            guard sites.map(\.kind) == [.processWait, .fileIO] else { exit(3) }
-            guard sites.map(\.count) == [1, 1] else { exit(4) }
-            guard sites[0].totalNanos > 0 else { exit(5) }
-            exit(sites[1].totalNanos == 0 ? 0 : 6)
+            FileHandle.standardError.write(Data("sites: \(sites)\n".utf8))
+            let right = sites.map(\.kind) == [.processWait, .fileIO] && sites.map(\.count) == [1, 1]
+                && sites[0].totalNanos > 0 && sites[1].totalNanos == 0
+            exit(right ? 0 : 3)
+        }
+        if case .exitCode(0)? = result?.exitStatus {} else {
+            Issue.record("child: \(String(decoding: result?.standardErrorContent ?? [], as: UTF8.self))")
         }
     }
 
