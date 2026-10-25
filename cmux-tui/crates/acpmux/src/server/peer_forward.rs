@@ -139,6 +139,9 @@ async fn forward_inner(
             && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
         {
             crate::attach::check_wire(blocks)?;
+            if crate::attach::any(blocks) && !peer.supports_send_attach() {
+                return Err(crate::attach::peer_unsupported(&peer));
+            }
         }
         if m == method::MUX_FILE_PUT_CHUNK {
             crate::hub::file_uploads::check_chunk(params)?;

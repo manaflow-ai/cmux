@@ -203,7 +203,8 @@ async fn a_local_send_with_attachments_reaches_the_agent_and_the_transcript_and_
     assert_saved(&session, &id, "other.txt", &other);
     let fake_path = assert_saved(&session, &id, "fake.png", b"not an image");
     for (name, path) in [("notes.txt", &notes_path), ("fake.png", &fake_path)] {
-        let link = format!("resource_link:{name}:application/octet-stream:file://{}", path.display());
+        let link =
+            format!("resource_link:{name}:application/octet-stream:file://{}", path.display());
         assert!(echoed.contains(&link), "{echoed}");
     }
     // The agent is told where they are, and never gets a file's bytes as text.
@@ -335,4 +336,58 @@ async fn a_send_to_a_peers_session_lands_the_attachment_on_the_peer() {
     assert_eq!(big["error"]["data"]["reason"], "attach.tooLarge", "{big}");
     assert_eq!(saved(&remote).len(), 1, "{:?}", saved(&remote));
     assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
+}
+
+/// A peer on a build from before attachments would run the message without saving its files:
+/// refused before anything is sent, naming the update. A peer that lists one session, `old-1`,
+/// and no `sendAttach` feature, counting the prompts it gets.
+#[tokio::test]
+async fn a_peer_that_does_not_save_attachments_is_refused_before_anything_is_sent() {
+    use futures_util::{SinkExt, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio_tungstenite::tungstenite::Message as Ws;
+    let prompts = Arc::new(AtomicUsize::new(0));
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let counted = prompts.clone();
+    tokio::spawn(async move {
+        while let Ok((tcp, _)) = l.accept().await {
+            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let counted = counted.clone();
+            tokio::spawn(async move {
+                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                        continue;
+                    };
+                    let result = match m.as_str() {
+                        method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
+                            "build": "older", "origin": "peer", "features": ["trustGate"]}}}),
+                        method::MUX_WATCH => json!({"sessions": [{"sessionId": "old-1"}]}),
+                        method::SESSION_PROMPT => {
+                            counted.fetch_add(1, Ordering::SeqCst);
+                            json!({"stopReason": "end_turn"})
+                        }
+                        _ => json!({}),
+                    };
+                    let reply = Message::ok(id, result).to_line();
+                    if ws.send(Ws::Text(reply.trim_end().to_owned().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    let a = hub();
+    a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut ca = client(&a, Origin::Local);
+    let (reply, _) = ca.send("old-1", &v7(), "see", vec![image("a.png", &png(32))]).await;
+    assert_eq!(reply["error"]["data"]["reason"], "attach.unsupported", "{reply}");
+    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
+    assert_eq!(prompts.load(Ordering::SeqCst), 0);
+    // A message with no attachment still goes.
+    let (reply, _) = ca.send("old-1", &v7(), "plain", vec![]).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert_eq!(prompts.load(Ordering::SeqCst), 1);
 }

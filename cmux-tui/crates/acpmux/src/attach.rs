@@ -27,6 +27,8 @@ use base64::Engine;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
+/// The `initialize` feature of a daemon that saves a message's attachments.
+pub const FEATURE: &str = "sendAttach";
 /// The largest file one attachment holds.
 pub const MAX_FILE_BYTES: usize = 8 << 20;
 /// The most one message's attachments hold together.
@@ -244,6 +246,16 @@ pub fn receive(
         "_meta": {"acpmux": {"context": true}},
     }));
     Ok(())
+}
+
+/// The refusal for a peer on a build that would not save the files.
+pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
+    let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
+    let message = format!(
+        "peer {} runs acpmux build {build}, which does not take attachments; run `acpmux host update {}`",
+        peer.name, peer.name
+    );
+    refused("attach.unsupported", message)
 }
 
 /// A `file://` URI for a saved file, percent-encoded.
