@@ -150,7 +150,28 @@ const openCode = [
   },
 ];
 
-async function mount(model = "opencode/deepseek-v4-pro") {
+// A rail beside it: another harness whose one model two providers serve, and one with plain models.
+const railed = [
+  ...openCode,
+  {
+    id: "pi",
+    name: "Pi",
+    models: [
+      { id: "together/qwen-3.5-coder", name: "Together/Qwen 3.5 Coder" },
+      { id: "fireworks/qwen-3.5-coder", name: "Fireworks/Qwen 3.5 Coder" },
+    ],
+  },
+  {
+    id: "claude",
+    name: "Claude Code",
+    models: [
+      { id: "claude-opus-5-5", name: "Opus 5.5" },
+      { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+    ],
+  },
+];
+
+async function mount(model = "opencode/deepseek-v4-pro", rail = false) {
   const { createRoot } = await import("react-dom/client");
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const landed: string[] = [];
@@ -158,13 +179,13 @@ async function mount(model = "opencode/deepseek-v4-pro") {
   await act(async () =>
     root!.render(
       <ModelPicker
-        catalog={openCode}
+        catalog={rail ? railed : openCode}
         harness="opencode"
         model={model}
         label="DeepSeek V4 Pro"
         efforts={[]}
         recents={[]}
-        harnessFixed
+        harnessFixed={!rail}
         quick={{}}
         onLand={(id) => landed.push(id)}
         onEffort={() => undefined}
@@ -220,4 +241,72 @@ test("a chat on another provider's row of a model checks that model's one row an
   const pro = modelRows(menus()[0]!).find((row) => nameOf(row) === "DeepSeek V4 Pro")!;
   expect(pro.getAttribute("aria-checked")).toBe("true");
   expect(detailOf(pro)).toBe("DeepSeek");
+});
+
+// Astra on #25175: the Provider row is a row of the chat's tab, so the held list height and width
+// (QuickModelMenu's tabExtent and width probe) count it, or the chat's tab overflows the held
+// height and the menu's top edge moves as the pointer crosses the rail.
+test("the held list height and width count the chat tab's Provider row, on every rail tab", async () => {
+  const { tabExtent } = await import("../src/agent-session/acpmux/QuickModelMenu");
+  const offered = {
+    id: "opencode",
+    name: "OpenCode",
+    models: [
+      {
+        id: "opencode/deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        family: "opencode",
+        provider: "OpenCode",
+        offers: [
+          { id: "opencode/deepseek-v4-pro", name: "DeepSeek V4 Pro", family: "opencode", provider: "OpenCode" },
+          { id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro", family: "opencode", provider: "DeepSeek" },
+        ],
+      },
+    ],
+    more: [],
+  };
+  const families = { list: [offered], current: offered.id, onPick: () => undefined };
+  const extent = (providers: "row" | "submenu" | "expanded", current = "opencode/deepseek-v4-pro") =>
+    tabExtent(offered, { families, levels: 0, current, providers });
+  // The model's row and, for the running model, its Provider row.
+  expect(extent("row")).toEqual({ rows: 2, separators: 1 });
+  // Not the running model: no Provider row.
+  expect(extent("row", "zai/glm-5.3")).toEqual({ rows: 1, separators: 1 });
+  // A submenu of providers is the model's one row; the expanded version heads its two providers.
+  expect(extent("submenu")).toEqual({ rows: 1, separators: 1 });
+  expect(extent("expanded")).toEqual({ rows: 3, separators: 1 });
+
+  await mount(undefined, true);
+  const body = () => menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-body")!;
+  const spacer = () => {
+    const node = body().querySelector<HTMLElement>(".acpmux-quick-spacer")!;
+    return {
+      rows: node.querySelectorAll(":scope > .acpmux-quick-item").length,
+      separators: node.querySelectorAll(":scope > .ui-separator").length,
+    };
+  };
+  const probe = () =>
+    [...body().querySelectorAll<HTMLElement>(".acpmux-quick-probe > .acpmux-quick-item")].map((row) => ({
+      label: row.querySelector(".acpmux-menu-label")?.textContent ?? "",
+      value: row.querySelector(".acpmux-quick-value")?.textContent ?? "",
+    }));
+  const held = spacer();
+  const heldWidths = probe();
+  expect(heldWidths).toContainEqual({ label: "Provider", value: "OpenCode" });
+  const tabs = [...menus()[0]!.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map(
+    (tab) => tab.getAttribute("aria-label")!,
+  );
+  expect([...tabs].sort()).toEqual(["Claude Code", "OpenCode", "Pi"]);
+  for (const name of tabs) {
+    const tab = menus()[0]!.querySelector<HTMLElement>(`.acpmux-quick-rail-tab[aria-label="${name}"]`)!;
+    await act(async () => tab.click());
+    await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    expect(spacer(), `the held height on ${name}`).toEqual(held);
+    expect(probe(), `the held width on ${name}`).toEqual(heldWidths);
+    const shown = body().querySelectorAll('[role^="menuitem"]').length;
+    expect(shown, `${name}'s rows`).toBeLessThanOrEqual(held.rows);
+    // Every row's name and trailing provider is in the probe, so the held width fits it.
+    for (const row of modelRows(menus()[0]!))
+      expect(heldWidths, `${name}'s ${nameOf(row)}`).toContainEqual({ label: nameOf(row), value: detailOf(row) });
+  }
 });
