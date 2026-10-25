@@ -665,13 +665,18 @@
   visibility: hidden;
   pointer-events: none;
 }
+/* The width steps below skip the quiet row through `:where(:not(.acpmux-composer-foot))`, never a bare
+   `:not(...)`: these rules sit after the hiding rules above and must keep losing to them, so the row's
+   measured fit (data-fit-model="icon" at a width whose step only asks for "family") still wins. A bare
+   `:not()` adds a class to the selector, ties the hider at (0,4,0) and would bring a label back that the
+   fit had taken away. */
 @container composer (max-width: 470px) {
-  :is(.acpmux-composer-bar:not(.acpmux-composer-foot), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
+  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot)), .nt-pickers) [data-fit-part="effort"][data-fit-forms~="short"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  :is(.acpmux-composer-bar:not(.acpmux-composer-foot), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
+  :is(.acpmux-composer-bar:where(:not(.acpmux-composer-foot)), .nt-pickers) [data-fit-part="effort"]:not([data-fit-forms~="short"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -680,12 +685,12 @@
   }
 }
 @container composer (max-width: 440px) {
-  .acpmux-composer-bar:not(.acpmux-composer-foot) [data-fit-part="model"][data-fit-forms~="family"] {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="model"][data-fit-forms~="family"] {
     position: static;
     visibility: visible;
     pointer-events: auto;
   }
-  .acpmux-composer-bar:not(.acpmux-composer-foot) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="model"]:not([data-fit-forms~="family"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -694,7 +699,7 @@
   }
 }
 @container composer (max-width: 370px) {
-  .acpmux-composer-bar:not(.acpmux-composer-foot) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="model"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;
@@ -718,7 +723,7 @@
   }
 }
 @container composer (max-width: 420px) {
-  .acpmux-composer-bar:not(.acpmux-composer-foot) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
+  .acpmux-composer-bar:where(:not(.acpmux-composer-foot)) [data-fit-part="access"]:not([data-fit-forms~="icon"]) {
     position: absolute;
     top: 0;
     inset-inline-start: 0;

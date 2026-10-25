@@ -43,6 +43,23 @@ describe("composer fit steps", () => {
     expect(missing).toEqual([]);
   });
 
+  test("a width step skips the quiet row without outranking the hiding rules", () => {
+    // The steps come after the rules that lay a part of another form out of the row, so they must stay
+    // less specific than those: the row's measured fit (#24151, data-fit-model="icon" at a width whose
+    // step only asks for "family") has to keep winning. A bare `:not(.acpmux-composer-foot)` adds a
+    // class, ties the hiding rule at (0,4,0) and brings back a label the fit had taken away.
+    const bare = blocks
+      .filter(({ body }) =>
+        /:not\(\.acpmux-composer-foot\)/.test(body.replaceAll(":where(:not(.acpmux-composer-foot))", "")),
+      )
+      .map(({ width }) => width);
+    expect(bare, "use :where(:not(.acpmux-composer-foot)), which adds no specificity").toEqual([]);
+    expect(
+      blocks.some(({ body }) => body.includes(":where(:not(.acpmux-composer-foot))")),
+      "the steps do skip the quiet row",
+    ).toBe(true);
+  });
+
   test("every row step's width has its container query", () => {
     const rowWidths = [
       ...new Set(ROW_FIT_STEPS.map(({ step }) => COMPOSER_FIT_STEPS[step])),

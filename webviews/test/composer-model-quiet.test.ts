@@ -4,8 +4,9 @@
 // (the bolt's move into the model button is its own change, with its own tests):
 //   - the button is quiet text: no edge, ring or fill at rest; the effort one step back of the name;
 //     keyboard focus (a menu closed with Esc hands it back) draws the soft pill, never the bright ring
-//     the capture showed, and the rule that narrows the shared ring to a hairline is read from the CSS
-//     (the gallery stage loads no pages/shared/desktop.css, so no shared ring reaches this page);
+//     the capture showed. The gallery stage loads no pages/shared/desktop.css, so that sheet is put in
+//     the page as the app's pane has it, and what the shared ring then draws is measured: a 1 px
+//     hairline at 22%, not its own 1.5 px at 48%;
 //   - the context ring sits on the row's grid: on the buttons' center line, its glyph 15 px after the
 //     effort (the 8 px pill inset of #24138, the ring's padding and composerFooterShared.css's 2 px),
 //     not the 17 that read as a loose spinner;
@@ -90,6 +91,7 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     return page;
   };
   const BUTTON = ".acpmux-composer-foot .acpmux-model .acpmux-picker-button";
+  const SHEETS = path.resolve(import.meta.dir, "../src/agent-session/acpmux");
 
   const look = (page: Page) =>
     page
@@ -143,9 +145,8 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     expect(effort, "the effort sits one step back of the model's name").toBeLessThan(name - 8);
 
     // Keyboard focus, as a menu closed with Esc leaves it: the soft pill, never the bright ring the
-    // shot showed. The gallery stage loads no pages/shared/desktop.css, so the shared ring is not in
-    // this page at all and the outline measures 0 here; the test below reads the rule that narrows it
-    // to a hairline where the sheet is loaded (the app's pane).
+    // shot showed. The gallery stage loads no pages/shared/desktop.css (the app's pane does, from its
+    // main.tsx), so no shared ring reaches this page at all and the outline measures 0 here.
     await page.keyboard.press("Shift");
     await page.locator(BUTTON).first().focus();
     expect(
@@ -156,24 +157,38 @@ await requireBrowserLane("composer-model-quiet.test.ts", async () => {
     ).toBe(true);
     await eased(page);
     const focus = await look(page);
-    await page.close();
     expect(focus.filled, "keyboard focus draws the soft pill").toBe(true);
     expect(focus.border || focus.ring, "no border or shadow ring").toBe(false);
     expect(focus.outline, "never more than a hairline").toBeLessThanOrEqual(1);
     expect(focus.outlineAlpha, "in the row's quiet ink").toBeLessThanOrEqual(0.3);
+
+    // With that sheet in the page, as in the app, its ring is 1.5 px at 48% with `!important` and drew
+    // the bright box around bare text (Leo 2026-10-21). The button narrows the two tokens the ring
+    // reads, so what draws is a hairline in the row's own ink.
+    await page.addStyleTag({ content: readFileSync(path.join(SHEETS, "../../pages/shared/desktop.css"), "utf8") });
+    await page.locator(BUTTON).first().focus();
+    await eased(page);
+    const shared = await look(page);
+    await page.close();
+    expect(shared.filled, "the pill stays").toBe(true);
+    expect(shared.outline, "the shared ring draws a 1 px hairline here").toBe(1);
+    expect(shared.outlineAlpha, "at 22%, not the shared 48%").toBeCloseTo(0.22, 2);
   });
 
-  test("the quiet model button narrows the shared focus ring to a hairline in its own ink", () => {
-    // Where pages/shared/desktop.css is loaded (the app's pane) its ring is 1.5 px at 48% with
-    // `!important`, which drew a bright box around bare text (Leo 2026-10-21). The button narrows the
-    // two tokens the ring reads, outside Increase Contrast, which keeps the shared ring.
-    const css = readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/composerLocation.css"), "utf8");
+  test("Increase Contrast keeps the shared ring", () => {
+    // `prefers-contrast` does not take effect in this stage (Playwright's emulation reaches the page,
+    // but the gallery frame reports no-preference), so this branch is read from the CSS: the override
+    // above lives in `@media not (prefers-contrast: more)`, so Increase Contrast gets desktop.css's
+    // own 2 px ring untouched.
+    const css = readFileSync(path.join(SHEETS, "composerLocation.css"), "utf8");
     const block = css.match(
       /@media not \(prefers-contrast: more\) \{[^}]*\.acpmux-composer-foot \.acpmux-model \.acpmux-picker-button:focus-visible \{([^}]*)\}/,
     );
     expect(block, "the quiet button's focus rule, outside Increase Contrast").not.toBeNull();
     expect(block![1]).toMatch(/--cmux-focus-ring-width\s*:\s*1px/);
     expect(block![1]).toMatch(/--cmux-focus-ring-color\s*:\s*color-mix\(in srgb, var\(--agent-text\) 22%/);
+    const outside = css.match(/^\.acpmux-composer-foot \.acpmux-model \.acpmux-picker-button:focus-visible \{/m);
+    expect(outside, "no copy of it outside that query").toBeNull();
   });
 
   test("the context ring sits on the row's grid, its glyph after the effort with no margin of its own", async () => {
