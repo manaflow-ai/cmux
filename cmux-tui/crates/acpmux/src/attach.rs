@@ -13,8 +13,8 @@
 //! purge and the age sweep delete it). An image stays an image block (the agent sees it, the
 //! transcript draws it, `prompt_images.rs`); any other file becomes a `resource_link` to its copy.
 //! A context note tells the agent where they are. Only the last component of the sender's name is
-//! kept, made plain ([`safe_name`]). A UUIDv7 prompt id (the CLI's) names the folder, so the
-//! outbox's retry (same id, `resend`) rewrites the same files instead of adding a copy.
+//! kept, made plain ([`safe_name`]). A resend of the same prompt id (the outbox's retry) is
+//! answered from the ledger with the first run's outcome, and its own copy is deleted ([`Saved`]).
 //!
 //! Caps: the message is one JSON-RPC message on every hop (CLI, outbox record, peer link, agent),
 //! at most `rpc::MAX_MESSAGE_BYTES` (15 MiB). 10 MiB is 13.3 MiB as base64, leaving room for the
@@ -24,7 +24,9 @@
 use crate::rpc::RpcError;
 use base64::Engine;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// The `initialize` feature of a daemon that saves a message's attachments.
 pub const FEATURE: &str = "sendAttach";
@@ -145,18 +147,17 @@ pub fn check_wire(blocks: &[Value]) -> Result<(), RpcError> {
     check_sizes(&sizes)
 }
 
-/// For the daemon that runs session `session`: saves each attachment of `blocks` (prompt
-/// `prompt_id`) in the session's uploads and puts in its place what the agent gets (module docs).
-/// `web`: the prompt is a remote web client's, which writes no file here (as `_acpmux/file_put`).
-/// Blocking: run it off the runtime.
+/// For the daemon that runs session `session`: saves each attachment of `blocks` in a new folder
+/// of the session's uploads, puts in its place what the agent gets (module docs), and answers
+/// that folder ([`Saved`]). `web`: the prompt is a remote web client's, which writes no file here
+/// (as `_acpmux/file_put`). Blocking: run it off the runtime.
 pub fn receive(
     session: &str,
-    prompt_id: Option<&str>,
     web: bool,
     blocks: &mut Vec<Value>,
-) -> Result<(), RpcError> {
+) -> Result<Option<Saved>, RpcError> {
     if !any(blocks) {
-        return Ok(());
+        return Ok(None);
     }
     if web {
         return Err(refused(
@@ -190,12 +191,8 @@ pub fn receive(
     check_sizes(&files.iter().map(|(_, name, b)| (name.clone(), b.len())).collect::<Vec<_>>())?;
     let uploads = crate::hub::file_uploads::session_dir(session)
         .ok_or_else(|| RpcError::invalid_params("no such chat"))?;
-    let folder = prompt_id
-        .and_then(|id| uuid::Uuid::try_parse(id).ok())
-        .filter(|id| id.get_version_num() == 7)
-        .unwrap_or_else(uuid::Uuid::now_v7)
-        .to_string();
-    let dir = uploads.join(folder);
+    // Named by this daemon's clock, which the uploads age sweep reads.
+    let dir = uploads.join(uuid::Uuid::now_v7().to_string());
     let failed = |e: anyhow::Error| RpcError::internal(format!("cannot save an attachment: {e}"));
     crate::config::private_state_dir(&dir).map_err(failed)?;
     let mut saved = Vec::new();
@@ -206,8 +203,14 @@ pub fn receive(
         let mime = sniffed.unwrap_or("application/octet-stream");
         saved.push(format!("- {} ({mime}, {})", path.display(), mib(bytes.len())));
         blocks[index] = match image_type(&bytes) {
-            Some(mime) => json!({"type": "image", "mimeType": mime, "name": name,
-                                 "data": data_of(&blocks[index]).unwrap_or_default()}),
+            Some(mime) => {
+                let image = json!({"type": "image", "mimeType": mime, "name": name,
+                                   "data": data_of(&blocks[index]).unwrap_or_default()});
+                // The transcript's copy, written here off the runtime (`prompt_images::keep`
+                // finds it kept).
+                crate::hub::prompt_images::keep(std::slice::from_ref(&image));
+                image
+            }
             None => {
                 json!({"type": "resource_link", "uri": file_uri(&path), "name": name, "mimeType": mime})
             }
@@ -221,7 +224,43 @@ pub fn receive(
         ),
         "_meta": {"acpmux": {"context": true}},
     }));
-    Ok(())
+    Ok(Some(Saved { dir, accepted: Arc::new(AtomicBool::new(false)) }))
+}
+
+/// The folder [`receive`] saved a message's files in, until its prompt is answered.
+pub struct Saved {
+    dir: PathBuf,
+    accepted: Arc<AtomicBool>,
+}
+
+type OnAccepted = Option<Box<dyn FnOnce(Value) + Send>>;
+
+impl Saved {
+    /// `on_accepted`, also noting whether the session took the prompt as a new run.
+    pub fn watch(&self, on_accepted: OnAccepted) -> OnAccepted {
+        let accepted = self.accepted.clone();
+        Some(Box::new(move |v: Value| {
+            if v.get("duplicate") != Some(&Value::Bool(true)) {
+                accepted.store(true, Ordering::SeqCst);
+            }
+            if let Some(f) = on_accepted {
+                f(v);
+            }
+        }))
+    }
+
+    /// Deletes the files nothing will read: the prompt was a resend the ledger answered with its
+    /// first run's outcome (that run reads its own folder, so a retried delivery keeps one copy),
+    /// or it was refused before it reached the session. A message an agent pair holds keeps them
+    /// for its release (`agent_pairs.rs`).
+    pub async fn settle(self, answer: &Result<Value, RpcError>) {
+        let held = answer.as_ref().err().and_then(|e| e.data.as_ref()?.get("held"));
+        if self.accepted.load(Ordering::SeqCst) || held == Some(&Value::Bool(true)) {
+            return;
+        }
+        let dir = self.dir;
+        let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(dir)).await;
+    }
 }
 
 /// The refusal for a peer on a build that would not save the files.
@@ -239,20 +278,6 @@ fn file_uri(path: &Path) -> String {
     reqwest::Url::from_file_path(path)
         .map(String::from)
         .unwrap_or_else(|()| format!("file://{}", path.display()))
-}
-
-/// Drops the bytes of `request`'s attachments (`session/prompt` params): a delivery the outbox
-/// settled keeps its record for a day (`hub/outbox.rs`), and every change rewrites the file.
-pub fn strip(request: &mut Value) {
-    let Some(blocks) = request.get_mut("prompt").and_then(Value::as_array_mut) else { return };
-    for b in blocks.iter_mut().filter(|b| mark(b).is_some()) {
-        if let Some(o) = b.as_object_mut() {
-            o.remove("data");
-        }
-        if let Some(o) = b.get_mut("resource").and_then(Value::as_object_mut) {
-            o.remove("blob");
-        }
-    }
 }
 
 #[cfg(test)]
@@ -295,21 +320,5 @@ mod tests {
     fn the_whole_message_fits_one_frame() {
         let base64 = MAX_MESSAGE_BYTES.div_ceil(3) * 4;
         assert!(base64 + (1 << 20) < crate::rpc::MAX_MESSAGE_BYTES);
-    }
-
-    #[test]
-    fn a_settled_delivery_keeps_no_bytes() {
-        let mut request = json!({"prompt": [
-            {"type": "text", "text": "t"},
-            block("a.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR"),
-            block("b.txt", b"b"),
-            {"type": "image", "mimeType": "image/png", "data": "AAAA"},
-        ]});
-        strip(&mut request);
-        assert!(request["prompt"][1].get("data").is_none());
-        assert!(request["prompt"][2]["resource"].get("blob").is_none());
-        assert_eq!(request["prompt"][2]["resource"]["uri"], "attachment://b.txt");
-        // Only attachments: an app's own image block is left as it is.
-        assert_eq!(request["prompt"][3]["data"], "AAAA");
     }
 }

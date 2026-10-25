@@ -898,18 +898,14 @@ async fn dispatch_request(
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // Files sent with the message (`acpmux send --attach`): saved in the session's
             // uploads, and what the agent gets put in their place (`attach.rs`).
+            let mut saved = None;
             if crate::attach::any(&blocks) {
                 let id = s.id.clone();
-                let prompt_id = mux_meta(&params)
-                    .and_then(|m| m.get("promptId"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
-                blocks = tokio::task::spawn_blocking(move || {
-                    crate::attach::receive(&id, prompt_id.as_deref(), web, &mut blocks)
-                        .map(|()| blocks)
-                })
-                .await
-                .map_err(|e| RpcError::internal(e.to_string()))??;
+                let received = tokio::task::spawn_blocking(move || {
+                    crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
+                });
+                (blocks, saved) =
+                    received.await.map_err(|e| RpcError::internal(e.to_string()))??;
             }
             let provenance = crate::hub::Hub::prompt_provenance(&params, conn.origin)?;
             // Sent from inside another session (its proven caller token) with none of its own:
@@ -946,9 +942,13 @@ async fn dispatch_request(
                 .and_then(Value::as_str)
                 .filter(|p| !p.is_empty())
                 .map(str::to_owned);
+            let on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
             let opts = crate::hub::PromptOptions {
                 prompt_id,
-                on_accepted: Some(composer::on_accepted(hub, conn, &s, &params)?),
+                on_accepted: match &saved {
+                    Some(saved) => saved.watch(on_accepted),
+                    None => on_accepted,
+                },
                 resend: flag("resend") == Some(true),
                 control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
@@ -990,7 +990,11 @@ async fn dispatch_request(
                 Some(host) => format!("{}@{host}", conn.label()),
                 None => conn.label(),
             };
-            hub.prompt_with(&s, blocks, &client, steer, opts).await
+            let answer = hub.prompt_with(&s, blocks, &client, steer, opts).await;
+            if let Some(saved) = saved {
+                saved.settle(&answer).await;
+            }
+            answer
         }
         // ACP defines cancel as a notification; a client that sends it as a
         // request gets an empty result instead of a request forwarded to

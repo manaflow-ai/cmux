@@ -160,11 +160,12 @@ fn saved(session: &str) -> Vec<PathBuf> {
     out
 }
 
-/// The file `name` of prompt `id` in session `session`'s uploads: its bytes, owner-only, in
-/// owner-only folders.
-fn assert_saved(session: &str, id: &str, name: &str, bytes: &[u8]) -> PathBuf {
-    let path = home().join("uploads").join(session).join(id).join(name);
-    assert!(path.is_file(), "{} not saved; saved: {:?}", path.display(), saved(session));
+/// The one file `name` in session `session`'s uploads: its bytes, owner-only, in owner-only
+/// folders.
+fn assert_saved(session: &str, name: &str, bytes: &[u8]) -> PathBuf {
+    let found: Vec<_> = saved(session).into_iter().filter(|p| p.ends_with(name)).collect();
+    assert_eq!(found.len(), 1, "{name}: saved {:?}", saved(session));
+    let path = home().join("uploads").join(session).join(&found[0]);
     assert_eq!(std::fs::read(&path).unwrap(), bytes);
     assert_eq!(mode(&path), 0o600, "{}", path.display());
     assert_eq!(mode(path.parent().unwrap()), 0o700);
@@ -198,10 +199,10 @@ async fn a_local_send_with_attachments_reaches_the_agent_and_the_transcript_and_
     assert!(echoed.contains(&format!("image:{}", sha(&shot))), "{echoed}");
     assert!(echoed.contains(&format!("image:{}", sha(&other))), "{echoed}");
     assert!(!echoed.contains(&format!("image:{}", sha(b"not an image"))), "{echoed}");
-    let shot_path = assert_saved(&session, &id, "shot.png", &shot);
-    let notes_path = assert_saved(&session, &id, "notes.txt", &notes);
-    assert_saved(&session, &id, "other.txt", &other);
-    let fake_path = assert_saved(&session, &id, "fake.png", b"not an image");
+    let shot_path = assert_saved(&session, "shot.png", &shot);
+    let notes_path = assert_saved(&session, "notes.txt", &notes);
+    assert_saved(&session, "other.txt", &other);
+    let fake_path = assert_saved(&session, "fake.png", b"not an image");
     for (name, path) in [("notes.txt", &notes_path), ("fake.png", &fake_path)] {
         let link =
             format!("resource_link:{name}:application/octet-stream:file://{}", path.display());
@@ -241,10 +242,10 @@ async fn a_traversal_name_is_sanitized_into_the_sessions_folder() {
     ];
     let (reply, _) = c.send(&session, &id, "names", files).await;
     assert!(reply.get("error").is_none(), "{reply}");
-    assert_saved(&session, &id, "escape.png", &png(32));
-    assert_saved(&session, &id, "win.txt", b"w");
-    assert_saved(&session, &id, "attachment", b"d");
-    assert_saved(&session, &id, "bashrc", b"b");
+    assert_saved(&session, "escape.png", &png(32));
+    assert_saved(&session, "win.txt", b"w");
+    assert_saved(&session, "attachment", b"d");
+    assert_saved(&session, "bashrc", b"b");
     assert_eq!(saved(&session).len(), 4, "{:?}", saved(&session));
     assert!(!home().join("escape.png").exists() && !home().join("uploads/escape.png").exists());
 }
@@ -272,10 +273,11 @@ async fn an_attachment_over_the_cap_is_refused_and_nothing_is_saved() {
     let id = v7();
     let (ok, _) = c.send(&session, &id, "fits", vec![image("max.png", &png(MAX_FILE))]).await;
     assert!(ok.get("error").is_none(), "{ok}");
-    assert_saved(&session, &id, "max.png", &png(MAX_FILE));
+    assert_saved(&session, "max.png", &png(MAX_FILE));
 }
 
-/// The outbox's retry sends the same prompt id again with `resend`: one copy, one message.
+/// The outbox's retry sends the same prompt id again with `resend`: one copy, one message, and a
+/// resend with other bytes changes nothing the first run reads.
 #[tokio::test]
 async fn a_retried_delivery_stores_one_copy() {
     let hub = hub();
@@ -287,9 +289,12 @@ async fn a_retried_delivery_stores_one_copy() {
     let reply = c.call(method::SESSION_PROMPT, first.clone()).await;
     assert!(reply.get("error").is_none(), "{reply}");
     first["_meta"]["acpmux"]["resend"] = json!(true);
+    let reply = c.call(method::SESSION_PROMPT, first.clone()).await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    first["prompt"][1] = image("shot.png", &png(300));
     let reply = c.call(method::SESSION_PROMPT, first).await;
     assert!(reply.get("error").is_none(), "{reply}");
-    assert_eq!(saved(&session), [PathBuf::from(&id).join("shot.png")]);
+    assert_saved(&session, "shot.png", &shot);
     assert_eq!(c.user_messages(&session).await.len(), 1);
 }
 
@@ -322,7 +327,7 @@ async fn a_send_to_a_peers_session_lands_the_attachment_on_the_peer() {
     assert!(reply.get("error").is_none(), "{reply}");
     assert_eq!(reply["result"]["peer"], "b", "{reply}");
     assert!(echoed.contains(&format!("image:{}", sha(&shot))), "{echoed}");
-    assert_saved(&remote, &id, "leo.png", &shot);
+    assert_saved(&remote, "leo.png", &shot);
     let messages = cb.user_messages(&remote).await;
     assert_eq!(messages.len(), 1, "{messages:?}");
     assert_eq!(messages[0]["images"][0]["id"], sha(&shot), "{messages:?}");
