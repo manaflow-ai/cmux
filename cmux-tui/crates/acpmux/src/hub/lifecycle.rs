@@ -355,7 +355,9 @@ impl Hub {
 
     /// A chat `starter` started, held to it as it is now (`start_mode.rs`, "Inherit"): an
     /// inherited policy (`inherits_policy`) laxer than the starter's is narrowed to it, and a
-    /// harness whose mode the inheritance chose (`mode_eligible`) moved, else refused.
+    /// harness whose mode the inheritance chose (`mode_eligible`) moved, else refused. The
+    /// starter is read again after each round: one that changed meanwhile is held to again, and
+    /// one that keeps changing refuses the start.
     async fn hold_to_starter(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -363,16 +365,30 @@ impl Hub {
         inherits_policy: bool,
         mode_eligible: bool,
     ) -> Result<(), RpcError> {
-        let theirs = starter.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id));
-        let Some(theirs) = theirs.map(|s| s.meta()) else { return Ok(()) };
-        if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
-            let narrowed = self.effective_policy(&theirs).await;
-            self.set_policy(session, narrowed).await;
+        const ROUNDS: usize = 4;
+        let live = || {
+            let theirs = starter.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id));
+            theirs.map(|s| s.meta())
+        };
+        let level = |m: &SessionMeta| (m.permission_policy.clone(), crate::web_modes::mode_of(m));
+        for _ in 0..ROUNDS {
+            let Some(theirs) = live() else { return Ok(()) };
+            if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
+                let narrowed = self.effective_policy(&theirs).await;
+                self.set_policy(session, narrowed).await;
+            }
+            if mode_eligible {
+                self.hold_mode(&theirs, session).await?;
+            }
+            if live().is_none_or(|now| level(&now) == level(&theirs)) {
+                return Ok(());
+            }
         }
-        if mode_eligible {
-            self.hold_mode(&theirs, session).await?;
-        }
-        Ok(())
+        Err(super::subsession_guard::refusal(
+            "start.starter_changing",
+            "session/new refused: the session that started this one kept changing its permissions while it started; start it again".into(),
+            json!({"starter": starter}),
+        ))
     }
 
     /// Every model id a profile can run: declared in config, then reported
