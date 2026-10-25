@@ -41,6 +41,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // A finished file's path is the one the variant's `chat.upload` fixture gives its name, else one
   // under the gallery's Chat Uploads.
   const uploads = new Map<string, { name: string; size: number; received: number; index: number }>();
+  const batches = new Map<string, { files: { name?: unknown; size?: unknown }[]; next: number }>();
   const fixturePath = (name: string): string | undefined => {
     const legacy = state.native?.["chat.upload"] as { uploads?: { name?: unknown; path?: unknown }[] } | undefined;
     const path = legacy?.uploads?.find((upload) => upload.name === name)?.path;
@@ -53,10 +54,26 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     if (taken) return undefined;
     const params = message.params ?? {};
     if (method === "chat.upload.begin") {
+      const name = String(params.name ?? "");
+      const size = Number(params.size ?? 0);
+      // A paste of several files: the first begin names them all (`batch`) and gets a batch token;
+      // each later file presents it and must be the manifest's next entry, as the host checks.
+      let batchToken: string | undefined;
+      if (Array.isArray(params.batch)) {
+        if (params.batchToken !== undefined) return null;
+        batchToken = `gallery-batch-${batches.size}`;
+        batches.set(batchToken, { files: params.batch as { name?: unknown; size?: unknown }[], next: 0 });
+      }
+      const batch = batches.get(batchToken ?? String(params.batchToken ?? ""));
+      if (params.batchToken !== undefined && !batch) return null;
+      if (batch) {
+        const expected = batch.files[batch.next++];
+        if (expected?.name !== name || expected?.size !== size) return null;
+      }
       const index = uploads.size;
-      const token = `gallery-upload-${index}-${String(params.name)}`;
-      uploads.set(token, { name: String(params.name ?? ""), size: Number(params.size ?? 0), received: 0, index });
-      return { token, size: Number(params.size ?? 0), chunkSize: 256 * 1024 };
+      const token = `gallery-upload-${index}-${name}`;
+      uploads.set(token, { name, size, received: 0, index });
+      return { token, size, chunkSize: 256 * 1024, ...(batchToken ? { batchToken } : {}) };
     }
     const token = String(params.token ?? "");
     const upload = uploads.get(token);
