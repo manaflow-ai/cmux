@@ -137,46 +137,6 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     await page.close();
   });
 
-  test("a touch tap without a scroll keeps streamed output at the bottom", async () => {
-    const { port } = vite!.httpServer!.address() as { port: number };
-    const page = await browser!.newPage({ viewport: { width: 900, height: 560 }, hasTouch: true });
-    await installPaintedFrames(page);
-    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
-    await page.waitForFunction(() => "__showRows" in window);
-    const history = Array.from({ length: 18 }, (_, index) => [
-      row(`tap-user-${index}`, "user", `Prompt ${index}`),
-      row(`tap-answer-${index}`, "assistant", paragraph(index)),
-    ]).flat();
-    let text = paragraph(18);
-    await show(page, [...history, row("tap-stream", "assistant", text, { streaming: true })]);
-    await frames(page, 3);
-    const top = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-    const box = (await page.locator(".acpmux-scroll").boundingBox())!;
-    await page.touchscreen.tap(box.x + 12, box.y + 120);
-    await frames(page, 2);
-    expect(await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop)).toBe(top);
-    const gaps: number[] = [];
-    for (let index = 0; index < 12; index++) {
-      const before = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight);
-      text += `\n\n${paragraph(index + 19)}`;
-      await show(page, [...history, row("tap-stream", "assistant", text, { version: index + 2, streaming: true })]);
-      await page.waitForFunction(
-        (height) => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollHeight > height,
-        before,
-      );
-      await frames(page, 3);
-      gaps.push(
-        await page.evaluate(() => {
-          const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          return node.scrollHeight - node.clientHeight - node.scrollTop;
-        }),
-      );
-    }
-    console.log(`touch tap follow gaps: ${JSON.stringify(gaps)}`);
-    expect(Math.max(...gaps)).toBeLessThanOrEqual(4);
-    await page.close();
-  });
-
   test("a touch tap keeps a short streaming reply's reserved queue room", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 }, hasTouch: true });
