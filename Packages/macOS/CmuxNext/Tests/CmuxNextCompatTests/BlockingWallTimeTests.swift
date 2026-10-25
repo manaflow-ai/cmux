@@ -127,8 +127,9 @@ struct BlockingWallTimeTests {
                         // The nested run's work: a timer, a source, so the mode is not empty (a run of an empty
                         // mode returns at once); it ends the run.
                         RunLoop.main.add(Timer(timeInterval: 0, repeats: false) { _ in
-                            probe.set(ran: true, sawTable: BlockingViolationTable.active === table)
+                            let before = table.overflow
                             _ = FileManager.checked.fileExists(atPath: "/")
+                            probe.set(ran: pthread_main_np() != 0, sawTable: table.overflow != before)
                             CFRunLoopStop(CFRunLoopGetMain())
                         }, forMode: .default)
                         return CFRunLoopRunInMode(.defaultMode, 5, false).rawValue
@@ -138,9 +139,9 @@ struct BlockingWallTimeTests {
             await table.flush()
             let sites = BlockingDetector(table: table).sites
             guard sites.map(\.kind) == [.processWait, .fileIO] else {
-                // 100 + 10 x the run's result + 1 when the nested work ran + 2 when it saw the test's table.
+                // 100 + 10 x the site count + 1 when the nested work ran on main + 2 when it overflowed.
                 let (ran, sawTable) = probe.read()
-                exit(100 + 10 * runResult + (ran ? 1 : 0) + (sawTable ? 2 : 0))
+                exit(100 + 10 * Int32(min(sites.count, 9)) + (ran ? 1 : 0) + (sawTable ? 2 : 0) + 0 * runResult)
             }
             guard sites.map(\.count) == [1, 1] else { exit(4) }
             guard sites[0].totalNanos > 0 else { exit(5) }
