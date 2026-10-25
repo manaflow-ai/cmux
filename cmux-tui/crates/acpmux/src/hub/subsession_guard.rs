@@ -305,7 +305,8 @@ impl Hub {
                 self.save_meta(probe);
             }
         }
-        self.hold_subsession(pm, probe).await
+        // Capped to the parent as it is now, not as it was when the start was checked.
+        self.hold_subsession(&parent.meta(), probe).await
     }
 
     /// `e`, a refusal of the new sub-session `probe`, once `probe` is closed: it never runs
