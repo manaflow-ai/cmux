@@ -272,6 +272,18 @@ jobs:
           cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
           cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
 
+      - name: Test Linux release allocator retention
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        env:
+          RETENTION_TARGET: ${{ matrix.build_target }}
+        working-directory: cmux-tui
+        shell: bash
+        run: |
+          retention_dir="$RUNNER_TEMP/cmux-allocator-retention"
+          cargo zigbuild --manifest-path test-fixtures/allocator-retention/Cargo.toml \
+            --release --locked --target "$RETENTION_TARGET" --target-dir "$retention_dir"
+          "$retention_dir/$RETENTION_TARGET/release/allocator-retention"
+
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
         env:
