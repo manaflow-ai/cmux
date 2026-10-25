@@ -60,19 +60,22 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
   }
 
   async function row(page: Page) {
-    return page.$$eval(".acpmux-composer-foot > *", (items) =>
-      items
-        .filter((item) => {
-          const rect = item.getBoundingClientRect();
-          return rect.width > 0 && rect.height > 0 && getComputedStyle(item).display !== "none";
-        })
+    return page.$eval(".acpmux-composer-foot", (foot) => {
+      const items = (container: Element): HTMLElement[] =>
+        [...container.children].flatMap((child) => {
+          if (!(child instanceof HTMLElement)) return [];
+          if (getComputedStyle(child).display === "contents") return items(child);
+          const rect = child.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && getComputedStyle(child).display !== "none" ? [child] : [];
+        });
+      return items(foot)
         .map((item) => ({
           className: item.className,
           left: item.getBoundingClientRect().left,
           right: item.getBoundingClientRect().right,
         }))
-        .sort((a, b) => a.left - b.left),
-    );
+        .sort((a, b) => a.left - b.left);
+    });
   }
 
   for (const variant of ["footer-harness", "footer-harness-codex"] as const) {
