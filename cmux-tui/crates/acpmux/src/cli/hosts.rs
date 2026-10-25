@@ -398,29 +398,44 @@ WantedBy=default.target
 ];
 
 /// Shell defining `acpmux_is_old FILE`: sets `acpmux_ours` to `yes` when FILE
-/// holds a unit an earlier acpmux wrote ([`OLD_SYSTEMD_UNITS`]), else empties it.
+/// holds a unit an earlier acpmux wrote ([`OLD_SYSTEMD_UNITS`]), else empties
+/// it. A reference that could not be written whole (no `mktemp`, a full
+/// disk) answers no: the unit is then treated as someone else's.
 fn old_unit_check() -> String {
     let mut out = "acpmux_is_old() { acpmux_ours=; acpmux_o=$(mktemp) || return 0\n".to_owned();
     for old in OLD_SYSTEMD_UNITS {
-        out += &format!("cat > \"$acpmux_o\" <<'ACPMUX_OLD_UNIT'\n{old}ACPMUX_OLD_UNIT\n");
-        out += "cmp -s \"$acpmux_o\" \"$1\" && acpmux_ours=yes\n";
+        out += &format!(
+            "if cat > \"$acpmux_o\" <<'ACPMUX_OLD_UNIT'\n{old}ACPMUX_OLD_UNIT\nthen cmp -s \"$acpmux_o\" \"$1\" && acpmux_ours=yes; else rm -f \"$acpmux_o\"; acpmux_ours=; return 0; fi\n"
+        );
     }
     out + "rm -f \"$acpmux_o\"; }\n"
 }
 
-/// `host update` on a host set up earlier: an `acpmux.service` an older
-/// acpmux wrote gets this build's text, and systemd reads it again before
+/// `host update` on a host set up earlier, whose user manager answers: an
+/// `acpmux.service` an older acpmux wrote gets this build's text, and systemd
+/// reads it again before the restart. The new text is written beside the
+/// unit and renamed over it, so a full disk never leaves a cut unit. When
+/// the reload fails, the old text goes back (the file then says what systemd
+/// runs, and the next update tries again) and the update goes on under the
+/// old unit. A unit file systemd has not read since it changed (an update
+/// cut off between the rename and the reload, a hand edit) is read before
 /// the restart. Drop-ins (`acpmux.service.d/*.conf`) and a unit with any
 /// other text are left alone.
 fn unit_refresh() -> String {
     let check = old_unit_check();
     format!(
-        "{check}acpmux_unit=$HOME/.config/systemd/user/acpmux.service; acpmux_ours=
-if [ -f \"$acpmux_unit\" ]; then acpmux_is_old \"$acpmux_unit\"; fi
-if [ -n \"$acpmux_ours\" ]; then cat > \"$acpmux_unit\" <<'ACPMUX_UNIT' || exit 1
+        r#"{check}acpmux_unit=$HOME/.config/systemd/user/acpmux.service; acpmux_ours=
+if [ -f "$acpmux_unit" ] && {SYSTEMD_MANAGER}; then acpmux_is_old "$acpmux_unit"
+if [ -n "$acpmux_ours" ]; then
+if cat > "$acpmux_unit.acpmux-new" <<'ACPMUX_UNIT' && cp -p "$acpmux_unit" "$acpmux_unit.acpmux-old" && mv -f "$acpmux_unit.acpmux-new" "$acpmux_unit"
 {SYSTEMD_UNIT}ACPMUX_UNIT
-systemctl --user daemon-reload >/dev/null 2>&1; fi
-"
+then
+if ! systemctl --user daemon-reload >/dev/null 2>&1; then mv -f "$acpmux_unit.acpmux-old" "$acpmux_unit"; systemctl --user daemon-reload >/dev/null 2>&1; echo "systemd did not reload the new acpmux.service; it keeps the old one" >&2; fi
+else echo "could not write the new acpmux.service; it keeps the old one" >&2; fi
+rm -f "$acpmux_unit.acpmux-new" "$acpmux_unit.acpmux-old"
+elif [ "$(systemctl --user show acpmux.service -p NeedDaemonReload --value 2>/dev/null)" = yes ]; then systemctl --user daemon-reload >/dev/null 2>&1
+fi; fi
+"#
     )
 }
 
@@ -833,6 +848,10 @@ mod tests {
         installed: bool,
         /// The installed unit's text, when not this build's [`SYSTEMD_UNIT`].
         installed_text: Option<&'static str>,
+        /// `daemon-reload` succeeds.
+        reloads: bool,
+        /// `mktemp` works (no: a full `/tmp`).
+        mktemp: bool,
         /// A daemon of `~/.acpmux` runs, in this user unit's cgroup, or at this
         /// cgroup path when it starts with `/` (`None`: none runs).
         daemon_unit: Option<&'static str>,
@@ -849,6 +868,8 @@ mod tests {
         restarts: true,
         installed: false,
         installed_text: None,
+        reloads: true,
+        mktemp: true,
         daemon_unit: None,
         survives_shutdown: false,
     };
@@ -856,6 +877,8 @@ mod tests {
     struct LinuxRun {
         calls: Vec<String>,
         unit: String,
+        /// The files in `~/.config/systemd/user` after the run.
+        units: Vec<String>,
         out: String,
         err: String,
         code: Option<i32>,
@@ -889,13 +912,17 @@ mod tests {
         fake(
             "systemctl",
             &format!(
-                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; *) exit 0;; esac",
+                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; daemon-reload) {};; *) exit 0;; esac",
                 code(host.manager),
                 if host.active { "exit 0" } else { "exit 3" },
                 code(host.enables),
                 code(host.restarts),
+                code(host.reloads),
             ),
         );
+        if !host.mktemp {
+            fake("mktemp", "exit 1");
+        }
         fake(
             "loginctl",
             &format!(
@@ -934,10 +961,14 @@ mod tests {
         let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
         let unit = std::fs::read_to_string(home.join(".config/systemd/user/acpmux.service"))
             .unwrap_or_default();
+        let units: Vec<String> = std::fs::read_dir(home.join(".config/systemd/user"))
+            .map(|dir| dir.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect())
+            .unwrap_or_default();
         let _ = std::fs::remove_dir_all(&home);
         LinuxRun {
             calls: calls.lines().map(str::to_owned).collect(),
             unit,
+            units,
             out: String::from_utf8_lossy(&out.stdout).into_owned(),
             err: String::from_utf8_lossy(&out.stderr).into_owned(),
             code: out.status.code(),
@@ -1015,6 +1046,7 @@ mod tests {
                 LinuxHost { installed_text: Some(old), ..host },
             );
             assert_eq!(run.unit, SYSTEMD_UNIT, "{}", run.err);
+            assert_eq!(run.units, ["acpmux.service"], "no temporary unit file is left");
             let reload = run.calls.iter().position(|c| c == "systemctl --user daemon-reload");
             let restart =
                 run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
@@ -1034,6 +1066,25 @@ mod tests {
         );
         assert_eq!(run.unit, edited);
         assert!(run.started_by_systemd());
+        // systemd does not take the new text: the old one goes back, and the
+        // update goes on under it (the next update tries again).
+        let run = linux_restart_run(
+            "refresh-no-reload",
+            false,
+            LinuxHost { installed_text: Some(OLD_SYSTEMD_UNITS[0]), reloads: false, ..host },
+        );
+        assert_eq!(run.unit, OLD_SYSTEMD_UNITS[0]);
+        assert!(run.err.contains("did not reload"), "{}", run.err);
+        assert!(run.started_by_systemd(), "{:?}", run.calls);
+        assert_eq!(run.units, ["acpmux.service"], "no temporary unit file is left");
+        // No reference to compare with (a full /tmp): the unit is not taken as ours.
+        let run = linux_restart_run(
+            "refresh-no-tmp",
+            false,
+            LinuxHost { installed_text: Some(OLD_SYSTEMD_UNITS[0]), mktemp: false, ..host },
+        );
+        assert_eq!(run.unit, OLD_SYSTEMD_UNITS[0]);
+        assert!(run.started_by_systemd(), "{:?}", run.calls);
         // The old unit is the one #22899 shipped, the one huge-blue may hold.
         assert!(OLD_SYSTEMD_UNITS[0].contains("StartLimitBurst=5\n"));
         assert!(OLD_SYSTEMD_UNITS.iter().all(|old| *old != SYSTEMD_UNIT));

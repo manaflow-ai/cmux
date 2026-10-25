@@ -386,12 +386,6 @@ async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
     assert!(child.try_wait().unwrap().is_none(), "the daemon exited while retrying");
     let status = rpc.call("_acpmux/status", json!({})).await;
     assert_eq!(status["pid"], pid, "{status}");
-    let left: Vec<String> = std::fs::read_dir(&dir)
-        .unwrap()
-        .filter_map(|e| e.ok()?.file_name().into_string().ok())
-        .filter(|n| n.starts_with("daemon.tmp-"))
-        .collect();
-    assert!(left.is_empty(), "failed writes left temporary files: {left:?}");
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
@@ -407,6 +401,13 @@ async fn a_failed_state_write_while_loading_leaves_the_daemon_serving() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     };
     assert!(code.success(), "{code:?}");
+    // The shutdown ended the retries before it exited: nothing writes now.
+    let left: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| e.ok()?.file_name().into_string().ok())
+        .filter(|n| n.starts_with("daemon.tmp-"))
+        .collect();
+    assert!(left.is_empty(), "failed writes left temporary files: {left:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
