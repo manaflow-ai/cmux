@@ -46,6 +46,9 @@ Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
   xbench.py report --out DIR [--md BENCH.md] [--json results.json] [--budgets budgets.json]
   xbench.py gate --results results.json --baseline baseline.json [--tolerance 0.15]
 
+While scripts/perf-lab/OWNS_MEASUREMENT exists, every subcommand prints
+"xbench: perf lab owns measurement" and exits 0: the perf lab measures instead.
+
 Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
 chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
 """
@@ -76,6 +79,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
 import budget  # noqa: E402
 import pages  # noqa: E402
 import procs  # noqa: E402
+
+# The perf lab's sentinel (p12-perf-process task 026); scripts/cmux-next/perf-cron.py's plan reads the same file.
+LAB_SENTINEL = os.path.normpath(os.path.join(HERE, "..", "perf-lab", "OWNS_MEASUREMENT"))
+LAB_REASON = "perf lab owns measurement"
 
 ROWS = [
     # id, label, unit, in the tweet's table
@@ -1044,7 +1051,10 @@ def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
     return 1 if failed or incomplete else 0
 
 
-def main():
+def main(argv=None):
+    if os.path.exists(LAB_SENTINEL):
+        print(f"xbench: {LAB_REASON} (scripts/perf-lab/OWNS_MEASUREMENT); nothing measured", flush=True)
+        sys.exit(0)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("run")
@@ -1077,7 +1087,7 @@ def main():
     gat.add_argument("--results", required=True)
     gat.add_argument("--baseline", required=True)
     gat.add_argument("--tolerance", type=float, default=0.15)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.command == "run":
         signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
         random.seed(0)
