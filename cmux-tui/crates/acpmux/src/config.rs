@@ -719,7 +719,8 @@ impl Default for TuiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TitlesConfig {
-    /// `generate`: title such a chat after its first turn. Default on.
+    /// `generate`: title such a chat after its first user message. Default on; a thin first
+    /// message may get one refresh after its first turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generate: Option<bool>,
     /// `command`: an argv that reads the request on stdin and prints the
@@ -793,6 +794,10 @@ pub struct Config {
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+    /// `uploadsMaxAgeDays`: files dropped into a chat (`_acpmux/file_put`) are deleted once
+    /// older than this many days (`hub/file_uploads.rs`). Default 30; 0 keeps them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uploads_max_age_days: Option<u64>,
     /// `agentStartTimeoutMs`: the longest one agent start (spawn or adopt,
     /// `initialize`, session load or new, config replay) may take. Past it
     /// the request fails with a `deadline_exceeded` error and the agent is
@@ -807,6 +812,20 @@ pub struct Config {
     /// Default 90000; 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silent_turn_ms: Option<u64>,
+    /// `stalledTurnMs`: how long a running turn may go with no tool call in
+    /// flight and no sign of its model at work before its lane says it has
+    /// stalled (`lane.stalledSince`, `hub/views.rs`). A long build in one tool
+    /// call never stalls. Default 600000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_ms: Option<u64>,
+    /// `stalledTurnEndMs`: how long a running turn may go with no sign of its model at work (as
+    /// `silentTurnMs` counts them, also across a daemon restart) before acpmux ends it as failed,
+    /// `detail` `stalled` (`hub/stalled_turn.rs`); four times that inside a tool call that has
+    /// not ended. Only a turn nobody holds: no client attached,
+    /// no permission waiting, and its recorded owner (a sub-session's parent, a `spawnedBy` tag)
+    /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
@@ -915,9 +934,33 @@ impl Config {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
     }
 
+    /// `uploadsMaxAgeDays`, or its 30-day default; None when it is 0 (keep them).
+    pub fn uploads_max_age(&self) -> Option<std::time::Duration> {
+        match self.uploads_max_age_days.unwrap_or(30) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(days.saturating_mul(24 * 60 * 60))),
+        }
+    }
+
     /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
     pub fn silent_turn(&self) -> Option<std::time::Duration> {
         match self.silent_turn_ms.unwrap_or(90_000) {
+            0 => None,
+            ms => Some(std::time::Duration::from_millis(ms)),
+        }
+    }
+
+    /// `stalledTurnMs`, or its 10 minute default; None when it is 0 (off).
+    pub fn stalled_turn(&self) -> Option<u64> {
+        match self.stalled_turn_ms.unwrap_or(600_000) {
+            0 => None,
+            ms => Some(ms),
+        }
+    }
+
+    /// `stalledTurnEndMs`, or its 6 h default; None when it is 0 (off).
+    pub fn stalled_turn_end(&self) -> Option<std::time::Duration> {
+        match self.stalled_turn_end_ms.unwrap_or(6 * 60 * 60 * 1000) {
             0 => None,
             ms => Some(std::time::Duration::from_millis(ms)),
         }
@@ -1203,6 +1246,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = write_then_rename(&tmp, path, bytes);
+    // A failed write (a full disk) leaves no partial temporary file to hold
+    // the space it ran out of; every retry uses a new name.
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
+fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
     #[cfg(unix)]
     {
@@ -1214,7 +1267,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .truncate(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
+            .open(tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         // On disk before the rename: a power loss never leaves an empty
@@ -1226,10 +1279,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     {
         use std::io::Write;
         // A file a crashed process left under a reused pid is stale.
-        let mut f = match crate::owner_only::create_new(&tmp) {
+        let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
-                crate::owner_only::create_new(&tmp)
+                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(tmp)
             }
             other => other,
         }
@@ -1237,7 +1290,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
-    std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    std::fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     // The rename itself is durable once its directory is synced.
     #[cfg(unix)]
     if let Some(dir) = path.parent()

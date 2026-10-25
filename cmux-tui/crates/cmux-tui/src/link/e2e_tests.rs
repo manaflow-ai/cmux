@@ -295,3 +295,160 @@ async fn a_revoke_closes_the_owner_session_on_the_dialing_side() {
     let _ = within(dial).await;
     server.abort();
 }
+
+#[tokio::test]
+async fn a_revoke_closes_the_daemon_stream_before_removing_its_wireguard_peer() {
+    let a = node("inst_a").await;
+    let b = node("inst_b").await;
+    let (a_udp, b_udp) = (a.socket.local_addr().unwrap(), b.socket.local_addr().unwrap());
+    let directory = cmux_unix_socket::short_test_dir("revwg");
+    let mut pairings_a = Pairings::default();
+    pairings_a.upsert(record(&b, b_udp)).unwrap();
+    let path = directory.path().join("peers.json");
+    pairings_a.save(&path).unwrap();
+    let mut pairings_b = Pairings::default();
+    pairings_b.upsert(record(&a, a_udp)).unwrap();
+    let overlay_a = Arc::new(mesh(a));
+    let overlay_b = mesh(b);
+    overlay_a.sync_peers(&pairings_a).await.unwrap();
+    overlay_b.sync_peers(&pairings_b).await.unwrap();
+    let session = directory.path().join("s.sock");
+    let entry_path = cmux_link::entry_path::remote_entry_socket_path(&session);
+    std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
+    let entry = tokio::net::UnixListener::bind(entry_path).unwrap();
+    let endpoint = tokio::spawn(async move {
+        let (mut stream, _) = entry.accept().await.unwrap();
+        stream.write_all(b"{\"remote_entry\":1}\n").await.unwrap();
+        let mut stream = BufReader::new(stream);
+        let mut line = String::new();
+        stream.read_line(&mut line).await.unwrap();
+        assert_eq!(cmux_link::stamp::parse(&line).unwrap().peer.install, "inst_b");
+        line.clear();
+        stream.read_line(&mut line).await.unwrap();
+        stream.get_mut().write_all(line.as_bytes()).await.unwrap();
+        let mut rest = Vec::new();
+        let _ = tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut rest).await;
+        rest
+    });
+    let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
+    let peers = Arc::new(Peers::load(path.clone()).unwrap());
+    let server = tokio::spawn(serve_overlay(listener, peers.clone(), Some(session), None));
+    let (mut caller, link_side) = tokio::io::duplex(64 * 1024);
+    let dial = tokio::spawn(async move { serve_dial(link_side, &overlay_b, &pairings_b).await });
+    caller
+        .write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_a\",\"service\":\"daemon\"}\nhello\n")
+        .await
+        .unwrap();
+    let mut caller = BufReader::new(caller);
+    let mut line = String::new();
+    within(caller.read_line(&mut line)).await.unwrap();
+    assert!(line.starts_with("{\"ok\":true"));
+    line.clear();
+    within(caller.read_line(&mut line)).await.unwrap();
+    assert_eq!(line, "hello\n");
+    Pairings::default().save(&path).unwrap();
+    within(peers.reload(&*overlay_a)).await.unwrap();
+    line.clear();
+    let closed = tokio::time::timeout(Duration::from_secs(3), caller.read_line(&mut line)).await;
+    assert!(matches!(closed, Ok(Ok(0))), "the dialing side did not receive the close: {closed:?}");
+    let _ = caller.get_mut().write_all(b"after-revoke\n").await;
+    assert!(within(endpoint).await.unwrap().is_empty(), "revoked bytes reached the daemon entry");
+    drop(caller);
+    let _ = within(dial).await;
+    server.abort();
+}
+
+#[tokio::test]
+async fn outgoing_revocation_and_endpoint_updates_work_across_two_real_meshes() {
+    let a = node("inst_a").await;
+    let b = node("inst_b").await;
+    let (a_udp, b_udp) = (a.socket.local_addr().unwrap(), b.socket.local_addr().unwrap());
+    let directory = cmux_unix_socket::short_test_dir("outwg");
+    let mut pairings_a = Pairings::default();
+    pairings_a.upsert(record(&b, b_udp)).unwrap();
+    let path_a = directory.path().join("a.json");
+    pairings_a.save(&path_a).unwrap();
+    let mut pairings_b = Pairings::default();
+    pairings_b.upsert(record(&a, a_udp)).unwrap();
+    let path_b = directory.path().join("b.json");
+    pairings_b.save(&path_b).unwrap();
+    let overlay_a = Arc::new(mesh(a));
+    let overlay_b = Arc::new(mesh(b));
+    overlay_a.sync_peers(&pairings_a).await.unwrap();
+    overlay_b.sync_peers(&pairings_b).await.unwrap();
+
+    let session = directory.path().join("s.sock");
+    let entry_path = cmux_link::entry_path::remote_entry_socket_path(&session);
+    std::fs::create_dir_all(entry_path.parent().unwrap()).unwrap();
+    let entry = tokio::net::UnixListener::bind(entry_path).unwrap();
+    let endpoint = tokio::spawn(async move {
+        let (mut stream, _) = entry.accept().await.unwrap();
+        stream.write_all(b"{\"remote_entry\":1}\n").await.unwrap();
+        let mut stream = BufReader::new(stream);
+        let mut line = String::new();
+        stream.read_line(&mut line).await.unwrap();
+        assert_eq!(cmux_link::stamp::parse(&line).unwrap().peer.install, "inst_b");
+        line.clear();
+        stream.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "hello\n");
+        stream.get_mut().write_all(b"answer\n").await.unwrap();
+        line.clear();
+        stream.read_line(&mut line).await.unwrap();
+        assert_eq!(line, "after-endpoint-update\n");
+        stream.get_mut().write_all(line.as_bytes()).await.unwrap();
+        let mut rest = Vec::new();
+        tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut rest).await.unwrap();
+        rest
+    });
+    let listener = overlay_a.listen(cmux_link::LINK_PORT).await.unwrap();
+    let incoming = tokio::spawn(serve_overlay(
+        listener,
+        Arc::new(Peers::load(path_a).unwrap()),
+        Some(session),
+        None,
+    ));
+    let local_path = directory.path().join("l.sock");
+    let local = tokio::net::UnixListener::bind(&local_path).unwrap();
+    let peers_b = Arc::new(Peers::load(path_b.clone()).unwrap());
+    let outgoing = tokio::spawn(super::control::serve_local(
+        local,
+        overlay_b.clone(),
+        peers_b.clone(),
+        Arc::new(super::cloud::CloudResolver::new(super::cloud::RelaySource)),
+        Arc::from("{}"),
+    ));
+    let mut caller = tokio::net::UnixStream::connect(local_path).await.unwrap();
+    caller
+        .write_all(b"{\"op\":\"link.dial\",\"host\":\"inst_a\",\"service\":\"daemon\"}\nhello\n")
+        .await
+        .unwrap();
+    let mut caller = BufReader::new(caller);
+    let mut line = String::new();
+    within(caller.read_line(&mut line)).await.unwrap();
+    assert!(line.starts_with("{\"ok\":true"));
+    line.clear();
+    within(caller.read_line(&mut line)).await.unwrap();
+    assert_eq!(line, "answer\n");
+
+    // Clearing a configured endpoint keeps the route authenticated traffic
+    // already established; it must not abort this stream during peer sync.
+    pairings_b.peers[0].endpoint = None;
+    pairings_b.save(&path_b).unwrap();
+    within(peers_b.reload(&*overlay_b)).await.unwrap();
+    caller.get_mut().write_all(b"after-endpoint-update\n").await.unwrap();
+    line.clear();
+    within(caller.read_line(&mut line)).await.unwrap();
+    assert_eq!(line, "after-endpoint-update\n");
+
+    Pairings::default().save(&path_b).unwrap();
+    let closed = async {
+        line.clear();
+        assert_eq!(caller.read_line(&mut line).await.unwrap(), 0);
+        let _ = caller.get_mut().write_all(b"after-revoke\n").await;
+        assert!(endpoint.await.unwrap().is_empty(), "revoked bytes reached the remote entry");
+    };
+    let (reloaded, ()) = within(async { tokio::join!(peers_b.reload(&*overlay_b), closed) }).await;
+    reloaded.unwrap();
+    incoming.abort();
+    outgoing.abort();
+}

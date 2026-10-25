@@ -10,7 +10,7 @@ struct TabSelectionTitles {
     /// Sets each selection-aware action's palette title; call after the actions are bound.
     @MainActor func install(in registry: ActionRegistry) {
         for id: ActionID in ["closeTab", "palette.toggleTabPin", "duplicateTab", "palette.moveTabToNewWorkspace", "tab.moveToNewWindow",
-                             "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab"] {
+                             "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "tab.stash"] {
             ActionTargetTitles.setPaletteTitle(id, in: registry) { [context] in
                 guard let strip = context.services.windows.active?.focusedPane?.stripModel, strip.selectedTabIDs.count > 1 else { return nil }
                 return NSMenu.tabSelectionTitle(id, pins: strip.pinsAll(strip.selectedTabIDs))

@@ -4,7 +4,8 @@
 // span with no curated lines even when it had user-visible commits, and kept internal work as a
 // bare count ("2 internal changes"). Now the span's changes are open, grouped by area ("Sidebar",
 // "Composer", then "Other"), each with its pull request, and internal work is listed, with its pull
-// requests, under a collapsed "Under the hood".
+// requests, under a collapsed "Under the hood". An update with curated notes folds them under its lead
+// changes and cards (whats-new-happy-news.test.tsx); this one has none, so its changes stay open.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -97,6 +98,7 @@ test("What's New lists the update's changes by area with their pull requests, in
   expect(section).not.toBeNull();
   // The span has user-visible changes: never "Maintenance and fixes" over them.
   expect(section?.querySelector(".cl-maintenance")).toBeNull();
+  // No curated notes: the changes are the news, so they are open.
   const fold = section?.querySelector<HTMLDetailsElement>("details.cl-changes");
   expect(fold?.open).toBe(true);
   const areas = [...(fold?.querySelectorAll(".cl-area") ?? [])];
@@ -106,6 +108,8 @@ test("What's New lists the update's changes by area with their pull requests, in
     ["A click never drags", pull(301)],
   ]);
   expect(rows(areas[1]?.querySelector("ul"))).toEqual([["Return steers a running turn", pull(202)]]);
+  // The title links its pull request too, not only the trailing number.
+  expect(areas[1]?.querySelector<HTMLAnchorElement>("a.cl-change-link")?.href).toBe(pull(202));
   expect(rows(areas[2]?.querySelector("ul"))).toEqual([["Enroll Computer Use after peer check", pull(302)]]);
   // The installed build's own change is not part of the update.
   expect(fold?.textContent).not.toContain("installed build");
@@ -137,4 +141,64 @@ test("a release day never takes a commit subject as its title", async () => {
   });
   expect(releaseTitle([digest("Enroll Computer Use after peer check", "summary-0")], "en")).toBeUndefined();
   expect(releaseTitle([digest("Agents can use your apps", "computer-use")], "en")).toBe("Agents can use your apps");
+});
+
+test("the update waits for all its notes: its fold never opens on one build and closes on the next", async () => {
+  const { MockChangelogProvider } = await import("../src/pages/changelog/mockProvider");
+  const { ChangelogOps } = await import("../src/pages/changelog/types");
+  const { mountChangelogPage } = await import("../src/pages/changelog/main");
+  // The newest build has bare changes only; the one before it has a curated note, held back.
+  const curated = {
+    ...notes("3940000000002", [{ title: "cmux-next sidebar: a click never drags", pr: 301 }]),
+    whatsNew: {
+      version: "1.0.0-nightly.3940000000002",
+      channel: "nightly" as const,
+      date: "2026-10-20",
+      headline: { en: "Agents can use your apps" },
+      entries: [
+        {
+          id: "computer-use",
+          category: "new" as const,
+          title: { en: "Agents can use your apps" },
+          summary: { en: "" },
+        },
+      ],
+    },
+  };
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let open = 0;
+  class Held extends MockChangelogProvider {
+    override async call<R>(op: string, params: unknown): Promise<R> {
+      open += 1;
+      try {
+        if (op === ChangelogOps.get && (params as { build?: string }).build === curated.build) await held;
+        return await super.call<R>(op, params);
+      } finally {
+        open -= 1;
+      }
+    }
+  }
+  const root = dom.window.document.createElement("div");
+  dom.window.document.body.append(root);
+  await act(async () => {
+    mountChangelogPage(root, new Held([span[0]!, curated, span[2]!], "3940000000003") as never);
+  });
+  const settle = async (done: () => boolean) => {
+    const deadline = performance.now() + 2_000;
+    do {
+      if (performance.now() > deadline) throw new Error("timed out waiting for the update's notes");
+      await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+    } while (!done());
+  };
+  const section = () => root.querySelector('[data-testid="changelog.sinceLastUpdate"]');
+  // Every call but the held one is answered: the newest build's bare changes are in, yet nothing is drawn.
+  await settle(() => open === 1 && !!section());
+  expect(section()?.querySelector(".clj-placeholder")).not.toBeNull();
+  expect(section()?.querySelector("details.cl-changes")).toBeNull();
+  release();
+  await settle(() => open === 0 && !section()?.querySelector(".clj-placeholder"));
+  // With a curated note, the changes stay folded under it.
+  expect(section()?.querySelector<HTMLDetailsElement>("details.cl-changes")?.open).toBe(false);
+  expect(section()?.querySelector(".cln-lead-title")?.textContent).toBe("Agents can use your apps");
 });

@@ -7,7 +7,7 @@ updates from and where each one publishes. nightly.yml calls this before it
 bakes a feed URL into the app and before every object it uploads:
 
   feed-url URL           the SUFeedURL baked into the app
-  appcast FILE           every download URL and item channel in an appcast
+  appcast FILE           every download URL and item channel (one ring tag) in an appcast
   r2-key BUCKET KEY      every object it writes
 
 The allowed values come from the workflow environment
@@ -33,10 +33,13 @@ MAIN_FEED_PREFIXES = (
 MAIN_OBJECT_PREFIXES = ("nightly/", "rc/", "stable/")
 NEXT_DOWNLOAD_PREFIX = "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/"
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
-# Every cmux-next item carries this sparkle:channel. Sparkle offers a
-# channel-tagged item only to an updater that allows the channel, and only the
-# cmux-next build does (UpdateFeedResolver.Channel.allowedSparkleChannels).
-NEXT_SPARKLE_CHANNEL = "cmux-next"
+# Every cmux-next item carries exactly one of these sparkle:channel tags, one
+# per release ring (UpdateRing.sparkleChannel; scripts/ci/nightly_next_ring.py
+# says which). Sparkle offers a channel-tagged item only to an updater that
+# allows the channel; only a cmux-next build allows any of them
+# (UpdateFeedResolver.Channel.allowedSparkleChannels), so main's builds ignore
+# every item, and an untagged item is what this guard must never let through.
+NEXT_SPARKLE_CHANNELS = ("cmux-next-stable", "cmux-next", "cmux-next-canary", "cmux-next-dev")
 
 
 class Refused(Exception):
@@ -75,8 +78,8 @@ def check_appcast(path):
     items = list(root.iter("item"))
     for item in items:
         channels = [c.text for c in item.findall(f"{{{SPARKLE_NS}}}channel")]
-        if channels != [NEXT_SPARKLE_CHANNEL]:
-            raise Refused(f"{path} item channel {channels} is not [{NEXT_SPARKLE_CHANNEL!r}]")
+        if len(channels) != 1 or channels[0] not in NEXT_SPARKLE_CHANNELS:
+            raise Refused(f"{path} item channel {channels} is not one of {list(NEXT_SPARKLE_CHANNELS)}")
     for url in urls:
         if not url.startswith(NEXT_DOWNLOAD_PREFIX):
             raise Refused(f"{path} enclosure {url} is not a nightly-next download")

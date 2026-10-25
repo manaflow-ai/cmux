@@ -77,6 +77,9 @@ touch "$1/compiled.o"
             "STUB_SDK_BUILD": "26A1",
             "TEST_PATH": str(self.root / "path"),
             "TEST_MODE": str(self.root / "mode"),
+            # The DEV step's env always defines this; it is empty when the
+            # compiled-product lookup missed, which is the path compiled here.
+            "REUSED_ARCHIVE": "",
         }
         env.update(overrides)
         result = subprocess.run(["/bin/bash", "-eu", "-c", "\n".join(lines)], cwd=self.workspace,

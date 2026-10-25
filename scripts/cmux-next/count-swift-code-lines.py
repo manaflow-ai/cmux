@@ -15,7 +15,16 @@ from pathlib import Path
 
 
 def count_source_lines(text: str) -> int:
-    count = 0
+    return sum(source_line_flags(text))
+
+
+def source_line_flags(text: str) -> list[bool]:
+    """Per line of `text.split("\\n")`, whether it counts as a source line; their sum is count_source_lines.
+
+    guardrails.py's `app-size` rule reads it to count a push's added and removed lines the way this script
+    counts files, so the pre-push rule and check-app-size.sh --base agree on what growth is.
+    """
+    flags: list[bool] = []
     code_on_line = False
     mode = "normal"
     block_depth = 0
@@ -28,7 +37,7 @@ def count_source_lines(text: str) -> int:
 
         if mode == "normal":
             if char == "\n":
-                count += int(code_on_line)
+                flags.append(code_on_line)
                 code_on_line = False
             elif pair == "//":
                 mode = "line-comment"
@@ -48,7 +57,7 @@ def count_source_lines(text: str) -> int:
                 code_on_line = True
         elif mode == "line-comment":
             if char == "\n":
-                count += int(code_on_line)
+                flags.append(code_on_line)
                 code_on_line = False
                 mode = "normal"
         elif mode == "block-comment":
@@ -61,16 +70,18 @@ def count_source_lines(text: str) -> int:
                 if block_depth == 0:
                     mode = "normal"
             elif char == "\n":
-                count += int(code_on_line)
+                flags.append(code_on_line)
                 code_on_line = False
         elif mode == "string":
             code_on_line = True
             if char == "\\":
+                if text[index + 1 : index + 2] == "\n":
+                    flags.append(False)  # an escaped line break joins two lines into one source line
                 index += 1
             elif char == '\"':
                 mode = "normal"
             elif char == "\n":
-                count += 1
+                flags.append(True)
                 code_on_line = False
         else:  # multiline-string
             code_on_line = True
@@ -78,14 +89,13 @@ def count_source_lines(text: str) -> int:
                 mode = "normal"
                 index += 2
             elif char == "\n":
-                count += 1
+                flags.append(True)
                 code_on_line = False
 
         index += 1
 
-    if code_on_line:
-        count += 1
-    return count
+    flags.append(code_on_line)
+    return flags
 
 
 def working_tree_counts(app: Path) -> dict[str, int]:

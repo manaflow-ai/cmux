@@ -1,7 +1,9 @@
 import CMUXMobileCore
 import Foundation
 import SQLite3
+#if canImport(os)
 import os
+#endif
 
 // MobilePairedMacStore's schema: opening the SQLite connection and migrating it to
 // `currentSchemaVersion`, once, on first access.

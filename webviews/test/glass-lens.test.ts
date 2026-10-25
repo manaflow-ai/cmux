@@ -76,10 +76,9 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
     return page;
   }
 
-  /** The red channel along the box's middle row. */
-  async function row(page: Page): Promise<number[]> {
+  /** The red channel along a row, by default the box's middle one. */
+  async function row(page: Page, y = BOX.y + BOX.height / 2): Promise<number[]> {
     const png = PNG.sync.read(await page.screenshot());
-    const y = BOX.y + BOX.height / 2;
     const values: number[] = [];
     for (let x = 0; x < png.width; x++) values.push(png.data[(y * png.width + x) * 4]!);
     return values;
@@ -202,6 +201,39 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         expect(meanDifference(lens, plain, center - 30, center + 30)).toBeLessThan(25);
         expect(meanDifference(lens, plain, 4, BOX.x - 4)).toBeLessThan(25);
         await page.close();
+      });
+
+      test("a joined edge (--glass-join) bends no rim: the side band runs straight up to it", async () => {
+        if (!webgl) return;
+        const page = await open(browser, "lens");
+        // Linux WebKit's headless compositor leaves WebGL out of screenshots (above).
+        if (name === "webkit" && process.platform === "linux") {
+          await page.close();
+          return;
+        }
+        // Two px under the top edge, in the left corner: outside the 24 px rounded corner the lens
+        // leaves the wallpaper as it is.
+        const y = BOX.y + 2;
+        const rounded = await row(page, y);
+        await page.evaluate(async () => {
+          const style = document.createElement("style");
+          style.textContent = ".box.joined { --glass-join: top; }";
+          document.head.append(style);
+          document.querySelector(".box")!.classList.add("joined");
+          for (let i = 0; i < 10; i++) await new Promise(requestAnimationFrame);
+        });
+        const joined = await row(page, y);
+        const joinedAbove = await row(page, BOX.y - 4);
+        await page.evaluate(() => document.documentElement.setAttribute("data-glass", "plain"));
+        await page.evaluate(() => new Promise(requestAnimationFrame));
+        const plain = await row(page, y);
+        const plainAbove = await row(page, BOX.y - 4);
+        await page.close();
+        expect(meanDifference(rounded, plain, BOX.x + 1, BOX.x + 8)).toBeLessThan(25);
+        // Joined at the top, the corner is square and the left band bends there as at mid-height.
+        expect(meanDifference(joined, plain, BOX.x + 1, BOX.x + 8)).toBeGreaterThan(40);
+        // The glass stops at the joined edge: above it the copy matches the page.
+        expect(meanDifference(joinedAbove, plainAbove, BOX.x + 1, BOX.x + BOX.width - 1)).toBeLessThan(25);
       });
 
       test("the loop draws only when a rect changes, then stops", async () => {

@@ -179,9 +179,23 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
-        Some(Command::Route(cmd)) => {
+        Some(Command::Task(cmd)) => {
             let json_out = cli.json;
-            match crate::cli::route::run(cmd, json_out).await {
+            match crate::cli::task::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Resolve { query }) => {
+            let json_out = cli.json;
+            match crate::cli::resolve::run(query, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Bead(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::beads::run(cmd, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }
@@ -209,6 +223,12 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
+            Ok(())
+        }
+        // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::Capabilities) => {
+            use std::io::Write;
+            let _ = std::io::stdout().write_all(crate::capabilities::render(cli.json).as_bytes());
             Ok(())
         }
         Some(cmd) => {

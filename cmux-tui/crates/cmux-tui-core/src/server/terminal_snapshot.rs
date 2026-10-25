@@ -55,6 +55,8 @@
 //! one requested snapshot per 500 ms (`snapshot_throttled {retry_after_ms}`).
 //! A channel transport maps its message onto [`handle_request`].
 
+use crate::panic_free::JsonFields;
+use crate::panic_free::RecoverPoison;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -193,14 +195,14 @@ impl SnapshotViewers {
     fn register(&self, client: u64, surface: SurfaceId, stream: u64, gate: SnapshotRequestGate) {
         self.viewers
             .lock()
-            .unwrap()
+            .recover_poison()
             .entry((client, surface))
             .or_default()
             .push(RegisteredViewer { stream, gate });
     }
 
     fn unregister(&self, client: u64, surface: SurfaceId, stream: u64) {
-        let mut viewers = self.viewers.lock().unwrap();
+        let mut viewers = self.viewers.lock().recover_poison();
         if let Some(list) = viewers.get_mut(&(client, surface)) {
             list.retain(|viewer| viewer.stream != stream);
             if list.is_empty() {
@@ -212,7 +214,7 @@ impl SnapshotViewers {
     fn gates(&self, client: u64, surface: SurfaceId) -> Vec<SnapshotRequestGate> {
         self.viewers
             .lock()
-            .unwrap()
+            .recover_poison()
             .get(&(client, surface))
             .map(|list| list.iter().map(|viewer| viewer.gate.clone()).collect())
             .unwrap_or_default()
@@ -312,12 +314,12 @@ fn request_reply(
         }
         SnapshotAdmission::NotAttached => anyhow::bail!("not_attached"),
     };
-    reply["surface"] = json!(surface);
+    reply.insert("surface", json!(surface));
     if let Some(request_id) = request_id {
-        reply["request_id"] = json!(request_id);
+        reply.insert("request_id", json!(request_id));
     }
     if let Some(reason) = reason {
-        reply["reason"] = json!(reason);
+        reply.insert("reason", json!(reason));
     }
     Ok(reply)
 }
@@ -329,9 +331,9 @@ fn base64(bytes: &[u8]) -> String {
 /// The READY of a local-history resize: no history follows it.
 fn local_snapshot_json(surface: SurfaceId, ready: &LocalReadySnapshot) -> Value {
     let mut value = snapshot_json(surface, &ready.frame);
-    value["history"] = json!("local");
-    value["history_rows"] = json!(ready.history_rows);
-    value["history_digest"] = json!(hex(&ready.history_digest));
+    value.insert("history", json!("local"));
+    value.insert("history_rows", json!(ready.history_rows));
+    value.insert("history_digest", json!(hex(&ready.history_digest)));
     value
 }
 
@@ -394,9 +396,9 @@ impl PendingTail {
     }
 
     fn next_history_chunk(&mut self, surface: SurfaceId) -> std::io::Result<Value> {
-        let end = (self.history_sent + HISTORY_CHUNK_BYTES).min(self.history.len());
+        let end = self.history_sent.saturating_add(HISTORY_CHUNK_BYTES).min(self.history.len());
         let done = end == self.history.len();
-        let raw = &self.history[self.history_sent..end];
+        let raw = self.history.get(self.history_sent..end).unwrap_or_default();
         let packed = deflate(raw)?;
         let value = json!({
             "event": "snapshot",
@@ -440,7 +442,7 @@ impl PendingImages {
             return None;
         }
         let stream = &self.data.data;
-        let end = (self.sent + IMAGES_CHUNK_BYTES).min(stream.len());
+        let end = self.sent.saturating_add(IMAGES_CHUNK_BYTES).min(stream.len());
         let done = end == stream.len();
         let mut value = json!({
             "event": "snapshot",
@@ -449,11 +451,11 @@ impl PendingImages {
             "generation": generation,
             "offset": offset,
             "version": version,
-            "data": base64(&stream[self.sent..end]),
+            "data": base64(stream.get(self.sent..end).unwrap_or_default()),
             "done": done,
         });
         if done && self.skipped_images > 0 {
-            value["skipped_images"] = json!(self.skipped_images);
+            value.insert("skipped_images", json!(self.skipped_images));
         }
         self.sent = end;
         self.finished = done;
@@ -515,8 +517,8 @@ fn frame_json(
         })),
         AttachFrame::ColorsChanged(colors) => {
             let mut value = terminal_colors_json(**colors, true);
-            value["event"] = json!("colors-changed");
-            value["surface"] = json!(surface);
+            value.insert("event", json!("colors-changed"));
+            value.insert("surface", json!(surface));
             Some(value)
         }
         AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => None,

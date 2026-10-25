@@ -15,6 +15,7 @@
 //! running cell (and its session). Only local connections that are not bound
 //! to an agent may run scripts; the connection's sessions end when it closes.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 
 use cmux_app_host::script::{LogSink, ScriptError};
@@ -75,10 +76,10 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Script
         Err(e) => {
             let mut value = json!({ "ok": false, "error": e.message, "error_code": e.code });
             if let Some(id) = id {
-                value["id"] = id;
+                value.insert("id", id);
             }
             if !e.details.is_null() {
-                value["error_details"] = e.details;
+                value.insert("error_details", e.details);
             }
             writer.send_control(&value).is_ok()
         }
@@ -99,7 +100,7 @@ fn log_sink(
         }
         let (name, value) = tag();
         let mut event = json!({ "event": "script-log", "level": level, "message": message });
-        event[name] = value;
+        event.insert(name, value);
         let _ = writer.send_control(&event);
     })
 }
@@ -108,7 +109,7 @@ fn log_sink(
 fn answer_json(answer: Answer) -> Value {
     let mut data = json!({ "value": answer.value });
     if answer.dropped_log_lines > 0 {
-        data["dropped_log_lines"] = json!(answer.dropped_log_lines);
+        data.insert("dropped_log_lines", json!(answer.dropped_log_lines));
     }
     data
 }
