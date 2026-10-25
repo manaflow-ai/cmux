@@ -236,7 +236,7 @@ test("the card draws the title, the clamped command and the three buttons, and e
 test("the card labels the scoped target on the card and persistent action", async () => {
   const card = await mount(bash({ permissionId: "scoped", scope: { kind: "app", value: "Calculator" } }));
   expect(card.host.querySelector(".acpmux-permission-scope")?.textContent).toBe("In Calculator");
-  const scope = card.host.querySelector<HTMLElement>(".acpmux-permission-scope")!;
+  const scope = card.host.querySelector<HTMLElement>(".acpmux-permission-scope > span")!;
   // The scope is the line's, never a button's (Leo 2026-10-25): each answer points at it instead.
   expect(card.host.querySelector('[aria-label="Always allow"]')?.textContent).not.toContain("In Calculator");
   expect(card.host.querySelector('[aria-label="Always allow"]')?.getAttribute("aria-describedby")).toBe(scope.id);
@@ -269,7 +269,9 @@ test("Always allow is just its label; its rule shows once, on the line under the
   expect(line.textContent).toBe(rule);
   // Cut to one line by the card's style: the whole rule is its tooltip.
   expect(line.title).toBe(rule);
-  expect(always.getAttribute("aria-describedby")).toBe(line.id);
+  expect(always.getAttribute("aria-describedby")).toBe(line.querySelector("span")!.id);
+  // Allow once and Deny are not described by a grant they do not make.
+  expect(card.host.querySelector('[aria-label="Allow once"]')?.hasAttribute("aria-describedby")).toBe(false);
   await card.unmount();
 });
 
