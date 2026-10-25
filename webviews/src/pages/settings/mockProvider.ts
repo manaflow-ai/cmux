@@ -216,6 +216,20 @@ export class MockSettingsProvider {
           this.setHost({ ...this.host, devices: { ...devices, rows: devices.rows.filter((r) => r.id !== params.id) } });
         return {};
       },
+      "cmux.settings.devices.full_access": (params) => {
+        const devices = this.host.devices;
+        if (devices)
+          this.setHost({
+            ...this.host,
+            devices: {
+              ...devices,
+              rows: devices.rows.map((r) =>
+                r.id === params.id && r.full_access !== undefined ? { ...r, full_access: params.on } : r,
+              ),
+            },
+          });
+        return {};
+      },
       "cmux.settings.mobile.remove_phone": (params) => {
         const iphone = this.host.iphone;
         if (iphone)
@@ -457,6 +471,7 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play",
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
+      "cmux.settings.devices.full_access",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
@@ -774,6 +789,7 @@ export class MockSettingsProvider {
       remove_title: "Remove",
       remove_confirm_title: "Remove for Good",
       remove_help: "It stops working with this computer at once. To use it again, add it again.",
+      full_access_title: "Full access",
       activity_title: "Recent activity",
       error: null,
       rows: [
@@ -784,6 +800,17 @@ export class MockSettingsProvider {
           detail: null,
           state: "connected",
           removable: true,
+        },
+        {
+          id: "paired:dv_leo",
+          title: "leo-mbp",
+          subtitle: "Uses this computer · Offline",
+          detail: null,
+          state: "offline",
+          removable: true,
+          full_access: false,
+          full_access_help:
+            "Lets leo-mbp run chats in Full access: the agent edits files and runs commands on this Mac without asking.",
         },
         {
           id: "phone:p1",

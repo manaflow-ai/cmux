@@ -481,6 +481,12 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Settings > Devices: a paired client machine's Full access on or off, then re-read the host lists. */
+  async setDeviceFullAccess(id: string, on: boolean): Promise<void> {
+    await this.request("cmux.settings.devices.full_access", { id, on });
+    await this.refreshHost();
+  }
+
   /** Settings > Mobile: answer a phone's pairing request, then re-read the host lists. */
   async answerPair(id: string, allow: boolean): Promise<void> {
     await this.request("cmux.settings.mobile.answer_pair", { id, allow });
