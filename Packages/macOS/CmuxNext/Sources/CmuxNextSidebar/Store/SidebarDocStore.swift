@@ -88,7 +88,7 @@ public final class SidebarDocStore {
     /// Cloud machine sections currently being migrated to host groups. This is
     /// shared by every window through the one document store, so an optimistic
     /// update cannot be resent on each `show` before its echo arrives.
-    @ObservationIgnored var pendingHostGroupMarks: Set<String> = []
+    @ObservationIgnored var pendingHostGroupMarks: [String: String] = [:]
     /// What to run when a fold (`setGroupCollapsed`) is refused, by its key.
     @ObservationIgnored private var foldRefusals: [String: @MainActor () -> Void] = [:]
 
@@ -140,6 +140,9 @@ public final class SidebarDocStore {
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
+            // The load is authoritative: an unanswered migration either made
+            // it into this document or can be retried on the next show.
+            self.pendingHostGroupMarks.removeAll()
             self.isActive = true
             self.bump()
             let early = self.earlyBatches
@@ -162,7 +165,7 @@ public final class SidebarDocStore {
         case .applied(let revision):
             let folds = records.apply(batch: data)
             if let revision { records.revision = revision }
-            pendingHostGroupMarks = pendingHostGroupMarks.filter { session in
+            pendingHostGroupMarks = pendingHostGroupMarks.filter { session, _ in
                 guard let section = records.sections["\(Self.machineSectionPrefix)\(session)"] else { return true }
                 return !section.hostGroup && !section.hostGroupOptOut
             }

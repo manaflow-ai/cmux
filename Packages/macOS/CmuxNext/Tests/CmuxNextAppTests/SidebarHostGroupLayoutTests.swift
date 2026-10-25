@@ -97,13 +97,17 @@ import Testing
 
         store.markHostGroup(session: "mini", title: "Cloud machine")
         store.markHostGroup(session: "mini", title: "Cloud machine")
-        for _ in 0..<100 where remote.applyCount == 0 { await Task.yield() }
+        await remote.waitForFirstApply()
         #expect(remote.applyCount == 1)
-        for _ in 0..<100 where !store.pendingHostGroupMarks.isEmpty { await Task.yield() }
+
+        let refused = HostGroupSignal()
+        store.onRefused = { _ in refused.signal() }
+        remote.releaseFirstApply()
+        await refused.wait()
         #expect(store.pendingHostGroupMarks.isEmpty)
 
         store.markHostGroup(session: "mini", title: "Cloud machine")
-        for _ in 0..<100 where remote.applyCount < 2 { await Task.yield() }
+        await remote.waitForSecondApply()
         #expect(remote.applyCount == 2)
     }
 }
@@ -112,6 +116,22 @@ import Testing
     private struct Refused: Error {}
     var applyCount = 0
     var isAvailable: Bool { true }
+    private var firstApplyStarted: CheckedContinuation<Void, Never>?
+    private var firstApplyRelease: CheckedContinuation<Void, Never>?
+    private var secondApplyStarted: CheckedContinuation<Void, Never>?
+
+    func waitForFirstApply() async {
+        await withCheckedContinuation { firstApplyStarted = $0 }
+    }
+
+    func releaseFirstApply() {
+        firstApplyRelease?.resume()
+        firstApplyRelease = nil
+    }
+
+    func waitForSecondApply() async {
+        await withCheckedContinuation { secondApplyStarted = $0 }
+    }
 
     func get() async throws -> Data {
         Data(#"{"revision":"1","sections":[{"id":"sec_m_mini","kind":{"type":"machine","session_id":"mini"}}],"items":[]}"#.utf8)
@@ -125,13 +145,39 @@ import Testing
     func apply(ops: Data, key: String) async throws -> SidebarDocReply {
         applyCount += 1
         if applyCount == 1 {
-            try await Task.sleep(for: .milliseconds(20))
+            firstApplyStarted?.resume()
+            firstApplyStarted = nil
+            await withCheckedContinuation { firstApplyRelease = $0 }
             throw Refused()
         }
+        secondApplyStarted?.resume()
+        secondApplyStarted = nil
         return SidebarDocReply(revision: nil, inverse: Data("[]".utf8))
     }
 
     private func refused() async throws -> SidebarDocReply {
         throw Refused()
+    }
+}
+
+@MainActor private final class HostGroupSignal {
+    private var signaled = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func signal() {
+        if let continuation {
+            self.continuation = nil
+            continuation.resume()
+        } else {
+            signaled = true
+        }
+    }
+
+    func wait() async {
+        if signaled {
+            signaled = false
+            return
+        }
+        await withCheckedContinuation { continuation = $0 }
     }
 }
