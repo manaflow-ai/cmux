@@ -194,7 +194,7 @@ function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send"
   return (
     <SentMessageLine
       tool={tool}
-      state={call.running ? "sending" : "sent"}
+      state={call.running ? "sending" : tool.status === "failed" ? "failed" : "sent"}
       target={live?.name ?? shortId(call.sessionId)}
       text={call.text}
       detail={call.delivery && deliveryText(t, call.delivery)}
