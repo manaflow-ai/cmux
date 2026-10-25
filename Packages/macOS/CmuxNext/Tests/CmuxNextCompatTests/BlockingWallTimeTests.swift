@@ -112,38 +112,29 @@ struct BlockingWallTimeTests {
         #expect(clock.reads == 2)
     }
 
-    /// `waitUntilExit` runs the main run loop while it waits: the process wait is timed, and a checked call the
-    /// nested run makes counts without time, so the interval is not counted twice. Alone in a child process (a
-    /// nested run would run other tests' main-actor work).
-    @Test func aCallInTheRunLoopAProcessWaitRunsCountsWithoutTime() async {
-        let result = await #expect(processExitsWith: .exitCode(0), observing: [\.standardErrorContent]) {
+    /// A timed call that runs the main run loop again (`waitUntilExit`, a modal panel, `RunLoop.run(until:)`)
+    /// keeps the whole interval; a checked call the nested run makes counts at its site without time, so the
+    /// interval is not counted twice. Alone in a child process (a nested run would run other tests' main-actor
+    /// work). Exit codes: 0 right; 3 wrong kinds; 4 wrong counts; 5 the outer call has no time; 6 the nested
+    /// call has time.
+    @Test func aCallInANestedRunLoopInsideATimedCallCountsWithoutTime() async {
+        await #expect(processExitsWith: .exitCode(0)) {
             let table = BlockingViolationTable(mode: .record)
-            try? await BlockingViolationTable.$scoped.withValue(table) {
-                try await MainActor.run {
-                    let input = Pipe()
-                    let writer = input.fileHandleForWriting
-                    let process = Process()
-                    process.executableURL = URL(fileURLWithPath: "/bin/cat")
-                    process.standardInput = input
-                    process.standardOutput = FileHandle.nullDevice
-                    try allowBlocking(BlockingAllowance(reviewed: "test")) { try process.blockingRun() }
-                    // Runs inside the wait below; closing cat's input ends cat, which ends the wait.
-                    RunLoop.main.perform {
-                        _ = FileManager.checked.fileExists(atPath: "/")
-                        try? writer.close()
+            await BlockingViolationTable.$scoped.withValue(table) {
+                await MainActor.run {
+                    blockingCall(.processWait) {
+                        RunLoop.main.perform { _ = FileManager.checked.fileExists(atPath: "/") }  // the nested run's work
+                        _ = usleep(1_000)
+                        _ = CFRunLoopRunInMode(.defaultMode, 0, true)
                     }
-                    process.blockingWaitUntilExit()
                 }
             }
             await table.flush()
             let sites = BlockingDetector(table: table).sites
-            FileHandle.standardError.write(Data("sites: \(sites)\n".utf8))
-            let right = sites.map(\.kind) == [.processWait, .fileIO] && sites.map(\.count) == [1, 1]
-                && sites[0].totalNanos > 0 && sites[1].totalNanos == 0
-            exit(right ? 0 : 3)
-        }
-        if case .exitCode(0)? = result?.exitStatus {} else {
-            Issue.record("child: \(String(decoding: result?.standardErrorContent ?? [], as: UTF8.self))")
+            guard sites.map(\.kind) == [.processWait, .fileIO] else { exit(3) }
+            guard sites.map(\.count) == [1, 1] else { exit(4) }
+            guard sites[0].totalNanos > 0 else { exit(5) }
+            exit(sites[1].totalNanos == 0 ? 0 : 6)
         }
     }
 
@@ -168,7 +159,8 @@ struct BlockingWallTimeTests {
 
     /// Every seam runs its primitive through `blockingCall`: on the main thread each records one site at its
     /// caller's line with the injected clock's step as its time. (`Process.blockingWaitUntilExit` runs the main
-    /// run loop, so it has its own child-process test above; the XPC seam needs a service. The system-call
+    /// run loop, which would run other tests' main-actor work, so it is left out (its routing is the one line in
+    /// Process+Blocking.swift); the XPC seam needs a service. The system-call
     /// seams are in BlockingSystemSeamTests.)
     @MainActor @Test func eachSeamOnTheMainThreadAddsItsWallTime() async throws {
         let step: UInt64 = 4_000_000
