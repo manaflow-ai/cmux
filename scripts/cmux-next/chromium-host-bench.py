@@ -144,7 +144,10 @@ def probe_color_share():
     (no Screen Recording permission, no display). A BMP capture, read without an imaging library."""
     with tempfile.TemporaryDirectory() as scratch:
         path = os.path.join(scratch, "screen.bmp")
-        done = subprocess.run(["/usr/sbin/screencapture", "-x", "-m", "-t", "bmp", path], capture_output=True, timeout=30)
+        try:
+            done = subprocess.run(["/usr/sbin/screencapture", "-x", "-m", "-t", "bmp", path], capture_output=True, timeout=15)
+        except subprocess.TimeoutExpired:
+            return None
         if done.returncode != 0 or not os.path.exists(path):
             return None
         data = open(path, "rb").read()
@@ -242,7 +245,10 @@ def ls_types():
     """LaunchServices' view of every app: {pid: application type} (`lsappinfo list`: Foreground has a Dock icon and
     a menu bar, UIElement and BackgroundOnly do not)."""
     import re
-    done = subprocess.run(["/usr/bin/lsappinfo", "list"], capture_output=True, text=True, timeout=20)
+    try:
+        done = subprocess.run(["/usr/bin/lsappinfo", "list"], capture_output=True, text=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return {}
     types = {}
     for block in re.split(r"\n(?=\s*\d+\) )", done.stdout):
         pid = re.search(r"\bpid = (\d+)", block)
@@ -255,10 +261,13 @@ def ls_types():
 def front_pid():
     """The pid of LaunchServices' frontmost app, or None."""
     import re
-    asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=20).stdout.strip()
-    if not asn:
+    try:
+        asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=10).stdout.strip()
+        if not asn:
+            return None
+        info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
         return None
-    info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True, timeout=20).stdout
     found = re.search(r"(\d+)", info.split("=", 1)[-1])
     return int(found.group(1)) if found else None
 
@@ -266,7 +275,10 @@ def front_pid():
 def defaults_snapshot(domain):
     """cmux's defaults domain as {key: value repr} (`defaults export`), or None."""
     import plistlib
-    done = subprocess.run(["/usr/bin/defaults", "export", domain, "-"], capture_output=True, timeout=20)
+    try:
+        done = subprocess.run(["/usr/bin/defaults", "export", domain, "-"], capture_output=True, timeout=20)
+    except subprocess.TimeoutExpired:
+        return None
     if done.returncode != 0:
         return None
     try:
@@ -557,9 +569,13 @@ def run_helper(rpc, url, inproc_tab):
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
-    opened = subprocess.run(["/usr/bin/open", "-b", bundle_id], capture_output=True, text=True, timeout=30)
+    try:
+        opened = subprocess.run(["/usr/bin/open", "-b", bundle_id], capture_output=True, text=True, timeout=20)
+        open_exit, open_err = opened.returncode, opened.stderr.strip()[:200]
+    except subprocess.TimeoutExpired:
+        open_exit, open_err = None, "timed out after 20 s"
     time.sleep(1.5)  # test harness: LaunchServices activates the target app
-    identity["open_b"] = {"exit": opened.returncode, "stderr": opened.stderr.strip()[:200], "front": front_pid(),
+    identity["open_b"] = {"exit": open_exit, "stderr": open_err, "front": front_pid(),
                           "host_still_runs": not pid_gone(host_pid), "host_type": ls_types().get(host_pid)}
     identity["pass"] = (identity["host_type"] in ("UIElement", "BackgroundOnly") and identity["front_after_input"] != host_pid
                         and identity["open_b"]["front"] != host_pid and identity["open_b"]["host_type"] in ("UIElement", "BackgroundOnly")
@@ -604,12 +620,33 @@ def run_helper(rpc, url, inproc_tab):
         time.sleep(0.5)  # test harness: as above, for the restarted host's context
         pixels["after_restart"] = probe_color_share()
     if None in (pixels["before_open"], pixels["shown"]):
-        pixels["error"] = "the screen could not be read (screencapture)"
+        pixels["not_measurable"] = "no Screen Recording grant for this account (screencapture could not read the display)"
     else:
         added = lambda key: pixels.get(key) is not None and pixels[key] - pixels["before_open"] >= 0.02
         pixels["pass"] = added("shown") and (not after or added("after_restart"))
     row["pixels"] = pixels
     return True
+
+
+ROW_LIMIT_S = 90  # one row of the input set; a prompt on the console or a stuck reply ends the row, not the step
+
+
+def bounded(rows, name, run):
+    """Runs one row with ROW_LIMIT_S: a row past it is recorded as timed out and the rest go on. Rows talk to the
+    app over its socket (each call has its own timeout) and to LaunchServices, so a row cannot block forever; the
+    limit bounds the sum of its waits."""
+    import threading
+    result = {}
+
+    def body():
+        try:
+            result["value"] = run()
+        except Exception as error:  # noqa: BLE001 - a row's failure is that row's result
+            result["value"] = {"error": f"{type(error).__name__}: {error}"[:300], "pass": False}
+    thread = threading.Thread(target=body, daemon=True)
+    thread.start()
+    thread.join(ROW_LIMIT_S)
+    rows[name] = result.get("value") if not thread.is_alive() else {"error": f"timed out after {ROW_LIMIT_S} s", "pass": False}
 
 
 def input_rows(rpc, url, title, click_point, borders, host_pid):
@@ -663,7 +700,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
 
     # 4. Chromium's native UI from the host process. Each one in a fresh host (close, open), so a UI that stays
     # open (a menu, a modal panel) cannot leak into the next row.
-    def native(name, action):
+    def native_row(name, action):
         start_counters = counters()
         action()
         time.sleep(1.5)  # test harness: the UI opens (a menu, a dialog, a panel)
@@ -676,7 +713,10 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
         rpc("debug.chromium_host", {"op": "open", "url": url, "focus": True})
         wait(lambda: (lambda r: r if r.get("shown_context_id") and (r.get("title") or "").startswith("probe ") else None)(
             rpc("debug.chromium_host") or {}), 60, 0.25)
-        rows[name] = out
+        return out
+
+    def native(name, action):
+        bounded(rows, name, lambda: native_row(name, action))
 
     native("context_menu", lambda: rpc("debug.mouse", {**click_point("t"), "button": "right"}))
     native("select_popup", lambda: rpc("debug.mouse", click_point("s")))
@@ -750,16 +790,25 @@ def run_lifetime(app, url):
         row["cmux_quit"] = {"error": "no host after the second reopen", "state": rpc("debug.chromium_host")}
         return False
     pid = state["pid"]
-    quit_event = subprocess.run(["/usr/bin/osascript", "-e", f'tell application id "{app_bundle_id()}" to quit'],
-                                capture_output=True, text=True, timeout=40)
+    # osascript sends the event straight to the app (no System Events), bounded: an Automation prompt on the
+    # console must not cost the step's hang limit.
+    try:
+        quit_event = subprocess.run(["/usr/bin/osascript", "-e", f'with timeout of 10 seconds\ntell application id "{app_bundle_id()}" to quit\nend timeout'],
+                                    capture_output=True, text=True, timeout=20)
+        ae_exit, ae_err = quit_event.returncode, quit_event.stderr.strip()[:200]
+    except subprocess.TimeoutExpired:
+        ae_exit, ae_err = None, "timed out after 20 s (an Automation prompt?)"
     try:
         app.process.wait(20)
         cmux_quit = True
     except subprocess.TimeoutExpired:
         cmux_quit = False
-    row["ae_quit"] = {"osascript_exit": quit_event.returncode, "stderr": quit_event.stderr.strip()[:200],
-                      "cmux_quit": cmux_quit, "host_ended_first": pid_gone(pid) and not cmux_quit}
-    row["ae_quit"]["pass"] = cmux_quit and not row["ae_quit"]["host_ended_first"]
+    row["ae_quit"] = {"osascript_exit": ae_exit, "stderr": ae_err, "cmux_quit": cmux_quit,
+                      "host_ended_first": pid_gone(pid) and not cmux_quit}
+    if ae_exit != 0 and not cmux_quit:
+        row["ae_quit"]["not_measurable"] = "the Quit AppleEvent did not reach cmux (Automation not allowed for this account?)"
+    else:
+        row["ae_quit"]["pass"] = cmux_quit and not row["ae_quit"]["host_ended_first"]
     if not cmux_quit:
         app.process.kill()  # the cmux process this bench started
         app.process.wait(30)
