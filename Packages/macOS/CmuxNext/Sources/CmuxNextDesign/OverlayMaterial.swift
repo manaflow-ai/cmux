@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxTheme
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// How an app overlay that floats over content (palette, hover card, find
 /// and prompt bars, the tab drag's drop target) is drawn. One decision for
@@ -48,6 +49,9 @@ public final class ReduceTransparency {
         system: { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
         changes: NSWorkspace.shared.notificationCenter
     )
+
+    /// Always opaque: for a card floating over content that must not show through it.
+    public static let alwaysOpaque = ReduceTransparency(system: { true }, changes: NotificationCenter())
 
     /// Pins the state (tests, Debug); nil follows `system`. Changing it
     /// redraws every live surface at once.
@@ -109,8 +113,10 @@ extension ThemeTokens {
     /// on a hovered row.
     nonisolated public func opaqueOverlayFill(lift: Double) -> ThemeRGB {
         let page = windowBackground.withAlpha(1)
-        guard isDark else { return page.mixed(toward: .white, lift) }
         let text = textPrimary.withAlpha(1)
+        // A dark theme whose text is darker than its page (Hot Dog Stand's red takes dark text)
+        // lifts toward white too: lifting toward the text would darken the card under it.
+        guard isDark, text.relativeLuminance >= page.relativeLuminance else { return page.mixed(toward: .white, lift) }
         let secondary = textSecondary.withAlpha(1)
         var step = (lift * 100).rounded() / 100
         while step > 0 {

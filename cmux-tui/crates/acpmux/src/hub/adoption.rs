@@ -75,7 +75,10 @@ impl Hub {
                 "only Claude Code chats fork on adopt; open this {family} chat anyway or close it where it runs"
             )));
         }
-        if let Some(existing) = self.adopted_session(family, &a.agent_session_id) {
+        // A fork is a new conversation, never the chat that already adopted (or views) this one.
+        if a.if_live != IfLive::Fork
+            && let Some(existing) = self.adopted_session(family, &a.agent_session_id)
+        {
             return Ok(Adoption::Existing(existing));
         }
         // The store the resuming harness reads: its spawn env's home, else
@@ -83,8 +86,20 @@ impl Hub {
         // store walk, the record read and the holder check are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
-        let (fam, id, check) =
-            (family.to_owned(), a.agent_session_id.clone(), a.if_live == IfLive::Refuse);
+        if a.watch && !matches!(family, "claude" | "codex") {
+            return Err(RpcError::invalid_params(format!(
+                "only Claude Code and Codex chats can be watched, not {family}"
+            )));
+        }
+        // A watch forks nothing: Take Over chooses that, for a chat still live in its app.
+        if a.watch && a.if_live == IfLive::Fork {
+            return Err(RpcError::invalid_params(
+                "a watched chat is forked by Take Over, not when it opens",
+            ));
+        }
+        // Watching starts nothing on the conversation, so it may watch one that runs elsewhere.
+        let check = a.if_live == IfLive::Refuse && !a.watch;
+        let (fam, id) = (family.to_owned(), a.agent_session_id.clone());
         let ((found, store), live) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
@@ -405,9 +420,16 @@ impl Hub {
     /// Appends the adopted conversation's past turns (`adopt_replay::read`) as this session's
     /// history, unless the session already shows some (a harness that sent history after its load).
     pub(super) async fn replay_adopted(&self, session: &Arc<Session>, family: &str, file: PathBuf) {
-        let has_history = self.store.events(&session.id, 0, 100_000).is_ok_and(|events| {
-            events.iter().any(|e| e.kind == "user_message" || e.kind == "agent_message_chunk")
-        });
+        // Stops at the first message; no other record is parsed.
+        let mut has_history = false;
+        let _ = self.store.scan_kinds(
+            &session.id,
+            &["user_message", "agent_message_chunk"],
+            &mut |_| {
+                has_history = true;
+                false
+            },
+        );
         if has_history {
             return;
         }
@@ -429,7 +451,8 @@ impl Hub {
                 m.title = Some(short_text(first.trim(), 80));
             }
             if let Some(last) = turns.last() {
-                m.last_prompt = Some(short_text(&last.prompt, 200));
+                let line = super::prompt_line::prompt_line(&last.prompt, "adopt", None);
+                m.last_prompt = Some(short_text(&line, 200));
             }
             m.turn_count += turns.len() as u64;
         }

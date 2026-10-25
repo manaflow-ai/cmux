@@ -26,12 +26,6 @@
  "bierstadt-storm-rockies": {
   "mode": "auto"
  },
- "bocklin-isle-of-the-dead": {
-  "mode": "auto"
- },
- "bocklin-self-portrait-death": {
-  "mode": "auto"
- },
  "bonheur-wounded-eagle": {
   "mode": "auto"
  },
@@ -45,9 +39,6 @@
   "mode": "auto"
  },
  "bosch-garden-left": {
-  "mode": "auto"
- },
- "bosch-garden-right": {
   "mode": "auto"
  },
  "bosschaert-wan-li-vase": {
@@ -76,32 +67,11 @@
   "mode": "auto",
   "quality": 38
  },
- "bruegel-triumph-death": {
-  "mode": "auto",
-  "quality": 38
- },
  "brueghel-wooden-vessel": {
-  "mode": "auto"
- },
- "bundy-death-general": {
   "mode": "auto"
  },
  "cabanel-fallen-angel": {
   "mode": "auto"
- },
- "caravaggio-david-goliath": {
-  "mode": "auto"
- },
- "caravaggio-medusa": {
-  "mode": "side",
-  "side": "right",
-  "circle": true,
-  "inset": [
-   0.015,
-   0.012,
-   0.015,
-   0.012
-  ]
  },
  "cole-voyage-childhood": {
   "mode": "auto"
@@ -152,9 +122,6 @@
  "dore-fall-of-satan": {
   "mode": "auto"
  },
- "dore-flood": {
-  "mode": "auto"
- },
  "dore-leviathan": {
   "mode": "auto"
  },
@@ -170,21 +137,11 @@
  "dore-wolves-sheep": {
   "mode": "auto"
  },
- "draper-lament-icarus": {
-  "mode": "auto"
- },
- "durer-knight-death-devil": {
-  "mode": "auto"
- },
  "durer-praying-hands": {
   "mode": "auto"
  },
  "el-greco-view-of-toledo": {
   "mode": "auto"
- },
- "ensor-skeleton-painter": {
-  "mode": "auto",
-  "quality": 38
  },
  "fragonard-swing": {
   "mode": "auto"
@@ -204,29 +161,10 @@
  "friedrich-wanderer": {
   "mode": "auto"
  },
- "fuseli-nightmare": {
-  "mode": "auto"
- },
- "fuseli-nightmare-2": {
-  "mode": "auto"
- },
- "gentileschi-judith": {
-  "mode": "auto"
- },
- "gericault-raft-of-the-medusa": {
-  "mode": "auto"
- },
  "gerome-botsaris": {
   "mode": "auto"
  },
- "gerome-pollice-verso": {
-  "mode": "auto",
-  "quality": 38
- },
  "goya-burial-sardine": {
-  "mode": "auto"
- },
- "goya-saturn": {
   "mode": "auto"
  },
  "goya-sleep-of-reason": {
@@ -235,16 +173,6 @@
  "goya-witches-flight": {
   "mode": "auto"
  },
- "goya-witches-sabbath": {
-  "mode": "crop",
-  "box": [
-   0,
-   0,
-   0.5,
-   1
-  ],
-  "quiet": "right"
- },
  "grimshaw-blackman-street": {
   "mode": "auto"
  },
@@ -252,9 +180,6 @@
   "mode": "auto"
  },
  "hesselbom-dusk": {
-  "mode": "auto"
- },
- "hiremy-hirschl-souls-of-acheron": {
   "mode": "auto"
  },
  "hiroshige-hota-coast": {
@@ -298,19 +223,10 @@
  "klimt-adele": {
   "mode": "auto"
  },
- "klimt-death-and-life": {
-  "mode": "auto"
- },
  "klimt-garden-sunflowers": {
   "mode": "auto"
  },
- "klimt-judith": {
-  "mode": "auto"
- },
  "klimt-mada-primavesi": {
-  "mode": "auto"
- },
- "klimt-medicine": {
   "mode": "auto"
  },
  "klimt-the-kiss": {
@@ -364,17 +280,6 @@
  "millais-joan-of-arc": {
   "mode": "auto"
  },
- "millais-ophelia": {
-  "mode": "crop",
-  "box": [
-   0,
-   0.24,
-   0.92,
-   1
-  ],
-  "quiet": "left",
-  "quality": 40
- },
  "modigliani-nude-divan": {
   "mode": "auto"
  },
@@ -404,9 +309,6 @@
   "mode": "auto"
  },
  "moran-burning-philadelphia": {
-  "mode": "auto"
- },
- "moreau-apparition": {
   "mode": "auto"
  },
  "mucha-job": {
@@ -441,9 +343,6 @@
   "mode": "auto",
   "quality": 38
  },
- "repin-ivan": {
-  "mode": "auto"
- },
  "roerich-himalayas": {
   "mode": "auto"
  },
@@ -469,10 +368,6 @@
    0.13,
    0.07
   ]
- },
- "schiele-death-and-the-maiden": {
-  "mode": "auto",
-  "quality": 38
  },
  "schiele-kneeling-orange": {
   "mode": "auto"
@@ -521,9 +416,6 @@
   "mode": "auto",
   "quality": 38
  },
- "van-gogh-skeleton-cigarette": {
-  "mode": "auto"
- },
  "van-gogh-starry-night": {
   "mode": "auto",
   "quality": 38
@@ -555,10 +447,6 @@
  },
  "velde-small-ship-storm": {
   "mode": "auto"
- },
- "vereshchagin-apotheosis-war": {
-  "mode": "auto",
-  "quality": 38
  },
  "vermeer-pearl-earring": {
   "mode": "auto"

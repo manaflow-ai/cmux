@@ -50,6 +50,13 @@ public final class LayoutModel {
     public var focusFollowsMouse: Bool {
         focusFollowsMouseOverride ?? (followsDesignMetrics ? DesignSettings.shared.focusFollowsMouse : false)
     }
+    /// Pins `layout.scrollModifier` (tests, the demo); nil follows cmux.json.
+    public var scrollModifierOverride: LayoutScrollModifier?
+    /// Which scroll moves the layout (cmux.json `layout.scrollModifier`, `LayoutRootView+Scroll`):
+    /// the override, else the live setting while `followsDesignMetrics` is on, else `.command`.
+    public var scrollModifier: LayoutScrollModifier {
+        scrollModifierOverride ?? (followsDesignMetrics ? DesignSettings.shared.layoutScrollModifier : .command)
+    }
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
@@ -127,6 +134,10 @@ public final class LayoutModel {
     /// Panes that need attention (an unread notification), with the mark
     /// the overlay draws. Set by the App from daemon unread state.
     public var attention: [PaneID: AttentionMark] = [:]
+    /// Panes whose mark the last `attention` change removed because the person
+    /// went into the pane (a click, a key, an open): their ring blinks out, as
+    /// cmux classic's dismiss flash did. Set by the App just before `attention`.
+    public var attentionReadByEntry: Set<PaneID> = []
 
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to
@@ -168,6 +179,10 @@ public final class LayoutModel {
     /// An explicit equalize is in its window now.
     public var animatesReflow: Bool { ProcessInfo.processInfo.systemUptime < explicitReflowUntil }
     @ObservationIgnored private var widthOverrides: [ColumnID: Override] = [:]
+    /// A pane whose shown content the next structural change moves into the pane it adds, until an
+    /// uptime (`handOffContent(of:)`).
+    @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?
+    static let contentHandoffWindow: TimeInterval = 3
 
 
     struct Override {
@@ -257,6 +272,7 @@ public final class LayoutModel {
     func showOverlaid() {
         let shown = overlaid(daemonScreens)
         if shown != screens { screens = shown }
+        reconcileCanvases() // a canvas draws its own frames: a pane a close hid leaves it now
     }
 
     /// Applies live and unconfirmed overrides onto daemon screens. An ended

@@ -4,7 +4,7 @@
     {"title": "Launch", "wait": 2},
     {"title": "App Store: Features, every card off", "cmux": ["action", "run", "appStore.show", "--tab", "features", "--focus"], "wait": 3},
     {"title": "Shuffle Paintings on: the card says On and the painting is behind the window", "cmux": ["settings", "set", "appearance.background", "daily"], "wait": 2},
-    {"title": "Chief Pet on", "cmux": ["settings", "set", "home.chiefPetEnabled", "true"], "wait": 2},
+    {"title": "Chief Pet on: its card says On, with a Settings… link to Settings > Chief Pet", "cmux": ["settings", "set", "home.chiefPetEnabled", "true"], "wait": 2},
     {"title": "Dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
      "optional": "debug.appearance is DEBUG only"},
     {"title": "Back to the system appearance", "rpc": {"method": "debug.appearance", "params": {"mode": "system"}}, "wait": 1, "shot": false,

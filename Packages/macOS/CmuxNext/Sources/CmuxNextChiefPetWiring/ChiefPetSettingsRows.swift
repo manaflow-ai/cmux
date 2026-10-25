@@ -6,25 +6,32 @@ public import CmuxNextSettings
 
 /// The Chief pet's rows in the Chief Settings popover's Appearance section (Leo 2026-10-19: "pet
 /// needs those settings to be obviously there"): Show Chief Pet (`home.chiefPetEnabled`) and the
-/// pet's character (`home.chiefPetMascot`), each pixel mascot drawn beside its name. They read
-/// and write the same `SettingsController` as Settings > Agents > Chief Pet, so a change in
-/// either shows in the other; a managed key's control is disabled, as on the Settings page.
+/// popover's Chief's character, all nine pixel mascots at once, one click to swap (Leo 2026-10-21, as
+/// ChatGPT swaps its avatars). The pick is that Chief's alone (``ChiefMascotPicks``): the default Chief's
+/// is `home.chiefPetMascot`, read and written through the same `SettingsController` as Settings > Chief >
+/// Chief Pet, so a change in either shows in the other (a managed key's control is disabled, as on the
+/// Settings page); another Chief's is its own. Picking a character never shows the pet.
 @MainActor
 public final class ChiefPetSettingsRows: NSObject {
-    /// The menu's mascot pictures: the pixel character at a menu row's height.
-    static let thumbnailSize = NSSize(width: 18, height: 18)
-
     let toggle = NSSwitch()
-    let mascot = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    let mascot = ChiefPetMascotGrid(items: ChiefPetSettingsRows.mascotItems())
     private let settings: @MainActor @Sendable () -> SettingsController?
+    private let picks: ChiefMascotPicks
     private var watch: Task<Void, Never>?
+    /// The character last shown, for `onMascot`.
+    private var shownMascot: String?
     private(set) weak var host: NSView?
     private var opener: (@MainActor () -> Bool)?
     /// The app's popovers the pet's Chief Pet Settings… opens; `install` adds these rows.
     private let homes: ChiefPetHomes
-    /// Runs when the chosen character (`home.chiefPetMascot`) is first read and each time it
-    /// changes: the Home header wears it when its Chief has no avatar of its own.
+    /// Runs when this Chief's character is first read and each time it changes: the Home header
+    /// wears it when its Chief has no avatar of its own.
     public var onMascot: (@MainActor () -> Void)?
+    /// The participant id of the Chief whose popover these rows are in (nil: the default Chief); a
+    /// new one shows its character, and the rows follow that Chief's inputs from then on.
+    public var chief: String? {
+        didSet { if chief != oldValue, host != nil { follow() } }
+    }
 
     /// What the rows show: the two settings and whether each is managed.
     nonisolated struct Shown: Equatable, Sendable {
@@ -34,23 +41,18 @@ public final class ChiefPetSettingsRows: NSObject {
         var mascotManaged: Bool
     }
 
-    public init(settings: @escaping @MainActor @Sendable () -> SettingsController?, homes: ChiefPetHomes) {
+    /// - Parameter picks: each Chief's character (the app's one ``ChiefMascotPicks``).
+    public init(settings: @escaping @MainActor @Sendable () -> SettingsController?, homes: ChiefPetHomes,
+                picks: ChiefMascotPicks) {
         self.settings = settings
         self.homes = homes
+        self.picks = picks
         super.init()
         toggle.controlSize = .small
         toggle.target = self
         toggle.action = #selector(toggled)
         toggle.setAccessibilityIdentifier("cmux.home.chief.petEnabled")
-        mascot.font = Typography.body
-        mascot.target = self
-        mascot.action = #selector(pickedMascot)
-        mascot.setAccessibilityIdentifier("cmux.home.chief.petMascot")
-        for (id, title) in Self.mascotItems() {
-            mascot.addItem(withTitle: title)
-            mascot.lastItem?.representedObject = id
-            mascot.lastItem?.image = ChiefPetMascot(rawValue: id)?.image.map(Self.thumbnail)
-        }
+        mascot.onPick = { [weak self] id in self?.pick(id) }
     }
 
     /// Adds Show Chief Pet and the pet's character through `addRow` (the Chief Settings
@@ -62,23 +64,26 @@ public final class ChiefPetSettingsRows: NSObject {
         homes.live.add(self)
         let enabledTitle = SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath)?.title ?? ""
         toggle.setAccessibilityLabel(enabledTitle)
-        mascot.setAccessibilityLabel(ChiefPetMascot.pickerTitle)
         addRow(enabledTitle, toggle)
         addRow(ChiefPetMascot.pickerTitle, mascot)
-        // task-owner: lives as long as the rows (their Home view; deinit cancels it); event-driven (Observation)
+        follow()
+    }
+
+    /// Shows the settings and `chief`'s character now and on each change, until the next `follow`.
+    /// The default Chief's character is a setting and another's a pick, so what is observed depends
+    /// on the Chief (`chief` itself is not observable): a new Chief starts a new watch.
+    private func follow() {
+        watch?.cancel()
+        let chief = chief, settings = settings, picks = picks
+        // task-owner: lives until the rows' Chief changes or the rows go (their Home view; deinit cancels it); event-driven (Observation)
         watch = Task { [weak self] in
-            guard let settings = self?.settings else { return }
-            var mascot: String?
-            for await shown in ObservationStream({ Self.shown(settings()) }) {
-                guard let self else { return }
-                guard let shown else { continue }
-                show(shown)
-                if shown.mascot != mascot {
-                    mascot = shown.mascot
-                    onMascot?()
-                }
+            // Every change is shown (a trigger, never deduplicated): `show` compares with what it showed.
+            for await shown in ObservationStream({ ObservationTrigger(Self.shown(settings(), picks: picks, chief: chief)) }) {
+                guard let self, !Task.isCancelled else { return }
+                if let shown = shown.value { show(shown) }
             }
         }
+        if let shown = Self.shown(settings(), picks: picks, chief: chief) { show(shown) }
     }
 
     // As HomeHostView's: not an isolated deinit; the watch ends with the rows (their Home view).
@@ -87,21 +92,32 @@ public final class ChiefPetSettingsRows: NSObject {
         MainActor.assumeIsolated { watch?.cancel() }
     }
 
-    /// The rows' state from the loaded settings (what the Settings page shows).
-    static func shown(_ settings: SettingsController?) -> Shown? {
+    /// The rows' state from the loaded settings and Chief `chief`'s pick. A managed
+    /// `home.chiefPetMascot` locks the default Chief's character only.
+    static func shown(_ settings: SettingsController?, picks: ChiefMascotPicks, chief: String?) -> Shown? {
         guard let settings else { return nil }
         let snapshot = settings.snapshot
-        return Shown(enabled: snapshot.homeChiefPetEnabled, mascot: snapshot.homeChiefPetMascot,
+        return Shown(enabled: snapshot.homeChiefPetEnabled, mascot: picks.mascot(of: chief, in: snapshot),
                      enabledManaged: settings.managedKeys[HomeChiefPetSetting.configPath.joined(separator: ".")] != nil,
-                     mascotManaged: settings.managedKeys[HomeChiefPetSetting.mascotPath.joined(separator: ".")] != nil)
+                     mascotManaged: picks.isDefault(chief)
+                         && settings.managedKeys[HomeChiefPetSetting.mascotPath.joined(separator: ".")] != nil)
     }
 
     func show(_ shown: Shown) {
         toggle.state = shown.enabled ? .on : .off
         toggle.isEnabled = !shown.enabledManaged
-        let index = mascot.itemArray.firstIndex { $0.representedObject as? String == shown.mascot } ?? 0
-        mascot.selectItem(at: index)
-        mascot.isEnabled = !shown.mascotManaged
+        mascot.select(shown.mascot, enabled: !shown.mascotManaged)
+        if shown.mascot != shownMascot {
+            shownMascot = shown.mascot
+            onMascot?()
+        }
+    }
+
+    /// One click on a character: the default Chief's goes to `home.chiefPetMascot`, another Chief's
+    /// to its own pick.
+    private func pick(_ id: String) {
+        guard !picks.isDefault(chief), let chief else { return write(HomeChiefPetSetting.mascotPath, .string(id)) }
+        picks.remember(id, for: chief)
     }
 
     /// The avatar picture of the character `mascot` names (an unknown or nil id: the first, orb):
@@ -118,21 +134,16 @@ public final class ChiefPetSettingsRows: NSObject {
         return choices.map { ($0.value, $0.title) }
     }
 
-    /// The mascot at a menu row's height, its aspect kept (the bundled PNGs are 256 px wide).
-    static func thumbnail(_ image: NSImage) -> NSImage {
+    /// The mascot fit in a `side`-point square, its aspect kept (the bundled PNGs are 256 px wide).
+    static func thumbnail(_ image: NSImage, side: CGFloat) -> NSImage {
         let copy = (image.copy() as? NSImage) ?? image
-        let scale = min(thumbnailSize.width / max(image.size.width, 1), thumbnailSize.height / max(image.size.height, 1))
+        let scale = min(side / max(image.size.width, 1), side / max(image.size.height, 1))
         copy.size = NSSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
         return copy
     }
 
     @objc func toggled() {
         write(HomeChiefPetSetting.configPath, .bool(toggle.state == .on))
-    }
-
-    @objc func pickedMascot() {
-        guard let id = mascot.selectedItem?.representedObject as? String else { return }
-        write(HomeChiefPetSetting.mascotPath, .string(id))
     }
 
     /// One cmux.json write, as the Settings page's control makes it; the file watcher then
@@ -146,7 +157,7 @@ public final class ChiefPetSettingsRows: NSObject {
                 try await settings.setSetting(at: path, to: value, by: .user)
             } catch {
                 NSSound.beep()
-                if let self, let shown = Self.shown(settings) { show(shown) }
+                if let self, let shown = Self.shown(settings, picks: picks, chief: chief) { show(shown) }
             }
         }
     }

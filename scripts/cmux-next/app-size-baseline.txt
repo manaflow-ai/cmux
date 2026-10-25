@@ -7,4 +7,14 @@
 # stops the base red. The App still only shrinks from here.
 # Raised by 9 on 2026-10-21 (Lawrence: "get ci fixes in faster"): the growth is
 # e03ef3e (#22686), which replaced unowned with weak + guard for crash safety.
-128667
+# Raised from 128667 on 2026-10-21 to the count at fee17be07f6a (+6078), to stop
+# the push-only base red: real feature code, none generated or dead. Two thirds
+# (+4040) came as direct pushes, chiefly Files and Find (56d448575ce5 +621,
+# f1c7068bc942 +393, 56488d69abdc +303, e6fb9910a477 +149, dd018d41b6a2 +119),
+# 831414b6c9cf +304, 799a94eff3d2 +256, 3f3aa0028390 +241, 16605c821e20 +162;
+# the rest is PRs, chiefly #23050 +477, #23046 +304, #23083 +228, #23105 +201,
+# #23004 +109, #22990 +101, #22678 +101. FileExplorer/ (1647) and
+# BrowserDownloadsPopup.swift (468) belong in their own targets (SW14).
+# Then to the count at ae0d9b765fa4 (+1103 more, 26 commits), chiefly #23651 +305,
+# #23155 +285, #23527 +132, #23324 +92, #23638 +82, #23492 +57, #23588 +53, #23109 +48.
+135848

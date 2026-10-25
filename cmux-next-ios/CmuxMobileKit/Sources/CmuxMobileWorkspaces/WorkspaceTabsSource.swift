@@ -86,7 +86,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         _ = store.takeFocusOnOpen(workspaceID)
     }
 
-    private var macName: String {
+    var macName: String {
         guard let macID = workspace?.macID else { return "Mac" }
         return store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "Mac"
     }
@@ -174,7 +174,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         switch tab.kind {
         case .agent:
             // A new session takes its title from the agent, or its first prompt, after a turn.
-            let session = AgentSessionDirectory.shared.existingStore(id: tab.id)?.displayTitle ?? tab.subtitle ?? tab.title
+            let session = AgentSessionDirectory.shared.existingStore(id: tab.id, macID: workspace.macID)?.displayTitle ?? tab.subtitle ?? tab.title
             return TabsKitTab(
                 id: tab.id, kind: TabsKitTabKind("agent"), title: session, subtitle: "\(tab.title) · \(workspace.title)",
                 systemImage: tab.isPinned ? "pin.fill" : "sparkle",
@@ -196,13 +196,15 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 statusBarStyle: .lightContent
             )
         case .browser:
-            let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url) ?? browsers[tab.id]
+            let model: (any BrowserTabState)? = streamed.model(tab: tab.id, url: tab.url, macID: workspace.macID) ?? browsers[tab.id]
             // A new tab's about:blank is no address: the field reads "Search or enter website",
             // never "about:blank" (VoiceOver read it after a navigation, parity finding 4).
             let url = (model?.url ?? tab.url).flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
-            let host = url.map { _ in model?.host ?? url?.host() ?? tab.subtitle ?? "" } ?? ""
+            // Safari's short label: the host, or a local file's name (a file: URL has no host,
+            // and its full path overflowed the collapsed pill).
+            let host = url.map(TabsKitAddress.displayLabel(for:)) ?? ""
             return TabsKitTab(
-                id: tab.id, kind: .web, title: (model?.title).flatMap { $0.isEmpty ? nil : $0 } ?? tab.title,
+                id: tab.id, kind: .web, title: Self.browserTitle(model?.title, fallback: tab.title, url: url, label: host),
                 subtitle: host, systemImage: tab.isPinned ? "pin.fill" : "globe",
                 address: url == nil ? .placeholder("Search or enter website") : .url(display: host, editingText: url?.absoluteString ?? ""),
                 // Back walks the page history first, then leaves the workspace.
@@ -210,7 +212,26 @@ public final class WorkspaceTabsSource: TabsDataSource {
                                                    isLoading: model?.isLoading ?? false, progress: model?.progress ?? 1),
                 features: .web
             )
+        case .simulator:
+            // A Mac phone tab: no address or page history; Back leaves the workspace.
+            return TabsKitTab(
+                id: tab.id, kind: .web, title: tab.title, subtitle: "Simulator",
+                systemImage: tab.isPinned ? "pin.fill" : "iphone",
+                address: .title(tab.title, subtitle: "Simulator on \(macName)"),
+                navigation: TabsKitNavigationState(canGoBack: true),
+                features: [.history, .pageMenu],
+                statusBarStyle: .lightContent
+            )
         }
+    }
+
+    /// A page without its own title shows the short label, never the raw URL
+    /// (a file page's title is its whole path).
+    static func browserTitle(_ pageTitle: String?, fallback: String, url: URL?, label: String) -> String {
+        let title = pageTitle.flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+        guard let url, !label.isEmpty else { return title }
+        let raw = [url.absoluteString, url.absoluteString.removingPercentEncoding ?? url.absoluteString, url.path]
+        return title.isEmpty || raw.contains(title) ? label : title
     }
 
     public func activate(_ id: TabsKitTab.ID) {
@@ -265,7 +286,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
         browsers[id] = nil
-        streamed.drop(tab: id)
+        streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
             selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
@@ -533,7 +554,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         switch tab.kind {
         case .agent: surface(tabID).composerFocused = true
         case .terminal: terminal.focusInput(for: tab, in: workspace)
-        case .browser: break
+        case .browser, .simulator: break
         }
         if !store.isPending(workspaceID) { focusOnOpen = false }
     }
@@ -551,8 +572,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The tab's page: streamed from the Mac while linked, else a local web view.
     func browser(_ tab: WorkspaceTab) -> any BrowserTabState {
-        if let model = streamed.model(tab: tab.id, url: tab.url) { return model }
+        if let model = streamed.model(tab: tab.id, url: tab.url, macID: store.workspace(id: workspaceID)?.macID) { return model }
         return localBrowser(tab)
+    }
+
+    /// A Mac phone tab's simulator, streamed while linked (nil otherwise).
+    func simulator(_ tab: WorkspaceTab) -> StreamedBrowserModel? {
+        streamed.simulatorModel(tab: tab.id, macID: store.workspace(id: workspaceID)?.macID)
     }
 
     func localBrowser(_ tab: WorkspaceTab) -> BrowserTabModel {
@@ -586,6 +612,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         guard let id = activeTabID else { return }
         if let tab = workspaceTab(id), tab.kind == .browser { browser(tab).takeSnapshot() }
+        if let tab = workspaceTab(id), tab.kind == .simulator { simulator(tab)?.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
@@ -1102,6 +1129,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 [leave],
                 [close],
             ].filter { !$0.isEmpty }
+        case .simulator:
+            let model = simulator(tab)
+            return [
+                [
+                    TabsKitMenuItem(title: "Home", systemImage: "circle", isEnabled: model != nil) { model?.pressButton("home") },
+                    TabsKitMenuItem(title: "Lock", systemImage: "lock", isEnabled: model != nil) { model?.pressButton("lock") },
+                ],
+                edit,
+                [leave],
+                [close],
+            ].filter { !$0.isEmpty }
         }
     }
 }
@@ -1164,6 +1202,15 @@ struct WorkspaceTabPage: View {
                 BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
                             reportScroll: { context.reportScroll(fingerDelta: $0) })
             }
+        case .simulator:
+            if let model = source.simulator(tab) {
+                StreamedSimulatorPage(model: model, insets: insets)
+            } else {
+                Text("Connect to \(source.macName) to see this simulator.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
+            }
         }
     }
 
@@ -1204,6 +1251,8 @@ struct WorkspaceTabAccessory: View {
                     isZoomGestureActive: context.isZoomGestureActive, reportScroll: { context.reportScroll(fingerDelta: $0) }))
             case .browser:
                 EmptyView()
+            case .simulator:
+                if let model = source.simulator(tab) { StreamedSimulatorAccessory(model: model) }
             }
         }
     }
@@ -1266,6 +1315,13 @@ struct WorkspaceTabCard: View {
                     StreamedBrowserCard(model: model)
                 } else {
                     BrowserCard(model: source.localBrowser(tab), insets: insets)
+                }
+            case .simulator:
+                if let model = source.simulator(tab) {
+                    StreamedBrowserCard(model: model, placeholder: "iphone", fit: true)
+                } else {
+                    Image(systemName: "iphone").font(.system(size: 72, weight: .light)).foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
     }

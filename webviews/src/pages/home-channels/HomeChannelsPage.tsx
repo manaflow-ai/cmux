@@ -10,6 +10,7 @@ import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
+import { useHostMove } from "./hostMove";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
@@ -44,6 +45,7 @@ import { ThreadSheet } from "./ThreadSheet";
 import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
+import { useWebSwapHold } from "../shared/useWebSwapHold";
 
 const NOTICE_MS = 1600;
 
@@ -58,6 +60,11 @@ export function HomeChannelsPage({
   pane?: Pane;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
+  // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
+  useWebSwapHold(
+    snap.pending.some((entry) => !entry.failed) ? "home.sending" : snap.pending.length ? "home.send-failed" : null,
+  );
   // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
   const shell = useRef<HTMLDivElement>(null);
   const measured = useNarrow(shell);
@@ -74,6 +81,9 @@ export function HomeChannelsPage({
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
   const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  // WEB-SWAP: an open thread, run sheet, palette or edit lives only in this page's state, so a reload
+  // would close it: the update waits until it closes (pages/shared/webSwap.ts).
+  useWebSwapHold(snap.thread || openRun || palette || editing || sheetState.route ? "home.sheet" : null);
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,
@@ -263,7 +273,7 @@ export function HomeChannelsPage({
     [measured, listShown, snap.selected, selectionMessage],
   );
   useHostSelection(store.host, selection);
-  const moveList = (delta: 1 | -1, unreadOnly: boolean) => {
+  const moveList = (delta: 1 | -1, unreadOnly: boolean): boolean => {
     // The order the list shows: my pins first, then newest activity.
     const { pinned, rest } = listOrder(snap.conversations.values());
     const order = [...pinned, ...rest];
@@ -274,10 +284,13 @@ export function HomeChannelsPage({
       const next = order[(((base + delta * step) % n) + n) % n];
       if (next && (!unreadOnly || isUnread(next))) {
         select(next.id, true);
-        return;
+        return true;
       }
     }
+    return false;
   };
+  // The host's Cmd-Shift-[ / ] while the docked Home shows Channels (hostMove.ts).
+  useHostMove(store.host, (delta) => moveList(delta, false));
   useHomeKeys({
     openPalette: () => setPalette(true),
     move: moveList,

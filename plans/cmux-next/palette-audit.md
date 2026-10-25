@@ -17,7 +17,7 @@ Every action the command palette offered on feat-cmux-next 55a6a413c5c8, with th
 | c. duplicate | 3 | folded into the row people know, same name | matches, −120 |
 | total | 1082 | | |
 
-Daily: Change Background…, Check for Updates…, Close Pane, Close Tab, Close Workspace, Connect to Machine…, Customize Appearance…, Decrease Font Size, Equalize Splits, Find in Directory…, Find…, Go to Workspace…, Increase Font Size, Jump to Latest Unread, New Agent Chat, New Browser Tab, New Cloud Workspace, New Tab, New Window, New Workspace, New Workspace on Machine…, Open Diff Viewer, Open File…, Open Folder…, Open Keyboard Shortcuts, Recently Closed…, Reload Configuration, Rename Tab…, Rename Workspace…, Reopen Closed Workspace, Reopen Last Closed Tab, Search All Windows…, Search Chats & Agents…, Search Tabs…, Set Terminal Theme…, Settings…, Split Down, Split Right, Start Agent…, Toggle Left Sidebar, Toggle Pane Zoom, Toggle Right Sidebar, Toggle Setting…
+Daily: Change Background…, Check for Updates…, Close Pane, Close Tab, Close Workspace, Connect to Machine…, Customize Appearance…, Decrease Font Size, Equalize Splits, Find in Directory…, Find…, Go to Workspace…, Increase Font Size, Jump to Latest Unread, New Agent Chat, New Browser Tab, New Cloud Workspace, New Tab, New Window, New Workspace, New Workspace on Machine…, Open Diff Viewer, Open File…, Open Folder…, Open Keyboard Shortcuts, Recently Closed…, Reload Configuration, Rename Tab…, Rename Workspace…, Reopen Closed Workspace, Reopen Last Closed Tab, Search All Windows…, Search Everything…, Search Tabs…, Set Terminal Theme…, Settings…, Split Down, Split Right, Start Agent…, Toggle Left Sidebar, Toggle Pane Zoom, Toggle Right Sidebar, Toggle Setting…
 
 | Family row | Opens | Members |
 |---|---|---|
@@ -64,7 +64,7 @@ Daily: Change Background…, Check for Updates…, Close Pane, Close Tab, Close 
 |---|---|
 | New Workspace on Machine (`remote.newWorkspace`) | New Workspace on Machine… (`workspace.newOnMachine`) |
 | Copy SSH Error (`remote.copyError`) | Copy SSH Error (`copyWorkspaceSSHError`) |
-| Hide App (`sidebar.item.hideApp`) | Hide App (`app.hide`) |
+| Hide App (`sidebar.item.hideApp`) | Hide App… (`app.hide`) |
 
 Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Keymap…, Block Site Request, Center Focused Column on Overflow, Copy Agent Identifier, Copy Identifiers, Copy Machine ID, Copy Pane ID, Copy Tab ID, Copy Workspace Group ID, Copy Workspace ID, Copy Workspace ID and Ref, Decrease Workspace Font Size, Disable cmux Browser, Enable cmux Browser, Feature Flags, Go Back from Certificate Warning, Grant Accessibility Access, Grant Screen Recording Access, Hide Announcements, Hide Media Card Until Relaunch, Hide Profile Button, Import Workspaces from Classic cmux, Increase Workspace Font Size, Install cmux CLI in PATH, Kill Process…, Links: Open in Default Browser, Links: Open in cmux Browser, List Cloud Domains, List Cloud Networks, List Cloud Publications, Make This Mac a Server, Make cmux the Default Browser, Make cmux the Default Terminal, Never Show Media Card, Open Debug Settings, Open Site Settings of Blocked Download, Prepare Cloud File Transfer…, Proceed Past Certificate Warning (Unsafe), Promote Machine to Template, Quit and End Everything, Quit and End Sessions, Keep Layout, Quit and Keep Sessions, Reset Workspace Font Size, Restart CLI Listener, Restart VS Code Inline Server, Restart cmux-tui…, Roll Back to Previous Version…, Save Last 10 Seconds, Scroll Columns Minimally, Send Ctrl-F to Terminal, Show Announcements, Show Crash Logs, Show Ghostty Config Diagnostics, Show Media Card, Show Profile Button, Stop Serving, Stop VS Code Inline Server, Switch Update Channel…, Tabs: Use Scrolling Tabs, Tabs: Use Shrinking Tabs, Toggle Column Scroll Bar, Toggle React Grab, Uninstall cmux CLI from PATH, Use Chromium for New Browser Tabs, Use Minimal Titlebar, Use Standard Titlebar, Use WebKit for New Browser Tabs
 
@@ -85,7 +85,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Window | `hints.show` | Click by Hint |  | b. standard | its section, catalog order |
 | Window | `history.clear` | Clear History… |  | b. standard | its section, catalog order |
 | Window | `history.commands` | Command History… |  | b. standard | its section, catalog order |
-| Window | `history.open` | Open History Entry |  | b. standard | its section, catalog order |
+| Window | `history.open` | Open History Entry… |  | b. standard | its section, catalog order |
 | Window | `history.reopen` | Reopen Last Closed Item |  | b. standard | its section, catalog order |
 | Window | `history.search` | Search History… |  | b. standard | its section, catalog order |
 | Window | `history.show` | Show History |  | b. standard | its section, catalog order |
@@ -137,7 +137,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Window | `quitKeepSessions` | Quit and Keep Sessions |  | c. niche | last in its section, −120 while typing |
 | Window | `recentlyClosed` | Recently Closed… |  | a. daily | first in its section, +120 while typing |
 | Window | `recentlyFocused` | Location History… |  | b. standard | its section, catalog order |
-| Window | `search.chats` | Search Chats & Agents… | ⇧⌘A | a. daily | first in its section, +120 while typing |
+| Window | `search.chats` | Search Everything… | ⇧⌘A | a. daily | first in its section, +120 while typing |
 | Window | `selectNextWindow` | Select Next Window |  | b. standard | its section, catalog order |
 | Window | `selectPreviousWindow` | Select Previous Window |  | b. standard | its section, catalog order |
 | Window | `showHideAllWindows` | Show/Hide All Windows | ⌃⌥⌘. | b. standard | its section, catalog order |
@@ -242,7 +242,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Workspace | `workspace.duplicateTerminalsOnly` | Duplicate Workspace Without Browser Tabs |  | c. family member | folded into Workspace: New or Duplicate… |
 | Workspace | `workspace.duplicateToSpace` | Duplicate Workspace into Space… |  | c. family member | folded into Workspace: New or Duplicate… |
 | Workspace | `workspace.importClassic` | Import Workspaces from Classic cmux |  | c. niche | last in its section, −120 while typing |
-| Workspace | `workspace.mergeInto` | Merge Workspace into… |  | b. standard | its section, catalog order |
+| Workspace | `workspace.mergeInto` | Merge Workspace Into… |  | b. standard | its section, catalog order |
 | Workspace | `workspace.moveToBottom` | Move Workspace to Bottom |  | c. family member | folded into Workspace: Move… |
 | Workspace | `workspace.moveToNewGroup` | Move Workspace to New Group |  | c. family member | folded into Workspace: Move… |
 | Workspace | `workspace.moveToSpace` | Move Workspace to Space… |  | c. family member | folded into Workspace: Move… |
@@ -285,7 +285,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Workspace | `workspaceGroup.copyID` | Copy Workspace Group ID |  | c. niche | last in its section, −120 while typing |
 | Workspace | `workspaceGroup.delete` | Delete Group |  | b. standard | its section, catalog order |
 | Workspace | `workspaceGroup.duplicate` | Duplicate Workspace Group |  | b. standard | its section, catalog order |
-| Workspace | `workspaceGroup.editConfig` | Edit Group Config… |  | b. standard | its section, catalog order |
+| Workspace | `workspaceGroup.editConfig` | Edit Group Config |  | b. standard | its section, catalog order |
 | Workspace | `workspaceGroup.expand` | Expand Workspace Group |  | b. standard | its section, catalog order |
 | Workspace | `workspaceGroup.expandAll` | Expand All Groups |  | b. standard | its section, catalog order |
 | Workspace | `workspaceGroup.markRead` | Mark Group as Read |  | b. standard | its section, catalog order |
@@ -361,7 +361,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Panes | `palette.openFilesPane` | Open Files as Pane |  | b. standard | its section, catalog order |
 | Panes | `palette.openFindPane` | Open Find as Pane |  | b. standard | its section, catalog order |
 | Panes | `palette.openVaultPane` | Open Vault as Pane |  | b. standard | its section, catalog order |
-| Panes | `palette.swapWithSession` | Swap With Session… |  | c. family member | folded into Pane: Swap… |
+| Panes | `palette.swapWithSession` | Swap with Session… |  | c. family member | folded into Pane: Swap… |
 | Panes | `pane.clearBackground` | Reset Pane Background |  | b. standard | its section, catalog order |
 | Panes | `pane.closeOthers` | Close Other Panes |  | b. standard | its section, catalog order |
 | Panes | `pane.focus` | Show Pane |  | b. standard | its section, catalog order |
@@ -418,7 +418,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Screens | `screen.moveToNewWorkspace` | Move Screen to New Workspace |  | c. family member | folded into Screen: Move… |
 | Screens | `screen.moveToWorkspace` | Move Screen to Workspace… |  | c. family member | folded into Screen: Move… |
 | Screens | `screen.new` | New Screen |  | b. standard | its section, catalog order |
-| Screens | `screen.newWith` | New Screen with… |  | b. standard | its section, catalog order |
+| Screens | `screen.newWith` | New Screen With… |  | b. standard | its section, catalog order |
 | Screens | `screen.next` | Next Screen |  | b. standard | its section, catalog order |
 | Screens | `screen.previous` | Previous Screen |  | b. standard | its section, catalog order |
 | Screens | `screen.rename` | Rename Screen… |  | b. standard | its section, catalog order |
@@ -563,7 +563,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Terminal | `findPrevious` | Find Previous | ⌥⌘G | b. standard | its section, catalog order |
 | Terminal | `focusTextBoxInput` | Focus TextBox | ⌥⌘A | b. standard | its section, catalog order |
 | Terminal | `hideFind` | Hide Find Bar | ⌥⇧⌘F | b. standard | its section, catalog order |
-| Terminal | `palette.terminalOpenDirectory` | Open Current Directory in… |  | b. standard | its section, catalog order |
+| Terminal | `palette.terminalOpenDirectory` | Open Current Directory In… |  | b. standard | its section, catalog order |
 | Terminal | `palette.terminalToggleTextBoxInput` | Toggle TextBox |  | b. standard | its section, catalog order |
 | Terminal | `pasteLastScreenshot` | Paste Last Screenshot |  | b. standard | its section, catalog order |
 | Terminal | `reconnectPane` | Reconnect Pane |  | b. standard | its section, catalog order |
@@ -777,7 +777,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Browser and Viewers | `openDiffViewer` | Open Diff Viewer | ⌃⇧⌘G | a. daily | first in its section, +120 while typing |
 | Browser and Viewers | `openLinkInDefaultBrowser` | Open Link in Default Browser |  | b. standard | its section, catalog order |
 | Browser and Viewers | `openMarkdownFile` | Open Markdown File… |  | b. standard | its section, catalog order |
-| Browser and Viewers | `palette.browserClearHistory` | Clear Browser History |  | b. standard | its section, catalog order |
+| Browser and Viewers | `palette.browserClearHistory` | Clear Browser History… |  | b. standard | its section, catalog order |
 | Browser and Viewers | `palette.browserOpenDefault` | Open in Default Browser |  | b. standard | its section, catalog order |
 | Browser and Viewers | `palette.browserToggleOmnibar` | Toggle Omnibar |  | b. standard | its section, catalog order |
 | Browser and Viewers | `palette.disableBrowser` | Disable cmux Browser |  | c. niche | last in its section, −120 while typing |
@@ -847,7 +847,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Sidebar | `sidebar.home.add` | Add Home to Sidebar |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.home.remove` | Remove Home from Sidebar |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.item.add` | Add to Sidebar… |  | b. standard | its section, catalog order |
-| Sidebar | `sidebar.item.hideApp` | Hide App |  | c. duplicate | folded into Hide App (`app.hide`) |
+| Sidebar | `sidebar.item.hideApp` | Hide App |  | c. duplicate | folded into Hide App… (`app.hide`) |
 | Sidebar | `sidebar.item.remove` | Remove from Section |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.item.removeEverywhere` | Remove from Sidebar |  | b. standard | its section, catalog order |
 | Sidebar | `sidebar.item.toggleLabel` | Show/Hide Label |  | b. standard | its section, catalog order |
@@ -925,7 +925,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `agentChat.copyIdentifier` | Copy Agent Identifier |  | c. niche | last in its section, −120 while typing |
 | Agents | `agentChat.toggleNotificationMute` | Mute/Unmute Chat Notifications |  | b. standard | its section, catalog order |
 | Agents | `agentPane.archiveChat` | Archive Chat | ⌃⌘A | b. standard | its section, catalog order |
-| Agents | `agentPane.continueIn` | Continue in… |  | b. standard | its section, catalog order |
+| Agents | `agentPane.continueIn` | Continue In… |  | b. standard | its section, catalog order |
 | Agents | `agentPane.copyLastCodeBlock` | Copy Last Code Block | ⌥⌘; | b. standard | its section, catalog order |
 | Agents | `agentPane.createCheckpoint` | Create Checkpoint |  | b. standard | its section, catalog order |
 | Agents | `agentPane.git.commit` | Commit Changes… |  | b. standard | its section, catalog order |
@@ -948,7 +948,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Agents | `agentPaneZoomIn` | Agent Chat: Zoom In | ⌘= | b. standard | its section, catalog order |
 | Agents | `agentPaneZoomOut` | Agent Chat: Zoom Out | ⌘- | b. standard | its section, catalog order |
 | Agents | `agentPaneZoomReset` | Agent Chat: Actual Size | ⌘0 | b. standard | its section, catalog order |
-| Agents | `chief.moveTo` | Move Chief to… |  | b. standard | its section, catalog order |
+| Agents | `chief.moveTo` | Move Chief To… |  | b. standard | its section, catalog order |
 | Agents | `chief.openMemoryInspector` | Chief: Open Memory Inspector |  | b. standard | its section, catalog order |
 | Agents | `chief.openUsage` | Chief Usage |  | b. standard | its section, catalog order |
 | Agents | `computerUseFocus` | Focus Computer Use |  | b. standard | its section, catalog order |
@@ -987,7 +987,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Cloud and Account | `cloudCopyLink` | Copy Machine Link |  | b. standard | its section, catalog order |
 | Cloud and Account | `cloudCopyMachineID` | Copy Machine ID |  | c. niche | last in its section, −120 while typing |
 | Cloud and Account | `cloudCopyPort` | Copy Machine Port |  | b. standard | its section, catalog order |
-| Cloud and Account | `cloudDiagnostics` | Cloud Diagnostics… |  | b. standard | its section, catalog order |
+| Cloud and Account | `cloudDiagnostics` | Cloud Diagnostics |  | b. standard | its section, catalog order |
 | Cloud and Account | `cloudDomainList` | List Cloud Domains |  | c. niche | last in its section, −120 while typing |
 | Cloud and Account | `cloudExec` | Run Command on Cloud Machine… |  | b. standard | its section, catalog order |
 | Cloud and Account | `cloudFileMkdir` | Create Cloud Directory… |  | c. family member | folded into Cloud Machine: Files and Network… |
@@ -1017,7 +1017,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Cloud and Account | `cloudTunnelRotateKey` | Rotate Cloud Tunnel Key |  | c. family member | folded into Cloud Machine: Files and Network… |
 | Cloud and Account | `newCloudMachine` | New Cloud Machine… |  | b. standard | its section, catalog order |
 | Cloud and Account | `newCloudWorkspace` | New Cloud Workspace | ⇧⌘Y | a. daily | first in its section, +120 while typing |
-| Cloud and Account | `openTeamPicker` | Team Picker | ⌥⇧⌘T | b. standard | its section, catalog order |
+| Cloud and Account | `openTeamPicker` | Team Picker… | ⌥⇧⌘T | b. standard | its section, catalog order |
 | Cloud and Account | `palette.auth.signIn` | Sign In |  | b. standard | its section, catalog order |
 | Cloud and Account | `palette.auth.signOut` | Sign Out |  | b. standard | its section, catalog order |
 | Cloud and Account | `palette.cloud.deleteSnapshot` | Delete Cloud Snapshot… |  | b. standard | its section, catalog order |
@@ -1038,7 +1038,7 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Remote Machines | `remote.install` | Install cmux-tui on Machine… |  | b. standard | its section, catalog order |
 | Remote Machines | `remote.newGroup` | New Remote Group… |  | b. standard | its section, catalog order |
 | Remote Machines | `remote.newWorkspace` | New Workspace on Machine |  | c. duplicate | folded into New Workspace on Machine… |
-| Remote Machines | `remote.openBrowserTab` | Open Remote Browser Tab |  | b. standard | its section, catalog order |
+| Remote Machines | `remote.openBrowserTab` | Open Remote Browser Tab… |  | b. standard | its section, catalog order |
 | Remote Machines | `remote.openLocalBrowserTab` | Open Remote Browser Tab (Local Host) |  | b. standard | its section, catalog order |
 | Remote Machines | `remote.openTerminalHere` | Open Terminal on Machine Here… |  | b. standard | its section, catalog order |
 | Remote Machines | `remote.reconnect` | Reconnect Machine |  | b. standard | its section, catalog order |
@@ -1047,10 +1047,10 @@ Niche: Allow Site Request, Always Center Focused Column, Attempt Update, Base Ke
 | Settings and Help | `announcements.hide` | Hide Announcements |  | c. niche | last in its section, −120 while typing |
 | Settings and Help | `announcements.show` | Show Announcements |  | c. niche | last in its section, −120 while typing |
 | Settings and Help | `app.command.run` | Run App Command… |  | b. standard | its section, catalog order |
-| Settings and Help | `app.hide` | Hide App |  | b. standard | its section, catalog order |
+| Settings and Help | `app.hide` | Hide App… |  | b. standard | its section, catalog order |
 | Settings and Help | `app.open` | Open App… |  | b. standard | its section, catalog order |
 | Settings and Help | `app.shareCmux` | Share cmux… |  | b. standard | its section, catalog order |
-| Settings and Help | `app.unhide` | Show Hidden App |  | b. standard | its section, catalog order |
+| Settings and Help | `app.unhide` | Show Hidden App… |  | b. standard | its section, catalog order |
 | Settings and Help | `appStore.show` | App Store |  | b. standard | its section, catalog order |
 | Settings and Help | `appStore.showInstalled` | Installed Apps |  | b. standard | its section, catalog order |
 | Settings and Help | `appearance.animationSpeed.fast` | Use Fast Animations |  | c. family member | folded into Animations… |

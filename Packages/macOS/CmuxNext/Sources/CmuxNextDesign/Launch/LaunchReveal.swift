@@ -1,12 +1,14 @@
 public import AppKit
 import CmuxNextWakeups
 import Observation
+public import CmuxNextDesignTokens
 
 /// Launch load-in, region by region: a view held for a region stays clear
 /// on the window glass until that region's data is ready, then fades in
 /// (`MotionFade.fadeIn`; capped under Reduce Motion), independently of the
 /// other regions, never all at once. A view held after its region is
-/// ready shows at once, so a fast launch adds no fade and no delay.
+/// ready, or ready before the window first drew it, shows at once, so a
+/// fast launch or a relaunch with saved data adds no fade and no delay.
 ///
 /// Producers call `markReady` where the data lands (the sidebar's first
 /// rows, the first non-empty tab strip, the first terminal frame); a
@@ -16,7 +18,9 @@ import Observation
 /// arms: a missed producer costs a short delay, never a blank window.
 ///
 /// Call `markReady` where real data lands, not on an empty placeholder
-/// model, and hold containers, not views that animate their own alpha.
+/// model (unless nothing is coming before the first frame: a fresh
+/// profile's sidebar has no saved rows to wait for), and hold containers,
+/// not views that animate their own alpha.
 /// The regions are app-wide and cover the first launch: once a region is
 /// ready, windows opened later show it at once.
 @MainActor
@@ -66,7 +70,9 @@ public final class LaunchReveal {
         for view in views {
             // The model value at once; the fade runs on the layer.
             view.alphaValue = 1
-            if let layer = view.layer { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
+            // A view whose window has not drawn it yet (no presentation layer: a relaunch's saved
+            // tabs before the first frame) shows in its first frame, not faded in from clear.
+            if let layer = view.layer, layer.presentation() != nil { Motion.panes.set(layer, "opacity", to: Float(1), fade: .fadeIn, from: Float(0)) }
         }
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
     }

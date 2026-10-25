@@ -158,9 +158,9 @@ import UniformTypeIdentifiers
         #expect(field.draggingEntered(drag) == .copy)
 
         // No stream: the pointer sweeps between the transcript and the field, 30 events on each, as
-        // AppKit calls them: draggingEntered on the new target at each crossing, draggingUpdated after
-        // it on the field (the transcript's host answers once, on enter: it has no draggingUpdated).
-        let host = view.controller.host
+        // AppKit calls them: draggingEntered on the field at each crossing, draggingUpdated after it.
+        // Over the transcript the drag belongs to the host's view around this one (Home's drop target,
+        // HomeNativeTranscriptView, which reads the drag once per drag too): the field gets its exit.
         var idleDragOver: [Double] = []
         for i in 0..<240 {
             let onField = i % 60 >= 30
@@ -168,8 +168,8 @@ import UniformTypeIdentifiers
             let d0 = CACurrentMediaTime()
             let op: NSDragOperation
             switch (onField, i % 30) {
-            case (false, 0): field.draggingExited(drag); op = host.draggingEntered(drag)
-            case (false, _): op = .copy // AppKit keeps the host's answer from its draggingEntered
+            case (false, 0): field.draggingExited(drag); op = .copy // the surrounding drop target answers
+            case (false, _): op = .copy
             case (true, 0): op = field.draggingEntered(drag)
             case (true, _): op = field.draggingUpdated(drag)
             }

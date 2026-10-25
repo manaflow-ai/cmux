@@ -1,6 +1,6 @@
 // What plays, as the host pushes it for the New Tab page's player (`nowPlaying`, CmuxNextAgentPane
 // AgentPaneNowPlaying): the sidebar card's track (cmux's player, a browser tab, Spotify, Music), or
-// null while nothing plays or the player is hidden (`tabs.newTabNowPlaying`, on by default and
+// null while nothing plays or the player is hidden (`tabs.newTabNowPlaying`, off by default and
 // apart from the sidebar card's `sidebar.nowPlaying.enabled`). A module store like
 // recentlyClosed.ts, so a push that arrives before the screen mounts is kept.
 import { useSyncExternalStore } from "react";

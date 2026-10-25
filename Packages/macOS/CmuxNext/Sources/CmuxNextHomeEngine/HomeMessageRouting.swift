@@ -4,7 +4,7 @@ import Foundation
 
 /// The one path every "Send Message…" entry point takes into the Home chat
 /// (plans/cmux-next/home-chat-pipeline-DESIGN.md: it never orders or streams anything itself).
-/// A right-click on a workspace, a tab or a Home row, "Send to Chief" and "Send to…" on selected
+/// A right-click on a workspace, a tab or a Home row, "Send to Chief" and "Send To…" on selected
 /// text, Forward… on a bubble, Cmd+Shift+P, `cmux chat send` and MCP all resolve their recipient
 /// here, then either put text in that conversation's message box (``compose(_:into:)``) or send
 /// it through ``HomeGroupActions/send(_:to:)``, the same send the message box makes.

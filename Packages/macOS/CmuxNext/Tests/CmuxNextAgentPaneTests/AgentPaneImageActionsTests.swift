@@ -61,15 +61,18 @@ struct AgentPaneImageActionsTests {
         _ = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": "build log.png"])
         // (Built, not written out: ci-target-graph.py reads a path literal as a repository read.)
         _ = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": String(repeating: "../", count: 2)])
-        #expect(revealed().count == 3)
+        try #require(revealed().count == 3)
         #expect(revealed()[1] == file)
         #expect(revealed()[2].lastPathComponent.hasPrefix("Image "))
 
-        // A name too long for a file name is cut; format characters (a right-to-left override)
-        // are dropped.
-        _ = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": String(repeating: "🖼️", count: 200)])
+        // A name too long for a file name, even one past the request's name cap (alt text has no
+        // length limit), is cut; format characters (a right-to-left override) are dropped.
+        let long = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": String(repeating: "🖼️", count: 200)])
+        #expect(Self.errorCode(long) == nil, "\(long)")
         _ = await Self.ask(model, "image.reveal", ["src": Self.pngSource, "name": "evil\u{202E}gnp.exe"])
-        #expect(revealed().count == 5)
+        // A wrong count fails this test alone: an unchecked index past it would crash the test
+        // process and every suite after it.
+        try #require(revealed().count == 5)
         #expect(revealed()[3].lastPathComponent.utf8.count <= 255)
         #expect(FileManager.default.fileExists(atPath: revealed()[3].path))
         #expect(!revealed()[4].lastPathComponent.unicodeScalars.contains("\u{202E}"))

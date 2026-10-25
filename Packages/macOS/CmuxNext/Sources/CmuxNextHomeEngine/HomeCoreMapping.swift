@@ -75,6 +75,20 @@ public nonisolated enum HomeCoreMapping {
                                       poster: ref.poster.map(derived), preview: ref.preview.map(derived))
     }
 
+    /// The ref an owner stored for an upload: the owner keeps the first
+    /// record of a hash, so its type, size and derived images win.
+    static func ref(_ ref: AttachmentRef, storedAs stored: StoredConversationAttachment) -> AttachmentRef {
+        var ref = ref
+        ref.mimeType = stored.mimeType
+        ref.byteCount = stored.byteCount
+        let derived = { (image: ConversationDerivedImage) in
+            AttachmentDerivedImage(hash: image.hash, mimeType: image.mimeType, byteCount: image.byteCount)
+        }
+        ref.poster = stored.poster.map(derived)
+        ref.preview = stored.preview.map(derived)
+        return ref
+    }
+
     static func reaction(_ reaction: ConversationReaction) -> Reaction {
         let kind: Reaction.Kind = switch reaction.kind {
         case .tapback(let value): Reaction.Tapback(rawValue: value).map(Reaction.Kind.tapback) ?? .emoji(value)

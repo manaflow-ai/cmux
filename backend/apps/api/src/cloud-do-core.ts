@@ -16,6 +16,7 @@ import { CoderouterEdge } from "./cloud-coderouter-edge.ts"
 import { emptyFenceSettles, publicSnapshot, type SnapshotRow } from "./domains/cloud-snapshot.ts"
 import { BACKSTOP_IDLE_SECONDS, silentSince } from "./cloud-idle.ts"
 import { planView, teamPlan, type CloudConfig } from "./domains/cloud-plan.ts"
+import { CloudEntitlementStore } from "./cloud-entitlements.ts"
 import { decodeParams } from "./domains/common.ts"
 import { cloudApprovalsDueAt, gateCloudRequest, InstallStarts, isApprovedRun, needsCloudApproval, wakeCloudApprovals, type CloudApprovalHost } from "./cloud-approvals.ts"
 import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMachine, TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, TOMBSTONE_MS, type CloudState, type LedgerRow, type MachineRow, type TombstoneRow } from "./domains/cloud.ts"
@@ -23,6 +24,8 @@ import { CLOUD_PRIVATE_TABLES, cloudDomain, ledgerKey, LEDGER_KEEP_MS, publicMac
 /** How long a create or delete request waits for its provider call before it answers mutation.indeterminate. */
 const REQUEST_WAIT_MS = 25_000
 const PROVIDER_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.delete", "cloud.machine.pause", "cloud.machine.start", "cloud.machine.resize", "cloud.snapshot.create", "cloud.snapshot.delete", "cloud.snapshot.restore"])
+/** Ops that may start cost: the team's paid plan is refreshed first (cloud-entitlements.ts). */
+const PLAN_OPS: ReadonlySet<string> = new Set(["cloud.machine.create", "cloud.machine.start", "cloud.machine.resize", "cloud.machine.upgrade", "cloud.snapshot.create", "cloud.snapshot.restore"])
 /** A cloud.machine.vm_status commit that applied the report (a held report from a replaced install is dropped). */
 export const statusApplied = (frames: ReadonlyArray<OwnerFrame>) => frames.some((f) => f.t === "result" && (f as { value?: { applied?: unknown } }).value?.applied === true)
 const INTERNAL_OPS: ReadonlySet<string> = new Set(["cloud.machine.provider_state", "cloud.machine.idle_pause", "cloud.machine.bind", "cloud.driver_result", "cloud.watch_result", "cloud.prune", "cloud.abandoned_clear"])
@@ -98,15 +101,22 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   }
   protected dropResults = 0
 
+  /** The team's paid plan for the reducers (cloud-entitlements.ts); the same object is in `config`. */
+  protected readonly entitlements: CloudEntitlementStore
+
   constructor(ctx: DurableObjectState, env: Env) {
     const clock = { skew: 0 }
-    super(ctx, env, cloudDomain(cloudConfig(env)) as Domain<CloudState>, "cloud", undefined, {
+    const entitlements = new CloudEntitlementStore(ctx.storage.sql, env, () => Date.now() + clock.skew)
+    // One config for the domain and the object, so both read the same entitlements.
+    const config: CloudConfig = { ...cloudConfig(env), entitlements }
+    super(ctx, env, cloudDomain(config) as Domain<CloudState>, "cloud", undefined, {
       now: () => Date.now() + clock.skew,
       rowMode: { snapshotTable: TABLE_MACHINE, snapshotTail: 0 },
       // P3-8: internal ops carry ledger keys and provider error text; subscribers see neither.
       redact: { privateTables: CLOUD_PRIVATE_TABLES, state: headView, params: (op, params) => (INTERNAL_OPS.has(op) ? {} : params) }
     })
-    this.config = cloudConfig(env)
+    this.config = config
+    this.entitlements = entitlements
     this.clock = clock
   }
 
@@ -225,6 +235,8 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
     // cx-wb5.65: at most 10 starts per install per hour (check and reserve in one step; given back unless the start commits).
     const slot = fresh && frame.op === "cloud.machine.start" ? this.installStarts.reserve(principal.install!, Date.now()) : null
     if (slot && "until" in slot) return reject(entity, frame.idempotency_key, "cloud.rate_limited", "this device started machines 10 times in the last hour; retry later or start it from the dashboard", true, { retry_after_ms: Math.max(0, slot.until - Date.now()) })
+    // Paid entitlements: the plan the reducer and the provider pass read is refreshed before an op that may cost money.
+    if (PLAN_OPS.has(frame.op)) await this.entitlements.refresh(entity, principal)
     const limited = PROVIDER_OPS.has(frame.op) ? await this.rateLimited(entity, principal, frame) : undefined
     const result = limited ?? (await super.submit(entity, principal, frame))
     const committed = result.frames.some((f) => f.t === "result" && !f.replayed)

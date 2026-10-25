@@ -158,6 +158,20 @@ fn close_other_panes_is_one_group_and_reopens_every_tab() {
     let reopened = mutate(&mux, "closed.reopen", json!({}), "reopen");
     assert_eq!(reopened["tab_ids"].as_array().unwrap().len(), 3);
     assert_eq!(count(), 4);
+    // Every pane comes back as a pane of its own: the two closed panes were each other's
+    // neighbor, and neither one's tabs may join the kept pane (Lawrence 2026-10-23).
+    let panes = mux.with_state(|state| {
+        let (workspace, screen) = state.screen_of(pane).unwrap();
+        let mut ids = Vec::new();
+        state.workspaces[workspace].screens[screen].root.pane_ids(&mut ids);
+        ids.into_iter().map(|id| state.panes[&id].tabs.len()).collect::<Vec<_>>()
+    });
+    assert_eq!(panes.len(), 3, "one reopen brings back both closed panes: tabs per pane {panes:?}");
+    assert_eq!(
+        mux.with_state(|state| state.panes[&pane].tabs.len()),
+        1,
+        "the kept pane keeps only its own tab"
+    );
 }
 
 /// Close Other Workspaces (in a space) sends the space's other workspaces

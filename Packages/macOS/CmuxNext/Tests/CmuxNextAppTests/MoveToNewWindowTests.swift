@@ -68,7 +68,12 @@ struct MoveToNewWindowTests {
             let created = try await connection.newTab(in: first.handle)
             try await PinnedPageTests.until({ services.daemon.store.tab(surface: created.surface) != nil })
             #expect(services.registry.perform("splitRight", invocation: Self.on(.pane, first.id)))
-            try await PinnedPageTests.until({ workspace.screens.flatMap(\.panes).count == 2 })
+            // The daemon's split, not its stand-in (`ProvisionalPane`), which shows first: a move
+            // before the daemon has the split left the stand-in and the daemon's pane both behind.
+            try await PinnedPageTests.until({
+                let panes = workspace.screens.flatMap(\.panes)
+                return panes.count == 2 && panes.allSatisfy { $0.tabs.allSatisfy { !ProvisionalTab.isProvisional(surface: $0.surface) } }
+            })
             // The pane that moves: the first one, with its two tabs; the new split stays.
             let moving = first.tabs.map { Live($0, services) }
             #expect(moving.count == 2)
@@ -76,7 +81,9 @@ struct MoveToNewWindowTests {
             let frame = services.windows.controller(for: source)?.window?.frame
             #expect(services.registry.perform("pane.moveToNewWindow", invocation: Self.on(.pane, first.id)))
             try await Self.expectMoved(moving, from: source, frame: frame, services)
-            #expect(workspace.screens.flatMap(\.panes).count == 1, "the split stays behind")
+            // The source's layout reports the pane gone in its own batch, after the new window's.
+            try await PinnedPageTests.until({ workspace.screens.flatMap(\.panes).count == 1 },
+                                            report: { "the split stays behind: \(workspace.screens.flatMap(\.panes).count) panes" })
         }
     }
 

@@ -321,7 +321,8 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         }
         glass?.layoutSubtreeIfNeeded()
         let size = glass?.fittingSize ?? .zero
-        let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame)
+        let card = anchor.cardFrame(size: size, visible: (parent.screen ?? NSScreen.main)?.visibleFrame,
+                                    window: parent.convertToScreen(parent.contentLayoutRect))
         setFrame(PopupStyle.standard.windowFrame(forCard: card), display: ordersFront)
         guard ordersFront else { return }
         if !reopening { alphaValue = 0 }

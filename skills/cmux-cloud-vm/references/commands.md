@@ -13,24 +13,76 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
 - **Run** with `cmux <noun> <verb> [--target machine:vm-…] [--<arg> <value>] [--wait]`
   or `cmux action run <id> …` with the same flags. `--wait` waits for the action's
   work to finish. `--json` prints the result object.
-- **Target:** `--target machine:vm-…`. Without it, a machine action applies to the
-  focused cloud workspace's machine. The copy actions (machine id, link, port)
+- **Target:** `--target machine:vm-…`, required from the CLI or MCP: a machine
+  action run without it is refused (only a person's own click falls back to the
+  machine in front of them). The copy actions (machine id, link, port)
   are menu-only: the CLI never writes the clipboard.
-- **Results** are action results. No action returns command output, a file, a
-  listing or a URL on stdout, even with `--json`. Read and list actions show
-  their result to the person in an app toast with a Copy button.
+- **Results** come back in the action result's `result` object (`--json` prints it);
+  nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
+  `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
+  the server still provisions); `new-terminal-on-machine` returns `workspace_id`;
+  `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
+  `snapshot-machine` (`snapshot_id`, or `pending`), the file actions, `prepare-scp`
+  and the network, firewall, domain and publication lists return `text` and their fields.
+  `list-machines` returns `machines` (see [Listing machines](#listing-machines)).
+- **GitHub on a machine:** `cloud setup-github` sets `git config --global user.name`
+  and `user.email` on the machine (as its work user) from this Mac's global git config,
+  and starts `gh auth login --web` there. It returns only `ok`, `user_name`,
+  `user_email`, `gh_status` (`logged_in`, `pending`, `missing`, `failed`) and, while
+  pending, `device_code` and `verification_uri`: the person enters the code at
+  https://github.com/login/device. No token leaves the Mac; the machine gets its own.
+  Add `--focus` to open that page in the person's browser.
 - **Exit codes:** `0` success, `1` action failure, `2` usage, `3` app unreachable.
+
+## Listing machines
+
+`cmux cloud list-machines` is read only: it answers the app's own Cloud machine list,
+the one the sidebar's Cloud machines show, so an agent can check whether its machine
+already exists before it runs `new-machine`. It takes no target. Run by a person from
+the palette, it shows the Cloud sidebar instead.
+
+```bash
+cmux cloud list-machines --json
+```
+
+```json
+{"loaded": true,
+ "machines": [{"machine_id": "vm-…", "target": "machine:vm-…", "title": "api",
+               "status": "running", "owner": "team", "created_at": "2026-10-21T08:00:00Z"}],
+ "count": 1, "account": {"signed_in": true}}
+```
+
+- `loaded` says whether the app holds a machine list the server answered. Until it
+  does (right after launch, signed out, or a first list that failed) the answer is
+  `loaded: false` with no machines: that means "not known yet", not "none", so do
+  not create a machine on it. A run that finds the list unloaded loads it first and
+  answers within about 25 s; a load that takes longer answers `loaded: false` and
+  `pending: true` while it finishes, so run it again.
+
+- `status` is the machine's record: `provisioning`, `running`, `paused`, `failed` or
+  `unknown`. A paused machine reads `paused`, never `failed`.
+- `owner` is `team` when the list is the signed-in team's, else `personal`.
+- `created_at` is ISO 8601, or `null` when the server did not say.
+- `account` has `signed_in`. It has no `limits`: the app does not keep the plan's
+  `max_active_vms`, and a machine count is not an entitlement (`0` means provisioning
+  is closed on the plan, `null` means uncapped), so check the plan, not the count.
+- Signed out, it answers `signed_in: false` and `loaded: false`. Right after launch it
+  waits for the saved sign-in to restore first.
+- `cmux machine list` also shows the app's Cloud machines (rows with `kind: "cloud"`),
+  but it cannot tell an unloaded list from an empty one; check `cloud list-machines`
+  before you create a machine.
 
 ## Machine actions
 
 ```bash
-cmux cloud new-machine                                      # New Cloud Machine… sheet
+cmux cloud list-machines                                    # the app's Cloud machines
+cmux cloud new-machine                                      # answers machine_id (or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace
 cmux cloud open-machine --target machine:vm-…
 cmux cloud new-terminal-on-machine --target machine:vm-…
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge
-cmux cloud machine-status --target machine:vm-…
+cmux cloud machine-status --target machine:vm-…              # stats, plus hourly_rate_usd, running_since, estimated_cost_usd
 cmux cloud machine-ports --target machine:vm-…
 cmux cloud machine-tools --target machine:vm-…
 cmux cloud snapshot-machine --target machine:vm-…
@@ -41,15 +93,22 @@ cmux cloud hand-off-machine --target machine:vm-…
 cmux cloud kill-machine --target machine:vm-…
 cmux cloud pause-machine --target machine:vm-…
 cmux cloud resume-machine --target machine:vm-…
+cmux cloud set-idle-pause --target machine:vm-… --minutes off|15|30|60|120   # answers idle_pause_minutes
 cmux cloud delete-snapshot --target machine:vm-… --snapshot <snapshot-id>
 cmux workspace new-on-machine --machine machine:vm-…
 ```
+
+cmux Cloud pauses a machine after 30 idle minutes by default (no attached terminal, ssh or app,
+no running agent turn, no command still running in a terminal, no forwarded port). The
+machine's record says `pauseReason: "idle"`; opening a workspace or terminal on it, or ssh,
+resumes it. `set-idle-pause` changes the timeout per machine.
 
 ## Shell, commands and files
 
 ```bash
 cmux cloud ssh --target machine:vm-…                           # opens an SSH terminal
-cmux cloud exec --target machine:vm-… --command '<cmd>'        # runs in a new terminal
+cmux cloud exec --target machine:vm-… --command '<cmd>'        # exit_code, stdout, stderr (25 s cap)
+cmux cloud setup-github --target machine:vm-…                  # this Mac's git identity + gh device-flow sign-in
 cmux cloud files-list --target machine:vm-… --path <dir>
 cmux cloud file-read --target machine:vm-… --path <file>
 cmux cloud file-write --target machine:vm-… --path <file> --contents '<text>'
@@ -59,11 +118,11 @@ cmux cloud file-stat --target machine:vm-… --path <file>
 cmux cloud prepare-scp --target machine:vm-…                   # takes an SSH public key
 ```
 
-`cloud exec` and `cloud ssh` start a terminal; read its output inside that
-terminal, not from the action result. `files-list`, `file-read`, `file-stat` and
-`prepare-scp` show their result in an app toast for the person, not to the CLI;
-to read a file or listing yourself, run `cat` or `ls` in a terminal on the
-machine. Run `cmux action describe "cloud prepare-scp"`
+From the CLI, `cloud exec` runs the command through the Cloud API and returns its
+exit code and output (a person's run types it into a new terminal instead); for a
+command longer than 25 s, open a terminal on the machine. `cloud ssh` starts a
+terminal. `files-list`, `file-read` (`text`, or `data_base64` for binary), `file-stat`
+and `prepare-scp` return their result to the CLI. Run `cmux action describe "cloud prepare-scp"`
 for the public-key argument's flag.
 
 ## Networks, domains and chat moves
@@ -112,12 +171,13 @@ and `vm ls`. See [guest operations](guest.md).
 
 | Old verb | Closest supported path |
 | --- | --- |
-| `vm ls`, `vm route`, `vm tree`, `vm self`, `surface ls` | none on the Mac; `cmux self` and `cmux self peers` inside a machine |
-| `vm new\|create` with `--size`, `--name`, `--desktop`, `--detach` | `cmux cloud new-machine` (the sheet) |
+| `vm ls` | `cmux cloud list-machines` |
+| `vm route`, `vm tree`, `vm self`, `surface ls` | none on the Mac; `cmux self` and `cmux self peers` inside a machine |
+| `vm new\|create` with `--size`, `--name`, `--desktop`, `--detach` | `cmux cloud new-machine` (returns `machine_id`) |
 | `vm exec`, `vm run`, `vm dev`, `vm agent` | `cmux cloud exec --command …`, or open a terminal on the machine and use `cmux workspace current run -- <argv>` or `cmux agent <harness>` there |
 | `vm terminal send\|read\|wait\|wait-exit\|output\|close` from the Mac | the same work with `cmux terminal <term_…> write\|screen read\|screen wait\|process wait\|output read\|close` inside the machine |
 | `vm push\|upload` | `cmux cloud file-write --path <file> --contents …`, or `cmux cloud prepare-scp` then scp |
-| `vm pull\|download` | read the file in a terminal on the machine; `file-read` only shows it to the person in a toast |
+| `vm pull\|download` | `cmux cloud file-read --target machine:vm-… --path <file>` |
 | `vm layout export\|apply`, `vm env set\|ls\|rm` from the Mac | `cmux layout …` and `cmux env …` inside the machine |
 | `vm open`, `vm shell`, `vm tui`, `vm desktop`, `surface open\|new-terminal` | `cmux cloud open-machine`, `cmux cloud new-terminal-on-machine` |
 | `vm open <id> <port>`, `vm ports` | `cmux cloud machine-ports`; copy the link from the machine's menu (Copy Machine Link) |

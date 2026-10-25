@@ -26,6 +26,8 @@ nonisolated enum AcpmuxPaneMethods {
         // read by cursor after watch's first page.
         "_acpmux/sessions",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
+        // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
+        "_acpmux/watch_take_over",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
@@ -83,6 +85,29 @@ nonisolated enum AcpmuxPaneMethods {
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // Reply in place to another agent's message as the chat the pane shows (direct.ts reply,
+        // IncomingMessageCard.tsx): acpmux checks it and answers it signed, prompting nothing, and
+        // the host sends it on as that chat's cmux agent message (``AgentPaneAgentReply``).
+        "_acpmux/app_reply",
+        // A chat's background processes (direct.ts listProcesses, tailProcess; the Inspector and an
+        // opened background task note): read only, like `_acpmux/events`. acpmux serves them only to
+        // this Mac's clients (server/processes.rs).
+        "_acpmux/process/list", "_acpmux/process/tail",
+        // Stop one (direct.ts killProcess) or send a chat's running work to the background (Ctrl-B,
+        // backgroundWork) of a chat in the pane's scope: they stop or move work like `_acpmux/kill`,
+        // so no gesture. A kill names its chat; acpmux stops only that chat's process.
+        "_acpmux/process/kill", "_acpmux/process/background",
+        // The composer's Account menu (direct.ts routes, setChatRoute): read the routes, and pick
+        // one for a chat in the pane's scope. Adding or changing a route stays the unix socket's.
+        "_acpmux/route/list", "_acpmux/chat/route.set",
+        // The forum's current rules for the rules card above the composer (direct.ts forumRules,
+        // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
+        // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
+        "_acpmux/forum/rules",
+        // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
+        // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
+        // resumes it (now, after the running turn, or at its next start).
+        "_acpmux/set_tools",
     ]
 
     /// Notifications (no `id`).
@@ -178,7 +203,9 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
+        "_acpmux/watch_take_over",
+        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -252,9 +279,12 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/secret_submit": .always,
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
+        "_acpmux/app_reply": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
+        // _acpmux/set_tools: no gesture. It only turns off, or back on, an MCP server the chat
+        // already had from the person's own config; it adds none.
     ]
 
     /// Whether a granting frame of `method` may use the current gesture: a permission allow needs

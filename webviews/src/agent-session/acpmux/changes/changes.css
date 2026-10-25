@@ -1,7 +1,7 @@
 /* The changes view's per-file menu. Colors come from the pane's theme tokens only. */
 @import "./git.css";
 .acpmux-file-menu{position:relative;display:inline-flex}
-.acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
+.acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
 .ui-positioner>.acpmux-file-menu-list{position:static;top:auto;right:auto}
 .acpmux-file-menu-item{display:flex;align-items:center;min-height:var(--ui-row-height);padding:4px var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
 .acpmux-file-menu-item:hover,.acpmux-file-menu-item:focus-visible{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));outline:none}
@@ -36,7 +36,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-pull-request-create:disabled{color:var(--agent-muted)}
 .acpmux-pull-request-create:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-pull-request{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
-.acpmux-pull-request[role=alert]{white-space:normal;color:var(--acpmux-del)}
+.acpmux-pull-request[role=alert]{white-space:normal;color:var(--agent-status-failure)}
 .acpmux-pull-request a{color:var(--agent-accent);text-decoration:none}
 .acpmux-pull-request a:hover{text-decoration:underline}
 .acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-pill-edge);white-space:nowrap}
@@ -105,7 +105,6 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-diff-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 12px 6px;border-top:1px solid var(--agent-border);color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-diff-key{display:inline-flex;align-items:center;gap:2px}
 .acpmux-diff-key .acpmux-keycap:last-of-type{margin-right:3px}
-@media (prefers-reduced-motion:no-preference){.acpmux-file-menu-list{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* Commit and Push: text buttons in the toolbar pill, the commit form and the latest write's status line under the header. */
 .acpmux-diff-notice-text{flex:1;min-width:0}
 /* Pull request review threads (cx-ncc.77.2): under their line in the diff, or above it when the line is gone. */

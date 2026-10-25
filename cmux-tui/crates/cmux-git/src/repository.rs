@@ -212,10 +212,10 @@ impl Repository {
                 match filter_overrides_within(&checkout, remaining(self.deadline)) {
                     Ok(drivers) => blanked.extend(drivers),
                     // A `.git` file pointing nowhere: git cannot read this
-                    // submodule either, so it runs nothing there.
-                    Err(GitFailure::Exit(stderr)) if stderr.contains("not a git repository") => {
-                        continue;
-                    }
+                    // submodule either, so it runs nothing there. Older git
+                    // says "not a git repository", newer git (2.52+, Apple
+                    // Git-157) "gitfile does not point to a valid repository".
+                    Err(GitFailure::Exit(stderr)) if is_unreadable_gitfile(&stderr) => continue,
                     Err(failure) => return Err(failure),
                 }
                 pending.push(checkout);
@@ -241,6 +241,12 @@ impl Repository {
         }
         main_root(&common).map(Path::to_path_buf)
     }
+}
+
+/// Whether git's `stderr` says a submodule's `.git` file names no repository.
+fn is_unreadable_gitfile(stderr: &str) -> bool {
+    stderr.contains("not a git repository")
+        || stderr.contains("gitfile does not point to a valid repository")
 }
 
 /// The most gitlink entries [`Repository::with_submodule_filters`] keeps

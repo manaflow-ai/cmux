@@ -18,10 +18,17 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
+    var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
+    /// after its parent, not inside it, so a parent's card reads its members through this.
+    var groupSubtrees: [GroupID: [GroupID]] = [:]
+    /// The rails before the nested-groups prototype (a capture's "before"); off draws the subtree rails.
+    var legacyNestedRails = false
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
     var blocks: SidebarListBlocks? {
@@ -48,6 +55,8 @@ final class SidebarListView: NSView {
     /// under a held drag): rows spring from where they are on the drag's one additive spring, new rows
     /// appear in their slot with no opening, so frames the drag already shows move nothing.
     var springsRows = false
+    /// Counts the row moves `RowMotion` starts: a move's end lands the rows only when no newer move runs.
+    var rowMoves = 0
     /// Rows an adopting apply took out of `rowViews` that still fade on screen (sampled by the motion probe).
     var fadingRows: [ObjectIdentifier: SidebarRowView] = [:]
     /// Wires a new block's region as the sidebar wires its bands (activation, menus, app views).
@@ -58,6 +67,8 @@ final class SidebarListView: NSView {
     let decorations = SidebarDecorationView()
     /// Open groups' members' lines, under the rows, moving with them.
     let groupLineViews = SidebarGroupLineViews()
+    /// The session tree's chat history (Pinned and Earlier), in the gaps the layout leaves for them.
+    let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
@@ -84,6 +95,10 @@ final class SidebarListView: NSView {
     var rowHold = SidebarRowHold()
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
+    /// The "Done (N)" rows the person opened (`SidebarLayout+DoneFold`): view state, kept for this list only.
+    var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// The lists whose "Show N more" row the person opened: view state, kept for this list only.
+    var openShowMore: Set<SidebarDoneFoldID> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -168,7 +183,11 @@ final class SidebarListView: NSView {
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self else { return }
-                for row in self.displayed.rows { if case .item = row.key, let view = self.rowViews[row.key] { self.configure(view, row: row, animated: false) } }
+                // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
+                for (key, view) in self.rowViews {
+                    guard case .item = key, let row = self.displayed.row(for: key) else { continue }
+                    self.configure(view, row: row, animated: false)
+                }
             }
         }
     }
@@ -183,6 +202,7 @@ final class SidebarListView: NSView {
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
             for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
+            if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
         }
     }
     // MARK: - Window occlusion
@@ -191,6 +211,10 @@ final class SidebarListView: NSView {
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
     private var focusObservers: [any NSObjectProtocol] = []
+    /// The app's left presses and releases while this list is in a window (`observePointerEnds`).
+    private var pointerMonitor: Any?
+    /// Whether the left button is held now (`pointerWindowLostKey`). Tests inject an answer.
+    var leftButtonIsDown: @MainActor () -> Bool = { NSEvent.pressedMouseButtons & 1 != 0 }
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
@@ -210,6 +234,10 @@ final class SidebarListView: NSView {
         // a drag ends in place (`abandonDrag`, its rows shown again).
         for observer in focusObservers { center.removeObserver(observer) }
         focusObservers = window == nil ? [] : observeFocusLoss(of: window)
+        // A press whose release never came here ends at the app's next press, or after a release that went to
+        // another window (`pointerEventSeen`).
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+        pointerMonitor = window == nil ? nil : observePointerEnds()
         if window == nil {
             if let drag { abandonDrag(drag) }
             press = nil

@@ -38,6 +38,41 @@
 //!
 //! Only the person widens a mode later (`hub/person.rs`). A pick is saved
 //! as its level, so it maps onto every harness's own mode ids.
+//!
+//! Inherit (Leo 2026-10-25: "shouldn't sub-agents just inherit the bypass
+//! permission situation?"): a chat an agent starts, by `session/new` from
+//! its shell (`acpmux new|run`, a local `_acpmux/dispatch`) or as its
+//! sub-session (`start_session`, `acpmux new --parent`), runs at its
+//! starter's level, not at the person's start level. The starter is the
+//! session the connection proved with its caller token (`Conn::caller`,
+//! `start_gate.rs`), never the person, a peer, a Web connection or a request
+//! value, and never a session a remote connection started (`remote_origin`:
+//! its chats keep the rule below, a caller that asks keeps the harness's own
+//! mode); a start with none is unchanged. Each field the start leaves out is
+//! inherited on its own:
+//!
+//! - no policy: the defaults' (family or preset) when no wider than the
+//!   starter's effective policy, else the starter's own. A starter with no
+//!   policy of its own gives none (the daemon default it runs too): the
+//!   daemon default as the child's own would move its mode to an asking one
+//!   (`policy_mode.rs`);
+//! - no mode: a policy narrower than approve-all chooses it (`policy_mode.rs`);
+//!   else, on the starter's own family, the starter's exact mode (not a
+//!   toggle such as `plan`, and not full access while
+//!   `sessions.allowFullAccess` is off); on another family, the starter's
+//!   level mapped onto the child's modes: full access to its full-access
+//!   mode, a starter that asks (or reports no mode) to its asking mode, and
+//!   any other to the harness's own mode (the asking one when the person's
+//!   level is `ask`).
+//!
+//! Its harness never asks less than its starter: once its mode is set it is
+//! held to the starter as the starter is then (`Hub::hold_mode`): moved to an
+//! asking mode, else refused and closed (a family with no mode that asks
+//! under a starter that asks). A mode the start names is held by
+//! `start_gate.rs` (a mode that does not ask needs the starter's exact mode
+//! or the person), and a sub-session by `subsession_guard.rs`. A policy the
+//! start names is not held to the starter (`hub/person.rs`: open to the unix
+//! socket since before this).
 
 use super::*;
 use crate::config::PermissionModeChange;
@@ -302,6 +337,11 @@ pub(super) fn mode_eligible(
     plain && !remote && !keep_harness_mode && !profile_sets_mode(profile)
 }
 
+/// The mode ids a session's harness offers, for the policy modes (`policy_mode.rs`).
+pub(super) fn offered_ids(meta: &crate::store::SessionMeta) -> Vec<String> {
+    available(meta)
+}
+
 /// The mode ids a session's harness offers.
 fn available(meta: &crate::store::SessionMeta) -> Vec<String> {
     offered(meta).into_iter().map(|(id, _)| id).collect()
@@ -329,7 +369,7 @@ pub(crate) fn full_access_mode(available: &[String]) -> Option<String> {
 
 /// The mode that asks before each change among `available`: the family's
 /// asking default (`web_modes::ASKING_MODES`), else a mode named `ask`.
-fn asking_mode(family: &str, available: &[String]) -> Option<String> {
+pub(super) fn asking_mode(family: &str, available: &[String]) -> Option<String> {
     let row = crate::web_modes::ASKING_MODES
         .iter()
         .find(|(f, _)| *f == family)
@@ -406,6 +446,31 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
     }
 }
 
+/// Whether mode `mode` of a harness of `family` asks before each change (or only reads).
+pub(super) fn asks(mode: &str, family: &str) -> bool {
+    asks_in(mode, family, &[])
+}
+
+/// `asks`, also counting `asking`: the configured asking modes of `family` (`webAskingModes`).
+pub(super) fn asks_in(mode: &str, family: &str, asking: &[String]) -> bool {
+    level_of(mode, family, asking) == DefaultMode::Ask
+}
+
+/// The policy a chat that names none inherits from its starter (module docs, "Inherit"):
+/// `defaults` (its family's or preset's) when no wider than the starter's effective policy (its
+/// own, else `daemon`), else the starter's own (none: the daemon default, as the starter runs).
+pub(super) fn inherited_policy(
+    defaults: Option<PermissionPolicy>,
+    own: Option<PermissionPolicy>,
+    daemon: PermissionPolicy,
+) -> Option<PermissionPolicy> {
+    let theirs = own.unwrap_or(daemon);
+    match defaults {
+        Some(d) if super::person::breadth(d) <= super::person::breadth(theirs) => Some(d),
+        _ => own,
+    }
+}
+
 impl DefaultMode {
     fn as_str(self) -> &'static str {
         match self {
@@ -425,9 +490,103 @@ impl Hub {
         if offered.is_empty() {
             return None;
         }
-        let (level, _) = self.start_level().await;
-        mode_for(level, &crate::web_modes::family_of(&meta), &offered)
-            .filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+        // A chat with its own policy narrower than approve-all runs in the mode that keeps it
+        // (`policy_mode.rs`), never in the start level.
+        let default = self.config.read().await.permission_policy;
+        let mode = match Self::mode_for_policy(&meta, &offered, default) {
+            Some(mode) => mode,
+            None => {
+                let (level, _) = self.start_level().await;
+                mode_for(level, &crate::web_modes::family_of(&meta), &offered)
+            }
+        };
+        mode.filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+    }
+
+    /// `start_mode` for a chat an agent started: at its starter's level (module docs, "Inherit"),
+    /// read now. `starter`: the proven caller session; none (or one that is gone) is `start_mode`.
+    pub(super) async fn start_mode_for(
+        &self,
+        session: &Session,
+        starter: Option<&str>,
+    ) -> Option<String> {
+        let theirs = starter.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id));
+        let Some(theirs) = theirs.map(|s| s.meta()) else { return self.start_mode(session).await };
+        let meta = session.meta();
+        let offered = available(&meta);
+        if offered.is_empty() {
+            return None;
+        }
+        let default = self.config.read().await.permission_policy;
+        let mode = match Self::mode_for_policy(&meta, &offered, default) {
+            Some(mode) => mode,
+            None => self.inherited_mode(&theirs, &meta, &offered).await,
+        };
+        mode.filter(|m| crate::web_modes::mode_of(&meta).as_deref() != Some(m.as_str()))
+    }
+
+    /// The mode chat `meta` (offering `offered`) inherits from starter `theirs` (module docs).
+    async fn inherited_mode(
+        &self,
+        theirs: &crate::store::SessionMeta,
+        meta: &crate::store::SessionMeta,
+        offered: &[String],
+    ) -> Option<String> {
+        let family = crate::web_modes::family_of(meta);
+        let allowed = full_access_allowed();
+        if crate::web_modes::family_of(theirs) == family
+            && let Some(mode) = crate::web_modes::mode_of(theirs)
+            && offered.contains(&mode)
+            && !TOGGLE_MODES.contains(&mode.as_str())
+            && (allowed || !is_full_access(&mode))
+        {
+            return Some(mode);
+        }
+        let access = self.caller_access(theirs);
+        if access == super::subsession_guard::Access::Full && allowed {
+            return full_access_mode(offered);
+        }
+        let asks = access == super::subsession_guard::Access::Asks
+            || self.start_level().await.0 == DefaultMode::Ask;
+        if !asks {
+            return None;
+        }
+        // The family's reviewed asking mode, else one the person's `webAskingModes` names.
+        let table = self.web_modes();
+        asking_mode(&family, offered)
+            .or_else(|| table.modes(&family).iter().find(|m| offered.contains(m)).cloned())
+    }
+
+    /// A chat that inherited full access from `starter` (`start_mode_for`) holds it as cmux's own
+    /// (`trust_wait.rs` `full_access_by_cmux`) only when the starter's is cmux's own too.
+    pub(super) fn inherited_full_access_is_cmux_only_if_theirs(
+        &self,
+        session: &Session,
+        starter: Option<&str>,
+    ) {
+        let Some(theirs) = starter.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id))
+        else {
+            return;
+        };
+        if super::trust_wait::full_access_by_cmux(&theirs.meta()) {
+            return;
+        }
+        {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if !m.mode_set_by_cmux.as_deref().is_some_and(is_full_access) {
+                return;
+            }
+            m.mode_set_by_cmux = None;
+        }
+        self.save_meta(session);
+    }
+
+    /// Session `id`'s own policy (none: it runs the daemon default); one acpmux cannot parse
+    /// counts as `ask`.
+    pub(super) fn own_policy(&self, id: &str) -> Option<PermissionPolicy> {
+        let s = self.resolve(id).ok().filter(|s| s.id == id)?;
+        let own = s.meta().permission_policy?;
+        Some(own.parse().unwrap_or(PermissionPolicy::Ask))
     }
 
     /// A respawned ACP chat that came back in full access (its harness restored the mode on
@@ -459,33 +618,39 @@ impl Hub {
             return Err(full_access_off());
         }
         tracing::info!(session = %session.id, "resume: full access is off; {current} runs as {mode}");
+        session.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux =
+            Some(mode.clone());
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
         Ok(())
     }
 
     /// `leave_full_access_if_off` for a chat just started (cold or from the pool): when it would
     /// run in full access, the agent stops and the chat stays open and idle. A profile that pins
-    /// its mode in its argv (`--yolo`) is left alone, as acpmux sets no mode over it anywhere else.
+    /// its mode in its argv (`--yolo`) is left alone, as acpmux sets no mode over it anywhere else,
+    /// except for a narrower policy, which the chat's mode then keeps (`hold_policy_mode`).
     pub(super) async fn cap_full_access(
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
-        if profile_sets_mode(profile) {
-            return Ok(());
+        if !profile_sets_mode(profile)
+            && let Err(e) = self.leave_full_access_if_off(session, child).await
+        {
+            if let Some(started) = session.child.lock().await.take() {
+                started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+            }
+            // A host that outlived the grace would be re-adopted, still in full access.
+            if Self::host_record_live(&session.id) {
+                self.end_unadopted_host(session).await;
+            }
+            self.set_status(session, SessionStatus::Idle);
+            self.append(session, "mux", "full_access_refused", json!({}));
+            return Err(e);
         }
-        let Err(e) = self.leave_full_access_if_off(session, child).await else { return Ok(()) };
-        if let Some(started) = session.child.lock().await.take() {
-            started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
-        }
-        // A host that outlived the grace would be re-adopted, still in full access.
-        if Self::host_record_live(&session.id) {
-            self.end_unadopted_host(session).await;
-        }
-        self.set_status(session, SessionStatus::Idle);
-        self.append(session, "mux", "full_access_refused", json!({}));
-        Err(e)
+        // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
+        self.hold_policy_mode(session, child, profile_sets_mode(profile)).await;
+        Ok(())
     }
 
     /// The level new chats start at now, and what chose it.
@@ -559,32 +724,52 @@ impl Hub {
         }
         // As session/new: harness discovery and launcher checks finish first.
         self.wait_startup().await;
-        let (agent, profile, eligible) = {
+        let (agent, profile, eligible, policy) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
             let plain = r.preset_name.is_none() && r.folder_root.is_none();
-            let eligible = r.profile.kind != crate::config::HarnessKind::Terminal
-                && mode_eligible(plain, remote, false, &r.profile);
-            (r.agent, r.profile, eligible)
+            let terminal = r.profile.kind == crate::config::HarnessKind::Terminal;
+            let eligible = !terminal && mode_eligible(plain, remote, false, &r.profile);
+            // The policy the new chat would hold (`policy_mode.rs`): its preset's or defaults',
+            // else deny-all as the default policy.
+            let policy = (!terminal)
+                .then(|| super::policy_mode::narrower(r.defaults.policy, cfg.permission_policy))
+                .flatten();
+            (r.agent, r.profile, eligible, policy)
         };
         let none =
             json!({"harness": agent, "modeId": null, "name": null, "level": null, "source": null});
-        if !eligible {
-            return Ok(none);
-        }
         let family = crate::config::derive_family(&agent, &profile);
         let modes = self.known_modes(&agent, &profile);
         let ids: Vec<String> = modes.iter().map(|(id, _)| id.clone()).collect();
+        let name_of = |mode: &Option<String>| {
+            mode.as_ref()
+                .and_then(|m| modes.iter().find(|(id, _)| id == m))
+                .and_then(|(_, n)| n.clone())
+        };
+        // A narrower policy chooses the mode on every chat, eligible or not.
+        if let Some(policy) = policy {
+            let mode = super::policy_mode::policy_mode(policy, &family, &ids);
+            if mode.is_none() {
+                return Ok(none);
+            }
+            return Ok(json!({
+                "harness": agent,
+                "modeId": mode,
+                "name": name_of(&mode),
+                "level": DefaultMode::Ask.as_str(),
+                "source": "policy",
+            }));
+        }
+        if !eligible {
+            return Ok(none);
+        }
         let (level, source) = self.start_level().await;
         let mode = mode_for(level, &family, &ids);
-        let name = mode
-            .as_ref()
-            .and_then(|m| modes.iter().find(|(id, _)| id == m))
-            .and_then(|(_, n)| n.clone());
         Ok(json!({
             "harness": agent,
             "modeId": mode,
-            "name": name,
+            "name": name_of(&mode),
             "level": level.as_str(),
             "source": source.as_str(),
         }))
@@ -607,7 +792,7 @@ impl Hub {
             if profile.kind == crate::config::HarnessKind::ClaudeStdio {
                 crate::claude_stdio::MODES
                     .iter()
-                    .map(|(id, name)| ((*id).to_owned(), Some((*name).to_owned())))
+                    .map(|(id, name, _)| ((*id).to_owned(), Some((*name).to_owned())))
                     .collect()
             } else {
                 Vec::new()

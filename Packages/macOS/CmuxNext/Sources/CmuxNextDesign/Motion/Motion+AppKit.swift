@@ -2,10 +2,17 @@ public import AppKit
 public import QuartzCore
 import SwiftUI
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
-/// AppKit entry points. `NSAnimationContext.animate(_:)` with a SwiftUI
-/// animation is retargetable: a new change starts from the view's current
-/// presentation value and keeps its velocity, so nothing jumps or queues.
+/// AppKit entry points. On macOS 15 and later a spring token runs as
+/// `NSAnimationContext.animate(_:)` with a SwiftUI spring, which retargets: a
+/// new change starts from the view's current presentation value and keeps its
+/// velocity, so nothing jumps or queues. On macOS 14 (no SwiftUI-animation
+/// `NSAnimationContext`) the same token runs as a timed curve: a new change
+/// starts from the presentation value but with zero velocity. The timed, exit
+/// and fade helpers drop velocity on every macOS. Pane layout motion does not
+/// use these entry points: it steps its own springs from the display link
+/// (`ScreenContentView+Motion`), which keep value and velocity on every macOS.
 extension Motion {
     /// Whether a change of `view` can animate. A window with no screen (a
     /// display unplugged, a screenless host, an offscreen window) or on a
@@ -388,6 +395,21 @@ extension MotionGate {
         sweep.timingFunction = CAMediaTimingFunction(controlPoints: 0.45, 0, 0.55, 1)
         sweep.isRemovedOnCompletion = false
         return sweep
+    }
+
+    /// Agent work's breath (1 -> `low` -> 1 over one `breath` period, eased), or nil when loops
+    /// are off. Slower and softer than the waiting pulse, so a list of working rows reads calm.
+    public func breathAnimation(low: Float) -> CAAnimation? {
+        guard let period = period(.breath) else { return nil }
+        let breath = CABasicAnimation(keyPath: "opacity")
+        breath.fromValue = 1
+        breath.toValue = low
+        breath.duration = period / 2
+        breath.autoreverses = true
+        breath.repeatCount = .infinity
+        breath.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        breath.isRemovedOnCompletion = false
+        return breath
     }
 
     /// An opacity pulse (1 -> `low` -> 1), or nil when loops are off.

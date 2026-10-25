@@ -129,6 +129,30 @@ test("?focus= on a theme key reveals its row in the card", async () => {
   expect(document.activeElement?.closest('[data-theme-row="accent"]')).not.toBeNull();
 });
 
+test("Back to the same ?focus= reveals the row again after a route without it", async () => {
+  page = await renderPage({ path: "/settings/theme?focus=appearance.accent" });
+  (document.activeElement as HTMLElement | null)?.blur();
+  await run(() => page!.history.push("/settings/theme"));
+  expect(document.activeElement?.closest('[data-theme-row="accent"]')).toBeNull();
+  await run(() => page!.history.push("/settings/theme?focus=appearance.accent"));
+  expect(document.activeElement?.closest('[data-theme-row="accent"]')).not.toBeNull();
+});
+
+test("search-result theme pickers draw the default choice's colors, not an empty circle", async () => {
+  page = await renderPage({ path: "/settings/general" });
+  for (const [query, key] of [
+    ["terminal theme", "appearance.theme"],
+    ["app theme", "appearance.appTheme"],
+  ] as const) {
+    await changeValue(page.container.querySelector<HTMLInputElement>("[data-settings-search]")!, query);
+    const button = page.container.querySelector<HTMLElement>(
+      `[data-search-results] [data-row-key="${key}"] [data-theme-picker]`,
+    )!;
+    expect(button.querySelector(".theme-ball")).not.toBeNull();
+    expect(button.querySelector(".theme-ball-empty")).toBeNull();
+  }
+});
+
 test("a pick on one side of the app pair keeps the other side; Match off goes back to one theme", async () => {
   page = await renderPage({
     path: "/settings/theme",

@@ -9,11 +9,11 @@
  * expanded (`hydrateDeferredFileDiff`).
  *
  * A file is deferred without parsing when its patch alone is large
- * (LARGE_DIFF_PATCH_BYTES) or its path is generated (a lockfile or a
- * `linguist-generated` path). A file that is large only by changed lines is
+ * (LARGE_DIFF_PATCH_BYTES) or its path is generated (`isGeneratedDiffPath`,
+ * which the caller passes in). A file that is large only by changed lines is
  * under the byte limit, so parsing it is cheap and it keeps the normal path.
  */
-import { isWellKnownLockfile, LARGE_DIFF_PATCH_BYTES } from "./deferred-diffs";
+import { LARGE_DIFF_PATCH_BYTES } from "./deferred-diffs";
 
 type ProcessFile = (patchText: string, options: { cacheKey: string; isGitDiff: boolean }) => any;
 
@@ -34,7 +34,7 @@ export function deferredFileDiff(
   const large = fileText.length >= LARGE_DIFF_PATCH_BYTES;
   if (!large) {
     const path = headerPath(fileText.slice(0, firstHunk));
-    if (path == null || !(isWellKnownLockfile(path) || isGeneratedPath(path))) {
+    if (path == null || !isGeneratedPath(path)) {
       return null;
     }
   }

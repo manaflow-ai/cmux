@@ -267,7 +267,7 @@ struct HomeLiveBook {
             .sorted { (Self.place(run.steps[$0.element]), $0.offset) < (Self.place(run.steps[$1.element]), $1.offset) }
             .compactMap { run.steps[$0.element]?.text }
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        let thought = run.lastThought.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        let thought = run.lastThought?.thoughtHeadline
         return HomeLiveRun(participant: key.author, run: key.run, turn: turn(of: key),
                            text: talk.joined(separator: "\n\n"), activity: run.activity, thought: thought)
     }
