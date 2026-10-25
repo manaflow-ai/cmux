@@ -76,24 +76,30 @@ fn prefix(session: &str, env: &BTreeMap<String, String>) -> Option<Vec<String>> 
     let properties = [continued, properties]
         .into_iter()
         .find(|properties| can_scope(&runner, properties, env))?;
-    Some(scope_argv(&runner.to_string_lossy(), &format!("acpmux session {session}"), &properties))
+    let description = format!("acpmux session {session}");
+    Some(scope_argv(&runner.to_string_lossy(), Some(SESSIONS_SLICE), &description, &properties))
 }
 
 /// The slice every session scope joins. Dash-free: systemd reads dashes in a
 /// slice name as nesting (`agent_host/scope.rs` `HOST_SLICE` likewise).
 pub(crate) const SESSIONS_SLICE: &str = "acpmuxsessions.slice";
 
-/// `runner --user --scope … --` with `properties`, in [`SESSIONS_SLICE`].
-fn scope_argv(runner: &str, description: &str, properties: &[String]) -> Vec<String> {
+/// `runner --user --scope … --` with `properties`, in `slice` when given.
+fn scope_argv(
+    runner: &str,
+    slice: Option<&str>,
+    description: &str,
+    properties: &[String],
+) -> Vec<String> {
     let mut argv = vec![
         runner.to_owned(),
         "--user".to_owned(),
         "--scope".to_owned(),
         "--quiet".to_owned(),
         "--collect".to_owned(),
-        format!("--slice={SESSIONS_SLICE}"),
-        format!("--description={description}"),
     ];
+    argv.extend(slice.map(|slice| format!("--slice={slice}")));
+    argv.push(format!("--description={description}"));
     argv.extend_from_slice(properties);
     argv.push("--".to_owned());
     argv
@@ -140,55 +146,65 @@ fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> 
     out
 }
 
-/// What [`SESSIONS_SLICE`] caps for all sessions together, as `systemctl
-/// set-property` takes it: `ACPMUX_SESSIONS_MEMORY_MAX` (default 85% of
-/// the machine's memory), `ACPMUX_SESSIONS_MEMORY_HIGH` (default 80%) and
-/// `ACPMUX_SESSIONS_TASKS_MAX` (default 16384), from the daemon's env. A
-/// value is a number with an optional `K`/`M`/`G`/`T` or `%`, or
-/// `infinity`; 0 leaves that one unset, anything else is the default.
-fn slice_settings(get: &dyn Fn(&str) -> Option<String>) -> Vec<String> {
-    let valid = |v: &str| {
-        v == "infinity"
-            || v.strip_suffix(['K', 'M', 'G', 'T', '%'])
-                .unwrap_or(v)
-                .parse::<u64>()
-                .is_ok_and(|n| n > 0 && !(v.ends_with('%') && n > 100))
-    };
-    [
-        ("MemoryMax", "ACPMUX_SESSIONS_MEMORY_MAX", "85%"),
-        ("MemoryHigh", "ACPMUX_SESSIONS_MEMORY_HIGH", "80%"),
-        ("TasksMax", "ACPMUX_SESSIONS_TASKS_MAX", "16384"),
-    ]
-    .into_iter()
-    .filter_map(|(key, env, default)| {
-        let value = get(env).map(|v| v.trim().to_owned());
-        match value.as_deref() {
-            Some("0") => None,
-            Some(v) if valid(v) => Some(format!("{key}={v}")),
-            _ => Some(format!("{key}={default}")),
+/// What [`SESSIONS_SLICE`] caps for all sessions together, on a machine
+/// with `memory` bytes, from the daemon's env: `ACPMUX_SESSIONS_MEMORY_MAX`
+/// (default 85% of the memory), `ACPMUX_SESSIONS_MEMORY_HIGH` (default 80%)
+/// and `ACPMUX_SESSIONS_TASKS_MAX` (default 16384). A memory value is bytes,
+/// optionally with `K`/`M`/`G`/`T` (powers of 1024) or `%` (1 to 100), a
+/// task value a count; either may be `infinity`. 0 turns a limit off, which
+/// is set as `infinity` so a limit set earlier goes; anything else is the
+/// default. Values are absolute (bytes, counts), as `systemctl show` prints
+/// them, so a slice already set is never written again ([`slice_changes`]).
+/// A percentage on a machine of unknown memory leaves that property as it is.
+fn slice_settings(
+    get: &dyn Fn(&str) -> Option<String>,
+    memory: u64,
+) -> Vec<(&'static str, String)> {
+    let bytes = |v: &str| -> Option<String> {
+        if v == "infinity" || v == "0" {
+            return Some("infinity".to_owned());
         }
-    })
-    .collect()
+        if let Some(pct) = v.strip_suffix('%') {
+            let pct = pct.parse::<u64>().ok().filter(|p| (1..=100).contains(p))?;
+            return (memory > 0).then(|| (memory / 100 * pct).to_string());
+        }
+        let (digits, unit) = match v.strip_suffix(['K', 'M', 'G', 'T']) {
+            Some(digits) => (digits, 1u64 << (10 * (1 + "KMGT".find(v.chars().last()?)?))),
+            None => (v, 1),
+        };
+        let n = digits.parse::<u64>().ok().filter(|n| *n > 0)?.checked_mul(unit)?;
+        Some(n.to_string())
+    };
+    let count = |v: &str| -> Option<String> {
+        if v == "infinity" || v == "0" {
+            return Some("infinity".to_owned());
+        }
+        v.parse::<u64>().ok().filter(|n| *n > 0).map(|n| n.to_string())
+    };
+    let pick = |env: &str, parse: &dyn Fn(&str) -> Option<String>, default: &str| {
+        get(env).and_then(|v| parse(v.trim())).or_else(|| parse(default))
+    };
+    let mut out = Vec::new();
+    if let Some(v) = pick("ACPMUX_SESSIONS_MEMORY_MAX", &bytes, "85%") {
+        out.push(("MemoryMax", v));
+    }
+    if let Some(v) = pick("ACPMUX_SESSIONS_MEMORY_HIGH", &bytes, "80%") {
+        out.push(("MemoryHigh", v));
+    }
+    if let Some(v) = pick("ACPMUX_SESSIONS_TASKS_MAX", &count, "16384") {
+        out.push(("TasksMax", v));
+    }
+    out
 }
 
-/// The `systemctl` arguments that set [`slice_settings`] on
-/// [`SESSIONS_SLICE`]: a runtime drop-in (`--runtime`, under
-/// `$XDG_RUNTIME_DIR/systemd/user.control`), which holds until the user's
-/// runtime directory goes (logout without linger, reboot) and applies
-/// whenever the slice loads, also when it has no session now. Set again at
-/// each fresh scope probe, so a reboot or a lost drop-in heals at the next
-/// session start. None when every setting is off.
-fn slice_argv(get: &dyn Fn(&str) -> Option<String>) -> Option<Vec<String>> {
-    let settings = slice_settings(get);
-    if settings.is_empty() {
-        return None;
-    }
-    let mut argv: Vec<String> = ["--user", "set-property", "--runtime", SESSIONS_SLICE]
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
-    argv.extend(settings);
-    Some(argv)
+/// The `Key=value` assignments of `wanted` that `shown` (`systemctl show
+/// -p …` output, `Key=value` lines) does not already have.
+fn slice_changes(shown: &str, wanted: &[(&str, String)]) -> Vec<String> {
+    wanted
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .filter(|assignment| !shown.lines().any(|line| line.trim() == assignment))
+        .collect()
 }
 
 /// `systemd-run` on the PATH the harness gets: the profile's, else the
@@ -241,16 +257,13 @@ fn can_scope(
     ok
 }
 
-/// Sets [`SESSIONS_SLICE`]'s limits ([`slice_argv`]) with the `systemctl`
-/// beside `runner`, after a probe made a scope (so a user manager answers).
-/// Best effort: a failure is logged, and each session still has its own
-/// scope's limits. Runs with each fresh probe, so at most once per
-/// [`ANSWER_TTL`] for a set of limits, and only when a session starts.
+/// Sets [`SESSIONS_SLICE`]'s limits ([`slice_settings`]) with the
+/// `systemctl` beside `runner`, after a probe made a scope (so a user manager
+/// answers) and before the session's scope joins the slice. Best effort: a
+/// failure is logged, and each session still has its own scope's limits.
 #[cfg(target_os = "linux")]
 fn limit_sessions_slice(runner: &std::path::Path, env: &BTreeMap<String, String>) {
-    let Some(args) = slice_argv(&|key| std::env::var(key).ok()) else {
-        return;
-    };
+    let wanted = slice_settings(&|key| std::env::var(key).ok(), physical_memory());
     let systemctl = runner.with_file_name("systemctl");
     if !systemctl.is_file() {
         tracing::warn!(
@@ -259,12 +272,49 @@ fn limit_sessions_slice(runner: &std::path::Path, env: &BTreeMap<String, String>
         );
         return;
     }
-    if !run_bounded(&systemctl, &args, env) {
-        tracing::warn!(
-            "systemctl {} failed: {SESSIONS_SLICE} keeps no limit for all sessions together",
-            args.join(" ")
-        );
+    if let Err(e) = limit_slice(&systemctl, SESSIONS_SLICE, &wanted, env) {
+        tracing::warn!("{e}: {SESSIONS_SLICE} may lack its limit for all sessions together");
     }
+}
+
+/// Sets `wanted` on `slice` as a runtime drop-in (`set-property --runtime`,
+/// under `$XDG_RUNTIME_DIR/systemd/user.control`: it holds until the user's
+/// runtime directory goes, a reboot or a logout without linger, and applies
+/// whenever the slice loads, also while no session is in it). Only what
+/// `systemctl show` does not already report is written: writing an
+/// unchanged `MemoryHigh` makes the kernel reclaim the slice down to it in
+/// the user manager, so a slice that has its limits is never touched again.
+/// One call at a time (concurrent session starts find the first one's
+/// result). Returns how many settings changed. Each `systemctl` call is
+/// bounded by [`PROBE_TIMEOUT`].
+#[cfg(target_os = "linux")]
+fn limit_slice(
+    systemctl: &std::path::Path,
+    slice: &str,
+    wanted: &[(&str, String)],
+    env: &BTreeMap<String, String>,
+) -> Result<usize, String> {
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    if wanted.is_empty() {
+        return Ok(0);
+    }
+    let mut show: Vec<String> = vec!["--user".into(), "show".into(), slice.into()];
+    for (key, _) in wanted {
+        show.extend(["-p".to_owned(), (*key).to_owned()]);
+    }
+    let shown = run_bounded(systemctl, &show, env, true)
+        .ok_or_else(|| format!("systemctl {} failed", show.join(" ")))?;
+    let changes = slice_changes(&shown, wanted);
+    if changes.is_empty() {
+        return Ok(0);
+    }
+    let mut set: Vec<String> =
+        ["--user", "set-property", "--runtime", slice].into_iter().map(str::to_owned).collect();
+    set.extend(changes.iter().cloned());
+    run_bounded(systemctl, &set, env, false)
+        .ok_or_else(|| format!("systemctl {} failed", set.join(" ")))?;
+    Ok(changes.len())
 }
 
 /// How long a probe's answer holds.
@@ -275,39 +325,56 @@ const ANSWER_TTL: std::time::Duration = std::time::Duration::from_secs(300);
 #[cfg(target_os = "linux")]
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
+/// A scope around `true` with `properties`, outside [`SESSIONS_SLICE`]: a
+/// slice at its limits (sessions using all its memory or tasks) never makes
+/// systemd look unusable, which would start the next harnesses unscoped. A
+/// launch into a full slice fails instead.
 #[cfg(target_os = "linux")]
 fn probe(runner: &std::path::Path, properties: &[String], env: &BTreeMap<String, String>) -> bool {
-    let mut argv = scope_argv("", "acpmux scope probe", properties);
+    let mut argv = scope_argv("", None, "acpmux scope probe", properties);
     argv.push("true".to_owned());
-    run_bounded(runner, &argv[1..], env)
+    run_bounded(runner, &argv[1..], env, false).is_some()
 }
 
-/// Runs `program args` with `env` on top of the daemon's, no input or
-/// output; whether it succeeded within [`PROBE_TIMEOUT`] (else it is killed).
+/// Runs `program args` with `env` on top of the daemon's and no input; its
+/// output (with `output`, else nothing) when it succeeded within
+/// [`PROBE_TIMEOUT`], else None (killed past the deadline). The output is a
+/// few short lines, far under a pipe's buffer, so it never blocks the child.
 #[cfg(target_os = "linux")]
-fn run_bounded(program: &std::path::Path, args: &[String], env: &BTreeMap<String, String>) -> bool {
+fn run_bounded(
+    program: &std::path::Path,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+    output: bool,
+) -> Option<String> {
+    use std::io::Read;
     use std::process::Stdio;
-    let child = std::process::Command::new(program)
+    let mut child = std::process::Command::new(program)
         .args(args)
         .envs(env)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(if output { Stdio::piped() } else { Stdio::null() })
         .stderr(Stdio::null())
-        .spawn();
-    let Ok(mut child) = child else {
-        return false;
-    };
+        .spawn()
+        .ok()?;
     let started = std::time::Instant::now();
     loop {
         match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
+            Ok(Some(status)) if status.success() => {
+                let mut text = String::new();
+                if let Some(mut out) = child.stdout.take() {
+                    out.read_to_string(&mut text).ok()?;
+                }
+                return Some(text);
+            }
+            Ok(Some(_)) => return None,
             Ok(None) if started.elapsed() < PROBE_TIMEOUT => {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return false;
+                return None;
             }
         }
     }
@@ -393,78 +460,130 @@ mod tests {
     #[test]
     fn the_scope_joins_the_sessions_slice_and_runs_the_harness_after_the_separator() {
         let props = properties(&from(&[("ACPMUX_SESSION_MEMORY_MB", "512")]), 0);
-        let argv = scope_argv("/usr/bin/systemd-run", "acpmux session s1", &props);
+        let argv = scope_argv(
+            "/usr/bin/systemd-run",
+            Some(SESSIONS_SLICE),
+            "acpmux session s1",
+            &props,
+        );
         assert_eq!(
             argv.join(" "),
             "/usr/bin/systemd-run --user --scope --quiet --collect \
              --slice=acpmuxsessions.slice --description=acpmux session s1 \
              -p MemoryMax=536870912 -p MemoryHigh=483183819 -p TasksMax=4096 -p CPUWeight=50 --"
         );
+        // The probe stays out of the slice.
+        let probe = scope_argv("/usr/bin/systemd-run", None, "acpmux scope probe", &props);
+        assert!(!probe.iter().any(|a| a.starts_with("--slice")), "{probe:?}");
         assert!(!SESSIONS_SLICE.trim_end_matches(".slice").contains('-'), "a dash nests slices");
     }
 
     #[test]
-    fn the_sessions_slice_caps_all_sessions_together() {
+    fn the_sessions_slice_caps_all_sessions_together_in_absolute_values() {
+        let pair = |k: &'static str, v: &str| (k, v.to_owned());
+        let default_max = (64 * GIB / 100 * 85).to_string();
+        // 64 GiB: 85% and 80%, in bytes.
         assert_eq!(
-            slice_argv(&from(&[])).unwrap().join(" "),
-            "--user set-property --runtime acpmuxsessions.slice \
-             MemoryMax=85% MemoryHigh=80% TasksMax=16384"
+            slice_settings(&from(&[]), 64 * GIB),
+            [
+                pair("MemoryMax", &default_max),
+                pair("MemoryHigh", &(64 * GIB / 100 * 80).to_string()),
+                pair("TasksMax", "16384"),
+            ]
         );
         let get = from(&[
             ("ACPMUX_SESSIONS_MEMORY_MAX", "48G"),
             ("ACPMUX_SESSIONS_MEMORY_HIGH", "0"),
             ("ACPMUX_SESSIONS_TASKS_MAX", "infinity"),
         ]);
-        assert_eq!(slice_settings(&get), ["MemoryMax=48G", "TasksMax=infinity"]);
-        // Not a systemd size: the default, never passed through.
-        for junk in ["1.5G", "120%", "-1", "85%; rm", "", "G", "0%"] {
-            let get = from(&[("ACPMUX_SESSIONS_MEMORY_MAX", junk)]);
-            assert_eq!(slice_settings(&get)[0], "MemoryMax=85%", "{junk:?}");
+        assert_eq!(
+            slice_settings(&get, 64 * GIB),
+            [
+                pair("MemoryMax", &(48 * GIB).to_string()),
+                pair("MemoryHigh", "infinity"),
+                pair("TasksMax", "infinity"),
+            ],
+            "0 turns a limit off explicitly, so one set earlier goes"
+        );
+        let get =
+            from(&[("ACPMUX_SESSIONS_MEMORY_MAX", "50%"), ("ACPMUX_SESSIONS_TASKS_MAX", "0")]);
+        let got = slice_settings(&get, 64 * GIB);
+        assert_eq!(got[0], pair("MemoryMax", &(32 * GIB).to_string()));
+        assert_eq!(got[2], pair("TasksMax", "infinity"));
+        // Not a size or a count: the default, never passed through.
+        for junk in ["1.5G", "120%", "-1", "85%; rm", "", "G", "0%", "99999999999T"] {
+            let got = slice_settings(&from(&[("ACPMUX_SESSIONS_MEMORY_MAX", junk)]), 64 * GIB);
+            assert_eq!(got[0], pair("MemoryMax", &default_max), "{junk:?}");
         }
-        let off = from(&[
-            ("ACPMUX_SESSIONS_MEMORY_MAX", "0"),
-            ("ACPMUX_SESSIONS_MEMORY_HIGH", "0"),
-            ("ACPMUX_SESSIONS_TASKS_MAX", "0"),
-        ]);
-        assert_eq!(slice_argv(&off), None);
+        for junk in ["16K", "50%", "-1", "lots"] {
+            let got = slice_settings(&from(&[("ACPMUX_SESSIONS_TASKS_MAX", junk)]), 64 * GIB);
+            assert_eq!(got[2], pair("TasksMax", "16384"), "{junk:?}");
+        }
+        // Unknown memory: the percentages leave memory as it is.
+        assert_eq!(slice_settings(&from(&[]), 0), [pair("TasksMax", "16384")]);
     }
 
-    /// With a real user manager (CI has one): a scope probe in the sessions
-    /// slice succeeds, and the slice then holds its limits, also though no
-    /// session runs in it. Without one this says so and passes.
+    #[test]
+    fn a_slice_that_has_its_limits_is_not_written_again() {
+        let wanted = [
+            ("MemoryMax", "1000".to_owned()),
+            ("MemoryHigh", "infinity".to_owned()),
+            ("TasksMax", "16384".to_owned()),
+        ];
+        assert_eq!(
+            slice_changes("MemoryMax=infinity\nMemoryHigh=infinity\nTasksMax=4915\n", &wanted),
+            ["MemoryMax=1000", "TasksMax=16384"]
+        );
+        let set = "MemoryMax=1000\nMemoryHigh=infinity\nTasksMax=16384\n";
+        assert!(slice_changes(set, &wanted).is_empty());
+        // Nothing shown: everything is set.
+        assert_eq!(slice_changes("", &wanted).len(), 3);
+        assert_eq!(
+            slice_changes("MemoryMax=10000\n", &wanted[..1]),
+            ["MemoryMax=1000"],
+            "a prefix is not a match"
+        );
+    }
+
+    /// With a real user manager: limits go onto a slice of this test's own
+    /// (never the sessions slice), a second call with the same limits
+    /// writes nothing, a limit turned off goes, and the slice is reverted.
+    /// Without a user manager this says so and passes.
     #[test]
     #[cfg(target_os = "linux")]
-    fn a_real_user_manager_takes_the_slice_limits() {
-        use std::process::Command;
-        let running =
-            Command::new("systemctl").args(["--user", "is-system-running"]).output().is_ok_and(
-                |o| matches!(String::from_utf8_lossy(&o.stdout).trim(), "running" | "degraded"),
-            );
-        let runner = std::path::Path::new("/usr/bin/systemd-run");
-        if !running || !runner.is_file() {
+    fn a_real_user_manager_takes_the_slice_limits_once() {
+        let systemctl = std::path::Path::new("/usr/bin/systemctl");
+        let env = BTreeMap::new();
+        let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let manager = run_bounded(systemctl, &args(&["--user", "show-environment"]), &env, false);
+        if manager.is_none() {
             eprintln!("no user systemd manager here: skipped");
             return;
         }
-        let props = properties(&from(&[]), physical_memory());
-        let mut continued = props.clone();
-        continued.extend(["-p".to_owned(), "OOMPolicy=continue".to_owned()]);
-        let env = BTreeMap::new();
-        assert!(
-            can_scope(runner, &continued, &env) || can_scope(runner, &props, &env),
-            "systemd-run made no scope with {props:?}"
-        );
-        let show = |key: &str| {
-            let out = Command::new("systemctl")
-                .args(["--user", "show", SESSIONS_SLICE, "-p", key, "--value"])
-                .output()
-                .unwrap();
-            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        let slice = format!("acpmuxtest{}.slice", std::process::id());
+        let wanted = |tasks: &str| {
+            vec![
+                ("MemoryMax", GIB.to_string()),
+                ("MemoryHigh", "infinity".to_owned()),
+                ("TasksMax", tasks.to_owned()),
+            ]
         };
-        assert_eq!(show("TasksMax"), "16384");
-        for key in ["MemoryMax", "MemoryHigh"] {
-            let bytes: u64 = show(key).parse().unwrap_or_else(|_| panic!("{key}: {}", show(key)));
-            assert!(bytes > 0 && bytes < physical_memory(), "{key}={bytes}");
-        }
+        let first = limit_slice(systemctl, &slice, &wanted("100"), &env);
+        let again = limit_slice(systemctl, &slice, &wanted("100"), &env);
+        let off = limit_slice(systemctl, &slice, &wanted("infinity"), &env);
+        let shown = run_bounded(
+            systemctl,
+            &args(&["--user", "show", &slice, "-p", "MemoryMax", "-p", "TasksMax"]),
+            &env,
+            true,
+        );
+        run_bounded(systemctl, &args(&["--user", "revert", &slice]), &env, false);
+        assert!(first.as_ref().is_ok_and(|n| *n >= 2), "{first:?}");
+        assert_eq!(again, Ok(0), "unchanged limits are not written again");
+        assert_eq!(off, Ok(1));
+        let shown = shown.unwrap_or_default();
+        assert!(shown.contains(&format!("MemoryMax={GIB}")), "{shown}");
+        assert!(shown.contains("TasksMax=infinity"), "{shown}");
     }
 
     #[test]

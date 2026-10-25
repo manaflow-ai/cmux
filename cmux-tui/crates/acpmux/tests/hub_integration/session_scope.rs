@@ -81,15 +81,26 @@ async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
     ] {
         assert!(line.contains(part), "{part:?} in {line:?}");
     }
-    // The slice that caps every session together got its limits.
-    let slice: Vec<&String> = log.iter().filter(|l| l.starts_with("systemctl ")).collect();
+    // The slice that caps every session together was read, then got its
+    // limits (the fake shows none) in bytes and tasks, before the launch.
+    let calls: Vec<&String> = log.iter().filter(|l| l.starts_with("systemctl ")).collect();
+    assert_eq!(calls.len(), 2, "{log:?}");
     assert_eq!(
-        slice,
-        [
-            "systemctl --user set-property --runtime acpmuxsessions.slice MemoryMax=85% MemoryHigh=80% TasksMax=16384"
-        ],
-        "{log:?}"
+        calls[0],
+        "systemctl --user show acpmuxsessions.slice -p MemoryMax -p MemoryHigh -p TasksMax"
     );
+    let set = calls[1];
+    assert!(
+        set.starts_with("systemctl --user set-property --runtime acpmuxsessions.slice MemoryMax=")
+            && set.contains(" MemoryHigh=")
+            && set.ends_with(" TasksMax=16384"),
+        "{set}"
+    );
+    let at = |needle: &str| log.iter().position(|l| l.contains(needle)).unwrap();
+    assert!(at("set-property") < at("fake_claude.py"), "the slice is limited before it fills");
+    // The probe ran outside the slice.
+    let probe = log.iter().find(|l| l.contains("scope probe")).unwrap();
+    assert!(!probe.contains("--slice"), "{probe}");
 }
 
 #[tokio::test]
