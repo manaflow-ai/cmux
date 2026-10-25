@@ -124,6 +124,22 @@ import Testing
         #expect(Self.posts(context) == 1, "the next media event sends the held report")
     }
 
+    /// A report the binding was not ready for keeps no timer, however long it waits: the bridge
+    /// runs the observer's ready hook after each binding add, and the hook sends it. Before, a
+    /// ten-look retry ticker gave up after 10 s, so an iframe player whose binding came with a
+    /// later load event never showed its speaker icon (Chromium's DevTools path, forks before API 29).
+    @Test func aWaitingReportKeepsNoTimerAndGoesAtTheReadyHookHoweverLate() throws {
+        let context = try Self.context()
+        context.evaluateScript("ready = false; var v = video(true); media = [v]; fire('play', v);")
+        #expect(Self.posts(context) == 0)
+        #expect(Self.timers(context) == 0, "a waiting report keeps a retry ticker")
+        for _ in 0..<30 { context.evaluateScript("tickSecond()") }
+        #expect(Self.posts(context) == 0)
+        context.evaluateScript("ready = true; window.__cmuxMediaReady(); runTimeouts();")
+        #expect(Self.posts(context) == 1, "the ready hook did not send the waiting report")
+        #expect(context.evaluateScript("lastReport().playing === true").toBool())
+    }
+
     /// The pagehide null that the binding was not ready for is retried like every other report.
     /// Before, only `report()` started the retry ticker, so that null never reached the tab.
     @Test func aPagehideNullTheBindingWasNotReadyForIsRetried() throws {
