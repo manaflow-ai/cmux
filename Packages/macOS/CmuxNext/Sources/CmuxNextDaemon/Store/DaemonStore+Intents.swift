@@ -201,6 +201,7 @@ extension DaemonStore {
     func beginConnection() {
         // A stage of the old connection holds its events and sequences: the new one's snapshot is the truth.
         stage?.discard()
+        sequenceWaits = [:]
         snapshotBarrier = 0
         if appliedSequence != 0 { appliedSequence = 0 }
         intentLog.connectionReplaced()
