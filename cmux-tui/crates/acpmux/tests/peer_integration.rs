@@ -2161,3 +2161,34 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
         .unwrap_err();
     assert!(e.contains("no session"), "{e}");
 }
+
+/// hq#2509 for `_acpmux/resolve`: a peer's connection reads a resolved session's own words
+/// masked, as it reads them in a session list; the owning daemon's client reads them raw.
+#[tokio::test]
+async fn a_peer_resolves_a_sessions_text_masked() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let mut cb = client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "secret-resolve"}}});
+    let id = cb.call(method::SESSION_NEW, new).await.unwrap()["sessionId"].as_str().unwrap().to_owned();
+    let text = format!("push with {}", github_token());
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    cb.call(method::SESSION_PROMPT, prompt).await.unwrap();
+    let query = json!({"query": "secret-resolve"});
+    let raw = cb.call("_acpmux/resolve", query.clone()).await.unwrap();
+    assert_eq!(raw["session"]["lastPrompt"], text.as_str(), "{raw}");
+
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, out_rx) = mpsc::channel(4096);
+    tokio::spawn(acpmux::server::serve_connection_with(
+        b.clone(),
+        in_rx,
+        out_tx,
+        acpmux::server::Origin::Peer,
+    ));
+    let mut peer = C { tx: in_tx, rx: out_rx, next: 0 };
+    let r = peer.call("_acpmux/resolve", query).await.unwrap();
+    let mask = "[GitHub Personal Access Token]";
+    assert!(!r.to_string().contains("ghp_"), "{r}");
+    assert_eq!(r["session"]["lastPrompt"], format!("push with {mask}"), "{r}");
+    assert_eq!(r["matches"][0]["lastMessage"]["text"], format!("echo: push with {mask}"), "{r}");
+}

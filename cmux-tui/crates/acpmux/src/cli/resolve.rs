@@ -58,8 +58,9 @@ fn card(s: &Value) -> String {
             turn["endedAt"].as_u64().map(|t| format!(", {} ago", age(t))).unwrap_or_default();
         row("last turn", format!("{how}{when}"));
     }
-    if let Some(reply) = s["lastMessage"].as_str().or(s["lastPrompt"].as_str()) {
-        row("last", short(reply, 120));
+    // The latest message, the agent's or the person's (`LastMessage`), else the last prompt.
+    if let Some(text) = s["lastMessage"]["text"].as_str().or(s["lastPrompt"].as_str()) {
+        row("last", short(text, 120));
     }
     row("link", text("link"));
     out
@@ -73,4 +74,33 @@ fn model(v: &Value) -> String {
         .or_else(|| v["name"].as_str())
         .unwrap_or_default()
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_card_prints_the_latest_reply_not_the_prompt() {
+        let s = json!({
+            "name": "b/review", "host": "b", "status": "idle",
+            "qualifiedSessionId": "b/m1", "sessionId": "m1",
+            "harness": "claude", "agentSessionId": "a1", "model": {"modelId": "opus"},
+            "cwd": "/w", "gitBranch": "main",
+            "lane": {"state": "idle", "title": "fix it"},
+            "pullRequests": ["https://github.com/o/r/pull/1"],
+            "lastTurn": {"status": "completed", "stopReason": "end_turn"},
+            "lastPrompt": "do the thing",
+            "lastMessage": {"role": "agent", "text": "done: #1"},
+            "link": "https://cmux.com/deeplink/agent?harness=claude&session=a1&host=b",
+        });
+        let text = card(&s);
+        assert!(text.starts_with("b/review  (b, idle)\n"), "{text}");
+        assert!(text.contains("  last      done: #1\n"), "{text}");
+        assert!(!text.contains("do the thing"), "{text}");
+        assert!(text.contains("  model     opus\n"), "{text}");
+        assert!(text.contains("  cwd       /w  [main]\n"), "{text}");
+        assert!(text.contains("  PRs       https://github.com/o/r/pull/1\n"), "{text}");
+        assert!(text.contains("  last turn end_turn\n"), "{text}");
+    }
 }

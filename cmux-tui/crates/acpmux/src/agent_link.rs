@@ -41,32 +41,44 @@ impl AgentLink {
 }
 
 const WEB_PATH: &str = "/deeplink/agent";
-const NATIVE: &str = "cmux://agent/";
+
+/// What ends a URL in text: whitespace, or what markdown, HTML or a quote puts after one.
+const END: &str = r#"\s)>\]"'`"#;
+
+/// The web link: `cmux.com` (or `www.`), an optional locale (`/zh-CN`), then exactly
+/// `/deeplink/agent`, its query, and the end of the URL. Group 1 is the query.
+static WEB: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(&format!(
+        r"(?:^|[{END}(<\[])https://(?:www\.)?cmux\.com(?:/[a-z]{{2}}(?:-[A-Z]{{2}})?)?{WEB_PATH}/?(?:\?([^{END}]*))?(?:$|[{END}])"
+    ))
+    .expect("the web link pattern")
+});
+
+/// The native link, at the start of the text or after what may stand before a URL. Group 1 is
+/// everything after `cmux://agent/`.
+static NATIVE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(&format!(r"(?:^|[{END}(<\[])cmux://agent(?:/([^{END}]*))?(?:$|[{END}])"))
+        .expect("the native link pattern")
+});
 
 /// The link in `text`, which may be the bare URL or a line that carries one (a PR footer's
-/// markdown `[big-red](https://...)`). None when `text` holds no agent link; an error naming
-/// what is wrong when it holds one that names no session.
+/// markdown `[big-red](https://...)`). None when `text` holds no agent link (a URL on another
+/// host or path, a session name); an error naming what is wrong when it holds one that names no
+/// session.
 pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
-    if let Some(at) = text.find(NATIVE) {
-        let rest = url_token(&text[at + NATIVE.len()..]);
+    if let Some(found) = NATIVE.captures(text) {
+        let rest = found.get(1).map_or("", |m| m.as_str());
         let (path, query) = rest.split_once('?').unwrap_or((rest, ""));
         let mut segments = path.split('/');
         let (harness, session) = (segments.next().unwrap_or(""), segments.next());
         if segments.next().is_some() {
-            return Some(Err(format!("{NATIVE}{path} has more than <harness>/<session>")));
+            return Some(Err(format!("cmux://agent/{path} has more than <harness>/<session>")));
         }
         let required =
             [("harness", Some(harness)), ("session", session)].map(|(k, v)| (k, v.map(decode)));
         return Some(build(required, query));
     }
-    let at = text.find(WEB_PATH)?;
-    let rest = url_token(&text[at + WEB_PATH.len()..]);
-    let rest = rest.strip_prefix('/').unwrap_or(rest);
-    let query = match rest.strip_prefix('?') {
-        Some(query) => query,
-        None if rest.is_empty() => "",
-        None => return Some(Err(format!("{WEB_PATH}{rest} is not an agent link"))),
-    };
+    let query = WEB.captures(text)?.get(1).map_or("", |m| m.as_str());
     let named = |key: &str| pairs(query).into_iter().filter(|(k, _)| k == key).collect::<Vec<_>>();
     let mut required = Vec::new();
     for key in ["harness", "session"] {
@@ -77,15 +89,6 @@ pub fn find(text: &str) -> Option<Result<AgentLink, String>> {
         required.push((key, values.pop().map(|(_, v)| v)));
     }
     Some(build([required[0].clone(), required[1].clone()], query))
-}
-
-/// The URL up to the first character a URL never carries unescaped in text (whitespace, `)`,
-/// `>`, quotes, brackets).
-fn url_token(s: &str) -> &str {
-    let end = s
-        .find(|c: char| c.is_whitespace() || matches!(c, ')' | '>' | '"' | '\'' | '`' | ']'))
-        .unwrap_or(s.len());
-    &s[..end]
 }
 
 fn build(required: [(&str, Option<Option<String>>); 2], query: &str) -> Result<AgentLink, String> {
@@ -254,11 +257,28 @@ mod tests {
 
     #[test]
     fn text_without_a_link_is_not_one() {
-        assert!(find("builder/review").is_none());
-        assert!(find("01a16c8c-54ec-71b2-a0fa-125d1404dd72").is_none());
         assert!(find("https://cmux.com/deeplink/agent").unwrap().is_err());
-        assert!(
-            find("https://cmux.com/deeplink/agentx?harness=claude&session=s1").unwrap().is_err()
-        );
+        for not in [
+            "builder/review",
+            "01a16c8c-54ec-71b2-a0fa-125d1404dd72",
+            "builder/deeplink/agent?harness=claude&session=s1",
+            "https://cmux.com/deeplink/agentx?harness=claude&session=s1",
+            "https://evil.com/deeplink/agent?harness=claude&session=s1",
+            "https://cmux.com.evil.com/deeplink/agent?harness=claude&session=s1",
+            "https://cmux.com/x/y/deeplink/agent?harness=claude&session=s1",
+            "http://cmux.com/deeplink/agent?harness=claude&session=s1",
+            "notcmux://agent/claude/s1",
+            "see https://evil.com/?u=cmux://agent/claude/s1",
+        ] {
+            assert!(find(not).is_none(), "{not}");
+        }
+        // In markdown, angle brackets or quotes it still reads.
+        for text in [
+            "<cmux://agent/claude/s1>",
+            "(https://cmux.com/zh-CN/deeplink/agent?harness=claude&session=s1)",
+            "\"https://www.cmux.com/deeplink/agent/?harness=claude&session=s1\"",
+        ] {
+            assert_eq!(find(text).unwrap().unwrap().session, "s1", "{text}");
+        }
     }
 }

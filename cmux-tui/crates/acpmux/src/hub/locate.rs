@@ -96,13 +96,19 @@ fn bare_name(summary: &Value) -> &str {
         .unwrap_or(name)
 }
 
-/// The sessions whose harness session id is the link's (and whose family, when known, is its
-/// harness), those on the host the link names first, then this daemon's, newest first within.
+/// The harness family a summary's link names: its family, else (an older peer's summary) its
+/// harness. `link_of` writes the same.
+fn family_of(summary: &Value) -> &str {
+    summary["family"].as_str().or(summary["harness"].as_str()).unwrap_or_default()
+}
+
+/// The sessions whose harness session id and family are the link's, those on the host the link
+/// names first, then this daemon's, newest first within.
 fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a Value> {
     let mut found: Vec<&Value> = summaries
         .iter()
         .filter(|s| s["agentSessionId"].as_str() == Some(link.session.as_str()))
-        .filter(|s| s["family"].as_str().is_none_or(|f| f == link.harness))
+        .filter(|s| family_of(s) == link.harness)
         .collect();
     let on_hint =
         |s: &Value| link.host.as_deref().is_some_and(|h| host_of(s, own).eq_ignore_ascii_case(h));
@@ -136,11 +142,14 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     summaries.iter().filter(|s| bare_name(s) == key).collect()
 }
 
-/// What `locate` answers for one session.
+/// What `locate` answers for one session. It keeps the keys every summary has (`sessionId`,
+/// `harness`, `lastSeq`), so a peer's connection reads its session text masked like a
+/// summary's (`server/peer_text.rs`).
 fn card(s: &Value, own: &str) -> Value {
     let host = host_of(s, own);
     json!({
         "host": host,
+        "lastSeq": s.get("lastSeq").cloned().unwrap_or(json!(0)),
         "peer": s["peer"],
         "sessionId": s["sessionId"],
         "qualifiedSessionId": s["qualifiedSessionId"],
@@ -172,7 +181,7 @@ fn card(s: &Value, own: &str) -> Value {
 fn link_of(s: &Value, host: &str) -> Value {
     let Some(session) = s["agentSessionId"].as_str() else { return Value::Null };
     let link = AgentLink {
-        harness: s["family"].as_str().or(s["harness"].as_str()).unwrap_or_default().to_owned(),
+        harness: family_of(s).to_owned(),
         session: session.to_owned(),
         host: Some(host.to_owned()),
         name: Some(bare_name(s).to_owned()),
@@ -211,9 +220,37 @@ mod tests {
         assert_eq!(ids(&by_link(&rows, &here, "big-red")), ["m1", "m3"]);
         let on_hb = link("https://cmux.com/deeplink/agent?harness=claude&session=a1&host=hb");
         assert_eq!(ids(&by_link(&rows, &on_hb, "big-red")), ["m3", "m1"]);
-        // The link's harness must be the session's family.
+        // The link's harness must be the session's family, or an older peer's harness.
         let wrong = link("https://cmux.com/deeplink/agent?harness=codex&session=a1");
         assert!(by_link(&rows, &wrong, "big-red").is_empty());
+        let old = [
+            json!({"sessionId": "o1", "agentSessionId": "a7", "name": "x", "harness": "codex"}),
+            json!({"sessionId": "o2", "agentSessionId": "a7", "name": "y", "harness": "claude"}),
+        ];
+        let claude = link("https://cmux.com/deeplink/agent?harness=claude&session=a7");
+        assert_eq!(ids(&by_link(&old, &claude, "big-red")), ["o2"]);
+    }
+
+    /// A peer's connection reads a card's session text masked, as it reads a summary's.
+    #[test]
+    fn a_card_reads_masked_on_a_peers_connection() {
+        let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+        let summary = json!({
+            "sessionId": "m1", "harness": "claude", "lastSeq": 3, "name": "deploy",
+            "title": format!("rotate {token}"), "lastPrompt": format!("push {token}"),
+            "lastMessage": {"role": "agent", "text": format!("used {token}")},
+            "lastTurn": {"status": "failed", "errorText": format!("bad {token}")},
+        });
+        let reply = json!({"session": card(&summary, "big-red"), "matches": [card(&summary, "big-red")]});
+        let msg = crate::rpc::Message::ok(json!(1), reply);
+        let Some(crate::rpc::Message::Response { result: Some(masked), .. }) =
+            crate::server::peer_text::masked(&msg)
+        else {
+            panic!("a card with a secret is not masked for a peer");
+        };
+        assert!(!masked.to_string().contains("ghp_"), "{masked}");
+        assert_eq!(masked["session"]["lastMessage"]["text"], "used [GitHub Personal Access Token]");
+        assert_eq!(masked["session"]["name"], "deploy");
     }
 
     #[test]
