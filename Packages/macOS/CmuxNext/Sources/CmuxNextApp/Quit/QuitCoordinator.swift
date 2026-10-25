@@ -193,6 +193,10 @@ final class QuitCoordinator {
                 return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
+                // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
+                // before the engines stop: nothing the user asked for comes after that (QuitSteps).
+                // Nothing is written when nothing changed.
+                await services.home.flushCacheForQuit()
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.
@@ -204,9 +208,6 @@ final class QuitCoordinator {
                 await services.cache.cef.shutdown()
             }
         ))
-        // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk too;
-        // nothing is written when nothing changed.
-        await services.home.flushCacheForQuit()
         sender.reply(toApplicationShouldTerminate: true)
     }
 

@@ -30,8 +30,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchCleanup: LaunchCleanup
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
-    /// A second quit signal began the forced exit (`QuitSignal`); later signals do nothing.
-    private var forceExitStarted = false
+    /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
+    private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
+        self?.services?.crashRecovery.applicationWillTerminate()
+        AppProcessRoot.shared.hangReports?.applicationWillTerminate()
+        self?.services?.home.applicationWillTerminate()
+    }, save: { [weak self] in
+        await self?.services?.home.flushCacheForQuit()
+    })
     private var settings: SettingsController?
     /// The app's one main-thread scheduler for budgeted work: its per-frame budget, with the
     /// person's pending-input check and task signposts. Built here, the composition root, and
@@ -69,24 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let services = self?.services else { return NSApp.terminate(nil) }
             services.quit.terminateFromSignal()
         }, forceExit: { [weak self] in
-            // One forced exit: a third signal while it runs changes nothing.
-            guard self?.forceExitStarted != true else { return }
-            self?.forceExitStarted = true
-            self?.services?.crashRecovery.applicationWillTerminate()
-            AppProcessRoot.shared.hangReports?.applicationWillTerminate()
-            let home = self?.services?.home
-            home?.applicationWillTerminate()
-            // The Home cache's last batch (drafts) gets 160 ms, then the process ends: 3x the measured p99
-            // of a first write after launch with a large Home (52 ms, HomeCacheQuitWriteTimeTests). The limit
-            // is a dedicated thread's `_exit` (QuitDeadline): neither a full cooperative pool nor a blocked
-            // main thread (the stuck quit this exit is for) can hold the process, and no atexit handler runs
-            // beside AppKit and Chromium. The normal end is `exit` on the main thread, as AppKit's own.
-            QuitDeadline(reason: "a forced quit began its Home cache write").arm(after: .milliseconds(160))
-            // task-owner: the forced quit's last save; the process ends after it or at the deadline
-            Task { @MainActor in
-                await home?.flushCacheForQuit()
-                exit(0)
-            }
+            self?.forcedQuitExit.start()
         })
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
