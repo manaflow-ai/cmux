@@ -40,4 +40,17 @@ struct ContextMenuImpliedFactsTests {
         _ = (add.target as? NSObject)?.perform(add.action, with: add)
         #expect(runs.isEmpty, "Bookmark This Page ran with no browser focused")
     }
+
+    /// A context menu must snapshot each row's enabled state before AppKit starts tracking it.
+    /// Revalidating registry actions from the tracking loop makes every pointer move compete
+    /// with the main-thread work that builds and validates the workspace menu.
+    @Test func contextMenuRowsAreValidatedBeforeTracking() throws {
+        _ = NSApplication.shared
+        let registry = ActionRegistry.standard()
+        registry.bind("bookmark.addPage", invoke: { _ in })
+        registry.context = []
+        let menu = registry.makeContextMenu(for: .bookmarksBar, implied: .browserFocused)
+        let add = try #require(row("bookmark.addPage", in: menu))
+        #expect(!add.isEnabled, "a row that lacks its required context is enabled until AppKit updates the menu")
+    }
 }
