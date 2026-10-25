@@ -141,3 +141,30 @@ test("a page that is not on the web shows its path, not its scheme", () => {
   );
   expect(rows.find((row) => row.type === "tab")).toMatchObject({ detail: "/Users/you/notes.html" });
 });
+
+// Capture of PR 24991: a workspace's terminal tabs are titled "~" and list under the workspace's
+// name. Typing that name exactly leads with its tab, Ask right under it.
+test("a workspace's exact name leads with its tab, Ask second, the web search last", () => {
+  const rows = screenRows(
+    "app-efficiency",
+    context({
+      tabs: [
+        { id: "t-eff", kind: "terminal", title: "~", detail: "/Users/you", workspace: "app-efficiency" },
+        { id: "t-tool", kind: "terminal", title: "~", detail: "/Users/you", workspace: "toolbar-diffviewer" },
+      ],
+    }),
+  );
+  expect(rows.slice(0, 2).map((row) => [row.type, "id" in row ? row.id : ""])).toEqual([
+    ["tab", "t-eff"],
+    ["ask", ""],
+  ]);
+  expect(rows.at(-1)?.type).toBe("search");
+  // "app" alone is no exact name: Ask leads.
+  expect(screenRows("app", context({ tabs: [{ id: "t", kind: "terminal", title: "~", workspace: "app-efficiency" }] }))[0]?.type).toBe("ask");
+});
+
+test("a tab's exact title leads even though its row shows the cleaned title", () => {
+  const rows = screenRows("Reddit - The heart of the internet", photo);
+  expect(rows[0]).toMatchObject({ type: "tab", id: "reddit-tab" });
+  expect(rows[1]?.type).toBe("ask");
+});

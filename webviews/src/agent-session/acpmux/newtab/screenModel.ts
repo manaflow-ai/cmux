@@ -122,7 +122,7 @@ function navigationRows(
   const found = suggestions([...open, ...completed, ...matches(query, context.omnibar)], context.omnibar);
   // What leads above Ask: the address, the page a site's whole name or a host-like word completes
   // ("reddit", "reddit.c"; "reddi" or "app" ask), or a tab or workspace named exactly that.
-  const top = open.length || namesSite(query, completed[0]) ? found[0] : found.find((row) => namedExactly(query, row));
+  const top = open.length || namesSite(query, completed[0]) ? found[0] : found.find((row) => namedExactly(query, row, context.omnibar));
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
   const fit = (lead: ScreenRow[]) => ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
@@ -142,10 +142,14 @@ function namesSite(query: string, row: ScreenRow | undefined): boolean {
   return needle.includes(".") || canonicalAddress(row.url).toLowerCase().startsWith(`${needle}.`);
 }
 
-/// A tab or workspace whose name is the typed text, any case: "app-efficiency" is that workspace.
-function namedExactly(query: string, row: ScreenRow): boolean {
+/// A tab or workspace whose name is the typed text, any case: "app-efficiency" is that workspace, or
+/// a tab in it (a terminal tab titled "~" lists under its workspace's name). A tab's own title counts
+/// as the host sent it, before the row cleaned it.
+function namedExactly(query: string, row: ScreenRow, omnibar: OmnibarContext): boolean {
   if (row.type !== "tab" && row.type !== "workspace") return false;
-  return row.title.trim().toLocaleLowerCase() === query.toLocaleLowerCase();
+  const tab = row.type === "tab" ? omnibar.tabs.find((candidate) => candidate.id === row.id) : undefined;
+  const needle = query.toLocaleLowerCase();
+  return [row.title, tab?.title, tab?.workspace].some((name) => name?.trim().toLocaleLowerCase() === needle);
 }
 
 /// Whether the text starts the create action's name (`name`, else English) or a word of it ("new",
