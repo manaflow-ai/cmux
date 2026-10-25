@@ -346,6 +346,11 @@ test("the chat shifts left only when the chat and the panel both fit that way", 
   // The left gutter keeps the thread rail's room (threadMinimap/model.ts MIN_GUTTER): in a 1100px
   // pane the column would have to move 146px out of a 190px gutter, onto the rail, so nothing moves.
   expect(inspectorChatShift(1100, 320)).toBe(0);
+  // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 48px: it moves.
+  expect(inspectorChatShift(1140, 320)).toBe(126);
+  // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
+  // lacks 146px, and the form moves left by all of it.
+  expect(inspectorChatShift(1140, 320, undefined, true)).toBe(146);
   // Where the two gutters together cannot hold it, nothing moves and the panel floats over the chat.
   expect(inspectorChatShift(720, 320)).toBe(0);
   expect(inspectorChatShift(0, 320)).toBe(0);

@@ -120,7 +120,8 @@ export const pushedWidth = (paneWidth: number, width: number) =>
 /// which stays at the pane's left edge (inspector.css; Leo, 2026-10-25: "when that session rail is
 /// there, the session rail ends up pushing it to the side").
 /// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
-/// with `wide`, the gutter is the form's.
+/// with `wide`, the gutter is the form's, and the whole of it may go: the form takes the transcript's
+/// place, so no thread rail draws beside it.
 export const HANDOFF_FORM_WIDTH = 760;
 export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
   if (paneWidth <= 0 || width <= 0) return 0;
@@ -129,7 +130,8 @@ export const inspectorChatShift = (paneWidth: number, width: number, column?: Ch
     ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 36)) / 2)
     : columnInset;
   const lacks = width + 2 * FLOAT_MARGIN - inset;
-  return lacks > 0 && lacks <= inset - MIN_GUTTER ? lacks : 0;
+  const room = wide ? inset : inset - MIN_GUTTER;
+  return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
