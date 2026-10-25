@@ -822,7 +822,7 @@ mod tests {
         let overridden = [false; 256];
         let resolver = resolver(&colors, &overridden);
 
-        assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Reset);
         assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Reset);
         assert_eq!(
             resolver.blank_style(),
@@ -974,11 +974,11 @@ mod tests {
         let render = render_frame_with_defaults(foreground, background, Some(cursor));
         let colors = PaletteResolver::from_frame(&render);
 
-        assert_eq!(colors.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(colors.resolve_fg(ColorSpec::Default), Color::Reset);
         assert_eq!(colors.resolve_bg(ColorSpec::Default), Color::Reset);
-        assert_eq!(resolved_cursor_color(&render), cursor);
+        assert_eq!(resolved_cursor_color(&render), Some(cursor));
         let implicit_cursor = render_frame_with_defaults(foreground, background, None);
-        assert_eq!(resolved_cursor_color(&implicit_cursor), foreground);
+        assert_eq!(resolved_cursor_color(&implicit_cursor), None);
 
         let mut terminal = RatatuiTerminal::new(TestBackend::new(4, 2)).unwrap();
         terminal
@@ -998,7 +998,7 @@ mod tests {
         // the cursor. Cells outside that frame intentionally use the foreign
         // viewport chrome styling, which is covered below.
         let cell = &terminal.backend().buffer()[(1, 0)];
-        assert_eq!(cell.fg, Color::Rgb(0x11, 0x22, 0x33));
+        assert_eq!(cell.fg, Color::Reset);
         assert_eq!(cell.bg, Color::Reset);
         assert_eq!(cell.symbol(), " ");
     }
