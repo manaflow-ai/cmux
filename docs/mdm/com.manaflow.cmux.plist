@@ -2317,6 +2317,30 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>appearance.metrics.dividerThickness</string>
+			<key>pfm_range_max</key>
+			<real>6</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Divider Thickness</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.dividerHitWidth</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>1</real>
+			<key>pfm_title</key>
+			<string>Divider Drag Width</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>appearance.metrics.titlebarHeight</string>
 			<key>pfm_range_max</key>
 			<real>56</real>
