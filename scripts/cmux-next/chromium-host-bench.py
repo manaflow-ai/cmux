@@ -72,23 +72,29 @@ PAGE = """<!doctype html><meta charset=utf-8><title>host probe</title>
 .go{animation:slide 0.5s linear infinite alternate}@keyframes slide{to{transform:translateX(600px)}}</style>
 <input id=t><button id=b>click</button><div id=box></div>
 <script>
-const S = {key: [], click: [], raf: []};
-function sample(list, e) {
+const S = {key: [], click: [], raf: [], key_paint: [], click_paint: []};
+// The wall time (ms since 1970, the system clock the bench reads with time.time()) of the animation frame that
+// shows each change: the bench subtracts its own send time, so both ends share one clock in both modes. A
+// forwarded event's timeStamp cannot be used: the host's CEF windowed Send*Event gives the event no time, and
+// Chromium clamps its timeStamp to the page's time origin (the in-page delta then read the page's age, 13 s).
+const wall = () => performance.timeOrigin + performance.now();
+function sample(list, paint, e) {
+  const at = performance.now();
   // The frame that shows the change: the next animation frame after the event.
-  requestAnimationFrame(() => { list.push(performance.now() - e.timeStamp); report(); });
+  requestAnimationFrame(() => { list.push(performance.now() - at); paint.push(+wall().toFixed(3)); report(); });
 }
-addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); return; } document.getElementById('t').style.outline = '2px solid #' + (S.key.length % 9) + 'f0'; sample(S.key, e); }, true);
-addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, e); }, true);
+addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); return; } document.getElementById('t').style.outline = '2px solid #' + (S.key.length % 9) + 'f0'; sample(S.key, S.key_paint, e); }, true);
+addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
 function pct(list, q) { if (!list.length) return null; const s = [...list].sort((a, b) => a - b); return +s[Math.round(q * (s.length - 1))].toFixed(2); }
 function summary(list) { return {n: list.length, p50: pct(list, 0.5), p95: pct(list, 0.95), max: pct(list, 1)}; }
-function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2))}); }
+function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), key_paint: S.key_paint, click_paint: S.click_paint}); }
 window.__pace = function(ms) {
   S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
   let last = null; const end = performance.now() + ms;
   function tick(t) { if (last !== null) S.raf.push(t - last); last = t; if (t < end) requestAnimationFrame(tick); else { box.classList.remove('go'); report(); } }
   requestAnimationFrame(tick);
 };
-window.__reset = function() { S.key = []; S.click = []; S.raf = []; report(); };
+window.__reset = function() { S.key = []; S.click = []; S.raf = []; S.key_paint = []; S.click_paint = []; report(); };
 report();
 </script>"""
 
@@ -236,6 +242,17 @@ def wait(check, seconds, step=0.1):
     return None
 
 
+def paired(sent, painted):
+    """Send-to-paint percentiles (ms) of events matched in order; None when the page reported none. Only as many as
+    painted; a count below len(sent) means events were lost and the pairs may be shifted (the row says so)."""
+    if not painted:
+        return None
+    n = min(len(sent), len(painted))
+    out = percentiles([p - s for s, p in zip(sent[:n], painted[:n])])
+    out["sent"] = len(sent)
+    return out
+
+
 def percentiles(values):
     if not values:
         return None
@@ -302,16 +319,29 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
     # Focus the text field with one click first.
     rpc("debug.mouse", {**mouse_target, **click_point("t")})
     time.sleep(0.3)  # test harness: focus lands
+    key_sent = []
     for i in range(opts.count):
-        rpc("debug.key", {**key_target, "key": "a", "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)})
+        key_sent.append(time.time() * 1000)
+        reply = rpc("debug.key", {**key_target, "key": "a", "timestamp": time.clock_gettime(time.CLOCK_UPTIME_RAW)})
+        if i == 0:
+            row["first_key_reply"] = reply
         time.sleep(1 / 30)  # test harness: one key per two frames, so samples do not share a frame
     stats = wait(lambda: (probe_stats(title_of()) or {}).get("key", {}).get("n", 0) >= opts.count and probe_stats(title_of()), 10)
-    row["key_to_raf_ms"] = (stats or {}).get("key")
+    stats = stats or probe_stats(title_of()) or {}
+    # key_to_raf_ms: from the page's handler to the frame (in-page clock). key_to_paint_ms: from cmux's send to that
+    # frame, one wall clock at both ends; matched in order (n says how many keys arrived).
+    row["key_to_raf_ms"] = stats.get("key")
+    row["key_to_paint_ms"] = paired(key_sent, stats.get("key_paint"))
+    click_sent = []
     for i in range(opts.count):
+        click_sent.append(time.time() * 1000)
         rpc("debug.mouse", {**mouse_target, **click_point("b")})
         time.sleep(1 / 30)  # test harness: as above
     stats = wait(lambda: (probe_stats(title_of()) or {}).get("click", {}).get("n", 0) >= opts.count and probe_stats(title_of()), 10)
-    row["click_to_raf_ms"] = (stats or {}).get("click")
+    stats = stats or probe_stats(title_of()) or {}
+    row["click_to_raf_ms"] = stats.get("click")
+    # The first click focused the field: it is not in click_sent.
+    row["click_to_paint_ms"] = paired(click_sent, (stats.get("click_paint") or [])[-len(click_sent):])
     # Pacing: the key `p` starts a 3 s animation in the page; the page records its frame intervals.
     rpc("debug.key", {**key_target, "key": "p"})
     time.sleep(3.6)  # test harness: the page animates for 3 s
