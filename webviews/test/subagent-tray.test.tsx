@@ -662,7 +662,8 @@ describe("the tray tells the truth", () => {
     const finished = finishedTrayItems(agents, chats);
     expect(items.map((item) => item.id)).toEqual(["Reviewer", "Tester", "bg1", "c1", "c2"]);
     // What ended last comes first: the few the tray shows are the latest.
-    expect(finished.map((item) => item.id)).toEqual(["Fuzzer", "Linter", "c4", "c3"]);
+    // (c3 and c4 have no creation time: they keep their order, after any chat that has one.)
+    expect(finished.map((item) => item.id)).toEqual(["Fuzzer", "Linter", "c3", "c4"]);
     const { root, done } = await render(
       createElement(SubagentTray, { items, finished, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
@@ -690,16 +691,16 @@ describe("the tray tells the truth", () => {
       expect(names([...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")])).toEqual([
         "Fuzzer",
         "Linter",
-        "Retry the upload",
+        "Fix the dock",
       ]);
       await act(async () => more.click());
       const ended = [...root.querySelectorAll<HTMLElement>("li[data-finished] .acpmux-agent-line")];
-      expect(names(ended)).toEqual(["Fuzzer", "Linter", "Retry the upload", "Fix the dock"]);
+      expect(names(ended)).toEqual(["Fuzzer", "Linter", "Fix the dock", "Retry the upload"]);
       expect(ended.map((line) => line.querySelector(".acpmux-summary-agent__state")?.textContent)).toEqual([
         "Failed",
         "Done",
-        "Failed",
         "Done",
+        "Failed",
       ]);
       expect(more.textContent).toContain("Show fewer");
       expect(more.getAttribute("aria-expanded")).toBe("true");
@@ -932,7 +933,13 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     const { trayDetail, isShellLine } = await import("../src/agent-session/acpmux/subagents/trayDetail");
     const t = (key: string, values?: Record<string, unknown>) =>
       key === "tools.runningCommand" ? `Running ${String(values?.command)}` : key;
-    for (const prose of ["Find the bug in the fold", "Make a plan", "Open the file", "go ahead", "Check the card's line"])
+    for (const prose of [
+      "Find the bug in the fold",
+      "Make a plan",
+      "Open the file",
+      "go ahead",
+      "Check the card's line",
+    ])
       expect(isShellLine(prose)).toBe(false);
     for (const command of ["find . -name '*.ts'", "cd repo && terraform plan", "ls -la", "FOO=1 make test"])
       expect(isShellLine(command)).toBe(true);

@@ -96,10 +96,7 @@ export function finishedTrayItems(agents: readonly Subagent[], sessions: readonl
       latest.set(at.id, Math.max(latest.get(at.id) ?? -Infinity, end));
     }
   }
-  ended.sort(
-    (a, b) =>
-      latest.get(b.id)! - latest.get(a.id)! || b.startedAt - a.startedAt || a.id.localeCompare(b.id),
-  );
+  ended.sort((a, b) => latest.get(b.id)! - latest.get(a.id)! || b.startedAt - a.startedAt || a.id.localeCompare(b.id));
   const items: TrayItem[] = nestAgents(ended).map(({ agent, depth }) => ({
     kind: "agent",
     id: agent.id,
