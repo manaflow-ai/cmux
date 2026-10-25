@@ -8,12 +8,13 @@
 //!   accepts it (`ssh -- DEST '...'` for an `ssh://` peer; else the command with
 //!   `data.runOn: HOST`), with its folder made first;
 //! - from a peer that serves it as a peer, a folder outside its roots: the same start in the
-//!   first root the peer named, else with no folder (a scratch folder made there).
+//!   folder the peer checked (`data.tryCwd`), else with no folder (a scratch folder there).
 //!
 //! A mode is never taken at a remote start, nor by HOST's own CLI (not the person), so no
 //! suggestion keeps one: the session starts in the harness's asking mode. The peer judges a
 //! new session's folder before its policy and mode, so one refusal covers every field. A peer
-//! on an older build names no `reason`: its message is read instead.
+//! on an older build names no `reason` (its message is read instead) and judged the mode
+//! before the folder: its way out is HOST's own CLI in the shell's own folder.
 
 use super::remote_guard::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED, POLICY_REFUSED};
 use crate::rpc::RpcError;
@@ -24,18 +25,15 @@ use serde_json::{Value, json};
 pub(super) fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
     let Some(reason) = reason_of(&e) else { return e };
     let data = e.data.as_ref();
-    let served_as_peer = match data.and_then(|d| d.get("servedAs")).and_then(Value::as_str) {
-        Some(served) => served == "peer",
-        // An older peer does not say: what it said at the last handshake.
-        None => peer.served_as_peer(),
-    };
+    // `peer` or `remote`; an older peer does not say.
+    let served = data.and_then(|d| d.get("servedAs")).and_then(Value::as_str);
     // A folder inside its roots the peer checked for this start (`remote_guard::try_cwd`).
     let try_cwd = data.and_then(|d| d.get("tryCwd")).and_then(Value::as_str);
     let ssh = crate::peer::ssh_target(&peer.url).ok().map(|t| t.destination);
     let mut run_on = None;
     // `missing` (mkdir -p makes it) or `unusable`; an older peer does not say.
     let cause = data.and_then(|d| d.get("cause")).and_then(Value::as_str);
-    let found = Found { served_as_peer, try_cwd, cause };
+    let found = Found { served, try_cwd, cause };
     let (command, why) = match suggest(&Start::of(params), reason, found) {
         Hint::Here(start) => (start.command(Some(&peer.name)), String::new()),
         Hint::OnHost(start) => {
@@ -44,10 +42,10 @@ pub(super) fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> 
                 .as_ref()
                 .map(|n| format!(", then reach it from here as {}/{n}", peer.name))
                 .unwrap_or_default();
-            let served = if served_as_peer {
-                String::new()
-            } else {
+            let served = if served == Some("remote") {
                 format!(" ({} serves this daemon as a remote client, not as a peer)", peer.name)
+            } else {
+                String::new()
             };
             if ssh.is_none() {
                 run_on = Some(peer.name.clone());
@@ -184,7 +182,7 @@ enum Hint {
 /// What the refusal says besides its reason.
 #[derive(Clone, Copy, Default)]
 struct Found<'a> {
-    served_as_peer: bool,
+    served: Option<&'a str>,
     try_cwd: Option<&'a str>,
     cause: Option<&'a str>,
 }
@@ -196,20 +194,26 @@ struct Found<'a> {
 /// folder outside its roots becomes the one it checked, else none (a scratch folder). A mode
 /// is dropped either way.
 fn suggest(start: &Start, reason: &str, found: Found) -> Hint {
-    let Found { served_as_peer, try_cwd, cause } = found;
+    let Found { served, try_cwd, cause } = found;
     let mut next = Start { mode: None, ..start.clone() };
-    if !served_as_peer || reason == POLICY_REFUSED {
-        if reason == CWD_MISSING && cause != Some("missing") {
+    match (served, reason) {
+        (None, _) => {
             next.cwd = None;
+            Hint::OnHost(next)
         }
-        return Hint::OnHost(next);
+        (Some("peer"), CWD_OUTSIDE_ROOTS | CWD_MISSING | MODE_REFUSED) => {
+            if reason != MODE_REFUSED {
+                next.cwd = try_cwd.filter(|_| reason == CWD_OUTSIDE_ROOTS).map(str::to_owned);
+            }
+            Hint::Here(next)
+        }
+        _ => {
+            if reason == CWD_MISSING && cause != Some("missing") {
+                next.cwd = None;
+            }
+            Hint::OnHost(next)
+        }
     }
-    match reason {
-        CWD_OUTSIDE_ROOTS => next.cwd = try_cwd.map(str::to_owned),
-        CWD_MISSING => next.cwd = None,
-        _ => {}
-    }
-    Hint::Here(next)
 }
 
 /// `text` as one POSIX shell word: unchanged when it holds only characters no shell reads
@@ -242,7 +246,7 @@ mod tests {
     }
 
     fn peer(try_cwd: Option<&str>) -> Found<'_> {
-        Found { served_as_peer: true, try_cwd, cause: None }
+        Found { served: Some("peer"), try_cwd, cause: None }
     }
 
     #[test]
@@ -262,7 +266,7 @@ mod tests {
         // A policy it refused, or anything from a peer that serves us as Web: on the host,
         // its folder made first, with no mode.
         assert!(matches!(suggest(&s, POLICY_REFUSED, peer(None)), Hint::OnHost(_)));
-        let web = |cause| Found { cause, ..Found::default() };
+        let web = |cause| Found { served: Some("remote"), cause, ..Found::default() };
         let Hint::OnHost(next) = suggest(&s, CWD_MISSING, web(Some("missing"))) else { panic!() };
         assert_eq!(
             next.on_host_command(),
@@ -272,6 +276,11 @@ mod tests {
         for cause in [Some("unusable"), None] {
             let Hint::OnHost(next) = suggest(&s, CWD_MISSING, web(cause)) else { panic!() };
             assert_eq!(next.cwd, None, "{cause:?}");
+        }
+        // An older peer checked the mode before the folder: on the host, in the shell's folder.
+        for reason in [MODE_REFUSED, POLICY_REFUSED, CWD_OUTSIDE_ROOTS] {
+            let Hint::OnHost(next) = suggest(&s, reason, Found::default()) else { panic!() };
+            assert_eq!((next.cwd, next.mode), (None, None), "{reason}");
         }
     }
 
