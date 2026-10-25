@@ -299,16 +299,22 @@ function balancedEnd(line: string, open: number): number {
 
 /// Words that only set the stage for the command after them.
 const RESERVED = new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "time"]);
-/// Programs that run the command their arguments give, with the options that take a value.
-const RUNNERS: Record<string, Set<string>> = {
-  nohup: new Set(),
-  command: new Set(),
-  exec: new Set(["-a"]),
-  nice: new Set(["-n"]),
-  env: new Set(["-u", "-C", "-S", "--unset", "--chdir"]),
+/// Programs that run the command their arguments give: the options that take a value, and the
+/// flags, that still run it. Any other option (`--help`, `env -S`) is not looked through.
+type Runner = { values: ReadonlySet<string>; flags: RegExp };
+const RUNNERS: Record<string, Runner> = {
+  nohup: { values: new Set(), flags: /^$/ },
+  command: { values: new Set(), flags: /^-p$/ },
+  exec: { values: new Set(["-a"]), flags: /^-[cl]+$/ },
+  nice: { values: new Set(["-n", "--adjustment"]), flags: /^-\d+$/ },
+  env: { values: new Set(["-u", "--unset", "-C", "--chdir"]), flags: /^(?:-i|-|--ignore-environment)$/ },
+  timeout: {
+    values: new Set(["-s", "--signal", "-k", "--kill-after"]),
+    flags: /^(?:--foreground|--preserve-status|-v|--verbose)$/,
+  },
 };
 /// Steps that only set up the shell, or report: they do no work a send row would hide.
-const SETUP = new Set(["cd", "pushd", "popd", "export", "set", "unset", "true", ":", "wait", "exit", "echo", "printf"]);
+const SETUP = new Set(["cd", "pushd", "popd", "export", "set", "unset", "true", ":", "wait", "echo", "printf"]);
 /// Steps a send's output may pipe through (`| tail -1`): how many operands each may have (a
 /// pattern, a jq filter) and the options it may take, none of which reads or writes a file. A word
 /// that is a number is an option's value (`-n 5`). They only cut what the send printed.
@@ -343,10 +349,12 @@ function unwrapped(words: readonly ShellWord[]): ShellWord[] {
     const head = rest[0]!;
     const name = program(head);
     if (head.literal && (ASSIGNMENT.test(head.text) || RESERVED.has(head.text))) rest = rest.slice(1);
-    else if (name in RUNNERS) rest = afterOptions(rest.slice(1), RUNNERS[name]!, name === "env");
-    else if (name === "timeout" || name === "gtimeout") {
-      // `timeout [-s SIG] [-k DUR] [--foreground] DURATION COMMAND…`.
-      rest = afterOptions(rest.slice(1), new Set(["-s", "-k", "--signal", "--kill-after"])).slice(1);
+    else if (name in RUNNERS || name === "gtimeout") {
+      const runner = RUNNERS[name === "gtimeout" ? "timeout" : name]!;
+      const after = afterOptions(rest.slice(1), runner, name === "env");
+      if (!after) return rest;
+      // `timeout [OPTIONS] DURATION COMMAND…`.
+      rest = runner === RUNNERS.timeout ? after.slice(1) : after;
     } else if (name === "perl") {
       // `perl -e 'alarm N; exec @ARGV' COMMAND…`: a script that does nothing but run its arguments.
       const flag = rest[1]?.text;
@@ -360,15 +368,20 @@ function unwrapped(words: readonly ShellWord[]): ShellWord[] {
 /// `alarm N; exec @ARGV` and nothing else.
 const PERL_EXEC = /^\s*alarm\s+\d+\s*;\s*exec\s+@ARGV\s*;?\s*$/;
 
-/// The words after a runner's options (and, for `env`, its assignments).
-function afterOptions(words: ShellWord[], values: ReadonlySet<string>, assignments = false): ShellWord[] {
+/// The words after a runner's options (and, for `env`, its assignments), or nil at an option that
+/// does not run the command.
+function afterOptions(words: ShellWord[], runner: Runner, assignments = false): ShellWord[] | undefined {
   let index = 0;
   while (index < words.length) {
     const text = words[index]!.text;
     if (text === "--") return words.slice(index + 1);
+    const name = text.split("=", 1)[0]!;
     if (assignments && ASSIGNMENT.test(text)) index += 1;
-    else if (text.startsWith("-") && text.length > 1) index += values.has(text) ? 2 : 1;
-    else break;
+    else if (runner.values.has(name)) index += text.includes("=") ? 1 : 2;
+    else if (text.startsWith("-") && (text.length > 1 || assignments)) {
+      if (!runner.flags.test(text)) return undefined;
+      index += 1;
+    } else break;
   }
   return words.slice(index);
 }
@@ -388,7 +401,7 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
       while (REACH_VALUES.has(words[at]?.text ?? "")) at += 2;
       const rest = words.slice(at);
       const inner = rest.slice(1);
-      if (rest[0]?.literal && inner.length && inner.every((word) => word.literal))
+      if (rest[0]?.literal && !rest[0].text.startsWith("-") && inner.length && inner.every((word) => word.literal))
         send = acpmuxSend(inner.map((word) => word.text).join(" "), rest[0].text, depth + 1);
     } else if (SHELLS.has(name)) {
       const flag = words.findIndex((word, place) => place > 0 && /^-[a-z]*c[a-z]*$/.test(word.text));
@@ -463,8 +476,15 @@ function stdinOf(commands: readonly ShellCommand[], index: number): ShellWord | 
     while (args[0] && /^-[neE]+$/.test(args[0].text)) args.shift();
     return { text: args.map((word) => word.text).join(" "), literal: args.every((word) => word.literal) };
   }
-  if (name === "printf" && words[1])
-    return { text: words[1].text.replace(/\\n/g, "\n").replace(/\\t/g, "\t"), literal: words[1].literal };
+  // `printf 'text\n'`: its format is the text when it formats nothing.
+  if (name === "printf" && words.length === 2) {
+    const format = words[1]!;
+    return {
+      text: format.text.replace(/\\n/g, "\n").replace(/\\t/g, "\t"),
+      literal: format.literal && !/[%\\]/.test(format.text.replace(/\\[nt]/g, "")),
+    };
+  }
+  if (name === "printf") return { text: "", literal: false };
   return undefined;
 }
 
