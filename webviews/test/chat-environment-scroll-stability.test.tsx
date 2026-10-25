@@ -107,7 +107,9 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
         }
         const bodyOpen = paramsClose < 0 ? -1 : next.indexOf("{", paramsClose);
         if (bodyOpen < 0)
-          throw new Error(`EnvironmentLine probe missed body; source=${next.slice(functionStart, functionStart + 320).replace(/\s+/g, " ")}`);
+          throw new Error(
+            `EnvironmentLine probe missed body; source=${next.slice(functionStart, functionStart + 320).replace(/\s+/g, " ")}`,
+          );
         const probe = `\n  globalThis.__cmuxEnvProbe.renders += 1;\n  useEffect(() => { globalThis.__cmuxEnvProbe.mounts += 1; return () => { globalThis.__cmuxEnvProbe.unmounts += 1; }; }, []);`;
         next = `${next.slice(0, bodyOpen + 1)}${probe}${next.slice(bodyOpen + 1)}`;
         return { code: next, map: null };

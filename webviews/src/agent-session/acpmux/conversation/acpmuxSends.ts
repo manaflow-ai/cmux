@@ -124,8 +124,13 @@ export function shellCommands(line: string): ShellCommand[] {
   /// The here-documents the command being read opened, so their bodies read after its line land on it.
   let docs: (typeof pending)[number][] = [];
   let index = 0;
+  /// A `)` just closed a group: the operator after it (`) | tail`, `) && x`) is its last command's.
+  let closed = false;
   const end = (op: ShellCommand["op"]) => {
-    if (words.length || stdin || writes || runs.length || docs.length) {
+    const empty = !(words.length || stdin || writes || runs.length || docs.length);
+    if (empty && closed && op !== ";" && commands.length) commands[commands.length - 1]!.op = op;
+    closed = false;
+    if (!empty) {
       const command: ShellCommand = {
         words,
         op,
@@ -219,6 +224,7 @@ export function shellCommands(line: string): ShellCommand[] {
       } else {
         index += 1;
         end(char === "|" ? "|" : char === "&" ? "&" : ";");
+        if (char === ")") closed = true;
       }
       continue;
     }
@@ -561,7 +567,10 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
   const before = commands.slice(0, at).map((command) => command.op);
   const skippable = before.includes("||");
   if (found.unsure || skippable || before.includes("&&")) send.unsure = true;
-  const last = at === commands.length - 1 && commands[at]!.op !== "|" && commands[at]!.op !== "&";
+  // `! acpmux send …` inverts the status: it is not the send's.
+  const inverted = commands[at]!.words[0]?.literal === true && commands[at]!.words[0]!.text === "!";
+  const last =
+    !inverted && at === commands.length - 1 && commands[at]!.op !== "|" && commands[at]!.op !== "&";
   if (last && !skippable && (direct || found.ownsExit)) send.ownsExit = true;
   return send;
 }

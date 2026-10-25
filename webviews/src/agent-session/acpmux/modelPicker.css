@@ -219,11 +219,42 @@
   font-size: var(--text-caption);
 }
 
+/* The compact menu's search field (Lawrence 2026-10-22: "spacing + needs search"): a row-high line
+   on the menu's glass, no box of its own, a hairline under it as under the full picker's search. The
+   caret shows focus; the field never draws a ring (check-text-focus-rings.py). */
+.acpmux-quick-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ui-row-height);
+  margin: 0 0 4px;
+  padding-inline: var(--ui-row-padding-inline);
+  border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
+  color: var(--agent-muted);
+}
+.acpmux-quick-search:focus-within { color: var(--agent-text); }
+.acpmux-quick-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-control);
+  outline: none;
+  appearance: none;
+}
+.acpmux-quick-search input::placeholder { color: var(--agent-muted); }
+.acpmux-quick-search input::-webkit-search-cancel-button { appearance: none; }
+
 /* The harness rail beside the compact list (Leo 2026-10-18): Starred, then each harness, as round
    icon tabs on a hairline; the chosen tab keeps the row wash. The list keeps Claude Code's rows. */
-.acpmux-quick-railed { max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
+.acpmux-quick-railed { display: flex; flex-direction: column; max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
-.acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
+.acpmux-quick-layout { display: flex; align-items: stretch; min-height: 0; max-height: var(--available-height, none); }
 .acpmux-quick-rail,
 .acpmux-quick-body { overflow-y: auto; }
 .acpmux-quick-rail {

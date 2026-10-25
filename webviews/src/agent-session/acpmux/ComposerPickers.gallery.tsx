@@ -5,7 +5,7 @@ import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
-import { ChatAccountsContext, type ChatAccounts } from "./chatAccounts";
+import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -14,7 +14,24 @@ const galleryAccounts: ChatAccounts = {
 };
 
 /** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
-type Props = { claude?: boolean };
+type Props = { claude?: boolean; accounts?: boolean };
+
+const directAccounts: ChatAccounts = {
+  list: async () =>
+    readChatAccounts({
+      routes: [
+        { id: "personal", name: "Personal", kind: "direct-subscription", serves: true },
+        { id: "work", name: "Work API", kind: "direct-api-key", serves: true },
+        { id: "codex", name: "Codex account", kind: "direct-subscription", serves: false },
+        ...["subrouter", "cliproxyapi", "custom-anthropic", "custom-openai", "local-coderouter", "cmux-router"].map(
+          (kind) => ({ id: kind, name: kind, kind, serves: true }),
+        ),
+      ],
+      active: { routeId: "personal", scope: "chat" },
+      family: "claude",
+    }),
+  set: async () => undefined,
+};
 
 /// Claude Code's model list as Leo's chat reported it: its aliases named as the releases they run,
 /// its 1M and plan modes, and Fable 5.1 pinned. The chat runs the pinned release claude-opus-5-5
@@ -168,7 +185,7 @@ const codexSnapshot: AcpmuxSnapshot = {
   },
 };
 
-function GalleryComposerPickers({ claude }: Props) {
+function GalleryComposerPickers({ claude, accounts }: Props) {
   const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
@@ -210,7 +227,7 @@ function GalleryComposerPickers({ claude }: Props) {
     [claude, snapshot],
   );
   return (
-    <ChatAccountsContext.Provider value={galleryAccounts}>
+    <ChatAccountsContext.Provider value={accounts ? directAccounts : galleryAccounts}>
       <div className="acpmux-composer-gallery-shell">
         <div className="acpmux-composer-gallery-copy">
           <strong>Composer controls</strong>
@@ -243,6 +260,18 @@ const openModel: Play = async (ctx) => {
   const headers = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .ui-menu-group-label")];
   if (headers.some((node) => node.textContent?.trim()))
     throw new Error("the compact model menu should not show a static session header");
+};
+
+const openAccounts: Play = async (ctx) => {
+  await ctx.click(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
+  await ctx.focus({ role: "menuitem", name: /^Account/ });
+  await ctx.press("Enter");
+  await ctx.waitFor(() =>
+    [...ctx.document.querySelectorAll(".acpmux-quick-menu")].some(
+      (menu) => menu.textContent?.includes("Personal") && !menu.querySelector(".acpmux-quick-sub"),
+    ),
+  );
 };
 
 const modelFocus: Play = async (ctx) => {
@@ -407,7 +436,7 @@ export default componentEntry<Props>({
     longFrameFailMs: { value: 33, reason: "Composer picker actions should remain responsive on the gallery host." },
     settleMaxMs: { value: 250, reason: "Local picker opens and toggles should settle within a quarter second." },
   },
-  covers: ["agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
+  covers: ["agent-session/acpmux/ComposerPickers.tsx#ComposerPickers", "agent-session/acpmux/QuickModelMenu.tsx"],
   load: async () => GalleryComposerPickers,
   styles: () =>
     Promise.all([
@@ -462,6 +491,12 @@ export default componentEntry<Props>({
       note: "Leo's started claude-sr2 chat (2026-10-21; nine numbered rows, Opus 5.5 twice): the menu lists four models, Opus 5.5 once and checked; Effort names Medium, Account names CLI login, Fast mode names Off, and the rest are under More models.",
       props: { claude: true },
       play: openModel,
+    },
+    "claude-direct-accounts": {
+      height: 580,
+      note: "Account lists the local harness login and its two direct accounts; compatible proxy and router transports stay out of the list.",
+      props: { claude: true, accounts: true },
+      play: openAccounts,
     },
     "claude-effort-up": {
       note: "Opened from the composer at the window's foot, the Effort submenu grows up from its row, Medium checked (Leo 2026-10-21: it opened downward).",

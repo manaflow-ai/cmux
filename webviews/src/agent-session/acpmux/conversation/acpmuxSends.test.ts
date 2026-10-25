@@ -99,6 +99,7 @@ describe("acpmuxSend", () => {
     expect(read("acpmux send lane <<-EOF\n\tplain\n\tEOF")?.text).toBe("plain\n");
     expect(read("acpmux send lane <<< 'from a here-string'")?.text).toBe("from a here-string\n");
     expect(read("echo -n 'piped in' | acpmux send lane -")?.text).toBe("piped in");
+    expect(read("(echo hi) | acpmux send lane -")?.text).toBe("hi");
     expect(read("printf 'piped\\nin' | acpmux send lane -")?.text).toBe("piped\nin");
     // A format that formats something: the text is its arguments, not read here.
     expect(read("printf '%s' world | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
@@ -263,6 +264,13 @@ describe("acpmuxSend", () => {
 });
 
 describe("whose exit status the call reports", () => {
+  test("not when ! inverts it, nor when the send's group pipes its output on", () => {
+    expect(acpmuxSend("! acpmux send lane hi")?.ownsExit).toBeUndefined();
+    expect(acpmuxSend("(acpmux send lane hi) | tail -1")).toMatchObject({ target: "lane", text: "hi" });
+    expect(acpmuxSend("(acpmux send lane hi) | tail -1")?.others).toBeUndefined();
+    expect(acpmuxSend("(acpmux send lane hi) | tail -1")?.ownsExit).toBeUndefined();
+  });
+
   test("not when a || before the send may skip it; unsure when a && or || before it may", () => {
     expect(acpmuxSend("test -d / || acpmux send lane hi")).toMatchObject({ unsure: true });
     expect(acpmuxSend("test -d / || acpmux send lane hi")?.ownsExit).toBeUndefined();
