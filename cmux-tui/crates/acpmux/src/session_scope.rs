@@ -328,7 +328,7 @@ mod tests {
 
     const GIB: u64 = 1024 * 1024 * 1024;
 
-    fn from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+    fn from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
         let map: BTreeMap<String, String> =
             pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         move |key: &str| map.get(key).cloned()
@@ -361,12 +361,14 @@ mod tests {
         ]);
         assert_eq!(
             joined(&properties(&get, 64 * GIB)),
-            "-p MemoryMax=536870912 -p MemoryHigh=483183820 -p TasksMax=1000 -p CPUWeight=40"
+            "-p MemoryMax=536870912 -p MemoryHigh=483183819 -p TasksMax=1000 -p CPUWeight=40"
         );
         // An explicit throttle; one above the ceiling is the ceiling.
-        let get = from(&[("ACPMUX_SESSION_MEMORY_MB", "512"), ("ACPMUX_SESSION_MEMORY_HIGH_MB", "400")]);
+        let get =
+            from(&[("ACPMUX_SESSION_MEMORY_MB", "512"), ("ACPMUX_SESSION_MEMORY_HIGH_MB", "400")]);
         assert!(joined(&properties(&get, 0)).contains("-p MemoryHigh=419430400 "));
-        let get = from(&[("ACPMUX_SESSION_MEMORY_MB", "512"), ("ACPMUX_SESSION_MEMORY_HIGH_MB", "900")]);
+        let get =
+            from(&[("ACPMUX_SESSION_MEMORY_MB", "512"), ("ACPMUX_SESSION_MEMORY_HIGH_MB", "900")]);
         assert!(joined(&properties(&get, 0)).contains("-p MemoryHigh=536870912 "));
         // Only the throttle off.
         let get = from(&[("ACPMUX_SESSION_MEMORY_HIGH_MB", "0")]);
@@ -396,7 +398,7 @@ mod tests {
             argv.join(" "),
             "/usr/bin/systemd-run --user --scope --quiet --collect \
              --slice=acpmuxsessions.slice --description=acpmux session s1 \
-             -p MemoryMax=536870912 -p MemoryHigh=483183820 -p TasksMax=4096 -p CPUWeight=50 --"
+             -p MemoryMax=536870912 -p MemoryHigh=483183819 -p TasksMax=4096 -p CPUWeight=50 --"
         );
         assert!(!SESSIONS_SLICE.trim_end_matches(".slice").contains('-'), "a dash nests slices");
     }
@@ -425,6 +427,46 @@ mod tests {
             ("ACPMUX_SESSIONS_TASKS_MAX", "0"),
         ]);
         assert_eq!(slice_argv(&off), None);
+    }
+
+    /// With a real user manager (CI has one): a scope probe in the sessions
+    /// slice succeeds, and the slice then holds its limits, also though no
+    /// session runs in it. Without one this says so and passes.
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_real_user_manager_takes_the_slice_limits() {
+        use std::process::Command;
+        let running = Command::new("systemctl")
+            .args(["--user", "is-system-running"])
+            .output()
+            .is_ok_and(|o| {
+                matches!(String::from_utf8_lossy(&o.stdout).trim(), "running" | "degraded")
+            });
+        let runner = std::path::Path::new("/usr/bin/systemd-run");
+        if !running || !runner.is_file() {
+            eprintln!("no user systemd manager here: skipped");
+            return;
+        }
+        let props = properties(&from(&[]), physical_memory());
+        let mut continued = props.clone();
+        continued.extend(["-p".to_owned(), "OOMPolicy=continue".to_owned()]);
+        let env = BTreeMap::new();
+        assert!(
+            can_scope(runner, &continued, &env) || can_scope(runner, &props, &env),
+            "systemd-run made no scope with {props:?}"
+        );
+        let show = |key: &str| {
+            let out = Command::new("systemctl")
+                .args(["--user", "show", SESSIONS_SLICE, "-p", key, "--value"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        assert_eq!(show("TasksMax"), "16384");
+        for key in ["MemoryMax", "MemoryHigh"] {
+            let bytes: u64 = show(key).parse().unwrap_or_else(|_| panic!("{key}: {}", show(key)));
+            assert!(bytes > 0 && bytes < physical_memory(), "{key}={bytes}");
+        }
     }
 
     #[test]

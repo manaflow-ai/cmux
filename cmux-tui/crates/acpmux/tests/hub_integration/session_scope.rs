@@ -23,7 +23,8 @@ fn fake_systemd_run(dir: &std::path::Path) -> String {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     let systemctl = dir.join("systemctl");
-    std::fs::write(&systemctl, "#!/bin/sh\necho \"systemctl $*\" >> \"$FAKE_SCOPE_LOG\"\n").unwrap();
+    std::fs::write(&systemctl, "#!/bin/sh\necho \"systemctl $*\" >> \"$FAKE_SCOPE_LOG\"\n")
+        .unwrap();
     std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o755)).unwrap();
     format!("{}:{}", dir.display(), std::env::var("PATH").unwrap_or_default())
 }
@@ -72,7 +73,7 @@ async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
         "--scope",
         "--slice=acpmuxsessions.slice",
         "-p MemoryMax=536870912",
-        "-p MemoryHigh=483183820",
+        "-p MemoryHigh=483183819",
         "-p TasksMax=4096",
         "-p CPUWeight=40",
         "-p OOMPolicy=continue",
@@ -84,7 +85,9 @@ async fn a_chats_harness_runs_in_its_own_cgroup_scope() {
     let slice: Vec<&String> = log.iter().filter(|l| l.starts_with("systemctl ")).collect();
     assert_eq!(
         slice,
-        ["systemctl --user set-property --runtime acpmuxsessions.slice MemoryMax=85% MemoryHigh=80% TasksMax=16384"],
+        [
+            "systemctl --user set-property --runtime acpmuxsessions.slice MemoryMax=85% MemoryHigh=80% TasksMax=16384"
+        ],
         "{log:?}"
     );
 }

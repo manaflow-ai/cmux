@@ -306,10 +306,7 @@ mod tests {
         // With a task cap: a fourth property, a uint64.
         let joined = busctl_args(&unit, 4242, Some(4096)).join(" ");
         assert!(joined.contains("acpmux-agent-host-4242-0a1b2c3d.scope fail 4 PIDs"), "{joined}");
-        assert!(
-            joined.ends_with("CollectMode s inactive-or-failed TasksMax t 4096 0"),
-            "{joined}"
-        );
+        assert!(joined.ends_with("CollectMode s inactive-or-failed TasksMax t 4096 0"), "{joined}");
     }
 
     #[test]
