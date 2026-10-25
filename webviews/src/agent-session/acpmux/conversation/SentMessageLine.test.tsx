@@ -163,8 +163,7 @@ test("a compound command's send says the other work, which stays behind Raw", as
   expect(container.querySelector(".cv-shell")?.textContent).toContain("git fetch -q");
 });
 
-const chats = () =>
-  listed({ name: "coord-deputy" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
+const chats = () => listed({ name: "coord-deputy" }, { name: "studio-mac/scroll-jitter", peer: "studio-mac" });
 
 test("the target opens its chat when the session list has it, without opening the row", async () => {
   const opened: string[] = [];

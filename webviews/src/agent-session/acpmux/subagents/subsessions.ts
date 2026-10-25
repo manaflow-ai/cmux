@@ -178,7 +178,12 @@ export class SubsessionStore {
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([[...named], [...harnesses], [...places], sessions.map((entry) => entry.sessionId)]);
+    const namedKey = JSON.stringify([
+      [...named],
+      [...harnesses],
+      [...places],
+      sessions.map((entry) => entry.sessionId),
+    ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
     this.ids = new Set(sessions.map((entry) => entry.sessionId));
