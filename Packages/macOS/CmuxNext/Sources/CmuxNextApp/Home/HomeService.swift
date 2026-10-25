@@ -85,14 +85,19 @@ final class HomeService {
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
     private(set) var cloudChiefs = HomeCloudChiefs()
-    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
-    var cloudChief: CloudChief? { tabChiefs.shown(choice: hostedChief.choice) }
+    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
+    /// whenever it is the default Chief: ``prefersLocalChief``).
+    var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
+    /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
+    var localChiefRunning = false
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
     /// The one-time copy of this Mac's Chief into the Hosted Chief and its brain check (HomeService+HostedChief).
     @ObservationIgnored let hostedChief = HostedChiefMigration()
     @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// Re-runs the Chief tab check when Settings > Chief's Engine changes (HomeService+ChiefDefault).
+    @ObservationIgnored var chiefEngineObservation: Task<Void, Never>?
     /// The shared Home core over the local owner (home-mac.md): the native
     /// transcript of every conversation tab reads this one store.
     /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
@@ -206,6 +211,7 @@ final class HomeService {
                 if homeWasOpened { publishAppLinks() }
             }
         }
+        observeChiefEngine()
         startCloud()
         // task-owner: lives as long as the service; event-driven (Observation)
         homeStore.start()
