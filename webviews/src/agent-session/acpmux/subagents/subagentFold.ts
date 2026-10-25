@@ -235,6 +235,8 @@ export class SubagentFold {
     const known = this.runs.get(call);
     if (kind === "background_task_update") {
       const agent = known ? this.agents.get(known) : undefined;
+      // A `--parent` call still waiting for its child's start that ended starts none.
+      if (!agent && ["completed", "failed", "stopped"].includes(update.state)) this.parentCalls.delete(call);
       if (!agent) return false;
       const state = update.state;
       const failed = state === "failed" || (Number.isInteger(update.exitCode) && update.exitCode !== 0);
@@ -334,11 +336,11 @@ export class SubagentFold {
     if (record.event === "started") return this.startChild(record, child);
     const agent = record.event === "turn_ended" ? this.agents.get(this.children.get(child) ?? "") : undefined;
     if (!agent) return undefined;
+    // Each turn's end says the whole of it: a turn that said nothing has no reply, not the last one's.
     const said = text(record.result?.reply) ?? text(record.result?.error);
-    if (said) {
-      agent.result = said;
-      this.recorded.add(agent.id);
-    }
+    if (said) agent.result = said;
+    else delete agent.result;
+    this.recorded.add(agent.id);
     agent.state = record.state === "done" ? "completed" : record.state === "cancelled" ? "cancelled" : "failed";
     agent.endedAt = event.at;
     this.ended.add(agent.id);
@@ -354,14 +356,11 @@ export class SubagentFold {
     // prompt in a file) stays its command.
     const name = text(record.shortName);
     const asked = promptKey(record.prompt);
-    let call: string | undefined;
-    for (const [id, pending] of this.parentCalls) {
-      const named = pending.run.session !== undefined && pending.run.session === name;
-      if (named || (asked !== undefined && promptKey(pending.run.prompt) === asked)) {
-        call = id;
-        break;
-      }
-    }
+    // A name is the surer of the two: any call it names wins over one only its prompt matches.
+    const calls = [...this.parentCalls];
+    const call =
+      calls.find(([, pending]) => name !== undefined && pending.run.session === name)?.[0] ??
+      calls.find(([, pending]) => asked !== undefined && promptKey(pending.run.prompt) === asked)?.[0];
     const pending = call !== undefined ? this.parentCalls.get(call) : undefined;
     if (call === undefined || !pending) return undefined;
     this.parentCalls.delete(call);

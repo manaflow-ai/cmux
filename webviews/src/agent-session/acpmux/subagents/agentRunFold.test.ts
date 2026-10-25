@@ -185,6 +185,10 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
   // A later turn that failed says so.
   child(fold, 5, { event: "turn_ended", state: "failed", result: { state: "failed", error: "model at capacity" } });
   expect(fold.all()[0]).toMatchObject({ state: "failed", result: "model at capacity" });
+  // A turn that said nothing has no reply.
+  child(fold, 6, { event: "turn_ended", state: "cancelled", result: { state: "cancelled" } });
+  expect(fold.all()[0]!.state).toBe("cancelled");
+  expect(fold.all()[0]!.result).toBeUndefined();
 });
 
 test("a child of the chat's own family, or one no call of the chat started, is not a run", () => {
