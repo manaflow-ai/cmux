@@ -26,13 +26,13 @@ import {
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  MIN_GUTTER,
   MIN_PROMPTS,
   minimapTurns,
-  RAIL_LEFT,
+  NARROW_TICK,
   railFade,
   railFades,
   railHeight,
+  railPlacement,
   railScrollTop,
   railTop as railTopAt,
   ROW_PITCH,
@@ -186,8 +186,10 @@ export function ThreadMinimap({
   const onScreen = visibleTurns(turns, layout.tops, layout.totalHeight, top, viewportHeight);
   /// Never shorter than the prompts on screen, so the band always draws whole (model.ts railHeight).
   const height = railHeight(turns.length, windowHeight, viewportHeight, foot, onScreen.last - onScreen.first + 1);
-  // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail.
-  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && gutter(width) >= MIN_GUTTER && height >= ROW_PITCH;
+  // A view with no room for a single row (the transcript is at least 96 px tall) draws no rail. A
+  // narrow pane draws it too, minimal until the pointer or focus is on it (model.ts railPlacement).
+  const shown = arm === "compact" && turns.length >= MIN_PROMPTS && height >= ROW_PITCH;
+  const placement = railPlacement(gutter(width));
   const overflow = turns.length * ROW_PITCH > height;
 
   /// What the handlers below read: the turns and layout as of the last commit.
@@ -575,6 +577,18 @@ export function ThreadMinimap({
   };
   const railTop = railTopAt(height, viewportHeight, foot);
   const fades = railFades(onScreen, turns.length, height, listTop);
+  // A narrow rail draws the full wave while the pointer, a scrub, keyboard focus or its card is on
+  // it, and rests minimal otherwise: shorter ticks in a strip that stops short of the text, so it
+  // takes no pointer from the chat. The change is one frame (width, tick length); the ticks' own
+  // spring and the backdrop's fade are CSS transitions that end at their target, and neither runs
+  // under Reduce Motion (threadMinimap.css).
+  const expanded = hovered !== undefined || focused !== undefined || scrubbing || showCard;
+  const minimal = placement.narrow && !expanded;
+  // The row the magnify centers on: the hovered one, or, in a narrow rail with the pointer gone to
+  // the card, the row the card previews, so the card-held state stays the full wave and not 6 px
+  // ticks in the 36 px box (#24525 review round 1). The wide rail eases its ticks back to rest
+  // there, its previewed prompt lit, as #24058 shipped.
+  const magnified = hovered ?? (placement.narrow && showCard ? cardRow : undefined);
   const cardMarked = cardTurn ? marks.has(cardTurn) : false;
   const cardTop =
     cardRow === undefined
@@ -588,13 +602,15 @@ export function ThreadMinimap({
         aria-label={t("minimap.label")}
         style={
           {
-            left: RAIL_LEFT,
+            left: placement.left,
             top: railTop,
-            width: ROW_WIDTH,
+            width: minimal ? placement.restWidth : ROW_WIDTH,
             height,
             "--acpmux-minimap-lit": lit,
           } as React.CSSProperties
         }
+        data-narrow={placement.narrow || undefined}
+        data-expanded={(placement.narrow && expanded) || undefined}
         data-hovering={hovered !== undefined || undefined}
         data-scrubbing={scrubbing || undefined}
         data-reduce={reduce || undefined}
@@ -674,8 +690,9 @@ export function ThreadMinimap({
           <TickList
             ticks={ticks}
             sessionId={sessionId}
-            hovered={hovered}
+            hovered={magnified}
             focused={focused}
+            minimal={minimal}
             active={active}
             first={onScreen.first}
             last={onScreen.last}
@@ -689,7 +706,7 @@ export function ThreadMinimap({
         <PreviewCard
           ref={card}
           id={cardId}
-          x={RAIL_LEFT + ROW_WIDTH}
+          x={placement.left + ROW_WIDTH}
           y={cardTop}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
@@ -723,6 +740,7 @@ const TickList = memo(function TickList({
   sessionId,
   hovered,
   focused,
+  minimal,
   active,
   first,
   last,
@@ -732,8 +750,11 @@ const TickList = memo(function TickList({
 }: {
   ticks: readonly MinimapTickRow[];
   sessionId: string | undefined;
+  /// The row the magnify centers on (the hovered one, or a narrow rail's held card's).
   hovered: number | undefined;
   focused: number | undefined;
+  /// A resting narrow rail (model.ts railPlacement): every tick short.
+  minimal: boolean;
   active: number | undefined;
   /// The band: the prompts on screen.
   first: number;
@@ -751,6 +772,7 @@ const TickList = memo(function TickList({
       index={index}
       last={ticks.length - 1}
       progress={hovered !== undefined ? tickProgress(index - hovered) : index === focused ? 1 : 0}
+      minimal={minimal}
       active={index === active}
       current={index >= first && index <= last}
       marked={marks.has(tick)}
@@ -778,6 +800,7 @@ const Tick = memo(function Tick({
   index,
   last,
   progress,
+  minimal,
   active,
   current,
   marked,
@@ -788,6 +811,8 @@ const Tick = memo(function Tick({
   index: number;
   last: number;
   progress: number;
+  /// A resting narrow rail: the short tick (model.ts NARROW_TICK).
+  minimal: boolean;
   active: boolean;
   current: boolean;
   marked: boolean;
@@ -795,7 +820,7 @@ const Tick = memo(function Tick({
   label: string;
   actions: TickActions;
 }) {
-  const length = tickLength(progress);
+  const length = minimal ? NARROW_TICK : tickLength(progress);
   return (
     <MinimapTick
       type="button"
