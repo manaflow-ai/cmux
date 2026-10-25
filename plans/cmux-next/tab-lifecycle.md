@@ -60,18 +60,23 @@ tab's page window covers the pane (`foreign_pages`).
   strip at once and queues `showSelected` on the frame scheduler, so holding
   Ctrl-Tab creates, attaches or reveals content only for the tab selected
   when the frame runs.
-- Terminal warm set sized by memory (`WarmSetBudget`: 1/128 of RAM at 48 MB a
-  surface, 4 to 12 hidden surfaces; pressure warning 4, critical 0). Browser
+- Terminal warm set sized by memory (`WarmSetBudget`: 1/64 of RAM at 48 MB a
+  surface, 8 to 24 hidden surfaces; pressure warning 6, critical 0). Browser
   pages no longer count in (or evict terminals from) that LRU; hibernation
-  manages their memory.
+  manages their memory. The planned budget from RAM is
+  [memory-DESIGN.md](memory-DESIGN.md) section 2.
 - Workspace switches park the previous workspace (`WindowController.parked`):
   its layout view leaves the window but its panes stay in the keep-alive
   band (mounted, paused, never evicted). Switching back swaps the view in
   within the frame: no pane controller rebuild, no surface re-attach, no
-  blank frame. Budget: at most 8 parked workspaces per window and as many
-  parked panes in total as the terminal warm set (4 to 12); pressure warning
-  one workspace of up to 2 panes, critical none. Many small workspaces stay
-  warm; a few large ones do not crowd memory.
+  blank frame. Budget: none. Since 6f04ec90105 (2026-10-17) a window keeps
+  every workspace it showed mounted; only their hidden terminal surfaces
+  leave, through the warm set above. Critical pressure tears down every
+  parked workspace except the one under a top page and the ones on screen
+  beside the shown one (`sidebar.multiView`), all in one main-thread turn
+  (`WindowController.releaseParked`). The planned LRU of `parkedWorkspaces`
+  with a 15 min idle timeout and sliced release is in
+  [memory-DESIGN.md](memory-DESIGN.md) section 5 (tasks 032 and 096).
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20
