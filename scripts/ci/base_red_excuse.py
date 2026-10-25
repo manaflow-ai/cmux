@@ -166,17 +166,28 @@ FILE_EXTENSIONS = frozenset(
 TEST_MARK = re.compile(r"\bfail\w*|\(fail\)|\bnot ok\b|assert|traceback|panick|✘|✗|✕|×", re.IGNORECASE)
 # Any line that reports an error; each must name a file.
 ERRORISH = re.compile(r"##\[error\]|\berrors?\b|\bfatal\b|\bexceptions?\b", re.IGNORECASE)
-# Check code, workflows, baselines and allowlists decide what a check reports without the
-# report naming them, and build inputs (manifests, lockfiles, project, container and tool
-# config) change what every file builds to: a pull request changing one is never excused by files.
+# A pull request may be excused by files only when every file it changes is source a check
+# reads, never what decides how checks run or what files build to. Check code, workflows,
+# baselines and allowlists decide what a check reports without the report naming them, and
+# build inputs (manifests, lockfiles, project, container and tool config, any dotfile) change
+# what every file builds to. Rather than list every such input, only source-type files outside
+# dot folders are allowed, minus the build inputs written in a source language.
+SOURCE_EXTENSIONS = frozenset(
+    "swift m mm h c cc cpp hpp rs zig go py rb js mjs cjs jsx ts tsx mts cts css scss html vue svelte md "
+    "png jpg jpeg gif svg pdf webp ico ttf otf xcstrings strings xib storyboard".split())
 GUARDED = re.compile(
-    r"^(?:\.github|tests|config)/|(?:^|/)scripts/|baseline|allowlist|(?:^|/)(?:package\.json|Package\.swift|"
-    r"Package\.resolved|Cargo\.toml|Cargo\.lock|go\.(?:mod|sum)|Makefile|CMakeLists\.txt|project\.yml|"
-    r"Gemfile(?:\.lock)?|Podfile(?:\.lock)?|tsconfig[^/]*\.json|[^/]*\.config\.[cm]?[jt]s|vercel\.json|"
-    r"Dockerfile[^/]*|[^/]*requirements[^/]*\.txt|pyproject\.toml|setup\.(?:py|cfg)|\.npmrc|\.nvmrc|"
-    r"\.tool-versions|build\.zig(?:\.zon)?)$|\.(?:lock|lockb|toml|ya?ml|xcconfig|pbxproj|entitlements)$|"
-    r"-lock\.(?:json|ya?ml)$|\.xcodeproj/|\.xcworkspace/",
+    r"^(?:\.github|tests|config)/|(?:^|/)scripts/|(?:^|/)\.|baseline|allowlist|(?:^|/)(?:Package\.swift|"
+    r"[^/]*\.config\.[cm]?[jt]s|build\.zig|setup\.py|conftest\.py|noxfile\.py|Rakefile|Fastfile)$",
     re.IGNORECASE)
+
+
+def guarded(path: str) -> bool:
+    """Whether a changed file can change what a check reports without the report naming it."""
+    name = path.rsplit("/", 1)[-1]
+    extension = name.rsplit(".", 1)[-1].lower() if "." in name.strip(".") else ""
+    return bool(GUARDED.search(path)) or extension not in SOURCE_EXTENSIONS
+
+
 EXIT_LINE = re.compile(r"##\[error\]Process completed with exit code")
 RED_CHECK = re.compile(r"##\[error\]red check: ")
 # GitHub lists at most 3000 files of a pull request.
@@ -396,12 +407,13 @@ def reported_red(log: str) -> list[str]:
     found, echo = [], False
     for text in lines_of(log):
         text = ANSI.sub("", text)
-        if text.startswith("##[group]"):
+        if text.startswith("##[group]Run "):
             echo = True
         elif text.startswith("##[endgroup]"):
             echo = False
-        elif not echo and AGGREGATE_LINE.match(text):
-            found.append(text.rsplit(":", 1)[0])
+        elif not echo and AGGREGATE_LINE.match(text.removeprefix("##[group]")):
+            # A nested group is output, not the step's script: a red it reports is judged too.
+            found.append(text.removeprefix("##[group]").rsplit(":", 1)[0])
     return sorted(set(found))
 
 
@@ -513,7 +525,9 @@ def file_paths(text: str) -> set[str]:
     """The files a line names, each token taken whole (`assets/Foo@2x.png`, never `2x.png`)."""
     found = set()
     for token in TOKEN.findall(text) + QUOTED.findall(text):
-        token = re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
+        if re.search(r"[A-Za-z][\w+.-]*:/|^www\.", token):
+            continue  # a URL is somewhere else, not a file of this repository
+        token =re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
         name = token.rsplit("/", 1)[-1]
         if "." not in name.strip("."):
             continue
@@ -534,8 +548,8 @@ def outside_the_diff(job: dict, log: str, changed: set[str]) -> list[str]:
     is never excused this way. The summary step that only lists the other steps' reds
     (`red check: X`) is skipped."""
     name = job.get("name", "")
-    if guarded := sorted(path for path in changed if GUARDED.search(path)):
-        raise Refused(f"it changes check code, a baseline or a build input ({guarded[0]}), which can move "
+    if guarded_paths := sorted(path for path in changed if guarded(path)):
+        raise Refused(f"it changes check code, a baseline or a build input ({guarded_paths[0]}), which can move "
                       "a finding without the finding naming it")
     lines = step_lines(log)
     blocks = {step for step, _ in lines if step.startswith(f"{UNKNOWN_STEP} ")}

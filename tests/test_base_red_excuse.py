@@ -1093,7 +1093,7 @@ class LogOfARunStillGoing(unittest.TestCase):
 
 WEB = "cmux-next web bundles (source-keyed cache)"
 WEB_STEP = "Build web bundles"
-CSS_ERROR = ("error: the agent pane imports webviews/src/summary/WorkflowCard.css but build-agent-pane-web.sh "
+CSS_ERROR = ("error: the agent pane imports webviews/src/summary/WorkflowCard.css but build-agent-pane-web.ts "
              "does not add it to the page's styles")
 PR_NUMBER = 24997
 
@@ -1144,7 +1144,7 @@ class OutsideTheDiff(unittest.TestCase):
 
     def test_a_named_file_a_bare_name_or_a_renamed_file_the_pr_changes_blocks(self):
         for changed in ({"filename": "webviews/src/summary/WorkflowCard.css"},
-                        {"filename": "webviews/build-agent-pane-web.sh"},
+                        {"filename": "webviews/agent-pane/build-agent-pane-web.ts"},
                         {"filename": "webviews/src/summary/Card.css",
                          "previous_filename": "webviews/src/summary/WorkflowCard.css"}):
             self.files = [changed]
@@ -1234,6 +1234,27 @@ class OutsideTheDiff(unittest.TestCase):
         job = failed_job(1, 10, HEAD, name=CHECKS, step=L10N)
         nested = l10n_log(1, "##[group]check-x: 1 finding", f"{XCSTRINGS}:new.key: missing uk", "##[endgroup]")
         self.assertIn(f"{XCSTRINGS}:new.key: missing uk", excuse.printed(job, nested))
+
+    # Third review round of #25036.
+    def test_a_url_is_no_file(self):
+        self.assertEqual(excuse.file_paths("fetching https://cdn.example.com/assets/Old.ts failed? no: "
+                                           "'http://x.dev/a.css' www.example.com/b.js"), set())
+        self.gh.logs[1] = self.web_log("error: could not load https://cdn.example.com/assets/Old.ts")
+        with self.assertRaisesRegex(excuse.Refused, "error naming no file"):
+            self.judge()
+
+    def test_a_status_job_reporting_a_red_inside_a_nested_group_judges_it(self):
+        text = log("web / Web status", "Check", "##[group]Run python3 - <<'PY'", "##[endgroup]",
+                   "##[group]react-apps-check: failure", "details", "##[endgroup]", "web-lint: failure")
+        self.assertEqual(excuse.reported_red(text), ["react-apps-check", "web-lint"])
+
+    def test_only_source_files_outside_dot_folders_may_be_excused_by_files(self):
+        for path in (".xcode-version", "biome.json", "web/.oxlintrc.json", "Makefile", "webviews/a.yaml",
+                     "cmux-tui/rust-toolchain"):
+            self.assertTrue(excuse.guarded(path), path)
+        for path in ("webviews/src/A.tsx", "Packages/macOS/CmuxNext/Sources/A/B.swift", "cmux-tui/src/lib.rs",
+                     "Packages/macOS/CmuxNext/Tests/ATests/ATests.swift"):
+            self.assertFalse(excuse.guarded(path), path)
 
     def test_a_pr_changing_a_build_input_blocks(self):
         for path in ("web/vercel.json", "Dockerfile", "cmux-tui/scripts/requirements-windows-conpty.txt",
