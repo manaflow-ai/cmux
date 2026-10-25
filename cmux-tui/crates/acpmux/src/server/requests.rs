@@ -524,6 +524,7 @@ async fn dispatch_request(
         method::MUX_RESOLVE => hub.locate(
             str_param(&params, "query")
                 .ok_or_else(|| RpcError::invalid_params("query is required"))?,
+            params.get("bead").and_then(Value::as_bool) == Some(true),
         ),
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {

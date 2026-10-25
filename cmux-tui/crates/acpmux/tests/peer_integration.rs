@@ -2233,4 +2233,14 @@ async fn a_bead_linked_to_a_peers_session_resolves_to_it() {
     assert_eq!(r["session"]["beads"], json!(["cx-ab1.2"]), "{r}");
     let r = ca.call("_acpmux/resolve", json!({"query": "b/bead-lane"})).await.unwrap();
     assert_eq!(r["session"]["beads"], json!(["cx-ab1.2"]), "{r}");
+
+    // A session named like the bead answers a plain lookup; `bead ls` (bead only) still finds
+    // the session carrying it.
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "cx-ab1.2"}}});
+    ca.call(method::SESSION_NEW, new).await.unwrap();
+    let r = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2"})).await.unwrap();
+    assert_eq!(r["session"]["name"], "cx-ab1.2", "{r}");
+    let r = ca.call("_acpmux/resolve", json!({"query": "cx-ab1.2", "bead": true})).await.unwrap();
+    assert_eq!(r["session"]["qualifiedSessionId"], format!("b/{far}"), "{r}");
+    assert_eq!(r["matches"].as_array().unwrap().len(), 1, "{r}");
 }

@@ -16,9 +16,15 @@ pub enum BeadCmd {
     Link { session: String, ids: Vec<String> },
     /// Unlink beads from SESSION.
     Unlink { session: String, ids: Vec<String> },
-    /// A session's beads, or the sessions a bead id is linked to (here or on a peer).
+    /// The sessions bead ID is linked to (here or on a peer); with --session, SESSION's beads.
     #[command(alias = "list")]
-    Ls { query: String },
+    Ls {
+        /// A bead id, or with --session a session.
+        query: String,
+        /// QUERY is a session: list its beads.
+        #[arg(long)]
+        session: bool,
+    },
 }
 
 /// Links `ids` to session `key` (none: nothing to do). Each is checked first.
@@ -48,8 +54,12 @@ pub async fn run(cmd: BeadCmd, json_out: bool) -> Result<()> {
                 client.request(method::MUX_TAG, json!({"sessionId": key, "remove": remove})).await?
             }
         }
-        BeadCmd::Ls { query } => {
+        BeadCmd::Ls { query, session: true } => {
             client.request(method::MUX_RESOLVE, json!({"query": expand(query)?})).await?
+        }
+        BeadCmd::Ls { query, session: false } => {
+            crate::beads::checked(std::slice::from_ref(query))?;
+            client.request(method::MUX_RESOLVE, json!({"query": query, "bead": true})).await?
         }
     };
     if json_out {
@@ -57,8 +67,7 @@ pub async fn run(cmd: BeadCmd, json_out: bool) -> Result<()> {
         return Ok(());
     }
     match cmd {
-        // A bead id the sessions carry: those sessions.
-        BeadCmd::Ls { query } if carries(&reply["session"], &query) => {
+        BeadCmd::Ls { session: false, .. } => {
             for s in reply["matches"].as_array().into_iter().flatten() {
                 let text = |k: &str| s[k].as_str().unwrap_or_default().to_owned();
                 println!("{}  ({}, {})", text("name"), text("host"), text("status"));
@@ -68,11 +77,6 @@ pub async fn run(cmd: BeadCmd, json_out: bool) -> Result<()> {
         _ => print_beads(&crate::beads::of_tags(&reply["tags"])),
     }
     Ok(())
-}
-
-/// Whether the session `card` (`_acpmux/resolve`'s) carries bead `id`.
-fn carries(card: &Value, id: &str) -> bool {
-    card["beads"].as_array().is_some_and(|ids| ids.iter().any(|b| b == id))
 }
 
 fn print_beads(ids: &[String]) {

@@ -9,8 +9,8 @@ use serde_json::Value;
 /// The tag key prefix of a linked bead.
 pub const TAG_PREFIX: &str = "bead:";
 
-/// A tracker id: a prefix (letters, digits, `-`), `-`, a hash, then any `.N` child steps
-/// (`cx-cus7j.230`), at most 64 characters.
+/// A tracker id: a prefix (letters, digits, `-`), `-`, a hash, then any child steps of letters
+/// and digits (`cx-cus7j.230`, `cx-0op.M1a`), at most 64 characters.
 pub fn is_bead_id(s: &str) -> bool {
     let mut steps = s.split('.');
     let head = steps.next().unwrap_or_default();
@@ -20,7 +20,7 @@ pub fn is_bead_id(s: &str) -> bool {
         && prefix.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
         && !hash.is_empty()
         && hash.chars().all(|c| c.is_ascii_alphanumeric())
-        && steps.all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()))
+        && steps.all(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric()))
 }
 
 /// `bead:<id>`, the tag that links bead `id`.
@@ -57,10 +57,10 @@ mod tests {
 
     #[test]
     fn tracker_ids_are_bead_ids() {
-        for id in ["cx-cus7j", "cx-cus7j.230", "cx-ncc.112.129", "agent-tasks-a1"] {
+        for id in ["cx-cus7j", "cx-cus7j.230", "cx-ncc.112.129", "cx-0op.M1a", "agent-tasks-a1"] {
             assert!(is_bead_id(id), "{id}");
         }
-        for not in ["review", "cx-", "-abc", "cx-abc.", "cx-abc.x", "cx abc", "1x-abc", "a/b-c"] {
+        for not in ["review", "cx-", "-abc", "cx-abc.", "cx-abc..1", "cx-a_b", "cx abc", "1x-abc", "a/b-c"] {
             assert!(!is_bead_id(not), "{not}");
         }
     }

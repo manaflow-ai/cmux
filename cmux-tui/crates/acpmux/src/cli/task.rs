@@ -90,7 +90,7 @@ pub enum BriefsCmd {
 }
 
 pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
-    // The session a new task's beads link, once the task is given.
+    // The session a new task's beads link.
     let mut beads = None;
     let (m, params) = match cmd {
         TaskCmd::New { session, title, stop, beads: ids, brief } => {
@@ -113,10 +113,12 @@ pub async fn run(cmd: TaskCmd, json_out: bool) -> Result<()> {
         }
     };
     let client = crate::daemon::connect(true).await?;
-    let reply = client.request(m, params).await?;
+    // Linked before the task is given, so the agent never starts on it unlinked, and a failed
+    // link gives no task. A failed task leaves only the link, which a retry sets again.
     if let Some((session, ids)) = beads {
         crate::cli::beads::link(&client, &session, &ids).await?;
     }
+    let reply = client.request(m, params).await?;
     if json_out {
         print_json(&reply);
     } else if let Some(rows) = reply["tasks"].as_array() {
