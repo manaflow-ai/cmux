@@ -41,6 +41,7 @@ import {
 import { liftInlineImages } from "./inlineImages";
 import { primeSentImages } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
+import { carryMarks } from "./resendInline";
 import { isInterleaved, normalizePromptContentPart } from "./conversation/promptContent";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
@@ -1311,6 +1312,10 @@ export class AcpmuxDirectClient {
   private optimisticPromptInlineParts = new Map<string, PromptContentPart[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
   private retryAttachments = new Map<string, ComposerAttachment[]>();
+  /// The input a prompt placed attachments in went with (its marks), by prompt id until its echo,
+  /// then by row: Retry and Edit and Resend send it again in its order (`resendPrompt`).
+  private optimisticPromptInputs = new Map<string, string>();
+  private retryInputs = new Map<string, string>();
   /// What a prompt's sender is told once acpmux took the prompt (its `user_message` echo, or the
   /// reply), by prompt id. A refusal comes before either, so the composer keeps the prompt.
   private promptAccepts = new Map<string, () => void>();
@@ -1824,6 +1829,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
     this.optimisticPromptInlineParts.clear();
+    this.optimisticPromptInputs.clear();
     this.queuedSends.clear();
     this.waitingSteers = [];
     this.interrupting = undefined;
@@ -1833,6 +1839,7 @@ export class AcpmuxDirectClient {
     this.steerRows.clear();
     this.promptsShown.clear();
     this.retryAttachments.clear();
+    this.retryInputs.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
     this.offerRows.clear();
@@ -3420,6 +3427,9 @@ export class AcpmuxDirectClient {
         if (fallbackPromptId) {
           const attachments = this.optimisticPromptAttachments.get(fallbackPromptId);
           if (attachments?.length) this.retryAttachments.set(`user-${event.seq}`, attachments);
+          const sentInput = this.optimisticPromptInputs.get(fallbackPromptId);
+          if (sentInput !== undefined) this.retryInputs.set(`user-${event.seq}`, sentInput);
+          this.optimisticPromptInputs.delete(fallbackPromptId);
           this.optimisticPromptAttachments.delete(fallbackPromptId);
           this.optimisticPromptInlineParts.delete(fallbackPromptId);
           // This pane's prompt reached the agent: its row (now acpmux's) shows it read.
@@ -4101,6 +4111,7 @@ export class AcpmuxDirectClient {
     if (attachments.length) {
       this.optimisticPromptAttachments.set(promptId, attachments);
       if (inlineParts) this.optimisticPromptInlineParts.set(promptId, inlineParts);
+      if (inlineParts) this.optimisticPromptInputs.set(promptId, input);
       // The sent bubble draws these images from the pane's own bytes, at their shape, the moment
       // acpmux's echo names them (conversation/imageEntries.ts).
       void primeSentImages(attachments);
@@ -4233,10 +4244,9 @@ export class AcpmuxDirectClient {
       if (this.queue.some((entry) => entry.id === promptId))
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
       this.queuedSends.delete(promptId);
-      this.optimisticPromptAttachments.delete(promptId);
-      // Keep ordered parts until the user_message echo settles the durable row. A queued request
-      // resolves before that echo, and dropping this map here would make the eventual transcript
-      // fall back to the legacy images-above-text layout.
+      // Keep ordered parts, draft input and attachment payloads until user_message settles the
+      // durable row. A queued request can resolve first; Retry still needs the original draft,
+      // including pasted text that the daemon's echo flattens into the visible words.
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
@@ -4272,6 +4282,7 @@ export class AcpmuxDirectClient {
         this.optimisticPromptTexts.delete(promptId);
         this.optimisticPromptAttachments.delete(promptId);
         this.optimisticPromptInlineParts.delete(promptId);
+        this.optimisticPromptInputs.delete(promptId);
         this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
         this.deliveries.delete(promptId);
         // The prompt is still in the composer, so Enter sends it again (no Retry button). A refusal
@@ -4293,6 +4304,7 @@ export class AcpmuxDirectClient {
         this.optimisticPromptTexts.delete(promptId);
         this.optimisticPromptAttachments.delete(promptId);
         this.optimisticPromptInlineParts.delete(promptId);
+        this.optimisticPromptInputs.delete(promptId);
         this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
         this.deliveries.delete(promptId);
         this.emit(refused ? undefined : "failed");
@@ -4331,6 +4343,7 @@ export class AcpmuxDirectClient {
       this.optimisticPromptTexts.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
       this.optimisticPromptInlineParts.delete(promptId);
+      this.optimisticPromptInputs.delete(promptId);
       // The host refused one frame and answered it: the connection is as it was.
       this.emit(refused ? undefined : "failed");
       throw error;
@@ -4464,6 +4477,58 @@ export class AcpmuxDirectClient {
       this.deliveries.delete(promptId);
     }
     this.emit();
+  }
+  /// Prompt row `rowId` as it goes again (Retry, Retry With, Edit and Resend), `text` its words as
+  /// shown or edited: with its attachments, those it placed in its text in their places among the
+  /// words (attachments.ts carryMarks), so the agent gets it in the order it was written. A prompt
+  /// this page did not send keeps that order from the row's ordered parts, its images read back.
+  async resendPrompt(rowId: string, text: string): Promise<{ input: string; attachments: ComposerAttachment[] }> {
+    const row = this.rows.get(rowId);
+    const kept = this.retryAttachments.get(rowId);
+    const sent = this.retryInputs.get(rowId);
+    // The echo contains text from pasted/file chips. Retry uses the original draft and chips,
+    // rather than adding those echoed words to the same chips a second time.
+    if (sent !== undefined && kept && hasInlineMarks(sent, kept)) {
+      if (text === (row?.resend ?? row?.text)) return { input: sent, attachments: kept };
+      const attachments: ComposerAttachment[] = [];
+      const template = orderedDraftParts(sent, kept)
+        .map((part) => {
+          if (part.type === "text") return part.text;
+          const attachment = part.attachment;
+          // The plain message editor edits these words itself. Keep them as text on resend;
+          // retaining the chip would duplicate its old contents after the edited text.
+          if (attachment.kind === "pasted") return attachment.text ?? "";
+          if (attachment.kind === "text") return promptText("", [attachment]);
+          attachments.push({ ...attachment, inline: true });
+          return INLINE_ATTACHMENT_MARK;
+        })
+        .join("");
+      return { input: carryMarks(template, text), attachments };
+    }
+    const attachments = await this.promptAttachments(rowId);
+    const parts = row?.inlineParts;
+    if (!parts?.some((part) => part.kind === "image") || this.retryAttachments.has(rowId))
+      return { input: text, attachments };
+    // Read back: each image part names the image acpmux keeps (promptAttachments' `sent-` ids).
+    const byId = new Map(attachments.map((attachment) => [attachment.id, attachment]));
+    const placed: ComposerAttachment[] = [];
+    const marked = parts
+      .map((part) => {
+        if (part.kind === "text") return part.text;
+        const attachment = part.kind === "image" ? byId.get(`sent-${part.id}`) : undefined;
+        if (!attachment || placed.includes(attachment)) return "";
+        placed.push(attachment);
+        return INLINE_ATTACHMENT_MARK;
+      })
+      .join("");
+    if (!placed.length) return { input: text, attachments };
+    return {
+      input: carryMarks(marked, text),
+      attachments: [
+        ...placed.map((attachment) => ({ ...attachment, inline: true })),
+        ...attachments.filter((attachment) => !placed.includes(attachment)),
+      ],
+    };
   }
   /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
   /// its images read back from acpmux (a prompt sent before a reload, or from another window).

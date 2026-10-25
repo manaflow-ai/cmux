@@ -5136,12 +5136,12 @@ function AcpmuxPane() {
         },
       }),
       ...(connected && {
+        // Its attachments placed in its text keep their places (direct.ts resendPrompt).
         retry: (rowId: string, prompt: string) =>
-          void (async () =>
-            callNative("chat.send", {
-              text: prompt,
-              attachments: (await directClient.current?.promptAttachments(rowId)) ?? [],
-            }))().catch(() => undefined),
+          void (async () => {
+            const again = await directClient.current?.resendPrompt(rowId, prompt);
+            return callNative("chat.send", { text: again?.input ?? prompt, attachments: again?.attachments ?? [] });
+          })().catch(() => undefined),
       }),
       // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
       // reader's prompt and starts the next turn, or queues behind one already sent. Like Restart
@@ -5184,6 +5184,9 @@ function AcpmuxPane() {
             takeBackSteer(row, {
               withdraw: (promptId) => editQueued(promptId, { op: "withdraw" }),
               attachments: (rowId) => directClient.current?.promptAttachments(rowId) ?? Promise.resolve([]),
+              draft: (rowId, text) =>
+                directClient.current?.resendPrompt(rowId, text) ??
+                Promise.reject(new Error(translate("error.notOpen"))),
               restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
             }),
         }),
@@ -6926,7 +6929,8 @@ function AcpmuxPane() {
               const live = summary?.sessionId ? { sessionId: summary.sessionId, model: summary.model } : undefined;
               if (!(await harnessSwitch.pickModel(next, live))) return;
             }
-            await send(String(prompt ?? ""), await client.promptAttachments(String(rowId ?? "")));
+            const again = await client.resendPrompt(String(rowId ?? ""), String(prompt ?? ""));
+            await send(again.input, again.attachments);
           },
           // Edit and Resend (the message menu): the prompt goes back into the composer, before
           // anything typed since, with the caret in it.
@@ -7002,7 +7006,8 @@ function AcpmuxPane() {
           // edited text with the prompt's attachments; the original chat stays as it was.
           "chat.editResend": async ({ rowId, throughSeq, text }) => {
             harnessSwitch.cancel();
-            const attachments = await client.promptAttachments(String(rowId ?? ""));
+            // The edited words with the prompt's attachments, those placed in its text where they were.
+            const again = await client.resendPrompt(String(rowId ?? ""), String(text ?? ""));
             // A fork's own edited prompt edits again from the chat it was forked from, at the same
             // turn, so every version of the prompt is a sibling (conversation/branches.ts).
             const current = snapshotRef.current;
@@ -7017,7 +7022,7 @@ function AcpmuxPane() {
             await persistSession(forked);
             // The reader may open another chat while the fork is saved: the edit belongs to the fork.
             if (client.selectedSession !== forked) return false;
-            await send(String(text ?? ""), attachments);
+            await send(again.input, again.attachments);
             return true;
           },
           // `/btw <question>`: acpmux starts the side session; the composer then opens it.
