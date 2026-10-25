@@ -19,7 +19,7 @@ public nonisolated struct SidebarDocHostGroupPlan {
         if on {
             ops = Self.markOps(id: id, session: session, records: records)
         } else {
-            ops = records.sections[id]?.hostGroup == true ? [["op": "section.update", "id": id, "patch": ["host_group": false]]] : []
+            ops = records.sections[id]?.hostGroup == true ? [["op": "section.update", "id": id, "patch": ["host_group": false, "host_group_opt_out": true]]] : []
         }
     }
 
@@ -30,7 +30,7 @@ public nonisolated struct SidebarDocHostGroupPlan {
 
     private static func markOps(id: String, session: String, records: SidebarDocRecords) -> [[String: Any]] {
         if let section = records.sections[id] {
-            return section.hostGroup ? [] : [["op": "section.update", "id": id, "patch": ["host_group": true]]]
+            return section.hostGroup ? [] : [["op": "section.update", "id": id, "patch": ["host_group": true, "host_group_opt_out": false]]]
         }
         return [["op": "section.add", "section": ["id": id, "kind": ["type": "machine", "session_id": session], "host_group": true]]]
     }

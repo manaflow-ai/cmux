@@ -1,4 +1,5 @@
 import CmuxNextDesign
+@testable import CmuxNextApp
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -34,10 +35,12 @@ import Testing
     }
 
     @Test func theDocumentMarksItsRemoteGroups() throws {
-        let json = #"{"revision":3,"sections":[{"id":"sec_m_mini","kind":{"type":"machine","session_id":"mini"},"scroll":"flow","host_group":true},{"id":"sec_m_vm","kind":{"type":"machine","session_id":"vm"},"scroll":"flow"}],"items":[]}"#
+        let json = #"{"revision":3,"sections":[{"id":"sec_m_mini","kind":{"type":"machine","session_id":"mini"},"scroll":"flow","host_group":true},{"id":"sec_m_vm","kind":{"type":"machine","session_id":"vm"},"scroll":"flow"},{"id":"sec_m_removed","kind":{"type":"machine","session_id":"removed"},"scroll":"flow","host_group_opt_out":true}],"items":[]}"#
         let records = try SidebarDocRecords(document: Data(json.utf8))
         #expect(records.sections["sec_m_mini"]?.hostGroup == true)
         #expect(records.sections["sec_m_vm"]?.hostGroup == false)
+        #expect(records.sections["sec_m_removed"]?.hostGroup == false)
+        #expect(records.sections["sec_m_removed"]?.hostGroupOptOut == true)
     }
 }
 
@@ -47,6 +50,7 @@ struct SidebarDocHostGroupPlanTests {
         guard let hostGroup else { return SidebarDocRecords() }
         var section = SidebarDocSection(id: "sec_m_mini", kind: .machine(session: "mini"))
         section.hostGroup = hostGroup
+        section.hostGroupOptOut = hostGroup == false
         return SidebarDocRecords(revision: 1, sections: ["sec_m_mini": section])
     }
 
@@ -56,10 +60,28 @@ struct SidebarDocHostGroupPlanTests {
         #expect(ops.count == 1)
         #expect(op["op"] as? String == "section.update")
         #expect((op["patch"] as? [String: Any])?["host_group"] as? Bool == false)
+        #expect((op["patch"] as? [String: Any])?["host_group_opt_out"] as? Bool == true)
     }
 
     @Test func removingWhatIsNotAGroupDoesNothing() {
         #expect(SidebarDocHostGroupPlan(session: "mini", records: records(hostGroup: false), on: false).ops.isEmpty)
         #expect(SidebarDocHostGroupPlan(session: "mini", records: records(hostGroup: nil), on: false).ops.isEmpty)
+    }
+
+    @Test func markingAnExistingMachineSetsItsHostGroupFlag() throws {
+        let ops = SidebarDocHostGroupPlan(session: "mini", records: records(hostGroup: false), on: true).ops
+        let op = try #require(ops.first)
+        #expect(ops.count == 1)
+        #expect(op["op"] as? String == "section.update")
+        #expect((op["patch"] as? [String: Any])?["host_group"] as? Bool == true)
+        #expect((op["patch"] as? [String: Any])?["host_group_opt_out"] as? Bool == false)
+    }
+
+    @Test func aFreshCloudMachineWaitsForItsCreationSection() {
+        #expect(SidebarBridge.cloudSessionsWithLegacySections(["cloud-vm"], records: SidebarDocRecords()).isEmpty)
+        #expect(SidebarBridge.cloudSessionsWithLegacySections(["mini"], records: records(hostGroup: false)).isEmpty)
+        let legacy = SidebarDocSection(id: "sec_m_mini", kind: .machine(session: "mini"))
+        let legacyRecords = SidebarDocRecords(revision: 1, sections: [legacy.id: legacy])
+        #expect(SidebarBridge.cloudSessionsWithLegacySections(["mini"], records: legacyRecords) == ["mini"])
     }
 }

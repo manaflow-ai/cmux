@@ -237,6 +237,7 @@ final class SidebarBridge {
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         let hadDocDrag = model.docDrag != nil
         model.docDrag = SidebarDocWiring.docMachines(services.machines).drag() // the sidebar document's drag half, nil keeps the older resolver
+        markCloudMachineGroups()
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
         if model.layout != layout { model.layout = layout }
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
@@ -247,6 +248,30 @@ final class SidebarBridge {
         groupFlow.openPendingEditor()
         if seed.isReadyForReveal(sections, launching: launching) { markReadyForReveal() }
         recordSnapshot()
+    }
+
+    /// Ensures every Cloud machine already present when the app starts (or
+    /// restored later from the account list) gets the same host-group header
+    /// as a machine created through `newCloudWorkspace`. A machine section
+    /// must already exist in the confirmed document: a fresh Cloud creation
+    /// owns its first `section.add` in the creation action, and this migration
+    /// takes over after that echo so the two paths cannot race.
+    private func markCloudMachineGroups() {
+        guard model.docDrag != nil, let store = SidebarDocStore.current else { return }
+        let sessions = services.machines.cloud.compactMap { $0.daemon.store.registryID }
+        for session in Self.cloudSessionsWithLegacySections(sessions, records: store.records) {
+            RemoteGroupHandlers.mark(session: session)
+        }
+    }
+
+    /// A fresh Cloud machine's first workspace action owns the missing
+    /// machine-section add. The sidebar migration only handles sections that
+    /// the document has confirmed, preventing two `section.add` intents.
+    static func cloudSessionsWithLegacySections(_ sessions: [String], records: SidebarDocRecords) -> [String] {
+        sessions.filter {
+            guard let section = records.sections["sec_m_\($0)"] else { return false }
+            return !section.hostGroupOptOut
+        }
     }
 
     private func showProfiles(_ profiles: [SidebarProfile], active: SidebarProfileKey?, launching: Bool) {
