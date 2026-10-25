@@ -332,10 +332,11 @@ impl Hub {
         if pm.remote_origin || !full_access_by_cmux(&pm) {
             return false;
         }
-        // Only a folder recorded as it resolves: through a link the agent could point elsewhere
-        // after it started, the folder it runs in is not the one the link names now.
+        // Only a folder recorded as it resolves, or through links only root can change (`/tmp` on
+        // macOS): through a link the agent could point elsewhere after it started, the folder it
+        // runs in is not the one the link names now.
         let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
-        if own != pm.cwd || !cwd.starts_with(&own) {
+        if (own != pm.cwd && !only_root_links(&pm.cwd, 0)) || !cwd.starts_with(&own) {
             return false;
         }
         let family = self.trust_family(&pm.harness).await;
@@ -470,6 +471,46 @@ pub(super) fn full_access_by_cmux(m: &SessionMeta) -> bool {
 
 /// Whether `read` lets a start go on: with the auto-trust rules, or in a Web turn (`web`)
 /// without them.
+/// Whether every link on the way to the absolute `path` (and in its targets) is root's, in a
+/// folder root owns that others cannot write: an agent running as the person cannot point it
+/// elsewhere.
+#[cfg(unix)]
+fn only_root_links(path: &Path, depth: u8) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    use std::path::Component;
+    if depth > 8 || !path.is_absolute() {
+        return false;
+    }
+    let mut at = std::path::PathBuf::new();
+    for part in path.components() {
+        if matches!(part, Component::CurDir | Component::ParentDir) {
+            return false;
+        }
+        at.push(part);
+        let Ok(meta) = std::fs::symlink_metadata(&at) else { return false };
+        if !meta.file_type().is_symlink() {
+            continue;
+        }
+        let Some(folder) = at.parent().map(Path::to_path_buf) else { return false };
+        let Ok(held) = std::fs::metadata(&folder) else { return false };
+        let Ok(target) = std::fs::read_link(&at) else { return false };
+        if meta.uid() != 0 || held.uid() != 0 || held.mode() & 0o022 != 0 {
+            return false;
+        }
+        if !only_root_links(&folder.join(target), depth + 1) {
+            return false;
+        }
+        let Ok(resolved) = std::fs::canonicalize(&at) else { return false };
+        at = resolved;
+    }
+    true
+}
+
+#[cfg(not(unix))]
+fn only_root_links(_path: &Path, _depth: u8) -> bool {
+    false
+}
+
 fn passes(read: &crate::trust::SessionTrust, web: bool) -> bool {
     (if web { read.decided } else { read.level }) == Level::Trusted
 }
@@ -487,4 +528,32 @@ fn declined(key: &str) -> RpcError {
         ),
         key,
     )
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::only_root_links;
+    use std::path::Path;
+
+    #[test]
+    fn a_link_the_person_owns_can_be_pointed_elsewhere() {
+        let root = std::env::temp_dir().join(format!("acpmux-root-links-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(root.join("target")).unwrap();
+        let root = std::fs::canonicalize(&root).unwrap();
+        std::os::unix::fs::symlink(root.join("target"), root.join("link")).unwrap();
+        assert!(!only_root_links(&root.join("link"), 0));
+        assert!(!only_root_links(&root.join("link/sub"), 0));
+        assert!(only_root_links(&root.join("target"), 0));
+        assert!(!only_root_links(Path::new("relative"), 0));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_system_link_only_root_can_change_is_taken() {
+        // macOS's /tmp -> private/tmp; on a system without it there is nothing to check.
+        let tmp = Path::new("/tmp");
+        if std::fs::symlink_metadata(tmp).is_ok_and(|m| m.file_type().is_symlink()) {
+            assert!(only_root_links(tmp, 0));
+        }
+    }
 }

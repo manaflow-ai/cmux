@@ -244,8 +244,10 @@ impl Hub {
         cwd: &Path,
         requested_name: Option<&str>,
     ) -> Result<(), RpcError> {
-        let parent_mode = crate::web_modes::mode_of(pm);
-        let parent_full = self.caller_access(pm) == Access::Full;
+        // The parent's mode as it is now: it may have left full access since the start was checked.
+        let live = parent.meta();
+        let parent_mode = crate::web_modes::mode_of(&live);
+        let parent_full = self.caller_access(&live) == Access::Full;
         // The parent's rules above its policy (which can deny) and the MCP
         // servers the user turned off apply to the child too.
         {
