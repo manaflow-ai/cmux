@@ -845,7 +845,7 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     if (!input || event.button !== 0 || event.target === input) return;
     // The mic and Send at the row's end (Claude Code's split) keep their own press.
-    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area")) return;
+    if (event.target instanceof Element && event.target.closest(".acpmux-chrome-area, .acpmux-newtab-plus")) return;
     // Keep the press from moving focus to the row; a field that had no focus gets the caret at
     // the end of its text, a focused one keeps its caret and selection.
     event.preventDefault();
