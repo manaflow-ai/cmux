@@ -347,6 +347,23 @@ async fn a_lane_that_closes_or_is_deleted_with_its_task_open_orphans_it_and_the_
         )
     );
 
+    // Each card was sent once and accepted: no mark is left owed or claimed.
+    for _ in 0..300 {
+        let listed = from_coordinator.call("_acpmux/tasks", json!({})).await;
+        let marked = listed["tasks"].as_array().unwrap().iter().any(|t| {
+            t["result"].get("cardOwed").is_some() || t["result"].get("cardSending").is_some()
+        });
+        if !marked {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let listed = from_coordinator.call("_acpmux/tasks", json!({})).await;
+    for t in listed["tasks"].as_array().unwrap() {
+        assert!(t["result"].get("cardOwed").is_none(), "{t}");
+        assert!(t["result"].get("cardSending").is_none(), "{t}");
+    }
+
     // Orphans first; the task that was done stays done, and no second card comes for it.
     let listed = from_coordinator.call("_acpmux/tasks", json!({})).await;
     let states: Vec<&str> =
@@ -582,23 +599,26 @@ async fn an_owed_orphan_card_waits_for_a_start_that_loads_its_giver() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A lane closed while its move is still in flight ends here: the move never committed, so its
-/// task is orphaned and the giver hears, rather than the task waiting on a lane that is gone.
+/// A lane closed while its move is still in flight is not orphaned: lanes in a move wait for
+/// peer-hosted tasks (`hub/tasks.rs`). The task stays open, and `task ls` shows the lane closed.
 #[tokio::test]
-async fn a_lane_closed_mid_move_orphans_its_task() {
+async fn a_lane_closed_mid_move_keeps_its_task_open() {
     let hub = hub();
     let mut person = Client::open(&hub);
     let coordinator = person.new_session().await;
     let lane = person.new_session().await;
-    let given = Client::in_session(&hub, &coordinator)
-        .await
+    let mut from_coordinator = Client::in_session(&hub, &coordinator).await;
+    let given = from_coordinator
         .call("_acpmux/task_new", json!({"sessionId": lane, "title": "Keep going"}))
         .await;
     let id = given["task"]["taskId"].as_str().unwrap().to_owned();
     person.call("_acpmux/transfer_begin", json!({"sessionId": lane, "interrupt": true})).await;
     person.call("session/close", json!({"sessionId": lane})).await;
-    let card = person.prompts(&coordinator, &format!("task-result-{id}"), 1).await.remove(0);
-    assert_eq!(card.pointer("/_meta/provenance/state"), Some(&json!("orphaned")), "{card}");
+    let listed = from_coordinator.call("_acpmux/tasks", json!({})).await;
+    let task = listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str());
+    let task = task.unwrap_or_else(|| panic!("{listed}"));
+    assert_eq!(task["status"], "running", "{task}");
+    assert_eq!(task["sessionStatus"], "closed", "{task}");
 }
 
 /// A store whose logs cannot be scanned by kind (`scan_kinds` fails); everything else goes
