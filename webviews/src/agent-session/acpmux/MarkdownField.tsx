@@ -134,6 +134,11 @@ export type MarkdownFieldProps = {
   /// Only a field given one when it is made has placed attachments (composer/inlineNode.ts); any
   /// other keeps every U+FFFC as its text and pastes plain text.
   onInlineViews?(views: ReadonlyMap<string, HTMLElement>): void;
+  /// Whether `id` is one of the composer's attachments: the draft's tokens are read against it
+  /// (composer/inlineNode.ts InlineKnown), so a U+FFFC the person wrote just before a word and an
+  /// attachment stays their text. Read when tokens become nodes (the editor made, a value set, a
+  /// paste, an undo); unset, every token-shaped run is taken for an attachment.
+  isInlineAttachment?(id: string): boolean;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
   plugins?: Plugin[];
   /// Shift-Enter adds a line (default true).
@@ -182,6 +187,7 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onFirstInput === next.onFirstInput &&
     previous.onReady === next.onReady &&
     previous.onInlineViews === next.onInlineViews &&
+    previous.isInlineAttachment === next.isInlineAttachment &&
     previous.plugins === next.plugins &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
@@ -379,6 +385,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onFirstInput,
     onReady,
     onInlineViews,
+    isInlineAttachment,
     plugins = [],
     multiline = true,
     placeholder,
@@ -405,6 +412,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onFirstInput,
     onReady,
     onInlineViews,
+    isInlineAttachment,
   });
   latest.current = {
     onChange,
@@ -417,6 +425,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     onFirstInput,
     onReady,
     onInlineViews,
+    isInlineAttachment,
   };
   const composing = useRef(false);
   const touched = useRef(false);
@@ -474,6 +483,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       tellInlineViews();
     },
   });
+  const inlineKnown = (id: string) => latest.current.isInlineAttachment?.(id) ?? true;
 
   const mount = useCallback((root: HTMLDivElement | null) => {
     if (!root) return;
@@ -790,7 +800,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       .use(gfm)
       .use(history)
       .use(clipboard)
-      .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current)] : [])
+      .use(placesInline ? [inlineAttachmentNode, inlinePlugin(inline.current, inlineKnown)] : [])
       .create()
       .then((made) => {
         if (disposed) {
@@ -801,7 +811,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         view.current = made.ctx.get(editorViewCtx);
         remark.current = made.ctx.get(remarkCtx);
         if (known.current) setDocument(known.current);
-        if (placesInline) placeTokens(view.current);
+        if (placesInline) placeTokens(view.current, inlineKnown);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();

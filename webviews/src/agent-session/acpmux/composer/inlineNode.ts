@@ -11,12 +11,17 @@ import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/pros
 import { type EditorState, Plugin, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
 import type { EditorView, NodeView } from "@milkdown/kit/prose/view";
 import { $node, $prose } from "@milkdown/kit/utils";
-import { INLINE_ATTACHMENT_MARK, INLINE_TOKEN, decodeInlineId, inlineCopyId, inlineToken } from "../attachments";
+import { INLINE_ATTACHMENT_MARK, inlineCopyId, inlineToken, inlineTokenSpans } from "../attachments";
 
 export const INLINE_NODE = "inline_attachment";
 
 /// Where the composer draws each placed attachment: the element of its node, by id.
 export type InlineViews = { add(id: string, dom: HTMLElement): void; remove(id: string, dom: HTMLElement): void };
+
+/// Whether `id` is one of the composer's attachments, which the text's tokens are read against
+/// (attachments.ts inlineTokenSpans): the person's U+FFFC just before a word and an attachment's
+/// token stays their text. Every id is taken for one where the composer does not say.
+export type InlineKnown = (id: string) => boolean;
 
 export const inlineAttachmentNode = $node(INLINE_NODE, () => ({
   group: "inline",
@@ -73,21 +78,18 @@ function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {
   return found;
 }
 
-/// A transaction turning each token in `state`'s text into its node; undefined where the editor has
-/// no such node.
-function tokensToNodes(state: EditorState): Transaction | undefined {
+/// A transaction turning each token in `state`'s text into its node, read against `known`;
+/// undefined where the editor has no such node. A token of an id the composer does not have is a
+/// node too, drawing nothing: the prompt sends it as nothing (attachments.ts placeInline).
+function tokensToNodes(state: EditorState, known: InlineKnown): Transaction | undefined {
   const type = state.schema.nodes[INLINE_NODE];
   if (!type) return undefined;
   const tr = state.tr;
   const tokens: { from: number; to: number; id: string }[] = [];
   state.doc.descendants((node, pos, parent) => {
     if (!node.isText || !node.text!.includes(INLINE_ATTACHMENT_MARK) || parent?.type.spec.code) return;
-    for (const match of node.text!.matchAll(INLINE_TOKEN))
-      tokens.push({
-        from: pos + match.index,
-        to: pos + match.index + match[0].length,
-        id: decodeInlineId(match[1]!),
-      });
+    for (const span of inlineTokenSpans(node.text!, known))
+      tokens.push({ from: pos + span.from, to: pos + span.to, id: span.id });
   });
   for (const token of tokens.reverse()) tr.replaceWith(token.from, token.to, type.create({ id: token.id }));
   return tr;
@@ -96,7 +98,12 @@ function tokensToNodes(state: EditorState): Transaction | undefined {
 /// After an edit that brought in placed attachments (a value set from outside, a paste, an undo):
 /// each token in the text becomes its node, and a second node of an id already in the prompt (a
 /// copy pasted beside its original) gets a copy's id, the original keeping its own.
-function normalize(transactions: readonly Transaction[], previous: EditorState, state: EditorState) {
+function normalize(
+  transactions: readonly Transaction[],
+  previous: EditorState,
+  state: EditorState,
+  known: InlineKnown,
+) {
   const brought = transactions.some((tr) =>
     tr.steps.some((step) => {
       const slice = (step as { slice?: Slice }).slice;
@@ -104,7 +111,7 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
     }),
   );
   if (!brought) return null;
-  const tr = tokensToNodes(state);
+  const tr = tokensToNodes(state, known);
   if (!tr) return null;
   // Where each id held before the edit is now: that node keeps it.
   const kept = new Map<string, number>();
@@ -145,12 +152,12 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
   };
 }
 
-export function inlinePlugin(views: InlineViews) {
+export function inlinePlugin(views: InlineViews, known: InlineKnown) {
   return $prose(
     () =>
       new Plugin({
         props: { nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) } },
-        appendTransaction: (transactions, previous, state) => normalize(transactions, previous, state),
+        appendTransaction: (transactions, previous, state) => normalize(transactions, previous, state, known),
       }),
   );
 }
@@ -159,8 +166,8 @@ export function inlinePlugin(views: InlineViews) {
 /// transaction: its tokens become their nodes here, outside undo's history. The field calls it once
 /// its editor is made (MarkdownField.tsx), so the change reads back as the same draft; a dispatch
 /// any sooner was read with no editor to write it, as an empty prompt.
-export function placeTokens(view: EditorView) {
-  const tr = tokensToNodes(view.state);
+export function placeTokens(view: EditorView, known: InlineKnown) {
+  const tr = tokensToNodes(view.state, known);
   if (tr?.docChanged) view.dispatch(tr.setMeta("addToHistory", false));
 }
 
