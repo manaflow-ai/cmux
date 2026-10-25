@@ -13,10 +13,13 @@ public final class TerminalLaunchFrames {
     private static var stores: [URL: TerminalLaunchFrames] = [:]
 
     let directory: URL?
+    /// Reads the saved frames.
+    private let reader: LaunchFileReader
     private var taken: Set<String> = []
 
-    init(directory: URL?) {
+    init(directory: URL?, reader: LaunchFileReader = LaunchFileReader()) {
         self.directory = directory
+        self.reader = reader
     }
 
     /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); one
@@ -85,13 +88,8 @@ public final class TerminalLaunchFrames {
         guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
         for scale in [2, 1, 3] {
             let url = directory.appending(path: "\(key)@\(scale)x.jpg")
-            guard let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, bytes <= Self.maximumBytes,
-                  // concurrency-allow: one capped read of a small local image before the terminal's first frame
-                  let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
-            let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
-            rep.size = image.size
-            image.addRepresentation(rep)
-            return image
+            guard let frame = reader.image(at: url, maximumBytes: Self.maximumBytes) else { continue }
+            return NSImage(cgImage: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)))
         }
         return nil
     }

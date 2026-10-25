@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextDesign
 
 /// The agent panes' last pages, saved at quit and drawn under each pane at
 /// launch until its live page paints, so a relaunch never shows an empty
@@ -10,12 +11,15 @@ import CmuxNextAgentPane
 final class AgentPaneLaunchImages {
 
     let directory: URL?
+    /// Reads the saved pages.
+    private let reader: LaunchFileReader
     private var taken: Set<String> = []
     /// Released pages' last frames (AgentPageHibernation), in memory as encoded images: a page built
     /// again draws its old frame until it paints, as at launch.
     private var held: [String: (data: Data, size: NSSize, appearance: NSAppearance.Name?)] = [:]
-    init(directory: URL?) {
+    init(directory: URL?, reader: LaunchFileReader = LaunchFileReader()) {
         self.directory = directory
+        self.reader = reader
     }
 
     /// The directory next to the launch snapshot of `file` (the tag's state).
@@ -38,13 +42,8 @@ final class AgentPaneLaunchImages {
         // Either kind a save may have written (one at a time: a save replaces the set).
         for (scale, ext) in [2, 1, 3].flatMap({ scale in ["png", "jpg"].map { (scale, $0) } }) {
             let url = directory.appending(path: Self.fileName(key, scale: scale, ext: ext))
-            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 8 << 20 /* a larger file is not read */,
-                  // concurrency-allow: one capped read of a small local image before the agent pane's first frame
-                  let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
-            let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
-            rep.size = image.size
-            image.addRepresentation(rep)
-            return image
+            guard let page = reader.image(at: url, maximumBytes: Self.maximumBytes) else { continue }
+            return NSImage(cgImage: page, size: NSSize(width: CGFloat(page.width) / CGFloat(scale), height: CGFloat(page.height) / CGFloat(scale)))
         }
         return nil
     }
@@ -86,6 +85,9 @@ final class AgentPaneLaunchImages {
             try? manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
+
+    /// A larger file is not read.
+    nonisolated static let maximumBytes = 8 << 20
 
     private nonisolated static func fileName(_ key: String, scale: Int, ext: String) -> String { "\(key)@\(scale)x.\(ext)" }
 
