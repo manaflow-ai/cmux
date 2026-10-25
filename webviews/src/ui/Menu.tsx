@@ -562,11 +562,10 @@ export function MenuRadioItem({
   );
 }
 
-/** No `label` draws no heading row: the menu's own label names the group. */
-export function MenuGroup({ label, children }: { label?: string; children: ReactNode }) {
+export function MenuGroup({ label, children }: { label: string; children: ReactNode }) {
   return (
     <BaseMenu.Group className="ui-menu-group">
-      {label && <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>}
+      <BaseMenu.GroupLabel className="ui-menu-group-label">{label}</BaseMenu.GroupLabel>
       {children}
     </BaseMenu.Group>
   );

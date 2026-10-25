@@ -1,5 +1,4 @@
-// The compact model menu on the New Tab page (newTabComposer.ts): no "Model · this session"
-// heading, no 1 to 9 key hints, and More models is a row that shows the tab's other models in place
+// The compact model menu on the New Tab page (newTabComposer.ts): no 1 to 9 key hints, and More models is a row that shows the tab's other models in place
 // (not a submenu), keeps the menu open, and leaves keyboard focus in the menu as the rail changes.
 import { afterEach, expect, test } from "bun:test";
 import React, { act, useRef, useState } from "react";
@@ -7,7 +6,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
 import { QuickModelMenu, type QuickFamily } from "./QuickModelMenu";
-import { translate } from "./i18n";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -117,16 +115,14 @@ const list = () => document.querySelector<HTMLElement>(".acpmux-quick-list")!;
 const labels = (scope: ParentNode) => [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
 const disclosure = () => document.querySelector<HTMLElement>(".acpmux-quick-disclosure");
 
-test("a chat's menu keeps its heading, key hints and More models submenu", async () => {
+test("a chat's menu keeps its key hints and More models submenu", async () => {
   await openMenu(false);
-  expect(list().textContent).toContain(translate("picker.modelThisSession"));
   expect(list().querySelectorAll(".ui-menu-shortcut").length).toBeGreaterThan(0);
   expect(disclosure()).toBeNull();
 });
 
-test("on New Tab the menu has no heading and no key hints", async () => {
+test("on New Tab the menu has no key hints", async () => {
   await openMenu(true);
-  expect(list().textContent).not.toContain(translate("picker.modelThisSession"));
   expect(list().querySelectorAll(".ui-menu-shortcut").length).toBe(0);
 });
 

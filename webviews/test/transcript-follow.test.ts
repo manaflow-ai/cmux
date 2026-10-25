@@ -137,6 +137,37 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     await page.close();
   });
 
+  test("a touch tap keeps a short streaming reply's reserved queue room", async () => {
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const page = await browser!.newPage({ viewport: { width: 900, height: 560 }, hasTouch: true });
+    await installPaintedFrames(page);
+    if (process.env.CMUX_TOUCH_CAPTURE?.includes("dark")) await page.emulateMedia({ colorScheme: "dark" });
+    await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-follow.html`);
+    await page.waitForFunction(() => "__showRows" in window);
+    await page.evaluate(() => (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(true));
+    const history = Array.from({ length: 18 }, (_, index) => [
+      row(`room-user-${index}`, "user", `Prompt ${index}`),
+      row(`room-answer-${index}`, "assistant", paragraph(index)),
+    ]).flat();
+    await show(page, [...history, row("room-stream", "assistant", "Short streaming reply", { streaming: true })]);
+    await frames(page, 4);
+    await page.evaluate(() => (window as unknown as { __touchDock(queued: boolean): void }).__touchDock(false));
+    await frames(page, 2);
+    const bottom = () =>
+      page.locator('[data-row-id="room-stream"]').evaluate((node) => node.getBoundingClientRect().bottom);
+    const before = await bottom();
+    const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.touchscreen.tap(box.x + 12, box.y + 120);
+    await frames(page, 3);
+    const moved = (await bottom()) - before;
+    if (process.env.CMUX_TOUCH_CAPTURE) {
+      console.log(`TOUCH_CAPTURE_${process.env.CMUX_TOUCH_CAPTURE}=${(await page.screenshot()).toString("base64")}`);
+    }
+    console.log(`touch tap reserved-room movement: ${moved}px`);
+    expect(Math.abs(moved)).toBeLessThanOrEqual(1);
+    await page.close();
+  });
+
   test("a small upward wheel before a stream snapshot releases bottom follow", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     const page = await browser!.newPage({ viewport: { width: 900, height: 560 } });

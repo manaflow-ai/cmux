@@ -47,6 +47,8 @@ let sends = 0;
 let openAt: ScrollAnchor | undefined;
 // The chat shown (`__showSession`), as the pane's tab switches chats.
 let sessionId = "session-1";
+let dock: HTMLElement | null = null;
+let working = false;
 const draw = () =>
   view.render(
     <VirtualTranscript
@@ -59,6 +61,8 @@ const draw = () =>
       }}
       expanded={expanded}
       sends={sends}
+      dock={dock}
+      working={working}
       openAt={openAt}
       canLoadOlder={openAt !== undefined}
       onLoadOlder={() => new Promise<void>(() => {})}
@@ -87,3 +91,15 @@ const draw = () =>
 };
 (window as unknown as { __followSnapshot: () => ReturnType<typeof followTrace.snapshot> }).__followSnapshot = () =>
   followTrace.snapshot();
+(window as unknown as { __touchDock: (queued: boolean) => void }).__touchDock = (queued) => {
+  if (!dock) {
+    dock = document.createElement("div");
+    Object.assign(dock.style, { position: "fixed", bottom: "0", width: "100%", pointerEvents: "none" });
+    document.body.append(dock);
+  }
+  dock.innerHTML = queued
+    ? '<div class="acpmux-queued" data-prompt-id="touch-queued" style="height:100px"></div><div class="acpmux-composer-box" style="height:80px"></div>'
+    : '<div class="acpmux-composer-box" style="height:80px"></div>';
+  working = true;
+  flushSync(draw);
+};
