@@ -31,8 +31,8 @@ p15-oracle-024 [ windows ] cli/* [ Skip ]
 `bug [ tags ] suite/case[/step][#/json/pointer] [ results ]`
 
 - **bug**: a WORK.tsv task ID (`p15-oracle-015`) or a cmux issue (`#1234`). Every line must have one.
-  A line that starts with `#1234` is an expectation only when a `[ tags ]` group or a
-  `suite/case` target comes next. Every other line that starts with `#` is a comment, so
+  A line that starts with `#1234` is an expectation only when a `suite/case` target and its
+  `[ results ]` bracket come next. Every other line that starts with `#` is a comment, so
   `#12 is the tracking issue` is a comment.
 - **tags**: optional. Each tag is in one of these groups:
 

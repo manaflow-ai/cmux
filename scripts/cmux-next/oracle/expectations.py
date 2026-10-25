@@ -9,8 +9,8 @@ The format and semantics copy Blink's TestExpectations (chromium/src
     [ bug ] [ [ tags ] ] suite/case[/step][#/json/pointer] [ results ] [# comment]
 
 - `bug` is a WORK.tsv task id (`p15-oracle-015`) or a cmux issue (`#1234`). A `#1234` line is an
-  expectation only when a `[ tags ]` group or a `suite/case` target follows; any other line that
-  starts with `#` is a comment.
+  expectation only when a `suite/case` target and its `[ results ]` bracket follow; any other line
+  that starts with `#` is a comment.
 - Tags come from four groups; a line matches a run when every tag on it equals the run's value
   for that group (typ semantics: tags on one line are ANDed, two tags of one group never match).
 - Results: Pass Failure Crash Timeout Skip Slow. Several results (Slow aside) mean flaky; there
@@ -71,7 +71,8 @@ GOLDEN_BUDGET = 0.02
 
 TASK_ID_RE = re.compile(r"^p\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*-\d{3}$")
 ISSUE_RE = re.compile(r"^#\d+$")
-ISSUE_LINE_RE = re.compile(r"^\s*#\d+\s+(?:\[|[A-Za-z0-9][A-Za-z0-9._-]*/)")  # `#1234 [ tags ]` or `#1234 suite/case`
+# `#1234 [ tags ] suite/case... [` : an issue line has a target and its results bracket; other `#` lines are comments.
+ISSUE_LINE_RE = re.compile(r"^\s*#\d+\s+(?:\[[^\[\]]*\]\s*)?[A-Za-z0-9][A-Za-z0-9._-]*/\S*\s*\[")
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # Scope ranks, least to most specific.
@@ -993,9 +994,13 @@ def _selftest() -> int:
     # 17d. A comment that starts with an issue number stays a comment.
     entries, diags = parse(
         "#12 is the tracking issue\n#24990 tracks the sidebar flakes [ see below ]\n"
-        "#7 https://github.com/manaflow-ai/cmux/issues/7\n#24990 [ mac app ] tours/sidebar [ Pass Timeout ]"
+        "#7 https://github.com/manaflow-ai/cmux/issues/7\n#8 journeys/split is broken\n"
+        "#24990 [ mac app ] tours/sidebar [ Pass Timeout ]\n#24991 [linux] cli/x[Crash]\n#24992 tla/t1 [ Slow ]"
     )
-    check("issue comments", not diags and [e.target for e in entries] == ["tours/sidebar"])
+    check(
+        "issue comments",
+        not diags and [e.target for e in entries] == ["tours/sidebar", "cli/x", "tla/t1"],
+    )
     # 17e. Stale by results counts only passing runs: a Timeout line hit by crashes is not stale.
     timeout = exp("p15-oracle-015 t/a [ Timeout ]")
     crashes = [timeout.evaluate("t", "a", mac_app, Actual(CRASH)).to_json() for _ in range(3)]
