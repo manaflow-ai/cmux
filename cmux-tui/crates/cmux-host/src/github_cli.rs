@@ -376,6 +376,14 @@ pub fn gh_plan(
     {
         rest = after;
     }
+    // `gh api URL`, `gh pr view URL` and the like go where the URL says: an
+    // argument that is a URL must be https to GitHub's own hosts.
+    if !rest.iter().all(|arg| url_arg_ok(arg)) {
+        return Err(
+            "the token is for github.com: a URL argument must be https://github.com or its API"
+                .to_owned(),
+        );
+    }
     let mut named = None;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
@@ -420,6 +428,21 @@ pub fn gh_plan(
     let repo =
         repo_from(&raw).ok_or_else(|| format!("{from} is not a github.com owner/name repo"))?;
     Ok(GhPlan { repo, write, args: rest.to_vec() })
+}
+
+/// Whether `arg`, when it is a URL (`scheme://...`), is https to github.com,
+/// api.github.com or uploads.github.com. Text with a URL inside (a `--body`
+/// value, say) is not a URL argument.
+fn url_arg_ok(arg: &str) -> bool {
+    let Some((scheme, rest)) = arg.split_once("://") else { return true };
+    if !scheme.bytes().all(|b| b.is_ascii_alphanumeric() || b"+.-".contains(&b)) {
+        return true;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    scheme.eq_ignore_ascii_case("https")
+        && ["github.com", "api.github.com", "uploads.github.com"]
+            .iter()
+            .any(|host| authority.eq_ignore_ascii_case(host))
 }
 
 fn origin_url() -> Option<String> {
@@ -674,6 +697,15 @@ mod tests {
         assert!(
             gh_plan(&strings(&["api", "x", "--hostname=GitHub.com"]), Some("o/r"), &none).is_ok()
         );
+        // URL arguments: https to GitHub's hosts only, never plaintext.
+        let url = |v: &[&str]| gh_plan(&strings(v), Some("o/r"), &none).is_ok();
+        assert!(url(&["api", "https://api.github.com/repos/o/r"]));
+        assert!(url(&["pr", "view", "https://github.com/o/r/pull/1"]));
+        assert!(url(&["pr", "create", "--body", "see http://example.com"]));
+        assert!(!url(&["api", "http://github.com/secret"]));
+        assert!(!url(&["api", "https://github.com.evil/x"]));
+        assert!(!url(&["api", "HTTPS://evil.example.com"]));
+        assert!(!url(&["api", "https://x@api.github.com/repos"]));
         let env = gh_plan(&strings(&["--", "pr", "list"]), Some("o/env"), &origin).unwrap();
         assert_eq!(
             (env.repo.as_str(), env.write, env.args),
