@@ -486,9 +486,9 @@ chunk is free (`BufferExhaustedPolicy::kDrop`, `include/perfetto/tracing/buffer_
 
 **Pinned chunks.** A thread keeps its chunk until slot 31, its exit or a change of the active ring, also while it
 idles. So when `T` live threads hold a chunk in a ring, the ring keeps at least `(chunk_count - T) * 31` earlier
-records, not `chunk_count * 31`, and a claim fails more often as `T` grows. The sizes below give every role at
-least 4 times as many chunks as the threads that usually write; `chunks_skipped` and `records_dropped` show a
-ring with too few.
+records, not `chunk_count * 31`, and a claim fails more often as `T` grows. The black-box sizes below keep the role's
+record budget while up to the stated number of threads hold a chunk; `chunks_skipped` and `records_dropped`
+show a ring with too few.
 
 **Publish a record** in slot `k` (1-31) of the owned chunk:
 
@@ -543,8 +543,9 @@ copies first and swaps last, so no writer ever claims a chunk in the file before
    decode protocol below: a slot whose two `seq` reads differ is stored with `seq` 0, and a chunk taken over
    while it was copied is stored with `lap_seq` 0. A copied odd `lap_seq` is stored as `lap_seq + 1`
    (complete): the copy has no owner, and its published slots are whole.
-3. Load the heap's `name_cursor`, `thread_cursor` and `chunk_cursor` (acquire), copy every published name and
-   thread entry below the first two, and store those two cursors in the file. Store `heap_cursor` = the heap's
+3. Load the heap's `name_cursor`, `thread_cursor` and `chunk_cursor` (acquire), copy every name and thread
+   entry below the first two whose `state` reads 2 before and after its copy (acquire; a thread entry's
+   `generation` too), and store those two cursors in the file. Store `heap_cursor` = the heap's
    `chunk_cursor` and the file's `chunk_cursor` = `heap_cursor + chunk_count`, so every new claim is a lap past
    every copied one.
 4. Swap the active word to the file (release). Then store `heap_chunks_lost` = the heap's `chunk_cursor` now
@@ -552,9 +553,9 @@ copies first and swaps last, so no writer ever claims a chunk in the file before
 
 Records written to the heap between its copy and the swap are lost. `heap_chunks_lost` counts the chunks the
 heap claimed in that window; records added in that window to a chunk claimed before the copy are lost too and
-are not counted. A copied chunk names only entries below the cursors of step 3, because a thread or a name is
-registered before its first record. An entry still being written during step 3 is not copied, and its records
-decode as `thread <index>` or `name <id>`. After the swap, threads and trace points register in the file as in
+are not counted. A copied chunk names only entries that step 3 copies: a thread or a name is published before
+its first record, and the chunks are copied before the tables. An entry taken again during step 3 may be
+skipped; its earlier occupant's chunks then decode as `thread <index>`. After the swap, threads and trace points register in the file as in
 any new ring (their heap indexes do not carry over; a few entries repeat the heap's). The heap buffer is never
 freed, so a late writer cannot fault.
 
