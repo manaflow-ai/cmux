@@ -230,7 +230,7 @@ struct CreateOnPendingStandInTests {
 
     /// A script batch's stage holds workspace 1 (a scripted rename there), and the person's split in it
     /// is pending. The split's `pane-added` comes while a create on its stand-in already waits: the
-    /// stage holds it, then commits at once, so the create names the daemon's pane now, never at the
+    /// stage commits instead of holding it, so the create names the daemon's pane now, never at the
     /// stage's deadline (input goes before automation).
     @Test func aWaitInAStagedWorkspaceCommitsTheStageWhenItsPaneArrives() async throws {
         let store = Self.store()
@@ -248,7 +248,7 @@ struct CreateOnPendingStandInTests {
 
         let daemonPane = PaneID(rawValue: 9)
         _ = store.apply(batch: [Self.paneAdded(daemonPane, taking: split, surface: 7, sequence: 1, echoing: transaction)])
-        #expect(!stage.isOpen, "the stage kept the pane-added a waiting create needs")
+        #expect(!stage.stage.isOpen, "the stage kept the pane-added a waiting create needs")
         #expect(try await target.value == daemonPane, "the create waited for the stage's deadline")
         #expect(store.standInWaiters.isEmpty)
         #expect(store.mirrorViolations.isEmpty)
@@ -268,11 +268,11 @@ struct CreateOnPendingStandInTests {
         store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: split), transaction: transaction)
         let daemonPane = PaneID(rawValue: 9)
         _ = store.apply(batch: [Self.paneAdded(daemonPane, taking: split, surface: 7, sequence: 1, echoing: transaction)])
-        #expect(stage.isOpen, "the stage did not hold the pane-added of the workspace it touches")
+        #expect(stage.stage.isOpen, "the stage did not hold the pane-added of the workspace it touches")
         #expect(store.createTarget(for: split.handle) == .pending(transaction))
 
         #expect(try await store.daemonTarget(for: split.handle) == daemonPane, "the create waited on the stage")
-        #expect(!stage.isOpen)
+        #expect(!stage.stage.isOpen)
         #expect(store.standInWaiters.isEmpty)
         #expect(store.mirrorViolations.isEmpty)
     }
@@ -299,11 +299,11 @@ struct CreateOnPendingStandInTests {
             DaemonEventEnvelope(sequence: 2, event: .layoutChanged(screen: Self.place.screen, layout: layout, transaction: transaction)),
         ])
         store.noteSettled(transaction, at: 2)
-        #expect(stage.isOpen, "the stage did not hold the split's events")
+        #expect(stage.stage.isOpen, "the stage did not hold the split's events")
         #expect(store.intentLog.contains(transaction), "the split settled under a stage that holds its events")
 
         #expect(try await store.daemonTarget(for: split.handle) == daemonPane, "the stand-in was released in the commit's lift")
-        #expect(!stage.isOpen)
+        #expect(!stage.stage.isOpen)
         #expect(!store.intentLog.contains(transaction), "the split's create did not settle in the commit")
         #expect(store.mirrorViolations.isEmpty)
     }

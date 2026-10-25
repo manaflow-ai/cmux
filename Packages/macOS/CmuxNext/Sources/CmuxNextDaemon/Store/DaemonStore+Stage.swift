@@ -43,10 +43,12 @@ extension DaemonStore {
     }
 
     /// Whether a read-your-writes waiter needs `envelope` applied: its sequence is at or below a
-    /// waited-for sequence, or it echoes a waited-for transaction.
+    /// waited-for sequence, or it echoes a waited-for transaction (also the create a create pressed
+    /// on its stand-in waits for, ``daemonTarget(for:)``).
     func awaitsNow(_ envelope: DaemonEventEnvelope) -> Bool {
         if let highest = sequenceWaits.keys.max(), envelope.sequence <= highest { return true }
         let echo = envelope.event.clientTransactionID
+        if let echo, standInWaiters.contains(where: { $0.transaction == echo }) { return true }
         return appliedWaiters.contains { waiter in
             (echo != nil && waiter.transaction == echo) || waiter.sequence.map { envelope.sequence <= $0 } == true
         }

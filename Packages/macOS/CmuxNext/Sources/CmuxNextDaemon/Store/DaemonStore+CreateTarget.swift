@@ -65,7 +65,7 @@ extension DaemonStore {
                 // A script batch's stage that holds the stand-in's pane-added shows it now: a create
                 // never waits on a script (input goes before automation).
                 if let stage, stage.holds(through: nil, echo: transaction) {
-                    stage.commit(all: true)
+                    stage.commitAll()
                     continue
                 }
                 await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
@@ -83,14 +83,6 @@ extension DaemonStore {
         let waiters = standInWaiters
         standInWaiters.removeAll()
         for waiter in waiters { waiter.resume.resume() }
-    }
-
-    /// Commits an open script-batch stage that holds the pane-added (or any echo) of a create a
-    /// waiting create needs: that pane-added came while the create already waited
-    /// (``daemonTarget(for:)`` commits for one held before it waited).
-    func commitStageForStandInWaiters() {
-        guard let stage, standInWaiters.contains(where: { stage.holds(through: nil, echo: $0.transaction) }) else { return }
-        stage.commit(all: true)
     }
 
     /// A stand-in stays known while a pending intent shows it, names it as its pane, or can fall

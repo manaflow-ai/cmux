@@ -53,11 +53,8 @@ extension DaemonStore {
         let batch = stage?.passing(batch, in: self) ?? batch
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
-        let followup: Followup = batch.isEmpty ? .none : updateCycles.run { applyBatch(batch) }
-        // A create waiting on a stand-in whose pane-added the stage just held shows it now, after
-        // the events that passed (they come first in the daemon's order).
-        commitStageForStandInWaiters()
-        return followup
+        guard !batch.isEmpty else { return .none }
+        return updateCycles.run { applyBatch(batch) }
     }
 
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
