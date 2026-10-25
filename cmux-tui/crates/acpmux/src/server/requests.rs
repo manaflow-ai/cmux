@@ -1412,6 +1412,7 @@ async fn dispatch_request(
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
         method::MUX_WATCH => {
+            crate::hub::session_pages::refuse_watch_filters(&params)?;
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             conn.watch_all.store(on, Ordering::SeqCst);
             crate::hub::session_pages::session_list_reply(hub.all_session_summaries(), &params)
