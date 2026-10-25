@@ -58,8 +58,9 @@ rm -f "$stamp"
 remove_embed() {
   rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
-    [[ -e "$helper" ]] && rm -rf "$helper"
+    if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
+  return 0
 }
 
 if [[ "${CMUX_NEXT_SKIP_CEF:-0}" == "1" ]]; then
