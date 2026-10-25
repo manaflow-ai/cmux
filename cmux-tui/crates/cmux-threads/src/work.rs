@@ -5,38 +5,44 @@
 //! behavior (Chrome's `TaskShutdownBehavior`), as in base/task/task_traits.h.
 //!
 //! - **Admission.** A lane runs at most `limit(priority)` items at once, counted over every priority:
-//!   Files 4/3/2/1 (UserBlocking/UserVisible/BestEffort/Idle), System 6 with one slot only UserBlocking
-//!   may take (Chrome's `kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc), Cpu the
-//!   performance cores minus one. Limits rise with priority, so a lower item never starts while a
-//!   higher one waits.
+//!   Files 4/3/2/1 (UserBlocking/UserVisible/BestEffort/Idle), System 6/5/2/1 with one slot only
+//!   UserBlocking may take (Chrome's `kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc), Cpu
+//!   the performance cores minus one (at least 2) with BestEffort at 2 and Idle at 1. So BestEffort
+//!   plus Idle never hold more than 2 slots of a lane and Idle never more than 1 (Chrome's
+//!   `kMaxBestEffortTasks`, base/task/thread_pool/thread_pool_impl.cc). Limits rise with priority, so
+//!   a lower item never starts while a higher one waits.
 //! - **Workers.** Each worker belongs to one priority class (UserInitiated, Utility, Background) for
 //!   life and runs only that class's items. Linux cannot lower a thread's nice value without
 //!   privilege, so a worker that once ran Idle work could never run UserBlocking work at nice 0; Chrome
 //!   keeps separate foreground and background thread groups for the same reason
-//!   (base/task/thread_pool/thread_pool_impl.cc).
+//!   (base/task/thread_pool/thread_pool_impl.cc). A Linux thread also starts at its creator's nice
+//!   value, so a thread above a class's nice value (an Idle worker, a Utility caller) never starts a
+//!   worker of that class itself: the [`Work`]'s launcher thread does.
 //! - **Reclaim.** Workers start on demand. An idle worker waits [`WorkConfig::idle_timeout`] (30 s, as
 //!   Chrome's reclaim time in thread_pool_impl.cc) while its class has more than
 //!   [`WorkConfig::keep_alive`] workers (default 0) and then exits; at or below that count it waits
-//!   with no timeout (thread_group_impl.cc `CanCleanupLockRequired`). An idle lane has no thread and no
-//!   timer.
-//! - **Shutdown.** [`Work::shutdown`] drops every item that has not started except
-//!   [`Shutdown::BlockShutdown`] ones, refuses new ones the same way, and returns when every block item
-//!   has run. It never waits for a started skip item (task_tracker.cc waits for those; cmux does not).
+//!   with no timeout (thread_group_impl.cc `CanCleanupLockRequired`). An idle lane has no worker and
+//!   no timer.
+//! - **Shutdown.** As Chrome's task_tracker.cc: [`Work::shutdown`] drops every item that has not
+//!   started except [`Shutdown::BlockShutdown`] ones, refuses new ones the same way, and returns when
+//!   every block item and every started [`Shutdown::SkipOnShutdown`] item has finished. It never waits
+//!   for a [`Shutdown::ContinueOnShutdown`] item.
 //!
 //! ```ignore
-//! let work = Work::new(WorkConfig::default());
+//! let work = Work::new(WorkConfig::default())?;
 //! let bytes = work.run(Priority::UserVisible, Lane::Files, Shutdown::SkipOnShutdown, move || std::fs::read(path));
 //! work.post(Priority::BestEffort, Lane::Files, Shutdown::BlockShutdown, move || save(&state))?;
 //! ```
 
 use std::collections::VecDeque;
 use std::fmt;
-use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::io;
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender, TryRecvError};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use crate::qos::ThreadQos;
+use crate::qos::{LiveQos, ThreadQos};
 
 /// How much a person waits for an item, as Chrome's `base::TaskPriority` plus `idle`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -73,7 +79,10 @@ impl Priority {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Shutdown {
     /// Dropped if it has not started (a [`Work::run`] caller gets [`WorkError::Dropped`]); a started
-    /// one is not waited for. Reads and anything a later start redoes.
+    /// one is not waited for. Work whose half-done state is harmless: prefetch, probes.
+    ContinueOnShutdown,
+    /// Dropped if it has not started; shutdown waits for a started one. Reads and anything a later
+    /// start redoes.
     #[default]
     SkipOnShutdown,
     /// Shutdown waits for it, queued or running: one short save whose loss loses a person's data.
@@ -112,8 +121,11 @@ impl Lane {
     fn limits(self, cpu_width: usize) -> [usize; 4] {
         match self {
             Lane::Files => [1, 2, 3, 4],
-            Lane::System => [5, 5, 5, 6],
-            Lane::Cpu => [cpu_width.max(1); 4],
+            Lane::System => [1, 2, 5, 6],
+            Lane::Cpu => {
+                let width = cpu_width.max(2);
+                [1, 2.min(width - 1), width, width]
+            }
         }
     }
 }
@@ -160,14 +172,17 @@ impl WorkerClass {
 /// Settings of one [`Work`]; one per process, built at the daemon's composition root.
 #[derive(Clone, Debug)]
 pub struct WorkConfig {
-    /// Thread name prefix: workers are `<label>-<lane>-<fg|be|idle>` (Linux keeps 15 bytes).
+    /// Thread name prefix: workers are `<label>-<lane>-<fg|be|idle>`, the launcher `<label>-launch`
+    /// (Linux keeps 15 bytes).
     pub label: String,
-    /// How many [`Lane::Cpu`] items run at once.
+    /// How many [`Lane::Cpu`] items run at once; at least 2, so one slot is never BestEffort or Idle.
     pub cpu_width: usize,
     /// How long an idle worker above [`keep_alive`](Self::keep_alive) waits before it exits.
     pub idle_timeout: Duration,
     /// Workers per lane and class that wait with no timeout instead of exiting.
     pub keep_alive: usize,
+    /// Starts every worker and the launcher thread.
+    pub spawner: Spawner,
 }
 
 impl Default for WorkConfig {
@@ -177,7 +192,43 @@ impl Default for WorkConfig {
             cpu_width: default_cpu_width(),
             idle_timeout: Duration::from_secs(30),
             keep_alive: 0,
+            spawner: Spawner::default(),
         }
+    }
+}
+
+/// A thread body handed to a [`Spawner`].
+pub type ThreadBody = Box<dyn FnOnce() + Send>;
+
+type SpawnFn = dyn Fn(String, ThreadQos, ThreadBody) -> io::Result<()> + Send + Sync;
+
+/// Starts a detached thread named `name` at `qos`: [`crate::spawn::spawn`] by default, a stand-in
+/// that fails in tests.
+#[derive(Clone)]
+pub struct Spawner(Arc<SpawnFn>);
+
+impl Spawner {
+    pub fn new(
+        spawn: impl Fn(String, ThreadQos, ThreadBody) -> io::Result<()> + Send + Sync + 'static,
+    ) -> Spawner {
+        Spawner(Arc::new(spawn))
+    }
+
+    fn spawn(&self, name: String, qos: ThreadQos, body: ThreadBody) -> io::Result<()> {
+        (self.0)(name, qos, body)
+    }
+}
+
+impl Default for Spawner {
+    fn default() -> Self {
+        // The handle is dropped: the thread is detached and leaves nothing to join.
+        Spawner::new(|name, qos, body| crate::spawn::spawn(name, qos, body).map(drop))
+    }
+}
+
+impl fmt::Debug for Spawner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Spawner")
     }
 }
 
@@ -215,7 +266,7 @@ fn performance_cores() -> usize {
 /// Why a [`Pending`] item gave no value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkError {
-    /// It never ran: shutdown dropped it or refused it.
+    /// It never ran: shutdown dropped or refused it, or no worker thread could be started for it.
     Dropped,
     /// Its body panicked (the daemon's panic hook has logged it).
     Panicked,
@@ -224,7 +275,7 @@ pub enum WorkError {
 impl fmt::Display for WorkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            WorkError::Dropped => "work item dropped at shutdown",
+            WorkError::Dropped => "work item dropped before it ran",
             WorkError::Panicked => "work item panicked",
         })
     }
@@ -271,8 +322,9 @@ impl<T> Pending<T> {
 pub struct ShutdownReport {
     /// Items that had not started and will never run.
     pub dropped: usize,
-    /// Block items still queued or running when the deadline passed (0 without a deadline).
-    pub unfinished_block: usize,
+    /// Block items still queued or running, plus started skip items still running, when the deadline
+    /// passed (0 without a deadline).
+    pub unfinished: usize,
 }
 
 /// A snapshot of one lane, for `server.threads` and tests.
@@ -292,6 +344,7 @@ pub struct LaneStats {
     /// Times a worker woke from its wait, for an item, a timeout or spuriously.
     pub wakeups: u64,
     pub spawn_failures: u64,
+    /// Items whose body panicked, [`Work::post`] and [`Work::run`] ones alike.
     pub panics: u64,
 }
 
@@ -301,9 +354,15 @@ pub struct Work {
 }
 
 impl Work {
-    pub fn new(config: WorkConfig) -> Work {
+    /// Builds the lanes. On Linux it also starts the launcher thread, which keeps the calling thread's
+    /// nice value: build the `Work` on a thread at the process's base nice (the composition root).
+    pub fn new(config: WorkConfig) -> io::Result<Work> {
         let config = Arc::new(config);
-        Work { lanes: Lane::ALL.map(|lane| Arc::new(LaneShared::new(lane, Arc::clone(&config)))) }
+        let launcher = Launcher::start(&config)?.map(Arc::new);
+        Ok(Work {
+            lanes: Lane::ALL
+                .map(|lane| Arc::new(LaneShared::new(lane, Arc::clone(&config), launcher.clone()))),
+        })
     }
 
     /// Queues `body` on `lane` at `priority` and returns at once.
@@ -339,13 +398,14 @@ impl Work {
         Pending { result }
     }
 
-    /// Starts shutdown and waits for every block item. See [`Work::shutdown_until`].
+    /// Starts shutdown and waits for every awaited item. See [`Work::shutdown_until`].
     pub fn shutdown(&self) -> ShutdownReport {
         self.shutdown_inner(None)
     }
 
     /// Drops every item that has not started except block items, refuses new ones the same way, wakes
-    /// idle workers so they exit, and waits until every block item has run or `deadline` passes.
+    /// idle workers so they exit, and waits until every block item and every started skip item has
+    /// finished or `deadline` passes.
     pub fn shutdown_until(&self, deadline: Instant) -> ShutdownReport {
         self.shutdown_inner(Some(deadline))
     }
@@ -356,7 +416,7 @@ impl Work {
         let dropped = self.lanes.iter().flat_map(|lane| lane.close()).count();
         ShutdownReport {
             dropped,
-            unfinished_block: self.lanes.iter().map(|lane| lane.wait_drained(deadline)).sum(),
+            unfinished: self.lanes.iter().map(|lane| lane.wait_drained(deadline)).sum(),
         }
     }
 
@@ -375,10 +435,63 @@ impl Drop for Work {
     }
 }
 
+/// Sends the body's result. A panic is sent as [`WorkError::Panicked`] and raised again, so the worker
+/// counts it as it counts a [`Work::post`] item's.
 fn deliver<T, F: FnOnce() -> T>(sender: &SyncSender<Result<T, WorkError>>, body: F) {
-    let result = catch_unwind(AssertUnwindSafe(body)).map_err(|_| WorkError::Panicked);
     // The caller may have dropped its Pending; nobody reads the result then.
-    let _ = sender.send(result);
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => {
+            let _ = sender.send(Ok(value));
+        }
+        Err(payload) => {
+            let _ = sender.send(Err(WorkError::Panicked));
+            resume_unwind(payload);
+        }
+    }
+}
+
+/// Whether a thread the calling thread starts can run at `qos`. On Linux a new thread starts at its
+/// creator's nice value, and an unprivileged thread cannot lower it.
+fn can_start_at(qos: ThreadQos) -> bool {
+    match crate::qos::current() {
+        LiveQos::Nice(nice) => nice <= qos.linux_nice(),
+        _ => true,
+    }
+}
+
+struct Launch {
+    lane: Arc<LaneShared>,
+    class: WorkerClass,
+}
+
+/// The thread that starts the workers a thread above their nice value may not start (see
+/// [`can_start_at`]). It keeps the nice value of the thread that built the [`Work`], waits for
+/// requests with no timeout, and exits once every lane is gone.
+struct Launcher {
+    requests: Sender<Launch>,
+}
+
+impl Launcher {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    fn start(config: &WorkConfig) -> io::Result<Option<Launcher>> {
+        let (requests, inbox) = mpsc::channel::<Launch>();
+        config.spawner.spawn(
+            format!("{}-launch", config.label),
+            ThreadQos::UserInitiated,
+            Box::new(move || {
+                for Launch { lane, class } in inbox {
+                    lane.spawn_worker(class);
+                }
+            }),
+        )?;
+        Ok(Some(Launcher { requests }))
+    }
+
+    /// macOS sets a thread's QoS class absolutely, so any thread may start any worker.
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
+    fn start(_config: &WorkConfig) -> io::Result<Option<Launcher>> {
+        Ok(None)
+    }
 }
 
 struct Job {
@@ -403,8 +516,9 @@ struct LaneState {
     /// Admitted items: in `ready` or running.
     running: usize,
     workers: [ClassWorkers; 3],
-    /// Block items accepted and not yet finished.
-    blocking: usize,
+    /// Items shutdown waits for: block items from acceptance and skip items from their start, until
+    /// they finish.
+    awaited: usize,
     closed: bool,
     released: bool,
     workers_started: u64,
@@ -418,6 +532,7 @@ struct LaneShared {
     lane: Lane,
     limits: [usize; 4],
     config: Arc<WorkConfig>,
+    launcher: Option<Arc<Launcher>>,
     // Lock carve-out: a short critical section over the queues and counters; no I/O, no item body and
     // no thread spawn runs under it.
     state: Mutex<LaneState>,
@@ -426,17 +541,18 @@ struct LaneShared {
 }
 
 impl LaneShared {
-    fn new(lane: Lane, config: Arc<WorkConfig>) -> LaneShared {
+    fn new(lane: Lane, config: Arc<WorkConfig>, launcher: Option<Arc<Launcher>>) -> LaneShared {
         LaneShared {
             lane,
             limits: lane.limits(config.cpu_width),
             config,
+            launcher,
             state: Mutex::new(LaneState {
                 pending: Default::default(),
                 ready: Default::default(),
                 running: 0,
                 workers: Default::default(),
-                blocking: 0,
+                awaited: 0,
                 closed: false,
                 released: false,
                 workers_started: 0,
@@ -463,7 +579,7 @@ impl LaneShared {
             return Err(Refused);
         }
         if job.shutdown == Shutdown::BlockShutdown {
-            state.blocking += 1;
+            state.awaited += 1;
         }
         state.pending[job.priority.index()].push_back(job);
         let starts = self.admit(&mut state);
@@ -498,28 +614,75 @@ impl LaneShared {
         starts
     }
 
-    /// Starts the workers `admit` counted. They are counted live and idle already.
+    /// Starts the workers `admit` counted, through the launcher when this thread's nice value is above
+    /// the class's. They are counted live and idle already.
     fn start_workers(self: &Arc<Self>, starts: [usize; 3]) {
         for class in WorkerClass::ALL {
-            for _ in 0..starts[class.index()] {
-                let name = format!(
-                    "{}-{}-{}",
-                    self.config.label,
-                    self.lane.short_name(),
-                    class.short_name()
-                );
-                let lane = Arc::clone(self);
-                // Detached: a worker that exits leaves nothing to join.
-                if crate::spawn::spawn(name, class.qos(), move || lane.worker(class)).is_err() {
-                    let mut state = self.lock();
-                    state.workers[class.index()].live -= 1;
-                    state.workers[class.index()].idle -= 1;
-                    state.spawn_failures += 1;
-                } else {
-                    self.lock().workers_started += 1;
+            let count = starts[class.index()];
+            if count == 0 {
+                continue;
+            }
+            let launcher = self.launcher.as_ref().filter(|_| !can_start_at(class.qos()));
+            for _ in 0..count {
+                let Some(launcher) = launcher else {
+                    self.spawn_worker(class);
+                    continue;
+                };
+                if let Err(mpsc::SendError(Launch { lane, class })) =
+                    launcher.requests.send(Launch { lane: Arc::clone(self), class })
+                {
+                    // The launcher is gone only if it panicked: start the worker here, at this
+                    // thread's nice value, rather than strand its item.
+                    lane.spawn_worker(class);
                 }
             }
         }
+    }
+
+    /// Starts one worker of `class`, counted live and idle already; on failure gives its item back.
+    fn spawn_worker(self: &Arc<Self>, class: WorkerClass) {
+        let name =
+            format!("{}-{}-{}", self.config.label, self.lane.short_name(), class.short_name());
+        let lane = Arc::clone(self);
+        let started =
+            self.config.spawner.spawn(name, class.qos(), Box::new(move || lane.worker(class)));
+        let mut state = self.lock();
+        let dropped = match started {
+            Ok(()) => {
+                state.workers_started += 1;
+                Vec::new()
+            }
+            Err(_) => self.worker_not_started(&mut state, class),
+        };
+        drop(state);
+        // Dropped bodies (and the senders of their Pendings) are dropped outside the lock.
+        drop(dropped);
+    }
+
+    /// A worker `admit` counted did not start. Items of its class that no live worker will take go
+    /// back to the front of their pending lists, where the next finished item admits them again. When
+    /// no item runs nothing would, so every pending item is dropped (and returned, to drop unlocked).
+    fn worker_not_started(&self, state: &mut LaneState, class: WorkerClass) -> Vec<Job> {
+        let index = class.index();
+        state.workers[index].live -= 1;
+        state.workers[index].idle -= 1;
+        state.spawn_failures += 1;
+        let uncovered = state.ready[index].len().saturating_sub(state.workers[index].idle);
+        for _ in 0..uncovered {
+            let Some(job) = state.ready[index].pop_back() else { break };
+            state.running -= 1;
+            state.pending[job.priority.index()].push_front(job);
+        }
+        if state.running > 0 {
+            return Vec::new();
+        }
+        let dropped: Vec<Job> = state.pending.iter_mut().flat_map(|list| list.drain(..)).collect();
+        let blocks = dropped.iter().filter(|job| job.shutdown == Shutdown::BlockShutdown).count();
+        state.awaited -= blocks;
+        if blocks > 0 && state.awaited == 0 {
+            self.drained.notify_all();
+        }
+        dropped
     }
 
     fn worker(self: Arc<Self>, class: WorkerClass) {
@@ -529,16 +692,20 @@ impl LaneShared {
         loop {
             if let Some(job) = state.ready[index].pop_front() {
                 state.workers[index].idle -= 1;
+                // Shutdown waits for a block item from its acceptance and for a skip item from now.
+                let awaited = job.shutdown != Shutdown::ContinueOnShutdown;
+                if job.shutdown == Shutdown::SkipOnShutdown {
+                    state.awaited += 1;
+                }
                 drop(state);
-                let blocks = job.shutdown == Shutdown::BlockShutdown;
                 let panicked = catch_unwind(AssertUnwindSafe(job.body)).is_err();
                 state = self.lock();
                 state.panics += u64::from(panicked);
                 state.running -= 1;
                 state.workers[index].idle += 1;
-                if blocks {
-                    state.blocking -= 1;
-                    if state.blocking == 0 {
+                if awaited {
+                    state.awaited -= 1;
+                    if state.awaited == 0 {
                         self.drained.notify_all();
                     }
                 }
@@ -610,10 +777,10 @@ impl LaneShared {
         dropped
     }
 
-    /// Waits until no block item is left or `deadline` passes; returns how many are left.
+    /// Waits until no awaited item is left or `deadline` passes; returns how many are left.
     fn wait_drained(&self, deadline: Option<Instant>) -> usize {
         let mut state = self.lock();
-        while state.blocking > 0 {
+        while state.awaited > 0 {
             match deadline {
                 None => state = self.drained.wait(state).unwrap_or_else(PoisonError::into_inner),
                 Some(deadline) => {
@@ -631,7 +798,7 @@ impl LaneShared {
                 }
             }
         }
-        state.blocking
+        state.awaited
     }
 
     fn release(&self) {
