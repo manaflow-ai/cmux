@@ -177,7 +177,8 @@ public final class ChromiumHostSession {
 
     /// The host's input timing: from each event's time in cmux to the host's
     /// `Send*Event` on its UI thread, in microseconds, and how many input frames
-    /// the host folded into a waiting one (`coalesced`: pointer moves, wheel deltas).
+    /// the host folded into a waiting one (`coalesced`: pointer moves, wheel deltas), and how often the host
+    /// became active or one of its windows key (`activations`, `key_windows`; each undone at once, both 0 normally).
     public func hostInputStats() async -> [String: Int]? {
         seq &+= 1
         let id = seq
@@ -198,6 +199,8 @@ public final class ChromiumHostSession {
             "events": Int(v[0]), "p50_us": Int(v[1]), "p95_us": Int(v[2]),
             "p99_us": Int(v[3]), "max_us": Int(v[4]), "refused_frames": Int(v[5]),
             "coalesced": Int(clamping: reply.t1),
+            // The host shares cmux's bundle id: it must never become active nor own the key window.
+            "activations": Int(reply.t0 >> 32), "key_windows": Int(reply.t0 & 0xffff_ffff),
         ]
         return stats
     }

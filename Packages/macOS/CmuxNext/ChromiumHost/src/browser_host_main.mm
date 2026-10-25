@@ -74,6 +74,21 @@
 }
 @end
 
+// The host's own window (the page window's parent): never key or main, so a
+// click or an accessibility focus on it cannot activate the host. Input comes
+// from cmux over the wire.
+@interface ChromiumHostWindow : NSWindow
+@end
+
+@implementation ChromiumHostWindow
+- (BOOL)canBecomeKeyWindow {
+  return NO;
+}
+- (BOOL)canBecomeMainWindow {
+  return NO;
+}
+@end
+
 namespace {
 
 uint64_t Now() {
@@ -101,6 +116,12 @@ std::vector<uint32_t> g_hop_us;
 size_t g_hop_next = 0;
 uint64_t g_hop_events = 0;
 int g_refused_frames = 0;
+// Times the host became the active app, and times one of its windows (its
+// own, or Chromium's page window, a child of it) became key. Each one is
+// undone at once ([NSApp deactivate]); both stay 0 when nothing activates the
+// host (kStatsReply t0).
+uint32_t g_activations = 0;
+uint32_t g_key_windows = 0;
 
 // Ends the process kQuitLimitSeconds after the first call, if it has not
 // ended by then. Any thread: the reader arms it at EOF, the UI thread at kQuit.
@@ -203,7 +224,7 @@ namespace {
 
 void PlaceWindow() {
   if (!g_window) {
-    g_window = [[NSWindow alloc] initWithContentRect:g_screen_rect
+    g_window = [[ChromiumHostWindow alloc] initWithContentRect:g_screen_rect
                                            styleMask:NSWindowStyleMaskBorderless
                                              backing:NSBackingStoreBuffered
                                                defer:NO];
@@ -414,6 +435,7 @@ void SendStats(uint32_t seq) {
   h.v[4] = sorted.empty() ? 0 : static_cast<int32_t>(sorted.back());
   h.v[5] = g_refused_frames;
   h.t1 = g_frames.coalesced();
+  h.t0 = (static_cast<uint64_t>(g_activations) << 32) | g_key_windows;
   Send(h);
 }
 
@@ -590,6 +612,21 @@ int main(int argc, char* argv[]) {
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    // The host shares cmux's bundle id and is never the app a person uses:
+    // if anything activates it (a click or an accessibility focus on the
+    // page window, which Chromium owns), give the activation straight back.
+    // On the main thread (Chromium's UI thread), like the counters.
+    NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+    [center addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification*) {
+                      ++g_activations;
+                      [NSApp deactivate];
+                    }];
+    [center addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification*) {
+                      ++g_key_windows;
+                      [NSApp deactivate];
+                    }];
   }
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists (the race CmuxNextMallocZone removes in

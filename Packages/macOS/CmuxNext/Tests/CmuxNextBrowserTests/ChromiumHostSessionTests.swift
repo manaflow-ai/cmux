@@ -448,8 +448,14 @@ import Testing
         host.wire.send(stale)
         var reply = ChromiumHostFrame(.statsReply, v: [7, 1, 2, 3, 4, 0])
         reply.seq = request.seq
+        reply.t0 = (UInt64(2) << 32) | 3
+        reply.t1 = 9
         host.wire.send(reply)
-        #expect(await stats.value?["events"] == 7)
+        let answered = await stats.value
+        #expect(answered?["events"] == 7)
+        #expect(answered?["coalesced"] == 9)
+        #expect(answered?["activations"] == 2)
+        #expect(answered?["key_windows"] == 3)
     }
 
     /// The file a descriptor names (device and inode), or nil when it is closed.

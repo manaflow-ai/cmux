@@ -41,8 +41,10 @@ Per mode:
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
-           `open -b <bundle id>` (never the host), the keys of cmux's defaults domain that changed while the host
-           ran, and a Quit AppleEvent to the bundle id (cmux quits, not the host; last row).
+           `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
+           key-window counters stay 0), the keys of cmux's defaults domain that changed while the host ran less
+           those cmux changed alone before it (pass: none), and a Quit AppleEvent to the bundle id (cmux quits, not
+           the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
 
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
@@ -336,6 +338,7 @@ def main():
         cef = rpc("debug.cef") or {}
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
+        DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
         modes = opts.modes.split(",")
         inproc_tab = None
         if "inproc" in modes:
@@ -533,12 +536,24 @@ def run_helper(rpc, url, inproc_tab):
     types = ls_types()
     identity = {"host_pid": host_pid, "app_pid": app_pid, "host_type": types.get(host_pid), "app_type": types.get(app_pid),
                 "front_after_input": front_pid()}
+    # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
+    # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
+    fronts = []
+    for _ in range(10):
+        rpc("debug.mouse", click_point("b"))
+        rpc("debug.key", {"key": "a"})
+        fronts.append(front_pid())
+    counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
+    identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
+                          "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
     opened = subprocess.run(["/usr/bin/open", "-b", bundle_id], capture_output=True, text=True, timeout=30)
     time.sleep(1.5)  # test harness: LaunchServices activates the target app
     identity["open_b"] = {"exit": opened.returncode, "stderr": opened.stderr.strip()[:200], "front": front_pid(),
                           "host_still_runs": not pid_gone(host_pid), "host_type": ls_types().get(host_pid)}
     identity["pass"] = (identity["host_type"] in ("UIElement", "BackgroundOnly") and identity["front_after_input"] != host_pid
-                        and identity["open_b"]["front"] != host_pid and identity["open_b"]["host_type"] in ("UIElement", "BackgroundOnly"))
+                        and identity["open_b"]["front"] != host_pid and identity["open_b"]["host_type"] in ("UIElement", "BackgroundOnly")
+                        and identity["clicks"]["host_frontmost"] == 0 and identity["clicks"]["activations"] == 0
+                        and identity["clicks"]["key_windows"] == 0)
     # The same baseline with the page in the host: cmux's pump still runs for in-process Chromium (the
     # in-process tab, idle in the other pane, and the spare page), the host's page idles and scrolls.
     host_point = click_point("t")
@@ -609,8 +624,18 @@ def run_lifetime(app, url):
     row["close"] = {"pid": pid, "ended": ended, "seconds": seconds, "phase": after.get("phase"),
                     "restarts_before": restarts, "restarts_after": after.get("restarts")}
     row["close"]["pass"] = ended and seconds < QUIT_LIMIT_S and after.get("phase") == "idle" and after.get("restarts") == restarts
-    # Keys of cmux's defaults domain that changed while the host ran (cmux writes some itself: read the names).
-    RESULT["modes"]["helper"]["defaults_while_host_ran"] = defaults_diff(DEFAULTS.get("before"), defaults_snapshot(app_bundle_id()))
+    # Keys of cmux's defaults domain that changed while the host ran, less the keys cmux itself changed from its
+    # launch to the host's open (the same cmux, no host): any other key is the host's (or cmux's for another
+    # reason; the names say which).
+    host_ran = defaults_diff(DEFAULTS.get("before"), defaults_snapshot(app_bundle_id()))
+    cmux_alone = defaults_diff(DEFAULTS.get("launch"), DEFAULTS.get("before"))
+    row_defaults = {"while_host_ran": host_ran, "cmux_alone": cmux_alone}
+    if host_ran is not None and cmux_alone is not None:
+        own = set(cmux_alone["added"]) | set(cmux_alone["changed"]) | set(cmux_alone["removed"])
+        unexplained = sorted((set(host_ran["added"]) | set(host_ran["changed"]) | set(host_ran["removed"])) - own)
+        row_defaults["unexplained"] = unexplained
+        row_defaults["pass"] = not unexplained
+    RESULT["modes"]["helper"]["defaults"] = row_defaults
 
     # 2. a host whose UI thread never reads quit (SIGSTOP; a child of the cmux this bench started) is SIGKILLed at the limit.
     rpc("debug.chromium_host", {"op": "open", "url": url})  # over the focused pane

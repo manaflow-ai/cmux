@@ -68,7 +68,8 @@ enum Kind : uint32_t {
   kStatsReply = 106,    // seq of the request; v0 input events, v1 p50, v2 p95, v3 p99, v4 max (us from cmux's
                         // event time to the host's Send*Event on its UI thread, over the last kHopWindow
                         // events), v5 frames refused (unknown kind), t1 input frames coalesced into a
-                        // waiting one (FrameQueue)
+                        // waiting one (FrameQueue), t0 high 32 bits: times the host became active, low
+                        // 32 bits: times one of its windows became key (each undone at once)
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
 };
