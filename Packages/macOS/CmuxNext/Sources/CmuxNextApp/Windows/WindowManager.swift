@@ -353,6 +353,7 @@ final class WindowManager {
             keepsOrder = restacks
             WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
             keepsOrder = kept
+            DebugTimings.markLaunch("window_display") // first on screen: Chrome's RecordBrowserWindowDisplay (BrowserView::Show)
         }
         onPresent?(controller)
         enterRestoredFullScreens()

@@ -69,6 +69,7 @@ MARKS = [
     ("main.prestart", "main: daemon prestart"),
     ("main.nsapp", "main: NSApp and delegate"),
     ("main.run", "main: run()"),
+    ("run_loop_start", "main run loop started"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
     ("dfl.settings_read", "dfl: settings read"),
     ("dfl.theme", "dfl: Ghostty runtime and theme"),
@@ -86,9 +87,11 @@ MARKS = [
     ("dfl.first_window_hooks", "dfl: first window hooks"),
     ("dfl.home_history", "dfl: home, bookmarks, history"),
     ("launch_snapshot_shown", "cached layout window made"),
+    ("window_display", "first window ordered on screen"),
     ("dfl.windows", "dfl: windows restored"),
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
+    ("first_idle", "main run loop first idle after launch"),
     ("launch.non_paint_services", "non-paint services started (updater, ssh, reach)"),
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up started"),
@@ -114,6 +117,7 @@ MARKS = [
     ("first_terminal_content", "first terminal content decoded"),
     ("first_terminal_content_applied", "first content in a surface"),
     (FINAL_MARK, "first live terminal frame"),
+    ("first_live_content_frame", "first live content frame (terminal or agent page)"),
     ("sidebar_rows_shown", "sidebar rows shown"),
     ("reveal.sidebar", "sidebar revealed"),
     ("reveal.tabs", "tab strips revealed"),
@@ -122,6 +126,19 @@ MARKS = [
     ("agent_pane.page_loaded", "agent page loaded (didFinish)"),
     ("agent_pane.handshake_start", "agent page asked for its handshake"),
     (AGENT_MARK, "agent pane handshake answered"),
+    ("startup_complete", "startup complete (scheduler refs 0, or failsafe)"),
+]
+# Chrome's startup milestones (components/startup_metric_utils/browser/startup_metric_utils.h): --milestones
+# requires each in every run, and each pair below (the ones every launch orders the same way).
+MILESTONES = ["main_start", "run_loop_start", "window_display", "first_window_frame_committed", "first_idle",
+              "first_live_content_frame", "startup_complete"]
+MILESTONE_ORDER = [
+    "main_start<run_loop_start",
+    "run_loop_start<first_idle",
+    "did_finish_launching_end<first_idle",
+    "window_display<first_window_frame_committed",
+    "first_window_frame_committed<startup_complete",
+    "first_live_content_frame<startup_complete",
 ]
 REALISTIC_WORKSPACES = 24
 # Launch work that must start only after the first window frame (perf-launch-memory): checked
@@ -278,6 +295,8 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
+# --milestones: each run also waits for every MILESTONES mark (startup_complete comes after the first frames).
+WAIT_MILESTONES = False
 
 
 def state_directories(tag):
@@ -479,6 +498,8 @@ def one_run(tag, mode, timeout, profile=None):
     launch = Launch(tag, scratch)
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
+        if WAIT_MILESTONES:
+            launch.wait_for(MILESTONES, timeout)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:
@@ -615,11 +636,15 @@ def main():
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
                              "(for example first_window_frame_committed<launch.non_paint_services)")
+    parser.add_argument("--milestones", action="store_true",
+                        help="wait in each run for Chrome's startup milestones (MILESTONES); exit 1 when a run "
+                             "lacks one or has a MILESTONE_ORDER pair out of order")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WAIT_MILESTONES
     HANG_THRESHOLD_MS = args.hangs
+    WAIT_MILESTONES = args.milestones
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
     for path in args.app:
@@ -669,6 +694,8 @@ def main():
             json.dump(results, out, indent=1)
     orders = args.order + (LAUNCH_ORDER if args.budget else [])
     over = check_budgets(results, args.budget) + check_orders(results, orders)
+    if args.milestones:
+        over += check_milestones(results)
     for line in over:
         print(f"over budget: {line}", file=sys.stderr)
     if over:
@@ -688,6 +715,18 @@ def check_budgets(results, budgets):
                 elif values and statistics.median(values) > float(limit):
                     over.append(f"{tag} {mode}: {mark} median {statistics.median(values):.0f} ms > {limit} ms")
     return over
+
+
+def check_milestones(results):
+    """Every run that lacks a milestone, then every MILESTONE_ORDER pair out of order."""
+    out = []
+    for tag, modes in results.items():
+        for mode, runs in modes.items():
+            for index, run in enumerate(runs):
+                missing = [mark for mark in MILESTONES if mark not in run]
+                if missing:
+                    out.append(f"{tag} {mode} run {index + 1}: milestones missing: {', '.join(missing)}")
+    return out + [line for line in check_orders(results, MILESTONE_ORDER) if not line.endswith(" missing")]
 
 
 def check_orders(results, orders):

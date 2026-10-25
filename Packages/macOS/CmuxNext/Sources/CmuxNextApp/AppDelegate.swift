@@ -80,7 +80,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         control.startWatchdog()
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
-        defer { DebugTimings.markLaunch("did_finish_launching_end") }
+        defer { DebugTimings.markLaunch("did_finish_launching_end"); DebugTimings.armFirstIdleMark() }
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()
         // Every window, shell or auxiliary, opens by one placement rule.

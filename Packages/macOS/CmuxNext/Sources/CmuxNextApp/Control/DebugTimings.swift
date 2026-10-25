@@ -49,21 +49,59 @@ enum DebugTimings {
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }()
 
+    /// The marks of a pane's first frame of its own live content, not a saved picture: the
+    /// terminal's first frame after the daemon's content reached its surface (`LaunchSettle`),
+    /// the agent page's (or its New Tab page's) first paint. The first of them is also `first_live_content_frame`,
+    /// Chrome's `RecordFirstWebContentsNonEmptyPaint`
+    /// (components/startup_metric_utils/browser/startup_metric_utils.h).
+    private nonisolated static let liveContentFrameMarks: Set<String> = ["first_terminal_frame", "agent_pane.painted", "agent_pane.newtab_painted"]
+
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
+        _ = recordLaunchMark(name, at: date)
+    }
+
+    /// Records `name` unless it was already; true when this call recorded it.
+    private nonisolated static func recordLaunchMark(_ name: String, at date: Date) -> Bool {
         let ms = date.timeIntervalSince(processStart) * 1_000
         let first = launchMarks.withLock { marks in
             guard !marks.contains(where: { $0.name == name }) else { return false }
             marks.append((name, ms))
             return true
         }
-        if first {
-            LaunchMarkSink.shared.write(name: name, ms: ms)
-            #if DEBUG || CMUX_BENCH_HOOKS
-            UpdateHarness.mark("launch.\(name)", at: date)
-            #endif
-        }
+        guard first else { return false }
+        LaunchMarkSink.shared.write(name: name, ms: ms)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("launch.\(name)", at: date)
+        #endif
+        if liveContentFrameMarks.contains(name) { markLaunch("first_live_content_frame", at: date) }
+        return true
+    }
+
+    /// Marks `run_loop_start` at the main run loop's first entry, Chrome's
+    /// `RecordBrowserMainMessageLoopStart`: a one-shot entry observer, which the run loop
+    /// removes after its one call. Call it in `main()` just before `NSApp.run()`.
+    static func armRunLoopStartMark() {
+        MainRunLoopObserver.once(activities: .entry, order: CFIndex.min) { markLaunch("run_loop_start") }
+    }
+
+    /// Marks `first_idle` the first time the main run loop is about to sleep after
+    /// `applicationDidFinishLaunching`, Chrome's `RecordBrowserMainLoopFirstIdle`: a one-shot
+    /// before-waiting observer ordered after AppKit's display and the Core Animation commit,
+    /// so the turn it closes is the whole launch turn. Call it at the end of that method.
+    static func armFirstIdleMark() {
+        MainRunLoopObserver.once(activities: .beforeWaiting, order: CFIndex.max) { markLaunch("first_idle") }
+    }
+
+    /// The startup scheduler's completion (`StartupScheduler`: its refs reached zero or its
+    /// failsafe fired): marks `startup_complete`, Chrome's `Startup.StartupComplete`, and with
+    /// the first one only, `startup_complete.<reason>` at the same time, so `debug.timings` and
+    /// the bench say why (Chrome's `Startup.BrowserStartupCompleteReason`).
+    static func markStartupComplete(reason: String) {
+        let now = Date()
+        guard recordLaunchMark("startup_complete", at: now) else { return }
+        markLaunch("startup_complete.\(reason)", at: now)
     }
 
     static func install() {
