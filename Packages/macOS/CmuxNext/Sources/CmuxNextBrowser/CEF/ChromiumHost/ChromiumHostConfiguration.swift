@@ -47,6 +47,9 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
             // Chromium's code-sign clone copies the main bundle (here the small host app)
             // and starts helpers from the copy, but the helpers live outside it.
             + ["disable-features=MacAppCodeSignClone"]
+            // Development override (Debug only, like the host): more host switches, comma-separated, for
+            // diagnosis on a measure host (chromium-host-bench.py --host-switches: child logging, no-sandbox).
+            + (environment["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] ?? "").split(separator: ",").map(String.init).filter { !$0.isEmpty }
         // The main bundle is the app's (as in process), never the host's own small bundle: it holds the
         // framework and the helpers Chromium starts and sandboxes (browser_host_main.mm).
         return ["--framework=\(layout.frameworkDirectory.path)",

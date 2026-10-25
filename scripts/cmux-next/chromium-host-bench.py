@@ -61,6 +61,7 @@ parser.add_argument("--modes", default="inproc,helper")
 parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
 parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
 parser.add_argument("--pump-seconds", type=float, default=10.0)
+parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -149,6 +150,16 @@ def probe_color_share():
 
 
 BENCH_START = time.time()
+APP_LOG = {}
+
+
+def app_log_lines(needles, limit=80):
+    """The app log's lines that hold one of `needles` (the last `limit`), or None."""
+    try:
+        lines = open(APP_LOG["path"], errors="replace").read().splitlines()
+    except (KeyError, OSError):
+        return None
+    return [line[:400] for line in lines if any(n in line for n in needles)][-limit:]
 
 
 def log_tail(path, lines=40):
@@ -228,7 +239,12 @@ def main():
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
-    app = BenchApp(opts.app, out=opts.out, env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables})
+    env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.host_switches:
+        env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
+        RESULT["host_switches"] = opts.host_switches
+    app = BenchApp(opts.app, out=opts.out, env=env)
+    APP_LOG["path"] = app.log_path
     ok = True
     try:
         app.launch()
@@ -388,7 +404,10 @@ def run_helper(rpc, url, inproc_tab):
     if not state:
         failed = rpc("debug.chromium_host") or {}
         RESULT["modes"]["helper"] = {"error": "the host page never showed", "state": failed,
-                                     "host_log": log_tail(failed.get("log_file")), "crash_reports": host_crash_reports()}
+                                     "host_log": log_tail(failed.get("log_file")), "crash_reports": host_crash_reports(),
+                                     # The host's children write to cmux's stderr (the app log): sandbox and load errors.
+                                     "app_log_children": app_log_lines(("Helper", "sandbox", "Sandbox", "seatbelt", "Check failed",
+                                                                        "ERROR", "FATAL", "LoadInHelper"))}
         return False
     time.sleep(0.5)  # test harness: the shown context's first frame reaches the screen
     pixels["shown"] = probe_color_share()
