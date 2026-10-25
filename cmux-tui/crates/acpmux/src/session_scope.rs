@@ -115,7 +115,8 @@ fn knob_reader(env: &BTreeMap<String, String>) -> impl Fn(&str) -> Option<String
 /// here, in its own session.
 pub(crate) const SESSION_TASKS_MAX: u64 = 4096;
 
-/// A session's `TasksMax` from `get` (`ACPMUX_SESSION_TASKS_MAX`; 0: none).
+/// A session's `TasksMax` from `get` (`ACPMUX_SESSION_TASKS_MAX`; 0: no cap,
+/// which a scope gets as `infinity`, never systemd's `DefaultTasksMax`).
 pub(crate) fn tasks_max(get: &dyn Fn(&str) -> Option<String>) -> Option<u64> {
     let n = get("ACPMUX_SESSION_TASKS_MAX")
         .and_then(|v| v.trim().parse::<u64>().ok())
@@ -133,16 +134,28 @@ fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> 
     let high = knob("ACPMUX_SESSION_MEMORY_HIGH_MB").map_or(max / 10 * 9, mb);
     let high = if max > 0 { high.min(max) } else { high };
     let weight = knob("ACPMUX_SESSION_CPU_WEIGHT").unwrap_or(50).min(10_000);
+    let tasks = tasks_max(get);
+    let on = |value: u64| (value > 0).then(|| value.to_string());
+    let limits = [
+        ("MemoryMax", on(max)),
+        ("MemoryHigh", on(high)),
+        ("TasksMax", tasks.map(|n| n.to_string())),
+        ("CPUWeight", on(weight)),
+    ];
+    // Every limit off: no scope at all.
+    if limits.iter().all(|(_, value)| value.is_none()) {
+        return Vec::new();
+    }
     let mut out = Vec::new();
-    let mut set = |key: &str, value: u64| {
-        if value > 0 {
-            out.extend(["-p".to_owned(), format!("{key}={value}")]);
-        }
-    };
-    set("MemoryMax", max);
-    set("MemoryHigh", high);
-    set("TasksMax", tasks_max(get).unwrap_or(0));
-    set("CPUWeight", weight);
+    for (key, value) in limits {
+        // A scope without `TasksMax` gets systemd's `DefaultTasksMax`; off is no cap.
+        let value = match value {
+            Some(value) => value,
+            None if key == "TasksMax" => "infinity".to_owned(),
+            None => continue,
+        };
+        out.extend(["-p".to_owned(), format!("{key}={value}")]);
+    }
     out
 }
 
@@ -284,8 +297,8 @@ fn limit_sessions_slice(runner: &std::path::Path, env: &BTreeMap<String, String>
 /// `systemctl show` does not already report is written: writing an
 /// unchanged `MemoryHigh` makes the kernel reclaim the slice down to it in
 /// the user manager, so a slice that has its limits is never touched again.
-/// One call at a time (concurrent session starts find the first one's
-/// result). Returns how many settings changed. Each `systemctl` call is
+/// One call at a time: a concurrent caller returns at once and leaves it to
+/// the one at work. Returns how many settings this call changed. Each `systemctl` call is
 /// bounded by [`PROBE_TIMEOUT`].
 #[cfg(target_os = "linux")]
 fn limit_slice(
@@ -295,7 +308,13 @@ fn limit_slice(
     env: &BTreeMap<String, String>,
 ) -> Result<usize, String> {
     static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
+    // A session start that finds another one setting the limits does not
+    // wait for it: that one sets them, so no start waits past its own calls.
+    let _one = match ONE_AT_A_TIME.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return Ok(0),
+    };
     if wanted.is_empty() {
         return Ok(0);
     }
@@ -443,6 +462,9 @@ mod tests {
             joined(&properties(&get, 8 * GIB)),
             format!("-p MemoryMax={} -p TasksMax=4096 -p CPUWeight=50", 4 * GIB)
         );
+        // No task cap, other limits on: an explicit `infinity`, not systemd's default.
+        let get = from(&[("ACPMUX_SESSION_TASKS_MAX", "0"), ("ACPMUX_SESSION_MEMORY_MB", "0")]);
+        assert_eq!(joined(&properties(&get, 0)), "-p TasksMax=infinity -p CPUWeight=50");
         // Every limit off: no scope at all.
         let off = from(&[
             ("ACPMUX_SESSION_MEMORY_MB", "0"),
@@ -580,6 +602,37 @@ mod tests {
         let shown = shown.unwrap_or_default();
         assert!(shown.contains(&format!("MemoryMax={GIB}")), "{shown}");
         assert!(shown.contains("TasksMax=infinity"), "{shown}");
+    }
+
+    /// A second session start never queues behind one that is setting the
+    /// slice's limits (its `systemctl` may hang for the full timeout).
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn a_session_start_never_waits_for_another_to_set_the_slice() {
+        let (held, release) = std::sync::mpsc::channel::<()>();
+        let (go, ready) = std::sync::mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            // A `systemctl` that stalls until released.
+            let stall = std::env::temp_dir().join(format!("acpmux-stall-{}", std::process::id()));
+            std::fs::write(&stall, "#!/bin/sh\nsleep 2\n").unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&stall, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let wanted = [("TasksMax", "1".to_owned())];
+            go.send(()).unwrap();
+            let _ = limit_slice(&stall, "acpmuxunused.slice", &wanted, &BTreeMap::new());
+            let _ = std::fs::remove_file(&stall);
+            let _ = release.recv();
+        });
+        ready.recv().unwrap();
+        // Let the holder reach its stalled `systemctl`.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let started = std::time::Instant::now();
+        let nowhere = std::path::Path::new("/nonexistent/systemctl");
+        let wanted = [("TasksMax", "1".to_owned())];
+        assert_eq!(limit_slice(nowhere, "acpmuxunused.slice", &wanted, &BTreeMap::new()), Ok(0));
+        assert!(started.elapsed() < std::time::Duration::from_millis(500), "it waited");
+        let _ = held.send(());
+        holder.join().unwrap();
     }
 
     #[test]
