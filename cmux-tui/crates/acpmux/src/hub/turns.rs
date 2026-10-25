@@ -374,7 +374,7 @@ impl Hub {
                 .ok_or_else(|| RpcError::internal("no agent session")),
             Err(e) => Err(e),
         };
-        let (child, agent_sid) = match started {
+        let (mut child, agent_sid) = match started {
             Ok(started) => started,
             Err(e) => {
                 self.fail_unstarted_turn(session, &prompt_id, &turn_id, &e);
@@ -453,6 +453,8 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
+        Self::hold_stalled_count(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Start title generation after the first prompt is written to the harness, while its
@@ -463,7 +465,10 @@ impl Hub {
             json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
-            || self.title_after_prompt(session),
+            || {
+                self.watch_stalled_turn(session, None);
+                self.title_after_prompt(session)
+            },
         )
         .await;
         // The account behind this harness is exhausted: move the session
@@ -482,7 +487,9 @@ impl Hub {
                     "failover",
                     json!({"from": from, "to": to, "reason": e.message, "turnId": turn_id}),
                 );
-                // The turn goes on, on the fallback.
+                // The turn goes on, on the fallback. A new agent: the old one's silence and
+                // tools are not its own, and its count starts once the prompt is written to it.
+                Self::hold_stalled_count(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
@@ -511,6 +518,8 @@ impl Hub {
                     // refusal (folder trust, mode, D13) is the turn's error.
                     (Ok(_), Some(e)) => result = Err(e),
                     (Ok(child2), None) => {
+                        // The turn ends on the fallback's agent: `finish_turn` reads its life.
+                        child = child2.clone();
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
@@ -524,13 +533,20 @@ impl Hub {
                             // The new agent session gets every rule again.
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
+                        // Its start read the chat ready: the turn runs on.
+                        self.set_status(session, SessionStatus::Running);
                         if let Some(sid2) = session.meta().agent_session_id {
-                            result = child2
-                                .request(
-                                    method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
-                                )
-                                .await;
+                            // Like the first prompt: Stop's and a stalled turn's forced end
+                            // (`cancel.rs`, `stalled_turn.rs`) end it too.
+                            result = super::steer_end::agent_prompt_hook(
+                                session,
+                                &child2,
+                                json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
+                                &turn_id,
+                                false,
+                                || self.watch_stalled_turn(session, None),
+                            )
+                            .await;
                         }
                     }
                     (Err(e2), _) => result = Err(e2),
@@ -597,6 +613,11 @@ impl Hub {
         // Quit Everything already recorded this turn as cancelled.
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
+        }
+        // acpmux ended a turn whose model said nothing for `stalledTurnEndMs`: it failed.
+        let stalled = result.as_ref().ok().and_then(Self::stalled_error);
+        if let Some(e) = stalled {
+            result = Err(e);
         }
         // Apply queued stderr before classifying a dead process (a limit never resumes).
         Self::drain_inbound(session).await;
@@ -706,6 +727,12 @@ impl Hub {
                     o.extend(self.turn_error_fields(session, agent_error));
                     if let Some(Value::Object(info)) = &route_info {
                         o.extend(info.clone());
+                    }
+                    // Ended by acpmux, not the agent (`stalled_turn.rs`).
+                    if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
+                        o.insert("detail".into(), data["detail"].clone());
+                        o.insert("stalledMs".into(), data["stalledMs"].clone());
+                        o.insert("errorSource".into(), json!("acpmux"));
                     }
                 }
                 self.write_turn_result(session, msg, git);
