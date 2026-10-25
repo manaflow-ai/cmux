@@ -76,6 +76,22 @@ import Testing
         #expect(detail.field.frame.height > 0 && detail.replyButton.frame.width > 0)
     }
 
+    @Test func aLongReportWrapsInsideItsPanes() throws {
+        let model = FeedModel(source: MockFeedSource())
+        let long = String(repeating: "a long line of report text that has to wrap ", count: 40)
+        model.replaceReports([FeedReport(id: "r3", sender: "host/gamma", body: long, createdAt: Date(timeIntervalSince1970: 3_000))])
+        let (view, window) = shown(model)
+        defer { window.close() }
+        let row = try #require(view.rows.first)
+        let detail = try #require(view.detail)
+        let labels = { (root: NSView) in self.subviews(of: root).compactMap { $0 as? NSTextField }.filter { !$0.isEditable } }
+        for label in labels(row) { #expect(label.frame.maxX <= row.bounds.maxX + 0.5, "row label \(label.frame) in \(row.bounds)") }
+        for label in labels(detail) {
+            let frame = label.convert(label.bounds, to: detail)
+            #expect(frame.maxX <= detail.bounds.maxX + 0.5, "detail label \(frame) in \(detail.bounds)")
+        }
+    }
+
     @Test func theNewestReportIsSelectedAndAClickSelectsAnother() throws {
         let model = FeedModel(source: MockFeedSource())
         model.replaceReports([older, newer])

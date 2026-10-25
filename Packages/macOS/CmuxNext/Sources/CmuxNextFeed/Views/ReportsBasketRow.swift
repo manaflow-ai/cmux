@@ -24,11 +24,13 @@ final class ReportsBasketRow: NSView {
         time.setContentHuggingPriority(.required, for: .horizontal)
         let top = ReportsBasketText.stack([sender, time], vertical: false, spacing: 8, alignment: .firstBaseline)
         let text = ReportsBasketText.stack([top, body], spacing: 4)
+        ReportsBasketText.flexible(text, .horizontal)
         let row = ReportsBasketText.stack([icon, text], vertical: false, spacing: 9, alignment: .top)
         row.edgeInsets = NSEdgeInsets(top: 8, left: 9, bottom: 8, right: 9)
         embed(row)
         NSLayoutConstraint.activate([
             top.widthAnchor.constraint(equalTo: text.widthAnchor),
+            body.widthAnchor.constraint(equalTo: text.widthAnchor),
             icon.topAnchor.constraint(equalTo: text.topAnchor, constant: 2),
         ])
         setAccessibilityRole(.button)

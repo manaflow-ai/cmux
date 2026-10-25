@@ -44,6 +44,10 @@ final class ReportsBasketDetail: NSView, NSTextFieldDelegate {
         let column = ReportsBasketText.stack(parts)
         embed(column)
         for part in parts { part.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true }
+        // Labels wrap (or truncate) inside their pane instead of keeping their one-line width.
+        for label in [title, from] { label.widthAnchor.constraint(equalTo: header.widthAnchor, constant: -36).isActive = true }
+        text.widthAnchor.constraint(equalTo: body.widthAnchor, constant: -36).isActive = true
+        notSentLabel.widthAnchor.constraint(equalTo: notSentRow.widthAnchor, constant: -28).isActive = true
         widthAnchor.constraint(greaterThanOrEqualToConstant: 420).isActive = true
         // The text scrolls; the header and the reply row keep their size.
         ReportsBasketText.flexible(scroll, .vertical)

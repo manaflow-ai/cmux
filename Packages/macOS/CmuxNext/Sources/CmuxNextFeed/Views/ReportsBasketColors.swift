@@ -97,6 +97,10 @@ enum ReportsBasketText {
             stack.centerYAnchor.constraint(equalTo: box.centerYAnchor),
             stack.widthAnchor.constraint(lessThanOrEqualTo: box.widthAnchor, constant: -2 * padding),
         ])
+        // Wrapping lines stay inside the column.
+        for view in views where (view as? NSTextField)?.maximumNumberOfLines == 0 {
+            view.widthAnchor.constraint(lessThanOrEqualTo: box.widthAnchor, constant: -2 * padding).isActive = true
+        }
         return box
     }
 
