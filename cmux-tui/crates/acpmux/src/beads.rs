@@ -60,7 +60,9 @@ mod tests {
         for id in ["cx-cus7j", "cx-cus7j.230", "cx-ncc.112.129", "cx-0op.M1a", "agent-tasks-a1"] {
             assert!(is_bead_id(id), "{id}");
         }
-        for not in ["review", "cx-", "-abc", "cx-abc.", "cx-abc..1", "cx-a_b", "cx abc", "1x-abc", "a/b-c"] {
+        for not in
+            ["review", "cx-", "-abc", "cx-abc.", "cx-abc..1", "cx-a_b", "cx abc", "1x-abc", "a/b-c"]
+        {
             assert!(!is_bead_id(not), "{not}");
         }
     }
