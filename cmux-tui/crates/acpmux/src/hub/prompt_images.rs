@@ -181,20 +181,20 @@ pub(super) fn inline_parts(
             match kind {
                 "text" if !crate::prompt_context::is_context(block) => {
                     let text = block.get("text").and_then(Value::as_str)?;
-                    if let Some(display_part) = display_part {
-                        if matches!(
+                    if let Some(display_part) = display_part
+                        && matches!(
                             display_part.get("kind").and_then(Value::as_str),
                             Some("file" | "pasted")
-                        ) {
-                            let mut part = display_part.clone();
-                            part["text"] = Value::String(text.to_owned());
-                            if part.get("kind").and_then(Value::as_str) == Some("pasted")
-                                && part.get("name").is_none()
-                            {
-                                part["name"] = Value::String("Pasted text".into());
-                            }
-                            return Some(part);
+                        )
+                    {
+                        let mut part = display_part.clone();
+                        part["text"] = Value::String(text.to_owned());
+                        if part.get("kind").and_then(Value::as_str) == Some("pasted")
+                            && part.get("name").is_none()
+                        {
+                            part["name"] = Value::String("Pasted text".into());
                         }
+                        return Some(part);
                     }
                     let mut part = json!({"kind": "text", "text": text});
                     if block.pointer("/_meta/cmux/pasted").and_then(Value::as_bool) == Some(true) {
@@ -379,7 +379,7 @@ impl Hub {
         }
         let ordered = inline_parts(
             blocks,
-            msg.get("images").and_then(Value::as_array).unwrap_or(&[]),
+            msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             display_parts,
         );
         if !ordered.is_empty() {

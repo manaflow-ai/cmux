@@ -42,6 +42,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
 import { QueuedImages } from "./QueuedImages";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
+import type { ComposerAttachment } from "./attachments";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
@@ -140,6 +141,7 @@ export function ComposerQueue({
   pauseReason,
   t,
   onRemove,
+  onCancelEdit,
   onChange,
   onLost,
   onLeave,
@@ -157,6 +159,8 @@ export function ComposerQueue({
   t: Translate;
   /// Withdraws a waiting prompt; false when it already started (it then leaves with the turn).
   onRemove?(id: string): Promise<boolean>;
+  /// Pulls a queued prompt into the composer, preserving its text and images.
+  onCancelEdit?(id: string, text: string, attachments: ComposerAttachment[]): Promise<boolean>;
   /// Changes a waiting prompt (`_acpmux/queue_edit`); false when it already started.
   onChange?(id: string, edit: QueueEdit): Promise<boolean>;
   /// An edit of a prompt that started meanwhile: its text goes back to the prompt, so it is kept.
@@ -174,6 +178,9 @@ export function ComposerQueue({
 }) {
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
+  // A successful Send now is reflected by acpmux's next snapshot, but the action must disappear
+  // immediately after the queue_edit reply so a second click cannot resend it.
+  const [sentNow, setSentNow] = useState<ReadonlySet<string>>(new Set());
   const queueing = useQueueing();
   const [editing, setEditingId] = useState<string>();
   // The images the open edit drops from its prompt.
@@ -209,6 +216,15 @@ export function ComposerQueue({
   // A press in the list, until its release: the focus it gives a row does not scroll the list.
   const pressing = useRef(false);
   useEffect(() => {
+    setSentNow((current) => {
+      const next = new Set(
+        [...current].filter((id) => {
+          const entry = queue.find((candidate) => candidate.id === id);
+          return entry !== undefined && !entry.next;
+        }),
+      );
+      return next.size === current.size ? current : next;
+    });
     setLeaving((current) => {
       const kept = [...current].filter((id) => queue.some((entry) => entry.id === id));
       return kept.length === current.size ? current : new Set(kept);
@@ -332,6 +348,25 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
+  const cancelEdit =
+    onCancelEdit &&
+    (async (entry: QueuedEntry) => {
+      if (entry.message) return;
+      const attachments = await Promise.all(
+        (entry.images ?? []).map(async (image): Promise<ComposerAttachment> => {
+          const src = image.src ?? (readImage ? await readImage(image.id) : undefined);
+          return {
+            id: image.id,
+            kind: "image",
+            name: image.name ?? "image",
+            mimeType: image.mimeType,
+            size: 0,
+            ...(src?.startsWith("data:") ? { data: src.slice(src.indexOf(",") + 1) } : {}),
+          };
+        }),
+      );
+      await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
+    });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
   const sideChat =
     onSideChat &&
@@ -342,7 +377,17 @@ export function ComposerQueue({
   // once acpmux takes it (`dequeued`). Hiding it as leaving showed nothing until it ran (live run
   // 2026-10-14).
   const sendNow =
-    onChange && ((entry: QueuedEntry) => void onChange(entry.id, { op: "send_now" }).catch(() => undefined));
+    onChange &&
+    ((entry: QueuedEntry) => {
+      if (entry.next || sentNow.has(entry.id)) return;
+      void onChange(entry.id, { op: "send_now" })
+        .then((ok) => {
+          if (!ok) return;
+          setSentNow((current) => new Set(current).add(entry.id));
+        })
+        .catch(() => undefined);
+    });
+  const canSendNow = (entry: QueuedEntry) => Boolean(sendNow && !entry.next && !sentNow.has(entry.id));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
   // moved row keeps focus once acpmux's new order draws.
   const move =
@@ -434,13 +479,13 @@ export function ComposerQueue({
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow
+    ...(canSendNow(entry)
       ? [
           {
             id: "steer",
             ariaLabel: t("composer.queueSteer"),
             label: t("composer.queueSteer"),
-            onSelect: () => sendNow(entry),
+            onSelect: () => sendNow?.(entry),
           },
         ]
       : []),
@@ -474,16 +519,28 @@ export function ComposerQueue({
     const side = sideChat?.(entry);
     return (
       <span className="acpmux-queued-actions">
-        {sendNow && (
+        {canSendNow(entry) && (
           <button
             type="button"
             className="acpmux-queued-action acpmux-queued-steer"
             data-action="steer"
             aria-label={t("composer.queueSteer")}
-            onClick={() => sendNow(entry)}
+            onClick={() => sendNow?.(entry)}
           >
             <Icon name="composer.steer" size={14} />
             <span>{t("composer.queueSteer")}</span>
+          </button>
+        )}
+        {cancelEdit && !entry.message && (
+          <button
+            type="button"
+            className="acpmux-queued-action"
+            data-action="cancel-edit"
+            aria-label={t("message.edit")}
+            title={t("message.edit")}
+            onClick={() => void cancelEdit(entry)}
+          >
+            <Icon name="action.close" size={14} />
           </button>
         )}
         {remove && (

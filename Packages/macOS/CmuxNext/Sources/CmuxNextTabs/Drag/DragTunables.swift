@@ -4,7 +4,8 @@ package import CoreGraphics
 /// Debug Settings tunables of the tab drag ghost (`TabDragSession`,
 /// `TabDragGhostPanel`). The ghost still scales about the grab point
 /// (`TabDragGhostLayout`); these only change how far.
-package enum DragTunables {
+package struct DragTunables {
+    package init() {}
     package static let ghostTargetScale = Tunable<CGFloat>.number(
         "tabDrag.ghostTargetScale", .tabDrag, "Ghost scale over a target",
         help: "The floating ghost card shrinks to this while it is over a drop target or a workspace row.",

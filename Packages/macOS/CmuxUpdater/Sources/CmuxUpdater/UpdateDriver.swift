@@ -65,6 +65,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
     /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
     var quitInstallItem: SUAppcastItem?
+    /// The update whose relaunch the gate holds, so the host still names it as the staged
+    /// update a click installs; read only while that held state is the model's.
+    var heldRelaunchItem: SUAppcastItem?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
@@ -232,7 +235,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// `true` to hold the relaunch until `installHandler` is invoked (see ``UpdateRelaunchGate``).
     /// Hosts that preserve sessions set `holdsUserInstalls` to false, which bypasses every
     /// blocker, including automatic-install idle checks.
-    func handleShouldPostponeRelaunch(installHandler: @escaping () -> Void) -> Bool {
+    func handleShouldPostponeRelaunch(item: SUAppcastItem? = nil, installHandler: @escaping () -> Void) -> Bool {
         let automatic = relaunchIsAutomatic
         relaunchIsAutomatic = false
         var isAutoUpdate = false
@@ -247,6 +250,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         let reported = currentRelaunchBlockers()
         let blockers = automatic ? reported : reported.forUserInstall
         guard !blockers.isEmpty else { return false }
+        heldRelaunchItem = item
         holdRelaunch(isAutoUpdate: isAutoUpdate, automatic: automatic, install: installHandler)
         return true
     }

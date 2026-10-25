@@ -134,11 +134,12 @@ impl RemoteSession {
                     break Some(remote_reader_message_too_large(&mut message));
                 }
                 let Some(session) = reader_session.upgrade() else { break None };
-                let mut message = match session.translate_incoming_line(&message) {
+                let translated = session.translate_incoming_line(&message);
+                zeroize_string(&mut message);
+                let mut message = match translated {
                     Ok(message) => message,
                     Err(error) => {
                         let reason = format!("remote API revision translation failed: {error}");
-                        session.disconnect_transport_with_reason(reason.clone());
                         break Some(reason);
                     }
                 };

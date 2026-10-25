@@ -210,8 +210,9 @@ fn a_file_swapped_for_a_symlink_is_never_followed() {
             }
         })
         .unwrap();
+    // Unlinking the pathname changes the opened inode's ctime on some filesystems;
+    // either a stable read of the original bytes or a media.changed refusal is safe.
     never_outside(read_all(&opened), &mp4(1, 64));
-    assert_eq!(read_all(&opened).unwrap(), mp4(1, 64));
 }
 
 /// Race: the folder `out` becomes a symlink out of the root, after the root is opened and after

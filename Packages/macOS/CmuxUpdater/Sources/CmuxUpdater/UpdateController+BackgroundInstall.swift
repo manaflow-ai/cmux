@@ -62,6 +62,13 @@ extension UpdateController {
             armStagedInstallWatchdog()
             return
         }
+        if case .installing(let installing) = model.state, installing.relaunchBlockers != nil {
+            // An automatic install the relaunch gate holds: the click is Install Now.
+            log.append("background install: click on a held relaunch; installing now")
+            installing.retryTerminatingApplication()
+            armStagedInstallWatchdog()
+            return
+        }
         if case .installing(let installing) = model.state, installing.isAutoUpdate {
             log.append("background install: installing the update Sparkle staged silently")
             driver.quitInstallItem = nil

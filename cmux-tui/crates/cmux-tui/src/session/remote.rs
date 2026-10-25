@@ -1695,13 +1695,13 @@ pub struct RemoteSession {
 
 impl RemoteSession {
     pub(super) fn install_api_revision(&self, revision: Option<api_revision::RemoteApiRevision>) {
-        *self.api_revision.lock().unwrap() = revision;
+        *self.api_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = revision;
     }
 
     pub(super) fn translate_incoming_line(&self, line: &str) -> anyhow::Result<String> {
         self.api_revision
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .map_or_else(|| Ok(line.to_owned()), |revision| revision.incoming(line))
     }
@@ -1714,7 +1714,7 @@ impl RemoteSession {
     ) -> anyhow::Result<String> {
         self.api_revision
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .map_or_else(|| Ok(line.to_owned()), |revision| revision.outgoing(id, command, line))
     }
@@ -1724,18 +1724,30 @@ impl RemoteSession {
         command: &str,
         line: &str,
     ) -> anyhow::Result<String> {
-        self.api_revision.lock().unwrap().as_ref().map_or_else(
-            || Ok(line.to_owned()),
-            |revision| revision.outgoing_no_reply(command, line),
-        )
+        self.api_revision
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .map_or_else(
+                || Ok(line.to_owned()),
+                |revision| revision.outgoing_no_reply(command, line),
+            )
     }
 
     pub(super) fn api_revision(&self) -> Option<u32> {
         self.api_revision
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .map(api_revision::RemoteApiRevision::local_revision)
+    }
+
+    fn forget_api_request(&self, id: u64) {
+        if let Some(revision) =
+            self.api_revision.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref()
+        {
+            revision.forget(id);
+        }
     }
 }
 
@@ -2551,6 +2563,7 @@ fn test_session_with_writer(
 ) -> Arc<RemoteSession> {
     Arc::new(RemoteSession {
         interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        api_revision: Mutex::new(None),
         disconnect_state: disconnect::DisconnectCell::default(),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),

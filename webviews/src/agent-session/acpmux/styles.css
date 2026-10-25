@@ -2,6 +2,7 @@
 /* The chat header's height (.acpmux-header); the Inspector over the chat starts under it (inspector/inspector.css). */
 .acpmux-shell{--acpmux-header-height:44px}
 .acpmux-stage{position:relative;flex:1;display:flex;flex-direction:column;min-height:0}.acpmux-reviewing>.acpmux-header,.acpmux-reviewing>.acpmux-scroll{visibility:hidden}
+.acpmux-transcript-after-latest{flex:none;min-width:0}
 
 .acpmux-diff-add{color:var(--acpmux-add)}.acpmux-diff-del{color:var(--acpmux-del)}.acpmux-diff-main{flex:1;display:flex;min-height:0}.acpmux-diff-body{flex:1;min-width:0;overflow-y:auto;overflow-x:hidden}.acpmux-diff-file{border-bottom:1px solid var(--agent-border)}.acpmux-fh-spacer{flex:1}
 .acpmux-diff-empty-edit{padding:8px 16px;color:var(--agent-muted);font-size:12px}.acpmux-main{position:relative;flex:1;min-width:0;display:flex;flex-direction:column}.acpmux-header>div{display:flex;align-items:center;min-width:0}.acpmux-session-mark{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--agent-muted)}.acpmux-session-mark-input{color:var(--acpmux-needs-you-mark)}.acpmux-session-mark-unread::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--agent-accent)}.acpmux-session-mark-running{color:var(--agent-accent)}
@@ -34,7 +35,6 @@
 .ui-popup.ui-context-menu{max-width:min(360px,calc(100vw - 8px))}
 .ui-context-menu .ui-menu-label{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .ui-context-menu .ui-separator{height:.5px;margin:4px 8px;border:0;background:var(--agent-border)}
-@media (prefers-reduced-motion:no-preference){.ui-popup.ui-context-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* appearance.borders none (data-borders on the root, applyAgentTheme): the composer, menu and tray edges draw clear in place; their fills keep them apart. */
 :root[data-borders=none] .acpmux-shell{--acpmux-composer-edge:transparent}
 .acpmux-composer{position:relative;padding:0 var(--cv-inset,max(18px,calc((100% - 760px)/2))) 16px;font-family:system-ui;-webkit-font-smoothing:antialiased}
@@ -103,7 +103,6 @@
 .acpmux-context-ring svg{width:12px;height:12px}
 .acpmux-context-ring:disabled{background:none;color:var(--agent-muted);opacity:.5}
 .acpmux-context-ring:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-context-full .acpmux-context-ring,.acpmux-context-full .acpmux-context-ring:hover{color:var(--acpmux-warning)}
 /* The right-click hosts around the context ring and, when it is hidden, the footer: no box of their own. */
 .acpmux-context-usage-menu,.acpmux-attachment-menu,.acpmux-plan-menu,.acpmux-mic-menu,.acpmux-chrome-area{display:contents}
 /* Send, Stop and ↵ are plain line glyphs in the secondary text color (--agent-muted), as the mic is (Leo 2026-10-21: "WHY ARE THERE CIRCLES ... no solid discs", Claude Code desktop's; then: the secondary text color, only a hover background): no fill, no ring; hover takes the mic's soft pill and keeps the glyph's color (composerStates.css). */
@@ -679,8 +678,6 @@ fieldset.acpmux-question[hidden]{display:none}
 /* A single permission card's receipt (permissions/record.ts): one muted line where it was answered. */
 .acpmux-permission-record{padding:4px 2px;color:var(--agent-muted);font-size:var(--text-detail);line-height:18px;overflow-wrap:anywhere}
 @media (prefers-reduced-motion:no-preference){.acpmux-question-row{transition:background-color var(--agent-motion-hover,120ms) var(--agent-ease-out,ease-out)}}
-/* Menus and popovers open from their trigger (ui/popupSurface.css), only when motion is allowed. */
-@media (prefers-reduced-motion:no-preference){.acpmux-menu,.acpmux-slash-menu{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 
 /* Keep the legacy cascade and slash surfaces on the same surface as Base UI's Menu and Popover: the
    liquid glass (.ui-glass, ui/popupSurface.css), whose frost keeps the transcript under it from

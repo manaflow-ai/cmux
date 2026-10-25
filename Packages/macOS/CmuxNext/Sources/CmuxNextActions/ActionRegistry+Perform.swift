@@ -32,7 +32,9 @@ extension ActionRegistry {
         if disabledFeature(for: id) != nil { return false }
         if let route = keyWindowRoute?(canonicalID(for: id), invocation) {
             guard case .run = route else { return route.perform { refuse($0) } }
-            return signposted(id, invocation) {
+            // A route run of an id nothing bound (rare) interns it here, once.
+            let index = action(for: id)?.timingIndex ?? runTiming.intern(canonicalID(for: id))
+            return signposted(id, index: index, invocation) {
                 settle()
                 return route.perform { refuse($0) }
             }
@@ -53,7 +55,7 @@ extension ActionRegistry {
             return true
         }
         if needsConfirmation(id, invocation) { return gateDestructive(id, invocation, settle: settle) }
-        signposted(id, invocation) {
+        signposted(id, index: action.timingIndex, invocation) {
             settle()
             runScoped(action, id, invocation)
         }

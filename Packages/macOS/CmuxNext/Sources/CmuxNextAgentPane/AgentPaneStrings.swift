@@ -165,15 +165,6 @@ extension AgentPaneView {
 }
 
 extension AgentPaneHostError {
-    /// The shell command that stops the daemon on `socketPath`, run with this app's own acpmux
-    /// (`executable`), never the refused daemon's binary or whatever `acpmux` is on PATH. A
-    /// shutdown keeps hosted agents running for the next daemon to adopt; the next agent chat
-    /// starts this app's acpmux. Each path is single-quoted for the shell.
-    static func shutdownCommand(socketPath: String, executable: String) -> String {
-        let quote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: #"'\''"#) + "'" }
-        return "ACPMUX_SOCKET=\(quote(socketPath)) \(quote(executable)) daemon shutdown"
-    }
-
     /// What the page shows for `error`; anything but a host error reads as a
     /// timeout.
     static func userMessage(for error: any Error) -> String {
@@ -197,12 +188,10 @@ extension AgentPaneHostError {
             String(localized: "agentPane.error.daemonStopped", defaultValue: "acpmux is not running. Open a new agent chat to start it.", bundle: .module)
         case .chiefStopped:
             String(localized: "agentPane.error.chiefStopped", defaultValue: "The Chief is not running. Reopen cmux and open Home to start it.", bundle: .module)
-        // A refusal does not heal by retrying: the message names the one command that frees the
-        // socket (Lawrence, 2026-10-22: the chat waited on "cmux tries again on its own").
-        case .daemonRefused(let holder?, let socketPath, _, let executable):
-            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuildFix", defaultValue: "acpmux at %2$@ belongs to %1$@, and this build may not use it. Quit %1$@. If acpmux still runs, run this in a terminal: %3$@ (hosted agents keep running for the next acpmux), then open a new agent chat.", bundle: .module), holder, socketPath, shutdownCommand(socketPath: socketPath, executable: executable))
-        case .daemonRefused(nil, let socketPath, let reason, let executable):
-            String(format: String(localized: "agentPane.error.daemonRefusedFix", defaultValue: "acpmux at %1$@ refused this build: %2$@. Run this in a terminal: %3$@ (hosted agents keep running for the next acpmux), then open a new agent chat.", bundle: .module), socketPath, reason, shutdownCommand(socketPath: socketPath, executable: executable))
+        case .daemonRefused(let holder?, _, _, _):
+            String(format: String(localized: "agentPane.error.daemonHeldByOtherBuild", defaultValue: "acpmux belongs to %@, and this build may not use it. Quit that app, then try again.", bundle: .module), holder)
+        case .daemonRefused(_, _, _, _):
+            String(localized: "agentPane.error.daemonRefused", defaultValue: "Another acpmux service is using this socket. It will reconnect when that service is ready.", bundle: .module)
         case .timedOut, nil:
             String(localized: "agentPane.error.timedOut", defaultValue: "acpmux did not answer in time.", bundle: .module)
         }

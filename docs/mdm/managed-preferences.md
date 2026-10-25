@@ -93,6 +93,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.rows` | boolean | `true` |  | Rows. Off hides New Row and fits a column's existing rows into it without scrolling. |
 | `layout.focusFollowsMouse` | boolean | `false` |  | Focus Follows Mouse. Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus. |
 | `layout.scrollAreas` | boolean | `false` |  | Scroll Areas. Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns. |
+| `layout.scrollModifier` | string | `"command"` | `command`, `none` | Scroll Columns and Rows With. Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them. |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `layout.newPanePlacement` | string | `"tab"` | `tab`, `split` | New Terminals and Browsers. Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout). |
@@ -156,7 +157,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.paneBorder` | string | `"subtle"` | `subtle`, `none` | Border |
 | `layout.paneBorderColor` | string |  |  | Border Color |
 | `layout.paneBorderWidth` | real |  | 0.5 to 4 | Border Width |
-| `focusRing.enabled` | boolean | `true` |  | Show Focus Ring |
+| `focusRing.enabled` | boolean | `false` |  | Show Focus Ring |
 | `focusRing.style` | string | `"ring"` | `ring`, `glow`, `none` | Style |
 | `focusRing.contrast` | string | `"subtle"` | `subtle`, `standard`, `strong` | Contrast |
 | `focusRing.color` | string |  |  | Color |
@@ -212,7 +213,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.statusIndicator.honorStatusStyle` | boolean | `true` |  | Let Statuses Choose Their Style. A status that asks for a style (cmux status set --style) uses it. |
 | `status.inferCommandBusy` | boolean | `false` |  | Show Running Commands. A shell command that runs a while shows as busy. |
 | `status.inferCommandBusyAfter` | real | `3` | 0 to 600 | Show After |
-| `diff.layout` | string | `"auto"` | `split`, `unified`, `auto` | Layout |
+| `diff.layout` | string | `"auto"` | `auto`, `split`, `unified` | Layout |
 | `diff.diffIndicators` | string | `"bars"` | `bars`, `classic`, `none` | Change Markers |
 | `diff.colors` | string | `"theme"` | `theme`, `muted`, `standard` | Diff Colors |
 | `diff.wordWrap` | boolean | `false` |  | Wrap Lines |
@@ -222,6 +223,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
 | `diff.groupByKind` | boolean | `false` |  | Group Files by Kind |
 | `diff.hideWhitespace` | boolean | `false` |  | Hide White Space |
+| `diff.showBulkActions` | boolean | `true` |  | Stage All and Revert All Bar |
 | `markdown.remoteImages` | boolean | `false` |  | Load Web Images Automatically. Web image sites can see your address and when you open a document. When off, each document asks before loading its web images. |
 | `markdown.layout.width` | real | `72` | 30 to 1000 | Text Width. The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box. |
 | `markdown.layout.fullWidth` | boolean | `false` |  | Full Width. Text fills the whole pane instead of the text width. |
@@ -542,6 +544,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.editedFiles.scope` | string | `"turn"` | `turn`, `session` | Edited Files Card Covers |
 | `agentPane.showContextUsage` | boolean | `true` |  | Show Context Usage. The ring beside the model that fills as the chat uses its context window. |
 | `agentPane.showDictation` | boolean | `true` |  | Show Dictation Button. The microphone beside Send in every composer, including the New Tab page. |
+| `agentPane.spellChecking` | boolean | `false` |  | Check Spelling While Typing. Underlines misspellings and offers system suggestions in the composer. |
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again. |
 | `diagnostics.hangReports` | boolean | `false` |  | Send Hang Reports. Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent. |

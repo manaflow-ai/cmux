@@ -37,6 +37,8 @@ extension ControlRouter {
                     "long_frame_max_ms": .number(longFrames.max.fractionalMilliseconds),
                     "frames_over_8_3ms": JSONValue(gaps.over120HzFrame),
                     "max_gap_ms": .number(gaps.max.fractionalMilliseconds),
+                    // Cumulative main run-loop wakes (idle benches diff two reads; never cleared).
+                    "main_wakes": JSONValue(Int(clamping: watchdog.mainRunLoopWakes)),
                     "records": .array(records.map(\.json)),
                     "over_budget_count": JSONValue(overBudgetCount),
                     "over_budget": .array(overBudget.map(\.json)),
