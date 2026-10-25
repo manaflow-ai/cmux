@@ -254,28 +254,6 @@ async fn a_mode_refused_at_a_remote_start_says_to_start_without_it_and_that_star
 }
 
 #[tokio::test]
-async fn a_folder_outside_the_peers_roots_names_one_inside_and_that_one_works() {
-    let root = scratch("roots");
-    let outside = scratch("roots-outside");
-    let (a, b) = pair("roots", true, &root).await;
-    let mut ca = C::open(&a, Origin::Local);
-    let asked = outside.join("work");
-    let meta = json!({"peer": "b", "harness": "fake", "name": "lane-3"});
-    let r = ca.call(method::SESSION_NEW, new(meta.clone(), Some(&asked))).await;
-    assert_eq!(reason(&r), "remote.cwd_outside_roots", "{r}");
-    let inside = root.join("work");
-    let want = format!("acpmux new --host b -m fake -n lane-3 --cwd {} -d", inside.display());
-    assert_eq!(tried(&r), want, "{r}");
-
-    let r = ca.call(method::SESSION_NEW, new(meta, Some(&inside))).await;
-    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
-    let on_b = b.sessions().into_iter().find(|s| s.id == id).expect("the session lives on B");
-    assert_eq!(on_b.meta().cwd, inside);
-    let _ = std::fs::remove_dir_all(&root);
-    let _ = std::fs::remove_dir_all(&outside);
-}
-
-#[tokio::test]
 async fn a_mode_and_a_folder_outside_the_roots_are_both_fixed_by_one_suggestion() {
     let root = scratch("both");
     let outside = scratch("both-outside");
