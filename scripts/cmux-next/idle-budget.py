@@ -209,6 +209,17 @@ def run_loop_timers(description):
     return sorted(seen.values(), key=lambda t: (t["interval_s"] == 0, t["interval_s"]))
 
 
+def window_state(app):
+    """The app's main windows from its control socket (`debug.window_list`, no AX): key, visible, occluded,
+    miniaturized; and whether the app is active. A system prompt over the window shows as not key or occluded."""
+    reply = app.rpc("debug.window_list", timeout=10)
+    windows = reply.get("windows") if isinstance(reply, dict) else None
+    if not isinstance(windows, list):
+        return {"error": str(reply)[:200]}
+    main = [{k: w.get(k) for k in ("key", "visible", "occluded", "miniaturized", "alpha")} for w in windows if w.get("kind") == "main"]
+    return {"main": main, "any_key": any(w.get("key") for w in windows)}
+
+
 def sample_threads(pid, seconds, path):
     """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
     never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
@@ -483,7 +494,10 @@ def main():
                                                        "focus": False, "origin": "script"}, timeout=30)
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
             instance = procs.Instance(app.app, app.process.pid)
+            window_before = window_state(app)
             result = measure(app, instance, opts.measure)
+            result["window_state"] = {"start": window_before, "end": window_state(app)}
+            print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
                 result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
             kinds = aggregate(result)
