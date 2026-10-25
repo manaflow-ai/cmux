@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -32,7 +33,7 @@ struct AgentPaneLaunchImagesAlphaTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         await AgentPaneLaunchImages(directory: directory).save(["tab_a": try Self.image(clear: true)])
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_a@2x.png").path))
-        let image = try #require(AgentPaneLaunchImages(directory: directory).take("tab_a"))
+        let image = try #require(await AgentPaneLaunchImages(directory: directory).takeSaved("tab_a", on: BackgroundWork(label: "test.launch-images")))
         #expect(image.size == NSSize(width: 4, height: 4))
         #expect(try Self.alpha(image, x: 4, y: 4) == 0)
         #expect(try Self.alpha(image, x: 4, y: 0) == 1)
@@ -43,7 +44,7 @@ struct AgentPaneLaunchImagesAlphaTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         await AgentPaneLaunchImages(directory: directory).save(["tab_b": try Self.image(clear: false)])
         #expect(FileManager.default.fileExists(atPath: directory.appending(path: "tab_b@2x.jpg").path))
-        let image = try #require(AgentPaneLaunchImages(directory: directory).take("tab_b"))
+        let image = try #require(await AgentPaneLaunchImages(directory: directory).takeSaved("tab_b", on: BackgroundWork(label: "test.launch-images")))
         #expect(try Self.alpha(image, x: 4, y: 4) == 1)
     }
 

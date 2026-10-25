@@ -1,15 +1,17 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// The terminals' last frames, saved at quit and drawn over each terminal at launch until its live
 /// content draws (launch-speed-first: "the first frame is never blank"). A terminal pane is held
 /// clear for launch until its first live frame (`LaunchSettle`): about 150 ms on a capture mini
 /// with the daemon running, seconds when it starts cold. One JPEG per tab, named with its scale, as
-/// the agent pages' last pages are (`AgentPaneLaunchImages`); each is handed out once per launch.
+/// the agent pages' last pages are (`AgentPaneLaunchImages`); each is handed out once per launch. A frame is
+/// read and decoded off the main thread: until it comes, the pane stays held clear, as with no frame.
 @MainActor
 public final class TerminalLaunchFrames {
     /// A larger file is not read.
-    static let maximumBytes = 16 * 1024 * 1024
+    nonisolated static let maximumBytes = 16 * 1024 * 1024
     private static var stores: [URL: TerminalLaunchFrames] = [:]
 
     let directory: URL?
@@ -34,12 +36,30 @@ public final class TerminalLaunchFrames {
 
     /// Shows `key`'s frame from the last quit over `session` until its live content draws
     /// (``TerminalLaunchFrame``), and `content`, the pane content held for launch, at once with it
-    /// (no fade: it is the frame the pane showed). Only a frame of the terminal's size and the
-    /// window's scale: another would move or scale when the live frame replaced it. Returns
-    /// whether it showed one.
+    /// (no fade: it is the frame the pane showed). The frame is read and decoded on `work`'s files
+    /// lane; until it comes, `content` stays held, as with no frame. Only a frame of the terminal's
+    /// size and the window's scale (another would move or scale when the live frame replaced it),
+    /// and only while `content` still holds the terminal and it has drawn nothing live.
+    ///
+    /// - Returns: Whether it showed one, once the read ends; nil when `key` has no frame to read
+    ///   (none saved, or taken already).
     @discardableResult
-    public func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal = .shared) -> Bool {
-        guard let image = take(key) else { return false }
+    public func show(_ key: String, on session: TerminalSession, in content: NSView, work: BackgroundWork,
+                     reveal: LaunchReveal = .shared) -> Task<Bool, Never>? {
+        guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
+        let reader = reader
+        // task-owner: one off-main read of the terminal's saved frame; ends when it does.
+        return Task {
+            // A person waits for it: it is the pane's first frame.
+            guard let frame = try? await work.run(.userBlocking, mayBlock: .files, { Self.read(key, in: directory, reader) }) else { return false }
+            return Self.show(frame.image, size: frame.size, scale: frame.scale, on: session, in: content, reveal: reveal)
+        }
+    }
+
+    private static func show(_ frame: CGImage, size imageSize: NSSize, scale: Int, on session: TerminalSession, in content: NSView,
+                             reveal: LaunchReveal) -> Bool {
+        // The pane may show another tab by now.
+        guard session.view.isDescendant(of: content) else { return false }
         // The surface's size in this pane: its own frame is a placeholder until the pane lays it out
         // (this transaction does anyway). A pane not laid out yet (zero) takes the launch snapshot's
         // size, which the frame was saved at.
@@ -49,10 +69,9 @@ public final class TerminalLaunchFrames {
             session.view.layoutSubtreeIfNeeded()
         }
         let size = session.surfaceView.bounds.size
-        guard !laidOut || (abs(image.size.width - size.width) < 1 && abs(image.size.height - size.height) < 1),
-              let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+        guard !laidOut || (abs(imageSize.width - size.width) < 1 && abs(imageSize.height - size.height) < 1),
               // The held frame draws at the window's scale: one saved on a screen of another scale would not fit.
-              content.window.map({ abs(CGFloat(frame.width) / image.size.width - $0.backingScaleFactor) < 0.01 }) ?? true,
+              content.window.map({ abs(CGFloat(scale) - $0.backingScaleFactor) < 0.01 }) ?? true,
               TerminalLaunchFrame(frame).show(on: session) else { return false }
         reveal.release(content)
         return true
@@ -83,13 +102,12 @@ public final class TerminalLaunchFrames {
         await Task.detached { Self.write(frames, to: directory) }.value
     }
 
-    /// `key`'s saved frame at its point size, the first time it is asked for.
-    func take(_ key: String) -> NSImage? {
-        guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
+    /// `key`'s saved frame, decoded, with its point size and scale.
+    private nonisolated static func read(_ key: String, in directory: URL, _ reader: LaunchFileReader) -> (image: CGImage, size: NSSize, scale: Int)? {
         for scale in [2, 1, 3] {
             let url = directory.appending(path: "\(key)@\(scale)x.jpg")
-            guard let frame = reader.image(at: url, maximumBytes: Self.maximumBytes) else { continue }
-            return NSImage(cgImage: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)))
+            guard let frame = reader.image(at: url, maximumBytes: maximumBytes) else { continue }
+            return (frame, NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale)
         }
         return nil
     }
@@ -116,8 +134,11 @@ public final class TerminalLaunchFrames {
 
 extension TerminalSession {
     /// Shows `key`'s frame from the last quit, kept in `state` (``TerminalLaunchFrames/beside(_:)``),
-    /// over this terminal in `content`, the pane content held for launch; whether it showed one.
-    public func showLaunchFrame(_ key: String, beside state: URL?, in content: NSView) -> Bool {
-        TerminalLaunchFrames.beside(state).show(key, on: self, in: content)
+    /// over this terminal in `content`, the pane content held for launch, once `work` has read it off
+    /// the main thread (``TerminalLaunchFrames/show(_:on:in:work:reveal:)``).
+    ///
+    /// - Returns: Whether it showed one, once the read ends; nil when there is no frame to read.
+    public func showLaunchFrame(_ key: String, beside state: URL?, in content: NSView, work: BackgroundWork) -> Task<Bool, Never>? {
+        TerminalLaunchFrames.beside(state).show(key, on: self, in: content, work: work)
     }
 }

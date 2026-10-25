@@ -35,6 +35,25 @@ nonisolated final class LaunchReadProbe: Sendable {
         }
     }
 
+    /// Whether a held read started within 10 s (false: none did, so nothing waits on the gate).
+    func waitForStart() async -> Bool {
+        let started = started
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in started { return true }
+                return false
+            }
+            group.addTask {
+                // A deadline, so a read that never starts fails the test instead of hanging the run.
+                try? await Task.sleep(for: .seconds(10))
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+
     /// Lets one held read go on.
     func release() {
         gate?.signal()

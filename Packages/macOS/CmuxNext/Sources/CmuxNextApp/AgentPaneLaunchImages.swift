@@ -1,12 +1,14 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// The agent panes' last pages, saved at quit and drawn under each pane at
 /// launch until its live page paints, so a relaunch never shows an empty
 /// agent pane (sweep 4a). One image per tab, named with its point scale; a
 /// save replaces the whole set. Each image is handed out once per launch.
-/// A JPEG or a PNG, as `CGImage.pageImageData` encodes it.
+/// A JPEG or a PNG, as `CGImage.pageImageData` encodes it. A saved page is
+/// read and decoded off the main thread (``takeSaved(_:on:)``).
 @MainActor
 final class AgentPaneLaunchImages {
 
@@ -27,23 +29,40 @@ final class AgentPaneLaunchImages {
         self.init(directory: file?.url.deletingLastPathComponent().appending(path: "agent-pane-images", directoryHint: .isDirectory))
     }
 
-    /// `key`'s saved page at its point size, the first time it is asked for. A released page's
-    /// frame comes first, once, when the pane still has its size (zero: not laid out yet) and
-    /// appearance: after a resize or a light/dark switch the pane shows its loading state instead.
+    /// A released page's frame (AgentPageHibernation, in memory), once, when the pane still has its
+    /// size (zero: not laid out yet) and appearance: after a resize or a light/dark switch the pane
+    /// shows its loading state instead. The page the last quit saved is ``takeSaved(_:on:)``'s.
     func take(_ key: String, size: NSSize = .zero, appearance: NSAppearance.Name? = nil) -> NSImage? {
-        if let frame = held.removeValue(forKey: key), frame.appearance == appearance, size == .zero || size == frame.size,
-           let rep = NSBitmapImageRep(data: frame.data) {
-            let image = NSImage(size: frame.size)
-            rep.size = frame.size
-            image.addRepresentation(rep)
-            return image
-        }
+        guard let frame = held.removeValue(forKey: key), frame.appearance == appearance, size == .zero || size == frame.size,
+              let rep = NSBitmapImageRep(data: frame.data) else { return nil }
+        let image = NSImage(size: frame.size)
+        rep.size = frame.size
+        image.addRepresentation(rep)
+        return image
+    }
+
+    /// Whether `key` may have a saved page not asked for yet (no disk access: it may have none).
+    func mayHaveSaved(_ key: String) -> Bool {
+        directory != nil && Self.isFileSafe(key) && !taken.contains(key)
+    }
+
+    /// `key`'s saved page from the last quit at its point size, the first time it is asked for. The
+    /// read (up to 8 MB) and the decode run on `work`'s files lane, never on the main thread.
+    func takeSaved(_ key: String, on work: BackgroundWork) async -> NSImage? {
         guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
-        // Either kind a save may have written (one at a time: a save replaces the set).
+        let reader = reader
+        // A person waits for it: it is the pane's first frame of its page.
+        guard let page = try? await work.run(.userBlocking, mayBlock: .files, { Self.read(key, in: directory, reader) }) else { return nil }
+        return NSImage(cgImage: page.image, size: page.size)
+    }
+
+    /// `key`'s saved page, decoded, and its point size: either kind a save may have written (one at
+    /// a time: a save replaces the set).
+    private nonisolated static func read(_ key: String, in directory: URL, _ reader: LaunchFileReader) -> (image: CGImage, size: NSSize)? {
         for (scale, ext) in [2, 1, 3].flatMap({ scale in ["png", "jpg"].map { (scale, $0) } }) {
-            let url = directory.appending(path: Self.fileName(key, scale: scale, ext: ext))
-            guard let page = reader.image(at: url, maximumBytes: Self.maximumBytes) else { continue }
-            return NSImage(cgImage: page, size: NSSize(width: CGFloat(page.width) / CGFloat(scale), height: CGFloat(page.height) / CGFloat(scale)))
+            let url = directory.appending(path: fileName(key, scale: scale, ext: ext))
+            guard let page = reader.image(at: url, maximumBytes: maximumBytes) else { continue }
+            return (page, NSSize(width: CGFloat(page.width) / CGFloat(scale), height: CGFloat(page.height) / CGFloat(scale)))
         }
         return nil
     }
