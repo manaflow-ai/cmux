@@ -89,6 +89,7 @@ export type QuickFamilies = {
 
 /// How many rows a filtered list shows (keys 1 to 9 pick them).
 const FILTER_ROWS = 9;
+const EFFORT_SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
 /// The models whose name, or whose harness's name, holds every typed word. Starred repeats other
 /// tabs' models, so it is not searched.
@@ -442,6 +443,9 @@ export function QuickModelMenu({
                   fallback={levels.find((choice) => choice.recommended)?.id}
                   sliderStyle={effort.sliderStyle}
                   onPick={effort.onPick}
+                  onRangeKey={(event) => {
+                    if (EFFORT_SLIDER_KEYS.has(event.key)) event.stopPropagation();
+                  }}
                   autoFocus
                 />
               </div>
