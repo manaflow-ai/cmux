@@ -195,11 +195,24 @@
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
 .acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
 /* New Tab's menu opens down from the middle of the page: it stops well short of the window's bottom
-   edge and scrolls inside past 360 px. */
+   edge (at most 360 px). The menu itself never scrolls: each box down to the list is a column that
+   may shrink, and only the shown More models rows give up their height and scroll, so the models,
+   Effort, Account and Fast mode always show. */
 .acpmux-quick-newtab,
 .acpmux-quick-newtab .acpmux-quick-layout {
   max-height: min(360px, calc(var(--available-height, 100vh) - 24px));
 }
+.acpmux-quick-newtab { display: flex; flex-direction: column; overflow: hidden; }
+.acpmux-quick-newtab .acpmux-quick-layout { flex: 0 1 auto; min-height: 0; overflow: hidden; }
+.acpmux-quick-newtab :is(.acpmux-quick-body, .acpmux-quick-list, .acpmux-quick-list > .ui-menu-group) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.acpmux-quick-newtab :is(.acpmux-quick-body, .acpmux-quick-list, .acpmux-quick-list > .ui-menu-group) > * { flex: none; }
+.acpmux-quick-newtab :is(.acpmux-quick-body > .acpmux-quick-list, .acpmux-quick-list > .ui-menu-group) { flex: 0 1 auto; }
+.acpmux-quick-newtab .acpmux-quick-list > .ui-menu-group > .acpmux-quick-more-list { flex: 0 1 auto; min-height: calc(2 * var(--ui-row-height)); }
 .acpmux-quick-rail,
 .acpmux-quick-body { overflow-y: auto; }
 .acpmux-quick-rail {
