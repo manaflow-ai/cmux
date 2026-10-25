@@ -349,8 +349,14 @@ test("the chat shifts left only when the chat and the panel both fit that way", 
   // At 1140px the transcript's 210px gutter lacks 126px and keeps 84px, past the rail's 48px: it moves.
   expect(inspectorChatShift(1140, 320)).toBe(126);
   // A handoff review's form takes the transcript's place, with no rail beside it: its 190px gutter
-  // lacks 146px, and the form moves left by all of it.
+  // lacks 146px, and the form moves left by all of it, keeping 44px.
   expect(inspectorChatShift(1140, 320, undefined, true)).toBe(146);
+  // It keeps its own 18px from the pane's edge (HANDOFF_FORM_EDGE): at 1114px its 177px gutter lacks
+  // 159px and keeps exactly 18px; at 1112px moving 160px would keep 16px, and at 1100px 4px, so
+  // nothing moves and the panel floats over the form.
+  expect(inspectorChatShift(1114, 320, undefined, true)).toBe(159);
+  expect(inspectorChatShift(1112, 320, undefined, true)).toBe(0);
+  expect(inspectorChatShift(1100, 320, undefined, true)).toBe(0);
   // Where the two gutters together cannot hold it, nothing moves and the panel floats over the chat.
   expect(inspectorChatShift(720, 320)).toBe(0);
   expect(inspectorChatShift(0, 320)).toBe(0);
