@@ -27,6 +27,10 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.code.family", fallback: nil, accepted: [.string("JetBrains Mono")], refused: [.number(3)]),
         Row(key: "agentPane.display.code.scale", fallback: nil, accepted: [.number(0.6), .number(1.25)],
             refused: [.number(0.2), .number(3)]),
+        Row(key: "agentPane.display.inspector.placement", fallback: .string("overlay"), accepted: [.string("push")],
+            refused: [.string("left"), .bool(true)]),
+        Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
+            accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
         Row(key: "markdown.code.family", fallback: nil, accepted: [.string("Menlo")], refused: [.bool(true)]),
     ]
 
@@ -45,6 +49,7 @@ struct AgentPaneDisplaySettingTests {
             "agentPane": .object(["display": .object([
                 "font": .object(["size": .number(16), "lineHeight": .number(9)]),
                 "width": .number(1200),
+                "environment": .object(["placement": .string("right")]),
             ])]),
             "markdown": .object([
                 "font": .object(["preset": .string("serif"), "size": .number(20)]),
@@ -55,6 +60,7 @@ struct AgentPaneDisplaySettingTests {
         let display = AgentPaneDisplaySetting(fileRoot: root)
         #expect(display.values == [
             "agentPane.display.font.size": .number(16),
+            "agentPane.display.environment.placement": .string("right"),
             "agentPane.display.width": .number(1200),
             "markdown.font.preset": .string("serif"),
             "markdown.code.family": .string("JetBrains Mono"),
@@ -63,12 +69,22 @@ struct AgentPaneDisplaySettingTests {
         #expect(AgentPaneDisplaySetting(fileRoot: .object([:])) == .fallback)
     }
 
-    @Test(arguments: ["agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size"])
+    @Test func thePageFollowsMinimalMode() {
+        let on: JSONValue = .object(["sidebar": .object(["minimal": .bool(true), "density": .string("compact")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: on).values == ["sidebar.minimal": .bool(true)])
+        let bad: JSONValue = .object(["sidebar": .object(["minimal": .string("yes")])])
+        #expect(AgentPaneDisplaySetting(fileRoot: bad) == .fallback)
+    }
+
+    @Test(arguments: [
+        "agentPane.display.width", "agentPane.display.code.family", "agentPane.display.font.size",
+        "agentPane.display.inspector.placement", "agentPane.display.environment.placement",
+    ])
     func thePageMayWriteTheChatKeys(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == key.split(separator: ".").map(String.init))
     }
 
-    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", ""])
+    @Test(arguments: ["markdown.font.size", "terminal.fontFamily", "agentPane.showDictation", "agentPane.display", "sidebar.minimal", ""])
     func thePageMayWriteNoOtherKey(_ key: String) {
         #expect(AgentPaneDisplaySetting.writablePath(key) == nil)
     }

@@ -4,6 +4,7 @@
 //! this machine's acpmux socket, as the local unix-socket client acpmux
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
+use crate::panic_free::JsonFields;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
@@ -24,6 +25,13 @@ const PROMPT_THREAD_STACK_BYTES: usize = 256 * 1024;
 /// The spec's limit on an unsend's `error.acpmux_reason`, in UTF-8 bytes.
 const ACPMUX_REASON_MAX: usize = 128;
 
+/// `_acpmux/info` for `session` without waiting for acpmux to read its chat logs
+/// after a restart: these calls need only the session's id, which the session
+/// list holds, and a large log store takes longer than [`INFO_TIMEOUT`].
+pub(super) fn info_params(session: &str) -> Value {
+    json!({"sessionId": session, "waitLogs": false})
+}
+
 /// What the hand-over hears first.
 enum Heard {
     Accepted,
@@ -36,7 +44,8 @@ impl crate::mux::Mux {
     /// running turn when its agent steers; delivered once
     /// acpmux accepts it (`_acpmux/prompt_accepted`) or answers its turn.
     pub(crate) fn acp_prompt_message(&self, message: &Value, recipient: &str) -> Handover {
-        let (Some(session), Some(id)) = (recipient.strip_prefix("acp:"), message["id"].as_str())
+        let (Some(session), Some(id)) =
+            (recipient.strip_prefix("acp:"), message.field("id").as_str())
         else {
             return Handover::Unreachable;
         };
@@ -57,7 +66,7 @@ impl crate::mux::Mux {
             return Handover::Unreachable;
         };
         // Only a session acpmux runs, by its exact id, takes the prompt.
-        let known = link.call("_acpmux/info", json!({"sessionId": session}), INFO_TIMEOUT);
+        let known = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
         if !known.is_ok_and(|info| info.get("sessionId").and_then(Value::as_str) == Some(session)) {
             link.close();
             return Handover::Unreachable;
@@ -68,7 +77,7 @@ impl crate::mux::Mux {
         // (`_meta.acpmux.interrupt`, or the queue's `interrupt` op, `queue_edit.rs`) does.
         let mut meta = json!({"steer": true, "promptId": id, "resend": true});
         if let Some(provenance) = provenance(message, recipient) {
-            meta["provenance"] = provenance;
+            meta.insert("provenance", provenance);
         }
         let text = render(std::slice::from_ref(message));
         let params = json!({
@@ -138,7 +147,7 @@ impl crate::mux::Mux {
         // names may run the prompt, so only one it cannot name is gone.
         let withdrawn = match withdrawn {
             Ok(Withdrawn::NoSession) => {
-                let info = link.call("_acpmux/info", json!({"sessionId": session}), INFO_TIMEOUT);
+                let info = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
                 match info {
                     Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
                         Ok(Withdrawn::NotFound)
@@ -191,11 +200,13 @@ impl crate::mux::Mux {
 /// `data`.
 fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawError> {
     // acpmux names a refusal in `data.reason`, or before the first colon of
-    // its message (`transfer.moving: …`).
-    let reason = data.get("reason").and_then(Value::as_str).map_or_else(
-        || message.split(':').next().unwrap_or_default().trim().to_owned(),
-        str::to_owned,
-    );
+    // its message (`transfer.moving: …`); a blank one names none.
+    let reason = data
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| message.split(':').next().unwrap_or_default())
+        .trim()
+        .to_owned();
     if reason == "withdraw.not_found" {
         Ok(Withdrawn::NotFound)
     } else if message.starts_with("no session matches") {

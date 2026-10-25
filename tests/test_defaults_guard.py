@@ -1,5 +1,6 @@
-"""The defaults guard: a pull request that changes what everyone gets by default fails until a
-call owner other than its author approves its head (Leo 2026-10-13).
+"""The defaults guard: a pull request that changes what everyone gets by default fails until an
+independent review receipt ships its head, or a call owner other than its author approves it
+(Leo 2026-10-13, 2026-10-21). A new setting that defaults to off passes on its own.
 
 Each test builds a small repository with the guard copied in (the trusted base checkout the
 workflow runs from), commits a base and a head, and runs `defaults_guard.py check` as the
@@ -95,11 +96,14 @@ class DefaultsGuardTests(unittest.TestCase):
         self.repo.git("checkout", "-q", self.base)  # the workflow runs the base's guard and owners
         return head
 
-    def check(self, head, reviews=(), author=AUTHOR):
+    def check(self, head, reviews=(), author=AUTHOR, comments=()):
         pull = {"author": {"login": author}, "headRefOid": head, "merged": False,
                 "reviews": {"nodes": [{"author": {"login": who}, "state": state, "commit": {"oid": oid}}
                                       for who, state, oid in reviews]},
-                "comments": {"nodes": []}}
+                "comments": {"nodes": [{"databaseId": n, "body": body, "createdAt": at,
+                                        "authorAssociation": association,
+                                        "author": {"login": AUTHOR, "__typename": kind}}
+                                       for n, (body, at, association, kind) in enumerate(comments)]}}
         path = self.repo.root.parent / f"{self.repo.root.name}-pull.json"
         path.write_text(json.dumps(pull), encoding="utf-8")
         summary = self.repo.root.parent / f"{self.repo.root.name}-summary.md"
@@ -184,16 +188,16 @@ class DefaultsGuardTests(unittest.TestCase):
     def test_no_review_fails_and_the_summary_says_who_must_approve(self):
         result = self.check(self.changed_head())
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Needs a call", result.summary)
+        self.assertIn("Needs a review", result.summary)
         self.assertIn("@lawrencecchen or @austinywang", result.summary)
-        self.assertNotIn("@teamleaderleo", result.summary.split("Needs a call")[1].split("\n")[0])
+        self.assertNotIn("@teamleaderleo", result.summary.split("Needs a review")[1].split("\n")[0])
 
     def test_a_call_owner_approving_the_head_passes_and_the_changes_stay_listed(self):
         head = self.changed_head()
         result = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("::warning title=Default changed::DEFAULTS setting.sidebar.numbering", result.stdout)
-        self.assertIn("Approved on this commit by @lawrencecchen", result.summary)
+        self.assertIn("Signed off on this commit by @lawrencecchen", result.summary)
 
     def test_the_author_approving_never_passes_even_as_a_call_owner(self):
         head = self.changed_head()
@@ -279,10 +283,118 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertNotIn("DEFAULTS", result.stdout)
 
-    def test_exports_changed_without_regenerating_the_snapshot_fail(self):
+    # The snapshot is bot-only (#21946): the base autofix rewrites it after a merge, a pull request
+    # never commits it, and the guard judges a head by its sources and exports.
+
+    def test_a_head_that_does_not_commit_the_snapshot_is_judged_by_its_sources(self):
         actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
-        result = self.check(self.head(actions, snapshot=False))
+        head = self.head(actions, snapshot=False)
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("DEFAULTS key.toggleEditor: + ctrl+cmd+e", result.stdout)
+        self.assertNotIn("does not match the sources", result.stdout)
+        approved = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
+        self.assertEqual(approved.returncode, 0, approved.stdout)
+
+    def test_a_hand_edited_snapshot_cannot_hide_a_default_change(self):
+        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
+        stale = self.repo.root.joinpath("schemas/defaults/cmux-next.json").read_text(encoding="utf-8")
+        head = self.head(actions, snapshot=False, extra={"schemas/defaults/cmux-next.json": stale})
+        result = self.check(head, reviews=[("lawrencecchen", "APPROVED", head)])
+        # Judged as a change that needs the call, not only as a stale file.
+        self.assertIn("::warning title=Default changed::DEFAULTS key.toggleEditor", result.stdout)
+
+    # An independent review receipt on the head passes any change (Leo 2026-10-21).
+
+    def receipt(self, text, at="2026-10-21T10:00:00Z", association="MEMBER", kind="User"):
+        return (text, at, association, kind)
+
+    def test_a_ship_receipt_on_the_head_passes_without_a_teammate(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[self.receipt(f"Review (subagent, correctness first): SHIP at {head}\n\nok")])
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Signed off on this commit by `review (subagent, correctness first)`", result.summary)
+
+    def test_a_ship_receipt_posted_as_a_review_body_passes(self):
+        head = self.changed_head()
+        pull = {"author": {"login": AUTHOR}, "headRefOid": head, "merged": False, "comments": {"nodes": []},
+                "reviews": {"nodes": [{"author": {"login": AUTHOR, "__typename": "User"}, "authorAssociation": "MEMBER",
+                                       "state": "COMMENTED", "submittedAt": "2026-10-21T10:00:00Z",
+                                       "body": f"Review (subagent): SHIP at {head}", "commit": {"oid": head}}]}}
+        path = self.repo.root.parent / f"{self.repo.root.name}-review-pull.json"
+        path.write_text(json.dumps(pull), encoding="utf-8")
+        result = self.repo.guard("check", "--base", self.base, "--head", head, "--pull-json", str(path))
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_a_receipt_for_another_commit_or_a_short_sha_does_not_pass(self):
+        head = self.changed_head()
+        for text in (f"Review (subagent): SHIP at {self.base}", f"Review (subagent): SHIP at {head[:12]}"):
+            result = self.check(head, comments=[self.receipt(text)])
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("Needs a review", result.summary)
+
+    def test_a_later_block_beats_an_earlier_ship(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[
+            self.receipt(f"Review (subagent): SHIP at {head}", at="2026-10-21T10:00:00Z"),
+            self.receipt(f"Review (second subagent): BLOCK at {head}", at="2026-10-21T11:00:00Z")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("BLOCK from `review (second subagent)`", result.summary)
+        later = self.check(head, comments=[
+            self.receipt(f"Review (subagent): BLOCK at {head}", at="2026-10-21T10:00:00Z"),
+            self.receipt(f"Review (subagent): SHIP at {head}", at="2026-10-21T11:00:00Z")])
+        self.assertEqual(later.returncode, 0, later.stdout)
+
+    def test_a_self_review_an_outsider_or_a_bot_does_not_pass(self):
+        head = self.changed_head()
+        for receipt in (self.receipt(f"Review (self): SHIP at {head}"),
+                        self.receipt(f"Review (subagent): SHIP at {head}", association="CONTRIBUTOR"),
+                        self.receipt(f"Review (subagent): SHIP at {head}", kind="Bot")):
+            self.assertEqual(self.check(head, comments=[receipt]).returncode, 1, receipt)
+
+    def test_a_receipt_below_the_first_line_does_not_pass(self):
+        head = self.changed_head()
+        result = self.check(head, comments=[self.receipt(f"Thanks!\nReview (subagent): SHIP at {head}")])
+        self.assertEqual(result.returncode, 1, result.stdout)
+
+    # A new setting whose default is off keeps what everyone had before it existed.
+
+    def test_an_added_setting_that_defaults_off_passes_without_a_review(self):
+        for default in (False, None, "off", "never", ""):
+            settings = [*BASE_SETTINGS, {"key": "sidebar.newThing", "default": default}]
+            result = self.check(self.head(settings=settings))
+            self.assertEqual(result.returncode, 0, f"{default!r}: {result.stdout}")
+            self.assertIn("DEFAULTS setting.sidebar.newThing", result.stdout)
+            self.assertIn("passes on its own", result.summary)
+
+    def test_an_added_setting_that_defaults_on_needs_a_review(self):
+        for default in (True, "ask", "every-merge"):
+            settings = [*BASE_SETTINGS, {"key": "sidebar.newThing", "default": default}]
+            head = self.head(settings=settings)
+            self.assertEqual(self.check(head).returncode, 1, default)
+            shipped = self.check(head, comments=[self.receipt(f"Review (subagent): SHIP at {head}")])
+            self.assertEqual(shipped.returncode, 0, shipped.stdout)
+
+    def test_an_off_default_on_an_existing_setting_or_a_new_flag_is_not_exempt(self):
+        settings = [{"key": "terminal.showJumpToBottomButton", "default": None}, BASE_SETTINGS[1]]
+        self.assertEqual(self.check(self.head(settings=settings)).returncode, 1)
+        flags = FLAGS + "enum Other {\n    static let newThingEnabled = false\n}\n"
+        self.assertEqual(self.check(self.head(flags=flags)).returncode, 1)
+
+    def test_a_free_new_setting_beside_a_real_change_still_needs_a_review(self):
+        settings = [BASE_SETTINGS[0], {"key": "sidebar.numbering", "default": "workspacesOnly"},
+                    {"key": "sidebar.newThing", "default": False}]
+        result = self.check(self.head(settings=settings))
         self.assertEqual(result.returncode, 1)
+        self.assertIn("1 default(s) changed", result.stdout)
+
+    def test_check_fresh_still_finds_a_stale_snapshot(self):
+        """No CI check runs check-fresh any more (the snapshot is stale between a merge and the base
+        autofix's commit); it stays the command that says the snapshot needs regenerating."""
+        actions = [*BASE_ACTIONS[:3], action("toggleEditor", "e", ["ctrl", "cmd"])]
+        head = self.head(actions, snapshot=False)
+        result = self.repo.guard("check-fresh", "--ref", head)
+        self.assertEqual(result.returncode, 1, result.stdout)
         self.assertIn("does not match the sources; run `python3 scripts/ci/defaults_guard.py snapshot`", result.stdout)
 
 
@@ -396,6 +508,105 @@ class SettingsExportStampTests(unittest.TestCase):
         result = self.fresh("--ref", stale)
         self.assertEqual(result.returncode, 1)
         self.assertIn("Alpha.swift", result.stdout)
+
+    # The base autofix regenerates the exports after each merge, and with merges minutes apart
+    # feat-cmux-next's stamp is stale most of the time (10-21: d986b175b38, #22678 and #23028 left
+    # it stale for every pull request at once). A head answers only for the sources it changed.
+
+    def stale_base(self):
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, merged without its exports\n")
+        return self.repo.commit("a merge before the base autofix", snapshot=False)
+
+    def test_check_stamp_with_a_base_passes_a_head_that_inherits_the_bases_stale_exports(self):
+        base = self.stale_base()
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Beta.swift", result.stdout)
+        self.assertIn(f"stale on the base {base[:12]} too", result.stdout)
+
+    def test_check_stamp_with_a_base_fails_for_the_sources_the_head_changed(self):
+        base = self.stale_base()
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited on the head\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        problems = result.stdout.split(f"stale on the base {base[:12]} too")[0]
+        self.assertIn("Alpha.swift", problems)
+        self.assertNotIn("Beta.swift", problems)
+
+    def test_check_stamp_with_a_base_fails_a_head_that_changed_the_stamp_itself(self):
+        """Taking the old side of the stamp in a base merge is the head's own staleness, not the base's."""
+        base = self.repo.git("rev-parse", "HEAD")
+        stamp = self.repo.root.joinpath(STAMP).read_text()
+        digest = stamp.split("  ", 1)[0]
+        self.repo.write(STAMP, stamp.replace(digest, "0" * len(digest), 1))
+        head = self.repo.commit("head takes an old stamp", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertNotIn("stale on the base", result.stdout)
+
+    def test_a_base_merge_that_keeps_the_branchs_stamp_is_named_as_the_pull_requests_red(self):
+        """#22762 (10-21): the base changed and restamped Beta; a branch from before it changed Alpha.
+        Merging the base locally with cmux-generated-v1 kept the branch's stamp, so Beta's digest went
+        back to the old one. Beta is a base source and was fresh on the base, so the red read as the
+        base's and the pull request merged with it, putting the old digest back on the base."""
+        self.repo.write(".gitattributes", (ROOT / ".gitattributes").read_text(encoding="utf-8"))
+        self.repo.commit("attributes", snapshot=False)
+        self.repo.git("config", "merge.cmux-generated-v1.driver", "true")
+        self.repo.git("checkout", "-q", "-b", "branch")
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited on the branch\n")
+        self.export()
+        self.repo.commit("branch", snapshot=False)
+        self.repo.git("checkout", "-q", "main")
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited and restamped on the base\n")
+        self.export()
+        base = self.repo.commit("base moves on", snapshot=False)
+        self.repo.git("checkout", "-q", "branch")
+        self.repo.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "-q", "--no-edit", "main")
+        head = self.repo.git("rev-parse", "HEAD")
+        self.assertEqual(self.repo.guard("check-stamp", "--ref", base).returncode, 0, "the base is fresh")
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertNotIn("stale on the base", result.stdout)
+        kept = result.stdout.split("this pull request's red, not the base's", 1)
+        self.assertEqual(len(kept), 2, result.stdout)
+        self.assertIn("Beta.swift", kept[1])
+        self.assertIn("pr-autofix-patch", kept[1])
+
+    def test_check_stamp_with_a_base_passes_however_many_sources_the_base_left_stale(self):
+        for n in range(25):
+            self.repo.write(f"{SETTINGS_SOURCES}/Merged{n:02}.swift", f"// merged {n} without its exports\n")
+        base = self.repo.commit("many merges before the base autofix", snapshot=False)
+        self.repo.write("README.md", "an unrelated change\n")
+        head = self.repo.commit("head", snapshot=False)
+        result = self.repo.guard("check-stamp", "--ref", head, "--base", base)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("and 5 more", result.stdout)
+
+    def test_a_stale_stamp_says_how_to_regenerate_the_exports(self):
+        """The old text pointed at a REPAIR.md row that is not in this repository."""
+        self.repo.write(f"{SETTINGS_SOURCES}/Alpha.swift", "// alpha, edited\n")
+        result = self.repo.guard("check-stamp")
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("REPAIR.md", result.stdout)
+        self.assertIn("cmux-next-pr-autofix.yml", result.stdout)
+        self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", result.stdout)
+
+    def test_source_stamp_prints_the_stamp_a_ref_s_sources_give(self):
+        """base-autofix-push.sh lands settings exports past a settings-area move only when the tip's
+        sources give the very stamp the exports carry; this is the stamp it compares."""
+        head = self.repo.git("rev-parse", "HEAD")
+        result = self.repo.guard("source-stamp", "--ref", head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, self.repo.root.joinpath(STAMP).read_text())
+        self.repo.write(f"{SETTINGS_SOURCES}/README.md", "still not an input\n")
+        notes = self.repo.commit("a note beside the sources", snapshot=False)
+        self.assertEqual(self.repo.guard("source-stamp", "--ref", notes).stdout, result.stdout)
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited\n")
+        edited = self.repo.commit("a source edit", snapshot=False)
+        self.assertNotEqual(self.repo.guard("source-stamp", "--ref", edited).stdout, result.stdout)
 
 
 if __name__ == "__main__":

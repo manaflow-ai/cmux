@@ -204,7 +204,7 @@ export function Inspector({
   };
 
   return (
-    <section className="acpmux-inspector" aria-label={t("inspector.title")}>
+    <section className="acpmux-inspector" data-enter="right" aria-label={t("inspector.title")}>
       <div className="acpmux-diff-header">
         <button
           ref={firstControlRef}

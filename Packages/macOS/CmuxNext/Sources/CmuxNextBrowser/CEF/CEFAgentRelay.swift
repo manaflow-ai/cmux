@@ -27,6 +27,9 @@ public final class CEFAgentRelay {
     /// The email verification detector's binding reports (`CEFVerificationBridge`), on the same events.
     private lazy var verification = tab.map { CEFVerificationBridge(tab: $0) }
     var mediaListens = false { didSet { updateWatch() } }
+    /// When a document first paints content (`CEFFirstPaintBridge`), on the
+    /// same events; it only reads them, so it never takes one off the stream.
+    private lazy var firstPaint = tab.map { CEFFirstPaintBridge(tab: $0) }
     /// Design mode's binding posts (`CEFDesignModeBridge`), on the same events once the user turned it on.
     private lazy var designMode = tab.map { CEFDesignModeBridge(tab: $0) }
     var designModeListens = false { didSet { updateWatch() } }
@@ -99,6 +102,9 @@ public final class CEFAgentRelay {
     // MARK: Tab lifetime (CEFTab)
 
     func deliver(_ json: String) {
+        // Reads the stream and always returns false, so a relayed agent that
+        // subscribed to page lifecycle events still sees them.
+        _ = firstPaint?.handle(json)
         if media?.handle(json) == true { return }
         if verification?.handle(json) == true { return }
         if designMode?.handle(json) == true { return }
@@ -111,11 +117,25 @@ public final class CEFAgentRelay {
         try await designMode.prepare()
     }
 
+    /// A page posted on one of cmux's channels (fork API 29): the same reports the DevTools
+    /// bindings carry before it, to the same bridges.
+    func pageMessage(_ message: CEFPageMessage) {
+        switch message.channel {
+        case .media: media?.report(message.payload)
+        case .protectedMedia: media?.refused(message.payload)
+        case .verification: verification?.report(message.payload)
+        case .firstPaint: firstPaint?.painted()
+        }
+    }
+
     func browserAttached() {
         resumeWaiters(true)
-        if let browser = tab?.browserID {
+        // From fork API 29 the runtime installs the document scripts for every browser in the
+        // renderer (`CEFDocumentScripts`): the tab opens no DevTools session for them.
+        if let tab, let browser = tab.browserID, !tab.runtime.forkFeatures.rendererPaths {
             media?.attach(browser)
             verification?.attach(browser)
+            firstPaint?.attach(browser)
         }
         if sink != nil || mediaListens || designModeListens { updateWatch() }
     }

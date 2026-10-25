@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67'
+IR_SHA256 = '723fa14ae06654ab0c2fd018a406c8353af7e7edb0f60ba05ee761541bdeb6f2'
 
 
 @dataclass(frozen=True)
@@ -798,6 +798,16 @@ COMMANDS = {
         {
         },
     ),
+    'cloud-selfhost-info': CommandMetadata(
+        'cloud-selfhost-info',
+        'local-admin',
+        12,
+        'cloud-selfhost-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'cloud-session-clear': CommandMetadata(
         'cloud-session-clear',
         'local-admin',
@@ -818,6 +828,7 @@ COMMANDS = {
         {
             'access_token': CommandFieldMetadata(None, None),
             'api_base_url': CommandFieldMetadata(None, None),
+            'auth': CommandFieldMetadata(None, None),
             'client_version': CommandFieldMetadata(None, None),
             'expires_at': CommandFieldMetadata(None, None),
         },
@@ -1605,6 +1616,17 @@ COMMANDS = {
             'subject_key': CommandFieldMetadata(None, None),
         },
     ),
+    'get-host-size-policy': CommandMetadata(
+        'get-host-size-policy',
+        'control',
+        12,
+        'host-size-policy-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'get-size-state': CommandMetadata(
         'get-size-state',
         'control',
@@ -2311,8 +2333,10 @@ COMMANDS = {
             'height_permille': CommandFieldMetadata(None, None),
             'keep': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+            'pane_id': CommandFieldMetadata(None, 'row-client-keys-v1'),
             'rows': CommandFieldMetadata(None, None),
             'shell_args': CommandFieldMetadata(None, None),
+            'tab_id': CommandFieldMetadata(None, 'row-client-keys-v1'),
             'terminal_id': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
         },
@@ -2937,8 +2961,11 @@ COMMANDS = {
         None,
         {
             'bytes': CommandFieldMetadata(None, None),
+            'expect_agent': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'expect_foreground': CommandFieldMetadata(None, 'send-expect-foreground-v1'),
+            'flow': CommandFieldMetadata(None, None),
             'paste': CommandFieldMetadata(7, None),
+            'submit': CommandFieldMetadata(None, 'send-expect-agent-v1'),
             'surface': CommandFieldMetadata(None, None),
             'terminal_id': CommandFieldMetadata(None, 'terminal-input-while-creating-v1'),
             'text': CommandFieldMetadata(None, None),
@@ -2996,6 +3023,7 @@ COMMANDS = {
             'install': CommandFieldMetadata(12, None),
             'kind': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'remote': CommandFieldMetadata(12, 'host-size-policy-v1'),
             'user_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'version': CommandFieldMetadata(12, None),
         },
@@ -3061,6 +3089,17 @@ COMMANDS = {
         {
             'history': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-host-size-policy': CommandMetadata(
+        'set-host-size-policy',
+        'control',
+        12,
+        'host-size-policy-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'policy': CommandFieldMetadata(None, None),
         },
     ),
     'set-personal-terminal': CommandMetadata(
@@ -3455,6 +3494,17 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'terminal-ports': CommandMetadata(
+        'terminal-ports',
+        'control',
+        12,
+        'terminal-ports-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
     'terminal-read-range': CommandMetadata(
         'terminal-read-range',
         'control',
@@ -3604,6 +3654,7 @@ COMMANDS = {
             'color': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'proxy': CommandFieldMetadata(None, None),
         },
     ),
     'update-frontend-browser-tab': CommandMetadata(

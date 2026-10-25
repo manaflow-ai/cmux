@@ -1,15 +1,17 @@
-// Claude's reasoning chip on the agent's own level (cx-ervhd, Leo 2026-10-13: a new chat read "Low"
-// with nothing checked). A chat whose effort is "default" names the level that resolves to, the
-// running model's default effort, even on a context variant id ("claude-opus-5-5[1m]"); the menu
-// checks it with a Default hint, and Ultrathink (a prompt keyword) is not a level.
+// Claude's effort on the agent's own level (cx-ervhd, Leo 2026-10-13: a new chat read "Low" with
+// nothing checked). The effort is named inside the one model button (Leo 2026-10-20: "Opus 5.5
+// Medium", no separate Reasoning chip). A chat whose effort is "default" names the level that
+// resolves to, the running model's default effort, even on a context variant id
+// ("claude-opus-5-5[1m]"); the menu's Effort row checks it, and Ultrathink (a prompt keyword) is not
+// a level.
 // Before its session reports, a new chat names the level acpmux starts it on, not nothing.
 // The composer gallery's plays drive the real pane in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -33,8 +35,8 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -45,7 +47,7 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
   const play = async (variant: string) => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer", { variant })}`);
     // A cold dev server compiles the gallery on the first request; give it longer than the default.
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
       timeout: 90_000,
@@ -61,7 +63,7 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
     expect(playFailures(await play("reasoning-claude-default"))).toEqual([]);
   });
 
-  // Lawrence 2026-10-14, "we lost effort": a New Tab chat showed the model chip alone.
+  // Lawrence 2026-10-14, "we lost effort": a New Tab chat showed the model's name alone.
   test("a new chat names the level acpmux starts it on before its session reports", async () => {
     expect(playFailures(await play("new-chat-reasoning"))).toEqual([]);
   });

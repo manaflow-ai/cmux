@@ -2674,16 +2674,39 @@ public final class Client implements AutoCloseable {
             Wire.WIDTH,
             "root",
             "dock",
-            "sticky"
+            "sticky",
+            "rows"
         );
         // `sticky` is the pre-R87 name of `dock`: a replayed or older
         // result still decodes; `dock` wins when both are present.
         Object dock = fields.containsKey("dock") ? fields.get("dock") : fields.get("sticky");
+        List<Layout.Row> rows = fields.containsKey("rows")
+            ? Wire.array(fields.get("rows"), "layout column rows").stream()
+                .map(Client::decodeLayoutRow).toList()
+            : List.of();
         return new Layout.Column(
             requiredExactId(fields, "column_id", Ids.SplitId::new),
             finiteDouble(fields.get(Wire.WIDTH), "layout column width"),
             decodeLayoutNode(fields.get("root")),
-            decodeLayoutColumnDock(dock)
+            decodeLayoutColumnDock(dock),
+            rows
+        );
+    }
+
+    /** One row of a column (rows-v1); only row 1 may omit row_id. */
+    private static Layout.Row decodeLayoutRow(Object value) {
+        Map<String, Object> fields = Wire.object(value, "layout row");
+        requireExactFields(fields, "layout row", "row_id", "height");
+        if (!fields.containsKey("height")) {
+            throw new ProtocolError("layout row height is required");
+        }
+        long height = uint32(fields, "height");
+        if (height < 100 || height > 1000) {
+            throw new ProtocolError("layout row height must be from 100 to 1000");
+        }
+        return new Layout.Row(
+            optionalExactId(fields, "row_id", Ids.SplitId::new),
+            (int) height
         );
     }
 

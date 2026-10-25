@@ -1,5 +1,6 @@
 //! Document prompts at the daemon boundary. A PDF becomes a workspace resource
-//! link for strict ACP harnesses and an Anthropic document block for Claude Code.
+//! link for strict ACP harnesses and an Anthropic document block for Claude Code;
+//! a file link reaches Claude Code with the path it names.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -68,10 +69,14 @@ impl Client {
     }
 
     async fn new_session(&mut self, harness: &str) -> String {
+        self.new_session_in(harness, &std::env::temp_dir()).await
+    }
+
+    async fn new_session_in(&mut self, harness: &str, cwd: &Path) -> String {
         let (reply, _) = self
             .call_text(
                 "session/new",
-                json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
+                json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}}),
             )
             .await;
         assert!(reply.get("error").is_none(), "{reply}");
@@ -113,4 +118,85 @@ async fn pdf_reaches_codex_as_a_workspace_resource_link_and_claude_as_a_document
     assert_eq!(document["documents"][0]["title"], "report.pdf");
     assert_eq!(document["documents"][0]["media_type"], "application/pdf");
     assert_eq!(document["documents"][0]["data"], PDF_DATA);
+}
+
+fn percent_decode(text: &str) -> Vec<u8> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            out.push(u8::from_str_radix(&text[i + 1..i + 3], 16).unwrap());
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+#[tokio::test]
+async fn a_saved_pdf_link_is_a_valid_uri_in_a_folder_with_spaces_and_accents() {
+    let hub = hub();
+    let root = std::env::temp_dir().join(format!("acpmux-pdf-{}", uuid::Uuid::now_v7()));
+    let cwd = root.join("my project ü");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let mut codex = client(&hub);
+    let session = codex.new_session_in("fake", &cwd).await;
+    let (reply, echoed) = codex
+        .call_text(
+            "session/prompt",
+            json!({
+                "sessionId": session,
+                "prompt": [
+                    {"type": "text", "text": "document-probe"},
+                    {"type": "document", "mimeType": "application/pdf", "data": PDF_DATA, "name": "report.pdf"}
+                ]
+            }),
+        )
+        .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let marker = "resource_link:report.pdf:application/pdf:";
+    let start = echoed.find(marker).expect("Codex resource link");
+    let uri = echoed[start + marker.len()..].split_whitespace().next().unwrap();
+    let encoded = uri.strip_prefix("file://").expect("file URI");
+    assert!(
+        encoded.bytes().all(|b| b.is_ascii_alphanumeric() || b"/-._~%".contains(&b)),
+        "URI must be percent-encoded: {uri}"
+    );
+    let path = std::path::PathBuf::from(String::from_utf8(percent_decode(encoded)).unwrap());
+    assert!(path.starts_with(&cwd), "{}", path.display());
+    assert_eq!(std::fs::read(&path).unwrap(), b"%PDF-1.4");
+    let ignore = path.parent().unwrap().join(".gitignore");
+    assert_eq!(std::fs::read_to_string(ignore).unwrap(), "*\n", "saved PDFs stay out of commits");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn a_file_link_reaches_claude_with_its_decoded_path() {
+    let hub = hub();
+    let mut claude = client(&hub);
+    let session = claude.new_session("fakeclaude").await;
+    let uri = "file:///Users/me/Library/Application%20Support/cmux/Chat%20Uploads/a%20b.zip";
+    let (reply, echoed) = claude
+        .call_text(
+            "session/prompt",
+            json!({
+                "sessionId": session,
+                "prompt": [
+                    {"type": "text", "text": "resource-probe"},
+                    {"type": "resource_link", "uri": uri, "name": "a b.zip"}
+                ]
+            }),
+        )
+        .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    let probe: Value = serde_json::from_str(&echoed).expect("Claude resource echo");
+    let link = probe["texts"][1].as_str().unwrap_or_default();
+    assert!(link.contains(&format!("uri=\"{uri}\"")), "{link}");
+    assert!(
+        link.contains("path=\"/Users/me/Library/Application Support/cmux/Chat Uploads/a b.zip\""),
+        "{link}"
+    );
 }

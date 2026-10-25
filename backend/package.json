@@ -20,5 +20,11 @@
     "catalog:client": "bun run --cwd packages/protocol catalog:client",
     "catalog:rust": "bun run --cwd packages/protocol catalog:rust",
     "lint:size": "bun scripts/check-file-size.ts"
+  },
+  "overrides": {
+    "fflate": "0.7.5",
+    "sharp": "0.35.5",
+    "source-map-js": "1.2.2",
+    "undici": "7.29.1"
   }
 }

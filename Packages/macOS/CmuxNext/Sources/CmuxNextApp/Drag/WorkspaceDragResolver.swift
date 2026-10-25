@@ -15,6 +15,9 @@ enum WorkspaceDropTarget: Hashable {
     /// join that pane (`.strip`) or a new split, column or dock there, and
     /// the emptied workspace closes (`TabDragSession+WorkspaceMerge`).
     case merge(TabDropKind)
+    /// A pane edge of the window's shown workspace with Debug Settings `sidebar.multiView` on: the dragged
+    /// workspace shows on that side of the shown one, whole (`WindowController.placeBeside`).
+    case beside(TabDropEdge)
 }
 
 /// How a sidebar workspace drag ends. Window membership is frontend-local
@@ -37,25 +40,33 @@ enum WorkspaceDragResolver {
     ///   - sidebarHit: that window's sidebar target, if the pointer is on it.
     ///   - layoutHit: the pane target under the pointer, when the drag can
     ///     merge into the window's shown workspace.
+    ///   - placesBeside: a pane edge places the workspace beside the shown
+    ///     one instead of merging it (`sidebar.multiView`).
     ///   - isGroup: the drag carries a whole workspace group (never placed
     ///     at a slot or into another group).
-    static func outcome(windowID: String?, sidebarHit: WorkspaceDropTarget?, layoutHit: TabDropKind? = nil, sourceWindowID: String?,
-                        draggingAllOfSource: Bool, isGroup: Bool, screenPoint: CGPoint) -> WorkspaceDragOutcome {
+    static func outcome(windowID: String?, sidebarHit: WorkspaceDropTarget?, layoutHit: TabDropKind? = nil, placesBeside: Bool = false,
+                        sourceWindowID: String?, draggingAllOfSource: Bool, isGroup: Bool, screenPoint: CGPoint) -> WorkspaceDragOutcome {
         guard let windowID else {
             return draggingAllOfSource ? .moveWindow(screenPoint: screenPoint) : .newWindow(screenPoint: screenPoint)
         }
         // A group keeps its members together: it joins the window as a
         // whole, where its own position in the daemon order puts it.
-        let target: WorkspaceDropTarget = isGroup ? .window : sidebarHit ?? layoutHit.map(WorkspaceDropTarget.merge) ?? .window
+        let target: WorkspaceDropTarget = isGroup ? .window : sidebarHit ?? layoutHit.map { pane(target: $0, placesBeside: placesBeside) } ?? .window
         if windowID == sourceWindowID {
             // Back home: only a sidebar slot (a reorder) or a pane (a
             // merge) means something.
             switch target {
-            case .position, .merge: break
+            case .position, .merge, .beside: break
             case .intoGroup, .window: return .cancel
             }
         }
         return .window(id: windowID, target: target)
+    }
+
+    /// A pane target: a split edge places the workspace beside the shown one when `placesBeside`; the rest merge.
+    static func pane(target kind: TabDropKind, placesBeside: Bool) -> WorkspaceDropTarget {
+        guard placesBeside, case let .newSplit(_, edge) = kind else { return .merge(kind) }
+        return .beside(edge)
     }
 
     static func target(for drop: SidebarTabDrop) -> WorkspaceDropTarget {

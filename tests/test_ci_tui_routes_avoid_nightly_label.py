@@ -34,15 +34,20 @@ NIGHTLY_LABEL = "blacksmith-12vcpu-macos-26"
 SIDE_LABEL = "glaeda-side-std-xcode-26.6"
 PROMOTE_LABEL = "glaeda-promote-trusted-std-xcode-26.6"
 DAEMON_LABEL = "glaeda-daemon-tests-xcode-26.6"
+LIGHT_LABEL = "glaeda-side-light-xcode-26.6"
+PIN_LABEL = "glaeda-pin-daemon-xcode-26.6"
+LINUX_DAEMON_LABEL = "blacksmith-16vcpu-ubuntu-2404"
+PIN_REF = "refs/heads/cmux-tui-pin-0123456789ab"
 
 # The repository's variables as of 2026-10-14 (gh variable list), the ones
 # these routes read. MACOS_RUNNER_PR is the nightly label.
 LIVE_VARS = {
     "CI_PR_POOL_OWNED": "1",
     "CI_SIDE_LANE_RUNNER": SIDE_LABEL,
-    "CI_LIGHT_LANE_RUNNER": "glaeda-side-light-xcode-26.6",
+    "CI_LIGHT_LANE_RUNNER": LIGHT_LABEL,
     "CI_NEXT_PROMOTE_POOL": PROMOTE_LABEL,
     "CI_NEXT_DAEMON_POOL": "",
+    "CI_PIN_DAEMON_POOL": "",
     "CI_PAID_MACOS_OVERFLOW": "",
     "MACOS_RUNNER_15": "blacksmith-6vcpu-macos-15",
     "MACOS_RUNNER_26": NIGHTLY_LABEL,
@@ -53,7 +58,7 @@ OWNERS = ("manaflow-ai", "someone-else")
 EVENTS = ("push", "pull_request", "pull_request_target", "workflow_dispatch", "schedule")
 REFS = (
     "refs/heads/feat-cmux-next",
-    "refs/heads/cmux-tui-pin-0123456789ab",
+    PIN_REF,
     "refs/heads/main",
     "refs/heads/feat-some-lane",
 )
@@ -191,11 +196,85 @@ def test_daemon_tests_stay_on_the_owned_minis_on_every_attempt() -> None:
             ):
                 assert label == PROMOTE_LABEL, where
                 continue
+            # 2026-10-21: a cmux-tui-pin-* push takes its own pool, else
+            # Blacksmith Linux, on every attempt; never the side lane
+            # (tests/test_cmux_tui_daemon_tests_linux.py).
+            if context["github.event_name"] == "push" and context["github.ref"] == PIN_REF:
+                assert label == LINUX_DAEMON_LABEL, where
+                continue
             if owned != "1" or context["github.event_name"] not in trusted:
                 assert label == "blacksmith-6vcpu-macos-15", where
                 continue
-            # A cmux-tui-pin-* push, and every re-run, stays on the minis.
+            # Every other re-run stays on the minis.
             assert label == SIDE_LABEL, where
+    # CI_PIN_DAEMON_POOL, when set, takes every attempt of a pin push.
+    for owned in ("1", ""):
+        for context in contexts(CI_PR_POOL_OWNED=owned, CI_PIN_DAEMON_POOL=PIN_LABEL):
+            label = route(runs_on, context)
+            where = (context["github.repository_owner"], context["github.event_name"],
+                     context["github.ref"], context["github.run_attempt"], owned)
+            pin_push = (context["github.repository_owner"] == "manaflow-ai"
+                        and context["github.event_name"] == "push" and context["github.ref"] == PIN_REF)
+            assert (label == PIN_LABEL) == pin_push, where
+
+
+def test_pin_pushes_while_promotion_shares_the_light_minis() -> None:
+    # The landing state (claude-sr2, 2026-10-21): CI_PIN_DAEMON_POOL unset and
+    # CI_NEXT_DAEMON_POOL naming the light minis. Pins take Linux on every
+    # attempt; a pin pool naming the promotion's pool or the side lane is
+    # ignored for Linux.
+    runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
+    for pin in ("", LIGHT_LABEL, SIDE_LABEL):
+        for context in contexts(CI_NEXT_DAEMON_POOL=LIGHT_LABEL, CI_PIN_DAEMON_POOL=pin):
+            if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) == (
+                    "manaflow-ai", "push", PIN_REF):
+                assert route(runs_on, context) == LINUX_DAEMON_LABEL, (pin, context["github.run_attempt"])
+    for context in contexts(CI_NEXT_DAEMON_POOL=PIN_LABEL, CI_PIN_DAEMON_POOL=PIN_LABEL):
+        if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) == (
+                "manaflow-ai", "push", PIN_REF):
+            assert route(runs_on, context) == LINUX_DAEMON_LABEL, context["github.run_attempt"]
+
+
+def _pin_variable_combinations():
+    """Every value of the variables the pin route reads, the live ones included."""
+    for owned, pin, light, daemon, promote, side in itertools.product(
+        ("1", ""),
+        ("", PIN_LABEL, SIDE_LABEL, DAEMON_LABEL, LIGHT_LABEL, PROMOTE_LABEL),
+        (LIGHT_LABEL, "", SIDE_LABEL, DAEMON_LABEL),
+        ("", DAEMON_LABEL, LIGHT_LABEL, SIDE_LABEL),
+        (PROMOTE_LABEL, "", LIGHT_LABEL),
+        (SIDE_LABEL, ""),
+    ):
+        yield {"CI_PR_POOL_OWNED": owned, "CI_PIN_DAEMON_POOL": pin, "CI_LIGHT_LANE_RUNNER": light,
+               "CI_NEXT_DAEMON_POOL": daemon, "CI_NEXT_PROMOTE_POOL": promote, "CI_SIDE_LANE_RUNNER": side}
+
+
+def test_pin_pushes_never_share_the_side_lane_or_the_promotion_daemon_pool() -> None:
+    # 2026-10-21 (claude-sr2): every merged pull request pushes a
+    # cmux-tui-pin-* branch, and its daemon tests flooded the pull request side
+    # lane; on the feat-cmux-next promotion's daemon pool (CI_NEXT_DAEMON_POOL,
+    # else CI_NEXT_PROMOTE_POOL) they stall nightly-next. Whatever the
+    # variables say, no job of a pin push lands on the side label, and only
+    # the light-lane fallback may share the promotion's pool: the light minis
+    # serve both until promotion gets its own label (ci-repo-variables.yml on
+    # main warns then).
+    jobs = load("cmux-tui-artifacts.yml")["jobs"]
+    routes = {name: job["runs-on"] for name, job in jobs.items() if "runs-on" in job}
+    assert "cmux-next-daemon-tests" in routes
+    for overrides in _pin_variable_combinations():
+        side = overrides["CI_SIDE_LANE_RUNNER"]
+        promotion = overrides["CI_NEXT_DAEMON_POOL"] or overrides["CI_NEXT_PROMOTE_POOL"]
+        light_fallback = overrides["CI_LIGHT_LANE_RUNNER"] if overrides["CI_PR_POOL_OWNED"] == "1" else ""
+        for context in contexts(**overrides):
+            if (context["github.repository_owner"], context["github.event_name"], context["github.ref"]) != (
+                    "manaflow-ai", "push", PIN_REF):
+                continue
+            for name, runs_on in routes.items():
+                label = route(runs_on, context) if runs_on.strip().startswith("${{") else runs_on
+                where = (name, context["github.run_attempt"], overrides)
+                assert not side or label != side, where
+                assert not promotion or label != promotion or label == light_fallback, where
+                assert label != NIGHTLY_LABEL, where
 
 
 def test_daemon_tests_take_their_own_promote_time_pool_when_set() -> None:

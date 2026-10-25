@@ -21,7 +21,7 @@ final class HomeRecipientChip: NSView {
         label.stringValue = token.text
         label.font = Typography.body
         label.lineBreakMode = .byTruncatingTail
-        label.themeColor = { [isValid = token.isValid] in isValid ? Palette.accent : Palette.danger }
+        label.themeColor = { [isValid = token.isValid] in isValid ? Palette.litGlyph : Palette.danger }
         addSubview(label)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)

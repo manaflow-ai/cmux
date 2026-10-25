@@ -1,0 +1,28 @@
+id: no-raw-accent-lit-glyph
+language: swift
+severity: error
+message: "a lit (on, chosen, done) glyph or label in the raw accent: use Palette.litGlyph, never fainter than at rest"
+note: >-
+  Palette.accent and focusRing are 40% of the text in a theme with no accent, and every bundled
+  accent contrasts less than the rest ink; ThemeTokens.litGlyph lifts the accent to at least the rest
+  contrast and keeps its hue. A fill, wash or ring takes the accent with an alpha, which this rule
+  does not match.
+rule:
+  any:
+    - pattern: '$C ? $LIT : $REST'
+    - pattern: '$C ? $REST : $LIT'
+    # An ink set in one branch of an if (a selected row's glyph); an always-on link or status ink is not.
+    - all:
+        - kind: assignment
+        - regex: '^[\w?.]*(themeTint|contentTintColor|textColor|themeColor|tintColor)\s*=\s*\{?\s*(Palette|tokens|\w*[cC]olors)\.(accent|accentFill|focusRing)\s*\}?$'
+        - inside:
+            kind: if_statement
+            stopBy: end
+  not:
+    inside:
+      kind: assignment
+      regex: '^[\w?.]*(borderColor|backgroundColor|fillColor|strokeColor|shadowColor)\s*='
+      stopBy: end
+constraints:
+  LIT:
+    regex: '^(Color\(nsColor: )?((Palette|tokens|\w*[cC]olors)\.(accent|accentFill|focusRing))\)?$'

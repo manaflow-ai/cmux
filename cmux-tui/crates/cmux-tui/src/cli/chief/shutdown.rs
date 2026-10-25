@@ -159,7 +159,11 @@ fn stop_daemon(global: &GlobalArgs, home: &ChiefHome) -> i32 {
         ..GlobalArgs::default()
     };
     let plan = crate::cli::lifecycle::ServerPlan {
-        action: crate::cli::lifecycle::ServerAction::Stop { force: false, end_terminals: true },
+        action: crate::cli::lifecycle::ServerAction::Stop {
+            force: false,
+            end_terminals: true,
+            restore_wait: crate::local_owner::RESTORE_DEADLINE,
+        },
         session: None,
     };
     crate::cli::lifecycle::run(global, plan)

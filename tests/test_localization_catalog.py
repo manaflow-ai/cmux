@@ -312,5 +312,302 @@ class LocalizationCatalogTests(unittest.TestCase):
                 self.assertIsInstance(MODULE.load_metadata(name), dict)
 
 
+def catalog(strings):
+    return {"sourceLanguage": "en", "strings": strings, "version": "1.0"}
+
+
+def string(english, **locales):
+    localizations = {"en": unit(english)}
+    for locale in MODULE.LOCALES[1:]:
+        value, state = locales.get(locale.replace("-", "_"), (f"{english} ({locale})", "translated"))
+        localizations[locale] = {"stringUnit": {"state": state, "value": value}}
+    return {"localizations": localizations}
+
+
+class LocalizationDebtRatchetTests(unittest.TestCase):
+    """cmux NEXT's catalogs carry old debt; with a baseline, `check` lets it shrink but never grow."""
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.root = Path(self.directory.name)
+        self.catalog = self.root / "Packages/macOS/CmuxNext/Sources/Area/Localizable.xcstrings"
+        self.catalog.parent.mkdir(parents=True)
+        self.baseline = self.root / "scripts" / MODULE.DEBT_BASELINE
+        self.baseline.parent.mkdir()
+
+    def tearDown(self):
+        self.directory.cleanup()
+
+    def write(self, strings):
+        self.catalog.write_text(json.dumps(catalog(strings), indent=2) + "\n", encoding="utf-8")
+
+    def check(self, *arguments):
+        output, errors = io.StringIO(), io.StringIO()
+        argv = ["localization_catalog.py", "check", "--root", str(self.root), *arguments]
+        with patch.object(sys, "argv", argv), contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            status = MODULE.main()
+        return status, output.getvalue() + errors.getvalue()
+
+    def review(self, english):
+        return string(english, de=(f"{english} (de)", "needs_review"))
+
+    def copied(self, english):
+        return string(english, fr=(english, "translated"))
+
+    def test_without_a_baseline_every_parity_error_fails(self):
+        self.write({"open": self.review("Open")})
+        status, output = self.check()
+        self.assertEqual(status, 1)
+        self.assertIn("1 parity errors", output)
+
+    def test_debt_within_the_baseline_passes(self):
+        self.write({"open": self.review("Open"), "close": string("Close")})
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        status, output = self.check()
+        self.assertEqual(status, 0, output)
+        self.assertIn("within the debt baseline", output)
+
+    def test_new_copied_english_in_a_listed_catalog_fails(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check()
+        self.assertEqual(status, 1)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertIn("close:fr", output)
+
+    def test_new_strings_awaiting_review_are_reported_not_failed(self):
+        # cmux NEXT adds machine translations as needs_review (check-l10n.sh counts them present).
+        self.write({"open": self.review("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.review("Open"), "close": self.review("Close")})
+        status, output = self.check()
+        self.assertEqual(status, 0, output)
+        self.assertIn("note: more strings await review than the baseline records", output)
+        self.assertIn("needs_review 1 -> 2", output)
+
+    def test_a_new_kind_of_debt_fails_even_when_the_total_drops(self):
+        self.write({"open": self.review("Open"), "close": self.review("Close")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": string("Close")})
+        status, output = self.check()
+        self.assertEqual(status, 1)
+        self.assertIn("identical 0 -> 1", output)
+
+    def test_debt_in_a_catalog_the_baseline_does_not_list_fails(self):
+        self.write({"open": string("Open")})
+        self.check("--write-baseline")
+        other = self.root / "Resources/Other.xcstrings"
+        other.parent.mkdir()
+        other.write_text(json.dumps(catalog({"save": self.copied("Save")})), encoding="utf-8")
+        status, output = self.check()
+        self.assertEqual(status, 1)
+        self.assertIn("Resources/Other.xcstrings: identical 0 -> 1", output)
+
+    def test_write_baseline_lowers_counts_and_refuses_to_raise_them(self):
+        area = "Packages/macOS/CmuxNext/Sources/Area/Localizable.xcstrings"
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open")})
+        status, output = self.check()
+        self.assertEqual(status, 0, output)
+        self.assertIn("below the baseline", output)
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        counts = json.loads(self.baseline.read_text(encoding="utf-8"))["catalogs"]
+        self.assertEqual(counts, {area: {"identical": 1}})
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check("--write-baseline")
+        self.assertEqual(status, 1)
+        self.assertIn("refusing to raise", output)
+        self.assertEqual(json.loads(self.baseline.read_text(encoding="utf-8"))["catalogs"], counts)
+
+    def test_write_baseline_never_raises_the_review_count_either(self):
+        area = "Packages/macOS/CmuxNext/Sources/Area/Localizable.xcstrings"
+        self.write({"open": self.review("Open"), "close": self.copied("Close")})
+        self.check("--write-baseline")
+        # A cleanup of the copied English lands while new strings arrive for review.
+        self.write({"open": self.review("Open"), "save": self.review("Save"), "close": string("Close")})
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        self.assertEqual(json.loads(self.baseline.read_text(encoding="utf-8"))["catalogs"],
+                         {area: {"needs_review": 1}})
+
+    def test_a_baseline_raised_above_the_bases_fails(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        base = self.root / "base-baseline.json"
+        base.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        # A hand edit that raises the baseline to fit new debt.
+        self.baseline.write_text(MODULE.debt_json(MODULE.debt_counts(
+            [("Packages/macOS/CmuxNext/Sources/Area/Localizable.xcstrings", "identical to English")] * 2)),
+            encoding="utf-8")
+        self.assertEqual(self.check()[0], 0)
+        status, output = self.check("--base-baseline", str(base))
+        self.assertEqual(status, 1)
+        self.assertIn("may only go down", output)
+
+    def test_a_moved_catalog_keeps_its_debt_and_the_bases_baseline(self):
+        # B1 (ba5e6df99f9) moved catalogs between packages: the ratchet read each as new debt
+        # at the new path and as a baseline raised above the base's.
+        self.write({"open": self.copied("Open"), "close": self.review("Close")})
+        self.check("--write-baseline")
+        base = self.root / "base-baseline.json"
+        base.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        moved = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        moved.parent.mkdir(parents=True)
+        self.catalog.rename(moved)
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        self.assertEqual(json.loads(self.baseline.read_text(encoding="utf-8"))["catalogs"],
+                         {"Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings":
+                          {"identical": 1, "needs_review": 1}})
+        status, output = self.check("--base-baseline", str(base))
+        self.assertEqual(status, 0, output)
+        self.assertIn("keeps the base's baseline", output)
+        # A moved catalog still may not grow, and a key whose file stays is not a move.
+        moved.write_text(json.dumps(catalog({"open": self.copied("Open"), "save": self.copied("Save")})),
+                         encoding="utf-8")
+        self.assertEqual(self.check("--base-baseline", str(base))[0], 1)
+
+    def test_a_baseline_key_whose_file_is_still_there_is_not_a_move(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        base = self.root / "base-baseline.json"
+        base.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        copy = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        copy.parent.mkdir(parents=True)
+        copy.write_text(self.catalog.read_text(encoding="utf-8"), encoding="utf-8")
+        # A hand edit that moves the key to the copy while the old file stays in the tree.
+        self.baseline.write_text(MODULE.debt_json({str(copy.relative_to(self.root)): {"identical": 1}}),
+                                 encoding="utf-8")
+        status, output = self.check("--base-baseline", str(base))
+        self.assertEqual(status, 1)
+        self.assertNotIn("keeps the base's baseline", output)
+
+    def moved_base(self, strings):
+        """A base tree holding the catalog with STRINGS, its baseline, and the same baseline here."""
+        self.write(strings)
+        self.check("--write-baseline")
+        arguments = self.write_base(strings)
+        return arguments
+
+    def test_an_unrelated_same_named_catalog_does_not_inherit_a_deleted_catalogs_debt(self):
+        # Most catalogs are Localizable.xcstrings: deleting one package's catalog and adding an
+        # unrelated one with new untranslated strings must not move the old allowance to it.
+        arguments = self.moved_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.catalog.unlink()
+        other = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        other.parent.mkdir(parents=True)
+        other.write_text(json.dumps(catalog({"rename": self.copied("Rename"), "share": self.copied("Share")})),
+                         encoding="utf-8")
+        # The hand-moved baseline the loophole needs: the old counts under the new path.
+        self.baseline.write_text(MODULE.debt_json({str(other.relative_to(self.root)): {"identical": 2}}),
+                                 encoding="utf-8")
+        status, output = self.check(*arguments)
+        self.assertEqual(status, 1, output)
+        self.assertNotIn("keeps the base's baseline", output)
+        self.assertIn("may only go down", output)
+
+    def test_a_moved_catalog_proven_by_the_base_tree_keeps_its_baseline(self):
+        arguments = self.moved_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        moved = self.root / "Packages/macOS/CmuxNext/Sources/Other/Localizable.xcstrings"
+        moved.parent.mkdir(parents=True)
+        self.catalog.rename(moved)
+        # Edited on the way (one string translated): still the same catalog.
+        moved.write_text(json.dumps(catalog({"open": self.copied("Open"),
+                                             "close": string("Close", fr=("Fermer", "translated"))})),
+                         encoding="utf-8")
+        self.assertEqual(self.check("--write-baseline")[0], 0)
+        status, output = self.check(*arguments)
+        self.assertEqual(status, 0, output)
+        self.assertIn("keeps the base's baseline", output)
+
+    def write_base(self, strings):
+        """The base tree's catalog and, as the base's baseline, a copy of the current baseline."""
+        base = self.root / "base"
+        path = base / self.catalog.relative_to(self.root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(catalog(strings), indent=2) + "\n", encoding="utf-8")
+        # The base's ratchet and metadata, unchanged by the pull request.
+        (base / "scripts").mkdir(exist_ok=True)
+        for name in MODULE.RULE_FILES:
+            (base / "scripts" / name).write_bytes((ROOT / "scripts" / name).read_bytes())
+        base_baseline = self.root / "base-baseline.json"
+        base_baseline.write_text(self.baseline.read_text(encoding="utf-8"), encoding="utf-8")
+        return ["--base-root", str(base), "--base-baseline", str(base_baseline)]
+
+    def test_debt_the_base_already_has_is_a_warning_not_the_pull_requests_failure(self):
+        # #23770 copied English into feat-cmux-next (identical 38 -> 39) and every pull
+        # request merged with that base went red for it (#23877).
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 0, output)
+        self.assertIn("warning: the base is already over its baseline", output)
+        self.assertIn("identical 1 -> 2", output)
+
+    def test_debt_a_pull_request_adds_on_top_of_a_red_base_still_fails(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close"), "save": self.copied("Save")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 2 -> 3", output)
+        self.assertIn("save:fr", output)
+
+    def test_a_base_within_the_baseline_does_not_excuse_new_debt(self):
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open")})
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertNotIn("warning", output)
+
+    def test_a_baseline_lowered_below_the_merged_count_still_fails(self):
+        # The base is within its own baseline; the pull request lowers the baseline under
+        # the debt it still has, so this is the pull request's red, not the base's.
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.check("--write-baseline")
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        self.baseline.write_text(MODULE.debt_json(MODULE.debt_counts(
+            [("Packages/macOS/CmuxNext/Sources/Area/Localizable.xcstrings", "identical to English")])),
+            encoding="utf-8")
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertNotIn("warning", output)
+
+    def test_a_change_to_the_rules_gets_no_allowance_for_base_debt(self):
+        # Base debt is counted with the pull request's rules; if they differ from the base's
+        # (an omission record removed, a check tightened), newly flagged strings would look
+        # like the base's debt and the next push would go red.
+        self.write({"open": self.copied("Open")})
+        self.check("--write-baseline")
+        self.write({"open": self.copied("Open"), "close": self.copied("Close")})
+        base_arguments = self.write_base({"open": self.copied("Open"), "close": self.copied("Close")})
+        omissions = self.root / "base" / "scripts" / "localization-allowed-omissions.json"
+        omissions.write_bytes(omissions.read_bytes() + b"\n")
+        status, output = self.check(*base_arguments)
+        self.assertEqual(status, 1, output)
+        self.assertIn("identical 1 -> 2", output)
+        self.assertIn("changes localization-allowed-omissions.json", output)
+        self.assertNotIn("warning", output)
+
+    def test_the_base_tree_needs_the_bases_baseline(self):
+        self.write({"open": string("Open")})
+        self.check("--write-baseline")
+        with self.assertRaises(SystemExit):
+            self.check("--base-root", str(self.root))
+
+    def test_the_checked_in_baseline_loads(self):
+        path = ROOT / "scripts" / MODULE.DEBT_BASELINE
+        if path.exists():
+            self.assertIsInstance(MODULE.load_debt_baseline(path), dict)
+
+
 if __name__ == "__main__":
     unittest.main()

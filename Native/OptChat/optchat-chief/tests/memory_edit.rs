@@ -204,15 +204,14 @@ fn a_backup_and_a_journal_record_are_written_before_the_first_change() {
 
     let journal = f.dir.path().join(JOURNAL);
     assert_eq!(mode(&journal), 0o600);
-    let records: Vec<Value> = std::fs::read_to_string(&journal)
-        .unwrap()
-        .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
-        .collect();
-    assert_eq!(records[0]["rec"], "change");
-    assert_eq!(records[0]["op"], "delete");
-    assert!(records[0]["old"].as_str().unwrap().starts_with("SECRETXYZ"));
-    assert_eq!(records[0]["new"], TOMBSTONE);
+    // The change record is written before the answer; the rebuild worker may be
+    // appending its own records after it while this reads.
+    let text = std::fs::read_to_string(&journal).unwrap();
+    let record: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+    assert_eq!(record["rec"], "change");
+    assert_eq!(record["op"], "delete");
+    assert!(record["old"].as_str().unwrap().starts_with("SECRETXYZ"));
+    assert_eq!(record["new"], TOMBSTONE);
 
     // A second change writes no second copy.
     f.insp
@@ -384,6 +383,7 @@ fn the_chief_and_its_agents_cannot_change_the_memory() {
             )),
             chief: None,
             turn: None,
+            peers: None,
         },
     )
     .unwrap();

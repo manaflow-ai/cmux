@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextBrowserTabs
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 @testable import CmuxNextSettings

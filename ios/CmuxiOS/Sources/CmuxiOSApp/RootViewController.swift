@@ -86,6 +86,7 @@ final class RootViewController: UIViewController {
         let store = container.homeStore(for: account)
         let home = HomeViewController(store: store, options: container.devOptions.options)
         home.updateRequired = container.updateRequired
+        home.onOpenSettings = { [weak self] in self?.presentChatServerSettings(account: account) }
         self.home = home
         let navigation = UINavigationController(rootViewController: home)
         navigation.navigationBar.prefersLargeTitles = true
@@ -112,6 +113,24 @@ final class RootViewController: UIViewController {
             DevTerminal.captureDiagnostics(terminal)
         }
         #endif
+    }
+
+    /// Settings > Chat Server. Saving another server rebuilds Home on it.
+    private func presentChatServerSettings(account: SignedInAccount) {
+        guard presentedViewController == nil else { return }
+        let before = container.chatServers.load()
+        let model = ChatServerSettingsModel(current: before) { [weak self] server in
+            guard let self, server != before else { return }
+            self.container.setChatServer(server)
+            self.showHome(account: account)
+        }
+        weak var sheet: UIViewController?
+        let close: () -> Void = { sheet?.dismiss(animated: true) }
+        let hosting = UIHostingController(rootView: NavigationStack {
+            ChatServerSettingsView(model: model, onDone: close, onCancel: close)
+        })
+        sheet = hosting
+        present(hosting, animated: true)
     }
 
     /// The approve sheet for an agent's permission request (cx-aocz), over

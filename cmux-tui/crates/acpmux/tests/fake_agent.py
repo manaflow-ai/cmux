@@ -11,6 +11,8 @@ Behaviour per prompt text:
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
+  image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
@@ -38,11 +40,22 @@ task_complete, written a moment after the turn answers. session/load finds a rol
 unknown id fails), and "history-probe" replies with the prompts and session
 ids the loaded rollout holds.
 
+FAKE_FORK_DEFAULTS=1: session/fork answers with the harness's default model and effort
+(configOptions), not the forked session's, as Codex does.
+
+FAKE_FORK_ERROR=1: the agent offers session/fork but answers it with a bare "Internal
+error", as Claude's ACP adapter does for a chat with no turn.
+
+FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
+session/fork with a bare "Internal error", as Kimi does.
+
 FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
 call through the ACP permission flow: announced, asked, run only after an allow.
 """
+import base64
+import hashlib
 import json
 import sys
 import os
@@ -52,6 +65,7 @@ import time
 lock = threading.Lock()
 cancelled = set()
 failed_once = set()
+failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
 # Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
@@ -346,6 +360,13 @@ def handle_prompt(rid, params):
             )
             for b in links
         )
+    # Each image block the agent got, by the SHA-256 of its bytes (acpmux's attachment id).
+    images = [b for b in blocks if isinstance(b, dict) and b.get("type") == "image"]
+    if images:
+        text += " " + " ".join(
+            "image:" + hashlib.sha256(base64.b64decode(b.get("data", ""))).hexdigest()
+            for b in images
+        )
     if text.startswith("permission-batch:"):
         with open(os.path.join(os.path.dirname(__file__), "fixtures", "permission-batches.json")) as f:
             fixture = json.load(f)[text.split(":", 1)[1].strip()]
@@ -381,11 +402,51 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
         return
+    # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
+    # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
+    # (as "gate:") and ends.
+    if text.startswith("work-gate:"):
+        path, _, title = text[len("work-gate:"):].partition(" | ")
+        update(sid, {"sessionUpdate": "plan", "entries": [
+            {"content": "Read the brief", "status": "completed", "priority": "high"},
+            {"content": "Fix the queue", "status": "in_progress", "priority": "high"}]})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "wg-1", "title": title.strip() or "Run cargo test",
+                     "kind": "execute", "status": "in_progress"})
+        with open(path.strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "meta-gate: PATH" is "work-gate:" with no plan, its own tool call "Own build" marked as a
+    # subagent's in its params' _meta.acpmux (the hub, not the agent, says whose an update is).
+    if text.startswith("meta-gate:"):
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": sid, "_meta": {"acpmux": {"subagent": "child-1"}},
+            "update": {"sessionUpdate": "tool_call", "toolCallId": "mg-1", "title": "Own build", "kind": "execute",
+                       "status": "in_progress"}}})
+        with open(text[len("meta-gate:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "mg-1", "status": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "child-gate: PATH" starts subagent child-1, whose tool call "Child build" runs while
+    # the turn blocks on the FIFO at PATH; then the child's call and the turn end.
+    if text.startswith("child-gate:"):
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-1", "name": "Child", "task": "Child build", "capabilities": {}})
+        update("child-1", {"sessionUpdate": "tool_call", "toolCallId": "cg-1", "title": "Child build", "kind": "execute", "status": "in_progress"})
+        with open(text[len("child-gate:"):].strip()) as gate:
+            gate.read()
+        update("child-1", {"sessionUpdate": "tool_call_update", "toolCallId": "cg-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
-        with open(text[5:].strip()) as gate:
+        # The path ends where a hidden context block (`<cmux-rules-context>`) starts.
+        with open(text[5:].split("<", 1)[0].strip()) as gate:
             gate.read()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
@@ -414,6 +475,53 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "tool-question: TOOL KIND" asks to run tool TOOL (`_meta.claude.tool`)
+    # whose input also holds `questions`, with one allow option of KIND: a
+    # question by its input's shape alone, or (AskUserQuestion with
+    # allow_always) one that offers only a lasting allow.
+    if text.startswith("tool-question:"):
+        tool, kind = text[14:].split()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "tq1", "title": tool, "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build",
+                                          "questions": [{"question": "ok?", "options": [{"label": "yes"}]}]},
+                             "_meta": {"claude": {"tool": tool}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": kind},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "meta-question: Q" asks to run a command with its own
+    # `_meta.acpmux.question` asking Q: no tool name, no `questions` input.
+    if text.startswith("meta-question:"):
+        q = text[14:].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "mq1", "title": "run", "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build"},
+                             "_meta": {"acpmux": {"question": {"harness": "claude", "agent": "Claude Code", "items": [
+                                 {"id": "q0", "prompt": q, "options": [{"id": "yes", "label": "yes"}],
+                                  "multiSelect": False, "allowsOther": True}]}}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": "allow_once"},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "xai-question: Q" asks Q the way Grok does (`_x.ai/ask_user_question`)
@@ -499,6 +607,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # A prompt with "[fail-digest-once]" anywhere in it (a turn of agent messages, acpmux
+    # hub/digest.rs) fails the first time in a session, then runs as any other.
+    if "[fail-digest-once]" in text and sid not in failed_digest:
+        failed_digest.add(sid)
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error"}})
+        return
     # Failure simulation for retry tests. "fail-once: X" fails the first
     # prompt of a session with an ACP internal error and echoes X after that;
     # "fail-after-update: X" streams a chunk first, then fails every time.
@@ -572,8 +686,21 @@ def handle_prompt(rid, params):
         sys.stderr.write(text[4:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
+    # "die-later: X" streams a moment, then dies as "die: X" does mid-turn. The wait leaves a
+    # test time to queue a prompt behind it on a loaded machine.
+    if text.startswith("die-later:") or os.environ.get("FAKE_DIE_EVERY_PROMPT") == "1":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "dying "}})
+        time.sleep(3.0)
+        sys.stderr.write(text[10:].strip() + "\n")
+        sys.stderr.flush()
+        os._exit(3)
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+        return
+    # "big-output:N" answers with one message of N MiB: one update too large for a frame.
+    if text.startswith("big-output:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "z" * (int(text[11:]) << 20)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text.startswith("fail-after-update:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "partial "}})
@@ -656,6 +783,48 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": msg}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": msg}})
         return
+    # "mute" says nothing for 2 s, then answers: a model that stalls (`hub/silent_turn.rs`).
+    if text == "mute":
+        time.sleep(2)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "mute-busy" is "mute" from an agent that reports its turn and its usage at once, as Codex does
+    # (a usage update, a command list, a notification of its own): none of it is the model's.
+    if text == "mute-busy":
+        update(sid, {"sessionUpdate": "usage_update", "used": 12, "size": 200000})
+        update(sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
+        send({"jsonrpc": "2.0", "method": "_fake/turn_started", "params": {"sessionId": sid}})
+        time.sleep(2)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "quiet-X" sends one sign of its model at work (X: a thought, a tool call, a plan, a request, a
+    # raw harness line of a model that streams, thinks, runs a tool or is moderated, a compaction, a
+    # subagent's progress), then works quietly for 1 s: not silent.
+    if text.startswith("quiet-"):
+        what = text[6:]
+        if what == "thought":
+            update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm"}})
+        elif what == "tool":
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": "q1", "title": "Read", "kind": "read", "status": "in_progress"})
+        elif what == "plan":
+            update(sid, {"sessionUpdate": "plan", "entries": [{"content": "look", "status": "pending", "priority": "medium"}]})
+        elif what == "ask":
+            request("session/request_permission", {"sessionId": sid, "toolCall": {"toolCallId": "q2", "title": "Edit"}, "options": [
+                {"optionId": "allow", "name": "Allow", "kind": "allow_once"}]})
+        elif what == "compaction":
+            update(sid, {"sessionUpdate": "compaction", "state": "running"})
+        elif what == "subagent":
+            update(sid, {"sessionUpdate": "subagent_progress", "subagentSessionId": "q3"})
+        else:
+            raw = {"stream": "claude.stream_event", "assistant": "claude.assistant",
+                   "thinking": "claude.system.thinking_tokens", "tool-progress": "claude.tool_progress",
+                   "moderation": "codex.turn/moderationMetadata"}[what]
+            send({"jsonrpc": "2.0", "method": raw, "params": {"type": raw.split(".")[1]}})
+        time.sleep(1)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "hang" starts a turn that never ends: a busy agent.
     if text == "hang":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
@@ -726,6 +895,40 @@ def handle_prompt(rid, params):
             "sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "."}}}}
             for _ in range(int(text[len("thoughts:"):].strip()))])
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "tool-hang" starts a tool call that never ends and says nothing more: a long command that
+    # prints nothing, or a hung one (`hub/stalled_turn.rs`).
+    if text == "tool-hang":
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "th-1", "title": "Run a long build",
+                     "kind": "execute", "status": "in_progress"})
+        time.sleep(3600)
+        return
+    # "tool-done-hang": a tool call that ends 1.5 s later, then nothing more: the turn's
+    # deadline comes back to one period once no tool call is open (`hub/stalled_turn.rs`).
+    if text == "tool-done-hang":
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tdh-1", "title": "Run a check",
+                     "kind": "execute", "status": "in_progress"})
+        time.sleep(1.5)
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
+        time.sleep(3600)
+        return
+    # "limit-then-hang": a usage limit, then on the fallback profile (FAKE_FALLBACK=1) one word
+    # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
+    if text == "limit-then-hang":
+        if os.environ.get("FAKE_FALLBACK") != "1":
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            return
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
+        time.sleep(3600)
+        return
+    # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
+    # each sign well inside the stall limit (`hub/stalled_turn.rs`).
+    if text.startswith("ticking:"):
+        n, ms = (int(v) for v in text[len("ticking:"):].split(":"))
+        for i in range(n):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"tick{i} "}})
+            time.sleep(ms / 1000)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     if text == "slow":
@@ -918,7 +1121,7 @@ def main():
                 "protocolVersion": 1,
                 "_meta": {"steering": {"supported": "1" in (os.environ.get("FAKE_CODEX_STEER"), os.environ.get("FAKE_CLAUDE_STEER"))}},
                 "agentInfo": {"name": "fake", "version": "0"},
-                "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {"fork": {}}},
+                "agentCapabilities": {"loadSession": os.environ.get("FAKE_NO_LOAD") != "1", "sessionCapabilities": {} if os.environ.get("FAKE_NO_FORK") == "1" else {"fork": {}}},
                 "authMethods": [] if not os.environ.get("FAKE_AUTH_FILE") else [
                     {"id": "fake-login", "name": "Fake login", "description": "opens a browser"},
                     {"id": "fake-terminal", "name": "Terminal login", "type": "terminal", "args": ["--fake-login"]},
@@ -986,6 +1189,11 @@ def main():
                 threading.Thread(target=finish_load, daemon=True).start()
                 continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+            # FAKE_LOAD_REPLAY_TOOL=1: the history replayed on load holds a tool call that never
+            # ended (a turn cut off mid-tool), as a real adapter replays it.
+            if os.environ.get("FAKE_LOAD_REPLAY_TOOL") == "1":
+                update(params["sessionId"], {"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Run an old build",
+                                             "kind": "execute", "status": "in_progress"})
             # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
             # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
             load_mode = os.environ.get("FAKE_LOAD_MODE")
@@ -1000,13 +1208,30 @@ def main():
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
+            # FAKE_NO_FORK=1: an agent without session/fork (Kimi, DeepSeek): a bare internal error.
+            if os.environ.get("FAKE_NO_FORK") == "1" or os.environ.get("FAKE_FORK_ERROR") == "1":
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error"}})
+                continue
             sessions += 1
-            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
+            result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
+            # harness's defaults, not the forked session's model and effort, as Codex does.
+            if os.environ.get("FAKE_FORK_DEFAULTS") == "1":
+                result["configOptions"] = [
+                    {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "high",
+                     "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]},
+                    {"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "default",
+                     "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
+            send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
             if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
                 continue
+            # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.
+            if os.environ.get("FAKE_SET_MODE_DELAY_MS"):
+                import time as pause  # main() binds `time` locally
+                pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")

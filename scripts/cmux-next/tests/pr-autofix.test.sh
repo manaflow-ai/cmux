@@ -27,6 +27,13 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.swift 
 done
 [[ "$(area webviews/src/main.tsx)" == false ]] || fail "a webviews change must not start the Mac export job"
 [[ "$(bash "$AREAS" --all | sed -n 's/^actions=//p')" == true ]] || fail "--all must include the action exports"
+capabilities() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^capabilities=//p'; }
+for path in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift \
+  Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests.swift \
+  plans/cmux-next/daemon-capabilities.json; do
+  [[ "$(capabilities "$path")" == true ]] || fail "a change to $path must repair the daemon capability export"
+done
+[[ "$(capabilities webviews/src/main.tsx)" == false ]] || fail "a webviews change must not repair the daemon capability export"
 apphost() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^apphost=//p'; }
 for path in cmux-tui/spec/resource-operations-v2.json backend/catalog/cloud-operations.json \
   plans/cmux-next/action-surfaces.json first-party-apps/notes/catalog.json \
@@ -111,4 +118,18 @@ git -C "$fixture" add -A
 git -C "$fixture" -c user.name=t -c user.email=t@t.com commit -qm autofix
 [[ "$(git -C "$fixture" rev-parse HEAD^)" == "$head_sha" ]] || fail "autofix parent must remain the exact PR head"
 grep -q 'PR behavior + test' "$fixture/src/feature.ts" || fail "autofix must preserve the PR functional file"
+# The defaults snapshot is bot-only (#21946): the repair's rewrite of it is left out, the rest applies.
+fixture="$tmp/bot-only"
+mkdir -p "$fixture/schemas/defaults" "$fixture/webviews"
+printf '{"old": true}\n' > "$fixture/schemas/defaults/cmux-next.json"
+printf 'const a = 1;\n' > "$fixture/webviews/App.tsx"
+git -C "$fixture" init -q && git -C "$fixture" add -A && git -C "$fixture" -c user.name=t -c user.email=t@t commit -qm base
+printf '{"new": true}\n' > "$fixture/schemas/defaults/cmux-next.json"
+printf 'const a = 2;\n' > "$fixture/webviews/App.tsx"
+git -C "$fixture" diff --binary > "$tmp/bot-only.patch"
+git -C "$fixture" checkout -q -- .
+bash "$APPLY" "$tmp/bot-only.patch" "$fixture" > "$tmp/out" 2>&1 || fail "a patch with the snapshot must still apply its other repairs"
+grep -q '"old"' "$fixture/schemas/defaults/cmux-next.json" || fail "the defaults snapshot is bot-only and must not be applied"
+grep -q 'a = 2' "$fixture/webviews/App.tsx" || fail "the other repairs still apply"
+grep -q 'dropped: schemas/defaults/cmux-next.json' "$tmp/out" || fail "the dropped snapshot is reported"
 echo "pr autofix: ok"

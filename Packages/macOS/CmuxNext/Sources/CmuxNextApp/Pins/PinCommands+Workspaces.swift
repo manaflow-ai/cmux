@@ -207,8 +207,8 @@ extension PinCommands {
         guard let (workspace, daemon) = context.services.machines.workspace(id: id) else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        guard daemon.supports(DaemonCapabilities.shared.workspacePin) else {
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.workspacePin))
+        guard daemon.supports(DaemonCapability.workspacePin.rawValue) else {
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.workspacePin.rawValue))
         }
         if throughSidebar, let sidebar = context.activeWindow?.sidebar {
             sidebar.handle(.setPinned([SidebarWorkspaceID(workspace.id)], pinned))

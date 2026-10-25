@@ -10,10 +10,13 @@ struct Harness {
     let suiteName: String
     var model: UpdateStateModel { controller.model }
 
-    init() {
+    init(automaticDownloads: Bool = false) {
         let suiteName = "cmux.updater.pipeline-tests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
+        if automaticDownloads {
+            defaults.set(true, forKey: UpdateSettings.automaticallyUpdateKey)
+        }
         let updater = FakeUpdater()
         let clock = TestDeadlineClock()
         self.updater = updater

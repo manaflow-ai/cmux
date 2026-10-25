@@ -89,6 +89,21 @@ Customize split-workspace pane boundaries controlled by cmux.
 
 Both settings accept 6-digit hex colors (`#RRGGBB`). Omit a key, or set it to `null`, to use the default. These settings apply to cmux's multi-surface pane layout. When `paneBorderColor` is unset, the divider uses Ghostty's `split-divider-color` if one is configured.
 
+## `ui.reducedBackgrounds`
+
+Draws windows in the plain theme color.
+
+```json
+{
+  "ui": { "reducedBackgrounds": true }
+}
+```
+
+- `false` (default): windows draw the background you chose (`appearance.background`, a workspace's or a pane's own picture) and the window material (`appearance.backgroundOpacity`, `appearance.backgroundBlur`).
+- `true`: no painting, shuffled painting, desktop or system wallpaper, and no glass, frost or see-through window: every window is opaque in its theme's background color, as with macOS Reduce Transparency. This also overrides Ghostty's own `background-opacity` and `background-blur` while on.
+
+It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -139,6 +154,21 @@ What Cmd-W does on a pinned tab.
 
 A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
+## `tabs.terminalFirst`
+
+What Cmd-T, Cmd-D and Cmd-Shift-D open.
+
+```json
+{
+  "tabs": { "terminalFirst": true }
+}
+```
+
+- `false` (default): Cmd-T opens the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
+- `true`: Cmd-T opens a terminal tab and Cmd-D and Cmd-Shift-D open a terminal in the new pane, as in cmux classic.
+
+With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`. A new workspace still starts on the New Tab page. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
+
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -153,6 +183,21 @@ Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
 - `true`: Cmd-T always opens a workspace in the current group and Cmd-N always opens a tab.
 
 Both open the New Tab page. The strip's + button always opens a tab. A key you bind yourself in `shortcuts.bindings` for `newTab` or `newTab.default` wins over the swap. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.swapCmdTAndCmdN true`.
+
+## `tabs.commandDigits`
+
+What Cmd-1 to Cmd-9 select.
+
+```json
+{
+  "tabs": { "commandDigits": "tabs" }
+}
+```
+
+- `"workspaces"` (default): Cmd-1…9 go to sidebar items (`sidebar.numbering` decides which count) and Ctrl-1…9 go to the focused pane's tabs.
+- `"tabs"`: the two trade keys. Cmd-1…9 go to the focused pane's tabs (Cmd-9 is the last tab) and Ctrl-1…9 go to sidebar items.
+
+A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
 
 ## Tab bar (removed: `tabs.tabBar`)
 
@@ -190,7 +235,7 @@ To put one new tab in a specific place, whatever the setting, use these commands
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.
+The layout of the New Tab page. The template dots under the page switch it in place and save the choice here (on `minimal` they are a widget, see `tabs.newTabWidgets` below).
 
 ```json
 {
@@ -198,7 +243,8 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 }
 ```
 
-- `cards` (the default): one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
+- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
+- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
 - `default`: one field with agent rows, recent chats as cards, and Tools.
 - `composer`: one large prompt field, with nothing else.
 - `threads`: the field and the recent chats as a list.
@@ -207,6 +253,26 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 - `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+
+## `tabs.newTabWidgets`
+
+The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
+
+```json
+{
+  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
+}
+```
+
+| Key | Default | Shows |
+| --- | --- | --- |
+| `greeting` | `true` | A short greeting by the time of day over the composer. |
+| `projects` | `false` | A card of this Mac and its recent projects. |
+| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
+| `chats` | `false` | The recent chats, as rows under the composer. |
+| `styleDots` | `false` | The template dots under the page. |
+
+With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -326,9 +392,24 @@ Side-by-side panes that do not fit scroll sideways instead of shrinking below **
 ```
 
 - `false` (default): today's layout. A column widens to fit its splits, and a docked column refuses a split that has no room.
-- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Swipe sideways with two fingers, or use Shift with the mouse wheel, over the panes. Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
+- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Hold Command and swipe sideways with two fingers, or use Command and Shift with the mouse wheel, over the panes (with `layout.scrollModifier` set to `none`, no Command). Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
 
 Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollAreas true`. The design is in `plans/cmux-next/scroll-areas-DESIGN.md`.
+
+## `layout.scrollModifier`
+
+Which scroll moves columns and rows, and which scrolls the pane under the pointer.
+
+```json
+{
+  "layout": { "scrollModifier": "command" }
+}
+```
+
+- `command` (default): a plain scroll, with the trackpad or the mouse wheel, in any direction, always scrolls the pane under the pointer (terminal scrollback, a web page, a wide table). Command + Scroll moves the layout from anywhere on the screen: sideways scrolls the columns, up and down scrolls the rows of the column under the pointer. In a column whose rows all fit, Command + Scroll up and down scrolls the columns. Over a scroll area, Command + Scroll sideways moves the area first. On a canvas, Command + Scroll pans the canvas. A plain scroll still moves the layout over the gaps between panes (also while a Chromium page shows) and over the columns scrollbar.
+- `none`: a sideways scroll moves the columns unless the pane under the pointer scrolls sideways itself, and rows scroll over the gaps between them or with Command held.
+
+The first event of a trackpad gesture decides what the whole gesture scrolls, including its momentum: pressing or releasing Command midway changes nothing. Each mouse-wheel notch decides on its own. Scrolling a pane does not move keyboard focus unless **Focus Follows Mouse** (`layout.focusFollowsMouse`) is on. A Command + Scroll that begins where the layout has something to scroll (columns that do not fit, rows that overflow under the pointer, a scroll area under the pointer) is the layout's from its first event, whichever way it then moves, so it never goes Back or Forward in a web page, Chromium or WebKit. Where the layout has nothing to scroll, the page gets the gesture, and a sideways swipe over a web page goes Back or Forward as it does without Command. Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollModifier none`.
 
 ## `workspaces.newPlacement`
 
@@ -341,7 +422,7 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 ```
 
 - `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"afterCurrent"` (cmux classic's default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group.
@@ -858,15 +939,30 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `enabled` | `false` | Register the server for the agent sessions cmux starts. Only `true` turns it on; a settings file that cannot be read keeps it off. |
+| `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
 | `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
 | `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
 | `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
 | `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |
 | `sources` | `[]` | More folders whose `*.md` files are indexed (`~` expands). |
 
-acpmux reads `enabled` at each spawn; the server reads the other keys at each call, so a
-change applies to the next session or call.
+acpmux reads `enabled` at each spawn and the Mac app at each Agent Memory search; the server
+reads the other keys at each call, so a change applies to the next session or call.
+
+## `media.pictureInPicture.enabled`
+
+Whether cmux offers Picture in Picture for a web page's video.
+
+```json
+{
+  "media": { "pictureInPicture": { "enabled": false } }
+}
+```
+
+- `true` (default): the tab's menu and the Now Playing card's menu offer Picture in Picture for a page playing a video, as do the command palette, `cmux media picture-in-picture` and MCP, the card's button and the toolbar media hub's button.
+- `false`: none of those offer it, and `cmux media picture-in-picture` answers that it is turned off. A video already floating stays until its window closes.
+
+A site's own video controls (a player's Picture in Picture button, the page's `requestPictureInPicture`) are the page's, not cmux's, and are not affected. Change it in **Settings > Browser > Media** or with `cmux settings set media.pictureInPicture.enabled false`.
 
 ## `browser.searchEngine`, `browser.customSearchEngine` and `browser.omnibar.*`
 
@@ -969,3 +1065,31 @@ Settings > General > Agent Chat shows the same keys.
   whole chat, at its latest edit.
 
 A value cmux does not know keeps that key's default and is reported as a diagnostic.
+
+## `home.server`
+
+Which server Home's direct messages and group chats use. Settings > Accounts > Messages Server
+edits it.
+
+- `"hosted"` (the default): cmux Cloud for this build, with your cmux sign-in.
+- `{"selfHosted": "<origin>"}`: your own `cmux-chat-server` (on a Mac mini or a Linux server),
+  reached over Tailscale.
+
+```json
+{ "home": { "server": "hosted" } }
+```
+
+```json
+{ "home": { "server": { "selfHosted": "http://mini.tail1234.ts.net:7320" } } }
+```
+
+The address is an origin: `http://` or `https://`, a host and an optional port, with no path,
+query or user name. Use the server's MagicDNS name (`<name>.<tailnet>.ts.net`) or its Tailscale
+address. The session daemon accepts a self-hosted server only when its host is a `*.ts.net` name,
+an address in `100.64.0.0/10` or an address in `fd7a:115c:a1e0::/48`, over http or https; it
+refuses any other host. No token or password is sent to a self-hosted server: it identifies you by
+your Tailscale login, and the cmux Cloud sign-in is not used for it. Plain http is fine on the
+tailnet, because WireGuard already encrypts and authenticates the connection.
+
+A value that is neither form falls back to cmux Cloud and shows a settings diagnostic. Agents
+cannot change this setting.

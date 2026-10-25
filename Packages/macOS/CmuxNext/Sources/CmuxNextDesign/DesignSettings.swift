@@ -1,6 +1,7 @@
 public import CoreGraphics
 public import Observation
 import Foundation
+public import CmuxNextDesignTokens
 
 /// Metrics a user may override individually on top of a density preset.
 /// Raw values are the cmux.json keys under `appearance.metrics`.
@@ -16,6 +17,9 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case tabPinnedWidth
     case paletteRowHeight
     case columnGap
+    /// The visible line and draggable hit area between split panes.
+    case dividerThickness
+    case dividerHitWidth
     case panelCornerRadius
     case chromeFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
@@ -148,7 +152,7 @@ public final class DesignSettings {
             center.post(name: Motion.speedDidChange, object: nil)
             center.post(name: Motion.reduceMotionDidChange, object: nil)
             center.post(name: Self.hoverCardsDidChange, object: nil)
-            ThemeStore.shared.repaintAll()
+            ThemeScope.app.store.repaintAll()
         }
     }
     /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
@@ -185,6 +189,9 @@ public final class DesignSettings {
     /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
     /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
     public var layoutScrollAreas = false
+    /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
+    /// pane under the pointer (`command`, default), or the rule before it (`none`).
+    public var layoutScrollModifier: LayoutScrollModifier = .command
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
@@ -215,7 +222,7 @@ public final class DesignSettings {
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
-        if effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
+        if effectiveTerminalFontFamily != before { ThemeScope.app.store.repaintAll() }
     }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
@@ -257,6 +264,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `browser.toolbarPosition`: the omnibar row above or below the page.
+    public var browserToolbarPosition: ToolbarPosition = .top
     /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
 
@@ -287,6 +296,8 @@ public final class DesignSettings {
         case .tabPinnedWidth: 24...120
         case .paletteRowHeight: 26...48
         case .columnGap: 0...24
+        case .dividerThickness: 0...6
+        case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
         case .titlebarHeight: 24...56

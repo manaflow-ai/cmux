@@ -16,7 +16,12 @@ extension PaneController {
         if isFocusedInWorkspace, let successor = close.successor {
             workspace.focus.send(.focusPane(successor.rawValue, source: .programmatic))
         }
-        workspace.applyCurrent()
+        // A run that may not move the view (a CLI or agent close) had that focus refused: the
+        // topology without this pane takes the focus off it, so keys never go to a pane that left.
+        if isFocusedInWorkspace { workspace.sendTopology() }
+        // The store tree has not changed: the view mirrors the hidden pane now, and the daemon's
+        // echo is the close's one apply and topology (the perf gate's split budget).
+        workspace.layoutView.syncWithModel()
         return close
     }
 

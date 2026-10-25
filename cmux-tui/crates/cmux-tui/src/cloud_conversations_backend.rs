@@ -71,16 +71,16 @@ impl CloudBackend for RemoteCloudBackend {
     fn post(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self
-            .http
-            .post(url)
-            .bearer_auth(bearer)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .json(body);
+        let mut request =
+            self.http.post(url).header(reqwest::header::ACCEPT, "application/json").json(body);
+        // A self-hosted server on the tailnet gets no Authorization header.
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
         if let Some(version) = client_version {
             request = request.header(CLIENT_VERSION_HEADER, version);
         }
@@ -101,14 +101,13 @@ impl CloudBackend for RemoteCloudBackend {
     fn get(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self
-            .http
-            .get(url)
-            .bearer_auth(bearer)
-            .header(reqwest::header::ACCEPT, "application/json");
+        let mut request = self.http.get(url).header(reqwest::header::ACCEPT, "application/json");
+        if let Some(bearer) = bearer {
+            request = request.bearer_auth(bearer);
+        }
         if let Some(version) = client_version {
             request = request.header(CLIENT_VERSION_HEADER, version);
         }
@@ -197,7 +196,7 @@ impl CloudBackend for RemoteCloudBackend {
     fn connect(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
         self.handshake(url, bearer, client_version).map(|stream| {
@@ -211,7 +210,7 @@ impl RemoteCloudBackend {
     fn handshake(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, ConnectError> {
         let unavailable = ConnectError::Unavailable;
@@ -219,9 +218,11 @@ impl RemoteCloudBackend {
             .into_client_request()
             .map_err(|error| unavailable(format!("bad stream URL: {error}")))?;
         let invalid = || unavailable("the token is not a valid header value".into());
-        let authorization =
-            HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
-        request.headers_mut().insert("authorization", authorization);
+        if let Some(bearer) = bearer {
+            let authorization =
+                HeaderValue::from_str(&format!("Bearer {bearer}")).map_err(|_| invalid())?;
+            request.headers_mut().insert("authorization", authorization);
+        }
         request
             .headers_mut()
             .insert("sec-websocket-protocol", HeaderValue::from_static("cmux.wire.v1"));
@@ -371,6 +372,18 @@ mod tests {
     }
 
     #[test]
+    fn a_post_without_a_bearer_sends_no_authorization_header() {
+        let backend = RemoteCloudBackend::new().unwrap();
+        let (origin, seen) = one_http_exchange(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 11\r\nconnection: close\r\n\r\n{\"ok\":true}",
+        );
+        let reply = backend.post(&format!("{origin}/v1/read"), None, None, &json!({})).unwrap();
+        assert_eq!(reply.status, 200);
+        let (head, _) = seen.recv().unwrap();
+        assert!(!head.to_ascii_lowercase().contains("authorization:"), "{head}");
+    }
+
+    #[test]
     fn post_sends_the_bearer_version_and_json_and_reads_any_status() {
         let backend = RemoteCloudBackend::new().unwrap();
         let (origin, seen) = one_http_exchange(
@@ -379,7 +392,7 @@ mod tests {
         let reply = backend
             .post(
                 &format!("{origin}/v1/ops"),
-                "tok.en",
+                Some("tok.en"),
                 Some("0.70.0"),
                 &json!({"op": "title.set"}),
             )
@@ -395,10 +408,12 @@ mod tests {
         let (origin, _) = one_http_exchange(
             "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
         );
-        let reply = backend.post(&format!("{origin}/v1/read"), "t", None, &json!({})).unwrap();
+        let reply =
+            backend.post(&format!("{origin}/v1/read"), Some("t"), None, &json!({})).unwrap();
         assert_eq!(reply, HttpReply { status: 401, body: Value::Null });
 
-        let refused = backend.post("http://127.0.0.1:1/v1/ops", "secret-token", None, &json!({}));
+        let refused =
+            backend.post("http://127.0.0.1:1/v1/ops", Some("secret-token"), None, &json!({}));
         let TransportError(detail) = refused.unwrap_err();
         assert!(!detail.contains("secret-token"));
     }
@@ -443,7 +458,7 @@ mod tests {
                 .unwrap();
         });
         let mut wire = backend
-            .connect(&format!("ws://{address}/v1/wire/conv/x"), "tok.en", Some("0.70.0"))
+            .connect(&format!("ws://{address}/v1/wire/conv/x"), Some("tok.en"), Some("0.70.0"))
             .unwrap_or_else(|_| panic!("connect failed"));
         // cx-dgsp: the token is never in the subprotocols (Workers invocation logs record them).
         assert_eq!(
@@ -476,7 +491,7 @@ mod tests {
                 let _ = socket.read(&mut buffer);
                 socket.write_all(reply.as_bytes()).unwrap();
             });
-            match backend.connect(&format!("ws://{address}/v1/wire/user"), "t", None) {
+            match backend.connect(&format!("ws://{address}/v1/wire/user"), Some("t"), None) {
                 Err(error) => assert_eq!(error, expected),
                 Ok(_) => panic!("the handshake must be refused"),
             }
@@ -505,7 +520,7 @@ mod tests {
                     .unwrap();
             }
         });
-        match backend.connect(&format!("ws://{address}/v1/wire/user"), "tok.en", None) {
+        match backend.connect(&format!("ws://{address}/v1/wire/user"), Some("tok.en"), None) {
             Err(error) => assert_eq!(error, ConnectError::Unauthenticated),
             Ok(_) => panic!("the handshake must be refused"),
         }

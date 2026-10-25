@@ -1,12 +1,14 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
-/// The attention ring keeps its default (Lawrence 2026-10-19, u2414: it reads on focus and click
-/// and draws the notification blue); the sidebar status glyph and the tab mark carry attention
-/// too. `steady` (clearly visible, one soft swell) is an opt-in style.
+/// The attention ring is a steady blue ring by default, as in cmux classic (Austin, 2026-10-20:
+/// "we should see a blue ring just appear when the agent is done"); the blink plays when the
+/// person goes into the pane and the ring goes away. The sidebar status glyph and the tab mark
+/// carry attention too. `blink` and `pulse` stay available.
 @Suite struct AttentionDefaultTests {
-    @Test func theRingBlinksByDefault() {
-        #expect(AttentionSettings().style == .blink)
+    @Test func theRingIsSteadyByDefault() {
+        #expect(AttentionSettings().style == .steady)
     }
 
     @Test func theSidebarAndTheTabCarryAttention() {

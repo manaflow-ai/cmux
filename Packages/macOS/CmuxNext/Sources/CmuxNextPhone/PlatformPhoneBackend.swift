@@ -78,8 +78,17 @@ public actor PlatformPhoneBackend: PhoneBackend {
 
     /// Turns an Android emulator a quarter turn.
     public func rotate(_ id: PhoneDeviceID) async throws {
+        try await rotate(id, .right)
+    }
+
+    /// Turns an Android emulator a quarter turn left or right (iOS rotation comes later).
+    public func rotate(_ id: PhoneDeviceID, _ direction: PhoneRotation) async throws {
         guard id.mode.isAndroid, let android else { throw PhoneError.unsupported(mode: id.mode, what: "rotate") }
-        try await android.rotate(id)
+        try await android.rotate(id, direction)
+    }
+
+    public func appearance(_ id: PhoneDeviceID) async throws -> PhoneAppearance {
+        try await route(id).appearance(id)
     }
 
     private func route(_ id: PhoneDeviceID) throws -> any PhoneBackend {

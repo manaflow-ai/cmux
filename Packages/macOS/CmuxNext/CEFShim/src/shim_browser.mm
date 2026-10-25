@@ -22,7 +22,7 @@ extern "C" {
 
 int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
                             const char* profile_cache_path) {
-  if (!parent_view) {
+  if (!parent_view || stopping()) {
     return 0;
   }
   CefWindowInfo info;
@@ -35,10 +35,12 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
 }
 
 int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate) {
+  if (stopping()) return 0;
   return fork_api().tab_add ? fork_api().tab_add(window_browser_id, url ? url : "", index, activate) : 0;
 }
 
 int cmux_shim_tab_duplicate(int browser_id, int window_browser_id, int index) {
+  if (stopping()) return 0;
   return fork_api().tab_duplicate ? fork_api().tab_duplicate(browser_id, window_browser_id, index) : 0;
 }
 
@@ -133,8 +135,17 @@ void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler) {
   host().focus_request = handler;
 }
 
+void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn handler) {
+  host().unhandled_key = handler;
+}
+
 void cmux_shim_set_zoom_level(int browser_id, double level) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id)) host->SetZoomLevel(level);
+}
+
+void cmux_shim_set_accessibility(int browser_id, int enabled) {
+  if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id))
+    host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
 }
 
 int cmux_shim_print(int browser_id) {

@@ -4,6 +4,9 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextFocusUI
+import CmuxNextTerminal
+import CmuxNextCompat
 
 /// Makes one window's AppKit first responder, WebKit/CEF page focus,
 /// `LayoutModel` focus and the registry context match its `FocusState`
@@ -13,41 +16,37 @@ import CmuxNextFocus
 /// follows the responder (first responder in the key window).
 final class FocusEffectApplier: FocusEffectApplying {
     private unowned let controller: WindowController
-    /// The CEF page this window gave focus to (blurred when focus leaves).
-    private weak var focusedChildWindowPage: AnyObject?
+    /// The CEF page this window gave focus to, and the key changes focusing one makes (#24913).
+    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows()) { [weak self] page, focused in
+        guard let self, let page = page as? any BrowserTab else { return }
+        self.setPageFocus(page, focused)
+    }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     /// The panel bubble over this window that has the keyboard (group editor).
     private weak var overlayPanel: NSWindow?
-    private var overlayPanelObserver: (any NSObjectProtocol)?
+    private var overlayPanelObserver: MainActorObservation?
 
     init(controller: WindowController) {
         self.controller = controller
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] note in
-            let window = note.object as? NSWindow
-            MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                guard let window else { return }
-                self?.ownedWindowDidBecomeKey(window)
-                self?.childWindowDidBecomeKey(window)
-            }
+        observers.append(MainActorObservation(NSWindow.didBecomeKeyNotification, center: center, read: { $0.object as? NSWindow }) { [weak self] window in
+            guard let window else { return }
+            self?.ownedWindowDidBecomeKey(window)
+            self?.childWindowDidBecomeKey(window)
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    self?.controller.focus.send(.appActive(active))
-                    if active { self?.reclaimKeyAfterActivation() }
-                }
+            observers.append(MainActorObservation(name, center: center) { [weak self] in
+                self?.controller.focus.send(.appActive(active))
+                if active { self?.reclaimKeyAfterActivation() }
             })
         }
         controller.services.input.observeFocus(of: controller)
     }
 
     func teardown() {
-        observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
-        overlayPanelObserver.map(NotificationCenter.default.removeObserver)
         overlayPanelObserver = nil
     }
 
@@ -88,7 +87,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
-            guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else { return }
+            guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else {
+                // Its surface comes on a later frame (a tab this window never showed; `contentPresented`
+                // re-applies). Another pane's terminal must not keep the keyboard meanwhile: its next
+                // replay swaps in a fresh surface that takes the keyboard back, and focus followed it
+                // there (Switch to tab from the New Tab page landed on the workspace's old pane).
+                resignPaneResponder(in: window)
+                return
+            }
             blurChildWindowPage()
             let view = entry.session.surfaceView
             if window.firstResponder !== view { window.makeFirstResponder(view) }
@@ -112,6 +118,8 @@ final class FocusEffectApplier: FocusEffectApplying {
             }
         case .agentPage(let pane, let tab):
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
+            // An agent page in Chromium shows in a child window: it takes the keys like a Chromium page.
+            if let page = TabContent.agent(view).childWindowTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
         case .page(let pane, let tab):
@@ -169,7 +177,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         // The keyboard moves from the tools back to the page.
         let fromDevTools = focusedDevTools.map { $0 === page } ?? false
         if focusedDevTools != nil { blurDevTools() }
-        if fromDevTools { focusedChildWindowPage = nil }
+        if fromDevTools { pageFocus.page = nil }
         switch page.presentation {
         case .inView:
             blurChildWindowPage()
@@ -180,10 +188,9 @@ final class FocusEffectApplier: FocusEffectApplying {
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
-            guard focusedChildWindowPage !== page else { return }
-            blurChildWindowPage()
-            setPageFocus(page, true)
-            focusedChildWindowPage = page
+            // One key change (#24913): the old page blurs without this window taking the keys
+            // back first; the grant moves them straight to the new page window.
+            pageFocus.focus(page)
         }
     }
 
@@ -197,7 +204,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard focusedDevTools !== devTools else { return }
         blurDevTools()
         // Not `blurChildWindowPage`: that would make this window key again.
-        focusedChildWindowPage = nil
+        pageFocus.page = nil
         devTools.setDevToolsFocused(true)
         focusedDevTools = devTools
     }
@@ -210,21 +217,18 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func blurChildWindowPage() {
         blurDevTools()
-        if let page = focusedChildWindowPage as? any BrowserTab {
-            focusedChildWindowPage = nil
-            setPageFocus(page, false)
-        }
+        pageFocus.blurPage()
         reclaimKeyFromPageWindow()
     }
 
     /// The target is in this window, but one of its Chromium page windows
     /// has the keys (a page Chromium activated without a click, e.g. a new
     /// tab's page window; input-spec.md B11): this window takes them back.
-    /// Never activates the app (no key window while it is inactive).
+    /// Never activates the app (no key window while it is inactive). No key change when this
+    /// window is key already (#24913).
     private func reclaimKeyFromPageWindow() {
-        guard let window = controller.window, let key = NSApp.keyWindow, key !== window,
-              ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return }
-        window.makeKey()
+        guard let window = controller.window else { return }
+        pageFocus.reclaim(into: window) { ChildWindowKeyRule.shouldReclaim(facts(of: $0, in: window)) }
     }
 
     /// AppKit makes the window that was key at deactivation key again while
@@ -236,6 +240,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
         case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
+        case .agentPage(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
         default: reclaimKeyFromPageWindow()
         }
     }
@@ -270,21 +275,36 @@ final class FocusEffectApplier: FocusEffectApplying {
         let services = controller.services
         guard owned !== controller.window, services.windows.owner(of: owned) === controller else { return }
         services.windows.didActivate(controller)
+        // A Chromium page window or a panel takes key but never main, and
+        // AppKit does not hand main to a child's parent: a click into the page
+        // of a cmux window that is not main would leave another cmux window
+        // main, looking active while this one looks inactive. Main follows
+        // the keyboard even when this window sits behind another one (the
+        // palette over an explicit window).
+        if let window = controller.window,
+           Self.ownerTakesMain(ownedCanBecomeMain: owned.canBecomeMain, ownerIsMain: window.isMainWindow,
+                               ownerCanBecomeMain: window.canBecomeMain) {
+            window.makeMain()
+        }
         publish(controller.focus.state.context)
         // The overlay host panel restores focus itself (`WindowOverlayHost.endModal`).
         guard owned is NSPanel, !(owned is OverlayHostPanel), owned.sheetParent == nil, !services.palette.owns(owned),
               overlayPanel == nil else { return }
         overlayPanel = owned
         controller.focus.send(.overlayOpened(.groupEditor))
-        overlayPanelObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: owned,
-                                                                      queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.overlayPanelDidResignKey() } // main-proof: observer on queue: .main
+        overlayPanelObserver = MainActorObservation(NSWindow.didResignKeyNotification, object: owned) { [weak self] in
+            self?.overlayPanelDidResignKey()
         }
+    }
+
+    /// Whether the cmux window becomes main when a window it owns becomes
+    /// key. An owned window that may be main (a sheet) settles main itself.
+    nonisolated static func ownerTakesMain(ownedCanBecomeMain: Bool, ownerIsMain: Bool, ownerCanBecomeMain: Bool) -> Bool {
+        !ownedCanBecomeMain && !ownerIsMain && ownerCanBecomeMain
     }
 
     /// The bubble dismisses when it loses the keys.
     private func overlayPanelDidResignKey() {
-        overlayPanelObserver.map(NotificationCenter.default.removeObserver)
         overlayPanelObserver = nil
         overlayPanel = nil
         controller.focus.send(.overlayClosed(.groupEditor))
@@ -306,7 +326,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .devTools:
             guard let devTools else { return }
             // A click into a docked DevTools: the tools have the keyboard.
-            focusedChildWindowPage = nil
+            pageFocus.page = nil
             focusedDevTools = devTools.tab
             controller.focus.responderDidChange(.devTools(pane: devTools.key), source: .mouse)
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
@@ -323,7 +343,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .chosenPage, .reapply:
             guard let pane else { return }
             focusedDevTools = nil
-            focusedChildWindowPage = pane.page
+            pageFocus.page = pane.page
             InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
             // A click chose the page. Another owned window over a pane (an
             // extension popup) keeps the old rule: a key change that is not a
@@ -390,13 +410,19 @@ final class FocusEffectApplier: FocusEffectApplying {
         if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
         // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
         if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
+        // The same rule as `KeyRouter.keyContext`: a phone tab has the keyboard (the Simulator shortcuts).
+        if services.keyRouter.focusesPhone(in: controller) { next.insert(.simulatorFocused) }
+        // The same rule as `KeyRouter.keyContext`: the right sidebar's file explorer has the keyboard.
+        if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
+        // The Files tree follows the focused terminal's folder.
+        services.fileExplorers.focusChanged(in: controller)
         if registry.context != next { registry.context = next }
     }
 
     // MARK: Diagnostics
 
     /// The CEF page this window focused, for `debug.focus`.
-    var focusedChildWindowPageID: String? { (focusedChildWindowPage as? any BrowserTab)?.id.rawValue }
+    var focusedChildWindowPageID: String? { (pageFocus.page as? any BrowserTab)?.id.rawValue }
 
     /// The tab whose docked DevTools this window focused, for `debug.focus`.
     var focusedDevToolsTabID: String? { (focusedDevTools as? any BrowserTab)?.id.rawValue }

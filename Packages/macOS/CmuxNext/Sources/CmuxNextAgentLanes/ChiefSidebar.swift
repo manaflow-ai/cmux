@@ -21,6 +21,8 @@ public final class ChiefSidebar {
     public static let openAction: ActionID = "home.openChief"
     /// Show Idle Chief Subagents: checked while the list is unfolded; only the Chief item's menu shows it.
     public static let toggleIdleAction: ActionID = "sidebar.chief.toggleIdleSubagents"
+    /// Open Chief Subagent: its target is a subagent row's sidebar item (the Chief pane's Subagents menu).
+    public static let openSubagentAction: ActionID = "chief.openSubagent"
     private static let showsIdleKey = "sidebar.chief.showsIdleSubagents"
 
     /// The Chief item's indicator and badge.
@@ -95,14 +97,16 @@ public final class ChiefSidebar {
     }
 
     /// The sidebar-item menu entries a layout item does not show: Hide on a non-app item, the
-    /// subagent fold on any item but the Chief.
-    public static func menuRemovals(isApp: Bool, isChief: Bool) -> Set<ActionID> {
+    /// subagent fold on any item but the Chief, Archive on a band tile (`isTile`: Pinned, custom and app
+    /// sections draw no dimmed look; plans/cmux-next/archiving-DESIGN.md).
+    public static func menuRemovals(isApp: Bool, isChief: Bool, isTile: Bool = false) -> Set<ActionID> {
         var removed: Set<ActionID> = isApp ? [] : ["sidebar.item.hideApp"]
         if !isChief { removed.insert(toggleIdleAction) }
+        if isTile { removed.insert("sidebar.item.toggleArchive") }
         return removed
     }
 
-    /// Binds Open Chief and the fold, and starts following the lanes into `status`.
+    /// Binds Open Chief, Open Chief Subagent and the fold, and starts following the lanes into `status`.
     public func bind(into registry: ActionRegistry, host: Host) {
         self.host = host
         watch()
@@ -113,6 +117,14 @@ public final class ChiefSidebar {
         registry.bind(Self.toggleIdleAction, isEnabled: { [weak self] in self?.isPlaced == true },
                       invoke: { [weak self] _ in self?.showsIdleSubagents.toggle() })
         ActionTargetTitles.setState(Self.toggleIdleAction, in: registry) { [weak self] _ in self?.showsIdleSubagents }
+        registry.bind(Self.openSubagentAction, invoke: { [weak self, weak registry] invocation in
+            guard let self, let registry else { return }
+            // No subagent row (its shortcut, `cmux action run` without --target): say so, never a silent no-op.
+            guard let target = invocation.target else { return registry.refuse(ChiefToolStrings.noSubagent) }
+            if target.kind != .sidebarItem || !activate(LayoutItemID(target.id), registry: registry) {
+                registry.refuseNotFound(ChiefToolStrings.noSubagent)
+            }
+        })
         // The docked Home's Messages view (the Chief's chat) shows its tools in the pane's tab row.
         HomeDockSwitchView.makeRowTools = { [weak self, weak registry] mode in
             guard mode == .messages, let self, let registry else { return nil }

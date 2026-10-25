@@ -282,6 +282,7 @@ await requireBrowserLane("chat-find.test.ts", async () => {
         // 40 steps of 20 px over 2 s: more than the output box and the viewport.
         for (let step = 1; step <= 40; step += 1) {
           block.style.marginTop = `${step * 20}px`;
+          // fixed-wait: the scenario is layout above the match that keeps moving for 2 s of wall time
           await new Promise((resolve) => setTimeout(resolve, 50));
         }
       });

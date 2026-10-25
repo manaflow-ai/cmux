@@ -7,7 +7,7 @@ extension SidebarModel {
     public var visibleWorkspaceIDs: [String] {
         var options = SidebarLayoutOptions()
         options.filterMatches = filterMatches
-        options.sessionTree = SidebarSessionTree.shared.state.map { SidebarSessionTreeState(parents: $0.parents) }
+        options.sessionTree = SidebarSessionTree.shared.drawn?.shape
         let selectable = Set(selectableWorkspaces.map(\.id))
         return SidebarLayout.make(sections: sections, metrics: .standard, options: options).rows.compactMap { row in
             if case let .workspace(id) = row.key, selectable.contains(id) { id.rawValue } else { nil }

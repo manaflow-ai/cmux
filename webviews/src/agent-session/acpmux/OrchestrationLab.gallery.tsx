@@ -34,14 +34,14 @@ const strategies: Strategy[] = [
     receiptStatus: "running",
   },
   {
-    id: "huge-blue",
-    label: "Huge Blue lease",
+    id: "build-box",
+    label: "Build Box lease",
     description: "Reserved Linux capacity for heavier verification.",
     decision: "hold",
     blocker: "revised controller cleanup receipt",
     next: "Reconcile cleanup evidence before requesting admission.",
     route: "ssh · enrolled host",
-    task: "orch-huge-blue-07",
+    task: "orch-build-box-07",
     health: "degraded",
     lease: "17:30 remaining",
     head: "ce704bfb…",
@@ -63,9 +63,9 @@ const strategies: Strategy[] = [
   },
 ];
 
-const selectHugeBlue: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: /Huge Blue lease/ });
-  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Huge Blue lease" }));
+const selectBuildBox: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: /Build Box lease/ });
+  await ctx.waitFor(() => ctx.find({ role: "heading", name: "Build Box lease" }));
 };
 
 export function OrchestrationLab({ initialStrategy = "local-queue" }: { initialStrategy?: string }) {
@@ -235,10 +235,10 @@ export default componentEntry<{ initialStrategy?: string }>({
       note: "Fixture-only local route with an explicit trust boundary.",
       props: { initialStrategy: "local-queue" },
     },
-    "huge-blue": {
+    "build-box": {
       note: "Held route with cleanup evidence as the blocker.",
-      props: { initialStrategy: "huge-blue" },
-      play: selectHugeBlue,
+      props: { initialStrategy: "build-box" },
+      play: selectBuildBox,
     },
     "cloud-fair-share": {
       note: "Queued route with capacity unavailable.",
