@@ -63,11 +63,9 @@ enum AgentPaneHandshakeReply {
             model.pendingRevealTurn = nil
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
             if request == .ready {
-                // At launch the last quit's states may still be read: this tab's is in pendingWake once that ends.
-                if let arrival = model.wakeArrival {
-                    await arrival.value
-                    model.wakeArrival = nil
-                }
+                // At launch the last quit's state may still be read (AgentPaneRelaunchWake.hand): wait for it here.
+                if model.pendingWake == nil, let source = model.wakeSource { model.pendingWake = await source() }
+                model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)
             }

@@ -13,9 +13,11 @@ import Testing
     static let size = NSSize(width: 480, height: 240)
     static let work = BackgroundWork(label: "test.terminal-launch-frames")
 
-    /// Shows `key`'s frame, once its read ends; false when there was none to read.
-    static func show(_ frames: TerminalLaunchFrames, _ key: String, _ pane: Pane, reveal: LaunchReveal) async -> Bool {
-        await frames.show(key, on: pane.session, in: pane.content, work: work, reveal: reveal)?.value ?? false
+    /// The frames of `directory` as the next launch reads them (before its first pane asks).
+    static func launch(_ directory: URL) async -> TerminalLaunchFrames {
+        let frames = TerminalLaunchFrames(directory: directory)
+        await frames.prefetch(on: work)?.value
+        return frames
     }
 
     /// A frame of `size` at `scale`, as a quit saves it.
@@ -78,19 +80,20 @@ import Testing
         // Saved at quit at the terminal's size in this pane (the pane less its scroller, if any).
         let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
-        let frames = TerminalLaunchFrames(directory: directory)
-        #expect(await Self.show(frames, "tab-1", pane, reveal: reveal))
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 1, "the pane shows its terminal's last frame at once")
         #expect(pane.content.layer?.animation(forKey: "opacity") == nil, "with no fade: it is the frame the pane showed")
         #expect(pane.held?.frame.size == pane.session.surfaceView.frame.size, "the last frame covers the terminal")
         #expect(!reveal.isReady(.pane), "panes with no last frame still wait for their first live frame")
-        #expect(frames.show("tab-1", on: pane.session, in: pane.content, work: Self.work, reveal: reveal) == nil, "a frame is shown once per launch")
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "a frame is shown once per launch")
     }
 
     /// Slice (c) of the main-thread sweep: the frame (up to 16 MB) was read and decoded on the main thread as
-    /// the pane showed its terminal. It is read off the main thread now: the pane stays held clear while the read
-    /// runs, as it is with no saved frame, then shows the frame at once.
-    @Test func aSavedFrameIsReadOffTheMainThreadAndShowsOnceRead() async throws {
+    /// the pane showed its terminal. The launch now reads every frame off the main thread from its start; a pane
+    /// shown before that read ends never waits: it stays held clear, as with no frame, and gets its frame when
+    /// the read ends (it still had nothing live).
+    @Test func aPaneShownBeforeTheReadEndsStaysClearThenGetsItsFrame() async throws {
         let reveal = LaunchReveal(deadline: .seconds(60))
         let pane = Pane(reveal: reveal)
         defer { pane.close() }
@@ -98,16 +101,20 @@ import Testing
         let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
         let probe = LaunchReadProbe(held: true)
-        let shown = try #require(TerminalLaunchFrames(directory: directory, reader: probe.reader)
-            .show("tab-1", on: pane.session, in: pane.content, work: Self.work, reveal: reveal), "the saved frame was not read")
+        let marks = LaunchMarks()
+        let frames = TerminalLaunchFrames(directory: directory, reader: probe.reader)
+        let read = try #require(frames.prefetch(on: Self.work, mark: { marks.record($0) }), "the launch read did not start")
         let started = await probe.waitForStart()
         #expect(started, "the read never started")
+        // The read is held on its lane: a show that waited for it would never return.
+        #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 0, "the pane showed before its frame came: as with no frame, it stays held")
         #expect(pane.held == nil)
         probe.release()
-        #expect(await shown.value)
-        #expect(pane.content.alphaValue == 1, "the pane shows its terminal's last frame once it is read")
-        #expect(pane.held != nil, "the last frame covers the terminal")
+        await read.value
+        #expect(marks.names == ["terminal.launch_frame_missed", "terminal.launch_frames_read", "terminal.launch_frame_shown"])
+        #expect(pane.content.alphaValue == 1, "the pane did not show its terminal's last frame once it was read")
+        #expect(pane.held != nil, "the last frame does not cover the terminal")
         #expect(probe.reads == [false], "the saved frame was read on the main thread")
     }
 
@@ -118,7 +125,7 @@ import Testing
         let scale: CGFloat = pane.window.backingScaleFactor == 2 ? 1 : 2
         let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: scale)])
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(await !Self.show(TerminalLaunchFrames(directory: directory), "tab-1", pane, reveal: reveal),
+        #expect(await !Self.launch(directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal),
                 "it would draw at the window's scale, twice or half its size")
         #expect(pane.content.alphaValue == 0)
     }
@@ -131,7 +138,7 @@ import Testing
         let surface = pane.session.surfaceView.bounds.size
         let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height), scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(await !Self.show(TerminalLaunchFrames(directory: directory), "tab-1", pane, reveal: reveal))
+        #expect(await !Self.launch(directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as before")
         #expect(pane.held == nil)
     }
