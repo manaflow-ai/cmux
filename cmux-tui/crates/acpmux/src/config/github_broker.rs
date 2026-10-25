@@ -23,6 +23,13 @@ pub struct GithubRepoPolicy {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct GithubSessionPolicy {
+    /// The one lane `peerId` that may act for this session. A forwarded
+    /// request is refused unless it matches, so holding one lane's capability
+    /// secret never lets that lane act for another lane's session. Unset
+    /// denies every forwarded request for the session (it stays usable by the
+    /// owner's own local caller-bound session).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
     /// Repository owner/name -> its grants for this session.
     #[serde(default)]
     pub repos: BTreeMap<String, GithubRepoPolicy>,

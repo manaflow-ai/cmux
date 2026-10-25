@@ -852,6 +852,17 @@ so a captured request can be neither replayed nor outlived by the id that would 
 current `push` action updates an already
 available GitHub commit ref through the owner; it does not transfer a lane's local git objects, so
 ordinary `git push` remains a follow-up transport and must not be enabled as a credential helper.
+It creates a ref and fails if the branch already exists, so a brokered action can never move a
+branch someone else is working on.
+Each session names the one lane `peerId` that may act for it: a lane's capability secret proves
+which lane sent a request, never which session it may borrow, and a session with no `peer` takes
+no forwarded request at all. The shim builds as `acpmux-gh`, never as `gh`, so nothing on a
+developer's or the owner's `PATH` is shadowed; a lane that wants the drop-in name symlinks it
+(`ln -s acpmux-gh ~/.local/bin/gh`). The owner daemon marks the `gh` it spawns, and the shim
+refuses to start when it sees that mark, so the shim can never be what the owner ends up calling.
+The policy file is read through an `O_NOFOLLOW` descriptor whose uid and mode are checked on the
+descriptor itself; where that check cannot be made the broker refuses the file rather than read it
+unchecked.
 
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment

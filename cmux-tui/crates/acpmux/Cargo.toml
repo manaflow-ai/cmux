@@ -16,8 +16,11 @@ categories = ["command-line-utilities", "development-tools"]
 name = "acpmux"
 path = "src/main.rs"
 
+# Built as `acpmux-gh`, never as `gh`: a binary named `gh` in target/ would sit
+# on a developer's or the owner daemon's PATH and shadow the real `gh`. A lane
+# that wants the drop-in name symlinks it (README, "Owner-side GitHub broker").
 [[bin]]
-name = "gh"
+name = "acpmux-gh"
 path = "src/bin/gh.rs"
 
 [dependencies]

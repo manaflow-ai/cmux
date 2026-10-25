@@ -92,6 +92,15 @@ fn parse(mut args: Vec<String>) -> Result<GithubActionParams> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // The owner daemon sets this on the `gh` it spawns. If we see it, this
+    // shim is standing where the real `gh` should be on the owner's PATH:
+    // refuse, rather than call back into the daemon that called us.
+    if std::env::var_os(acpmux::github_broker::SHIM_REFUSAL_ENV).is_some() {
+        return Err(anyhow!(
+            "gh broker: the acpmux gh shim is on the owner daemon's PATH where the real gh must be; \
+             install the shim on lanes only"
+        ));
+    }
     let params = parse(std::env::args().skip(1).collect())?;
     let client = Client::connect(&socket_path()).await?;
     let result = client.request(method::MUX_GITHUB_ACTION, serde_json::to_value(params)?).await?;

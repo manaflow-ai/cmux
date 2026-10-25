@@ -7,10 +7,20 @@
   },
   "sessions": {
     "REPLACE_WITH_EXACT_ACPMUX_SESSION_ID": {
+      "peer": "gcp-agent-lane-1",
       "repos": {
         "manaflow-ai/cmux": {
-          "actions": ["read", "issue", "comment", "draft_pr", "push"],
-          "branchPrefixes": ["agent/", "codex/"]
+          "actions": [
+            "read",
+            "issue",
+            "comment",
+            "draft_pr",
+            "push"
+          ],
+          "branchPrefixes": [
+            "agent/",
+            "codex/"
+          ]
         }
       }
     }

@@ -33,6 +33,11 @@ const REQUEST_FRESHNESS_SECS: u64 = 120;
 const SPENT_REQUESTS_MAX: usize = 8192;
 /// requestId -> its signed `issuedAt`.
 static SPENT_REQUESTS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+/// A brokered `gh` is one bounded API call; it never waits for a person.
+const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// The owner daemon sets this on the `gh` it runs, and the peer shim refuses
+/// to start with it set, so the shim can never be the `gh` the owner calls.
+pub const SHIM_REFUSAL_ENV: &str = "ACPMUX_GITHUB_BROKER_OWNER";
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -146,6 +151,33 @@ fn valid_branch(branch: &str) -> bool {
         && branch.bytes().all(|c| c.is_ascii_graphic() && c != b'\\')
 }
 
+/// Check the request's own shape, with no policy and no I/O. It runs before
+/// anything is recorded, so an audit row can never carry an unbounded or
+/// control-character string a caller invented (the rows are shown verbatim in
+/// the agent pane).
+pub fn validate_shape(request: &GithubActionParams) -> Result<(), RpcError> {
+    if request.session_id.len() > 256
+        || request.session_id.is_empty()
+        || !request.session_id.bytes().all(|b| b.is_ascii_graphic() || b == b' ')
+    {
+        return Err(invalid("sessionId must be 1..256 printable ASCII characters"));
+    }
+    if !valid_repo(&request.repo) {
+        return Err(invalid("repo must be an owner/name GitHub repository"));
+    }
+    if let Some(branch) = request.branch.as_deref()
+        && !valid_branch(branch)
+    {
+        return Err(invalid("branch is not a valid Git branch"));
+    }
+    if let Some(base) = request.base.as_deref()
+        && !valid_branch(base)
+    {
+        return Err(invalid("base is not a valid Git branch"));
+    }
+    Ok(())
+}
+
 impl AuthorizedGithubAction {
     pub fn authorize(
         config: &GithubBrokerConfig,
@@ -154,15 +186,8 @@ impl AuthorizedGithubAction {
         if !config.enabled {
             return Err(denied("GitHub broker is disabled"));
         }
+        validate_shape(&request)?;
         bounded_text("sessionId", &request.session_id)?;
-        if !valid_repo(&request.repo) {
-            return Err(invalid("repo must be an owner/name GitHub repository"));
-        }
-        if let Some(branch) = request.branch.as_deref()
-            && !valid_branch(branch)
-        {
-            return Err(invalid("branch is not a valid Git branch"));
-        }
         let Some(session_policy) = config.policy_for(&request.session_id) else {
             return Err(denied("session is not allowed to use the GitHub broker"));
         };
@@ -186,11 +211,6 @@ impl AuthorizedGithubAction {
             {
                 return Err(denied("branch is outside the policy's allowed prefixes"));
             }
-        }
-        if let Some(base) = request.base.as_deref()
-            && !valid_branch(base)
-        {
-            return Err(invalid("base is not a valid Git branch"));
         }
         match request.action {
             GithubAction::Issue | GithubAction::DraftPr => {
@@ -321,8 +341,9 @@ fn sign_request(request: &GithubActionParams, secret: &str) -> Result<String, Rp
 
 fn verify_peer_capability(
     request: &GithubActionParams,
-    peer_secrets: &std::collections::BTreeMap<String, String>,
+    config: &GithubBrokerConfig,
 ) -> Result<(), RpcError> {
+    let peer_secrets = &config.peer_secrets;
     let peer_id = request
         .peer_id
         .as_deref()
@@ -345,6 +366,12 @@ fn verify_peer_capability(
     let expected = sign_request(request, secret)?;
     if expected.len() != proof.len() || !cmux_local_auth::tokens_match(&expected, proof) {
         return Err(denied("GitHub broker peer proof is invalid"));
+    }
+    // A valid secret proves which lane sent the request, not which session it
+    // may act for. Without this, a lane holding its own secret could sign a
+    // request naming another lane's session and borrow that session's grants.
+    if config.policy_for(&request.session_id).and_then(|p| p.peer.as_deref()) != Some(peer_id) {
+        return Err(denied("GitHub broker peer may not act for this session"));
     }
     Ok(())
 }
@@ -444,12 +471,35 @@ pub fn audit_payload(
 pub async fn execute(action: AuthorizedGithubAction) -> Result<GithubActionResult, RpcError> {
     let request = &action.request;
     let args = action.gh_args();
-    let output = Command::new("gh")
+    let child = Command::new("gh")
         .args(&args)
-        .output()
-        .await
+        // The peer-facing `gh` shim refuses to run with this set, so a shim
+        // that has been installed as `gh` on the owner's PATH cannot be what
+        // the owner daemon ends up calling (and cannot recurse into itself).
+        .env(SHIM_REFUSAL_ENV, "1")
+        .env("GH_PROMPT_DISABLED", "1")
+        .env("GH_NO_UPDATE_NOTIFIER", "1")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        // A `gh` left running must not outlive the request that started it.
+        .kill_on_drop(true)
+        .spawn()
         .map_err(|e| RpcError::internal(format!("GitHub broker could not start gh: {e}")))?;
+    let output = match tokio::time::timeout(GH_TIMEOUT, child.wait_with_output()).await {
+        Ok(result) => {
+            result.map_err(|e| RpcError::internal(format!("GitHub broker lost gh: {e}")))?
+        }
+        Err(_) => {
+            return Err(RpcError::internal(format!(
+                "GitHub action did not finish within {}s",
+                GH_TIMEOUT.as_secs()
+            )));
+        }
+    };
     if !output.status.success() {
+        // `gh`'s own diagnostics go back to the caller so a denied or broken
+        // action is debuggable, bounded and with no owner path in it.
         return Err(RpcError::new(
             -32041,
             format!("GitHub action failed: {}", clean_output(&output.stderr)),
@@ -515,9 +565,14 @@ fn read_policy_file(path: &Path) -> Result<String, RpcError> {
     Ok(text)
 }
 
+/// There is no owner-only check to make here, so the broker does not run: a
+/// policy read without the ownership and mode checks would quietly drop the
+/// guarantee the owner-only file is supposed to give.
 #[cfg(not(unix))]
-fn read_policy_file(path: &Path) -> Result<String, RpcError> {
-    std::fs::read_to_string(path).map_err(|e| unreadable_policy(path, e))
+fn read_policy_file(_path: &Path) -> Result<String, RpcError> {
+    Err(RpcError::invalid_params(
+        "the GitHub broker policy file is supported only where its owner-only mode can be checked",
+    ))
 }
 
 /// Handle the peer-facing RPC. A lane daemon with `ownerPeer` set forwards
@@ -534,12 +589,21 @@ pub async fn handle(
         let guard = hub.config.read().await;
         load_policy(&guard.github_broker)?
     };
+    // Nothing below this point is recorded until the caller has proved which
+    // session it is: an audit row names a session, so writing one for an
+    // unproved caller would let anyone who can reach the socket or the peer
+    // link append rows to a session that is not theirs. The shape check comes
+    // first for the same reason: a row only ever holds validated strings.
     if !config.enabled {
-        let error = denied("GitHub broker is disabled");
-        let _ = hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
-        return Err(error);
+        return Err(denied("GitHub broker is disabled"));
     }
-    if !request.forwarded {
+    validate_shape(&request)?;
+    if request.forwarded {
+        if conn.origin != crate::server::Origin::Peer {
+            return Err(invalid("forwarded GitHub broker requests require a peer connection"));
+        }
+        verify_peer_capability(&request, &config)?;
+    } else {
         if conn.origin != crate::server::Origin::Local {
             return Err(denied("peer GitHub broker requests must carry a peer capability"));
         }
@@ -547,35 +611,13 @@ pub async fn handle(
             .caller()
             .ok_or_else(|| denied("GitHub broker requires a caller-bound acpmux session"))?;
         if caller != request.session_id {
-            let error = denied("GitHub broker session does not match the caller-bound session");
-            let _ =
-                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
-            return Err(error);
+            return Err(denied("GitHub broker session does not match the caller-bound session"));
         }
-        if let Err(error) = hub.resolve(&request.session_id) {
-            let _ =
-                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
-            return Err(error);
-        }
+        hub.resolve(&request.session_id)?;
     }
-    if request.forwarded {
-        if conn.origin != crate::server::Origin::Peer {
-            return Err(invalid("forwarded GitHub broker requests require a peer connection"));
-        }
-        if let Err(error) = verify_peer_capability(&request, &config.peer_secrets) {
-            let _ =
-                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
-            return Err(error);
-        }
-        if let Err(error) = consume_request(&request.request_id, request.issued_at, unix_now()) {
-            let _ =
-                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
-            return Err(error);
-        }
-    } else if let Some(owner) = config.owner_peer.as_deref() {
-        if conn.origin != crate::server::Origin::Local {
-            return Err(invalid("a lane broker request must enter through its local socket"));
-        }
+    // From here the session is established, so a refusal is this session's own
+    // business and is audited.
+    if let (false, Some(owner)) = (request.forwarded, config.owner_peer.as_deref()) {
         let peer = hub.peer_by_name(owner).ok_or_else(|| {
             RpcError::not_found(format!("GitHub broker owner peer {owner:?} is not configured"))
         })?;
@@ -619,16 +661,11 @@ pub async fn handle(
                 Err(error.clone())
             }
         };
-    } else if !matches!(conn.origin, crate::server::Origin::Local | crate::server::Origin::Peer) {
-        return Err(invalid(
-            "GitHub broker requests are accepted only from a local socket or peer",
-        ));
     }
 
-    if !request.forwarded {
-        consume_request(&request.request_id, request.issued_at, unix_now())?;
-    }
-
+    // Authorize before spending the request id. Spending first would let a
+    // peer burn the replay guard's capacity with requests the policy denies,
+    // and make the ids of honest requests unavailable for the retention window.
     let authorized = match AuthorizedGithubAction::authorize(&config, request.clone()) {
         Ok(action) => action,
         Err(error) => {
@@ -637,6 +674,10 @@ pub async fn handle(
             return Err(error);
         }
     };
+    if let Err(error) = consume_request(&request.request_id, request.issued_at, unix_now()) {
+        let _ = hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
+        return Err(error);
+    }
     match execute(authorized).await {
         Ok(result) => {
             let value =
@@ -671,6 +712,7 @@ mod tests {
             sessions: BTreeMap::from([(
                 "session-1".into(),
                 GithubSessionPolicy {
+                    peer: Some("lane-1".into()),
                     repos: BTreeMap::from([(
                         "manaflow-ai/cmux".into(),
                         GithubRepoPolicy {
@@ -680,7 +722,27 @@ mod tests {
                     )]),
                 },
             )]),
+            peer_secrets: BTreeMap::from([("lane-1".into(), TEST_SECRET.into())]),
             ..GithubBrokerConfig::default()
+        }
+    }
+
+    fn params(request_id: &str) -> GithubActionParams {
+        GithubActionParams {
+            session_id: "session-1".into(),
+            request_id: request_id.into(),
+            issued_at: 1_700_000_000,
+            action: GithubAction::Read,
+            repo: "manaflow-ai/cmux".into(),
+            branch: None,
+            base: None,
+            head_sha: None,
+            issue: None,
+            title: None,
+            body: None,
+            forwarded: false,
+            peer_id: None,
+            peer_proof: None,
         }
     }
 
@@ -764,57 +826,91 @@ mod tests {
 
     #[test]
     fn peer_capability_binds_identity_and_request() {
-        let mut request = GithubActionParams {
-            session_id: "session-1".into(),
-            request_id: "test-4".into(),
-            issued_at: 1_700_000_000,
-            action: GithubAction::Read,
-            repo: "manaflow-ai/cmux".into(),
-            branch: None,
-            base: None,
-            head_sha: None,
-            issue: None,
-            title: None,
-            body: None,
-            forwarded: true,
-            peer_id: Some("lane-1".into()),
-            peer_proof: None,
-        };
-        let proof = sign_request(&request, TEST_SECRET).unwrap();
-        request.peer_proof = Some(proof);
-        let secrets =
-            std::collections::BTreeMap::from([(String::from("lane-1"), String::from(TEST_SECRET))]);
-        assert!(verify_peer_capability(&request, &secrets).is_ok());
+        let mut request = params("test-4");
+        request.forwarded = true;
+        request.peer_id = Some("lane-1".into());
+        let config = config("read", &[]);
+        request.peer_proof = Some(sign_request(&request, TEST_SECRET).unwrap());
+        assert!(verify_peer_capability(&request, &config).is_ok());
+        // Changing any signed field invalidates the proof.
         request.session_id = "other-session".into();
-        assert!(verify_peer_capability(&request, &secrets).is_err());
+        assert!(verify_peer_capability(&request, &config).is_err());
         request.session_id = "session-1".into();
         let now = request.issued_at;
         assert!(consume_request(&request.request_id, request.issued_at, now).is_ok());
         assert!(consume_request(&request.request_id, request.issued_at, now).is_err());
     }
 
+    /// A lane's own secret proves which lane sent a request, not which session
+    /// it may act for: with both sessions in the policy, lane-1 must not be
+    /// able to sign a well-formed request that borrows session-2's grants.
+    #[test]
+    fn a_peer_cannot_act_for_another_sessions_grants() {
+        let mut config = config("read", &[]);
+        let session_2 = config.sessions.get("session-1").cloned().unwrap();
+        config.sessions.insert(
+            "session-2".into(),
+            GithubSessionPolicy { peer: Some("lane-2".into()), ..session_2 },
+        );
+        config.peer_secrets.insert("lane-2".into(), "fedcba9876543210fedcba9876543210".into());
+
+        let mut request = params("test-6");
+        request.forwarded = true;
+        request.peer_id = Some("lane-1".into());
+        request.session_id = "session-2".into();
+        request.peer_proof = Some(sign_request(&request, TEST_SECRET).unwrap());
+        // The proof itself verifies: lane-1 really did sign this request.
+        assert!(verify_peer_capability(&request, &config).is_err());
+
+        // lane-2 is the session's own peer, so the same request is accepted.
+        request.peer_id = Some("lane-2".into());
+        request.peer_proof =
+            Some(sign_request(&request, "fedcba9876543210fedcba9876543210").unwrap());
+        assert!(verify_peer_capability(&request, &config).is_ok());
+    }
+
+    /// Unset `peer` denies every forwarded request for the session, rather
+    /// than letting any lane with a valid secret act for it.
+    #[test]
+    fn a_session_with_no_peer_takes_no_forwarded_request() {
+        let mut config = config("read", &[]);
+        config.sessions.get_mut("session-1").unwrap().peer = None;
+        let mut request = params("test-7");
+        request.forwarded = true;
+        request.peer_id = Some("lane-1".into());
+        request.peer_proof = Some(sign_request(&request, TEST_SECRET).unwrap());
+        assert!(verify_peer_capability(&request, &config).is_err());
+    }
+
+    /// An audit row is shown verbatim in the agent pane, so the shape check
+    /// must refuse a control-character or oversized string before a refusal
+    /// could put one there.
+    #[test]
+    fn the_shape_check_refuses_what_an_audit_row_would_show() {
+        let mut request = params("test-8");
+        assert!(validate_shape(&request).is_ok());
+        request.branch = Some("agent/\u{1b}[2Jwiped".into());
+        assert!(validate_shape(&request).is_err());
+        request.branch = Some("a".repeat(257));
+        assert!(validate_shape(&request).is_err());
+        request.branch = None;
+        request.repo = "not-a-repo".into();
+        assert!(validate_shape(&request).is_err());
+        request.repo = "manaflow-ai/cmux".into();
+        request.session_id = "has\na newline".into();
+        assert!(validate_shape(&request).is_err());
+    }
+
     #[test]
     fn a_short_peer_secret_cannot_sign_a_request() {
-        let mut request = GithubActionParams {
-            session_id: "session-1".into(),
-            request_id: "test-5".into(),
-            issued_at: 1_700_000_000,
-            action: GithubAction::Read,
-            repo: "manaflow-ai/cmux".into(),
-            branch: None,
-            base: None,
-            head_sha: None,
-            issue: None,
-            title: None,
-            body: None,
-            forwarded: true,
-            peer_id: Some("lane-1".into()),
-            peer_proof: None,
-        };
+        let mut request = params("test-5");
+        request.forwarded = true;
+        request.peer_id = Some("lane-1".into());
         assert!(sign_request(&request, "too-short").is_err());
         request.peer_proof = Some(sign_request(&request, TEST_SECRET).unwrap());
-        let secrets = BTreeMap::from([(String::from("lane-1"), String::from("too-short-secret"))]);
-        assert!(verify_peer_capability(&request, &secrets).is_err());
+        let mut config = config("read", &[]);
+        config.peer_secrets.insert("lane-1".into(), "too-short-secret".into());
+        assert!(verify_peer_capability(&request, &config).is_err());
     }
 
     #[test]
@@ -840,9 +936,25 @@ mod tests {
         // the guard must not drop the id that refuses it.
         assert!(spend(&mut spent, "window-1", at, at + REQUEST_FRESHNESS_SECS).is_err());
         assert!(spent.contains_key("window-1"));
-        // Past the window the request itself is refused, so forgetting its id
-        // cannot let it through, and the guard stays bounded.
+        // Past the window the request is refused by its own `issuedAt`, so
+        // whether its id is still on record cannot change the answer.
         assert!(spend(&mut spent, "window-1", at, at + REQUEST_FRESHNESS_SECS * 2 + 1).is_err());
-        assert!(spent.is_empty());
+        // The id is dropped by the next request that gets as far as the guard,
+        // which is what keeps the map bounded.
+        assert!(spend(&mut spent, "other-1", at + 241, at + 241).is_ok());
+        assert!(!spent.contains_key("window-1"));
+    }
+
+    /// The guard is bounded by retention, not by eviction, so a run of
+    /// requests spread over many windows never grows it without limit.
+    #[test]
+    fn the_guard_stays_bounded_across_windows() {
+        let mut spent = HashMap::new();
+        let start = 1_700_000_000u64;
+        for i in 0..200u64 {
+            let at = start + i * 60;
+            assert!(spend(&mut spent, &format!("req-{i}"), at, at).is_ok());
+            assert!(spent.len() <= 5, "{} ids at step {i}", spent.len());
+        }
     }
 }
