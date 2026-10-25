@@ -8,11 +8,13 @@ import copy
 import importlib.util
 import json
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -35,6 +37,13 @@ SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
 SHA = "0123456789abcdef0123456789abcdef01234567"
 FINGERPRINT = "ab" * 32
 DIGEST = "sha256:" + "cd" * 32
+RUN_ID = "5f0c3a9e2b7d4c18a6e1f0b2c3d4e5f6"
+STARTED_AT = "2026-10-25T12:00:00.123456Z"
+CATAPULT_UNIT_NAMES = {
+    # third_party/catapult/tracing/tracing/value/histogram.py UNIT_NAMES
+    "ms", "msBestFitFormat", "tsMs", "n%", "sizeInBytes", "bytesPerSecond", "J", "W",
+    "A", "Ah", "V", "Hz", "unitless", "count", "sigma",
+}
 
 
 def schema_errors(instance, schema=SCHEMA, root=SCHEMA, where="$"):
@@ -47,7 +56,7 @@ def schema_errors(instance, schema=SCHEMA, root=SCHEMA, where="$"):
     known = {
         "$schema", "$id", "$ref", "title", "description", "type", "const", "enum",
         "required", "properties", "additionalProperties", "propertyNames", "items",
-        "minItems", "minLength", "pattern", "minimum", "exclusiveMinimum", "oneOf",
+        "minItems", "minLength", "pattern", "minimum", "maximum", "exclusiveMinimum", "oneOf",
     }
     unknown = set(schema) - known
     if unknown:
@@ -64,7 +73,9 @@ def schema_errors(instance, schema=SCHEMA, root=SCHEMA, where="$"):
             "null": lambda v: v is None,
             "string": lambda v: isinstance(v, str),
             "number": lambda v: isinstance(v, (int, float)) and not isinstance(v, bool),
-            "integer": lambda v: isinstance(v, int) and not isinstance(v, bool),
+            # 2020-12: an integer is any number with a zero fractional part, so 1.0 is one.
+            "integer": lambda v: not isinstance(v, bool)
+            and (isinstance(v, int) or (isinstance(v, float) and v.is_integer())),
             "object": lambda v: isinstance(v, dict),
             "array": lambda v: isinstance(v, list),
         }
@@ -83,6 +94,8 @@ def schema_errors(instance, schema=SCHEMA, root=SCHEMA, where="$"):
     if isinstance(instance, (int, float)) and not isinstance(instance, bool):
         if "minimum" in schema and instance < schema["minimum"]:
             errors.append(f"{where}: minimum")
+        if "maximum" in schema and instance > schema["maximum"]:
+            errors.append(f"{where}: maximum")
         if "exclusiveMinimum" in schema and instance <= schema["exclusiveMinimum"]:
             errors.append(f"{where}: exclusiveMinimum")
     if isinstance(instance, list):
@@ -115,6 +128,7 @@ def schema_errors(instance, schema=SCHEMA, root=SCHEMA, where="$"):
 def valid_dict():
     return {
         "schema": "cmux-perf-result/v1",
+        "run": {"id": RUN_ID, "started_at": STARTED_AT},
         "story": "terminal-key-to-frame",
         "metric": "cmd_w.light.key_to_frame",
         "unit": "ms",
@@ -160,6 +174,7 @@ def make_result(**overrides):
         ),
         engine="none",
         session="stress",
+        run=pr.Run(id=RUN_ID, started_at=STARTED_AT),
     )
     fields.update(overrides)
     return pr.Result(**fields)
@@ -207,6 +222,22 @@ CASES = [
     ("upper-case sha", mutated(["build", "sha"], SHA.upper()), False),
     ("measure_version 0", mutated(["build", "measure_version"], 0), False),
     ("measure_version bool", mutated(["build", "measure_version"], True), False),
+    ("measure_version 1.0 is an integer", mutated(["build", "measure_version"], 1.0), True),
+    ("measure_version 1.5", mutated(["build", "measure_version"], 1.5), False),
+    ("sample past float64", mutated(["samples"], [1, 10**400]), False),
+    ("negative sample past float64", mutated(["samples"], [-(10**400)]), False),
+    ("largest float64 sample", mutated(["samples"], [1.7976931348623157e308]), True),
+    ("display_hz past float64", mutated(["host", "display_hz"], 10**400), False),
+    ("missing run", mutated(["run"], delete=True), False),
+    ("null run", mutated(["run"], None), False),
+    ("run without started_at", mutated(["run", "started_at"], delete=True), False),
+    ("run extra key", mutated(["run", "attempt"], 3), False),
+    ("caller attempt id", mutated(["run", "id"], "job-4412:attempt.7"), True),
+    ("run id with space", mutated(["run", "id"], "job 1"), False),
+    ("started_at without fraction", mutated(["run", "started_at"], "2026-10-25T12:00:00Z"), True),
+    ("started_at with offset", mutated(["run", "started_at"], "2026-10-25T12:00:00+02:00"), False),
+    ("started_at month 13", mutated(["run", "started_at"], "2026-13-01T00:00:00Z"), False),
+    ("started_at date only", mutated(["run", "started_at"], "2026-10-25"), False),
     ("wrong schema id", mutated(["schema"], "cmux-perf-result/v2"), False),
     ("missing schema id", mutated(["schema"], delete=True), False),
     ("unknown top-level key", {**valid_dict(), "p95": 4.0}, False),
@@ -250,6 +281,17 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(sorted(SCHEMA["properties"]), sorted(pr.TOP_LEVEL_KEYS))
         self.assertEqual(sorted(SCHEMA["properties"]["build"]["required"]), sorted(pr.BUILD_KEYS))
         self.assertEqual(sorted(SCHEMA["properties"]["host"]["required"]), sorted(pr.HOST_KEYS))
+        self.assertEqual(sorted(SCHEMA["properties"]["run"]["required"]), sorted(pr.RUN_KEYS))
+
+    def test_every_unit_maps_to_a_catapult_unit(self):
+        self.assertEqual(tuple(pr.CATAPULT_UNITS), pr.UNITS)
+        for unit, (catapult_unit, factor) in pr.CATAPULT_UNITS.items():
+            with self.subTest(unit):
+                self.assertIn(catapult_unit, CATAPULT_UNIT_NAMES)
+                self.assertGreater(factor, 0)
+                self.assertIn(f"{unit} -> {catapult_unit}", SCHEMA["properties"]["unit"]["description"])
+        self.assertEqual(sorted(pr.CATAPULT_IMPROVEMENT_DIRECTION), sorted(pr.BETTER))
+        self.assertNotIn("follow catapult", SCHEMA["description"])
 
     def test_enums_and_patterns_match_the_module(self):
         props = SCHEMA["properties"]
@@ -275,6 +317,11 @@ class SchemaTests(unittest.TestCase):
         self.assertEqual(props["features"]["propertyNames"]["pattern"], pr.FEATURE_NAME_PATTERN)
         self.assertEqual(props["attachments"]["items"]["properties"]["digest"]["pattern"], pr.DIGEST_PATTERN)
         self.assertEqual(props["attachments"]["items"]["properties"]["kind"]["pattern"], pr.ATTACHMENT_KIND_PATTERN)
+        self.assertEqual(props["run"]["properties"]["id"]["pattern"], pr.NAME_PATTERN)
+        self.assertEqual(props["run"]["properties"]["started_at"]["pattern"], pr.STARTED_AT_PATTERN)
+        self.assertEqual(props["samples"]["items"]["maximum"], pr.NUMBER_LIMIT)
+        self.assertEqual(props["samples"]["items"]["minimum"], -pr.NUMBER_LIMIT)
+        self.assertEqual(props["host"]["properties"]["display_hz"]["maximum"], pr.NUMBER_LIMIT)
 
     def test_schema_and_validator_agree_on_every_case(self):
         for name, instance, expected_valid in CASES:
@@ -364,7 +411,7 @@ class WriterTests(unittest.TestCase):
         for line in lines:
             self.assertEqual(schema_errors(json.loads(line)), [])
 
-    def test_rewrite_is_idempotent_and_writers_do_not_collide(self):
+    def test_retry_of_the_same_run_is_idempotent_and_writers_do_not_collide(self):
         first = pr.write_ndjson(self.dir, [make_result()])
         again = pr.write_ndjson(self.dir, [make_result()])
         other = pr.write_ndjson(self.dir, [make_result(samples=[1.0])])
@@ -372,6 +419,55 @@ class WriterTests(unittest.TestCase):
         self.assertNotEqual(first, other)
         self.assertEqual(sorted(p.name for p in self.dir.iterdir()), sorted([first.name, other.name]))
         self.assertEqual(len(pr.read_dir(self.dir)), 2)
+
+    def test_two_runs_with_equal_samples_stay_two_results(self):
+        # Deterministic count stories give the same samples on every run.
+        clock = lambda: datetime(2026, 10, 25, 12, 0, 0, tzinfo=timezone.utc)  # noqa: E731
+        first = pr.write_ndjson(self.dir, [make_result(unit="count", samples=[0, 0, 0], run=pr.Run.start(clock))])
+        second = pr.write_ndjson(self.dir, [make_result(unit="count", samples=[0, 0, 0], run=pr.Run.start(clock))])
+        self.assertNotEqual(first, second)
+        results = pr.read_dir(self.dir)
+        self.assertEqual(len(results), 2)
+        self.assertNotEqual(results[0].run.id, results[1].run.id)
+
+    def test_run_start_uses_the_injected_clock_and_id(self):
+        clock = lambda: datetime(2026, 10, 25, 14, 30, 5, 250000, tzinfo=timezone(timedelta(hours=2)))  # noqa: E731
+        run = pr.Run.start(clock, run_id="job-4412:attempt.7")
+        self.assertEqual(run, pr.Run(id="job-4412:attempt.7", started_at="2026-10-25T12:30:05.250000Z"))
+        self.assertRegex(pr.Run.start().id, r"^[0-9a-f]{32}$")
+        self.assertEqual(pr.validation_errors({**valid_dict(), "run": pr.Run.start().to_dict()}), [])
+
+    def test_written_file_is_readable_by_others(self):
+        path = pr.write_ndjson(self.dir, [make_result()])
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o644)
+
+    def test_measure_version_1_0_is_written_and_read_as_1(self):
+        path = pr.write_ndjson(self.dir, [make_result(build=pr.Build(SHA, "bench", 1.0))])
+        self.assertIn('"measure_version":1,', path.read_text(encoding="utf-8"))
+        line = json.dumps(valid_dict()).replace('"measure_version": 1', '"measure_version": 1.0')
+        (self.dir / "result-float.ndjson").write_text(line + "\n", encoding="utf-8")
+        versions = [result.build.measure_version for result in pr.read_dir(self.dir)]
+        self.assertEqual(versions, [1, 1])
+        self.assertTrue(all(type(version) is int for version in versions))
+
+    def test_writer_raises_result_error_for_a_non_result(self):
+        with self.assertRaisesRegex(pr.ResultError, "result 1: not a Result but dict"):
+            pr.write_ndjson(self.dir, [make_result(), valid_dict()])
+        self.assertFalse(self.dir.exists() and any(self.dir.iterdir()))
+
+    def test_writer_raises_result_error_for_wrong_nested_types(self):
+        build = {"sha": SHA, "config": "bench", "measure_version": 1}
+        self.assertWriteRaises(make_result(build=build), "build: dict is not a Build")
+        self.assertWriteRaises(make_result(host=None), "host: NoneType is not a Host")
+        self.assertWriteRaises(make_result(run={"id": RUN_ID}), "run: dict is not a Run")
+        self.assertWriteRaises(make_result(target_ref="key-to-frame"), "target_ref: str is not a TargetRef")
+        self.assertWriteRaises(make_result(features={"a": {"state": "on", "source": "env"}}), "features.a")
+        self.assertWriteRaises(
+            make_result(features={"a": pr.Feature("on", "env"), 1: pr.Feature("on", "env")}),
+            "features key: int is not a str",
+        )
+        self.assertWriteRaises(make_result(attachments=[{"digest": DIGEST, "kind": "trace"}]), r"attachments\[0\]")
+        self.assertWriteRaises(make_result(samples=5.0), "samples: float is not a list or tuple")
 
     def test_read_dir_skips_temporary_and_foreign_files(self):
         pr.write_ndjson(self.dir, [make_result()])
@@ -387,6 +483,18 @@ class WriterTests(unittest.TestCase):
         present.validate(repo_root=REPO_ROOT)
         with self.assertRaisesRegex(pr.ResultError, "does not exist"):
             missing.validate(repo_root=REPO_ROOT)
+        with self.assertRaisesRegex(pr.ResultError, "does not exist"):
+            pr.write_ndjson(self.dir, [missing], repo_root=REPO_ROOT)
+        self.assertFalse(self.dir.exists() and any(self.dir.iterdir()))
+        pr.write_ndjson(self.dir, [present], repo_root=REPO_ROOT)
+
+    def test_a_moved_threshold_file_does_not_make_history_unreadable(self):
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "floors.json").write_text("{}", encoding="utf-8")
+            result = make_result(target_ref=pr.TargetRef(path="floors.json", key="k"))
+            pr.write_ndjson(self.dir, [result], repo_root=root)
+            (Path(root) / "floors.json").unlink()
+        self.assertEqual(pr.read_dir(self.dir), [result])
 
 
 class ReaderErrorTests(unittest.TestCase):
@@ -434,6 +542,30 @@ class ReaderErrorTests(unittest.TestCase):
         path.write_bytes(b"\xff\xfe\n")
         self.assertReadRaises(path, "not UTF-8")
 
+    def test_rejects_deep_nesting_as_result_error(self):
+        path = self.write_lines("[" * 100_000 + "]" * 100_000)
+        self.assertReadRaises(path, r":1: ")
+
+    def test_rejects_an_unreadable_entry_as_result_error(self):
+        path = self.dir / "result-dir.ndjson"
+        path.mkdir()
+        self.assertReadRaises(path, "cannot read")
+
+    def test_on_error_skips_bad_files_and_reads_the_rest(self):
+        good = self.dir / "result-a.ndjson"
+        good.write_text(json.dumps(valid_dict()) + "\n", encoding="utf-8")
+        bad = self.dir / "result-b.ndjson"
+        bad.write_text(json.dumps(valid_dict()) + "\n{broken\n", encoding="utf-8")
+        deep = self.dir / "result-c.ndjson"
+        deep.write_text("[" * 100_000 + "\n", encoding="utf-8")
+        errors = []
+        results = pr.read_dir(self.dir, on_error=errors.append)
+        self.assertEqual([result.story for result in results], ["terminal-key-to-frame"])
+        self.assertEqual(len(errors), 2)
+        self.assertIn(str(bad), str(errors[0]))
+        self.assertIn(str(deep), str(errors[1]))
+        self.assertTrue(all(isinstance(error, pr.ResultError) for error in errors))
+
     def test_keeps_unicode_line_separators_inside_strings(self):
         obj = valid_dict()
         obj["host"]["chip"] = "Apple M6"
@@ -468,7 +600,7 @@ class IsolationTests(unittest.TestCase):
                 story="s", metric="m", unit="ms", better="lower", samples=[1.5],
                 build=pr.Build(sys.argv[2], "release", 1),
                 host=pr.Host(sys.argv[3], "c", "chip", "26", "25A1", 60),
-                engine="none", session="light",
+                engine="none", session="light", run=pr.Run.start(),
             )
             with tempfile.TemporaryDirectory() as directory:
                 pr.write_ndjson(directory, [result])

@@ -2,11 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cmux.com/schemas/perf/result-v1",
   "title": "cmux-perf-result/v1",
-  "description": "One perf-lab result: the raw samples of one metric of one story run, with the build, host, engine, session, resolved features and attachments that produced it (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.4). Results are stored one JSON object per line in .ndjson files; scripts/perf-lab/perf_result.py writes and reads them. Every key is required so a writer states 'unknown' as null instead of leaving it out. The series key is (story, metric, engine, host.class, macOS major, build.config); features_hash, host.macos_build and safe_mode are point metadata only. Units and the better direction follow catapult's histogram units (third_party/catapult/tracing/tracing/value/histogram.py UNIT_NAMES and improvement_direction).",
+  "description": "One perf-lab result: the raw samples of one metric of one story run, with the build, host, engine, session, resolved features and attachments that produced it (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.4). Results are stored one JSON object per line in .ndjson files; scripts/perf-lab/perf_result.py writes and reads them. Every key is required so a writer states 'unknown' as null instead of leaving it out. The series key is (story, metric, engine, host.class, macOS major, build.config); features_hash, host.macos_build and safe_mode are point metadata only. run names the run that measured the samples, so two runs with equal samples stay two results (catapult's BENCHMARK_START / LABEL diagnostics, tracing/tracing/value/diagnostics/reserved_infos.py).",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema",
+    "run",
     "story",
     "metric",
     "unit",
@@ -26,6 +27,27 @@
     "schema": {
       "const": "cmux-perf-result/v1"
     },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "started_at"
+      ],
+      "description": "The run that measured the samples. Every result of one run carries the same run; a retry of the same write (same id) is idempotent, a new run is a new result.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "description": "uuid4 hex by default, or the caller's stable attempt id (for example a controller job and attempt)."
+        },
+        "started_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]{1,9})?Z$",
+          "description": "RFC 3339 UTC start time of the run, for example 2026-10-25T12:00:00.123456Z."
+        }
+      }
+    },
     "story": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
@@ -37,6 +59,7 @@
       "description": "Metric row inside the story, for example cmd_w.light.key_to_frame. Existing report keys keep their names."
     },
     "unit": {
+      "description": "Export to catapult's histogram units (third_party/catapult/tracing/tracing/value/histogram.py UNIT_NAMES), as unit -> catapult unit x factor: ms -> ms, us -> ms x 1e-3, ns -> ms x 1e-6, s -> ms x 1e3, count -> count, ratio -> unitless, percent -> n% x 1e-2, bytes -> sizeInBytes, bytes_per_s -> bytesPerSecond, mW -> W x 1e-3, J -> J, Hz -> Hz, fps -> Hz, per_s -> Hz, score -> unitless, unitless -> unitless (perf_result.CATAPULT_UNITS).",
       "enum": [
         "ms",
         "us",
@@ -57,6 +80,7 @@
       ]
     },
     "better": {
+      "description": "catapult's improvement_direction: lower -> smallerIsBetter, higher -> biggerIsBetter.",
       "enum": [
         "lower",
         "higher"
@@ -66,9 +90,11 @@
       "type": "array",
       "minItems": 1,
       "items": {
-        "type": "number"
+        "type": "number",
+        "minimum": -1.7976931348623157e+308,
+        "maximum": 1.7976931348623157e+308
       },
-      "description": "Raw samples in run order, never pre-aggregated percentiles."
+      "description": "Raw samples in run order, never pre-aggregated percentiles. Each fits a finite float64."
     },
     "target_ref": {
       "description": "The target this metric is judged against: a targets.json id, or a key in an existing threshold file (floors are referenced, never copied; spec R4). null when the metric has no target.",
@@ -135,7 +161,7 @@
         "measure_version": {
           "type": "integer",
           "minimum": 1,
-          "description": "PERF_LAB_MEASURE_VERSION of the harness that measured the build."
+          "description": "PERF_LAB_MEASURE_VERSION of the harness that measured the build. As in 2020-12, 1.0 is an integer; the reader turns it into 1."
         }
       }
     },
@@ -187,6 +213,7 @@
             "null"
           ],
           "exclusiveMinimum": 0,
+          "maximum": 1.7976931348623157e+308,
           "description": "Measured refresh rate of the display the story ran on; null for a headless story."
         }
       }
