@@ -59,7 +59,7 @@ import WebKit
         let plain = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 240))
         plain.wantsLayer = true
         plain.layer?.backgroundColor = Self.green
-        let page = WebKitEngine().makeWebKitTab()
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         let chrome = BrowserChromeView(tab: page)
         chrome.frame = NSRect(x: 240, y: 0, width: 240, height: 240)
         content.addSubview(plain)
