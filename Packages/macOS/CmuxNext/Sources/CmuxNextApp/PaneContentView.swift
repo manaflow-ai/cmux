@@ -76,7 +76,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var bandPins: [NSLayoutConstraint] = []
     /// Whether the strip is pinned to a browser's header band.
     var isBandActive: Bool { !bandPins.isEmpty }
-    private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
+    private var reportedChrome: (header: CGFloat, footer: CGFloat, framed: Bool) = (-1, -1, true)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
     let paintHold = PanePaintHold(owner: "pane.paint-hold")
     /// The strip the hold's outgoing view showed under, kept until the swap.
@@ -199,6 +199,8 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     // MARK: PaneContentChrome
 
+    var paneFramesContent: Bool { !(hostsContent && content is AgentPaneView) }
+
     /// The hosted content's own header, if it reports one (a browser's
     /// toolbar does not: it is inside the content area).
     private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
@@ -242,10 +244,11 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The content host is the pane's one rounded container, for every kind
     /// of content: a browser's toolbar sits inside it, as a terminal does.
     private func applyCornerRadius() {
-        guard let layer = contentHost.layer, layer.cornerRadius != contentCornerRadius else { return }
+        let radius = paneFramesContent ? contentCornerRadius : 0
+        guard let layer = contentHost.layer, layer.cornerRadius != radius else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.cornerRadius = contentCornerRadius
+        layer.cornerRadius = radius
         CATransaction.commit()
     }
 
@@ -256,7 +259,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     }
 
     private func reportHeaderIfChanged() {
-        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight)
+        let chrome = (header: paneHeaderHeight, footer: paneFooterHeight, framed: paneFramesContent)
         guard chrome != reportedChrome else { return }
         reportedChrome = chrome
         onPaneHeaderHeightChange?()
