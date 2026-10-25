@@ -833,7 +833,7 @@ extension CMUXCLI {
                cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>]
                                  [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open]
                                  [--focus|--no-focus] [--json] [-- <command...>]
-               \(String(localized: "cli.surface.newDisplay.usage", defaultValue: "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]"))
+               \(String(localized: "cli.surface.newDisplay.usage", defaultValue: "cmux surface new-display --machine <cloud-id> [--workspace <id|ref|index>] [--no-open] [--focus|--no-focus] [--json]", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))
                cmux surface resume …   (restart metadata; see `cmux surface resume --help`)
                cmux surface size [--surface <id|ref>] [--json]
                cmux surface size-policy <latest|smallest|largest|priority|fixed> [--cols N --rows N] [--surface <id|ref>]
@@ -857,7 +857,7 @@ extension CMUXCLI {
                but this one can be disconnected (it can reattach from its device).
         new-terminal:  creates a terminal on the machine (a cloud one lands in its cmux-tui
                session, --remote-workspace picks which) and opens it unless --no-open.
-        new-display:  \(String(localized: "cli.surface.newDisplay.help", defaultValue: "creates a new VNC display on a cloud machine and opens it unless --no-open."))
+        new-display:  \(String(localized: "cli.surface.newDisplay.help", defaultValue: "creates a new VNC display on a cloud machine and opens it unless --no-open.", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))
         --focus / --no-focus:  focus the opened pane, or open it in the background.
                \(openFocusDefaultHelp)
         """
@@ -1781,13 +1781,13 @@ extension CMUXCLI {
             let noOpen = hasFlag(rest3, name: "--no-open")
             let known = ["--no-open", "--json"]
             if rest3.contains(where: { $0.hasPrefix("-") && !known.contains($0) }) {
-                throw CLIError(message: "\(String(localized: "cli.surface.newDisplay.error.unknownOption", defaultValue: "surface new-display: unknown option"))\n\n\(Self.surfaceUsage)")
+                throw CLIError(message: "\(String(localized: "cli.surface.newDisplay.error.unknownOption", defaultValue: "surface new-display: unknown option", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))\n\n\(Self.surfaceUsage)")
             }
             if rest3.contains(where: { !$0.hasPrefix("-") }) {
-                throw CLIError(message: "\(String(localized: "cli.surface.newDisplay.error.unexpectedArgument", defaultValue: "surface new-display: unexpected argument"))\n\n\(Self.surfaceUsage)")
+                throw CLIError(message: "\(String(localized: "cli.surface.newDisplay.error.unexpectedArgument", defaultValue: "surface new-display: unexpected argument", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))\n\n\(Self.surfaceUsage)")
             }
             guard let machine = machineOpt, !machine.isEmpty, !machine.hasPrefix("-") else {
-                throw CLIError(message: "\(String(localized: "cli.surface.newDisplay.error.machineRequired", defaultValue: "surface new-display: --machine <cloud-id> is required"))\n\n\(Self.surfaceUsage)")
+                throw CLIError(message: "\(String(localized: "cli.surface.newDisplay.error.machineRequired", defaultValue: "surface new-display: --machine <cloud-id> is required", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main))\n\n\(Self.surfaceUsage)")
             }
             var params: [String: Any] = [
                 "machine": machine,
@@ -1806,25 +1806,26 @@ extension CMUXCLI {
                 ?? (response["id"] as? String)
                 ?? "?"
             var line = String(
-                format: String(localized: "cli.surface.newDisplay.result.resource", defaultValue: "OK resource=%@"),
+                format: String(localized: "cli.surface.newDisplay.result.resource", defaultValue: "OK resource=%@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main),
                 resource
             )
             if let surfaceId = response["surface_id"] as? String, !surfaceId.isEmpty {
                 line += String(
-                    format: String(localized: "cli.surface.newDisplay.result.surface", defaultValue: " surface=%@"),
+                    format: String(localized: "cli.surface.newDisplay.result.surface", defaultValue: " surface=%@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main),
                     surfaceId
                 )
             }
             if let workspaceId = response["workspace_id"] as? String, !workspaceId.isEmpty {
                 line += String(
-                    format: String(localized: "cli.surface.newDisplay.result.workspace", defaultValue: " workspace=%@"),
+                    format: String(localized: "cli.surface.newDisplay.result.workspace", defaultValue: " workspace=%@", bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main),
                     workspaceId
                 )
             }
             if response["projection_failed"] as? Bool == true {
                 line += " " + String(
                     localized: "cli.surface.newDisplay.result.projectionFailed",
-                    defaultValue: "(created; open it with `cmux surface open <resource>`)")
+                    defaultValue: "(created; open it with `cmux surface open <resource>`)",
+                    bundle: CLIExecutableLocator.enclosingAppBundle() ?? .main)
             }
             print(line)
 
