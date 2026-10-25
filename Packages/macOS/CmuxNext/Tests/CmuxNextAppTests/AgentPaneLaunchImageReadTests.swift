@@ -54,7 +54,8 @@ struct AgentPaneLaunchImageReadTests {
         let probe = LaunchReadProbe(held: true)
         let marks = LaunchMarks()
         let images = AgentPaneLaunchImages(directory: directory, reader: probe.reader)
-        let read = try #require(images.prefetch(on: Self.work, mark: { marks.record($0) }))
+        let prefetch = images.prefetch(on: Self.work, mark: { marks.record($0) })
+        let read = try #require(prefetch, "the launch read did not start")
         let started = await probe.waitForStart()
         #expect(started, "the read never started")
         // The read is held on its lane: a take that waited for it would never return.
