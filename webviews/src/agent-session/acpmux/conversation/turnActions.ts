@@ -69,14 +69,6 @@ export type TurnActions = {
     find: () => Promise<ChatAccount | "on" | undefined>;
     use: (routeId: string) => Promise<void>;
   };
-  /// Another agent's message waiting in the queue (conversation/queuedMessages.ts), from its card's
-  /// ⋯ menu: Steer it now (`send_now`), take it into the composer to edit, or delete it. Each is
-  /// false when it already started.
-  queuedMessage?: {
-    steer: (promptId: string) => Promise<boolean>;
-    edit: (promptId: string, text: string) => Promise<boolean>;
-    remove: (promptId: string) => Promise<boolean>;
-  };
   /// The X beside a steer the agent has not read yet: takes it back into the composer to edit
   /// (PendingSteer.tsx `takeBackSteer`); false when the agent read it first.
   unsteer?: (row: AcpmuxRow) => Promise<boolean>;

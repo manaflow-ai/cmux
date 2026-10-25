@@ -46,7 +46,7 @@ import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { ownQueue } from "./conversation/queuedMessages";
+import { ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -347,19 +347,7 @@ export function ComposerQueue({
   const cancelEdit =
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
-      const attachments = await Promise.all(
-        (entry.images ?? []).map(async (image): Promise<ComposerAttachment> => {
-          const src = image.src ?? (readImage ? await readImage(image.id) : undefined);
-          return {
-            id: image.id,
-            kind: "image",
-            name: image.name ?? "image",
-            mimeType: image.mimeType,
-            size: 0,
-            ...(src?.startsWith("data:") ? { data: src.slice(src.indexOf(",") + 1) } : {}),
-          };
-        }),
-      );
+      const attachments = await queuedAttachments(entry.images, readImage);
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.

@@ -41,8 +41,14 @@ import {
   isLastFooter,
   QUEUED_MESSAGE,
 } from "./model";
-import { ownQueue, queuedMessageRows } from "./conversation/queuedMessages";
-import { QueuedMessageCard, QueuedMessageMenu, QueuedMessageNote } from "./conversation/QueuedMessageCard";
+import { ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
+import {
+  QueuedMessageActionsContext,
+  QueuedMessageCard,
+  QueuedMessageMenu,
+  QueuedMessageNote,
+  type QueuedMessageActionsValue,
+} from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -5337,19 +5343,6 @@ function AcpmuxPane() {
               restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
             }),
         }),
-      // Another agent's queued message, from its card's ⋯ menu (conversation/queuedMessages.ts): the
-      // queue row's Steer and Delete, and Edit message, which takes it into the composer.
-      ...(connected && {
-        queuedMessage: {
-          steer: (promptId: string) => editQueued(promptId, { op: "send_now" }),
-          remove: removeQueued,
-          edit: async (promptId: string, text: string) => {
-            const removed = await removeQueued(promptId);
-            if (removed) composerHandle.current?.restore(text, []);
-            return removed;
-          },
-        },
-      }),
       ...(connected &&
         loginCommand &&
         snapshot.summary?.hostKind !== "cloud" && {
@@ -6118,6 +6111,58 @@ function AcpmuxPane() {
         if (composerHandle.current) composerHandle.current.restore(text, attachments);
         else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
       }),
+  );
+  // A queued row's Open in side chat: `/btw`'s path, behind its gate. The prompt leaves the queue
+  // first, so it never also runs here; one that already started stays with the turn. A side chat
+  // that could not start gives its text back to the prompt. The composer's queue rows and another
+  // agent's waiting message (conversation/QueuedMessageCard.tsx) both offer it.
+  const queueSideChat =
+    opensSideSessions && !isSideSession && snapshot.sessionId
+      ? async (promptId: string, prompt: string) => {
+          const sessionId = snapshot.sessionId!;
+          // A row still waiting for the chat to take it leaves here; one with images stays, as a
+          // side chat asks the text alone.
+          const local = startingSends.rows.find((row) => row.id === promptId);
+          if (local ? local.attachments.length > 0 || !startingSends.remove(promptId) : !(await removeQueued(promptId)))
+            return false;
+          setBtwFailure(undefined);
+          const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
+          callNative<string>("chat.btw", { question: prompt }).then(
+            (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
+            (error: unknown) => {
+              fail(error);
+              composerHandle.current?.restore(prompt, []);
+            },
+          );
+          return true;
+        }
+      : undefined;
+  const queueSideChatRef = useRef(queueSideChat);
+  queueSideChatRef.current = queueSideChat;
+  // Another agent's waiting message, from its card's ⋯ menu (conversation/QueuedMessageCard.tsx):
+  // the queue row's Steer, Edit message (into the composer, its images too), Open in side chat and
+  // Delete. Stable while the chat stays connected and the side chat stays offered, so the cards do
+  // not draw again on every snapshot.
+  const sideChatOffered = queueSideChat !== undefined;
+  const queuedMessageActions = useMemo<QueuedMessageActionsValue | undefined>(
+    () =>
+      connected
+        ? {
+            steer: (promptId) => editQueued(promptId, { op: "send_now" }),
+            remove: removeQueued,
+            edit: async (promptId, text, images) => {
+              const attachments = await queuedAttachments(images, readQueuedImage);
+              const removed = await removeQueued(promptId);
+              if (removed) composerHandle.current?.restore(text, attachments);
+              return removed;
+            },
+            ...(sideChatOffered && {
+              sideChat: (promptId: string, text: string) =>
+                queueSideChatRef.current?.(promptId, text) ?? Promise.resolve(false),
+            }),
+          }
+        : undefined,
+    [connected, sideChatOffered, readQueuedImage],
   );
   /// Prompts on their way through this page before the client holds them (a chat starting, a
   /// harness switch's row), and chats starting for a prompt (`chat.new`).
@@ -8164,6 +8209,7 @@ function AcpmuxPane() {
         <ImageViewerContext.Provider value={openImage}>
           <ShellActionsContext.Provider value={shellActions}>
             <TurnActionsContext.Provider value={turnActions}>
+              <QueuedMessageActionsContext.Provider value={queuedMessageActions}>
               <RunInBackgroundContext.Provider value={backgroundHint}>
                 <TurnCountsContext.Provider value={turnCountsFor}>
                   <SessionEditsContext.Provider value={editRows}>
@@ -8262,6 +8308,7 @@ function AcpmuxPane() {
                   </SessionEditsContext.Provider>
                 </TurnCountsContext.Provider>
               </RunInBackgroundContext.Provider>
+              </QueuedMessageActionsContext.Provider>
             </TurnActionsContext.Provider>
           </ShellActionsContext.Provider>
         </ImageViewerContext.Provider>
@@ -8806,32 +8853,7 @@ function AcpmuxPane() {
             // A queued row's Open in side chat: `/btw`'s path, behind its gate. The prompt leaves the
             // queue first, so it never also runs here; one that already started stays with the turn.
             // A side chat that could not start gives its text back to the prompt.
-            onQueueSideChat={
-              opensSideSessions && !isSideSession && snapshot.sessionId
-                ? async (promptId, prompt) => {
-                    const sessionId = snapshot.sessionId!;
-                    // A row still waiting for the chat to take it leaves here; one with images stays,
-                    // as a side chat asks the text alone.
-                    const local = startingSends.rows.find((row) => row.id === promptId);
-                    if (
-                      local
-                        ? local.attachments.length > 0 || !startingSends.remove(promptId)
-                        : !(await removeQueued(promptId))
-                    )
-                      return false;
-                    setBtwFailure(undefined);
-                    const fail = (error: unknown) => setBtwFailure({ sessionId, reason: errorMessage(error) });
-                    callNative<string>("chat.btw", { question: prompt }).then(
-                      (side) => postNative("chat.sideChat", { sessionId: side }).catch(fail),
-                      (error: unknown) => {
-                        fail(error);
-                        composerHandle.current?.restore(prompt, []);
-                      },
-                    );
-                    return true;
-                  }
-                : undefined
-            }
+            onQueueSideChat={queueSideChat}
             queueImage={readQueuedImage}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}

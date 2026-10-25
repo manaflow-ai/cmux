@@ -53,8 +53,9 @@ afterAll(() => {
 
 const { createRoot } = await import("react-dom/client");
 const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
-const { QueuedMessageCard } = await import("../src/agent-session/acpmux/conversation/QueuedMessageCard");
-const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+const { QueuedMessageActionsContext, QueuedMessageCard } = await import(
+  "../src/agent-session/acpmux/conversation/QueuedMessageCard"
+);
 const { queuedMessageRows } = await import("../src/agent-session/acpmux/conversation/queuedMessages");
 
 const t = translatorFor("en");
@@ -146,15 +147,19 @@ const item = (label: string) =>
 
 async function card(entry: ReturnType<typeof agent> & { next?: boolean; images?: unknown[] }, calls: string[]) {
   const [row] = queuedMessageRows([entry as never]);
-  const queuedMessage = {
+  const actions = {
     steer: async (id: string) => (calls.push(`steer ${id}`), true),
-    edit: async (id: string, text: string) => (calls.push(`edit ${id} ${text}`), true),
+    edit: async (id: string, text: string, images: readonly unknown[]) => (
+      calls.push(`edit ${id} ${text} (${images.length} images)`),
+      true
+    ),
     remove: async (id: string) => (calls.push(`remove ${id}`), true),
+    sideChat: async (id: string, text: string) => (calls.push(`side ${id} ${text}`), true),
   };
   await show(
-    <TurnActionsContext.Provider value={{ queuedMessage }}>
+    <QueuedMessageActionsContext.Provider value={actions}>
       <QueuedMessageCard row={row!} onOpen={(id) => void calls.push(`open ${id}`)} />
-    </TurnActionsContext.Provider>,
+    </QueuedMessageActionsContext.Provider>,
   );
 }
 async function openMenu() {
@@ -178,6 +183,7 @@ test("the received card says when it is read and keeps the queue row's actions i
   expect(items()).toEqual([
     t("composer.queueSteer"),
     t("composer.queueEditMessage"),
+    t("composer.queueSideChat"),
     t("composer.queueingOff"),
     t("composer.queueDelete"),
   ]);
@@ -193,14 +199,32 @@ test("the received card says when it is read and keeps the queue row's actions i
   await openMenu();
   await act(async () => item(t("composer.queueEditMessage")).click());
   await settle();
-  expect(calls.at(-1)).toBe(`edit a1 ${entry.prompt}`);
+  expect(calls.at(-1)).toBe(`edit a1 ${entry.prompt} (0 images)`);
+  await openMenu();
+  await act(async () => item(t("composer.queueSideChat")).click());
+  await settle();
+  expect(calls.at(-1)).toBe(`side a1 ${entry.prompt}`);
 });
 
-test("a message sent now offers no second Steer; one with images no Edit message", async () => {
+test("a message sent now offers no second Steer; one with images keeps them and asks no side chat", async () => {
   await card({ ...agent(2), next: true }, []);
   await openMenu();
-  expect(items()).toEqual([t("composer.queueEditMessage"), t("composer.queueingOff"), t("composer.queueDelete")]);
-  await card({ ...agent(3), images: [{ id: "img", mimeType: "image/png" }] }, []);
+  expect(items()).toEqual([
+    t("composer.queueEditMessage"),
+    t("composer.queueSideChat"),
+    t("composer.queueingOff"),
+    t("composer.queueDelete"),
+  ]);
+  const calls: string[] = [];
+  await card({ ...agent(3), images: [{ id: "img", mimeType: "image/png" }] }, calls);
   await openMenu();
-  expect(items()).toEqual([t("composer.queueSteer"), t("composer.queueingOff"), t("composer.queueDelete")]);
+  expect(items()).toEqual([
+    t("composer.queueSteer"),
+    t("composer.queueEditMessage"),
+    t("composer.queueingOff"),
+    t("composer.queueDelete"),
+  ]);
+  await act(async () => item(t("composer.queueEditMessage")).click());
+  await settle();
+  expect(calls.at(-1)).toBe(`edit a3 ${agent(3).prompt} (1 images)`);
 });

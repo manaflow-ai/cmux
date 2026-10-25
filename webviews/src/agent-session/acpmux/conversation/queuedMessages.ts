@@ -6,7 +6,8 @@
 // queueing on or off, Delete. Once acpmux starts it, the queue drops it and the prompt's own row
 // is its card, delivered. The composer's queue, its fold and its count, are the person's own
 // prompts alone (ComposerQueue.tsx).
-import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import type { ComposerAttachment } from "../attachments";
+import { QUEUED_MESSAGE, type AcpmuxRow, type AcpmuxSnapshot, type QueuedPromptImage } from "../model";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -52,4 +53,25 @@ export function queuedMessageRows(queue: AcpmuxSnapshot["queue"], last?: readonl
   }
   if (last && last.length === rows.length && last.every((row, index) => row === rows[index])) return last;
   return rows;
+}
+
+/// A queued prompt's images as the composer's attachments, each with its bytes (the entry's own, else
+/// read by its acpmux id), for Edit message, which takes the prompt back into the composer whole.
+export function queuedAttachments(
+  images: readonly QueuedPromptImage[] | undefined,
+  readImage?: (id: string) => Promise<string | undefined>,
+): Promise<ComposerAttachment[]> {
+  return Promise.all(
+    (images ?? []).map(async (image): Promise<ComposerAttachment> => {
+      const src = image.src ?? (readImage ? await readImage(image.id) : undefined);
+      return {
+        id: image.id,
+        kind: "image",
+        name: image.name ?? "image",
+        mimeType: image.mimeType,
+        size: 0,
+        ...(src?.startsWith("data:") ? { data: src.slice(src.indexOf(",") + 1) } : {}),
+      };
+    }),
+  );
 }

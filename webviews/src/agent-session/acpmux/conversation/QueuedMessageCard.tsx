@@ -3,15 +3,26 @@
 // queued message is read after the running turn; a steered one when the agent's current step ends.
 // The card's ⋯ menu acts on it: Steer (`_acpmux/queue_edit` send_now), Edit message (back into the
 // composer), queueing off or on (queueing.ts), and Delete. A menu opens on the click (ui/Menu).
-import { useContext, useState } from "react";
+import { createContext, useContext, useState } from "react";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import type { AcpmuxRow } from "../model";
+import type { AcpmuxRow, QueuedPromptImage } from "../model";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { setQueueing, useQueueing } from "../queueing";
 import { IncomingMessageLine } from "./IncomingMessageCard";
 import type { IncomingMessage } from "./incomingMessage";
-import { TurnActionsContext } from "./turnActions";
+
+/// What a waiting message's ⋯ menu does (App.tsx provides it): Steer it now (`send_now`), take it
+/// into the composer with its images to edit, ask it in a side chat (where the chat opens one; a
+/// message with images stays, as a side chat asks the text alone), or delete it. Each is false when
+/// it already started.
+export type QueuedMessageActionsValue = {
+  steer: (promptId: string) => Promise<boolean>;
+  edit: (promptId: string, text: string, images: readonly QueuedPromptImage[]) => Promise<boolean>;
+  remove: (promptId: string) => Promise<boolean>;
+  sideChat?: (promptId: string, text: string) => Promise<boolean>;
+};
+export const QueuedMessageActionsContext = createContext<QueuedMessageActionsValue | undefined>(undefined);
 
 /// The note: when the agent reads the message, after the running turn or after its current step.
 export function QueuedMessageNote({ after }: { after: "turn" | "step" }) {
@@ -30,6 +41,8 @@ export type QueuedMessageActions = {
   edit?: () => void;
   /// Withdraws it from the queue.
   remove?: () => void;
+  /// Asks it in a new side chat and withdraws it from the queue (the queue row's Open in side chat).
+  sideChat?: () => void;
   /// Whether the menu offers queueing off or on, as a queue row's ⋯ did.
   queueing?: boolean;
   /// The steer's label: "Steer" for a queued message, "Send now" for a steer.
@@ -41,12 +54,13 @@ export function QueuedMessageMenu({
   steer,
   edit,
   remove,
+  sideChat,
   queueing: offersQueueing,
   steerLabel = "composer.queueSteer",
 }: QueuedMessageActions) {
   const t = useT();
   const queueing = useQueueing();
-  if (!steer && !edit && !remove && !offersQueueing) return null;
+  if (!steer && !edit && !remove && !sideChat && !offersQueueing) return null;
   return (
     <span className="cv-received-actions cv-received__queued-actions">
       <Menu>
@@ -75,6 +89,11 @@ export function QueuedMessageMenu({
               {t("composer.queueEditMessage")}
             </MenuItem>
           )}
+          {sideChat && (
+            <MenuItem className="acpmux-quick-item" onSelect={sideChat}>
+              {t("composer.queueSideChat")}
+            </MenuItem>
+          )}
           {offersQueueing && (
             <MenuItem className="acpmux-quick-item" onSelect={() => setQueueing(!queueing)}>
               {t(queueing ? "composer.queueingOff" : "composer.queueingOn")}
@@ -93,9 +112,9 @@ export function QueuedMessageMenu({
 
 /// Another agent's message waiting in the queue (a `QUEUED_MESSAGE` row, queuedMessages.ts): its
 /// received card, as it reads once delivered (collapsed in Minimal Mode as any is), with "Read after
-/// this turn" and its ⋯ menu: Steer, Edit message (a message without images: the composer's edit
-/// would drop them), queueing off or on, and Delete, the actions its queue row had. Steer goes once:
-/// acpmux marks it next (an agent that cannot steer runs it after the turn), or starts it.
+/// this turn" and its ⋯ menu: Steer, Edit message (into the composer, images too), Open in side chat
+/// (a message without images), queueing off or on, and Delete, the actions its queue row had. Steer
+/// goes once: acpmux marks it next (an agent that cannot steer runs it after the turn), or starts it.
 export function QueuedMessageCard({
   row,
   onOpen,
@@ -108,7 +127,7 @@ export function QueuedMessageCard({
   onReply?(message: IncomingMessage, text: string): Promise<void>;
   githubRepository?: string;
 }) {
-  const { queuedMessage: act } = useContext(TurnActionsContext);
+  const act = useContext(QueuedMessageActionsContext);
   const [steered, setSteered] = useState(false);
   const queued = row.queuedMessage;
   if (!queued || row.incoming?.kind !== "message") return null;
@@ -132,7 +151,10 @@ export function QueuedMessageCard({
               {...(act && !queued.next && !steered
                 ? { steer: () => void act.steer(promptId).then((ok) => ok && setSteered(true), fail) }
                 : {})}
-              {...(act && !row.images?.length ? { edit: () => void act.edit(promptId, text).catch(fail) } : {})}
+              {...(act ? { edit: () => void act.edit(promptId, text, row.images ?? []).catch(fail) } : {})}
+              {...(act?.sideChat && !row.images?.length
+                ? { sideChat: () => void act.sideChat!(promptId, text).catch(fail) }
+                : {})}
               {...(act ? { remove: () => void act.remove(promptId).catch(fail) } : {})}
               queueing
             />
