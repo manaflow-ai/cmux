@@ -76,6 +76,16 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
       name: "chat-environment-scroll-probe",
       enforce: "pre",
       transform(source, id) {
+        if (id.includes("/agent-session/acpmux/App.tsx")) {
+          // The websocket fixture seeds App directly, whereas native snapshots enter receive.
+          // Observe both production assignment sites without depending on optional persistence.
+          const observation = "globalThis.__cmuxEnvCurrentSnapshot = next;";
+          if (source.includes(observation)) return { code: source, map: null };
+          const assignment = "snapshotRef.current = next;";
+          const sites = source.split(assignment).length - 1;
+          if (sites !== 2) throw new Error(`App snapshot probe expected 2 assignments, found ${sites}`);
+          return { code: source.replaceAll(assignment, `${assignment} ${observation}`), map: null };
+        }
         if (!id.includes("/agent-session/acpmux/header/EnvironmentLine.tsx")) return;
         // This is a controlled source-unmemoized comparator discriminator, not a base-ref build.
         const baseline = process.env.CMUX_ENV_SCROLL_BASELINE === "1";
@@ -107,7 +117,9 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
         }
         const bodyOpen = paramsClose < 0 ? -1 : next.indexOf("{", paramsClose);
         if (bodyOpen < 0)
-          throw new Error(`EnvironmentLine probe missed body; source=${next.slice(functionStart, functionStart + 320).replace(/\s+/g, " ")}`);
+          throw new Error(
+            `EnvironmentLine probe missed body; source=${next.slice(functionStart, functionStart + 320).replace(/\s+/g, " ")}`,
+          );
         const probe = `\n  globalThis.__cmuxEnvProbe.renders += 1;\n  useEffect(() => { globalThis.__cmuxEnvProbe.mounts += 1; return () => { globalThis.__cmuxEnvProbe.unmounts += 1; }; }, []);`;
         next = `${next.slice(0, bodyOpen + 1)}${probe}${next.slice(bodyOpen + 1)}`;
         return { code: next, map: null };
@@ -136,18 +148,11 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
   };
 
   const publishSnapshot = async (page: Page, cwd: string) => {
-    // App.saveSnapshot coalesces writes for 250 ms; wait on the storage state instead of racing
-    // that debounce after the fixture has painted its last turn.
-    // The fixture page remains open, so exercise the same pagehide flush the host uses before
-    // reading its current snapshot.
-    await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
-    await page.waitForFunction(() => Boolean(sessionStorage.getItem("cmux.acpmux.snapshot")), undefined, {
+    await page.waitForFunction(() => Boolean((window as any).__cmuxEnvCurrentSnapshot), undefined, {
       timeout: 20_000,
     });
     return page.evaluate((cwd) => {
-      const raw = sessionStorage.getItem("cmux.acpmux.snapshot");
-      if (!raw) throw new Error("started chat did not persist an Acpmux snapshot");
-      const current = JSON.parse(raw) as Record<string, any>;
+      const current = JSON.parse(JSON.stringify((window as any).__cmuxEnvCurrentSnapshot)) as Record<string, any>;
       const summary = { ...(current.summary ?? {}), cwd };
       const next = { ...current, summary, rows: [...(current.rows ?? [])] };
       const bridge = (window as any).cmuxAcpmuxBridge;
