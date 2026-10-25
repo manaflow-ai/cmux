@@ -1869,6 +1869,7 @@
       "targets": [
         "CmuxNextAgentPane",
         "CmuxNextControl",
+        "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextUpdater",
