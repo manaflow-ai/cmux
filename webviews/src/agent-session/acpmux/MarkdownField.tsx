@@ -515,6 +515,18 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
               // Files copied in Finder also put their names on the clipboard as text: not a prompt.
               // With no text, ProseMirror would also move focus to a stand-in element for 50 ms to
               // capture the paste, and the keys typed then came back stripped of spaces.
+              // A drop of text past what a prompt carries (a text drag, no files) goes to the surface
+              // whole, as such a paste does, before ProseMirror lays every line of it out (Leo,
+              // 2026-10-25: "the composer should never ever freeze"). Smaller drops are ProseMirror's.
+              drop: (editorView, event) => {
+                const data = event.dataTransfer;
+                if (!data || data.files.length || [...data.types].includes("Files")) return false;
+                const whole = data.getData("text/plain");
+                if (whole.length <= PASTE_FILE_CHARS) return false;
+                event.preventDefault();
+                beforeInput(editorView, whole, true);
+                return true;
+              },
               paste: (editorView, event) => {
                 const data = event.clipboardData;
                 if (!data) return false;
