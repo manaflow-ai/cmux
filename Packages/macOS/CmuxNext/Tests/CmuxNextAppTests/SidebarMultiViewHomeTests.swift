@@ -32,7 +32,7 @@ struct SidebarMultiViewHomeTests {
 
     /// The daemon's edge docks (`edge-docks-v1`): the layout has its edge dock bands, as in the app, where a drop
     /// near Home's bottom edge is offered a new bottom dock of Home.
-    static let capabilities = [DaemonCapabilities.shared.edgeDocks]
+    static let capabilities = [DaemonCapability.edgeDocks.rawValue]
 
     /// Drags `k1`'s row to `edge` of Home (`inset` of the layout, or `points`, in from it), checks what the hover
     /// resolves to, and releases it there.
