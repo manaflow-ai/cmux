@@ -312,6 +312,27 @@ test("before its first message, the picker's rail lists every installed harness 
   expect(added).toBe(1);
 });
 
+test("a harness profile shares its provider's one rail icon", async () => {
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "claude-sr2",
+        name: "Claude Code (sr2 internal)",
+        family: "claude-sr2",
+        models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }],
+      },
+    ],
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  const claudeTabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].filter((button) =>
+    button.title.startsWith("Claude"),
+  );
+  expect(claudeTabs).toHaveLength(1);
+});
+
 test("before its first message, a machine profile is absent from the harness rail", async () => {
   await mount({
     harness: "codex",
