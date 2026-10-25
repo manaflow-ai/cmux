@@ -63,11 +63,7 @@ export function HomeChannelsPage({
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
   // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
   useWebSwapHold(
-    snap.pending.some((entry) => !entry.failed)
-      ? "home.sending"
-      : snap.pending.length
-        ? "home.send-failed"
-        : null,
+    snap.pending.some((entry) => !entry.failed) ? "home.sending" : snap.pending.length ? "home.send-failed" : null,
   );
   // Below NARROW_PAGE of its own width the page shows one pane (panes.ts), the one the hash names.
   const shell = useRef<HTMLDivElement>(null);

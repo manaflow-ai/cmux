@@ -58,7 +58,7 @@ export function webSwapHold(doc: Document = document): string | null {
     if (!caretAtEnd(active, selection)) return "caret";
   }
   if (doc.querySelector(OPEN_POPUP)) return "popup";
-  for (const field of doc.querySelectorAll<HTMLElement>('input, textarea, [contenteditable]')) {
+  for (const field of doc.querySelectorAll<HTMLElement>("input, textarea, [contenteditable]")) {
     if (field.closest(`[${WEB_SWAP_KEPT_TEXT}]`) || !isEditable(field)) continue;
     if ((field as HTMLInputElement).readOnly || (field as HTMLInputElement).disabled) continue;
     const text = isTextField(field) ? field.value : field.textContent;

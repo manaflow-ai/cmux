@@ -423,11 +423,7 @@ export function NewTabPage({
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
-    text !== (location ?? "")
-      ? "newtab.draft"
-      : attachments.length || pending.length
-        ? "newtab.attachments"
-        : null,
+    text !== (location ?? "") ? "newtab.draft" : attachments.length || pending.length ? "newtab.attachments" : null,
   );
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useEffect(() => {
