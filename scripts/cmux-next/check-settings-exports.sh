@@ -25,7 +25,9 @@
 #   - a base export that fails must not skip the restore either.
 # So the restore re-exports from HEAD's sources, which rewrites every export and rebuilds the
 # package, it runs from a trap as well as in line, and if it cannot run it falls back to the
-# committed exports: collecting nothing is right, collecting the base's bytes is not.
+# committed exports: collecting nothing is right, collecting the base's bytes is not. When even a
+# plain build cannot put HEAD's products back, it removes the built products, so a later
+# `--skip-build` suite fails instead of passing against the base export's binaries.
 set -euo pipefail
 temp="${RUNNER_TEMP:-$(mktemp -d)}"
 root="$(git rev-parse --show-toplevel)"
@@ -69,6 +71,20 @@ restore() {
   cat "$temp/settings-head-exported.txt" >&2
   echo "::error::the settings export could not be redone from HEAD's sources; restoring the committed exports instead" >&2
   git checkout -q HEAD -- "${exports[@]}"
+  # The exports are HEAD's committed bytes, so nothing base-derived is collected. The BUILT products
+  # are still the base export's, though: the sources above are HEAD's again, so a plain build of the
+  # package puts them back. The export failing does not mean the build does (it also fails on an
+  # export test, or on the freshness marker).
+  if (cd "$root/Packages/macOS/CmuxNext" && swift build --build-tests) >> "$temp/settings-head-exported.txt" 2>&1; then
+    echo "::warning::the package was rebuilt from HEAD's sources, so what runs after this is HEAD's" >&2
+    return 1
+  fi
+  # Neither path got HEAD's products back, so the built binaries are the base export's. This step is
+  # continue-on-error, and the daemon-test job's suites run `swift test --skip-build` after it, so
+  # leaving them there is how base settings binaries pass as this commit's. Taking them away is what
+  # stops that: `--skip-build` with nothing built fails, and this says why (review of #23915).
+  echo "::error::the package could not be rebuilt from HEAD's sources; removing its built products so that nothing runs against the base export's binaries" >&2
+  rm -rf "$root/Packages/macOS/CmuxNext/.build"
   return 1
 }
 trap 'restore || true' EXIT

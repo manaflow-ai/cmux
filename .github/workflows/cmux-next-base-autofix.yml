@@ -68,6 +68,8 @@ on:
       - plans/cmux-next/links.json
       - scripts/cmux-next/regenerate-action-exports.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
+      - scripts/cmux-next/settings-exports.txt
+      - scripts/cmux-next/check-settings-exports.sh
       - schemas/settings-export/**
       - docs/mdm/**
       - scripts/ci/defaults_guard.py

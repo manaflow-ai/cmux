@@ -211,9 +211,13 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             result = self.run_check(repo, env)
             self.assertIn("EXPORTED", result.stdout)
 
-    def run_step_on_merge(self, base_edit, pr_edit, env_extra=None, keep=()) -> subprocess.CompletedProcess:
+    def run_step_on_merge(self, base_edit, pr_edit, env_extra=None, keep=(), swift_exit=None,
+                          build_products=False) -> subprocess.CompletedProcess:
         """The step on a merge commit: base_edit(repo) lands on the base without an export, then
         pr_edit(repo) is the pull request; the fake export writes both exports from A.swift's text.
+
+        `swift_exit` puts a `swift` on PATH that exits with it, for the restore's plain rebuild of
+        the package; `build_products` leaves built products in the package for it to keep or remove.
 
         Returns the step's result with `.repo` set, and asserts the checkout is HEAD's apart from
         the paths in `keep` (the exports the event itself leaves stale)."""
@@ -261,6 +265,13 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             "done\n")
         (fake / "regenerate-settings-exports.sh").chmod(0o755)
         self.install_check(repo)
+        path = "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
+        if swift_exit is not None:
+            fake_bin = repo / "fake-bin"
+            fake_bin.mkdir()
+            (fake_bin / "swift").write_text(f"#!/bin/sh\necho 'fake swift' >&2\nexit {swift_exit}\n")
+            (fake_bin / "swift").chmod(0o755)
+            path = f"{fake_bin}:{path}"
         run("git", "add", "-A")
         run("git", "commit", "-q", "-m", "base")
         base_edit(repo)
@@ -270,8 +281,11 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
         run("git", "commit", "-q", "-am", "pr change")
         run("git", "checkout", "-q", "main")
         run("git", "merge", "-q", "--no-ff", "--no-edit", "pr")
-        env = {"RUNNER_TEMP": tmp, "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
-               **(env_extra or {})}
+        if build_products:
+            products = repo / "Packages/macOS/CmuxNext/.build/debug"
+            products.mkdir(parents=True)
+            (products / "CmuxNextSettingsTests.xctest").write_text("built from whichever sources\n")
+        env = {"RUNNER_TEMP": tmp, "PATH": path, **(env_extra or {})}
         result = self.run_check(repo, env)
         left = [line for line in run("git", "status", "--porcelain", "--untracked-files=no").stdout.splitlines()
                 if not any(line.endswith(path) for path in keep)]
@@ -365,6 +379,37 @@ class TheCheckoutIsHeadsAfterwards(ExportsAreComparedWithAFreshExport):
         after = self.exports_after(result)
         self.assertEqual(after[self.SCHEMA], "v1\n", "the schema is neither HEAD's export nor the committed copy")
         self.assertEqual(after[self.DOCS], "w2\n", "the docs are neither HEAD's export nor the committed copy")
+
+    PRODUCTS = "Packages/macOS/CmuxNext/.build"
+
+    def run_fallback_with_swift(self, swift_exit) -> subprocess.CompletedProcess:
+        """The fallback path (the re-export from HEAD's sources failed) with built products on disk
+        and a `swift` that exits with `swift_exit` for the plain rebuild."""
+        result = self.run_step_on_merge(
+            self.write("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift", "v2\n"),
+            self.pr_edits_the_docs_source(),
+            env_extra={"CMUX_TEST_EXPORT_FAILS_ON_RESTORE": "1"},
+            swift_exit=swift_exit, build_products=True)
+        self.assertNotEqual(result.returncode, 0)
+        return result
+
+    def test_products_rebuilt_from_heads_sources_on_the_fallback_path_stay(self):
+        """The committed exports went back and the sources are HEAD's again, so a plain build puts
+        HEAD's built products back: what runs after this step is this commit's."""
+        result = self.run_fallback_with_swift(0)
+        self.assertTrue((result.repo / self.PRODUCTS).exists(),
+                        "a rebuild from HEAD's sources succeeded, so its products must stay")
+        self.assertIn("rebuilt from HEAD's sources", result.stderr)
+
+    def test_products_that_cannot_be_rebuilt_are_removed(self):
+        """Neither the re-export nor a plain build could put HEAD's products back, so what is built
+        is the base export's. The daemon-test job runs `swift test --skip-build` after this step and
+        the step is continue-on-error, so leaving the products there is how base settings binaries
+        pass as this commit's: `--skip-build` with nothing built fails instead (review of #23915)."""
+        result = self.run_fallback_with_swift(1)
+        self.assertFalse((result.repo / self.PRODUCTS).exists(),
+                         "the base export's built products are still there for a --skip-build suite")
+        self.assertIn("removing its built products", result.stderr)
 
 
 if __name__ == "__main__":

@@ -43,8 +43,16 @@ main() {
   action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
   # From scripts/cmux-next/settings-exports.txt, the one list of what the settings export writes,
   # so this does not become a fourth hand-kept copy of it (review of #23915).
-  settings_exports="^($(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[.]/[.]/g' \
-    "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt" | paste -sd'|' -))$"
+  local settings_alternation
+  settings_alternation="$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' -e 's/[.]/[.]/g' \
+    "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt" | paste -sd'|' -)"
+  # An empty list would give `^()$`, which matches the empty string and nothing else: every export
+  # would silently look unrelated to the settings area instead of failing here.
+  [[ -n "$settings_alternation" ]] || {
+    echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2
+    exit 1
+  }
+  settings_exports="^($settings_alternation)$"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"

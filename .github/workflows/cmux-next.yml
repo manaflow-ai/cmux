@@ -116,6 +116,8 @@ on:
       - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
+      - scripts/cmux-next/settings-exports.txt
+      - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
@@ -344,6 +346,8 @@ on:
       - scripts/cmux-next/check-package-dependency-lists.py
       - scripts/cmux-next/regenerate-action-contracts.sh
       - scripts/cmux-next/regenerate-settings-exports.sh
+      - scripts/cmux-next/settings-exports.txt
+      - scripts/cmux-next/check-settings-exports.sh
       - .github/actions/setup-cmux-tui-rust/**
       - cmux-tui/**
       - CLI/**
