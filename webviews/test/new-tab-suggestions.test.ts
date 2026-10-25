@@ -160,7 +160,10 @@ test("a workspace's exact name leads with its tab, Ask second, the web search la
   ]);
   expect(rows.at(-1)?.type).toBe("search");
   // "app" alone is no exact name: Ask leads.
-  expect(screenRows("app", context({ tabs: [{ id: "t", kind: "terminal", title: "~", workspace: "app-efficiency" }] }))[0]?.type).toBe("ask");
+  expect(
+    screenRows("app", context({ tabs: [{ id: "t", kind: "terminal", title: "~", workspace: "app-efficiency" }] }))[0]
+      ?.type,
+  ).toBe("ask");
 });
 
 test("a workspace row named exactly leads over the tabs in it", () => {

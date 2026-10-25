@@ -23,7 +23,8 @@ const context = (fields: Partial<OmnibarContext> = {}, order?: SuggestionOrder) 
 });
 const kinds = (rows: ScreenRow[]) =>
   rows.filter((row) => !inStrip(row)).map((row) => (row.type === "create" ? `create:${row.kind}` : row.type));
-const createStrip = (rows: ScreenRow[]) => rows.flatMap((row) => (row.type === "create" && inStrip(row) ? [row.kind] : []));
+const createStrip = (rows: ScreenRow[]) =>
+  rows.flatMap((row) => (row.type === "create" && inStrip(row) ? [row.kind] : []));
 const scratch = { workspaces: [{ id: "ws", name: "ff-scratch" }] };
 
 test("a prompt's create actions are the strip under the rows, not three rows", () => {

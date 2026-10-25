@@ -1024,12 +1024,12 @@ export default agentPaneEntry({
       },
     },
     "typed-keywords": {
-      note: "Leo 2026-10-20 (no Search | Ask switch): plain keywords. The web search leads (Return's, highlighted), Ask Claude Code one row down for a miss.",
+      note: 'Leo 2026-10-20 (no Search | Ask switch) and 2026-10-24 ("Search the web. Do you really want that first?"): plain keywords. Ask Claude Code leads (Return\'s, highlighted), the web search is the last row.',
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await ctx.type("rust serde", { selector: ".nt-field" });
-        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"][aria-selected="true"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
     },
     "typed-question": {
@@ -1047,7 +1047,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
     },
     "typed-tab-match": {
-      note: "Text that matches open tabs, workspaces and visited pages: a web search first (Return's, a plain word), Ask, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
+      note: "Text that matches open tabs, workspaces and visited pages: the Release workspace first (its exact name, Return's), Ask, then those rows (with their favicons, a glyph while one loads), the web search and the create strip in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
         omnibar: RELEASE_OMNIBAR,
       }),
@@ -1055,9 +1055,10 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // The search, Ask, two tabs, the workspace, a page and the three create actions: eight
-        // presses from the top end on the last row, and three more wrap round to the first tab.
-        for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
+        // The workspace, Ask, then the first tab. Down to the last option (the create strip's end),
+        // then three more wrap round to the first tab.
+        const options = ctx.document.querySelectorAll('.nt-popover [role="option"]').length;
+        for (let step = 0; step < options - 1; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
@@ -1212,9 +1213,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await typedSuggestions(ctx, "new t", (rows) =>
-          rows.some((row) => row.type === "create" && /terminal/i.test(row.title))
-            ? undefined
-            : "no New terminal row",
+          rows.some((row) => row.type === "create" && /terminal/i.test(row.title)) ? undefined : "no New terminal row",
         );
       },
     },
@@ -1227,7 +1226,8 @@ export default agentPaneEntry({
           const types = navigationTypes(rows);
           if (types[0] !== "ask") return "the first row is not Ask";
           if (types.at(-1) !== "search") return "the web search is not the last row";
-          if (rows.filter((row) => row.type === "create").length !== 3) return "the three create rows do not end the list";
+          if (rows.filter((row) => row.type === "create").length !== 3)
+            return "the three create rows do not end the list";
           return undefined;
         });
         if (ctx.document.querySelector(".nt-create-strip")) throw new Error("the chat order draws the create strip");
@@ -1334,12 +1334,12 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(6)),
     },
     "template-cards-typed": {
-      note: "Cards template with keywords typed: the box keeps the mic and Send, and the suggestions (the web search first) open under the quiet row, never over its chips.",
+      note: "Cards template with keywords typed: the box keeps the mic and Send, and the suggestions (Ask first) open under the quiet row, never over its chips.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
         await ctx.type("rust serde", { selector: ".nt-field" });
-        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"]'));
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"]'));
       },
     },
     "template-composer": {

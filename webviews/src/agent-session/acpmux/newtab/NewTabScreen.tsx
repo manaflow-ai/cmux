@@ -1459,37 +1459,37 @@ export function NewTabScreen(props: Props) {
             <div ref={attachList} className="nt-rows" id="nt-rows" role="listbox" aria-label={nt("suggestions")}>
               {rows.map((row, index) =>
                 inStrip(row) ? null : (
-                <div
-                  key={rowKey(row)}
-                  id={`nt-row-${index}`}
-                  ref={index === current ? keepInView : undefined}
-                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === current}
-                  data-type={row.type}
-                  className={index === current ? "nt-row is-selected" : "nt-row"}
-                  onMouseMove={() => {
-                    if (index === current) return;
-                    pick(index);
-                  }}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    activate(row);
-                  }}
-                >
-                  {rowFavicon(row) ? (
-                    <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
-                  ) : (
-                    <RowGlyph kind={rowGlyph(row)} />
-                  )}
-                  <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
-                  {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
-                  <span className="nt-row-action" data-popup-skip>
-                    {rowAction(t, nt, row)}
-                    {index === current && <kbd>↵</kbd>}
-                  </span>
-                </div>
+                  <div
+                    key={rowKey(row)}
+                    id={`nt-row-${index}`}
+                    ref={index === current ? keepInView : undefined}
+                    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === current}
+                    data-type={row.type}
+                    className={index === current ? "nt-row is-selected" : "nt-row"}
+                    onMouseMove={() => {
+                      if (index === current) return;
+                      pick(index);
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      activate(row);
+                    }}
+                  >
+                    {rowFavicon(row) ? (
+                      <img className="nt-row-glyph nt-row-favicon" src={rowFavicon(row)} alt="" draggable={false} />
+                    ) : (
+                      <RowGlyph kind={rowGlyph(row)} />
+                    )}
+                    <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
+                    {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
+                    <span className="nt-row-action" data-popup-skip>
+                      {rowAction(t, nt, row)}
+                      {index === current && <kbd>↵</kbd>}
+                    </span>
+                  </div>
                 ),
               )}
               {rows.some(inStrip) && (

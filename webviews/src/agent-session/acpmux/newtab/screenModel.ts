@@ -125,7 +125,8 @@ function navigationRows(
   const top = open.length || namesSite(query, completed[0]) ? found[0] : exactMatch(query, found, context.omnibar);
   const rest = found.filter((row) => row !== top);
   const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
-  const fit = (lead: ScreenRow[]) => ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
+  const fit = (lead: ScreenRow[]) =>
+    ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
   // No agent to ask: a question or a word is searched, an address still opens first.
   if (!ask.length) {
     if (!top) return [...search, ...fit(search)];
@@ -148,7 +149,8 @@ function namesSite(query: string, row: ScreenRow | undefined): boolean {
 function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarContext): ScreenRow | undefined {
   const needle = query.toLocaleLowerCase();
   const named = (name: string | undefined) => name?.trim().toLocaleLowerCase() === needle;
-  const tab = (row: ScreenRow) => (row.type === "tab" ? omnibar.tabs.find((candidate) => candidate.id === row.id) : undefined);
+  const tab = (row: ScreenRow) =>
+    row.type === "tab" ? omnibar.tabs.find((candidate) => candidate.id === row.id) : undefined;
   return (
     rows.find((row) => row.type === "workspace" && named(row.title)) ??
     rows.find((row) => row.type === "tab" && (named(row.title) || named(tab(row)?.title))) ??
