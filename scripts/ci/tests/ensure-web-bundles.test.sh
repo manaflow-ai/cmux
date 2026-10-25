@@ -23,9 +23,10 @@ case "$1" in
   --from) [ -f "$2/Packages/built" ] && touch "$STATE/installed" ;;
 esac
 EOF
-# Fake toolchain at the pins: bun 1.4.2, node 24.11.1.
+# Fake toolchain at the pins: the bun webviews/package.json declares, node 24.11.1.
+BUN_PIN=$(python3 -c 'import json; print(json.load(open("webviews/package.json"))["devEngines"]["packageManager"]["version"])')
 mkdir -p "$WORK/bin"
-printf '#!/bin/sh\necho 1.4.2\n' > "$WORK/bin/bun"
+printf '#!/bin/sh\necho %s\n' "$BUN_PIN" > "$WORK/bin/bun"
 printf '#!/bin/sh\necho v24.11.1\n' > "$WORK/bin/node"
 chmod +x "$WORK/build" "$WORK/bin/bun" "$WORK/bin/node"
 
@@ -89,7 +90,14 @@ rm -rf "$WORK/state"; mkdir -p "$WORK/state"
 if CMUX_WEB_BUNDLES_NO_INSTALL=1 run > "$WORK/out" 2>&1; then fail "NO_INSTALL with the wrong bun must fail"; fi
 [ ! -e "$WORK/curl" ] || fail "NO_INSTALL must never run curl"
 grep -q "CMUX_WEB_BUNDLES_NO_INSTALL" "$WORK/out" || fail "NO_INSTALL failure must say why: $(cat "$WORK/out")"
-printf '#!/bin/sh\necho 1.4.2\n' > "$WORK/bin/bun"
+# A newer bun than the pin passes the minimum check (the fake answers its -e with the
+# verdict check-webviews-bun-version.sh reads) and builds without a curl.
+printf '#!/bin/sh\n[ "$1" = -e ] && { echo "%s ok"; exit 0; }\necho 99.0.0\n' "$BUN_PIN" > "$WORK/bin/bun"
+rm -rf "$WORK/state" "$WORK/cache"; mkdir -p "$WORK/state"
+CMUX_WEB_BUNDLES_NO_INSTALL=1 run > "$WORK/out" 2>&1 || fail "NO_INSTALL with a newer bun must build: $(cat "$WORK/out")"
+[ ! -e "$WORK/curl" ] || fail "NO_INSTALL must never run curl"
+rm -f "$WORK/bin/curl"
+printf '#!/bin/sh\necho %s\n' "$BUN_PIN" > "$WORK/bin/bun"
 
 # The Swift lane calls it before it builds a CmuxNext package.
 for phase_fn in run_suite run_package_tests; do
