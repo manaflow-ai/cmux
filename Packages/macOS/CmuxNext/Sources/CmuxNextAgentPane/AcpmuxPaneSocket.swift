@@ -74,6 +74,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     func start(timeout: TimeInterval) async throws {
         if let wire { return try await start(wire) }
         let queue = OperationQueue()
+        queue.name = "com.cmuxterm.next.agent-pane.acpmux-socket"
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
         let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: queue)

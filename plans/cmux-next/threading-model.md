@@ -151,10 +151,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   `com.cmuxterm.next.android-screen` (default), `com.cmuxterm.next.relaunch` (userInitiated),
   `com.cmuxterm.next.sleepy-lock` (userInitiated), `com.cmuxterm.next.now-playing` (default)
 - Named URLSession and promise queues: `header-pull-request` (AgentChatPullRequestReader, utility, 2 at once),
-  `cmux.home.promised-files` (HomePromisedFiles, userInitiated)
-- Unnamed today (base debt; name and list them when you touch them): the URLSession delegate
-  `OperationQueue`s in AcpmuxPaneSocket.swift and URLSessionChromiumRuntimeDownloader.swift, and
-  WebKitSetupGate.swift's `Thread.detachNewThread`.
+  `cmux.home.promised-files` (HomePromisedFiles, userInitiated), `com.cmuxterm.next.agent-pane.acpmux-socket`
+  (AcpmuxPaneSocket's WebSocket delegate, userInitiated, serial), `com.cmuxterm.next.chromium-runtime.download`
+  (the Chromium runtime download's file writes, default, serial)
+- WebKit: `com.cmuxterm.next.webkit-setup-probe` (WebKitSetupGate's one sandbox-extension probe, default QoS; a
+  thread of its own because a wedged sandboxd never returns)
 
 ## Reviewed blocking allowances
 

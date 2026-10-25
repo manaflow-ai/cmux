@@ -34,7 +34,10 @@ public struct URLSessionChromiumRuntimeDownloader: ChromiumRuntimeDownloading {
         defer { try? handle.close() }
         // One delegate callback at a time: the delegate's file writes need no lock.
         let queue = OperationQueue()
+        queue.name = "com.cmuxterm.next.chromium-runtime.download"
         queue.maxConcurrentOperationCount = 1
+        // A person may wait for the first Chromium tab: the delegate's file writes run at the default QoS.
+        queue.qualityOfService = .default
         let delegate = DownloadFileDelegate(handle: handle, existing: existing, progress: progress)
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: queue)
         defer { session.invalidateAndCancel() }

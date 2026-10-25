@@ -23,8 +23,10 @@ public final class WebKitSetupGate {
         guard state == .unknown else { return }
         state = .probing
         let request = request
-        // A wedged sandboxd never returns: not on a cooperative thread.
-        Thread.detachNewThread {
+        // A wedged sandboxd never returns: a thread of its own (not the cooperative pool, and not a
+        // BackgroundWork .system slot it would hold for the run), named and at the default QoS so the
+        // 2 s probe is not slowed by a low QoS.
+        let probe = Thread {
             request()
             Task { @MainActor [weak self] in
                 guard let self, state == .probing else { return }
@@ -32,6 +34,9 @@ public final class WebKitSetupGate {
                 answered()
             }
         }
+        probe.name = "com.cmuxterm.next.webkit-setup-probe"
+        probe.qualityOfService = .default
+        probe.start()
         timer.schedule(after: Self.timeout) { @MainActor [weak self] in
             if self?.state == .probing { self?.state = .slow }
         }
