@@ -174,7 +174,7 @@ public final class TerminalSession {
             }
         }
 
-        eventsTask = Self.consume(io.events, for: self)
+        eventsTask = Self.consume(io.events, probeSource: io.typingProbeSource, for: self)
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
@@ -325,13 +325,14 @@ public final class TerminalSession {
     /// actor, in stream order: the loop waits for it, and it hands back the lane the next output
     /// may use (nil while the surface still waits for its first content, or none is live). Only
     /// ``handle(_:)`` swaps surfaces, so that lane stays current until the next main-actor event.
-    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>,
+    /// `probeSource` names the IO's terminal to the typing probe (``TerminalIO/typingProbeSource``).
+    private nonisolated static func consume(_ events: AsyncStream<TerminalIOEvent>, probeSource: TypingLatencyProbe.Source?,
                                             for session: TerminalSession) -> Task<Void, Never> {
         Task.detached(priority: .high) { [weak session] in
             var lane: TerminalOutputLane?
             for await event in events {
                 if case .output(let data) = event, let lane {
-                    TypingLatencyProbe.shared.mark(.outputReceived)
+                    TypingLatencyProbe.shared.mark(.outputReceived, source: probeSource, next: .object(ObjectIdentifier(lane)))
                     ExpectedActivity.shared.note(.terminalOutput)
                     await lane.waitForCapacity()
                     lane.processOutput(data)
@@ -381,7 +382,8 @@ public final class TerminalSession {
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
         case .output(let data):
-            TypingLatencyProbe.shared.mark(.outputReceived)
+            TypingLatencyProbe.shared.mark(.outputReceived, source: io.typingProbeSource,
+                                           next: surfaceView.lane.map { .object(ObjectIdentifier($0)) })
             ExpectedActivity.shared.note(.terminalOutput)
             guard let lane = surfaceView.lane else { return }
             await lane.waitForCapacity()

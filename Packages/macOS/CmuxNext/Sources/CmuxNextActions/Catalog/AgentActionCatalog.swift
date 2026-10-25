@@ -67,7 +67,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                     ContextMenuPlacement(.newTab, .inspect, 510, label: "Inspect Element"),
                     ContextMenuPlacement(.workspaceRow, .inspect, 510, label: "Inspect Element"),
                     ContextMenuPlacement(.sidebarItem, .inspect, 510, label: "Inspect Element"),
-                    ContextMenuPlacement(.sidebarSection, .inspect, 510, label: "Inspect Element"),
+                    ContextMenuPlacement(.sidebarSection, .inspect, 510, folder: .options, label: "Inspect Element"),
                     ContextMenuPlacement(.windowBackground, .inspect, 510, label: "Inspect Element"),
                 ])
             ),

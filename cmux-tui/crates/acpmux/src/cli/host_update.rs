@@ -5,8 +5,9 @@
 //! that keeps two updates of one host apart in `host_lock.rs`.
 
 use super::{
-    DAEMON_UNIT, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut, SshRemote,
-    connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run, ssh_host,
+    DAEMON_UNIT, LAUNCHD_RELOAD, LockLost, MIGRATING, REFUSED, RESTORE_PREV, Remote, RemoteOut,
+    SshRemote, connect_peer, linux_restart, lock_updates, migrate, migrate_back, push_update, run,
+    ssh_host,
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -16,9 +17,12 @@ use std::path::{Path, PathBuf};
 use std::process::Child;
 use std::sync::Arc;
 
-/// Restart the launchd daemon of a macOS host, then give it
+/// Restart the launchd daemon of a macOS host ([`LAUNCHD_RELOAD`]: bootout,
+/// then bootstrap, never `kickstart -k`), then give it
 /// [`super::LAUNCHD_START_GRACE`] (2 s) so its status is not read from the old one.
-const LAUNCHD_RESTART: &str = "{ launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist; } && sleep 2";
+fn launchd_restart() -> String {
+    format!("{LAUNCHD_RELOAD} && sleep 2")
+}
 
 /// Starts every script [`update_peer`] runs. The daemon's home and socket
 /// have one source, `acpmux.service` and its drop-ins: a move from a
@@ -585,7 +589,7 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
         }
     }
     let linux = probe.uname.starts_with("Linux");
-    let restart = if linux { linux_restart(false, true) } else { LAUNCHD_RESTART.to_owned() };
+    let restart = if linux { linux_restart(false, true) } else { launchd_restart() };
     let restarted = restart_checked(remote, &restart, pushed.as_deref());
     let (reason, why) = match restarted.result {
         Ok(status) => {

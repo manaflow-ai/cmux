@@ -117,6 +117,7 @@ impl Hub {
                     workspace_id: meta.workspace_id.clone(),
                     // Never the start mode (it may be full access): read-only is set below.
                     keep_harness_mode: true,
+                    starter: None,
                     route: None,
                     subsession: None,
                     disallowed_tools: Vec::new(),
