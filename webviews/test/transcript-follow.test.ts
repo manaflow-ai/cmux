@@ -170,18 +170,17 @@ await requireBrowserLane("transcript-follow.test.ts", async () => {
     const next = [...history, row("stream", "assistant", text, { version: 3, streaming: true })];
     await page.evaluate((rows) => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const target = Math.max(0, node.scrollTop - 2);
       node.addEventListener(
         "wheel",
         () => {
-          node.scrollTop = target;
           (window as unknown as { __showRowsSync(rows: unknown): void }).__showRowsSync(rows);
         },
         { capture: true, once: true },
       );
-      node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -2 }));
-      return target;
     }, next);
+    const box = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 120);
+    await page.mouse.wheel(0, -2);
     await frames(page, 3);
     await page.waitForFunction((height) => {
       const node = document.querySelector<HTMLElement>(".acpmux-scroll");
