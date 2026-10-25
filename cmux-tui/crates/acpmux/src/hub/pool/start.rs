@@ -47,6 +47,7 @@ impl Hub {
             command_line,
             Some((&session_id, &name)),
         )?;
+        let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
         let host_spec = agent_host::SpawnSpec {
@@ -71,10 +72,11 @@ impl Hub {
             anyhow::bail!("the daemon is stopping");
         }
         let launcher = agent_host::link::HostLauncher::current()?;
-        let record = agent_host::link::spawn(&launcher, &host_spec).await?;
+        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude).await;
+        let started = started.map(|p| Pooled { preview, ..p });
         if started.is_err() {
             lock(&self.pool.starting).remove(&session_id);
         }
@@ -155,6 +157,8 @@ impl Hub {
             target: Some(target),
             rss: 0,
             parked: false,
+            opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
+            preview: Default::default(),
         })
     }
 

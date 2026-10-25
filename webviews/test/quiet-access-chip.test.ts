@@ -48,7 +48,7 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
     for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
     await warmGalleryFrame(vite, "agent-pane.composer", {
       browser: [...browsers.values()][0],
-      params: { variant: "access-menu" },
+      params: { variant: "access-menu-codex" },
     });
   });
   afterAll(async () => {
@@ -71,11 +71,11 @@ await requireBrowserLane("quiet-access-chip.test.ts", async () => {
         if (!moving && finite().every((animation) => animation.playState !== "running")) return;
       }
     });
-  /** The composer's access-menu stage with Full access picked and the menu closed. */
+  /** The composer's Codex access-menu stage with Full access picked and the menu closed. */
   const fullAccess = async (engine: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
     await installPaintedFrames(page);
-    await page.goto(stageURL("agent-pane.composer", "access-menu"));
+    await page.goto(stageURL("agent-pane.composer", "access-menu-codex"));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });

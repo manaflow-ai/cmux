@@ -1,0 +1,33 @@
+[package]
+name = "chief-turn"
+version = "0.1.0"
+edition = "2024"
+description = "One Chief turn of Claude Code, shared by the Mac Chief host (optchat-chief) and the Cloud Chief's turn machine (chief-turn-runner)"
+license = "GPL-3.0-or-later"
+publish = false
+
+# Its own workspace and lockfile (like optchat-chief): the runner is built
+# for the Cloud Chief's Linux image (backend/chief-cc/bake.sh), the library
+# is a path dependency of optchat-chief.
+[workspace]
+
+[lib]
+name = "chief_turn"
+path = "src/lib.rs"
+
+# The Cloud Chief turn machine's runner (backend/chief-cc/image/start.sh).
+[[bin]]
+name = "chief-turn-runner"
+path = "src/bin/chief-turn-runner.rs"
+required-features = ["runner"]
+
+[features]
+default = ["runner"]
+# The runner's I/O (HTTP to the Worker, process groups). optchat-chief takes
+# the library only (default-features = false).
+runner = ["dep:ureq", "dep:libc"]
+
+[dependencies]
+serde_json = "1"
+ureq = { version = "2", features = ["json"], optional = true }
+libc = { version = "0.2", optional = true }

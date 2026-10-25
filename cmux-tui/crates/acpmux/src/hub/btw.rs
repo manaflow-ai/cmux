@@ -328,7 +328,11 @@ impl Hub {
                     "user_message" => ("User", e.msg.get("text").and_then(Value::as_str)),
                     "agent_message_chunk" => (
                         "Assistant",
-                        e.msg.pointer("/params/update/content/text").and_then(Value::as_str),
+                        e.msg
+                            .get("params")
+                            .filter(|p| !crate::subagents::is_subagents(p))
+                            .and_then(|p| p.pointer("/update/content/text"))
+                            .and_then(Value::as_str),
                     ),
                     _ => return true,
                 };

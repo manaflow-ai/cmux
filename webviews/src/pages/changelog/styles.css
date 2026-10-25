@@ -107,7 +107,8 @@ html[data-cmux-page="changelog"] body {
 .cl-button:hover { background: var(--page-selection); }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-more, .cl-reel):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more,
+    .cl-reel):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -147,9 +148,8 @@ html[data-cmux-page="changelog"] body {
   font-size: var(--text-detail);
   cursor: default;
 }
-.cl-row-action:hover,
-.cl-row-link:hover { color: var(--page-text); }
-.cl-row-link { color: var(--page-text-2); font-size: var(--text-detail); text-decoration: none; white-space: nowrap; }
+.cl-row-action:hover { color: var(--page-text); }
+.cl-row-link { color: var(--cmux-accent, currentColor); font-size: var(--text-detail); text-decoration: none; white-space: nowrap; }
 .cl-row-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .cl-changes { margin-top: 18px; color: var(--page-text-2); }
@@ -174,7 +174,7 @@ html[data-cmux-page="changelog"] body {
   display: flex;
   gap: 8px;
   align-items: baseline;
-  padding: 3px 0;
+  padding: 2px 0;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
 }
@@ -188,8 +188,33 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-area ul { margin-top: 2px; }
 .cl-hood { margin-top: 12px; }
-.cl-pr { flex: none; margin-left: auto; color: var(--page-text-3); text-decoration: none; font-variant-numeric: tabular-nums; }
-.cl-pr:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
+/* A change with a pull request links it from its title and its number, in the theme's accent. */
+.cl-change-link { min-width: 0; color: var(--cmux-accent, currentColor); text-decoration: none; }
+/* The number is the agent pane's reference chip (chips.css .cv-chip.is-ref); both open the shared
+   pull request hover card (ChangePullRequest.tsx). */
+.cl-pr { flex: none; margin-left: auto; font-variant-numeric: tabular-nums; }
+.cl-change-link:hover { text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.cl-pr:hover { cursor: pointer; }
+/* The chip and its card draw in the agent pane's tokens (chips.css, linkCard.css), mapped here to
+   the page theme. */
+html[data-cmux-page="changelog"] {
+  --agent-text: var(--page-text);
+  --agent-muted: var(--page-text-2);
+  --agent-soft: var(--page-text-3);
+  --agent-border: var(--page-separator);
+  --agent-link: var(--cmux-accent, currentColor);
+  --cv-text: var(--page-text);
+  --cv-link: var(--cmux-accent, currentColor);
+  --agent-danger: var(--cmux-app-danger, #e5484d);
+  /* The shared pull-request card uses terminal status ink. Changelog has no agent-pane bridge, so
+     give it the same bright ANSI-first fallbacks over the page's glass surface. */
+  --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
+  --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
+  --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
+  --agent-status-merged: var(--agent-ansi-13, var(--agent-ansi-5, light-dark(#8250df, #d2a8ff)));
+  --agent-diff-add: var(--agent-status-success);
+  --agent-diff-del: var(--agent-status-failure);
+}
 .cl-more {
   margin-top: 6px;
   padding: 0;
@@ -347,7 +372,15 @@ html[data-cmux-page="changelog"] body {
 .cln-fixed summary:hover { color: var(--page-text); }
 .cln-fixed summary:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 .cln-fixed ul { margin: 8px 0 0; padding: 0; list-style: none; }
-.cln-fixed li { padding: 4px 0; font-size: var(--text-body); line-height: var(--text-body--line-height); }
+.cln-fixed li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.cln-fixed li:hover .cl-row-actions { opacity: 1; }
 .clj {
   padding: 48px max(32px, calc((100% - 640px) / 2)) 96px;
 }
@@ -370,7 +403,7 @@ html[data-cmux-page="changelog"] body {
   letter-spacing: -0.01em;
   text-wrap: balance;
 }
-.clj-section { padding-bottom: 32px; margin-bottom: 32px; border-bottom: 1px solid var(--page-separator); }
+.clj-section { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--page-separator); }
 .clj-section:last-child { border-bottom: 0; }
 .clj-span { padding-bottom: 40px; }
 .clj-span .cl-builds { margin-bottom: 18px; }
@@ -414,13 +447,15 @@ html[data-cmux-page="changelog"] body {
 }
 .cll .cl-group:first-child { margin-top: 0; }
 .cll .cl-group h3 {
-  margin: 18px 0 4px;
+  margin: 14px 0 2px;
   color: var(--page-text);
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
 }
 .cll .cl-group:first-child h3 { margin-top: 0; }
-.cll .cl-group ul { display: flex; flex-direction: column; gap: 10px; }
+/* A tight rhythm: rows read as one list, not a stack of paragraphs (Leo 2026-10-21: "WAY too much room
+   to breathe"). */
+.cll .cl-group ul { display: flex; flex-direction: column; gap: 4px; }
 /* A row is a grid so its picture can stand beside it; the bullet is drawn, as a grid has no marker. */
 .cll .cl-group li.cl-wide-row { position: relative; display: grid; gap: 8px 24px; padding: 0 0 0 18px; }
 .cll .cl-group li.cl-wide-row::before { content: "•"; position: absolute; left: 4px; color: var(--page-text-2); }

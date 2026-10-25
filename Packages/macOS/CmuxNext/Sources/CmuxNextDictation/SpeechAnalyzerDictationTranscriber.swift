@@ -30,7 +30,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     private var analyzerStarted = false
     private var isFinishing = false
     let levelMeter: DictationAudioLevelMeter?
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     var recordedInput: URL?, recordedPlayback: Task<Void, Never>? // RecordedDictationInput
     #endif
 
@@ -232,7 +232,7 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
     }
 
     private func startAudioEngine() throws {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if let recordedInput { return try playRecordedInput(recordedInput) }
         #endif
         let engine = AVAudioEngine()

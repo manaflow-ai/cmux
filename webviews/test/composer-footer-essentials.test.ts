@@ -81,10 +81,10 @@ await requireBrowserLane("composer-footer-essentials.test.ts", async () => {
     expect(model?.visible).toBe("Opus 5.5");
     expect(model?.title).toStartWith("Claude Opus 5.5");
     const access = await read(page, ".acpmux-access-trigger");
-    // Whether the default mode shows its label at rest is the access chip's call (base's per-mode
-    // shield); its full text stays in the title and the accessible text.
-    expect(access?.title).toContain("Default");
-    expect(access?.text).toContain("Default");
+    // The mode's symbol and its name, Claude Code's own ("Manual" for its default mode,
+    // harnessModes.ts); the full text stays in the title and the accessible text.
+    expect(access?.title).toContain("Manual");
+    expect(access?.text).toContain("Manual");
     // No usage before anything is used: Claude Code's split keeps the ring's place in the quiet
     // row from the first frame (hq#1957, the composer holds still), but it draws only its track,
     // never a share.

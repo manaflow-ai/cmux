@@ -8,13 +8,13 @@
 #                    "image_build_context": "../../chief-opencode", "max_instances": 50, "instance_type": "standard-1" }]
 #   a durable_objects binding OPENCODE_BRAIN_DO -> OpencodeBrainDO, a new_sqlite_classes migration tag,
 #   vars CHIEF_OPENCODE_ENABLED "1" and CHIEF_OPENCODE_CONTAINER "1".
-FROM node:24-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS cli
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS cli
 ARG OPENCODE_VERSION=2.0.29
 RUN npm install --prefix /opt/oc2 --no-fund --no-audit "@opencode/cli-linux-x64@${OPENCODE_VERSION}"
 
 # The CLI is one self-contained binary: no Node in the running image. The plugin's `effect` and
 # `@opencode/plugin` imports resolve to the binary's own runtime, so the plugin needs no node_modules.
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=cli /opt/oc2/node_modules/@opencode/cli-linux-x64/bin/opencode /usr/local/bin/opencode
 RUN opencode --version

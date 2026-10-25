@@ -389,15 +389,17 @@ impl Hub {
             }
         }
 
+        let current = self.opencode_ask_now(session, profile).await;
+        let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
-        self.fresh_agent(session, profile.preset_digest.clone());
+        self.fresh_agent(session, profile);
         session.closing.store(false, Ordering::SeqCst);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
-        if let Some(pooled) = self.pool_take_claimed(&session.id) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile) {
             match self.adopt_pooled(session, pooled).await {
                 // A harness whose own settings started it in full access: capped like a cold
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
@@ -475,7 +477,7 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
-        self.ready_to_start(session).await;
+        self.ready_to_start(session).await?;
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -507,6 +509,8 @@ impl Hub {
             }
             session.rehydrate.store(true, Ordering::SeqCst);
         }
+        // The --permission-mode acpmux started a Claude process in.
+        let mut started_mode = None;
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -555,6 +559,9 @@ impl Hub {
                 }
                 None => mode,
             };
+            if !super::start_mode::profile_sets_mode(profile) {
+                started_mode = Some(mode.clone());
+            }
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -630,6 +637,10 @@ impl Hub {
                 crate::launch_policy::spawn_error(e, |e| RpcError::internal(e.to_string()))
             })?
         };
+        // A direct start records the format its command was pinned to (a host's: hosts.rs).
+        if let Some(format) = child.preview_format {
+            self.record_preview_format(session, format);
+        }
         {
             // The shutdown marks itself started, then takes each session's
             // child: checked under that lock, either the shutdown finds this
@@ -713,6 +724,9 @@ impl Hub {
                     session,
                     [ModeWrite::Modes(modes), ModeWrite::ConfigOptions(opts)],
                 );
+                if let Some(mode) = started_mode.as_deref() {
+                    self.restore_mode_mark(session, mode);
+                }
                 if fork_from.is_some() {
                     session.fork_from.lock().unwrap().take();
                 }
@@ -796,6 +810,16 @@ impl Hub {
         Ok(child)
     }
 
+    /// Marks `mode` as set by cmux again when it is the mode cmux had put the
+    /// last agent in and this agent now reports it (`fresh_agent`).
+    fn restore_mode_mark(&self, session: &Session, mode: &str) {
+        let last = session.applied.lock().unwrap_or_else(|e| e.into_inner()).replay_mark.clone();
+        let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if last.as_deref() == Some(mode) && crate::web_modes::mode_of(&m).as_deref() == Some(mode) {
+            m.mode_set_by_cmux = last;
+        }
+    }
+
     /// Re-assert the saved mode, then model, then every config option on a
     /// respawned ACP session, in that order. The model is sent even when
     /// unchanged: its acknowledgement reconciles sibling options such as
@@ -824,6 +848,7 @@ impl Hub {
                 tracing::warn!(session = %session.id, "replay mode {mode}: {}", e.message);
             } else {
                 self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
+                self.restore_mode_mark(session, mode);
             }
         }
         let opts: Vec<(String, Value)> = saved

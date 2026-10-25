@@ -29,14 +29,23 @@ export interface ChatDisplay {
   /// Code as a share of the text size, or null for the chat's own code sizes (13px inline and
   /// 12px blocks at 14px text, scaled with the text).
   codeScale: number | null;
-  /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `overlay` (the default) lies
-  /// over the chat, so opening, closing or updating it never reflows the chat (Leo, 2026-10-20);
-  /// `push` moves the chat aside. Not a look: the Text & Width popover's Reset leaves it.
+  /// Where the Inspector goes when open (inspector/ChatInspector.tsx): `overlay` (the default) floats
+  /// in the chat's right gutter, so opening, closing or updating it never reflows the chat (Leo,
+  /// 2026-10-20), and pushes the chat aside only when the gutter has no room for it, so it never
+  /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
+  /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
+  /// follows: another agent's message reads as one line until opened (IncomingMessageCard.tsx; Leo
+  /// 2026-10-24: "in minimal mode ... one line is kind of enough sometimes for the ... preview of the
+  /// message"). Not a look either: Reset leaves it.
+  minimal: boolean;
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// cmux's Minimal Mode, which the host sends with the chat's keys (Swift AgentPaneDisplaySetting).
+export const MINIMAL_MODE_KEY = "sidebar.minimal";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -67,6 +76,7 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  minimal: false,
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
@@ -115,6 +125,7 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    minimal: values[MINIMAL_MODE_KEY] === true,
   };
 }
 
