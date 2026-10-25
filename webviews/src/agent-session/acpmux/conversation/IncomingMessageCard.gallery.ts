@@ -173,6 +173,25 @@ export default agentPaneEntry({
         summary(3.5, { status: "completed" }),
       ]),
     },
+    "hover-actions": {
+      note: "Synthetic hover sweep: keep the received action lane active from the row through Copy, Retry and Pin, with the lane ending at the row edge.",
+      snapshot: chat([
+        user("Ask the lane for its report", 9),
+        assistant("Asked the lane.", 8.5),
+        summary(8.5, { status: "completed" }),
+        user("The retry fix is ready; tests pass.", 4, {
+          incoming: message("retry-lane", "The retry fix is ready; tests pass.", undefined, "retry-lane", { msgId: "retry-msg" }),
+          untyped: true,
+        }),
+      ]),
+      play: async (ctx) => {
+        const fixture = ctx.document.querySelector<HTMLElement>(".gallery-transcript");
+        fixture?.setAttribute("data-hover-action-fixture", "received");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-received-actions"));
+        await ctx.hover({ selector: ".cv-received__line" });
+        await ctx.waitFor(() => ctx.document.querySelector<HTMLElement>(".cv-received-actions")?.style.opacity !== "0");
+      },
+    },
     subsession: {
       note: "A sub-session's chat: its first prompt and a later message from the chat that started it read Parent · coordinator, and a report from its own sub-session reads Sub-session · fixture; each name opens that chat beside this one.",
       snapshot: chat(

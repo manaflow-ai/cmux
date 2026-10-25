@@ -147,6 +147,16 @@ export default agentPaneEntry({
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: "Now cover it with a test that fakes two timeouts" }),
     },
+    "hover-actions": {
+      note: "Synthetic hover sweep: the user-style prompt's timestamp and action row share the bubble's right edge.",
+      snapshot: turns(claude),
+      play: async (ctx) => {
+        const fixture = ctx.document.querySelector<HTMLElement>(".gallery-transcript");
+        fixture?.setAttribute("data-hover-action-fixture", "user");
+        await ctx.hover({ text: "Now cover it with a test that fakes two timeouts" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__actions"));
+      },
+    },
     "running-edit-branches": {
       note: "An edited prompt runs in its sibling while the original branch finishes: the row shows 3/3 with previous/next arrows and a spinner on the running branch. Edit remains available during the run; switching back shows the finished branch without the spinner.",
       snapshot: runningEditBranches(),
