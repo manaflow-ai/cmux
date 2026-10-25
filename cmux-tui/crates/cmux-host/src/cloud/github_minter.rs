@@ -9,7 +9,9 @@
 //! install key) from each bind on. Dropping the [`Minter`] (the worker
 //! ending) stops it: asks still queued get `vm.agent_stopping`, and the
 //! drop joins the thread, so it waits for the one mint in flight (bounded
-//! by the API client's timeouts).
+//! by the API client's timeouts, as the worker's own requests are). A
+//! token minted after the stop is never handed out, even when the role's
+//! stop deadline passes first.
 
 use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
@@ -103,11 +105,18 @@ fn run<H: Http>(
         match msg {
             Msg::Bound(next) => client = Some(next),
             Msg::Ask(ask, mut stream) => {
-                let reply = if stop.load(Ordering::SeqCst) {
-                    github::refusal("vm.agent_stopping", "the Cloud agent is stopping; retry")
+                let stopping =
+                    || github::refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+                let mut reply = if stop.load(Ordering::SeqCst) {
+                    stopping()
                 } else {
                     answer(client.as_deref_mut(), ask, now(), log)
                 };
+                // A stop during the mint (a park or shutdown): the token is
+                // not handed out after it; the API keeps it in its ledger.
+                if stop.load(Ordering::SeqCst) {
+                    reply = stopping();
+                }
                 let _ = write_reply(&mut stream, &reply, REPLY_WRITE_TIMEOUT);
                 pending.fetch_sub(1, Ordering::SeqCst);
             }

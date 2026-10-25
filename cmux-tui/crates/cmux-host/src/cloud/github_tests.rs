@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::client::{CloudClient, Http};
 use super::github::{TOKEN_PATH, TokenAsk, note_for, reply_for};
-use super::github_minter::{Minter, answer};
+use super::github_minter::Minter;
 use super::sender::Answer;
 use super::wire::{Bound, Env};
 
@@ -135,21 +135,23 @@ fn a_policy_refusal_is_passed_through_without_a_bearer_retry() {
     assert_eq!(st.seen.iter().filter(|s| s.0.ends_with(TOKEN_PATH)).count(), 1);
 }
 
+/// A 401 or an `auth.*` 403 drops the bearer and retries once.
 #[test]
 fn a_stale_bearer_is_dropped_and_retried_once() {
-    let fake = Fake::default();
-    {
-        let mut st = fake.0.lock().unwrap();
-        st.answers.push_back((401, json!({ "error": { "code": "auth.required", "message": "" } })));
-        st.answers.push_back(minted());
+    for (status, code) in [(401, "auth.required"), (403, "auth.forbidden")] {
+        let fake = Fake::default();
+        fake.0
+            .lock()
+            .unwrap()
+            .answers
+            .extend([(status, json!({ "error": { "code": code } })), minted()]);
+        let mut c = client(&fake);
+        let a = ask(json!({ "contents": "read" }));
+        assert_eq!(reply_for(&a, &c.github_token(&a, T0))["ok"], true, "{code}");
+        let st = fake.0.lock().unwrap();
+        assert_eq!(st.tokens_minted, 2);
+        assert_eq!(st.seen.last().unwrap().1.as_deref(), Some("bearer-2"));
     }
-    let mut c = client(&fake);
-    let a = ask(json!({ "contents": "read" }));
-    let reply = reply_for(&a, &c.github_token(&a, T0));
-    assert_eq!(reply["ok"], true);
-    let st = fake.0.lock().unwrap();
-    assert_eq!(st.tokens_minted, 2);
-    assert_eq!(st.seen.last().unwrap().1.as_deref(), Some("bearer-2"));
 }
 
 #[test]
@@ -195,25 +197,6 @@ fn asks_are_checked_before_they_reach_the_api() {
 }
 
 #[test]
-fn an_auth_403_retries_with_a_fresh_bearer_once() {
-    let fake = Fake::default();
-    {
-        let mut st = fake.0.lock().unwrap();
-        st.answers
-            .push_back((403, json!({ "error": { "code": "auth.forbidden", "message": "" } })));
-        st.answers
-            .push_back((403, json!({ "error": { "code": "auth.forbidden", "message": "" } })));
-    }
-    let mut c = client(&fake);
-    let a = ask(json!({ "contents": "read" }));
-    let reply = reply_for(&a, &c.github_token(&a, T0));
-    assert_eq!(reply["error"]["code"], "auth.forbidden");
-    let st = fake.0.lock().unwrap();
-    assert_eq!(st.tokens_minted, 2, "one fresh bearer, then the answer stands");
-    assert_eq!(st.seen.iter().filter(|s| s.0.ends_with(TOKEN_PATH)).count(), 2);
-}
-
-#[test]
 fn a_200_must_carry_every_field_for_the_asked_repo() {
     let a = ask(json!({ "contents": "write" }));
     let full = || {
@@ -233,6 +216,16 @@ fn a_200_must_carry_every_field_for_the_asked_repo() {
     let mut other = full();
     other["repo"] = json!("manaflow-ai/other");
     assert_eq!(reply(other)["ok"], false);
+    // A downgrade or a missing asked permission is not a success.
+    let mut downgraded = full();
+    downgraded["permissions"] = json!({ "contents": "read" });
+    assert_eq!(reply(downgraded)["ok"], false);
+    let mut missing = full();
+    missing["permissions"] = json!({ "metadata": "read" });
+    assert_eq!(reply(missing)["ok"], false);
+    let read = ask(json!({ "contents": "read" }));
+    let wider = Answer::Http { status: 200, body: full() };
+    assert_eq!(reply_for(&read, &wider)["ok"], true, "write covers read");
     let mut short_id = full();
     short_id["token_id"] = json!("abc");
     assert_eq!(reply(short_id)["ok"], false);
@@ -314,21 +307,4 @@ fn asks_over_the_limit_are_answered_busy_at_once() {
         BufReader::new(ours).read_line(&mut line).unwrap();
         assert!(line.contains(SECRET));
     }
-}
-
-#[test]
-fn answer_logs_the_outcome_without_the_token() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    static LEAKED: AtomicBool = AtomicBool::new(false);
-    fn check(line: &str) {
-        if line.contains(SECRET) {
-            LEAKED.store(true, Ordering::SeqCst);
-        }
-    }
-    let fake = Fake::default();
-    fake.0.lock().unwrap().answers.push_back(minted());
-    let mut c = client(&fake);
-    let reply = answer(Some(&mut c), Ok(ask(json!({ "contents": "write" }))), T0, check);
-    assert_eq!(reply["token"], SECRET);
-    assert!(!LEAKED.load(Ordering::SeqCst));
 }

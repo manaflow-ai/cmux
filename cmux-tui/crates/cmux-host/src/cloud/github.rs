@@ -138,7 +138,13 @@ pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
             let token = body.field("token").as_str().filter(|t| !t.is_empty());
             let expires = body.field("expires_at").as_str().filter(|e| !e.is_empty());
             let repo = body.field("repo").as_str().filter(|r| r.eq_ignore_ascii_case(&ask.repo));
-            let granted = body.field("permissions").as_object().filter(|p| !p.is_empty());
+            // Every asked permission at its level or above (write covers read).
+            let granted = body.field("permissions").as_object().filter(|granted| {
+                ask.permissions.iter().all(|(name, level)| {
+                    let got = granted.get(name).and_then(Value::as_str);
+                    got == level.as_str() || got == Some("write")
+                })
+            });
             let token_id = body
                 .field("token_id")
                 .as_str()
@@ -154,7 +160,7 @@ pub fn reply_for(ask: &TokenAsk, answer: &Answer) -> Value {
                 }),
                 _ => refusal(
                     "integration.bad_answer",
-                    "the API's answer lacks a token, expiry, the repo, its permissions or token_id",
+                    "the API's answer lacks a token, expiry, the repo, the asked permissions or token_id",
                 ),
             }
         }

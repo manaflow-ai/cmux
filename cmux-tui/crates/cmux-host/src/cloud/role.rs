@@ -486,7 +486,15 @@ impl Worker {
     fn accept(&mut self) {
         let Some(listener) = self.listener.as_ref() else { return };
         while let Ok((stream, _)) = listener.accept() {
-            if self.clients.len() >= MAX_CLIENTS || stream.set_nonblocking(true).is_err() {
+            if self.clients.len() >= MAX_CLIENTS {
+                // A GitHub token asker gets an answer rather than an EOF.
+                let mut stream = stream;
+                let busy = github::refusal("busy", "the Cloud agent's socket is full; retry");
+                let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
+                let _ = stream.write_all(format!("{busy}\n").as_bytes());
+                continue;
+            }
+            if stream.set_nonblocking(true).is_err() {
                 continue;
             }
             self.clients.push(Client { stream, buf: Vec::new() });
