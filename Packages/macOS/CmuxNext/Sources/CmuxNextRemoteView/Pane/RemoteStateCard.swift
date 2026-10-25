@@ -77,18 +77,19 @@ final class RemoteStateCard: NSView {
 
     private func press(_ kind: ButtonKind) {
         switch kind {
-        case .reconnect: onReconnect?()
+        case .reconnect, .signIn: onReconnect?()
         case .cancel: onCancel?()
         case .close: onClose?()
         }
     }
 
     enum ButtonKind {
-        case reconnect, cancel, close
+        case reconnect, signIn, cancel, close
 
         var title: String {
             switch self {
             case .reconnect: RemoteViewStrings.reconnect
+            case .signIn: RemoteViewStrings.signIn
             case .cancel: RemoteViewStrings.cancel
             case .close: RemoteViewStrings.close
             }
@@ -131,6 +132,10 @@ final class RemoteStateCard: NSView {
         case .ended(.consentDenied):
             return Spec(symbol: "hand.raised.slash", title: RemoteViewStrings.deniedTitle,
                         detail: RemoteViewStrings.deniedDetail(host), buttons: [.reconnect, .close])
+        case let .ended(.signInRequired(rejected)):
+            return Spec(symbol: "lock", symbolIsAttention: rejected, title: RemoteViewStrings.signInTitle(host),
+                        detail: rejected ? RemoteViewStrings.signInRejectedDetail(host) : RemoteViewStrings.signInDetail(host),
+                        buttons: [.signIn, .close])
         }
     }
 

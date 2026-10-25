@@ -7,9 +7,14 @@ const worker = (exports as unknown as { default: Fetcher }).default
  * The Freestyle and Tailscale API fakes of chief-brain-cc.test.ts, at their HTTP boundary (moved here
  * unchanged so that test file stays under the backend's 1000-line / 64 KB limit, scripts/check-file-size.ts).
  */
-export interface Started { readonly vm: string; readonly run: string; readonly input: { notes_url: string; token: string; prompt: string; system: string; model: string; net: any } }
-/** Freestyle, the Tailscale API and the turn machine at their HTTP boundary; the Worker's own calls go to the real fetch. */
-export const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: Started, n: number) => Promise<void>) => {
+export interface Started { readonly vm: string; readonly run: string; readonly input: { notes_url: string; token: string; prompt: string; system: string; model: string; net: any; max_ms: number } }
+/** What the fake turn machine does: post this reply as chief-turn-runner does, or play the machine itself. */
+export type Answer = string | ((s: Started) => Promise<void>)
+/**
+ * Freestyle, the Tailscale API and the turn machine at their HTTP boundary; the Worker's own calls go to the real fetch.
+ * `bootFails(n)`: the n-th VM's boot fails (it never joins the network).
+ */
+export const fakeCloud = (answer: (prompt: string, n: number) => Answer, during?: (s: Started, n: number) => Promise<void>, bootFails?: (n: number) => boolean) => {
   const real = globalThis.fetch
   const made: Array<{ id: string; body: any }> = []
   const deleted: Array<string> = []
@@ -211,15 +216,15 @@ export const fakeCloud = (answer: (prompt: string, n: number) => string, during?
       const stdin = body.stdin ? atob(body.stdin) : ""
       const raw = Uint8Array.from(stdin, (c) => c.charCodeAt(0))
       steps.push(`${vm} ${body.command.split(" ")[0]}`)
-      if (body.command.startsWith("/opt/chief-cc/boot.sh ")) return boots.push({ vm, stdin }), Response.json({ statusCode: 0, stdout: "ready\n" })
+      if (body.command.startsWith("/opt/chief-cc/boot.sh ")) return boots.push({ vm, stdin }), bootFails?.(boots.length) ? Response.json({ statusCode: 1, stdout: "" }) : Response.json({ statusCode: 0, stdout: "ready\n" })
       if (body.command === "bash -s") return nets.push({ vm, script: stdin }), Response.json({ statusCode: 0, stdout: "net ok\n" })
       const start = /^\/opt\/chief-cc\/start\.sh (run_[0-9]+)$/.exec(body.command)
       if (start) {
         const s: Started = { vm, run: start[1]!, input: JSON.parse(stdin) }
         started.push(s)
-        // The turn machine: the stream, then the result, posted to the Worker as run.mjs does.
+        // The turn machine: the stream, then the result, posted to the Worker as chief-turn-runner does.
         const n = started.length
-        setTimeout(() => void (during ?? (async () => undefined))(s, n).then(() => machine(s, answer(s.input.prompt, n))), 20)
+        setTimeout(() => void (during ?? (async () => undefined))(s, n).then(() => ((a) => (typeof a === "string" ? machine(s, a) : a(s)))(answer(s.input.prompt, n))), 20)
         return Response.json({ statusCode: 0, stdout: "started\n" })
       }
       execs.push({ vm, command: body.command, stdin: raw })

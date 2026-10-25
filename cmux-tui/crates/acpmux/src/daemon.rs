@@ -10,6 +10,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod lock;
+#[cfg(unix)]
+mod open_file_limit;
 use lock::{LockHeld, acquire_lock, wait_for_lock_release};
 mod router_owner;
 #[cfg(unix)]
@@ -130,6 +132,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Before the store, the sockets and any agent: launchd's soft limit is 256.
+    #[cfg(unix)]
+    open_file_limit::raise();
     let mut config = Config::load()?;
     // config.json holds the dashboard token: owner-only, also when another
     // tool wrote it with the umask's mode and the daemon never saves it.
@@ -474,6 +479,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
+            // A chat a machine's Full-access setting moved out of its policy's mode goes back:
+            // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
+            hub.hold_policies_again().await;
             hub.finish_startup().await;
             // After the login env import: it names harness homes.
             let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);

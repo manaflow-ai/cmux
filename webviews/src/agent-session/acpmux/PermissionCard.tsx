@@ -5,11 +5,13 @@ import type { AcpmuxPermission } from "./model";
 import {
   alwaysAllowScope,
   commandPreview,
+  optionButtonLabel,
   permissionAnswers,
   permissionCommand,
   permissionDetail,
   permissionKeyAction,
   permissionOptionKind,
+  permissionScopeText,
   permissionTitle,
   type PermissionKeyAction,
 } from "./permissions/prompt";
@@ -50,13 +52,14 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
   },
 );
 
-/** Shared action button so grouped and legacy cards present the same localized label and key hint. */
+/** Shared action button so grouped and legacy cards present the same localized label and key hint.
+ * Only the short label and the key: what an answer covers is the card's one scope line, never the
+ * button's (Leo 2026-10-25: "the allow button ... it shouldn't be encompassing so much"). */
 export function PermissionActionButton({
   label,
   shortcut,
-  description,
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; shortcut?: string; description?: string }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { label: string; shortcut?: string }) {
   const { className, ...buttonProps } = props;
   return (
     <button
@@ -67,7 +70,6 @@ export function PermissionActionButton({
       aria-keyshortcuts={shortcut || undefined}
     >
       <span className="acpmux-permission-action-label">{label}</span>
-      {description && <span className="acpmux-permission-action-description">{description}</span>}
       {shortcut && <kbd className="acpmux-permission-action-shortcut">{shortcut}</kbd>}
     </button>
   );
@@ -76,7 +78,9 @@ export function PermissionActionButton({
 /// A permission ask as Claude Code desktop draws it: a glass card with the tool's glyph and what the
 /// call does as its title, the command clamped to its first line ("Show full command" opens all of
 /// it), and Allow once, Always allow and Deny, each shown only when the agent offered that kind
-/// (permissions/prompt.ts). Deny opens a field for what the agent should do instead, sent with the
+/// (permissions/prompt.ts), with any other option the agent offered after them, all short and the
+/// same size in one row. What they cover (the folder or app, the Always allow rule) is one muted
+/// line under them, cut with an ellipsis and whole on hover. Deny opens a field for what the agent should do instead, sent with the
 /// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return (Allow once) and Esc (Deny, or close
 /// the field) answer while this card is the prompt and nothing else has the keyboard.
 export function PermissionCard({
@@ -113,6 +117,24 @@ export function PermissionCard({
     others,
   } = useMemo(() => permissionAnswers(permission.options), [permission.options]);
   const alwaysScope = allowAlways && alwaysAllowScope(permission, allowAlways);
+  const scopeText = permissionScopeText(permission, t);
+  /// The one scope line: the target the ask covers, then the Always allow rule.
+  const scopeLine = [scopeText, alwaysScope].filter(Boolean).join(" · ") || undefined;
+  const targetId = React.useId();
+  const ruleId = React.useId();
+  const otherId = React.useId();
+  const allowAlwaysLabel =
+    allowAlways &&
+    (permissionOptionKind(allowAlways) === "allow_chat" ? t("permission.allowChat") : t("permission.alwaysAllow"));
+  const otherLabels = useMemo(() => {
+    const taken = new Set<string>([t("permission.allowOnce"), t("permission.deny")]);
+    if (allowAlwaysLabel) taken.add(allowAlwaysLabel);
+    return others.map((option) => {
+      const label = optionButtonLabel(option, t, taken);
+      taken.add(label);
+      return label;
+    });
+  }, [others, t, allowAlwaysLabel]);
   const feedback = Boolean(onDenyWithFeedback && permission.pending && denyOption);
   const claude = harness === "claude" || harness?.startsWith("claude-");
   /// The ask whose full command is open: a new ask opens collapsed.
@@ -289,24 +311,29 @@ export function PermissionCard({
         )}
       </div>
       {!writing && (
-        <div className="acpmux-permission-buttons">
+        <div
+          className="acpmux-permission-buttons"
+          style={
+            {
+              "--permission-answers": [allowOnce, allowAlways, denyOption].filter(Boolean).length + others.length,
+            } as React.CSSProperties
+          }
+        >
           {allowOnce && (
             <PermissionActionButton
               label={t("permission.allowOnce")}
+              aria-describedby={scopeText ? targetId : undefined}
               shortcut={shortcuts ? allowOnceShortcut : undefined}
               className="acpmux-permission-primary"
               onClick={() => answer(allowOnce)}
             />
           )}
-          {allowAlways && (
+          {allowAlways && allowAlwaysLabel && (
             <PermissionActionButton
-              label={
-                permissionOptionKind(allowAlways) === "allow_chat"
-                  ? t("permission.allowChat")
-                  : t("permission.alwaysAllow")
-              }
+              label={allowAlwaysLabel}
               shortcut={shortcuts ? allowChatShortcut : undefined}
               title={alwaysScope}
+              aria-describedby={[scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined}
               onClick={() => answer(allowAlways)}
             />
           )}
@@ -314,22 +341,42 @@ export function PermissionCard({
             <PermissionActionButton
               label={t("permission.deny")}
               shortcut={shortcuts ? denyShortcut : undefined}
+              aria-describedby={scopeText ? targetId : undefined}
               className="acpmux-permission-deny"
               data-feedback-opener=""
               onClick={() => deny()}
             />
           )}
+          {others.map((option, index) => {
+            const label = otherLabels[index]!;
+            const full = [option.name.trim(), option.description?.trim()].filter(Boolean).join(" · ");
+            const more = full && full !== label ? full : undefined;
+            const fullId = `${otherId}-${index}`;
+            return (
+              <React.Fragment key={option.id}>
+                <PermissionActionButton
+                  label={label}
+                  title={more}
+                  aria-describedby={more ? fullId : undefined}
+                  className="acpmux-permission-other"
+                  onClick={() => answer(option)}
+                />
+                {more && (
+                  <span id={fullId} className="acpmux-permission-sr-only">
+                    {more}
+                  </span>
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
-      {!writing && alwaysScope && <p className="acpmux-permission-always-scope">{alwaysScope}</p>}
-      {!writing && others.length > 0 && (
-        <div className="acpmux-permission-others">
-          {others.map((option) => (
-            <button key={option.id} type="button" title={option.description} onClick={() => answer(option)}>
-              {option.name}
-            </button>
-          ))}
-        </div>
+      {!writing && scopeLine && (
+        <p className="acpmux-permission-scope" data-scope-kind={permission.scope?.kind} title={scopeLine}>
+          {scopeText && <span id={targetId}>{scopeText}</span>}
+          {scopeText && alwaysScope && " · "}
+          {alwaysScope && <span id={ruleId}>{alwaysScope}</span>}
+        </p>
       )}
       {writing && (
         <form
