@@ -9,15 +9,23 @@ import type { Translate } from "../i18n";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
+/// The send a line makes, without whether it owns the call's exit status (tested on its own below).
+function read(line: string) {
+  const send = acpmuxSend(line);
+  if (!send) return send;
+  const { ownsExit: _, ...rest } = send;
+  return rest;
+}
+
 describe("acpmuxSend", () => {
   test("a plain send: its target and its prompt words", () => {
-    expect(acpmuxSend("acpmux send coord-deputy 'Merged #22793. The review passed.'")).toEqual({
+    expect(read("acpmux send coord-deputy 'Merged #22793. The review passed.'")).toEqual({
       target: "coord-deputy",
       text: "Merged #22793. The review passed.",
       noWait: false,
     });
     // Several prompt words are one prompt, joined by spaces, as clap collects them.
-    expect(acpmuxSend("acpmux send lane hello there")?.text).toBe("hello there");
+    expect(read("acpmux send lane hello there")?.text).toBe("hello there");
   });
 
   test("options before, between and after the words, per acpmux send --help", () => {
@@ -26,51 +34,51 @@ describe("acpmuxSend", () => {
         "acpmux send --no-wait --steer --from palette-audit --prompt-id 01a15c51 --timeout=30 claude-sr2 'done' --json",
       ),
     ).toEqual({ target: "claude-sr2", text: "done", noWait: true });
-    expect(acpmuxSend("acpmux send -q --on-permission deny --stall 0 --supersede k lane -- --not-a-flag")?.text).toBe(
+    expect(read("acpmux send -q --on-permission deny --stall 0 --supersede k lane -- --not-a-flag")?.text).toBe(
       "--not-a-flag",
     );
     // A delivery's state, and help, send nothing.
-    expect(acpmuxSend("acpmux send --status 01a2b3")).toBeUndefined();
-    expect(acpmuxSend("acpmux send --help")).toBeUndefined();
-    expect(acpmuxSend("acpmux send -h")).toBeUndefined();
+    expect(read("acpmux send --status 01a2b3")).toBeUndefined();
+    expect(read("acpmux send --help")).toBeUndefined();
+    expect(read("acpmux send -h")).toBeUndefined();
     // No session, no send to name.
-    expect(acpmuxSend("acpmux send")).toBeUndefined();
+    expect(read("acpmux send")).toBeUndefined();
   });
 
   test("target forms are the word as given, never looked up", () => {
     for (const target of ["tests", "huge-blue/lane-7", "cmux16:scroll-jitter", "reports:leo"])
-      expect(acpmuxSend(`acpmux send --no-wait ${target} hi`)?.target).toBe(target);
+      expect(read(`acpmux send --no-wait ${target} hi`)?.target).toBe(target);
   });
 
   test("quoting: single, double with escapes, $'…', backslashes, an apostrophe spliced in", () => {
-    expect(acpmuxSend(`acpmux send x "say \\"hi\\" for \\$5"`)?.text).toBe('say "hi" for $5');
-    expect(acpmuxSend("acpmux send x $'line one\\nline two'")?.text).toBe("line one\nline two");
-    expect(acpmuxSend("acpmux send x it\\'s\\ fine")?.text).toBe("it's fine");
-    expect(acpmuxSend(`acpmux send x 'it'"'"'s done; and | more'`)?.text).toBe("it's done; and | more");
+    expect(read(`acpmux send x "say \\"hi\\" for \\$5"`)?.text).toBe('say "hi" for $5');
+    expect(read("acpmux send x $'line one\\nline two'")?.text).toBe("line one\nline two");
+    expect(read("acpmux send x it\\'s\\ fine")?.text).toBe("it's fine");
+    expect(read(`acpmux send x 'it'"'"'s done; and | more'`)?.text).toBe("it's done; and | more");
     // A newline inside quotes is part of the message.
-    expect(acpmuxSend("acpmux send x 'first\n\nsecond'")?.text).toBe("first\n\nsecond");
+    expect(read("acpmux send x 'first\n\nsecond'")?.text).toBe("first\n\nsecond");
   });
 
   test("an expansion in the prompt leaves the text unknown; in the session, no send", () => {
-    expect(acpmuxSend(`acpmux send --no-wait lane "$(cat /tmp/report.md)"`)).toEqual({ target: "lane", noWait: true });
-    expect(acpmuxSend('acpmux send lane "PR $PR merged"')).toEqual({ target: "lane", noWait: false });
-    expect(acpmuxSend("acpmux send lane `cat x`")).toEqual({ target: "lane", noWait: false });
-    expect(acpmuxSend('acpmux send "$LANE" hi')).toBeUndefined();
+    expect(read(`acpmux send --no-wait lane "$(cat /tmp/report.md)"`)).toEqual({ target: "lane", noWait: true });
+    expect(read('acpmux send lane "PR $PR merged"')).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane `cat x`")).toEqual({ target: "lane", noWait: false });
+    expect(read('acpmux send "$LANE" hi')).toBeUndefined();
     // A `$` that expands nothing is a dollar sign.
-    expect(acpmuxSend("acpmux send lane 'costs $5' and $")?.text).toBe("costs $5 and $");
+    expect(read("acpmux send lane 'costs $5' and $")?.text).toBe("costs $5 and $");
     // A glob or a brace expansion is not the word as typed.
-    expect(acpmuxSend("acpmux send lane {ready,done}")).toEqual({ target: "lane", noWait: false });
-    expect(acpmuxSend("acpmux send lane are you done?")).toEqual({ target: "lane", noWait: false });
-    expect(acpmuxSend("acpmux send lane 'done?' '{a,b}'")?.text).toBe("done? {a,b}");
-    expect(acpmuxSend("acpmux send lane ~/report")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane {ready,done}")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane are you done?")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane 'done?' '{a,b}'")?.text).toBe("done? {a,b}");
+    expect(read("acpmux send lane ~/report")).toEqual({ target: "lane", noWait: false });
     // An unclosed quote is a line the shell refuses.
-    expect(acpmuxSend("acpmux send lane 'message")).toBeUndefined();
-    expect(acpmuxSend('acpmux send lane "message')).toBeUndefined();
-    expect(acpmuxSend("acpmux send lane $(cat note.md")).toBeUndefined();
-    expect(acpmuxSend("acpmux send lane `cat note.md")).toBeUndefined();
-    expect(acpmuxSend('acpmux send lane "${V:-x"')).toBeUndefined();
+    expect(read("acpmux send lane 'message")).toBeUndefined();
+    expect(read('acpmux send lane "message')).toBeUndefined();
+    expect(read("acpmux send lane $(cat note.md")).toBeUndefined();
+    expect(read("acpmux send lane `cat note.md")).toBeUndefined();
+    expect(read('acpmux send lane "${V:-x"')).toBeUndefined();
     // An escape `$'…'` is not read here leaves the text unknown.
-    expect(acpmuxSend("acpmux send lane $'\\x41'")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane $'\\x41'")).toEqual({ target: "lane", noWait: false });
   });
 
   test("stdin: a here-document, a here-string, a piped echo; a file or nothing is unknown", () => {
@@ -81,133 +89,133 @@ describe("acpmuxSend", () => {
       "It's in; `$HOME` stays as typed.",
       "EOF",
     ].join("\n");
-    expect(acpmuxSend(heredoc)).toEqual({
+    expect(read(heredoc)).toEqual({
       target: "coord-deputy",
       text: "## Merged #23091\n\nIt's in; `$HOME` stays as typed.\n",
       noWait: true,
     });
     // An unquoted delimiter expands its body: unknown when it holds an expansion.
-    expect(acpmuxSend("acpmux send lane <<EOF\nPR $N\nEOF")?.text).toBeUndefined();
-    expect(acpmuxSend("acpmux send lane <<-EOF\n\tplain\n\tEOF")?.text).toBe("plain\n");
-    expect(acpmuxSend("acpmux send lane <<< 'from a here-string'")?.text).toBe("from a here-string\n");
-    expect(acpmuxSend("echo -n 'piped in' | acpmux send lane -")?.text).toBe("piped in");
-    expect(acpmuxSend("printf 'piped\\nin' | acpmux send lane -")?.text).toBe("piped\nin");
+    expect(read("acpmux send lane <<EOF\nPR $N\nEOF")?.text).toBeUndefined();
+    expect(read("acpmux send lane <<-EOF\n\tplain\n\tEOF")?.text).toBe("plain\n");
+    expect(read("acpmux send lane <<< 'from a here-string'")?.text).toBe("from a here-string\n");
+    expect(read("echo -n 'piped in' | acpmux send lane -")?.text).toBe("piped in");
+    expect(read("printf 'piped\\nin' | acpmux send lane -")?.text).toBe("piped\nin");
     // A format that formats something: the text is its arguments, not read here.
-    expect(acpmuxSend("printf '%s' world | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
+    expect(read("printf '%s' world | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
     // An escape echo may turn into a character (zsh, bash -e) is not read as typed.
-    expect(acpmuxSend("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
-    expect(acpmuxSend("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
-    expect(acpmuxSend("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
+    expect(read("echo -e 'a\\nb' | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
+    expect(read("cat <<'EOF' | acpmux send lane\nvia cat\nEOF")?.text).toBe("via cat\n");
+    expect(read("acpmux send lane - < /tmp/note.md")).toEqual({ target: "lane", noWait: false });
     // The last stdin redirect wins; a writer whose stdout goes elsewhere feeds nothing.
-    expect(acpmuxSend("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
-    expect(acpmuxSend("acpmux send lane - < /tmp/message <<EOF\nbody\nEOF")?.text).toBe("body\n");
-    expect(acpmuxSend("echo secret >/dev/null | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
-    expect(acpmuxSend("echo shown 2>/dev/null | acpmux send lane -")?.text).toBe("shown");
-    expect(acpmuxSend("acpmux send lane")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<EOF < /tmp/message\nbody\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - < /tmp/message <<EOF\nbody\nEOF")?.text).toBe("body\n");
+    expect(read("echo secret >/dev/null | acpmux send lane -")).toEqual({ target: "lane", noWait: false });
+    expect(read("echo shown 2>/dev/null | acpmux send lane -")?.text).toBe("shown");
+    expect(read("acpmux send lane")).toEqual({ target: "lane", noWait: false });
   });
 
   test("wrappers: timeout, env, assignments, cd, perl alarm, nohup, bash -c, reach", () => {
-    expect(acpmuxSend("timeout 100 acpmux send --no-wait coord-deputy 'blocked'")?.target).toBe("coord-deputy");
-    expect(acpmuxSend("timeout -s KILL 5m acpmux send a b")?.text).toBe("b");
-    expect(acpmuxSend("env ACPMUX_HOST=x NO_COLOR=1 acpmux send a b")?.target).toBe("a");
-    expect(acpmuxSend("ACPMUX_SOCK=/tmp/s acpmux send a b")?.target).toBe("a");
-    expect(acpmuxSend("cd ~/Projects/cmux && acpmux send a 'from the repo'")?.text).toBe("from the repo");
-    expect(acpmuxSend(`perl -e 'alarm 60; exec @ARGV' acpmux send --no-wait a "in time"`)?.text).toBe("in time");
-    expect(acpmuxSend("nohup /usr/local/bin/acpmux send a b")?.target).toBe("a");
-    expect(acpmuxSend(`bash -lc 'acpmux send a "nested quotes"'`)?.text).toBe("nested quotes");
-    expect(acpmuxSend("cmux acp send --no-wait a 'through cmux'")?.text).toBe("through cmux");
+    expect(read("timeout 100 acpmux send --no-wait coord-deputy 'blocked'")?.target).toBe("coord-deputy");
+    expect(read("timeout -s KILL 5m acpmux send a b")?.text).toBe("b");
+    expect(read("env ACPMUX_HOST=x NO_COLOR=1 acpmux send a b")?.target).toBe("a");
+    expect(read("ACPMUX_SOCK=/tmp/s acpmux send a b")?.target).toBe("a");
+    expect(read("cd ~/Projects/cmux && acpmux send a 'from the repo'")?.text).toBe("from the repo");
+    expect(read(`perl -e 'alarm 60; exec @ARGV' acpmux send --no-wait a "in time"`)?.text).toBe("in time");
+    expect(read("nohup /usr/local/bin/acpmux send a b")?.target).toBe("a");
+    expect(read(`bash -lc 'acpmux send a "nested quotes"'`)?.text).toBe("nested quotes");
+    expect(read("cmux acp send --no-wait a 'through cmux'")?.text).toBe("through cmux");
     // Through reach, the session is on that host unless it names its own.
-    expect(acpmuxSend(`reach huge-blue 'acpmux send --no-wait lane-7 "rebased"'`)).toEqual({
+    expect(read(`reach huge-blue 'acpmux send --no-wait lane-7 "rebased"'`)).toEqual({
       target: "huge-blue/lane-7",
       text: "rebased",
       noWait: true,
     });
-    expect(acpmuxSend("reach --timeout 20 cmux16 acpmux send reports:leo done")?.target).toBe("reports:leo");
-    expect(acpmuxSend(`reach cmux16 'timeout 30 perl -e "alarm 30; exec @ARGV" acpmux send x "deep"'`)).toMatchObject({
+    expect(read("reach --timeout 20 cmux16 acpmux send reports:leo done")?.target).toBe("reports:leo");
+    expect(read(`reach cmux16 'timeout 30 perl -e "alarm 30; exec @ARGV" acpmux send x "deep"'`)).toMatchObject({
       target: "cmux16/x",
       text: "deep",
     });
   });
 
   test("output plumbing and reporting are not other work; other work is counted", () => {
-    expect(acpmuxSend("acpmux send --no-wait a 'b' 2>&1 | tail -1")?.text).toBe("b");
-    expect(acpmuxSend("acpmux send --no-wait a 'b' >/dev/null && echo sent || true")?.text).toBe("b");
+    expect(read("acpmux send --no-wait a 'b' 2>&1 | tail -1")?.text).toBe("b");
+    expect(read("acpmux send --no-wait a 'b' >/dev/null && echo sent || true")?.text).toBe("b");
     // A comment is not a command.
-    expect(acpmuxSend("# report back\nacpmux send a b")?.text).toBe("b");
-    expect(acpmuxSend("git push && acpmux send a 'pushed'")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a b; nohup glaeda-gh wait pr x#1 &")?.others).toBe(1);
+    expect(read("# report back\nacpmux send a b")?.text).toBe("b");
+    expect(read("git push && acpmux send a 'pushed'")?.others).toBe(1);
+    expect(read("acpmux send a b; nohup glaeda-gh wait pr x#1 &")?.others).toBe(1);
     // `tail` that is not reading the send's output is other work.
-    expect(acpmuxSend("tail -1 log.txt; acpmux send a b")?.others).toBe(1);
+    expect(read("tail -1 log.txt; acpmux send a b")?.others).toBe(1);
     // Two sends are two messages: the command row keeps both, one in a substitution too.
-    expect(acpmuxSend("acpmux send a x; acpmux send b y")).toBeUndefined();
-    expect(acpmuxSend('acpmux send x "$(acpmux send y z)"')).toBeUndefined();
+    expect(read("acpmux send a x; acpmux send b y")).toBeUndefined();
+    expect(read('acpmux send x "$(acpmux send y z)"')).toBeUndefined();
     // A substitution that does more than read is work, wherever it is.
-    expect(acpmuxSend('echo "$(touch /tmp/x)" | acpmux send a -')?.others).toBe(1);
-    expect(acpmuxSend("cd `mktemp -d` && acpmux send a b")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a <<EOF\n$(rm -f x)\nEOF")?.others).toBe(1);
-    expect(acpmuxSend('acpmux send target "${V:-$(rm -f /tmp/x)}"')?.others).toBe(1);
-    expect(acpmuxSend('acpmux send target "${V:-x}"')).toEqual({ target: "target", noWait: false });
-    expect(acpmuxSend('acpmux send a "$(cat note.md | head -5)"')).toEqual({ target: "a", noWait: false });
+    expect(read('echo "$(touch /tmp/x)" | acpmux send a -')?.others).toBe(1);
+    expect(read("cd `mktemp -d` && acpmux send a b")?.others).toBe(1);
+    expect(read("acpmux send a <<EOF\n$(rm -f x)\nEOF")?.others).toBe(1);
+    expect(read('acpmux send target "${V:-$(rm -f /tmp/x)}"')?.others).toBe(1);
+    expect(read('acpmux send target "${V:-x}"')).toEqual({ target: "target", noWait: false });
+    expect(read('acpmux send a "$(cat note.md | head -5)"')).toEqual({ target: "a", noWait: false });
     // A redirect that writes a file is work, on its own or on the send.
-    expect(acpmuxSend("> /tmp/out && acpmux send a b")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a b; > /tmp/out")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a b > /tmp/out")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a b 2>&1 >/dev/null")?.text).toBe("b");
+    expect(read("> /tmp/out && acpmux send a b")?.others).toBe(1);
+    expect(read("acpmux send a b; > /tmp/out")?.others).toBe(1);
+    expect(read("acpmux send a b > /tmp/out")?.others).toBe(1);
+    expect(read("acpmux send a b 2>&1 >/dev/null")?.text).toBe("b");
     // A filter that writes or reads a file of its own is work.
-    expect(acpmuxSend("acpmux send a b | tee /tmp/out")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a b | tail -1 log.txt")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a b | sed -n 1p")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send x y | grep -f secret")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send x y | grep -r x")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send x y | tr -d x file")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send x y | jq --rawfile f secret .")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send x y | grep -c queued")?.text).toBe("y");
-    expect(acpmuxSend("acpmux send --json a b | jq -r .text | head -n 3")?.text).toBe("b");
+    expect(read("acpmux send a b | tee /tmp/out")?.others).toBe(1);
+    expect(read("acpmux send a b | tail -1 log.txt")?.others).toBe(1);
+    expect(read("acpmux send a b | sed -n 1p")?.others).toBe(1);
+    expect(read("acpmux send x y | grep -f secret")?.others).toBe(1);
+    expect(read("acpmux send x y | grep -r x")?.others).toBe(1);
+    expect(read("acpmux send x y | tr -d x file")?.others).toBe(1);
+    expect(read("acpmux send x y | jq --rawfile f secret .")?.others).toBe(1);
+    expect(read("acpmux send x y | grep -c queued")?.text).toBe("y");
+    expect(read("acpmux send --json a b | jq -r .text | head -n 3")?.text).toBe("b");
   });
 
   test("only a command in command position: not an echoed or quoted mention, not another subcommand", () => {
-    expect(acpmuxSend('echo "acpmux send x y"')).toBeUndefined();
-    expect(acpmuxSend("grep -n 'acpmux send' notes.md")).toBeUndefined();
-    expect(acpmuxSend("acpmux ls")).toBeUndefined();
-    expect(acpmuxSend("acpmux sessions send x")).toBeUndefined();
-    expect(acpmuxSend("acpmux dispatch --brief b.md --target auto")).toBeUndefined();
-    expect(acpmuxSend("cat <<'EOF' > note.md\nacpmux send x y\nEOF")).toBeUndefined();
-    expect(acpmuxSend("cmux send --surface s 'hi'")).toBeUndefined();
+    expect(read('echo "acpmux send x y"')).toBeUndefined();
+    expect(read("grep -n 'acpmux send' notes.md")).toBeUndefined();
+    expect(read("acpmux ls")).toBeUndefined();
+    expect(read("acpmux sessions send x")).toBeUndefined();
+    expect(read("acpmux dispatch --brief b.md --target auto")).toBeUndefined();
+    expect(read("cat <<'EOF' > note.md\nacpmux send x y\nEOF")).toBeUndefined();
+    expect(read("cmux send --surface s 'hi'")).toBeUndefined();
     // An option acpmux does not know, a value on a flag, or both --steer and --no-steer fail the call.
-    expect(acpmuxSend("acpmux send --bogus value target text")).toBeUndefined();
-    expect(acpmuxSend("acpmux send --no-wait=true a b")).toBeUndefined();
-    expect(acpmuxSend("acpmux send --steer --no-steer a b")).toBeUndefined();
-    expect(acpmuxSend("acpmux send --steer --steer a b")?.text).toBe("b");
+    expect(read("acpmux send --bogus value target text")).toBeUndefined();
+    expect(read("acpmux send --no-wait=true a b")).toBeUndefined();
+    expect(read("acpmux send --steer --no-steer a b")).toBeUndefined();
+    expect(read("acpmux send --steer --steer a b")?.text).toBe("b");
     // reach's own commands (help, list, …) run no command.
-    expect(acpmuxSend("reach --help host acpmux send x y")).toBeUndefined();
-    expect(acpmuxSend("reach --list host acpmux send x y")).toBeUndefined();
-    expect(acpmuxSend("reach --timeout 20 --help acpmux send x y")).toBeUndefined();
-    expect(acpmuxSend("reach --timeout --help host acpmux send x y")).toBeUndefined();
+    expect(read("reach --help host acpmux send x y")).toBeUndefined();
+    expect(read("reach --list host acpmux send x y")).toBeUndefined();
+    expect(read("reach --timeout 20 --help acpmux send x y")).toBeUndefined();
+    expect(read("reach --timeout --help host acpmux send x y")).toBeUndefined();
     // A wrapper's option that does not run the command (help, env -S) is not looked through.
-    expect(acpmuxSend("timeout --help 10 acpmux send x y")).toBeUndefined();
-    expect(acpmuxSend("env -S 'acpmux send x y'")).toBeUndefined();
-    expect(acpmuxSend("nohup --version acpmux send x y")).toBeUndefined();
-    expect(acpmuxSend("timeout --signal=KILL --foreground 10 env -i acpmux send x y")?.text).toBe("y");
+    expect(read("timeout --help 10 acpmux send x y")).toBeUndefined();
+    expect(read("env -S 'acpmux send x y'")).toBeUndefined();
+    expect(read("nohup --version acpmux send x y")).toBeUndefined();
+    expect(read("timeout --signal=KILL --foreground 10 env -i acpmux send x y")?.text).toBe("y");
     // Nothing after `exit` runs.
-    expect(acpmuxSend("exit 0; acpmux send x y")).toBeUndefined();
+    expect(read("exit 0; acpmux send x y")).toBeUndefined();
     // Words a property of Object shares are no runner and no filter.
-    expect(acpmuxSend("toString acpmux send x y")).toBeUndefined();
-    expect(acpmuxSend("acpmux send x y | constructor")?.others).toBe(1);
+    expect(read("toString acpmux send x y")).toBeUndefined();
+    expect(read("acpmux send x y | constructor")?.others).toBe(1);
     // `-c` after an operand is the script's argument; a timeout that is no duration runs nothing.
-    expect(acpmuxSend("bash script -c 'acpmux send x y'")).toBeUndefined();
-    expect(acpmuxSend("timeout abc acpmux send x y")).toBeUndefined();
+    expect(read("bash script -c 'acpmux send x y'")).toBeUndefined();
+    expect(read("timeout abc acpmux send x y")).toBeUndefined();
     // Values clap rejects fail the call; a number after a filter's operand is a file.
-    expect(acpmuxSend("acpmux send --timeout=abc lane hi")).toBeUndefined();
-    expect(acpmuxSend("acpmux send --stall soon lane hi")).toBeUndefined();
-    expect(acpmuxSend("acpmux send --on-permission maybe lane hi")).toBeUndefined();
-    expect(acpmuxSend("acpmux send --prompt-id --no-wait lane hi")).toBeUndefined();
-    expect(acpmuxSend("timeout --signal --foreground 10 acpmux send lane hi")).toBeUndefined();
-    expect(acpmuxSend("acpmux send a b | grep foo 5")?.others).toBe(1);
-    expect(acpmuxSend("acpmux send a b | grep -m 1 foo")?.text).toBe("b");
-    expect(acpmuxSend("acpmux send x y | tail -1 < /tmp/log")?.others).toBe(1);
+    expect(read("acpmux send --timeout=abc lane hi")).toBeUndefined();
+    expect(read("acpmux send --stall soon lane hi")).toBeUndefined();
+    expect(read("acpmux send --on-permission maybe lane hi")).toBeUndefined();
+    expect(read("acpmux send --prompt-id --no-wait lane hi")).toBeUndefined();
+    expect(read("timeout --signal --foreground 10 acpmux send lane hi")).toBeUndefined();
+    expect(read("acpmux send a b | grep foo 5")?.others).toBe(1);
+    expect(read("acpmux send a b | grep -m 1 foo")?.text).toBe("b");
+    expect(read("acpmux send x y | tail -1 < /tmp/log")?.others).toBe(1);
     // A perl script that is not exactly `alarm N; exec @ARGV` is not looked through.
-    expect(acpmuxSend(`perl -e 'print "exec @ARGV"' acpmux send a b`)).toBeUndefined();
-    expect(acpmuxSend(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
+    expect(read(`perl -e 'print "exec @ARGV"' acpmux send a b`)).toBeUndefined();
+    expect(read(`perl -e 'exec @ARGV' acpmux send a b`)).toBeUndefined();
   });
 
   test("a send anywhere in a compound command, with the other work counted", () => {
@@ -217,13 +225,13 @@ describe("acpmuxSend", () => {
       ),
     ).toEqual({ target: "coord-deputy", text: "Restore base first.", noWait: true, others: 2 });
     // In a subshell, with a fallback that only reports.
-    expect(acpmuxSend("(cd ~/wt && acpmux send lane done) || echo failed")).toEqual({
+    expect(read("(cd ~/wt && acpmux send lane done) || echo failed")).toEqual({
       target: "lane",
       text: "done",
       noWait: false,
     });
     // The text from a file on stdin: the target only.
-    expect(acpmuxSend("acpmux send --no-wait --from net-retries coord-deputy - < /tmp/report.md")).toEqual({
+    expect(read("acpmux send --no-wait --from net-retries coord-deputy - < /tmp/report.md")).toEqual({
       target: "coord-deputy",
       noWait: true,
     });
@@ -231,24 +239,35 @@ describe("acpmuxSend", () => {
       acpmuxSend("git push -q && acpmux send --no-wait --from net-retries coord-deputy - <<'EOF'\n## Pushed\nEOF"),
     ).toEqual({ target: "coord-deputy", text: "## Pushed\n", noWait: true, others: 1 });
     // Mentions are not sends, wherever they are.
-    expect(acpmuxSend("acpmux ls; echo acpmux send")).toBeUndefined();
+    expect(read("acpmux ls; echo acpmux send")).toBeUndefined();
     // A shell that only checks the script runs nothing.
-    expect(acpmuxSend("bash -n -c 'acpmux send lane hi'")).toBeUndefined();
+    expect(read("bash -n -c 'acpmux send lane hi'")).toBeUndefined();
     // A Unicode space is part of the word, as in the shell.
-    expect(acpmuxSend("acpmux send lane hi\u00a0there")?.text).toBe("hi\u00a0there");
+    expect(read("acpmux send lane hi\u00a0there")?.text).toBe("hi\u00a0there");
   });
 
   test("acpmux's own flags may come before send", () => {
-    expect(acpmuxSend("acpmux --json send lane hi")).toEqual({ target: "lane", text: "hi", noWait: false });
-    expect(acpmuxSend("acpmux --suppress-reads --json send --no-wait lane hi")?.noWait).toBe(true);
+    expect(read("acpmux --json send lane hi")).toEqual({ target: "lane", text: "hi", noWait: false });
+    expect(read("acpmux --suppress-reads --json send --no-wait lane hi")?.noWait).toBe(true);
   });
 
   test("a long pipeline after the send, and many here-documents, are one pass", () => {
     const started = performance.now();
-    expect(acpmuxSend(`acpmux send a b${" | cat".repeat(5000)}`)?.text).toBe("b");
+    expect(read(`acpmux send a b${" | cat".repeat(5000)}`)?.text).toBe("b");
     const docs = `${"cat <<E; ".repeat(5000)}\n${"E\n".repeat(5000)}acpmux send a b`;
     expect(shellCommands(docs)).toHaveLength(5001);
     expect(performance.now() - started).toBeLessThan(1000);
+  });
+});
+
+describe("whose exit status the call reports", () => {
+  test("the send's when it is the line's last command, its output piped nowhere", () => {
+    expect(acpmuxSend("acpmux send lane hi")?.ownsExit).toBe(true);
+    expect(acpmuxSend("cd ~/wt && acpmux send lane hi")?.ownsExit).toBe(true);
+    expect(acpmuxSend("reach box 'timeout 30 acpmux send lane hi'")?.ownsExit).toBe(true);
+    expect(acpmuxSend("acpmux send lane hi 2>&1 | tail -1")?.ownsExit).toBeUndefined();
+    expect(acpmuxSend("acpmux send lane hi && make")?.ownsExit).toBeUndefined();
+    expect(acpmuxSend("reach box 'acpmux send lane hi | tail -1'")?.ownsExit).toBeUndefined();
   });
 });
 
@@ -293,8 +312,17 @@ describe("acpmuxSendCall", () => {
     ...fields,
   });
 
+  test("in a compound command, failed by acpmux's own error line, not another command's status", () => {
+    const after = "acpmux send lane hi && false";
+    expect(acpmuxSendCall(bash(after, { status: "failed", exitCode: 1, output: "queued" }))?.state).toBe("sent");
+    const piped = "acpmux send lane hi 2>&1 | tail -1";
+    const refused = 'acpmux: no_session: no session matches "lane"; run `acpmux ls` or `acpmux ensure lane`';
+    expect(acpmuxSendCall(bash(piped, { exitCode: 0, output: refused }))?.state).toBe("failed");
+    expect(acpmuxSendCall(bash(piped, { exitCode: 0, output: "queued" }))?.state).toBe("sent");
+  });
+
   test("its state: running, sent, or failed on a nonzero exit", () => {
-    const line = "acpmux send --no-wait coord-deputy 'Merged.' 2>&1 | tail -1";
+    const line = "acpmux send --no-wait coord-deputy 'Merged.'";
     expect(acpmuxSendCall(bash(line, { status: "in_progress" }))?.state).toBe("sending");
     expect(acpmuxSendCall(bash(line, { output: "queued" }))?.state).toBe("sent");
     expect(acpmuxSendCall(bash(line, { status: "failed", output: "Exit code 4\nacpmux: no_session" }))?.state).toBe(
