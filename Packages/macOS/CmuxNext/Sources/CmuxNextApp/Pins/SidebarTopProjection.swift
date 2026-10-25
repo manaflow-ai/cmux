@@ -69,8 +69,14 @@ struct SidebarWorkspaceItems {
             var info = SidebarItemInfo(title: row.title, symbol: "globe", color: color)
             info.favicon = image
             return info
-        case .swatch?, nil:
+        case .swatch?:
+            // The workspace's color as its list row draws it: a dot before the title (SidebarItemRowView).
             var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: color)
+            info.textOnly = true
+            return info
+        case nil:
+            // No icon and no color shown (none set, or Show Workspace Colors off): the title alone.
+            var info = SidebarItemInfo(title: row.title, symbol: "textformat", color: nil)
             info.textOnly = true
             return info
         }
