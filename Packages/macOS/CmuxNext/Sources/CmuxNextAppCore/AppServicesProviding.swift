@@ -35,6 +35,8 @@ public protocol AppServicesProviding: AnyObject {
     var daemonRouting: any DaemonRoutingProviding { get }
     var windowSnapshotService: any WindowSnapshotsProviding { get }
     var windowAccess: any WindowAccessProviding { get }
+    var machineWorkspaces: any MachineWorkspaceProviding { get }
+    var pageActions: any PageActionProviding { get }
 }
 
 /// ID-based window access for feature modules. The concrete WindowManager stays
