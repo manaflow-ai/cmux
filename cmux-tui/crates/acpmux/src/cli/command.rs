@@ -33,9 +33,12 @@ pub enum Command {
     /// print its host, ids, harness, model, folder, lane, pull requests, last turn and link.
     #[command(alias = "find")]
     Resolve {
-        /// The link, an id, `HOST/NAME`, a name, or `@` for this session.
+        /// The link, an id, `HOST/NAME`, a name, a bead id, or `@` for this session.
         query: String,
     },
+    /// Link a session to the tracker beads it works on (`bd` ids), unlink them, list them.
+    #[command(subcommand)]
+    Bead(crate::cli::beads::BeadCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task

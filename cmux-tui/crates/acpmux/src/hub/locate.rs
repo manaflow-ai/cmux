@@ -12,8 +12,9 @@ use crate::agent_link::AgentLink;
 
 impl Hub {
     /// The session `query` names, newest first when several do (`matches`), else a not-found
-    /// error that says where it looked.
-    pub fn locate(&self, query: &str) -> Result<Value, RpcError> {
+    /// error that says where it looked. With `bead_only`, `query` is a bead id and only the
+    /// sessions carrying it match (a session named like it does not hide them).
+    pub fn locate(&self, query: &str, bead_only: bool) -> Result<Value, RpcError> {
         let query = query.trim();
         if query.is_empty() {
             return Err(RpcError::invalid_params(
@@ -22,6 +23,17 @@ impl Hub {
         }
         let own = crate::pairing::machine_name();
         let summaries = self.all_session_summaries();
+        if bead_only {
+            if !crate::beads::is_bead_id(query) {
+                return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
+            }
+            let found = by_bead(&summaries, query);
+            if found.is_empty() {
+                return Err(RpcError::not_found(self.unfound(query, None, &own)));
+            }
+            let matches: Vec<Value> = found.iter().map(|s| card(s, &own)).collect();
+            return Ok(json!({"session": matches[0], "matches": matches, "link": null}));
+        }
         let (link, found) = match crate::agent_link::find(query) {
             Some(Err(e)) => {
                 return Err(RpcError::invalid_params(format!("not a usable agent link: {e}")));
@@ -60,6 +72,9 @@ impl Hub {
         };
         let mut text = match link {
             Some(l) => format!("no {} session {} {looked}", l.harness, l.session),
+            None if crate::beads::is_bead_id(query) => {
+                format!("no session named, with the id or carrying the bead {query:?} {looked}")
+            }
             None => format!("no session named or with the id {query:?} {looked}"),
         };
         if let Some(host) = link.and_then(|l| l.host.as_deref())
@@ -118,8 +133,8 @@ fn by_link<'a>(summaries: &'a [Value], link: &AgentLink, own: &str) -> Vec<&'a V
 }
 
 /// The sessions `key` names, by the first rule that finds any: an id (acpmux's, qualified or
-/// the harness's) or whole name; `HOST/NAME` on that host (this machine's name included); a
-/// bare name on any host.
+/// the harness's) or whole name; a bead id the session carries (`beads.rs`); `HOST/NAME` on
+/// that host (this machine's name included); a bare name on any host.
 fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     let exact: Vec<&Value> = summaries
         .iter()
@@ -132,6 +147,12 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
     if !exact.is_empty() {
         return exact;
     }
+    if crate::beads::is_bead_id(key) {
+        let carry = by_bead(summaries, key);
+        if !carry.is_empty() {
+            return carry;
+        }
+    }
     if let Some((host, rest)) = key.split_once('/') {
         return summaries
             .iter()
@@ -140,6 +161,12 @@ fn by_key<'a>(summaries: &'a [Value], key: &str, own: &str) -> Vec<&'a Value> {
             .collect();
     }
     summaries.iter().filter(|s| bare_name(s) == key).collect()
+}
+
+/// The sessions that carry bead `id` (`beads.rs`).
+fn by_bead<'a>(summaries: &'a [Value], id: &str) -> Vec<&'a Value> {
+    let tag = crate::beads::tag_key(id);
+    summaries.iter().filter(|s| s["tags"].get(&tag).is_some()).collect()
 }
 
 /// What `locate` answers for one session. It keeps the keys every summary has (`sessionId`,
@@ -170,6 +197,7 @@ fn card(s: &Value, own: &str) -> Value {
         "createdAt": s["createdAt"],
         "updatedAt": s["updatedAt"],
         "tags": s["tags"],
+        "beads": crate::beads::of_tags(&s["tags"]),
         "peerState": s["peerState"],
         "stale": s["stale"],
         "link": link_of(s, host),
@@ -205,7 +233,8 @@ mod tests {
             json!({"sessionId": "m2", "qualifiedSessionId": "hb/m2", "agentSessionId": "a2",
                    "name": "hb/builder", "family": "codex", "harness": "codex", "peer": "hb"}),
             json!({"sessionId": "m3", "qualifiedSessionId": "hb/m3", "agentSessionId": "a1",
-                   "name": "hb/review", "family": "claude", "harness": "claude", "peer": "hb"}),
+                   "name": "hb/review", "family": "claude", "harness": "claude", "peer": "hb",
+                   "tags": {"bead:cx-ab1.2": "1"}}),
         ]
     }
 
@@ -263,6 +292,20 @@ mod tests {
         assert_eq!(ids(&by_key(&rows, "big-red/review", "big-red")), ["m1"]);
         assert_eq!(ids(&by_key(&rows, "builder", "big-red")), ["m2"]);
         assert!(by_key(&rows, "nobody", "big-red").is_empty());
+    }
+
+    #[test]
+    fn a_bead_id_finds_the_sessions_that_carry_it() {
+        let rows = rows();
+        assert_eq!(ids(&by_key(&rows, "cx-ab1.2", "big-red")), ["m3"]);
+        assert!(by_key(&rows, "cx-ab1", "big-red").is_empty());
+        // A session named like the bead wins a plain lookup, never a bead-only one.
+        let mut named = rows.clone();
+        named.push(json!({"sessionId": "m4", "name": "cx-ab1.2", "harness": "claude"}));
+        assert_eq!(ids(&by_key(&named, "cx-ab1.2", "big-red")), ["m4"]);
+        assert_eq!(ids(&by_bead(&named, "cx-ab1.2")), ["m3"]);
+        assert_eq!(card(&rows[2], "big-red")["beads"], json!(["cx-ab1.2"]));
+        assert_eq!(card(&rows[0], "big-red")["beads"], json!([]));
     }
 
     #[test]
