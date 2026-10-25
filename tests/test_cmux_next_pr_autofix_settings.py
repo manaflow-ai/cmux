@@ -146,8 +146,9 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
 class FleetBundleHandsBackEveryExport(unittest.TestCase):
     """2026-10-25: a lane ran regenerate-settings-exports.sh as a fleet step for #24923. A step returns one
     --artifact file, so each run handed back one docs/mdm file, and nothing wrote the docs settings reference
-    or the defaults snapshot. --bundle writes them after the stamp check and packs every regenerated file
-    into one patch; without it the script does what the bots expect and nothing more."""
+    or the defaults snapshot. An OUT ending in .patch (the controller takes one relative OUT) gets them after
+    the stamp check and packs every regenerated file into that one patch; a folder OUT gets what the bots
+    expect and nothing more."""
 
     EXPORTS = (
         "docs/mdm/com.manaflow.cmux.json", "docs/mdm/com.manaflow.cmux.plist", "docs/mdm/com.manaflow.cmux.intune.plist",
@@ -204,7 +205,7 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
 
     def test_the_bundle_holds_every_export_and_the_files_that_follow_them(self):
         repo, env = self.repo()
-        result = self.run_script(repo, env, ".out", "--bundle", "settings-exports.patch")
+        result = self.run_script(repo, env, "settings-exports.patch")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((repo.parent / "bun-args").read_text().split(), ["web/scripts/export-next-docs.ts", "--settings"])
         patch = repo / "settings-exports.patch"
@@ -229,7 +230,7 @@ class FleetBundleHandsBackEveryExport(unittest.TestCase):
 
     def test_a_stale_stamp_writes_no_bundle(self):
         repo, env = self.repo(stamp_ok=False)
-        result = self.run_script(repo, env, ".out", "--bundle", "settings-exports.patch")
+        result = self.run_script(repo, env, "settings-exports.patch")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((repo / "settings-exports.patch").exists())
 

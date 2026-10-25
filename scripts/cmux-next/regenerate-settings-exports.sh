@@ -13,35 +13,35 @@
 # defaults_guard.py check-stamp compares with the CmuxNextSettings sources)
 # stay checked in; no lane regenerates them by hand.
 #
-# Usage: scripts/cmux-next/regenerate-settings-exports.sh OUT [--bundle FILE]
+# Usage: scripts/cmux-next/regenerate-settings-exports.sh OUT
 # CMUX_SETTINGS_EXPORTS_ALL=1 copies every export into OUT, changed or not.
 #
-# --bundle FILE is for a lane whose pull request changes CmuxNextSettings
-# sources: the PR autofix only uploads a patch on pull_request events, and a
-# fleet step returns one --artifact file, so a run without it handed back a
-# single docs/mdm file. After the stamp check passes, it also writes the files
-# that follow the schema (the docs settings reference,
-# web/data/next-docs/settings-reference.generated.json, and the defaults
-# snapshot, schemas/defaults/cmux-next.json, which is bot-only (#21946): drop
-# it before you commit, as pr-autofix-apply.sh does), and writes FILE: one
+# An OUT that ends in .patch is a bundle, for a lane whose pull request changes
+# CmuxNextSettings sources (the PR autofix only uploads a patch on
+# pull_request events, and a fleet step returns one --artifact file, so a run
+# with a folder handed back a single docs/mdm file). After the stamp check
+# passes, it also writes the files that follow the schema: the docs settings
+# reference (web/data/next-docs/settings-reference.generated.json) and the
+# defaults snapshot (schemas/defaults/cmux-next.json, bot-only (#21946): drop
+# it before you commit, as pr-autofix-apply.sh does). OUT is then one
 # `git diff --binary` patch of every regenerated file against the step's
-# commit, for `git apply --index`. FILE is relative to the starting directory;
-# the bots never pass it. On the fleet (macOS SDK: no Linux route):
+# commit, for `git apply --index`. The bots pass a folder. On the fleet (the
+# package needs the macOS SDK, so there is no Linux route):
 #   cmux-ci run --class light --script scripts/cmux-next/regenerate-settings-exports.sh \
-#     --arg=.settings-exports --arg=--bundle --arg=settings-exports.patch \
-#     --artifact settings-exports.patch --ref <full sha> --key <unique key>
+#     --arg=settings-exports.patch --artifact settings-exports.patch --ref <full sha> --key <unique key>
 #   cmux-ci artifact <step id> settings-exports.patch
 set -euo pipefail
 # swift test builds and runs cmux-next's test host: fleet or GitHub runner only.
 # shellcheck source-path=SCRIPTDIR source=lib/fleet-only.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/fleet-only.sh"
 cmux_next_require_fleet regenerate-settings-exports.sh "swift test" "cmux-next generated files / base autofix action exports"
-usage="usage: $0 OUT [--bundle FILE]"
-out="$(mkdir -p "${1:?$usage}" && cd "$1" && pwd)"
 bundle=""
-if (( $# > 1 )); then
-  [[ "$2" == --bundle && -n "${3:-}" && $# -eq 3 ]] || { echo "$usage" >&2; exit 2; }
-  bundle="$(mkdir -p "$(dirname "$3")" && cd "$(dirname "$3")" && pwd)/$(basename "$3")"
+if [[ "${1:?usage: $0 OUT}" == *.patch ]]; then
+  bundle="$(mkdir -p "$(dirname "$1")" && cd "$(dirname "$1")" && pwd)/$(basename "$1")"
+  out="$(mktemp -d)"
+  trap 'rm -rf "$out"' EXIT
+else
+  out="$(mkdir -p "$1" && cd "$1" && pwd)"
 fi
 root="$(git rev-parse --show-toplevel)"
 exports=(

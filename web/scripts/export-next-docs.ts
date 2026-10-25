@@ -6,7 +6,7 @@
 // source changes:
 //   bun web/scripts/export-next-docs.ts
 // `--settings` writes only the settings reference (the fleet settings export,
-// scripts/cmux-next/regenerate-settings-exports.sh --bundle, which regenerates
+// scripts/cmux-next/regenerate-settings-exports.sh with a .patch OUT, which regenerates
 // the schema but not the action catalog).
 // web/tests/next-docs.test.ts fails until the copies are fresh.
 import { readFileSync, writeFileSync } from "node:fs";
