@@ -76,6 +76,8 @@ check('[[ "$app_key" == "$signing_key" ]]' in tip, "the feed key must be the key
 check("generate_appcast did not add edSignature" in tip, "the sign_update fallback never publishes")
 check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/sparkle_generate_appcast.sh"),
       "the key is checked before the feed is generated")
+check(tip.split("needs:")[0].count("continue-on-error: true") == 1,
+      "a red tip job never makes the dispatcher re-publish the same source run")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
 

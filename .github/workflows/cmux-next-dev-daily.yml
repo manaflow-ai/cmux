@@ -422,6 +422,10 @@ jobs:
   # rolling prerelease, and the prerelease never holds the feed.
   tip:
     name: Publish the cmux NEXT DEV tip feed
+    # Advisory, like verify: the dispatcher treats only successful publisher
+    # runs as handled, so a red tip job would re-sign and re-publish the same
+    # source run every tick. A failure still shows red on the job.
+    continue-on-error: true
     needs: [sign]
     if: needs.sign.outputs.signed == 'true' && needs.sign.outputs.build != ''
     # One feed writer at a time; a newer build waits, none is cancelled.
