@@ -6,6 +6,9 @@
 //!   (a)): a unix socket connection whose `initialize` carried a matching
 //!   `callerSession`. A request field never names the caller. `send` reaches
 //!   a descendant or the caller's own parent; `get` and `stop` a descendant.
+//! - `start`'s `host`: `auto` or `auto-build` weighs this machine with the
+//!   placement engine first and refuses when it has no room; the reply's
+//!   `placed` says why it went ahead (`server/place.rs` `subsession_host`).
 //! - `_acpmux/subsession/answer {sessionId, permissionId, answers}`: the
 //!   caller answers a descendant's pending question, never a permission
 //!   prompt (`hub/subsession_answer.rs`).
@@ -104,6 +107,8 @@ async fn handle(
     let caller = hub.resolve(caller)?;
     match m {
         method::MUX_SUBSESSION_START => {
+            // Weighed before anything starts: a refused placement makes no child.
+            let placed = super::place::subsession_host(hub, str_param(params, "host")).await?;
             let text = |k: &str| str_param(params, k).map(str::to_owned);
             let req = StartRequest {
                 prompt: text("prompt").unwrap_or_default(),
@@ -113,7 +118,11 @@ async fn handle(
                 cwd: text("cwd").map(PathBuf::from),
                 worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
             };
-            hub.start_subsession(&caller, req).await
+            let mut started = hub.start_subsession(&caller, req).await?;
+            if let Some(placed) = placed {
+                started["placed"] = json!(placed);
+            }
+            Ok(started)
         }
         method::MUX_SUBSESSION_LIST => {
             let all = str_param(params, "scope") == Some("descendants");
