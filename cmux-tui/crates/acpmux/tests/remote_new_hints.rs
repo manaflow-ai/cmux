@@ -158,9 +158,8 @@ async fn a_peers_missing_folder_inside_a_root_is_made_and_one_outside_is_refused
 async fn listen(b: Arc<Hub>, tag: &str, peer: bool) -> (u16, Option<String>) {
     let home = scratch(&format!("home-{tag}"));
     let auth = peer.then(|| Arc::new(PeerAuth::create(&home).unwrap()));
-    let token = peer.then(|| {
-        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap()
-    });
+    let token = peer
+        .then(|| std::fs::read_to_string(acpmux::server::peer_auth::token_path(&home)).unwrap());
     let l = bind_ws("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
     tokio::spawn(serve_ws_with(b, l, "tok".into(), WsAuth { local_app: None, peer: auth }));

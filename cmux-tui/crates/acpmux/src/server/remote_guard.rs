@@ -289,8 +289,8 @@ pub(super) async fn check(
         };
         // The owner's own daemon starting a session: told the configured roots when its
         // folder is outside them, and a missing folder inside one is made for it.
-        let peer_new =
-            m == method::SESSION_NEW && control_of(origin, auth, params) == crate::hub::Control::Peer;
+        let peer_new = m == method::SESSION_NEW
+            && control_of(origin, auth, params) == crate::hub::Control::Peer;
         let told = if peer_new { Some(configured_web_roots(hub).await) } else { None };
         let outside = |field: &str| outside_roots(field, told.as_deref());
         if let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) {
@@ -557,13 +557,13 @@ fn web_only(m: &str, params: &Value, peer: bool) -> Result<(), RpcError> {
             "{what} is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
         ))
     };
-    let because = |what: &str, reason: &str| {
-        refused(what).with_data(serde_json::json!({"reason": reason}))
-    };
+    let because =
+        |what: &str, reason: &str| refused(what).with_data(serde_json::json!({"reason": reason}));
     // Absent: nothing is set. Present: one of the asking policies, exactly
     // (`ask`, `deny-all`; the person rule's list, `hub/person.rs`).
     let policy_ok = crate::hub::person::asking_policy_value;
-    let policy_refused = || because("a permission policy other than ask or deny-all", POLICY_REFUSED);
+    let policy_refused =
+        || because("a permission policy other than ask or deny-all", POLICY_REFUSED);
     if m == method::SESSION_NEW
         && crate::web_modes::MODE_FIELDS.iter().any(|f| {
             params.get(*f).is_some() || params.pointer(&format!("/_meta/acpmux/{f}")).is_some()
@@ -875,7 +875,8 @@ async fn make_inside_root(cwd: &str, roots: &[PathBuf]) -> Result<String, Option
         return Err(Some(folder_refused("cwd")));
     }
     // Resolved again: a link put in its way meanwhile cannot lead out of the root.
-    let canonical = canonical_dir(&target.to_string_lossy()).await.ok_or(Some(folder_refused("cwd")))?;
+    let canonical =
+        canonical_dir(&target.to_string_lossy()).await.ok_or(Some(folder_refused("cwd")))?;
     if inside(Path::new(&canonical)) { Ok(canonical) } else { Err(None) }
 }
 

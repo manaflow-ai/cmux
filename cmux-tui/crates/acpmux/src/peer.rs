@@ -291,11 +291,10 @@ impl Peer {
         if let Ok(t) = ssh_target(&self.url) {
             return t.destination;
         }
-        let host = self
-            .url
-            .parse::<tokio_tungstenite::tungstenite::http::Uri>()
-            .ok()
-            .and_then(|u| u.host().map(|h| h.trim_start_matches('[').trim_end_matches(']').to_owned()));
+        let host =
+            self.url.parse::<tokio_tungstenite::tungstenite::http::Uri>().ok().and_then(|u| {
+                u.host().map(|h| h.trim_start_matches('[').trim_end_matches(']').to_owned())
+            });
         host.filter(|h| !h.is_empty()).unwrap_or_else(|| self.name.clone())
     }
 

@@ -234,8 +234,18 @@ mod tests {
     #[test]
     fn an_older_peers_refusal_is_known_by_its_message() {
         let e = |m: &str| RpcError::invalid_params(m);
-        assert_eq!(reason_of(&e("a mode at session start is accepted only from the local app or the unix socket, never from a remote WebSocket connection")), Some(MODE_REFUSED));
-        assert_eq!(reason_of(&e("cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder")), Some(CWD_OUTSIDE_ROOTS));
+        assert_eq!(
+            reason_of(&e(
+                "a mode at session start is accepted only from the local app or the unix socket, never from a remote WebSocket connection"
+            )),
+            Some(MODE_REFUSED)
+        );
+        assert_eq!(
+            reason_of(&e(
+                "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
+            )),
+            Some(CWD_OUTSIDE_ROOTS)
+        );
         assert_eq!(reason_of(&e("no peer \"x\"")), None);
         let other = e("x").with_data(json!({"reason": "trust.remote"}));
         assert_eq!(reason_of(&other), None);
