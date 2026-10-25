@@ -10,6 +10,8 @@
 public struct CloudVMAttachRetryLoopScriptBuilder: Sendable {
     private let budget: SSHReconnectBudget
 
+    /// Creates a Cloud VM attach retry-loop builder.
+    ///
     /// - Parameter budget: The reconnect settings' names, defaults and ceilings.
     public init(budget: SSHReconnectBudget = SSHReconnectBudget()) {
         self.budget = budget
