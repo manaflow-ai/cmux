@@ -144,13 +144,13 @@
   grid-template-columns: minmax(0, 1fr) 24px;
   column-gap: 8px;
 }
-.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) > .acpmux-menu-label {
+.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) > .acpmux-quick-label {
   grid-column: 1;
   grid-row: 1;
-}
-.ui-menu-item.acpmux-quick-item:not(.acpmux-quick-sub):has(.ui-menu-shortcut, .ui-menu-check) > .acpmux-quick-value {
-  grid-column: 1;
-  grid-row: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
 }
 .ui-menu-item.acpmux-quick-item[data-highlighted],
 .ui-menu-item.acpmux-quick-item[data-popup-open] {

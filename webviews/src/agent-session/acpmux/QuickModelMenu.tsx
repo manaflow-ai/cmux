@@ -391,8 +391,10 @@ export function QuickModelMenu({
               className="acpmux-quick-item"
               shortcut={!query && index < FILTER_ROWS && value !== currentValue ? String(index + 1) : undefined}
             >
-              <span className="acpmux-menu-label">{choice.name}</span>
-              {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
+              <span className="acpmux-quick-label">
+                <span className="acpmux-menu-label">{choice.name}</span>
+                {choice.hint && <span className="acpmux-quick-value">{choice.hint}</span>}
+              </span>
             </MenuRadioItem>
           );
         })}
