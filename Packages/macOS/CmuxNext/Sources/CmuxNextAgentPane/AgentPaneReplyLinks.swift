@@ -247,7 +247,11 @@ extension AgentPaneModel {
             }
         }
         let paths = replyPaths()
-        guard let resolved = paths.resolveImage(src) else { return Self.replyFailure(.pathInvalid) }
+        // A raster image may also come from the extra image roots (read-only displays); any other file
+        // the loader draws (an SVG, rebuilt without script or links; a PDF's first page) only from the
+        // pane's own roots, as before #24619 narrowed this to raster types.
+        let resolved = AgentPaneReplyPaths.isImagePath(src) ? paths.resolveImage(src) : paths.resolve(src)
+        guard let resolved else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
         case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
         case .denied: return Self.replyFailure(.pathDenied)
