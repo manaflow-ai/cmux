@@ -57,17 +57,19 @@ bundle "$TMP/build/one/cmux-tui" tree
 bundle "$TMP/build/one/cmux-tui" pin
 [[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "pin mode bundled bin/cmux-agent-screen-detection"
 
-# Pin mode with no cmux-tui source keeps the bundled bin/cmux, but still drops a
-# detector a dev build left there: the daemon must not run it from a Release app.
+# Pin mode with no cmux-tui source clears every output of the phase (#24979: a
+# kept binary could carry companions from another tree or mode), so a detector a
+# dev build left there goes too: the daemon must not run it from a Release app.
 bundle "$TMP/build/one/cmux-tui" tree
 [[ -e "$bin/cmux-agent-screen-detection" ]] || fail "setup: tree mode did not bundle the detector"
 mkdir -p "$TMP/no-src" "$TMP/empty-cache"
 env -u CMUX_NEXT_TUI_BIN -u CMUX_TUI_CLIENT_LOCAL -u CMUX_NEXT_AGENT_SCREEN_DETECTION_BIN \
   TARGET_BUILD_DIR="$TMP/app" TARGET_TEMP_DIR="$TMP/temp" UNLOCALIZED_RESOURCES_FOLDER_PATH=Contents/Resources \
   SRCROOT="$TMP/no-src" CONFIGURATION=Release CMUX_NEXT_TUI_MODE=pin CMUX_TUI_CLIENT_CACHE="$TMP/empty-cache" \
-  bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 || { cat "$TMP/out" >&2; fail "keep-bundled run failed"; }
-grep -q 'keeping bundled' "$TMP/out" || { cat "$TMP/out" >&2; fail "setup: the keep-bundled path did not run"; }
-[[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "the keep-bundled exit kept a stale bin/cmux-agent-screen-detection"
+  bash "$ROOT/scripts/cmux-next/bundle-cmux-tui.sh" >"$TMP/out" 2>&1 || { cat "$TMP/out" >&2; fail "no-source run failed"; }
+grep -q 'no cmux-tui binary to bundle' "$TMP/out" || { cat "$TMP/out" >&2; fail "setup: the no-source path did not run"; }
+[[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "the no-source exit kept a stale bin/cmux-agent-screen-detection"
+[[ ! -e "$bin/cmux" ]] || fail "the no-source exit kept a bin/cmux from another build"
 
 # Publication stages the detector per macOS target with
 # scripts/ci/stage-agent-detector.sh (cmux-tui-build-package.yml, macos-cross.sh
