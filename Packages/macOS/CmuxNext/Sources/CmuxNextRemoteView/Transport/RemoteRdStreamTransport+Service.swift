@@ -36,7 +36,7 @@ extension RemoteRdStreamTransport {
     /// from outside that queue (the main actor).
     public func sendServiceInput(_ bytes: Data, mustDeliver: Bool) -> UInt32? {
         dispatchPrecondition(condition: .notOnQueue(queue))
-        return queue.sync { [self] in
+        return queue.blockingSync { [self] in
             guard !engine.handshake.isEnded,
                   engine.handshake.welcome?.caps?.contains(Self.inputServiceCap) == true,
                   let seq = try? engine.input.sendService(bytes, mustDeliver: mustDeliver) else { return nil }

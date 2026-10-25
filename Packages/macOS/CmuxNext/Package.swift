@@ -1093,7 +1093,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextRemoteViewTests",
-            dependencies: ["CmuxNextRemoteView"],
+            dependencies: ["CmuxNextCompat", "CmuxNextRemoteView"],
             swiftSettings: uiSwiftSettings
         ),
         // Remote tab client (remote-tab.md r2): the page of a browser tab
