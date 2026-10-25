@@ -23,25 +23,33 @@ struct WindowEntryHandoffTests {
         }
     }
 
+    // `defers` and `entered` are mutating: each runs outside #expect, which cannot call a mutating
+    // member on the value it captures.
     @Test func aViewInTheWindowWaitsForAHostOutsideIt() {
         let scene = Scene()
         defer { scene.window.close() }
         var handoff = WindowEntryHandoff()
-        #expect(handoff.defers(scene.view, to: scene.host))
-        #expect(handoff.entered(scene.host) == nil, "the host is still in no window")
+        let deferred = handoff.defers(scene.view, to: scene.host)
+        #expect(deferred)
+        let beforeEntry = handoff.entered(scene.host)
+        #expect(beforeEntry == nil, "the host is still in no window")
         scene.root.addSubview(scene.host)
-        #expect(handoff.entered(scene.host) === scene.view)
-        #expect(handoff.entered(scene.host) == nil, "it waits once")
+        let handedOver = handoff.entered(scene.host)
+        #expect(handedOver === scene.view)
+        let second = handoff.entered(scene.host)
+        #expect(second == nil, "it waits once")
     }
 
     @Test func aViewThatMovedMeanwhileIsNotHandedOver() {
         let scene = Scene()
         defer { scene.window.close() }
         var handoff = WindowEntryHandoff()
-        #expect(handoff.defers(scene.view, to: scene.host))
+        let deferred = handoff.defers(scene.view, to: scene.host)
+        #expect(deferred)
         scene.root.addSubview(scene.view)
         scene.root.addSubview(scene.host)
-        #expect(handoff.entered(scene.host) == nil)
+        let handedOver = handoff.entered(scene.host)
+        #expect(handedOver == nil)
     }
 
     @Test(arguments: [false, true])
@@ -50,17 +58,21 @@ struct WindowEntryHandoffTests {
         defer { scene.window.close() }
         if hostInWindow { scene.root.addSubview(scene.host) } else { scene.view.removeFromSuperview() }
         var handoff = WindowEntryHandoff()
-        #expect(!handoff.defers(scene.view, to: scene.host))
+        let deferred = handoff.defers(scene.view, to: scene.host)
+        #expect(!deferred)
     }
 
     @Test func aViewAddedNowForgetsTheOneThatWaited() {
         let scene = Scene()
         defer { scene.window.close() }
         var handoff = WindowEntryHandoff()
-        #expect(handoff.defers(scene.view, to: scene.host))
+        let deferred = handoff.defers(scene.view, to: scene.host)
+        #expect(deferred)
         scene.root.addSubview(scene.host)
         let other = NSView()
-        #expect(!handoff.defers(other, to: scene.host))
-        #expect(handoff.entered(scene.host) == nil)
+        let otherDeferred = handoff.defers(other, to: scene.host)
+        #expect(!otherDeferred)
+        let handedOver = handoff.entered(scene.host)
+        #expect(handedOver == nil)
     }
 }
