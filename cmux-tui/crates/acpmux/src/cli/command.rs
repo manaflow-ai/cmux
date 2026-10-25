@@ -3,6 +3,8 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+pub use crate::cli::task::BriefsCmd;
+
 #[derive(Parser)]
 #[command(name = "acpmux", version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("ACPMUX_BUILD"), ")"), about = "tmux for coding-agent harnesses: Claude Code, Codex, OpenCode, pi, Gemini", long_about = None, after_help = "Agents: `acpmux guide` (also --guide, --skill) prints the full guide for driving acpmux from a script or another agent.")]
 pub struct Cli {
@@ -23,6 +25,9 @@ pub enum Command {
     Dispatch(DispatchArgs),
     #[command(subcommand)]
     Briefs(BriefsCmd),
+    /// Give a session here a task, end one with its result in one call, list a chat's tasks.
+    #[command(subcommand)]
+    Task(crate::cli::task::TaskCmd),
     /// Create a session and optionally send a first prompt. `run` is the
     /// same with --quiet: it prints only the final reply. With --worktree,
     /// --prompt-file, --report-to and --group it starts an agent on a task
@@ -512,27 +517,6 @@ pub struct DispatchArgs {
 }
 
 #[derive(Subcommand)]
-pub enum BriefsCmd {
-    #[command(alias = "list")]
-    Ls {
-        #[arg(long)]
-        status: Option<String>,
-        #[arg(long, default_value_t = 100)]
-        limit: usize,
-    },
-    Steer {
-        brief_id: String,
-        text: Vec<String>,
-    },
-    Report {
-        brief_id: String,
-        summary: Vec<String>,
-        #[arg(long, default_value = "reported")]
-        status: String,
-    },
-}
-
-#[derive(Subcommand)]
 pub enum HarnessCmd {
     /// Every harness with its kind, source file and problems.
     #[command(alias = "ls")]
@@ -884,6 +868,13 @@ pub enum PeerCmd {
     },
     /// List peers and their connection state.
     Ls,
+    /// Each peer's health, asked live: reachable, round trip, disk free,
+    /// load, live sessions and build, this machine first. Run it before
+    /// remote work and after a peer request fails, instead of retrying blind.
+    Status {
+        /// Only this peer.
+        name: Option<String>,
+    },
     /// Remove a peer.
     Rm { name: String },
     /// Pairing tickets for adding a machine with one pasted line: `new`

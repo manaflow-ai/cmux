@@ -17,6 +17,7 @@ import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "../summary/w
 import { StopButton } from "./TasksSection";
 import "./inspector.css";
 import "./WorkflowTasks.css";
+import "../summary/workflowDots.css";
 
 const ROW_ICON = rowIconSize(12);
 

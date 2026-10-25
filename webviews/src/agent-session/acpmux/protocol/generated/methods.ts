@@ -101,6 +101,8 @@ export interface AcpmuxRequests {
   "_acpmux/steer": { params: unknown; result: unknown };
   "_acpmux/briefs": { params: unknown; result: unknown };
   "_acpmux/report": { params: unknown; result: unknown };
+  "_acpmux/task_new": { params: unknown; result: unknown };
+  "_acpmux/tasks": { params: unknown; result: unknown };
   "_acpmux/media_open": { params: unknown; result: unknown };
   "_acpmux/media_range": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
@@ -177,6 +179,8 @@ export interface AcpmuxRequests {
   "_acpmux/protocol": { params: ProtocolParams; result: unknown };
   "_acpmux/shutdown": { params: unknown; result: unknown };
   "_acpmux/peers": { params: unknown; result: unknown };
+  "_acpmux/peer_status": { params: unknown; result: unknown };
+  "_acpmux/host_health": { params: unknown; result: unknown };
   "_acpmux/peer_add": { params: unknown; result: unknown };
   "_acpmux/peer_lease": { params: unknown; result: unknown };
   "_acpmux/peer_reconnect": { params: unknown; result: unknown };
@@ -328,6 +332,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/steer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/briefs", kind: "request", acp: false, typed: false },
   { name: "_acpmux/report", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/task_new", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/tasks", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },
@@ -406,6 +412,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/protocol", kind: "request", acp: false, typed: true },
   { name: "_acpmux/shutdown", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peers", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/peer_status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/host_health", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_add", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/peer_reconnect", kind: "request", acp: false, typed: false },
