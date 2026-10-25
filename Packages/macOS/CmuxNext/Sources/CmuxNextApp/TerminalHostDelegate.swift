@@ -151,7 +151,9 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             guard let services else { return }
             // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
             guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
-            services.linkOpener.openWeb(url, from: pane, background: background)
+            // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
+            let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
+            services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
         }
     }
 
