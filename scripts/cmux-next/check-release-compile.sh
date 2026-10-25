@@ -54,11 +54,20 @@ if [[ "${1:-}" == --archs ]]; then
   esac
   shift 2
 fi
-bench_flags=()
+swift_other_flags='OTHER_SWIFT_FLAGS=$(inherited)'
+bench_label=''
 if [[ "${1:-}" == --bench-hooks ]]; then
   # The same flag reload.sh --config bench passes (SWIFT_OTHER_FLAGS).
-  bench_flags=('OTHER_SWIFT_FLAGS=$(inherited) -DCMUX_BENCH_HOOKS')
+  swift_other_flags+=' -DCMUX_BENCH_HOOKS'
+  bench_label=', bench hooks'
   shift
+fi
+if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" ]]; then
+  # Keep the threshold high enough for a focused profile: the emitted warnings
+  # identify the functions and expressions worth fixing without changing the
+  # compiler's dependency decisions or optimization mode.
+  swift_other_flags+=' -Xfrontend -warn-long-function-bodies=200 -Xfrontend -warn-long-expression-type-checking=200 -driver-time-compilation'
+  echo "check-release-compile: Swift type-check diagnostics enabled (200ms threshold)"
 fi
 # --archs and --bench-hooks come first; anything else after the path would be ignored silently.
 if (( $# > 1 )); then
@@ -108,7 +117,7 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
   export DEVELOPER_DIR="$xcode_app/Contents/Developer"
 fi
 
-echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs${bench_flags[*]:+, bench hooks})"
+echo "check-release-compile: $(xcodebuild -version | tr '\n' ' ')(ARCHS=$archs$bench_label)"
 cd "$repo_root/Packages/macOS/CmuxNext"
 build() {
   build_attempt=$((build_attempt + 1))
@@ -121,7 +130,7 @@ build() {
     -derivedDataPath "$derived_data" \
     ARCHS="$archs" ONLY_ACTIVE_ARCH=NO \
     COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO \
-    ${bench_flags[@]+"${bench_flags[@]}"} \
+    OTHER_SWIFT_FLAGS="$swift_other_flags" \
     -showBuildTimingSummary build 2>&1 | tee "$log"
   return "${PIPESTATUS[0]}"
 }
@@ -148,5 +157,12 @@ if [[ -n "${CMUX_BUILD_METRICS_OUTPUT:-}" ]]; then
   [[ -n "${CMUX_BUILD_METRICS_SUMMARY:-}" ]] && metrics_args+=(--summary "$CMUX_BUILD_METRICS_SUMMARY")
   python3 "$repo_root/scripts/ci/build_metrics.py" "$derived_data" "${metrics_args[@]}" \
     || echo "check-release-compile: warning: could not write build metrics" >&2
+fi
+if [[ "${CMUX_SWIFT_TYPECHECK_DIAGNOSTICS:-0}" == "1" && -n "${CMUX_BUILD_METRICS_DIR:-}" ]]; then
+  python3 "$repo_root/scripts/ci/swift_typecheck_diagnostics.py" \
+    --log "$log" \
+    --output "$CMUX_BUILD_METRICS_DIR/typecheck.json" \
+    --summary "$CMUX_BUILD_METRICS_DIR/summary.md" \
+    || echo "check-release-compile: warning: could not write type-check diagnostics" >&2
 fi
 exit "$status"

@@ -177,6 +177,8 @@ final class QuitCoordinator {
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
                 await services.sidebarSnapshots.flush()
+                // Home's drafts, scroll places and unsent sends (its cache's last batch).
+                await services.home.flushCacheForQuit()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
@@ -202,6 +204,9 @@ final class QuitCoordinator {
                 await services.cache.cef.shutdown()
             }
         ))
+        // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk too;
+        // nothing is written when nothing changed.
+        await services.home.flushCacheForQuit()
         sender.reply(toApplicationShouldTerminate: true)
     }
 

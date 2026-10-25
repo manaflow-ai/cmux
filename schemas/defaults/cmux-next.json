@@ -244,6 +244,7 @@
     "setting.agentPane.needsYou.enabled": false,
     "setting.agentPane.showContextUsage": true,
     "setting.agentPane.showDictation": true,
+    "setting.agentPane.spellChecking": false,
     "setting.agentPane.zoom": 1,
     "setting.agents.chats.discovery": true,
     "setting.agents.chats.enabled": true,

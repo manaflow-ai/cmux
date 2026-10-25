@@ -800,6 +800,7 @@
               "agentPane.editedFiles.scope",
               "agentPane.showContextUsage",
               "agentPane.showDictation",
+              "agentPane.spellChecking",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
@@ -35761,6 +35762,56 @@
       "title" : {
         "key" : "settings.agentPane.showDictation",
         "text" : "Show Dictation Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.spellChecking.help",
+        "text" : "Underlines misspellings and offers system suggestions in the composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.spellChecking",
+      "keywords" : [
+        "spell",
+        "spelling",
+        "grammar",
+        "misspelling",
+        "composer",
+        "suggestions",
+        "typing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "spellChecking"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.spellChecking",
+        "text" : "Check Spelling While Typing"
       },
       "validation" : "portable"
     },
