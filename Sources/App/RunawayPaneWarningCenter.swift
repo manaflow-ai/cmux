@@ -195,12 +195,14 @@ final class RunawayPaneWarningCenter {
             )
         }
         let newlyWarned = tracker.ingest(usages, policy: policy)
-        warnings = measured.values
+        let next = measured.values
             .filter { tracker.isPresentable($0.key) }
             .sorted {
                 if $0.memoryBytes == $1.memoryBytes { return $0.processCount > $1.processCount }
                 return $0.memoryBytes > $1.memoryBytes
             }
+        // Equal samples must not invalidate the window's observers.
+        if warnings != next { warnings = next }
         for warning in warnings where newlyWarned.contains(warning.key) {
             onNewWarning?(warning)
         }
@@ -273,6 +275,7 @@ final class RunawayPaneWarningCenter {
         await terminator.terminate(
             processGroupIDs: groups.sorted(),
             ttyDevice: ttyDevice,
+            census: census,
             selector: selector
         )
         return true

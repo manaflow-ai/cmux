@@ -159,6 +159,9 @@ struct RunawayPaneWarningOverlay: NSViewRepresentable {
                         onStop: { [weak self] in self?.onStop?($0) },
                         onDismiss: { [weak self] in self?.onDismiss?($0) }
                     )
+                    // A new terminal's warning gets fresh banner state, so an
+                    // open Stop confirmation never carries over to it.
+                    .id(warning.key)
                     .environment(\.layoutDirection, layoutDirection)
                     .environment(\.colorScheme, colorScheme)
                     .frame(width: width)
@@ -171,5 +174,24 @@ struct RunawayPaneWarningOverlay: NSViewRepresentable {
             let frame = NSRect(x: bounds.midX - width / 2, y: topY, width: width, height: height)
             if host.frame != frame { host.frame = frame }
         }
+    }
+}
+
+/// Reads the warning center for one window, so a new sample re-renders only
+/// this leaf, not the window's content view. Shows no warning while the
+/// window shows something other than its workspaces.
+struct RunawayPaneWarningOverlayHost: View {
+    let center: RunawayPaneWarningCenter
+    let workspaceIDs: Set<UUID>
+    let isShowingWorkspaces: Bool
+
+    var body: some View {
+        RunawayPaneWarningOverlay(
+            warning: isShowingWorkspaces
+                ? center.warnings.first { workspaceIDs.contains($0.workspaceId) }
+                : nil,
+            onStop: { center.stopProcessTree($0) },
+            onDismiss: { center.dismiss($0) }
+        )
     }
 }

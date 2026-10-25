@@ -83,7 +83,7 @@ struct RunawayPaneWarningBanner: View {
                     } message: {
                         Text(String(
                             localized: "runawayPaneWarning.confirm.message",
-                            defaultValue: "cmux sends SIGTERM, then SIGKILL, to every job running in this terminal, including nested shells and suspended jobs. The terminal's own shell stays open."
+                            defaultValue: "cmux stops the jobs this terminal started, including nested shells and suspended jobs, and force-quits any that don't exit. The terminal's own shell stays open."
                         ))
                     }
                 }

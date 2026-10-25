@@ -155,4 +155,30 @@ struct RunawaySessionSelectorTests {
 
         #expect(selection?.processGroupIDs == [300])
     }
+
+    @Test("a group continues only while a member it had keeps its pid and start time")
+    func groupContinuityNeedsASurvivingMember() {
+        func member(_ pid: Int, group: Int, started: Int64?) -> RunawaySessionProcess {
+            RunawaySessionProcess(
+                pid: pid, parentPID: 1, name: "node",
+                processGroupID: group, ttyDevice: Self.tty, memoryBytes: 1,
+                startMicroseconds: started
+            )
+        }
+        let before = RunawaySessionCensus(processes: [
+            member(300, group: 300, started: 10), member(301, group: 300, started: 10),
+            member(400, group: 400, started: 10),
+            member(500, group: 500, started: nil),
+        ])
+        let after = RunawaySessionCensus(processes: [
+            // The leader exited; a worker survived.
+            member(301, group: 300, started: 10),
+            // Every member exited; a new job reused pid and group 400.
+            member(400, group: 400, started: 99),
+            // No start time, so continuity is unproven.
+            member(500, group: 500, started: nil),
+        ])
+
+        #expect(after.continuingProcessGroupIDs([300, 400, 500], since: before) == [300])
+    }
 }

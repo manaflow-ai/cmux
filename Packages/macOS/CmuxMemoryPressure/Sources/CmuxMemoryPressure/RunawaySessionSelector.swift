@@ -13,6 +13,9 @@ public struct RunawaySessionProcess: Equatable, Sendable {
     public let ttyDevice: Int64?
     /// The physical-footprint bytes.
     public let memoryBytes: Int64
+    /// The start time in microseconds, when known. With `pid` it names one
+    /// process for its whole life, since pids are reused.
+    public let startMicroseconds: Int64?
 
     /// Creates a process record.
     public init(
@@ -21,7 +24,8 @@ public struct RunawaySessionProcess: Equatable, Sendable {
         name: String,
         processGroupID: Int?,
         ttyDevice: Int64?,
-        memoryBytes: Int64
+        memoryBytes: Int64,
+        startMicroseconds: Int64? = nil
     ) {
         self.pid = pid
         self.parentPID = parentPID
@@ -29,6 +33,7 @@ public struct RunawaySessionProcess: Equatable, Sendable {
         self.processGroupID = processGroupID
         self.ttyDevice = ttyDevice
         self.memoryBytes = memoryBytes
+        self.startMicroseconds = startMicroseconds
     }
 }
 
@@ -59,6 +64,27 @@ public struct RunawaySessionCensus: Sendable {
 
     func processes(onTTYDevice ttyDevice: Int64) -> [RunawaySessionProcess] {
         (pidsByTTYDevice[ttyDevice] ?? []).compactMap { processesByPID[$0] }
+    }
+
+    /// The groups of `processGroupIDs` that are still the same groups they
+    /// were in `earlier`: each still holds a process that was its member
+    /// there, with the same pid and start time.
+    ///
+    /// A group ID is free for reuse once its last member exits, so a group
+    /// with that ID in this census may be an unrelated job. A process with
+    /// an unknown start time proves nothing.
+    public func continuingProcessGroupIDs(
+        _ processGroupIDs: some Sequence<Int>,
+        since earlier: RunawaySessionCensus
+    ) -> Set<Int> {
+        Set(processGroupIDs.filter { processGroupID in
+            (pidsByProcessGroupID[processGroupID] ?? []).contains { pid in
+                guard let now = processesByPID[pid],
+                      let then = earlier.processesByPID[pid],
+                      let started = now.startMicroseconds else { return false }
+                return then.processGroupID == processGroupID && then.startMicroseconds == started
+            }
+        })
     }
 }
 

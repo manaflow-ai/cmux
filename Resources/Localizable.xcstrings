@@ -671895,55 +671895,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux sends SIGTERM, then SIGKILL, to every job running in this terminal, including nested shells and suspended jobs. The terminal's own shell stays open."
+            "value": "cmux stops the jobs this terminal started, including nested shells and suspended jobs, and force-quits any that don't exit. The terminal's own shell stays open."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يرسل cmux الإشارة SIGTERM ثم SIGKILL إلى كل مهمة في هذه الطرفية، بما في ذلك الصدفات المتداخلة والمهام المعلّقة. تبقى صدفة الطرفية نفسها مفتوحة."
+            "value": "يوقف cmux المهام التي بدأتها هذه الطرفية، بما في ذلك الصدفات المتداخلة والمهام المعلّقة، ويفرض إنهاء أي مهمة لا تتوقف. تبقى صدفة الطرفية نفسها مفتوحة."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux sendet SIGTERM und danach SIGKILL an jeden Job in diesem Terminal, auch an verschachtelte Shells und angehaltene Jobs. Die eigene Shell des Terminals bleibt geöffnet."
+            "value": "cmux beendet die Jobs, die dieses Terminal gestartet hat, auch verschachtelte Shells und angehaltene Jobs, und erzwingt das Beenden aller, die nicht enden. Die eigene Shell des Terminals bleibt geöffnet."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux envía SIGTERM y luego SIGKILL a cada trabajo de este terminal, incluidos los shells anidados y los trabajos suspendidos. El shell propio del terminal sigue abierto."
+            "value": "cmux detiene los trabajos que inició este terminal, incluidos los shells anidados y los trabajos suspendidos, y fuerza el cierre de los que no terminen. El shell propio del terminal sigue abierto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux envoie SIGTERM, puis SIGKILL, à chaque tâche de ce terminal, y compris les shells imbriqués et les tâches suspendues. Le shell propre au terminal reste ouvert."
+            "value": "cmux arrête les tâches lancées par ce terminal, y compris les shells imbriqués et les tâches suspendues, et force l’arrêt de celles qui ne se terminent pas. Le shell propre au terminal reste ouvert."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux はこのターミナルのすべてのジョブ（入れ子のシェルや一時停止中のジョブを含む）に SIGTERM を送り、その後 SIGKILL を送ります。ターミナル自体のシェルは開いたままです。"
+            "value": "cmux はこのターミナルが開始したジョブ（入れ子のシェルや一時停止中のジョブを含む）を停止し、終了しないものは強制終了します。ターミナル自体のシェルは開いたままです。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux가 이 터미널의 모든 작업(중첩된 셸과 일시 중지된 작업 포함)에 SIGTERM을 보낸 다음 SIGKILL을 보냅니다. 터미널 자체의 셸은 열린 상태로 유지됩니다."
+            "value": "cmux가 이 터미널이 시작한 작업(중첩된 셸과 일시 중지된 작업 포함)을 중지하고, 종료되지 않는 작업은 강제로 종료합니다. 터미널 자체의 셸은 열린 상태로 유지됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 会先发送 SIGTERM，再发送 SIGKILL 给此终端中的每个作业，包括嵌套 Shell 和已暂停的作业。终端本身的 Shell 保持打开。"
+            "value": "cmux 会停止此终端启动的作业，包括嵌套 Shell 和已暂停的作业，并强制退出未结束的作业。终端本身的 Shell 保持打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 會先傳送 SIGTERM，再傳送 SIGKILL 給此終端機中的每個工作，包括巢狀 Shell 與暫停的工作。終端機本身的 Shell 會保持開啟。"
+            "value": "cmux 會停止此終端機啟動的工作，包括巢狀 Shell 與暫停的工作，並強制結束未結束的工作。終端機本身的 Shell 會保持開啟。"
           }
         }
       }

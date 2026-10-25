@@ -4,7 +4,8 @@ import Foundation
 
 /// Stops process groups in one terminal session: SIGTERM now, then SIGKILL
 /// to the groups that are still signallable on the same tty in a fresh,
-/// complete census after a bounded grace deadline. Shared by the automatic
+/// complete census after a bounded grace deadline, and still hold a process
+/// that was their member in the census the groups were chosen from. Shared by the automatic
 /// critical-pressure responder and the user's Stop Process Tree action.
 struct RunawayPaneTreeTerminator: Sendable {
     typealias SnapshotProvider = @Sendable () async -> CmuxTopProcessSnapshot
@@ -39,12 +40,13 @@ struct RunawayPaneTreeTerminator: Sendable {
         self.waitForGraceDeadline = waitForGraceDeadline
     }
 
-    /// Signals `processGroupIDs` on `ttyDevice` and escalates survivors.
-    /// `shouldEscalate` is asked after the grace deadline, so a guard that
-    /// was turned off meanwhile suppresses SIGKILL.
+    /// Signals `processGroupIDs` on `ttyDevice`, chosen from `census`, and
+    /// escalates survivors. `shouldEscalate` is asked after the grace
+    /// deadline, so a guard that was turned off meanwhile suppresses SIGKILL.
     func terminate(
         processGroupIDs: [Int],
         ttyDevice: Int64,
+        census initialCensus: RunawaySessionCensus,
         selector: RunawaySessionSelector,
         shouldEscalate: @Sendable () async -> Bool = { true }
     ) async {
@@ -56,7 +58,10 @@ struct RunawayPaneTreeTerminator: Sendable {
         guard await waitForGraceDeadline(),
               await shouldEscalate(),
               let census = await snapshotProvider().runawaySessionCensus() else { return }
-        let liveGroups = selector.signallableProcessGroupIDs(ttyDevice: ttyDevice, in: census) ?? []
+        let signallable = selector.signallableProcessGroupIDs(ttyDevice: ttyDevice, in: census) ?? []
+        // A group whose members all exited frees its ID; one that reappears
+        // under it is another job and must not get SIGKILL.
+        let liveGroups = census.continuingProcessGroupIDs(signallable, since: initialCensus)
         for processGroupID in processGroupIDs where liveGroups.contains(processGroupID) {
             signalProcessGroup(processGroupID, SIGKILL)
         }

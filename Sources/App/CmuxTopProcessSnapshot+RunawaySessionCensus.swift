@@ -14,7 +14,10 @@ extension CmuxTopProcessSnapshot {
                     name: process.name,
                     processGroupID: process.processGroupID,
                     ttyDevice: process.ttyDevice,
-                    memoryBytes: process.memoryBytes
+                    memoryBytes: process.memoryBytes,
+                    startMicroseconds: process.processIdentity.map {
+                        $0.startSeconds &* 1_000_000 &+ $0.startMicroseconds
+                    }
                 )
             }
         )

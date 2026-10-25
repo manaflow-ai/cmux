@@ -1876,12 +1876,10 @@ struct ContentView: View {
         ))
         .background {
             if let runawayWarnings = AppDelegate.shared?.runawayPaneWarningCenter {
-                RunawayPaneWarningOverlay(
-                    warning: runawayWarnings.warnings.first { warning in
-                        tabManager.tabs.contains { $0.id == warning.workspaceId }
-                    },
-                    onStop: { runawayWarnings.stopProcessTree($0) },
-                    onDismiss: { runawayWarnings.dismiss($0) }
+                RunawayPaneWarningOverlayHost(
+                    center: runawayWarnings,
+                    workspaceIDs: Set(tabManager.tabs.map(\.id)),
+                    isShowingWorkspaces: sidebarSelectionState.selection == .tabs
                 )
             }
         }

@@ -216,6 +216,7 @@ final class RunawayPaneTreeMemoryPressureResponder: MemoryPressureResponder {
             await terminator.terminate(
                 processGroupIDs: target.selection.processGroupIDs,
                 ttyDevice: target.selection.ttyDevice,
+                census: census,
                 selector: selector,
                 shouldEscalate: shouldEscalate
             )
