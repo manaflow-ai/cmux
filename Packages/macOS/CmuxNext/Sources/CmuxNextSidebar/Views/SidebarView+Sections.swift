@@ -38,7 +38,9 @@ extension SidebarViewComponents {
         list.configureBlockRegion = { [weak self] region in
             guard let self else { return }
             self.wireItems(region)
-            region.contextMenuProvider = self.list.contextMenuProvider
+            // Read the list's provider at right-click time: a block region made before the app set it
+            // (the first layout after launch) kept nil, and a pinned workspace's tile opened no menu.
+            region.contextMenuProvider = { [weak self] target in self?.list.contextMenuProvider?(target) }
             region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
         }
         SidebarPinDrops.install(self)
