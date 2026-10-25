@@ -115,35 +115,28 @@ struct BlockingWallTimeTests {
     /// A timed call that runs the main run loop again (`waitUntilExit`, a modal panel, `RunLoop.run(until:)`)
     /// keeps the whole interval; a checked call the nested run makes counts at its site without time, so the
     /// interval is not counted twice. Alone in a child process (a nested run would run other tests' main-actor
-    /// work). Exit codes: 0 right; 3 wrong kinds; 4 wrong counts; 5 the outer call has no time; 6 the nested
-    /// call has time.
+    /// work). The calls name their lines: in an exit test's body every `#line` is the macro's line, so the two
+    /// calls would be one site. Exit codes: 0 right; 3 wrong kinds; 4 wrong counts; 5 the outer call has no time;
+    /// 6 the nested call has time.
     @Test func aCallInANestedRunLoopInsideATimedCallCountsWithoutTime() async {
         await #expect(processExitsWith: .exitCode(0)) {
             let table = BlockingViolationTable(mode: .record)
-            let probe = SharedFlags()
-            let runResult = await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { () -> Int32 in
-                    blockingCall(.processWait) { () -> Int32 in
+            await BlockingViolationTable.$scoped.withValue(table) {
+                await MainActor.run {
+                    blockingCall(.processWait, line: 1) {
                         // The nested run's work: a timer, a source, so the mode is not empty (a run of an empty
                         // mode returns at once); it ends the run.
                         RunLoop.main.add(Timer(timeInterval: 0, repeats: false) { _ in
-                            let before = table.overflow
-                            _ = FileManager.checked.fileExists(atPath: "/")
-                            probe.set(ran: pthread_main_np() != 0, sawTable: table.overflow != before)
+                            _ = FileManager.checked.fileExists(atPath: "/", line: 2)
                             CFRunLoopStop(CFRunLoopGetMain())
                         }, forMode: .default)
-                        return CFRunLoopRunInMode(.defaultMode, 5, false).rawValue
+                        _ = CFRunLoopRunInMode(.defaultMode, 5, false)
                     }
                 }
             }
             await table.flush()
             let sites = BlockingDetector(table: table).sites
-            guard sites.map(\.kind) == [.processWait, .fileIO] else {
-                // 100 + 10 x the site count + 1 when the nested work ran on main + 2 when it overflowed.
-                let (ran, sawTable) = probe.read()
-                _ = (ran, sawTable, runResult)
-                exit(100 + 10 * Int32(min(sites.count, 9)) + Int32(min(sites.first?.count ?? 0, 9)))
-            }
+            guard sites.map(\.kind) == [.processWait, .fileIO] else { exit(3) }
             guard sites.map(\.count) == [1, 1] else { exit(4) }
             guard sites[0].totalNanos > 0 else { exit(5) }
             exit(sites[1].totalNanos == 0 ? 0 : 6)
@@ -271,19 +264,6 @@ private nonisolated final class StepClock: Sendable {
             if state.reads % 2 == 1 { state.now += durations[(state.reads / 2) % durations.count] }
             return state.now
         }
-    }
-}
-
-/// What a run-loop callout saw, read after the run.
-private nonisolated final class SharedFlags: Sendable {
-    private let state = Mutex((ran: false, sawTable: false))
-
-    func set(ran: Bool, sawTable: Bool) {
-        state.withLock { $0 = (ran, sawTable) }
-    }
-
-    func read() -> (ran: Bool, sawTable: Bool) {
-        state.withLock { $0 }
     }
 }
 
