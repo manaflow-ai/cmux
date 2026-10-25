@@ -199,8 +199,7 @@ mod linux {
             .args(busctl_args(
                 unit,
                 host,
-                crate::session_scope::tasks_max(&|key| std::env::var(key).ok())
-                    .unwrap_or(u64::MAX),
+                crate::session_scope::tasks_max(&|key| std::env::var(key).ok()).unwrap_or(u64::MAX),
             ))
             .env_clear()
             .envs(env)

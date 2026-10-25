@@ -414,6 +414,10 @@ mod tests {
 
     const GIB: u64 = 1024 * 1024 * 1024;
 
+    /// The tests that take `limit_slice`'s process-wide lock run one at a time.
+    #[cfg(target_os = "linux")]
+    static SLICE_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
         let map: BTreeMap<String, String> =
             pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
@@ -570,6 +574,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn a_real_user_manager_takes_the_slice_limits_once() {
+        let _serial = SLICE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let systemctl = std::path::Path::new("/usr/bin/systemctl");
         let env = BTreeMap::new();
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
@@ -609,6 +614,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn a_session_start_never_waits_for_another_to_set_the_slice() {
+        let _serial = SLICE_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let (held, release) = std::sync::mpsc::channel::<()>();
         let (go, ready) = std::sync::mpsc::channel::<()>();
         let holder = std::thread::spawn(move || {
