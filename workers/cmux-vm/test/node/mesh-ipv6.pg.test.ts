@@ -1,3 +1,5 @@
+import clientSessionIndex from "../../migrations/0017_cmux_vm_client_session_index.sql?raw";
+import agentKeys from "../../migrations/0016_cmux_vm_agent_keys.sql?raw";
 import overlayServerCodes from "../../migrations/0015_cmux_vm_overlay_server_codes.sql?raw";
 import overlayServers from "../../migrations/0014_cmux_vm_overlay_servers.sql?raw";
 import creationReceipts from "../../migrations/0010_cmux_vm_creation_receipts.sql?raw";
@@ -28,7 +30,7 @@ import { SqlClient, StoreError } from "../../src/db/sql.ts";
 import { newDeviceId, newMeshId, newTunnelId, TenantId } from "../../src/lib/ids.ts";
 
 const BEFORE = [ownership, s2, snapshots, mesh, meshM2, meshM3, meshM4, meshM4Retries];
-const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes];
+const ALL = [...BEFORE, deviceAddress, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes, agentKeys, clientSessionIndex];
 
 const sqlOver = (db: PGlite) =>
   Layer.succeed(SqlClient, {
@@ -76,7 +78,7 @@ describe("migration 0009", () => {
 
   it("the schema gate names the column when 0009 was not applied", async () => {
     const old = new PGlite();
-    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes]) await old.exec(migration);
+    for (const migration of [...BEFORE, creationReceipts, creationReceiptIndex, uncommittedCreations, overlayPolicy, overlayServers, overlayServerCodes, agentKeys, clientSessionIndex]) await old.exec(migration);
     expect(await Effect.runPromise(Effect.provide(checkSchema, sqlOver(old)))).toEqual(["cmux_vm.mesh_devices.public_ipv6: missing"]);
   });
 

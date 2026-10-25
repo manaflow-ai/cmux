@@ -26,11 +26,46 @@ extension DaemonConnection {
         }
     }
 
+    /// How long a create waits for a terminal a busy host starts late (``createTerminalWaitingForStart(in:cwd:)``).
+    /// Each pass waits for the daemon's reply up to the start deadline; on a loaded host a start can
+    /// take far longer than one deadline (Leo, 2026-10-21), and the daemon replays the start that
+    /// lands, so the budget only bounds a daemon that never answers.
+    public static let lateTerminalStartBudget: Duration = .seconds(120)
+
+    /// `create-terminal` in workspace `key` that waits for the terminal on a loaded host: sent again
+    /// under one terminal id and mutation identity while it misses its start deadline
+    /// (`DaemonError.terminalStartTimedOut`), so the terminal the daemon starts late is the one
+    /// returned and none is started twice. A refusal is thrown at once; a start still late after
+    /// ``lateTerminalStartBudget`` is thrown as the timeout.
+    @discardableResult
+    public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
+        let request = await createTerminalRequest(in: key, cwd: cwd)
+        let giveUp = ContinuousClock.now + Self.lateTerminalStartBudget
+        // wakeup-allow: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
+        while true {
+            do {
+                return try await self.request(request)
+            } catch let error as DaemonError where error.isLateStart && ContinuousClock.now < giveUp && !Task.isCancelled {
+                Self.lateReplyLogger.info("create-terminal in \(key.rawValue, privacy: .public): \(String(describing: error), privacy: .public); waiting with its mutation id")
+            }
+        }
+    }
+
     /// `create-workspace` for workspace `key`, sent again on a late reply under one mutation
     /// identity (the daemon replays a create that committed after the deadline).
     @discardableResult
     public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey) async throws -> WorkspaceMutationResult {
         let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
         return try await Self.retryingLateReplies(CreateWorkspaceRequest.command) { try await self.request(request) }
+    }
+}
+
+private extension DaemonError {
+    /// A reply that missed its deadline: the daemon may still be doing the work.
+    var isLateStart: Bool {
+        switch self {
+        case .terminalStartTimedOut, .timedOut: true
+        default: false
+        }
     }
 }

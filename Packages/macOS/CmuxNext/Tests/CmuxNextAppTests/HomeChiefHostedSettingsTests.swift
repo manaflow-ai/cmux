@@ -52,6 +52,10 @@ struct HomeChiefHostedSettingsTests {
         let records = HomeChiefRecord.list(from: list)
         #expect(records.map(\.id) == [Self.agent, "agent_placed"])
         #expect(HomeChiefRecord.archivedIDs(from: list) == ["agent_old"])
+        // A deleted Chief (and one archived past its restore window) is only a tombstone: still hidden.
+        var deleted = list
+        deleted["tombstones"] = [["id": "agent_gone", "owner_user": "user_1", "archived_at": "2026-10-02T00:00:00Z"]]
+        #expect(HomeChiefRecord.archivedIDs(from: deleted) == ["agent_old", "agent_gone"])
         let none = HomeCloudChiefs()
         #expect(none.placement(of: Self.main, records: records).map { [$0.id, "\($0.placed)"] } == [Self.agent, "false"])
         #expect(none.placement(of: "conv_placed", records: records)?.placed == true)
@@ -63,6 +67,70 @@ struct HomeChiefHostedSettingsTests {
         let control = HomeChiefControl(services: services, conversation: ConversationID("conv_local"), muxHome: Self.home())
         #expect(!control.isHosted)
         #expect(control.engineSource() is HomeChiefLocalEngine)
+    }
+
+    // MARK: This Mac's Chief beside the cloud Chiefs
+
+    /// Leo 2026-10-21: this Mac's Chief's name-pill card said "Runs in the cloud" and "The server with
+    /// this Chief is not connected." with empty pickers. With a hosted cloud Chief (and a placed one)
+    /// in the cloud list, all named "Chief", this Mac's Chief, also "Chief" in the Home store, still
+    /// talks to this Mac's brain: a classification by name would put it in the cloud.
+    @Test func thisMacsChiefStaysLocalBesideAHostedCloudChief() async throws {
+        let services = try await Self.servicesWithCloudChiefs()
+        let control = HomeChiefControl(services: services, conversation: ConversationID(Self.local), muxHome: Self.home())
+        #expect(!services.home.isCloudConversation(ConversationID(Self.local)))
+        #expect(!control.isCloud)
+        #expect(!control.isHosted)
+        #expect(control.hostedChiefID == nil)
+        #expect(control.server == nil)
+        #expect(control.named == nil)
+        #expect(control.brainHome == control.muxHome)
+        #expect(control.engineSource() is HomeChiefLocalEngine)
+        // Its card's place line is the engine's own ("Runs here"), with no switch to a cloud host.
+        #expect(services.home.chiefHost(of: Self.local) == HomeChiefHostLine())
+        // The cloud Chiefs keep their own brains.
+        #expect(HomeChiefControl(services: services, conversation: ConversationID(Self.main), muxHome: Self.home()).engineSource()
+            is HomeChiefHostedEngine)
+        #expect(HomeChiefControl(services: services, conversation: ConversationID(Self.placedMain), muxHome: Self.home()).engineSource()
+            is HomeChiefRemoteEngine)
+    }
+
+    /// A named local Chief (chief-brains-v1) beside the cloud Chiefs: its own brain on this Mac.
+    @Test func aNamedLocalChiefStaysLocalBesideTheCloudChiefs() async throws {
+        let services = try await Self.servicesWithCloudChiefs()
+        var control = HomeChiefControl(services: services, conversation: ConversationID("conv_named"), muxHome: Self.home())
+        control.chief = Self.namedChief
+        #expect(!control.isCloud)
+        #expect(control.named == control.chief)
+        #expect(control.brainHome == ChiefHome.brainHome(muxHome: control.muxHome, chief: control.chief))
+        let source = control.engineSource()
+        #expect(source is HomeChiefLocalEngine)
+        #expect((source as? HomeChiefLocalEngine)?.chief == control.chief)
+        #expect(services.home.chiefHost(of: "conv_named") == HomeChiefHostLine())
+    }
+
+    /// The card the name pill opens over this Mac's Chief, as HomeHostView builds it: "Runs here",
+    /// the Harness row, and the pickers filled from this Mac's engine.json, never the cloud's words.
+    @Test func thisMacsChiefsCardRunsHereWithItsPickers() async throws {
+        let services = try await Self.servicesWithCloudChiefs()
+        let control = HomeChiefControl(services: services, conversation: ConversationID(Self.local), muxHome: Self.home())
+        let engine = control.brainHome.appendingPathComponent("optchat/engine.json")
+        try FileManager.default.createDirectory(at: engine.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: ["harness": "codex", "model": "gpt-5.5", "effort": "high"]).write(to: engine)
+        defer { try? FileManager.default.removeItem(at: control.muxHome) }
+
+        let view = HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource())
+        let host = services.home.chiefHost(of: Self.local)
+        view.setHost(place: host.place, switchTo: host.switchTo)
+        await view.use(control.engineSource()).value
+        #expect(view.place.stringValue == HomeEngineStrings.runsHere)
+        #expect(view.hostSwitch.isHidden)
+        #expect(view.failure.isHidden)
+        #expect(view.harness.superview?.isHidden == false)
+        #expect(view.harness.selectedItem?.representedObject as? String == "codex")
+        #expect(view.model.selectedItem?.representedObject as? String == "gpt-5.5")
+        #expect(view.effort.selectedItem?.representedObject as? String == "high")
+        #expect(view.harness.isEnabled && view.model.isEnabled && view.effort.isEnabled)
     }
 
     // MARK: The card over the brain route
@@ -144,6 +212,66 @@ struct HomeChiefHostedSettingsTests {
     static func services() -> AppServices {
         _ = NSApplication.shared
         return AppServices(environment: AppEnvironment.current([:]))
+    }
+
+    static let local = "conv_local"
+    static let placedMain = "conv_dm_01JZ00000000000000000PLACED"
+
+    static let namedChief = "agent_01JZ00000000000000000NAMED1"
+
+    /// A signed-in Mac whose cloud list has a hosted Chief and one placed on a server, both "Chief",
+    /// and whose Home store lists this Mac's Chief conversation (with agent_mux) and a named local
+    /// Chief's as this Mac's owner reports them: owned here and titled "Chief" too.
+    static func servicesWithCloudChiefs() async throws -> AppServices {
+        // Its own Chief home, so the Home store's cache is this test's, never a real Chief's.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("chief-local-\(UUID().uuidString)", isDirectory: true)
+        let services = withChiefHome(root) {
+            let made = Self.services()
+            _ = made.home
+            return made
+        }
+        let hosted = CloudChief(id: agent, displayName: "Chief", isDefault: true, mainConversation: main, rev: 1)
+        let placed = CloudChief(id: "agent_01JZ00000000000000000PLACED", displayName: "Chief", isDefault: false,
+                                mainConversation: placedMain, rev: 1, brainPlace: .init(host: "host_mini", install: "install_1"))
+        services.home.setCloudChiefs(HomeCloudChiefs(hosted: hosted, placed: placed))
+
+        let me = services.home.homeSource.me
+        let date = Date(timeIntervalSince1970: 1_000)
+        func chiefConversation(_ id: String, chief: String) -> CmuxHomeCore.ConversationSummary {
+            let agent = Participant(id: ParticipantID(chief), kind: .agent, displayName: "Chief", agentClass: .chief)
+            return CmuxHomeCore.ConversationSummary(id: ConversationID(id), owner: .local, title: "Chief", participants: [me, agent],
+                                                    createdAt: date, updatedAt: date)
+        }
+        services.home.homeSource.publish(.inbox(InboxSnapshot(
+            me: me, conversations: [chiefConversation(local, chief: "agent_mux"), chiefConversation("conv_named", chief: namedChief)], rev: 1)))
+        let store = services.home.homeStore
+        store.start()
+        let listed = await eventually { store.summary(ConversationID(local)) != nil && store.summary(ConversationID("conv_named")) != nil }
+        try #require(listed, "the Home store lists this Mac's Chiefs")
+        #expect(store.summary(ConversationID(local))?.title == "Chief")
+        #expect(store.summary(ConversationID(local))?.owner == .local)
+        return services
+    }
+
+    /// Runs `body` with `CMUX_NEXT_CHIEF_HOME` at `root` (HomeService reads it when it is made).
+    static func withChiefHome<T>(_ root: URL, _ body: () -> T) -> T {
+        let key = "CMUX_NEXT_CHIEF_HOME"
+        let previous = ProcessInfo.processInfo.environment[key]
+        setenv(key, root.path, 1)
+        defer {
+            if let previous { setenv(key, previous, 1) } else { unsetenv(key) }
+        }
+        return body()
+    }
+
+    static func eventually(_ timeout: Duration = .seconds(5), _ condition: () -> Bool) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while clock.now < deadline {
+            if condition() { return true }
+            try? await clock.sleep(for: .milliseconds(10))
+        }
+        return condition()
     }
 
     static func home() -> URL {

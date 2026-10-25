@@ -158,7 +158,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater,
                  shouldPostponeRelaunchForUpdate item: SUAppcastItem,
                  untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
-        handleShouldPostponeRelaunch(installHandler: installHandler)
+        handleShouldPostponeRelaunch(item: item, installHandler: installHandler)
     }
 
     func updaterWillRelaunchApplication(_ updater: SPUUpdater) {

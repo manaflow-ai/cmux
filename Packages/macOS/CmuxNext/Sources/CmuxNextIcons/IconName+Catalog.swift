@@ -205,6 +205,7 @@ extension IconName {
         .paneSplitLeft,
         .paneSplitRight,
         .paneSplitUp,
+        .panelRight,
         .permissionConsent,
         .permissionMode,
         .placeholder,

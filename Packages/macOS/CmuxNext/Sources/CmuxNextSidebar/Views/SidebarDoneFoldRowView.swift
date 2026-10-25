@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 
-/// The "Done (N)" row at the end of a list (`SidebarLayout+DoneFold`): a chevron and the count in the folder header's
-/// quiet style. A click opens or folds the workspaces marked Done below it; it is no drop target and has no menu of
+/// The "Done (N)" and "Show N more" rows at the end of a list (`SidebarLayout+DoneFold`): a chevron and the count in
+/// the folder header's quiet style. A click opens or folds the rows it holds; it is no drop target and has no menu of
 /// its own (its list's menu shows).
 final class SidebarDoneFoldRowView: SidebarRowView {
     private let chevron = DecorativeImageView()
@@ -16,7 +16,11 @@ final class SidebarDoneFoldRowView: SidebarRowView {
     }
 
     func configure(_ row: SidebarRow) {
-        name.setString(Strings.doneFold(row.childCount))
+        if case .showMore = row.key {
+            name.setString(row.isCollapsed ? Strings.showMore(row.childCount) : Strings.showFewer)
+        } else {
+            name.setString(Strings.doneFold(row.childCount))
+        }
         name.setFont(SidebarStyle.headerFont)
         chevron.image = NSImage.icon(row.isCollapsed ? .disclosureCollapsed : .disclosureExpanded,
                                      size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2))

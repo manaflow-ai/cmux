@@ -225,11 +225,10 @@ fn parse(args: &[String]) -> Result<Request, String> {
 }
 
 impl Request {
-    /// What of this request only the person may do (cx-ebm.60.9 layer 1,
-    /// hq-6d 2026-10-14): every write. An agent caller may not make, edit
-    /// (any field, picture included) or delete any Chief; a Chief changes its
-    /// own profile only through its `profile` tool on its own bound
-    /// connection. `None` for a read (list).
+    /// The registry writes that a Chief turn must relay through its own host.
+    /// A person-authorized agent may use the CLI for the same owner operation;
+    /// the Chief-turn relay is the separate guard that keeps a Chief from
+    /// changing another Chief without its `chiefs` grant.
     fn write(&self) -> Option<&str> {
         match self.word.as_str() {
             "new" | "adopt" | "edit" | "delete" | "undo" => Some(self.word.as_str()),
@@ -290,17 +289,27 @@ pub(in crate::cli) fn agent_operation_refusal(operation: &str) -> Option<Value> 
 /// The app actions that write a Chief through the app's own connection:
 /// their ids and their CLI names (`cmux action run` takes either).
 const APP_ACTIONS: [&str; 6] = [
-    "home.newChief",
     "home.archiveChief",
+    "home.deleteChief",
     "home.stopChief",
     "home.stopAllAgents",
-    "home new-chief",
     "home archive-chief",
+    "home delete-chief",
 ];
 
 /// [`agent_control_refusal`] for an app action (`cmux action run ID`,
-/// `cmux home new-chief`) that writes a Chief; `refused` is the action.
+/// `cmux home new-chief`) that still controls a live Chief. New Chief is
+/// intentionally available to a person-authorized agent and is handled by the
+/// app's owner connection.
 pub(in crate::cli) fn agent_app_action_refusal(action: &str) -> Option<Value> {
+    // `home.newChief` is available to a person-authorized agent, but a Chief
+    // turn must still go through its own `chiefs` tool and grant.
+    if action.trim() == "home.newChief" || action.trim() == "home new-chief" {
+        return std::env::var(super::super::chief_target::OWNER_KEY)
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .and_then(|_| agent_control_refusal("cmux action run home.newChief", action.trim()));
+    }
     if !APP_ACTIONS.contains(&action.trim()) {
         return None;
     }
@@ -415,11 +424,17 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         println!("{}", t.usage);
         return 0;
     }
+    // The marker named in a refusal is the variable's name (as every agent refusal names
+    // it), never its value (the owner socket's path).
     if let Some(what) = request.write()
-        && let Some(marker) = super::super::federation::agent_marker(|key| std::env::var(key).ok())
+        && std::env::var(super::super::chief_target::OWNER_KEY)
+            .is_ok_and(|value| !value.trim().is_empty())
     {
+        let marker = super::super::chief_target::OWNER_KEY;
         let output = if request.json { OutputMode::Json } else { global.output };
-        // A Chief's own turn: its host decides, on its bound connection.
+        // A Chief's own turn: its host decides, on its bound connection. A
+        // person-authorized agent without the Chief owner marker proceeds to
+        // the normal owner socket below.
         if matches!(what, "new" | "edit")
             && request.chief_home.is_none()
             && let Some(code) = relay_to_turn_host(&request, output)

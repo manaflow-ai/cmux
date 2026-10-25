@@ -29,9 +29,14 @@ final class PaneHostView: NSView, RestingPlacement {
     private var reporter: PaneContentChrome? { content as? PaneContentChrome }
     private var lastWindowFrame: CGRect?
 
-    init(pane: PaneID, content: NSView) {
+    /// Whether content keeps its size while the host is on a layout spring (`motion.pane.holdContent`, off by
+    /// default: live resize). Injected so tests pin it without the shared tunable store.
+    private let holdsContentInMotion: () -> Bool
+
+    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool = { LayoutTunables.holdsContentInMotion.value }) {
         self.pane = pane
         self.content = content
+        self.holdsContentInMotion = holdsContentInMotion
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -72,9 +77,10 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet {
             guard oldValue != isOnLayoutSpring else { return }
             if isOnLayoutSpring {
-                heldContentSize = LayoutTunables.holdsContentInMotion.value ? content.frame.size : nil
+                heldContentSize = holdsContentInMotion() ? content.frame.size : nil
             } else {
                 heldContentSize = nil
+                heldAnchor = nil
                 // The one layout at the size the spring landed at, before the content hears it landed.
                 layoutClip()
                 content.notifyPaneMotionSettled()
@@ -104,7 +110,7 @@ final class PaneHostView: NSView, RestingPlacement {
         let size = CGSize(width: max(clip.width, held.width, rest.width), height: max(clip.height, held.height, rest.height))
         // The far edge's distance from its rest against the near edge's (`restOffset`).
         let trailing = abs(restOffset.dx + restSize.width - frame.width) < abs(restOffset.dx) - 0.5
-        let bottom = abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5
+        let bottom = heldAnchor.map { $0 == .bottom } ?? (abs(restOffset.dy + restSize.height - frame.height) < abs(restOffset.dy) - 0.5)
         return CGRect(x: trailing ? clip.maxX - size.width : clip.minX,
                       y: bottom == isFlipped ? clip.maxY - size.height : clip.minY,
                       width: size.width, height: size.height)
@@ -114,7 +120,17 @@ final class PaneHostView: NSView, RestingPlacement {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil { isOnLayoutSpring = false }
+        // Another screen (or none) places it now: its clip and overlay are computed afresh.
+        stripClipInput = nil
+        overlaySyncKey = nil
     }
+
+    /// What the host's strip clip was last computed from (`ScreenContentView.clipToStrip`).
+    var stripClipInput: StripClipInput?
+    /// What its ring and dim were last placed from (`LayoutRootView.syncOverlay`).
+    var overlaySyncKey: PaneOverlaySyncKey?
+    /// The chrome state last applied (`setChrome`); nil before the first.
+    private var chromeInputs: PaneChromeInputs?
 
     /// Whether the pane sits in a docked column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
@@ -164,11 +180,19 @@ final class PaneHostView: NSView, RestingPlacement {
     }
 
     override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        layoutClip()
+        // `frame =` with only a new origin calls this too: the clip and content keep their size
+        // (held content is pinned by the rest offset, which a move changes: it lays out).
+        if changed || heldContentSize != nil { layoutClip() }
     }
 
+    /// Clip and content layouts this host ran, cumulative (PaneMotionWorkTests: a pane that only
+    /// moves lays out nothing).
+    private(set) var clipLayouts = 0
+
     private func layoutClip() {
+        clipLayouts += 1
         var style = LayoutStyle()
         style.panePadding = padding
         style.paneCornerRadius = cornerRadius
@@ -186,9 +210,10 @@ final class PaneHostView: NSView, RestingPlacement {
     /// The content's rounded corners and the ring's shape from the current
     /// clip frame and the content's header and footer. Changes no frame.
     private func applyChromeShape() {
+        let framesContent = reporter?.paneFramesContent ?? true
         var style = LayoutStyle()
         style.panePadding = padding
-        style.paneCornerRadius = cornerRadius
+        style.paneCornerRadius = framesContent || wholeCard ? cornerRadius : 0
         let rect = clipView.frame
         let (header, footer) = roundedBands
         let rounded = PaneChromeGeometry.roundedRect(inPadded: rect, headerHeight: header, footerHeight: footer)
@@ -200,8 +225,38 @@ final class PaneHostView: NSView, RestingPlacement {
             reporter?.setPaneContentCornerRadius(0)
             clipView.setCornerRadius(radius)
         }
-        chrome.setShape(padding: padding, cornerRadius: cornerRadius, headerHeight: header, footerHeight: footer)
+        chrome.showsContentFrame = framesContent
+        chrome.setShape(padding: padding, cornerRadius: style.paneCornerRadius, headerHeight: header, footerHeight: footer)
     }
+
+    /// Tells the content (every ``PaneMotionTargeting`` view in it) how much larger its area will rest than
+    /// it is now (`restSize` against the current frame, both less the padding): called by the screen once
+    /// when a spring starts or retargets to a new size, never per frame.
+    func announceRest() {
+        guard let change = restSizeChange else { return }
+        heldAnchor = content.notifyPaneMotionWillRest(sizeChange: change)
+        if heldContentSize != nil { layoutClip() }
+    }
+
+    /// The content area at rest (``restSize`` less the padding) minus the content's size now; nil without a
+    /// rest size or with no change.
+    private var restSizeChange: CGSize? {
+        guard let restSize else { return nil }
+        var style = LayoutStyle()
+        style.panePadding = padding
+        style.paneCornerRadius = cornerRadius
+        let rest = PaneChromeGeometry.contentRect(forCell: CGRect(origin: .zero, size: restSize), style: style).size
+        let now = content.frame.size
+        let change = CGSize(width: rest.width - now.width, height: rest.height - now.height)
+        guard abs(change.width) >= 0.5 || abs(change.height) >= 0.5 else { return nil }
+        return change
+    }
+
+    /// `RestingPlacement`: the size change a view joining the content mid-spring will rest at.
+    var restContentSizeChange: CGSize? { isOnLayoutSpring ? restSizeChange : nil }
+
+    /// The vertical edge held content rides, from the last ``announceRest()`` (nil: the near-edge rule).
+    private var heldAnchor: PaneMotionAnchor?
 
     /// Tells the content when the pane's frame in the window changed.
     func noteWindowFrame() {
@@ -255,6 +310,15 @@ final class PaneHostView: NSView, RestingPlacement {
                    ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
                    attention: AttentionMark?, attentionSettings: AttentionSettings, readByEntry: Bool = false,
                    focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
+        // A split or close re-runs every pane's chrome; a pane whose ring, dim, border, emphasis and
+        // attention are what they were keeps them as they are (no layer transactions per pane). A
+        // focus flash always runs: it is an event, not a state.
+        let inputs = PaneChromeInputs(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing,
+                                      ringAlphaOverride: ringAlphaOverride, tabEmphasis: tabEmphasis, border: border,
+                                      attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
+                                      focused: focused)
+        guard flashesFocus || inputs != chromeInputs else { return }
+        chromeInputs = inputs
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
                       attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,

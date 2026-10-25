@@ -92,6 +92,23 @@ import Testing
         #expect(devices.devices.isEmpty && devices.decision(for: rotated) == .ask)
     }
 
+    /// A phone's row and its acpmux credential follow its link id (the id it paired with), even
+    /// when its presence id sorts first; a paired phone the account no longer lists (removed while
+    /// this Mac was not running) gets no credential, so it never holds Full access.
+    @Test func aPairedPhoneIsItsLinkIDAndOnlyAListedOneGetsACredential() {
+        let link = "B0000000-0000-4000-8000-000000000001"
+        let presence = "A0000000-0000-4000-8000-000000000002"
+        var devices = MobileHostPairedDevices(userID: "u")
+        devices.approve(Self.phone(link), at: Date(timeIntervalSince1970: 5))
+        devices.approve(Self.phone("gone"), at: Date(timeIntervalSince1970: 6))
+        let phone = MobileHostKnownPhone(name: "Leo's iPhone", deviceIDs: [link, presence], updatedAt: nil)
+        #expect(phone.id == presence, "the presence id sorts first")
+        #expect(devices.pairing(of: phone)?.id == link)
+        #expect(devices.listed(in: [phone]) == [link])
+        #expect(devices.listed(in: []).isEmpty, "a phone the account does not list gets no credential")
+        #expect(devices.pairing(of: MobileHostKnownPhone(name: "Other", deviceIDs: ["other"], updatedAt: nil)) == nil)
+    }
+
     @Test func hostdAndAcpmuxGetOnlyApprovedKeys() throws {
         var devices = MobileHostPairedDevices(userID: "u")
         devices.approve(Self.request, at: Date(timeIntervalSince1970: 5))

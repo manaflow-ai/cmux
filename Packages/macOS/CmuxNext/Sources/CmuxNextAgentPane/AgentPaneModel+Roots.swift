@@ -50,6 +50,15 @@ extension AgentPaneModel {
         return cwd
     }
 
+    /// The chat's exact folder, the one a terminal opened from it inherits (Cmd-D, Cmd-T, Cmd-N,
+    /// the header's Terminal, a shell block's Open in Terminal): the folder acpmux reported for the
+    /// chat's session, else the one the chat starts in. Read without asking the page, so a
+    /// terminal made in the key's frame gets it too. Nil for agent-home (``folderForOtherTabs(_:)``).
+    public var terminalFolder: String? {
+        let session = sessionId.flatMap(transport.sessions.folder(of:))
+        return folderForOtherTabs(session ?? chosenFolder ?? startFolders.current(of: self) ?? handshakeCwd)
+    }
+
     /// "Choose Folder…" (`workspace.chooseFolder`): the native sheet only after a real gesture (it
     /// spends the gesture's grant credit), then the pick as the folder of this pane's new chats.
     func chooseFolder() async -> [String: Any] {
