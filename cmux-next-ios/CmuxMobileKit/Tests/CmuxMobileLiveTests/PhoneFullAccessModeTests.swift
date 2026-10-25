@@ -25,9 +25,9 @@ import Testing
         func setMode(_ mode: String) { lock.withLock { _modeSets.append(mode) } }
     }
 
-    static let claudeModes = #"{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"acceptEdits","name":"Accept Edits"},{"id":"plan","name":"Plan Mode"},{"id":"bypassPermissions","name":"Bypass Permissions"}]}"#
+    nonisolated static let claudeModes = #"{"currentModeId":"default","availableModes":[{"id":"default","name":"Default"},{"id":"acceptEdits","name":"Accept Edits"},{"id":"plan","name":"Plan Mode"},{"id":"bypassPermissions","name":"Bypass Permissions"}]}"#
 
-    static func link(_ mac: Mac) -> MockMacLink {
+    nonisolated static func link(_ mac: Mac) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -71,7 +71,9 @@ import Testing
 
     @Test func fullAccessOnOffersTheHarnessFullAccessMode() async throws {
         let mac = Mac(fullAccess: true)
-        let (_, _, store) = try await openChat(mac)
+        // The hub is held for the whole test: a chat source holds it weakly.
+        let (hub, _, store) = try await openChat(mac)
+        defer { withExtendedLifetime(hub) {} }
         #expect(store.modes.map(\.id) == ["default", "plan", "bypassPermissions"])
         // Picking it sends the normal mode change.
         store.setMode("bypassPermissions")
@@ -83,9 +85,20 @@ import Testing
 
     @Test func fullAccessOffOrMissingKeepsOnlyTheModesThatAsk() async throws {
         for setting in [false, nil] as [Bool?] {
-            let (_, _, store) = try await openChat(Mac(fullAccess: setting))
+            let (hub, _, store) = try await openChat(Mac(fullAccess: setting))
+            defer { withExtendedLifetime(hub) {} }
             #expect(store.modes.map(\.id) == ["default", "plan"], "\(String(describing: setting))")
         }
+    }
+
+    /// The link drops: no chat keeps offering Full access until a connection says so again, even
+    /// when that connection never gets as far as reattaching the chat.
+    @Test func aDroppedLinkHidesTheModeUntilTheSettingIsReadAgain() async throws {
+        let (hub, _, store) = try await openChat(Mac(fullAccess: true))
+        #expect(store.modes.map(\.id).contains("bypassPermissions"))
+        await hub.bind(nil)
+        for _ in 0..<500 where store.modes.count != 2 { await Task.yield() }
+        #expect(store.modes.map(\.id) == ["default", "plan"])
     }
 
     /// The setting turned off on the Mac while the app is open: the switch is refused with a
