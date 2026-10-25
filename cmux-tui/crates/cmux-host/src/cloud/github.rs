@@ -87,22 +87,28 @@ impl TokenAsk {
         Ok(TokenAsk { repo: repo.to_owned(), permissions: asked.clone(), label })
     }
 
+    /// `{repo, permissions, label?}`, plus `team` when given.
+    fn fields(&self, team: Option<&str>) -> Map<String, Value> {
+        let mut out = Map::new();
+        if let Some(team) = team {
+            out.insert("team".to_owned(), json!(team));
+        }
+        out.insert("repo".to_owned(), json!(self.repo));
+        out.insert("permissions".to_owned(), Value::Object(self.permissions.clone()));
+        if let Some(label) = &self.label {
+            out.insert("label".to_owned(), json!(label));
+        }
+        out
+    }
+
     /// The socket line a client sends.
     pub fn to_line(&self) -> String {
-        let mut ask = json!({ "repo": self.repo, "permissions": self.permissions });
-        if let Some(label) = &self.label {
-            ask["label"] = json!(label);
-        }
-        json!({ REQUEST_KEY: ask }).to_string()
+        json!({ REQUEST_KEY: Value::Object(self.fields(None)) }).to_string()
     }
 
     /// The API request body for a machine of `team`.
     pub fn api_body(&self, team: &str) -> Value {
-        let mut body = json!({ "team": team, "repo": self.repo, "permissions": self.permissions });
-        if let Some(label) = &self.label {
-            body["label"] = json!(label);
-        }
-        body
+        Value::Object(self.fields(Some(team)))
     }
 
     /// `repo contents:write,...` for the journal (never a token).
@@ -148,13 +154,15 @@ pub fn reply_for(answer: &Answer) -> Value {
             // The contract keeps tokens out of messages; cap the length anyway.
             let message: String =
                 error.field("message").as_str().unwrap_or("").chars().take(300).collect();
-            let mut out = refusal(&code, &message);
-            out["status"] = json!(status);
+            let mut out = Map::new();
+            out.insert("ok".to_owned(), json!(false));
+            out.insert("status".to_owned(), json!(status));
+            out.insert("error".to_owned(), json!({ "code": code, "message": message }));
             let retry = body.field("retry_after").as_u64().or(error.field("retry_after").as_u64());
             if let Some(retry) = retry {
-                out["retry_after"] = json!(retry);
+                out.insert("retry_after".to_owned(), json!(retry));
             }
-            out
+            Value::Object(out)
         }
         Answer::Transport => {
             refusal("integration.unreachable", "the cmux Cloud API did not answer")
