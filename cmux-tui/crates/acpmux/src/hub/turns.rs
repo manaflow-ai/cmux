@@ -427,10 +427,8 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        // Its stalled count starts before it reads running, and again once its prompt is
-        // written (`stalled_turn.rs`).
-        Self::forget_open_tools(session);
-        self.watch_stalled_turn(session, None);
+        // Its stalled count starts once its prompt is written (`stalled_turn.rs`).
+        Self::hold_stalled_count(session);
         self.set_status(session, SessionStatus::Running);
         self.watch_silent_turn(session, &turn_id).await;
         // Start title generation after the first prompt is written to the harness, while its
@@ -463,13 +461,12 @@ impl Hub {
                     "failover",
                     json!({"from": from, "to": to, "reason": e.message, "turnId": turn_id}),
                 );
-                // The turn goes on, on the fallback.
+                // The turn goes on, on the fallback. A new agent: the old one's silence and
+                // tools are not its own, and its count starts once the prompt is written to it.
+                Self::hold_stalled_count(session);
                 let turn = session.turn();
                 self.detach_child(session).await;
                 *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
-                // A new agent: the old one's silence and tools are not its own.
-                Self::forget_open_tools(session);
-                self.watch_stalled_turn(session, None);
                 self.set_status(session, SessionStatus::Running);
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);

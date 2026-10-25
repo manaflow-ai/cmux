@@ -134,6 +134,9 @@ pub struct Session {
     /// The running turn's tool calls that have not ended (`stalled_turn.rs`): a turn quiet
     /// inside one gets longer before it counts as stalled.
     pub(super) open_tools: StdMutex<std::collections::HashSet<String>>,
+    /// The turn whose stalled count runs: its prompt was written (`stalled_turn.rs`). None
+    /// before that, so a turn whose prompt has not reached its agent is never stalled.
+    pub(super) stalled_counted: StdMutex<Option<String>>,
     /// The turn that logged `turn_silent` and has not heard its model since (`silent_turn.rs`).
     pub(super) silent_turn: StdMutex<Option<String>>,
     /// The hub clock's time (`Hub::clock_now`) of the last record or

@@ -84,7 +84,7 @@ impl Hub {
                 && let Message::Notification { method, params: Some(p) } = msg
                 && method == crate::rpc::method::SESSION_UPDATE
             {
-                Hub::note_tool_update(&tap_session, &p["update"]);
+                tap_hub.note_tool_update(&tap_session, &p["update"]);
             }
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);

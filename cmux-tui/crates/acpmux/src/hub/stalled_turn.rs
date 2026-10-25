@@ -60,18 +60,27 @@ pub(super) fn track_tool(open: &mut std::collections::HashSet<String>, update: &
 }
 
 impl Hub {
-    /// A `session/update` from `session`'s agent (`tap.rs`): its open tool calls follow it.
-    pub(super) fn note_tool_update(session: &Session, update: &Value) {
-        track_tool(&mut session.open_tools.lock().unwrap_or_else(|e| e.into_inner()), update);
+    /// A `session/update` from `session`'s agent (`tap.rs`): its open tool calls follow it. The
+    /// last one ending brings the turn's deadline nearer: the reaper looks again.
+    pub(super) fn note_tool_update(&self, session: &Session, update: &Value) {
+        let mut open = session.open_tools.lock().unwrap_or_else(|e| e.into_inner());
+        let was_open = !open.is_empty();
+        track_tool(&mut open, update);
+        if was_open && open.is_empty() {
+            self.idle_wake.notify_one();
+        }
     }
 
-    /// A new turn, or a new agent for it: no tool call of it is open yet.
-    pub(super) fn forget_open_tools(session: &Session) {
+    /// A new turn, or a new agent for it, whose prompt is not written yet: no count runs and no
+    /// tool call of it is open.
+    pub(super) fn hold_stalled_count(session: &Session) {
+        *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
-    /// `session`'s turn starts its stalled count: now, or at `heard_ms` (Unix ms), the last sign
-    /// of its model an adopted host's log holds (`hosts.rs` `recover_work`).
+    /// `session`'s running turn starts its stalled count, its prompt written: now, or at
+    /// `heard_ms` (Unix ms), the last sign of its model an adopted host's log holds (`hosts.rs`
+    /// `recover_work`).
     pub(super) fn watch_stalled_turn(&self, session: &Session, heard_ms: Option<u64>) {
         let now = self.clock_now() as i64;
         let at = match heard_ms {
@@ -83,7 +92,15 @@ impl Hub {
         };
         session.heard_at.store(at, Ordering::Relaxed);
         session.stalled_recheck.store(0, Ordering::Relaxed);
+        *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) =
+            session.turn().map(|t| t.turn_id);
         self.idle_wake.notify_one();
+    }
+
+    /// The turn whose stalled count runs: `session`'s running turn, once its prompt was written.
+    fn counted_turn(session: &Session) -> Option<TurnInfo> {
+        let counted = session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        session.turn().filter(|t| counted.as_ref() == Some(&t.turn_id))
     }
 
     /// When the first running turn's stalled period ends, on the hub clock.
@@ -97,7 +114,7 @@ impl Hub {
         let period = stalled.as_nanos() as u64;
         self.sessions()
             .iter()
-            .filter(|s| s.turn().is_some())
+            .filter(|s| Self::counted_turn(s).is_some())
             .map(|s| Self::stalled_due(s, period))
             .min()
             .map(std::time::Duration::from_nanos)
@@ -122,7 +139,7 @@ impl Hub {
         let now = self.clock_now();
         let period = stalled.as_nanos() as u64;
         for session in self.sessions() {
-            let Some(turn) = session.turn() else { continue };
+            let Some(turn) = Self::counted_turn(&session) else { continue };
             if Self::stalled_due(&session, period) > now {
                 continue;
             }
@@ -140,11 +157,15 @@ impl Hub {
                 json!({"stopReason": "cancelled", "_meta": {"acpmux": {"stalledMs": silent_ms}}});
             // Off this pass, so a wedged host never holds the reaper: the agent of this very
             // turn gets the cancel (bounded), then the turn ends whether it answered or not.
-            // Both only while that turn is still the one running.
+            // Both only while nothing moved its count since: no sign of its model, no new agent
+            // (a failover keeps the turn id but starts the count again), no other turn.
             let session = session.clone();
             let turn_id = turn.turn_id;
             tokio::spawn(async move {
-                let ours = |s: &Session| s.turn().is_some_and(|t| t.turn_id == turn_id);
+                let ours = |s: &Session| {
+                    s.heard_at.load(Ordering::Relaxed) == heard
+                        && Self::counted_turn(s).is_some_and(|t| t.turn_id == turn_id)
+                };
                 let _ = tokio::time::timeout(CANCEL_SEND, async {
                     let child = session.child.lock().await.clone();
                     if ours(&session)
