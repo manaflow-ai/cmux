@@ -49,6 +49,8 @@ mod purged_stays_purged;
 mod questions;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[path = "hub_integration/run_parent.rs"]
+mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]

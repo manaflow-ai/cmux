@@ -1,4 +1,4 @@
-//! A running turn whose model went quiet for good (`hub/stalled_turn.rs`): past `stalledTurnMs`
+//! A running turn whose model went quiet for good (`hub/stalled_turn.rs`): past `stalledTurnEndMs`
 //! with no sign of its model and nobody holding it, acpmux ends it as failed, `stalled`.
 
 use super::*;
@@ -40,7 +40,7 @@ async fn start(c: &mut TestClient, id: &str, text: &str, word: &str) {
 }
 
 /// huge-blue, 2026-10-25: 72 Codex chats read `running` for a day, each turn waiting on a model
-/// request that never came back. A turn nobody holds ends `stalledTurnMs` after its model's last
+/// request that never came back. A turn nobody holds ends `stalledTurnEndMs` after its model's last
 /// sign; one a client shows waits until it lets go; 0 turns the check off.
 #[tokio::test]
 async fn a_turn_whose_model_went_quiet_ends_as_stalled_unless_someone_holds_it() {
@@ -48,7 +48,7 @@ async fn a_turn_whose_model_went_quiet_ends_as_stalled_unless_someone_holds_it()
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(None);
-    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
     let free = new_session(&mut c, "stall-free").await;
     let held = new_session(&mut c, "stall-held").await;
     // "hang": one word, then nothing, and no answer to the cancel.
@@ -59,7 +59,7 @@ async fn a_turn_whose_model_went_quiet_ends_as_stalled_unless_someone_holds_it()
 
     clock.advance(Duration::from_secs(59));
     settle().await;
-    assert!(results(&hub, &free).is_empty(), "ended before stalledTurnMs");
+    assert!(results(&hub, &free).is_empty(), "ended before stalledTurnEndMs");
 
     clock.advance(Duration::from_secs(2));
     let ended = until_results(&hub, &free, 1).await;
@@ -82,13 +82,13 @@ async fn a_turn_whose_model_went_quiet_ends_as_stalled_unless_someone_holds_it()
     assert_eq!(ended[0]["detail"], "stalled", "{ended:?}");
 
     // 0: never.
-    hub.config.write().await.stalled_turn_ms = Some(0);
+    hub.config.write().await.stalled_turn_end_ms = Some(0);
     let off = new_session(&mut c, "stall-off").await;
     start(&mut c, &off, "hang", "working").await;
     c.request(method::MUX_DETACH, json!({"sessionId": off})).await.unwrap();
     clock.advance(Duration::from_secs(24 * 3600));
     settle().await;
-    assert!(results(&hub, &off).is_empty(), "stalledTurnMs 0 still ended a turn");
+    assert!(results(&hub, &off).is_empty(), "stalledTurnEndMs 0 still ended a turn");
 }
 
 /// A turn whose owner (the session its `spawnedBy` tag names) is running may be what that owner
@@ -99,7 +99,7 @@ async fn a_stalled_turn_waits_while_its_owner_is_busy() {
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(None);
-    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
     let owner = new_session(&mut c, "stall-owner").await;
     let child = new_session(&mut c, "stall-child").await;
     c.request(method::MUX_TAG, json!({"sessionId": child, "set": {"spawnedBy": owner}}))
@@ -126,7 +126,7 @@ async fn a_stalled_turn_waits_while_its_owner_is_busy() {
 #[tokio::test]
 async fn a_turn_whose_model_keeps_working_is_not_stalled() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
-    hub.config.write().await.stalled_turn_ms = Some(600);
+    hub.config.write().await.stalled_turn_end_ms = Some(600);
     let id = new_session(&mut c, "stall-ticking").await;
     // Ten words 250 ms apart: 2.5 s of turn, never 600 ms of silence. Nobody holds it.
     start(&mut c, &id, "ticking:10:250", "tick0 ").await;
@@ -144,7 +144,7 @@ async fn a_turn_quiet_inside_an_open_tool_call_gets_four_periods() {
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(None);
-    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
     let id = new_session(&mut c, "stall-tool").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "tool-hang", None)).await;
     c.wait_for(method::SESSION_UPDATE, |p| {
@@ -192,7 +192,7 @@ async fn a_turn_that_went_quiet_on_its_fallback_profile_ends_as_stalled() {
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = PermissionPolicy::ApproveAll;
-    cfg.stalled_turn_ms = Some(60_000);
+    cfg.stalled_turn_end_ms = Some(60_000);
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     let clock = acpmux::clock::ManualClock::new();
@@ -223,7 +223,7 @@ async fn a_tool_call_that_ends_brings_the_stalled_deadline_back() {
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(None);
-    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
     let id = new_session(&mut c, "stall-tool-done").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "tool-done-hang", None)).await;
     c.wait_for(method::SESSION_UPDATE, |p| {
@@ -258,7 +258,7 @@ async fn a_turn_counts_from_its_prompt_being_written() {
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
     hub.set_idle_child(Some(Duration::from_secs(300)));
-    hub.config.write().await.stalled_turn_ms = Some(60_000);
+    hub.config.write().await.stalled_turn_end_ms = Some(60_000);
     let id = new_session(&mut c, "stall-written").await;
     c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
     c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();

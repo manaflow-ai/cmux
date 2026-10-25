@@ -1250,6 +1250,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pair_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
@@ -1717,6 +1723,16 @@
             "null"
           ]
         },
+        "stalledSince": {
+          "default": null,
+          "description": "A `working` lane that has stalled: since when its turn has had no tool\ncall in flight and no sign of its model (`turn.stalledSince`); null\notherwise. The state stays `working`, so a client that reads only it\nis unchanged.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "state": {
           "$ref": "#/types/LaneState"
         },
@@ -1738,6 +1754,7 @@
       "required": [
         "error",
         "since",
+        "stalledSince",
         "state",
         "step",
         "title"
@@ -2977,6 +2994,14 @@
             "null"
           ]
         },
+        "titleSource": {
+          "default": null,
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {
@@ -3402,6 +3427,14 @@
             "null"
           ]
         },
+        "titleSource": {
+          "default": null,
+          "description": "Who supplied `title`: `prompt` is the first-prompt fallback, while\n`harness`, `generated` and `adopted` are real chat titles. Older peers\nmay omit this field.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "tools": {
           "description": "The chat's tools (`hub/tools.rs`).",
           "items": {
@@ -3513,6 +3546,20 @@
             "integer",
             "null"
           ]
+        },
+        "peer": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns\n(its name, e.g. `huge-blue`). Empty is no filter.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): only the sessions in this status\n(`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -3601,6 +3648,15 @@
         "promptId": {
           "type": "string"
         },
+        "stalledSince": {
+          "description": "Since when it has stalled: no tool call in flight and no sign of its\nmodel since then, for `stalledTurnMs` or more (`hub/activity.rs`);\nnull while it has not.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "startedAt": {
           "format": "uint64",
           "minimum": 0,
@@ -3621,6 +3677,7 @@
         "planStep",
         "prompt",
         "promptId",
+        "stalledSince",
         "startedAt",
         "turnId",
         "turnSeq"

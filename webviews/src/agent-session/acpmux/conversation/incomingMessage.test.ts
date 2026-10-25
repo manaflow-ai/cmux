@@ -527,6 +527,51 @@ test("a message's closed line previews its first line of text, its spaces collap
   expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
   expect(messagePreview("- [x] landed")).toBe("landed");
   expect(messagePreview("x".repeat(400))).toHaveLength(240);
+  // A code fence's marker is no text: its first code line is.
+  expect(messagePreview("```ts\nconst retries = 3;\n```\nMore")).toBe("const retries = 3;");
+  expect(messagePreview("```\n\n  npm test  \n```")).toBe("npm test");
+  expect(messagePreview("~~~\nmake check\n~~~")).toBe("make check");
+  // A lone quote marker is no text; nested quote and numbered list leads drop.
+  expect(messagePreview(">\nThe review passed.")).toBe("The review passed.");
+  expect(messagePreview("> > 1. Landed it")).toBe("Landed it");
+  // Links: parentheses in the URL, a title, by reference, an image, an autolink.
+  expect(messagePreview("See [the docs](https://example.com/a_(b)_c) now")).toBe("See the docs now");
+  expect(messagePreview('Read [the guide](https://example.com/g "Guide (v2)") first')).toBe("Read the guide first");
+  expect(
+    messagePreview("Opened [PR 12][pr] and [notes][]\n\n[pr]: https://example.com/12\n[Notes]: https://example.com/n"),
+  ).toBe("Opened PR 12 and notes");
+  // A reference whose id (or, for `[label][]`, label) the message does not define stays as written.
+  expect(messagePreview("Opened [PR 12][nope] and [notes][]")).toBe("Opened [PR 12][nope] and [notes][]");
+  // A definition inside fenced code defines nothing.
+  expect(messagePreview("Read [docs] first\n\n```md\n[docs]: https://example.com/docs\n```")).toBe("Read [docs] first");
+  expect(messagePreview("Read [docs] first\n\n~~~\n[docs]: x\n~~~\n[docs]: https://example.com/docs")).toBe(
+    "Read docs first",
+  );
+  // A thematic break is no text, with spaces between its marks or none.
+  expect(messagePreview("---\nShipped the fix.")).toBe("Shipped the fix.");
+  expect(messagePreview("* * *\n  _ _ _\n***\nAfter the rules")).toBe("After the rules");
+  expect(messagePreview("--\nTwo dashes are text")).toBe("--");
+  expect(messagePreview("[pr]: https://example.com/12\nShipped.")).toBe("Shipped.");
+  expect(messagePreview("![chart](https://example.com/c.png) attached")).toBe("chart attached");
+  expect(messagePreview("Logs at <https://example.com/log>")).toBe("Logs at https://example.com/log");
+  // A fence closes only on its own marker, at least as long, alone on its line.
+  expect(messagePreview("```\n```not-a-close\n```")).toBe("```not-a-close");
+  // A shorter marker inside a longer fence is a line of its code, not its close.
+  expect(messagePreview("````\n```\nstill code\n````")).toBe("```");
+  expect(messagePreview("````\n\n````\nAfter the fence")).toBe("After the fence");
+  expect(messagePreview("~~~\n```\n~~~\nAfter")).toBe("```");
+  expect(messagePreview("```\n```   \nAfter the fence")).toBe("After the fence");
+  // Single emphasis drops; a snake_case word keeps its underscores.
+  expect(messagePreview("This is *really* _done_ now")).toBe("This is really done now");
+  expect(messagePreview("Set retry_count and max_wait_ms, *a* b")).toBe("Set retry_count and max_wait_ms, a b");
+  expect(messagePreview("2 * 3 * 4 stays")).toBe("2 * 3 * 4 stays");
+  // A shortcut reference reads as its label when the message defines it; an undefined one stays.
+  expect(messagePreview("Read [docs] first\n\n[Docs]: https://example.com/docs")).toBe("Read docs first");
+  expect(messagePreview("[lane] Ready for review")).toBe("[lane] Ready for review");
+  // A link reads as its label: Minimal Mode's closed line shows no URL.
+  expect(messagePreview("Opened [#24772](https://github.com/manaflow-ai/cmux/pull/24772) for review")).toBe(
+    "Opened #24772 for review",
+  );
 });
 
 // `acpmux send` relayed from another machine records no provenance (`client: "acpmux-peer#…"`), so

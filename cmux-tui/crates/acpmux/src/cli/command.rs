@@ -1004,6 +1004,17 @@ pub enum TicketCmd {
     /// Revoke a ticket, or a paired machine by id or name; its open
     /// connections close at once.
     Revoke { id: String },
+    /// Let a paired client machine run chats in Full access (on), or not
+    /// (off, the default): the agent edits files and runs commands on this
+    /// machine without asking. On needs the person (the cmux app's Settings);
+    /// off takes effect at once.
+    FullAccess {
+        /// The machine's id or name (`cmux host ticket ls`).
+        id: String,
+        /// on or off.
+        #[arg(value_parser = ["on", "off"])]
+        state: String,
+    },
 }
 
 #[derive(Args)]
@@ -1011,7 +1022,10 @@ pub struct NewArgs {
     /// A preset from `acpmux preset`: harness plus model, effort, policy, env. `-m` and `-e` still win.
     #[arg(long, short)]
     pub preset: Option<String>,
-    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path.
+    /// Create the session on this peer (see `acpmux host ls`). `--cwd` is then a remote path
+    /// inside the peer's webRoots (made when missing; left out, a scratch folder). The peer
+    /// starts it asking: `--mode`, and a `--policy` other than ask from a peer that serves this
+    /// machine as a remote client, are refused with the command that works instead.
     /// `auto` (`auto-build` for a build) takes `acpmux host place`'s pick.
     #[arg(long)]
     pub host: Option<String>,
@@ -1075,6 +1089,12 @@ pub struct NewArgs {
     /// Tell the new session that this session started it and how to report back.
     #[arg(long, value_name = "SESSION")]
     pub report_to: Option<String>,
+    /// Start it as SESSION's sub-session, of any harness (`-m codex`): it lists under SESSION's
+    /// chat and SESSION's agent reads, messages and stops it with its sub-session tools. SESSION
+    /// is the session this command runs in (`$ACPMUX_SESSION_ID`) or one of its sub-sessions.
+    /// Needs a prompt; prints the child's reply when its turn ends (with -d, only starts it).
+    #[arg(long, value_name = "SESSION")]
+    pub parent: Option<String>,
     /// Show the session in the cmux app's sidebar, in this workspace group
     /// (made when missing). Runs `cmux agent open` on this machine.
     #[arg(long, value_name = "GROUP")]

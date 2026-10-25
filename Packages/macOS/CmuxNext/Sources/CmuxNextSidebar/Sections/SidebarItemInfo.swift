@@ -49,6 +49,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// Levels the row's glyph and title step in under the item before it (a Chief subagent under
     /// the Chief entry); the inline, tile and icon-only looks ignore it.
     public var indent = 0
+    /// What VoiceOver reads for the row; nil reads `title`. For a row whose title only makes sense
+    /// under the item before it (a remote machine's room row names its machine here).
+    public var accessibilityTitle: String?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
