@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// A tab whose page's file choosers an agent can answer (`BrowserAgentFiles`): both engines' tabs.
 @MainActor
@@ -20,6 +21,15 @@ public final class BrowserAgentFiles {
         case refused(Refusal)
         /// No chooser opened before the offer ended (its time ran out, the open step failed, a newer offer).
         case withdrawn
+
+        /// How a page operation reports it: `chosen`, `withdrawn` or the refusal's code.
+        public var code: String {
+            switch self {
+            case .chosen: "chosen"
+            case .withdrawn: "withdrawn"
+            case .refused(let refusal): refusal.rawValue
+            }
+        }
     }
 
     /// Why a chooser could not take the offered files. The raw value is the control error code.
@@ -65,12 +75,10 @@ public final class BrowserAgentFiles {
             throw error
         }
         if !opened { end(id, .withdrawn) }
-        // An intentional bounded wait on the injected clock: a chooser opens within moments of the click or not at all.
-        let timer = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: limit)
-            self?.end(id, .withdrawn)
-        }
-        defer { timer.cancel() }
+        // A chooser opens within moments of the click or not at all: the offer's deadline.
+        let deadline = DemandTimer(owner: "browser.upload.chooser", clock: clock)
+        deadline.schedule(after: limit) { @MainActor [weak self] in self?.end(id, .withdrawn) }
+        defer { deadline.cancel() }
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 if let outcome = ended.removeValue(forKey: id) { return continuation.resume(returning: outcome) }
@@ -79,6 +87,20 @@ public final class BrowserAgentFiles {
         } onCancel: {
             Task { @MainActor [weak self] in self?.end(id, .withdrawn) }
         }
+    }
+
+    /// ``offer(_:within:clock:during:)`` with `script` as the open step on `page`: it runs as the agent (an agent
+    /// gesture, so the page may open a chooser) and answers `{error}` when its element is missing. Answers the
+    /// script's value with the outcome.
+    public func offer(_ files: [URL], within limit: Duration, clicking script: String,
+                      on page: any BrowserTab) async throws -> (answer: BrowserJSValue, outcome: Outcome) {
+        var answer: BrowserJSValue = .null
+        let outcome = try await offer(files, within: limit) {
+            answer = try await page.evaluate(script, world: .page, gesture: .agent)
+            if case .object(let members) = answer, members["error"] != nil { return false }
+            return true
+        }
+        return (answer, outcome)
     }
 
     /// The tab's chooser path: the offered files when a chooser of this kind can take them, `[]` (answer with a

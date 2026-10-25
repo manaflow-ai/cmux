@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 
@@ -57,17 +58,34 @@ extension BrowserPageService {
             },
             .async("browser.page.downloads") { call in
                 let limit = call.request.params["limit"]?.intValue
-                return try await engine.downloads(BrowserPageDownloadQuery(tabID: try Self.downloadTab(call), limit: limit))
+                let answer = try await engine.downloads(BrowserPageDownloadQuery(tabID: try Self.downloadTab(call), limit: limit))
+                guard case .list(let rows) = answer else { return ["downloads": []] }
+                return ["downloads": .array(rows.map(\.json))]
             },
             .async("browser.page.download.wait") { call in
                 let ms = min(max(call.request.params["timeout_ms"]?.intValue ?? Self.downloadWaitDefaultMs, 1), Self.downloadWaitMaxMs)
-                var answer = try await engine.downloads(BrowserPageDownloadQuery(
-                    tabID: try Self.downloadTab(call), id: Self.optionalString(call, "id"), wait: .milliseconds(ms)))
-                if let target = Self.optionalString(call, "path"), let source = answer["download"]?["path"]?.stringValue {
-                    let saved = try Self.copyDownload(from: source, to: target)
-                    answer = .object(["download": answer["download"] ?? .null, "path": .string(saved)])
+                let id = Self.optionalString(call, "id")
+                let answer = try await engine.downloads(BrowserPageDownloadQuery(tabID: try Self.downloadTab(call), id: id, wait: .milliseconds(ms)))
+                let row: BrowserPageDownload
+                switch answer {
+                case .ended(let ended): row = ended
+                case .unknownID:
+                    throw ControlError(code: "not_found", message: ControlStrings.format("control.error.downloadNotFound", "No download %@", id ?? ""))
+                case .timedOut, .list:
+                    throw ControlError(code: "timeout", message: ControlStrings.format("control.error.downloadTimedOut",
+                                                                                       "No download ended within %@ ms", String(ms)))
                 }
-                return answer
+                guard row.status == "finished" else {
+                    throw ControlError(code: "download_failed", message: ControlStrings.format("control.error.downloadFailed",
+                                                                                               "The download %1$@ did not finish (%2$@)",
+                                                                                               row.filename, row.reason ?? row.status),
+                                       data: row.json)
+                }
+                var result: [String: JSONValue] = ["download": row.json]
+                if let target = Self.optionalString(call, "path"), let source = row.path {
+                    result["path"] = .string(try Self.copyDownload(from: source, to: target))
+                }
+                return .object(result)
             },
         ]
     }
@@ -90,7 +108,7 @@ extension BrowserPageService {
 
     /// Copies a finished download to `target` (a folder takes the file's name) and answers the copy's path.
     static func copyDownload(from source: String, to target: String) throws -> String {
-        let manager = FileManager.default
+        let manager = FileManager.checked
         let from = URL(fileURLWithPath: source)
         var to = URL(fileURLWithPath: target)
         var isFolder: ObjCBool = false
@@ -129,7 +147,7 @@ extension BrowserPageService {
         }
         return try paths.map { path in
             var isDirectory: ObjCBool = false
-            guard path.hasPrefix("/"), FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            guard path.hasPrefix("/"), FileManager.checked.fileExists(atPath: path, isDirectory: &isDirectory) else {
                 throw ControlError(code: "not_found", message: ControlStrings.format("control.error.uploadFileMissing", "No file to upload at %@", path))
             }
             return URL(fileURLWithPath: path, isDirectory: isDirectory.boolValue)

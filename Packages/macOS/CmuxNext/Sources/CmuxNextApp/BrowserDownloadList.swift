@@ -43,12 +43,8 @@ final class BrowserDownloadList {
     /// The tab each download of this run came from. Rows restored from an
     /// earlier run have none, so they never show a tab's Downloads button.
     private var origins: [ObjectIdentifier: String] = [:]
-    /// When each download of this run started, and which ones a `browser.page.download.wait` already
-    /// answered with (`AppBrowserDownloads`): a wait reports each download once.
-    @ObservationIgnored private var started: [ObjectIdentifier: ContinuousClock.Instant] = [:]
-    @ObservationIgnored private var reported: Set<ObjectIdentifier> = []
-    /// Waits for the next download from a tab (nil: any tab), oldest first.
-    @ObservationIgnored private var nextWaiters: [(tab: String?, take: (BrowserDownload) -> Void)] = []
+    /// Agent waits on these downloads (`browser.page.download.wait`).
+    @ObservationIgnored let waits = BrowserDownloadWaits()
 
     /// Adds `item` (from tab `key`); `notice` shows a line over that tab.
     /// With `keep` false (an incognito tab) it is never written down.
@@ -61,10 +57,7 @@ final class BrowserDownloadList {
         pruneOrigins()
         logger.notice("download \(item.id, privacy: .public) started in tab \(key, privacy: .public)")
         onDownload?(item, key)
-        started[ObjectIdentifier(item)] = .now
-        let taking = nextWaiters.filter { $0.tab == nil || $0.tab == key }
-        nextWaiters.removeAll { $0.tab == nil || $0.tab == key }
-        taking.forEach { $0.take(item) }
+        waits.started(item, tab: key)
         item.onFinish { [weak self] item in
             if case .blocked = item.status, let site = item.blockedSite { self?.latestBlocked = (site, key) }
             self?.finished(item, notice: notice)
@@ -73,24 +66,6 @@ final class BrowserDownloadList {
 
     /// The tab `item` came from, when it started in this run.
     func origin(of item: BrowserDownload) -> String? { origins[ObjectIdentifier(item)] }
-
-    /// The oldest download of this run from tab `key` (nil: any tab) that started at or after `since` and no
-    /// wait reported yet: one that started, or even ended, between the agent's click and its wait.
-    func unreported(tab key: String?, since: ContinuousClock.Instant) -> BrowserDownload? {
-        items.first { item in
-            let id = ObjectIdentifier(item)
-            guard !reported.contains(id), let start = started[id], start >= since else { return false }
-            return key == nil || origins[id] == key
-        }
-    }
-
-    /// A wait answered with `item`; later waits pass it by.
-    func markReported(_ item: BrowserDownload) { reported.insert(ObjectIdentifier(item)) }
-
-    /// Calls `take` with the next download tab `key` (nil: any tab) starts.
-    func onNextDownload(tab key: String?, _ take: @escaping (BrowserDownload) -> Void) {
-        nextWaiters.append((key, take))
-    }
 
     /// True while a download tab `key` started in this run is still in progress (the page
     /// does not hibernate meanwhile).
@@ -129,8 +104,7 @@ final class BrowserDownloadList {
     private func pruneOrigins() {
         let listed = Set(items.map(ObjectIdentifier.init))
         if origins.keys.contains(where: { !listed.contains($0) }) { origins = origins.filter { listed.contains($0.key) } }
-        started = started.filter { listed.contains($0.key) }
-        reported.formIntersection(listed)
+        waits.keep(only: listed)
     }
 
     /// Retry in the Downloads menu: starts `item` again; the new download

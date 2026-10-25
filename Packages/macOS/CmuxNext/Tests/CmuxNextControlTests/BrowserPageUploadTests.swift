@@ -14,9 +14,9 @@ import Testing
         let fileInput: Bool
         let operations = Mutex<[BrowserPageOperation]>([])
         let queries = Mutex<[BrowserPageDownloadQuery]>([])
-        let download: JSONValue
+        let download: BrowserPageDownload?
 
-        init(chooser: String, fileInput: Bool = false, download: JSONValue = .null) {
+        init(chooser: String, fileInput: Bool = false, download: BrowserPageDownload? = nil) {
             self.chooser = chooser
             self.fileInput = fileInput
             self.download = download
@@ -30,9 +30,10 @@ import Testing
             return ["value": ["value": ["files": ["a.txt"]]]]
         }
 
-        func downloads(_ query: BrowserPageDownloadQuery) async throws -> JSONValue {
+        func downloads(_ query: BrowserPageDownloadQuery) async throws -> BrowserPageDownloads {
             queries.withLock { $0.append(query) }
-            return query.wait == nil ? ["downloads": []] : ["download": download]
+            guard query.wait != nil else { return .list([]) }
+            return download.map(BrowserPageDownloads.ended) ?? .timedOut
         }
 
         var uploads: [BrowserPageUpload] {
@@ -134,7 +135,8 @@ import Testing
         let router = install(engine)
 
         _ = try await call(router, "browser.page.downloads", ["limit": 5]).get()
-        _ = try await call(router, "browser.page.download.wait", ["id": "AB12", "timeout_ms": 1500]).get()
+        let waited = await call(router, "browser.page.download.wait", ["id": "AB12", "timeout_ms": 1500])
+        #expect(waited.controlError?.code == "timeout")
 
         let queries = engine.queries.withLock { $0 }
         #expect(queries == [
@@ -146,7 +148,7 @@ import Testing
     @Test func aFinishedDownloadIsCopiedWhereTheWaitSays() async throws {
         let (folder, paths) = try scratch(["report.pdf"])
         defer { try? FileManager.default.removeItem(at: folder) }
-        let engine = ChooserEngine(chooser: "chosen", download: ["status": "finished", "path": .string(paths[0])])
+        let engine = ChooserEngine(chooser: "chosen", download: BrowserPageDownload(id: "AB12", filename: "report.pdf", status: "finished", path: paths[0]))
         let router = install(engine)
         let target = folder.appendingPathComponent("out", isDirectory: true).path + "/"
 
@@ -156,6 +158,17 @@ import Testing
         #expect(result["path"] == .string(saved))
         #expect(FileManager.default.fileExists(atPath: saved))
         #expect(FileManager.default.fileExists(atPath: paths[0]), "the Downloads list's file moved")
+        #expect(result["download"]?["filename"] == "report.pdf")
+    }
+
+    @Test func aDownloadThatDidNotFinishFailsTheWaitWithItsRow() async throws {
+        let failed = BrowserPageDownload(id: "AB12", filename: "big.iso", status: "failed", reason: "Network error")
+        let router = install(ChooserEngine(chooser: "chosen", download: failed))
+
+        let answer = await call(router, "browser.page.download.wait", [:])
+
+        #expect(answer.controlError?.code == "download_failed")
+        #expect(answer.controlError?.data?["reason"] == "Network error")
     }
 }
 
