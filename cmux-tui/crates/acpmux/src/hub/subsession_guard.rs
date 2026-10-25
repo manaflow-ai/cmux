@@ -244,8 +244,10 @@ impl Hub {
         cwd: &Path,
         requested_name: Option<&str>,
     ) -> Result<(), RpcError> {
-        let parent_mode = crate::web_modes::mode_of(pm);
-        let parent_full = self.caller_access(pm) == Access::Full;
+        // The parent's mode as it is now: it may have left full access since the start was checked.
+        let live = parent.meta();
+        let parent_mode = crate::web_modes::mode_of(&live);
+        let parent_full = self.caller_access(&live) == Access::Full;
         // The parent's rules above its policy (which can deny) and the MCP
         // servers the user turned off apply to the child too.
         {
@@ -293,6 +295,14 @@ impl Hub {
                 self.start_in_mode(false, Some(&parent.id), &params, probe, false).await?;
             } else if let Err(e) = self.set_mode(probe, &mode).await {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
+            }
+            // Granted for the parent's full access, which its harness may only have claimed: the
+            // child's mode is cmux's own (`trust_wait.rs`) only when the parent's is, then and now.
+            if !super::trust_wait::full_access_by_cmux(pm)
+                || !super::trust_wait::full_access_by_cmux(&parent.meta())
+            {
+                probe.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
+                self.save_meta(probe);
             }
         }
         self.hold_subsession(pm, probe).await
@@ -474,7 +484,8 @@ impl Hub {
         self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
         let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
         let rules = !Self::web_turn(parent);
-        self.subsession_folder_check(pm, folder, Walk::Answered { rules }).await?;
+        // The parent as it is after the card: one that left full access meanwhile walks as it is now.
+        self.subsession_folder_check(&parent.meta(), folder, Walk::Answered { rules }).await?;
         Ok(decided)
     }
 

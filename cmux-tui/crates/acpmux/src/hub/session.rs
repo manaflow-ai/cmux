@@ -270,6 +270,9 @@ pub(super) struct Applied {
     /// (`opencode_ask.rs`); false for an agent host reached again after a
     /// daemon restart, which a narrower policy restarts (`policy_mode.rs`).
     pub opencode_asks: bool,
+    /// The mode acpmux had put the last agent in (`SessionMeta::mode_set_by_cmux`):
+    /// marked again only once acpmux puts this agent in it (`restore_mode_mark`).
+    pub replay_mark: Option<String>,
 }
 
 /// `sessions` newest first. Each session's `updated_at` is read once: other
