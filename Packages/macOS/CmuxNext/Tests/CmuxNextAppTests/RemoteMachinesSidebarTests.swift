@@ -57,10 +57,12 @@ struct RemoteMachinesSidebarTests {
         let lanes = (0..<(RemoteMachinesSidebar.pageSize + 3)).map { Self.lane("s\($0)", peer: "huge-blue", since: TimeInterval($0)) }
         let machines = RemoteMachinesSidebar.machines(lanes: lanes, peers: nil)
         let page = Self.rows(machines, expanded: ["huge-blue"])
-        #expect(page.count == 1 + RemoteMachinesSidebar.pageSize + 1)
+        // The header, a page, Show More, then Older.
+        #expect(page.count == 1 + RemoteMachinesSidebar.pageSize + 2)
         #expect(page.dropFirst().allSatisfy { $0.info.indent == 1 })
-        #expect(page.last?.info.title == RemoteMachinesStrings.showMore)
-        #expect(Self.rows(machines, expanded: ["huge-blue"], pages: ["huge-blue": 2]).count == 1 + lanes.count)
+        #expect(page.dropLast().last?.info.title == RemoteMachinesStrings.showMore)
+        #expect(page.last?.info.title == RemoteMachinesStrings.older)
+        #expect(Self.rows(machines, expanded: ["huge-blue"], pages: ["huge-blue": 2]).count == 1 + lanes.count + 1)
     }
 
     @Test func clicksFoldAndPageWithoutOpeningAnything() {
@@ -166,7 +168,8 @@ struct RemoteMachinesSidebarTests {
         #expect(machines.first { $0.peer == "big-red" }?.resources == nil)
         let rows = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue", "big-red"], pages: [:], resources: .row,
                                               displayName: { _ in nil })
-        #expect(rows.map(\.info.title) == ["huge-blue", "31 GB free · CPU 12/32", "a", RemoteMachinesStrings.offline("big-red")])
+        #expect(rows.map(\.info.title) == ["huge-blue", "31 GB free · CPU 12/32", "a", RemoteMachinesStrings.older,
+                                            RemoteMachinesStrings.offline("big-red")])
         #expect(rows[1].info.indent == 1)
         // VoiceOver names the machine on its room row.
         #expect(rows[1].info.accessibilityTitle == "huge-blue: 31 GB free · CPU 12/32")
@@ -178,12 +181,60 @@ struct RemoteMachinesSidebarTests {
         let header = RemoteMachinesSidebar.rows(machines: machines, expanded: [], pages: [:], resources: .header, displayName: { _ in nil })
         #expect(header.map(\.info.title) == ["huge-blue · 31 GB free", RemoteMachinesStrings.offline("big-red")])
         let off = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue"], pages: [:], resources: .off, displayName: { _ in nil })
-        #expect(off.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.offline("big-red")])
+        #expect(off.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.older, RemoteMachinesStrings.offline("big-red")])
         var hot = room
         hot.over = true
         hot.diskFreeGB = 8
         #expect(RemoteMachinesStrings.resources(hot) == "Busy · 31 GB free · CPU 12/32 · 8 GB disk")
         // No disk reading: no disk part, never "0 GB disk". One core reads "CPU 1/1".
         #expect(RemoteMachinesStrings.resources(.init(ramFreeGB: 1, coresBusy: 1, cores: 1, diskFreeGB: nil, over: false)) == "1 GB free · CPU 1/1")
+    }
+
+    /// Closed chats never count: they sit behind an Older row, dimmed, a page at a time.
+    @Test func olderShowsTheReadClosedChatsDimmedThenShowMore() {
+        let machines = RemoteMachinesSidebar.machines(lanes: [Self.lane("a", peer: "huge-blue")], peers: nil)
+        var read = RemoteMachinesSidebar.Older()
+        read.chats = [AcpmuxSessionPage.Chat(id: "c1", title: "Old fix", harness: "claude")]
+        (read.next, read.read) = ("k1.2", true)
+        let rows = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue"], pages: [:], resources: .off,
+                                              olderShown: ["huge-blue"], older: ["huge-blue": read], displayName: { _ in nil })
+        #expect(rows.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.older, "Old fix", RemoteMachinesStrings.showMore])
+        #expect(rows[0].info.badge == 1)
+        #expect(rows[3].info.isMissing && rows[3].info.indent == 2)
+        #expect(rows[3].item.id.rawValue == LayoutItemID.transientPrefix + "remote:older-session:huge-blue/c1")
+        // Closed: the rows stay but the chats hide.
+        let closed = RemoteMachinesSidebar.rows(machines: machines, expanded: ["huge-blue"], pages: [:], resources: .off,
+                                                older: ["huge-blue": read], displayName: { _ in nil })
+        #expect(closed.map(\.info.title) == ["huge-blue", "a", RemoteMachinesStrings.older])
+    }
+
+    @Test func olderOpensAndClosesAndAFoldForgetsIt() {
+        let sidebar = RemoteMachinesSidebar(lanes: AgentLaneStore())
+        sidebar.expanded = ["huge-blue"]
+        let olderRow = LayoutItemID(LayoutItemID.transientPrefix + "remote:older:huge-blue")
+        #expect(sidebar.activate(olderRow))
+        #expect(sidebar.olderShown == ["huge-blue"])
+        #expect(sidebar.activate(olderRow))
+        #expect(sidebar.olderShown.isEmpty)
+        #expect(sidebar.activate(olderRow))
+        #expect(sidebar.activate(LayoutItemID(LayoutItemID.transientPrefix + "remote:machine:huge-blue")))
+        #expect(sidebar.olderShown.isEmpty && sidebar.older["huge-blue"] == nil)
+        sidebar.expanded = []
+    }
+
+    @Test func aSessionsPageReadsTitlesAndTheNextCursor() {
+        let closed = ["peer": "cmux16", "status": "closed"]
+        let page = AcpmuxSessionPage.page(["sessions": [closed.merging(["sessionId": "s1", "name": "cmux16/cx3-dots", "title": "Dots", "harness": "codex"]) { $1 },
+                                                         closed.merging(["sessionId": "s2", "name": "cmux16/cx3-rail", "title": "cmux16/cx3-rail"]) { $1 },
+                                                         closed.merging(["name": "no-id"]) { $1 },
+                                                         // An older daemon ignores the filters: another peer's, this Mac's and a live chat stay out.
+                                                         ["sessionId": "o1", "name": "huge-blue/x", "peer": "huge-blue", "status": "closed"],
+                                                         ["sessionId": "o2", "name": "local", "status": "closed"],
+                                                         ["sessionId": "o3", "name": "cmux16/live", "peer": "cmux16", "status": "idle"]],
+                                           "nextCursor": "k5.9"], peer: "cmux16")
+        #expect(page.chats == [AcpmuxSessionPage.Chat(id: "s1", title: "Dots", harness: "codex"),
+                               AcpmuxSessionPage.Chat(id: "s2", title: "cx3-rail", harness: nil)])
+        #expect(page.next == "k5.9")
+        #expect(AcpmuxSessionPage.page(["sessions": [], "nextCursor": NSNull()], peer: "cmux16").next == nil)
     }
 }

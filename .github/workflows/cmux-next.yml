@@ -1433,6 +1433,10 @@ jobs:
             python3 tests/test_job_input_fingerprint.py
             # Only a pass from this repository's own runs is reused, never a fork's (scripts/ci/job_reuse.py).
             python3 tests/test_job_reuse.py
+            # The DEV Release app's key changes with every path that can reach it (dev-release-product).
+            python3 tests/test_dev_release_product_key.py
+            # A reused DEV Release app is trusted and intact, or the job compiles; DEV lane only.
+            python3 tests/test_dev_release_product_reuse.py
             # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
             python3 tests/test_merge_compile_guard.py
             # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
@@ -4238,9 +4242,41 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # The DEV Release app is reused, not recompiled, when nothing it is built from changed
+      # (scripts/ci/dev_release_product_reuse.py): the key is job_input_fingerprint.py
+      # dev-release-product (the tree minus docs, tests and other products, this workflow, Xcode,
+      # the SDK and the cmux-tui tree), never a branch or commit. A hit downloads the app another
+      # feat-cmux-next push or DEV run recorded under it and checks its SHA-256; a dev_daily run then
+      # skips the steps below that only feed xcodebuild. A miss, or any error, compiles as before.
+      # The key is the tree this job checked out and builds (the pushed or dispatched commit's).
+      # Signing and publishing still run at this exact SHA (cmux-next-dev-daily.yml). Only this
+      # workflow on feat-cmux-next reuses: never nightly or stable builds (hq#3967).
+      - name: Look up the DEV Release app compiled on the same inputs
+        id: dev-product
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true') || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKIP_REASON: ${{ inputs.no_reuse == true && 'no_reuse dispatch' || vars.CI_NEXT_DEV_PRODUCT_REUSE == '0' && 'vars.CI_NEXT_DEV_PRODUCT_REUSE is 0' || '' }}
+          # A repository variable the compile step reads changes the product but not this file: key it.
+          SWIFT_COMPILATION_MODE: ${{ vars.CMUX_NEXT_DEV_SWIFT_COMPILATION_MODE || 'singlefile' }}
+        run: |
+          set -euo pipefail
+          key="$(python3 -I scripts/ci/job_input_fingerprint.py dev-release-product \
+            --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
+            --extra "sdk=$(xcrun --sdk macosx --show-sdk-version) $(xcrun --sdk macosx --show-sdk-build-version)" \
+            --extra "arch=$(uname -m)" \
+            --extra "recipe=$(python3 -I -c 'import sys; sys.path.insert(0, "scripts/ci"); import dev_release_product_reuse as r; print(r.RECIPE)') swift_mode=$SWIFT_COMPILATION_MODE" \
+            --extra "tui_tree=${CMUX_TUI_TREE_KEY:-own}" | sed -n 's/^fingerprint=//p')"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+          python3 -I scripts/ci/dev_release_product_reuse.py lookup --key "$key" --skip "$SKIP_REASON" \
+            --out "$RUNNER_TEMP/cmux-next-dev-product" --timeout 180 >> "$GITHUB_OUTPUT"
+
       # The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
       # and runs check-daemon-capabilities.sh on it (Debug builds).
       - name: Fetch the same-tree cmux-tui
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         timeout-minutes: 50
         env:
           # See the package test job above. The helper compares the merge tree
@@ -4254,12 +4290,14 @@ jobs:
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         run: ./scripts/install-rust-ci.sh
 
       # The same-tree fetch above also brought this tree's acpmux (built once
       # with the cmux-tui binaries, cmuxterm-hq#1279). A tree published before
       # the tree build carried acpmux has none, and this compiles it.
       - name: Build in-tree acpmux for the app bundle
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         env:
           CMUX_NEXT_ACPMUX_ARCHS: arm64
         run: |
@@ -4281,6 +4319,7 @@ jobs:
       # bundles" phase refuses an app built without them, and this job's app is
       # the dogfood artifact.
       - name: Setup Bun
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
@@ -4288,16 +4327,19 @@ jobs:
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
       - name: Give this job its own bun
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
       - name: Setup Node
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Build the web bundles
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Compile the cmux scheme
@@ -4367,8 +4409,17 @@ jobs:
           CMUX_BUILD_METRICS_OUTPUT: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/metrics.json
           CMUX_BUILD_METRICS_SUMMARY: ${{ runner.temp }}/cmux-next-build-metrics/dev-daily/summary.md
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha || github.sha }}
+          REUSED_ARCHIVE: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.archive || '' }}
         run: |
           set -euo pipefail
+          if [[ -n "$REUSED_ARCHIVE" && -f "$REUSED_ARCHIVE" ]]; then
+            # The lookup checked these bytes against their record; the run that compiled them ran the
+            # checks below on them.
+            archive="$RUNNER_TEMP/cmux-next-dev-daily-unsigned-${DEV_DAILY_SHA}.app.zip"
+            mv -f "$REUSED_ARCHIVE" "$archive"
+            echo "archive=$archive" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           release_derived_data="$(scripts/cmux-next/release-derived-data-path.sh dev-daily-release Release)"
           # Only a mini keeps the cache between jobs; a fresh VM would pay to fill it.
           [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_COMPILATION_CACHE=0
@@ -4399,6 +4450,36 @@ jobs:
           if-no-files-found: error
           retention-days: 2
           compression-level: 0
+
+      # The record a later run on the same inputs looks up (dev_release_product_reuse.py lookup):
+      # this run's product artifact, its SHA-256 and where the bytes were compiled (provenance).
+      - name: Record the DEV Release app under its input key
+        id: dev-product-record
+        if: success() && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.dev-product.outputs.key != ''
+        continue-on-error: true
+        env:
+          KEY: ${{ steps.dev-product.outputs.key }}
+          ARCHIVE: ${{ steps.compile-cmux-next-dev-release.outputs.archive }}
+          SHA: ${{ inputs.dev_daily_sha || github.sha }}
+          REUSED_FROM_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_run_id || '' }}
+          REUSED_FROM_SHA: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.source_sha || '' }}
+          COMPILED_RUN: ${{ steps.dev-product.outputs.hit == 'true' && steps.dev-product.outputs.compiled_run_id || '' }}
+        run: |
+          python3 -I scripts/ci/dev_release_product_reuse.py record --key "$KEY" --sha "$SHA" --archive "$ARCHIVE" \
+            --reused-from-run "$REUSED_FROM_RUN" --reused-from-sha "$REUSED_FROM_SHA" --compiled-run "$COMPILED_RUN" \
+            --out "$RUNNER_TEMP/cmux-next-dev-product-record/manifest.json" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the DEV Release app record
+        if: steps.dev-product-record.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-dev-release-product-${{ steps.dev-product.outputs.key }}
+          path: ${{ runner.temp }}/cmux-next-dev-product-record/manifest.json
+          if-no-files-found: error
+          # As long as the product artifact it names.
+          retention-days: 2
+          overwrite: true
 
       # A crash ends the app, never freezes it (2026-10-20 NIGHTLY freezes): with
       # Sentry on, an uncaught exception must end the process within 8 s and a

@@ -24,7 +24,7 @@ public import Observation
 public final class RemoteMachinesSidebar {
     public static let shared = RemoteMachinesSidebar()
     /// Rows shown per page of an unfolded group; Show More adds one.
-    static let pageSize = 10
+    public static let pageSize = 10
     /// The longest a lane change waits before the groups show it.
     static let refreshInterval: Duration = .seconds(2)
     private static let expandedKey = "sidebar.remoteMachines.expanded"
@@ -33,6 +33,9 @@ public final class RemoteMachinesSidebar {
     private static let morePrefix = prefix + "more:"
     private static let sessionPrefix = prefix + "session:"
     private static let resourcesPrefix = prefix + "resources:"
+    private static let olderPrefix = prefix + "older:"
+    private static let olderMorePrefix = prefix + "older-more:"
+    private static let olderSessionPrefix = prefix + "older-session:"
 
     /// One chat row: only what it draws, so a lane's new step leaves it equal.
     public struct Chat: Hashable, Sendable {
@@ -53,16 +56,28 @@ public final class RemoteMachinesSidebar {
         public var resources: AcpmuxPeerList.Resources?
     }
 
-    /// What the App reaches: the daemon's peers (nil when it cannot say), a peer's display name,
-    /// and opening a chat.
+    /// A machine's closed chats read so far (its Older row), newest first.
+    public struct Older: Hashable, Sendable {
+        public var chats: [AcpmuxSessionPage.Chat] = []
+        /// The next page's cursor; nil once the last page is read.
+        public var next: String?
+        /// A page has been read (so an empty `chats` means none, not unknown).
+        public var read = false
+    }
+
+    /// What the App reaches: the daemon's peers (nil when it cannot say), a page of a peer's
+    /// closed chats (nil when it cannot say), a peer's display name, and opening a chat.
     public struct Host {
         public var peers: @Sendable () async -> [AcpmuxPeerList.Peer]?
+        public var older: @Sendable (_ peer: String, _ cursor: String?) async -> AcpmuxSessionPage.Page?
         public var displayName: (_ peer: String) -> String?
         public var open: (_ lane: AgentActivityLane) -> Void
 
-        public init(peers: @escaping @Sendable () async -> [AcpmuxPeerList.Peer]?, displayName: @escaping (String) -> String?,
-                    open: @escaping (AgentActivityLane) -> Void) {
+        public init(peers: @escaping @Sendable () async -> [AcpmuxPeerList.Peer]?,
+                    older: @escaping @Sendable (String, String?) async -> AcpmuxSessionPage.Page?,
+                    displayName: @escaping (String) -> String?, open: @escaping (AgentActivityLane) -> Void) {
             self.peers = peers
+            self.older = older
             self.displayName = displayName
             self.open = open
         }
@@ -76,6 +91,11 @@ public final class RemoteMachinesSidebar {
     }
     /// Pages an unfolded group shows (1 when absent); a fold resets it.
     public internal(set) var pages: [String: Int] = [:]
+    /// The machines whose Older row is open, and what each has read; a fold of the group closes it.
+    public internal(set) var olderShown: Set<String> = []
+    public internal(set) var older: [String: Older] = [:]
+    /// The Older page read in flight per machine (one at a time), cancelled by `stop()`.
+    @ObservationIgnored private var olderReads: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private let lanes: AgentLaneStore
     @ObservationIgnored private var host: Host?
     @ObservationIgnored private var peers: [AcpmuxPeerList.Peer]?
@@ -111,6 +131,8 @@ public final class RemoteMachinesSidebar {
         refresh.cancel()
         peerRead?.cancel()
         (laneWatch, peerRead) = (nil, nil)
+        olderReads.values.forEach { $0.cancel() }
+        olderReads = [:]
     }
 
     /// The rows now, every group in order. Read inside an observation scope, so a group, fold or
@@ -119,15 +141,41 @@ public final class RemoteMachinesSidebar {
         // A capture shows the first sample machine unfolded until a click folds or unfolds one.
         let shown = SidebarTunables.laneFixture.value && expanded.isEmpty && pages.isEmpty ? ["linux-box"] : expanded
         return Self.rows(machines: machines, expanded: shown, pages: pages, resources: SidebarTunables.remoteMachineResources.value,
-                         displayName: { [host] in host?.displayName($0) })
+                         olderShown: olderShown, older: older, displayName: { [host] in host?.displayName($0) })
     }
 
     /// Runs a click on one of the rows; false for any other item. A header folds or unfolds its
-    /// group, Show More adds a page, a chat opens.
+    /// group, Show More adds a page, Older opens or closes the machine's closed chats (its first
+    /// page read once), a chat opens.
     public func activate(_ id: LayoutItemID) -> Bool {
         let raw = id.rawValue
         if let peer = Self.suffix(raw, Self.machinePrefix) {
-            if expanded.remove(peer) == nil { expanded.insert(peer) } else { pages[peer] = nil }
+            if expanded.remove(peer) == nil {
+                expanded.insert(peer)
+            } else {
+                // A read in flight would land its page on the fresh state of the next unfold.
+                olderReads.removeValue(forKey: peer)?.cancel()
+                (pages[peer], older[peer]) = (nil, nil)
+                olderShown.remove(peer)
+            }
+            return true
+        }
+        if let peer = Self.suffix(raw, Self.olderPrefix) {
+            if olderShown.remove(peer) == nil {
+                olderShown.insert(peer)
+                if older[peer]?.read != true { readOlder(peer, cursor: nil) }
+            }
+            return true
+        }
+        if let peer = Self.suffix(raw, Self.olderMorePrefix) {
+            if let next = older[peer]?.next { readOlder(peer, cursor: next) }
+            return true
+        }
+        if let rest = Self.suffix(raw, Self.olderSessionPrefix), let cut = rest.firstIndex(of: "/") {
+            let (peer, session) = (String(rest[..<cut]), String(rest[rest.index(after: cut)...]))
+            let title = older[peer]?.chats.first { $0.id == session }?.title ?? session
+            host?.open(AgentActivityLane(id: session, name: peer + "/" + session, title: title, peer: peer, parent: nil, state: .idle,
+                                         since: nil, error: nil))
             return true
         }
         if Self.suffix(raw, Self.resourcesPrefix) != nil { return true }
@@ -147,6 +195,28 @@ public final class RemoteMachinesSidebar {
         let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
             : Self.machines(lanes: lanes.lanes.values, peers: peers)
         if machines != next { machines = next }
+    }
+
+    /// One bounded page of `peer`'s closed chats after `cursor`, appended; one read per machine at
+    /// a time. A failed read leaves what was read, so the next click tries again.
+    private func readOlder(_ peer: String, cursor: String?) {
+        guard olderReads[peer] == nil, let read = host?.older else { return }
+        // task-owner: this instance; one page read, bounded by the host's 2 s deadline, cancelled by `stop()`
+        olderReads[peer] = Task { [weak self] in
+            let page = await read(peer, cursor)
+            guard let self, !Task.isCancelled else { return }
+            olderReads[peer] = nil
+            guard olderShown.contains(peer) else { return }
+            guard let page else {
+                // A first page that failed closes the row again, so the next click reads it anew.
+                if older[peer]?.read != true { olderShown.remove(peer) }
+                return
+            }
+            var next = older[peer] ?? Older()
+            next.chats += page.chats.filter { chat in !next.chats.contains { $0.id == chat.id } }
+            (next.next, next.read) = (page.next, true)
+            older[peer] = next
+        }
     }
 
     /// Three machines for captures: two reachable with chats in each state, one offline.
@@ -229,7 +299,8 @@ public final class RemoteMachinesSidebar {
 
     @MainActor
     static func rows(machines: [Machine], expanded: Set<String>, pages: [String: Int],
-                     resources style: RemoteMachineResourcesStyle = .row, displayName: (String) -> String?) -> [SidebarTransientItem] {
+                     resources style: RemoteMachineResourcesStyle = .row, olderShown: Set<String> = [], older: [String: Older] = [:],
+                     displayName: (String) -> String?) -> [SidebarTransientItem] {
         var items: [SidebarTransientItem] = []
         // The groups draw right after the top items (the App Store, else Channels, else Home), above the workspaces.
         var previous: [LayoutItemRef] = [.app("cmux/app-store"), SidebarTransientItem.channels.item.ref, SidebarLayoutDocument.homeRef,
@@ -266,6 +337,21 @@ public final class RemoteMachinesSidebar {
                 var more = SidebarItemInfo(title: RemoteMachinesStrings.showMore, symbol: "ellipsis")
                 more.indent = 1
                 add(morePrefix + machine.peer, more)
+            }
+            // Its closed chats, behind one row: never counted, read a page at a time when opened.
+            var olderRow = SidebarItemInfo(title: RemoteMachinesStrings.older, symbol: "clock.arrow.circlepath")
+            olderRow.indent = 1
+            add(olderPrefix + machine.peer, olderRow)
+            guard olderShown.contains(machine.peer), let read = older[machine.peer] else { continue }
+            for chat in read.chats {
+                var row = SidebarItemInfo(title: chat.title, symbol: "bubble.left", isMissing: true, brand: chat.harness)
+                row.indent = 2
+                add(olderSessionPrefix + machine.peer + "/" + chat.id, row)
+            }
+            if read.next != nil {
+                var more = SidebarItemInfo(title: RemoteMachinesStrings.showMore, symbol: "ellipsis")
+                more.indent = 2
+                add(olderMorePrefix + machine.peer, more)
             }
         }
         return items
@@ -306,6 +392,8 @@ enum RemoteMachinesStrings {
     }
     /// A header with something after the machine's name.
     static func named(_ name: String, _ detail: String) -> String { name + " · " + detail }
+    /// The row under an unfolded group's live chats that opens its closed ones.
+    static var older: String { String(localized: "sidebar.remoteMachines.older", defaultValue: "Older", bundle: .module) }
     /// The row under an unfolded group's last shown chat when it has more.
     static var showMore: String { String(localized: "sidebar.remoteMachines.showMore", defaultValue: "Show More", bundle: .module) }
 }

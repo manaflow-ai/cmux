@@ -336,6 +336,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
         untyped(method::MUX_PAIR_ISSUE, Request),
+        untyped(method::MUX_PAIR_SET, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
