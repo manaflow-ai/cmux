@@ -98,6 +98,47 @@ def test_release_notes_history_carries_over_from_the_old_feed():
     assert 'for base in "${NIGHTLY_NEXT_FEED_BASE}" "${NIGHTLY_NEXT_LEGACY_FEED_BASE}"; do' in WORKFLOW
 
 
+def job_block(name: str) -> str:
+    match = re.search(rf"\n  {name}:\n(.*?)(?=\n  [a-z0-9-]+:\n|\Z)", WORKFLOW, re.S)
+    assert match, f"no job {name}"
+    return match.group(1)
+
+
+def job_env(block: str, name: str) -> str:
+    match = re.search(rf"\n      {name}: (\S+)\n", block)
+    assert match, f"no job env {name}"
+    return match.group(1)
+
+
+def test_each_app_reads_the_feed_its_publisher_writes():
+    # Leo, 2026-10-25: "but where are the nightlies?" cmux NIGHTLY checks the old
+    # feed; an app whose SUFeedURL names a feed no job writes never updates.
+    host = "https://files-next.cmux.com/"
+    next_base = env_value("NIGHTLY_NEXT_FEED_BASE")
+    legacy_base = env_value("NIGHTLY_NEXT_LEGACY_FEED_BASE")
+    # cmux NEXT: SUFeedURL is feedBase/appcast-<variant>.xml; the upload writes
+    # NIGHTLY_NEXT_R2_PREFIX + each of the track's feeds, served from the same path.
+    assert field(identity_block(), "feedBase") == "process.env.NIGHTLY_NEXT_FEED_BASE"
+    assert '"${CHANNEL_FEED_BASE}/${NIGHTLY_APPCAST}"' in WORKFLOW
+    assert 'NIGHTLY_APPCAST="appcast-${NIGHTLY_VARIANT}.xml"' in WORKFLOW
+    assert "? ['arm64']" in WORKFLOW and "? ['appcast-arm64.xml']" in WORKFLOW
+    upload = WORKFLOW[WORKFLOW.index("- name: Upload nightly-next appcasts to R2"):]
+    upload = upload[:upload.index("\n      - name:", 10)]
+    assert 'for appcast in $NIGHTLY_FEEDS; do' in upload and 'key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"' in upload
+    assert next_base == host + env_value("NIGHTLY_NEXT_R2_PREFIX").rstrip("/")
+    # cmux NIGHTLY: the legacy sign job bakes LEGACY_BASE/LEGACY_APPCAST, and the
+    # legacy publish job uploads that same key.
+    sign = job_block("sign-nightly-identity-legacy")
+    publish = job_block("publish-nightly-identity-legacy")
+    assert job_env(sign, "LEGACY_APPCAST") == job_env(publish, "LEGACY_APPCAST") == "appcast-arm64.xml"
+    assert 'LEGACY_FEED_URL="${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in sign
+    assert f'prefix="${{NIGHTLY_NEXT_LEGACY_FEED_BASE#{host}}}"' in publish
+    assert 'upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST"' in publish
+    assert legacy_base.startswith(host) and legacy_base != next_base
+    # main's feed watch alarms when this feed falls behind; it must watch the same URL.
+    assert f"{legacy_base}/appcast-arm64.xml" == "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
+
+
 def main() -> int:
     tests = [(name, fn) for name, fn in globals().items() if name.startswith("test_") and callable(fn)]
     failed = 0
