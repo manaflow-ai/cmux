@@ -12,10 +12,10 @@ export const DRAG_SLOP_PX = 4;
 /// so the page never carries a chip's id, which may hold a file's name).
 const SLOT = "[data-attachment-index]";
 
-/// The index a chip dragged to `x` goes to, among `centers` (the other chips' horizontal centers,
-/// left to right, the dragged one left out).
-export function dropIndex(x: number, centers: readonly number[]): number {
-  const before = centers.findIndex((center) => x < center);
+/// The index a chip dragged to `x` goes to, among `centers` (the other chips' horizontal centers in
+/// the strip's order, the dragged one left out). Right to left the strip's order runs leftward.
+export function dropIndex(x: number, centers: readonly number[], rtl = false): number {
+  const before = centers.findIndex((center) => (rtl ? x > center : x < center));
   return before < 0 ? centers.length : before;
 }
 
@@ -83,7 +83,8 @@ export function useStripReorder(
       }
       event.preventDefault();
       const { ids: order, onReorder: reorder } = live.current;
-      const index = dropIndex(event.clientX, centers(press.id));
+      const rtl = getComputedStyle(strip).direction === "rtl";
+      const index = dropIndex(event.clientX, centers(press.id), rtl);
       if (order.indexOf(press.id) !== index) reorder?.(press.id, index);
     };
     const end = () => {
@@ -110,7 +111,9 @@ export function useStripReorder(
       const { ids: order, onReorder: reorder } = live.current;
       if (!id || !reorder) return;
       event.preventDefault();
-      const index = order.indexOf(id) + (event.key === "ArrowLeft" ? -1 : 1);
+      // The arrow's way on screen: right to left, Option-Left moves a chip later in the strip.
+      const earlier = (event.key === "ArrowLeft") !== (getComputedStyle(strip).direction === "rtl");
+      const index = order.indexOf(id) + (earlier ? -1 : 1);
       if (index >= 0 && index < order.length) reorder(id, index);
     };
     strip.addEventListener("pointerdown", down);

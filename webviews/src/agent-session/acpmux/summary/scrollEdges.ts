@@ -25,6 +25,12 @@ export function followScrollEdges(node: HTMLElement, axis: "y" | "x" = "y"): () 
   const watchChild = (child: Node) => {
     if (child.nodeType !== 1) return;
     const element = child as Element;
+    // A child that draws no box of its own (display: contents, the attachment strip's slots)
+    // never resizes: its children are the ones laid out in the row.
+    if (getComputedStyle(element).display === "contents") {
+      for (const inner of element.children) watchChild(inner);
+      return;
+    }
     if (children.has(element)) return;
     children.add(element);
     resize.observe(element);
@@ -32,6 +38,7 @@ export function followScrollEdges(node: HTMLElement, axis: "y" | "x" = "y"): () 
   const unwatchChild = (child: Node) => {
     if (child.nodeType !== 1) return;
     const element = child as Element;
+    for (const inner of element.children) unwatchChild(inner);
     if (!children.delete(element)) return;
     resize.unobserve(element);
   };

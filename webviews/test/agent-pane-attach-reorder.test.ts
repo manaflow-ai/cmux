@@ -138,6 +138,27 @@ await requireBrowserLane("agent-pane-attach-reorder.test.ts", async () => {
     await page.close();
   });
 
+  test("right to left, Option-Left moves a chip later in the strip, as it looks", async () => {
+    const page = await newChat();
+    await page.evaluate(() => document.documentElement.setAttribute("dir", "rtl"));
+    await staged(page);
+    await page.locator(".acpmux-attachment-image .acpmux-attachment-open").nth(0).focus();
+    await page.keyboard.press("Alt+ArrowLeft");
+    expect(await order(page)).toEqual(["400", "300", "500"]);
+    await page.keyboard.press("Alt+ArrowRight");
+    expect(await order(page)).toEqual(["300", "400", "500"]);
+    await page.close();
+  });
+
+  test("a strip of chips wider than the composer marks the side it scrolls to", async () => {
+    const page = await newChat();
+    await page.setViewportSize({ width: 420, height: 640 });
+    await staged(page);
+    // The chips' images decoded after the strip mounted: its fade still says there is more.
+    await page.waitForFunction(() => document.querySelector(".acpmux-attachments")?.hasAttribute("data-fade-right"));
+    await page.close();
+  });
+
   test("a plain click on a chip still opens it", async () => {
     const page = await newChat();
     await staged(page);
