@@ -39,6 +39,10 @@ Per mode:
            its Chromium pages selected). helper: light, the host page idles and scrolls while the in-process tab
            stays open, idle, in the other pane (cmux's pump still runs for it and the spare page).
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
+  identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
+           (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
+           `open -b <bundle id>` (never the host), the keys of cmux's defaults domain that changed while the host
+           ran, and a Quit AppleEvent to the bundle id (cmux quits, not the host; last row).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
 
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
@@ -157,6 +161,7 @@ def probe_color_share():
 
 BENCH_START = time.time()
 APP_LOG = {}
+DEFAULTS = {}
 
 
 def app_log_lines(needles, limit=40):
@@ -212,6 +217,56 @@ def host_crash_reports():
                 entry["unreadable"] = str(error)
             found.append(entry)
     return found
+
+
+def app_bundle_id():
+    import plistlib
+    with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
+        return plistlib.load(f).get("CFBundleIdentifier")
+
+
+def ls_types():
+    """LaunchServices' view of every app: {pid: application type} (`lsappinfo list`: Foreground has a Dock icon and
+    a menu bar, UIElement and BackgroundOnly do not)."""
+    import re
+    done = subprocess.run(["/usr/bin/lsappinfo", "list"], capture_output=True, text=True, timeout=20)
+    types = {}
+    for block in re.split(r"\n(?=\s*\d+\) )", done.stdout):
+        pid = re.search(r"\bpid = (\d+)", block)
+        kind = re.search(r'\btype="([^"]+)"', block)
+        if pid:
+            types[int(pid.group(1))] = kind.group(1) if kind else None
+    return types
+
+
+def front_pid():
+    """The pid of LaunchServices' frontmost app, or None."""
+    import re
+    asn = subprocess.run(["/usr/bin/lsappinfo", "front"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not asn:
+        return None
+    info = subprocess.run(["/usr/bin/lsappinfo", "info", "-only", "pid", asn], capture_output=True, text=True, timeout=20).stdout
+    found = re.search(r"(\d+)", info.split("=", 1)[-1])
+    return int(found.group(1)) if found else None
+
+
+def defaults_snapshot(domain):
+    """cmux's defaults domain as {key: value repr} (`defaults export`), or None."""
+    import plistlib
+    done = subprocess.run(["/usr/bin/defaults", "export", domain, "-"], capture_output=True, timeout=20)
+    if done.returncode != 0:
+        return None
+    try:
+        return {k: repr(v)[:200] for k, v in plistlib.loads(done.stdout).items()}
+    except Exception:  # noqa: BLE001 - an unreadable export is reported as None
+        return None
+
+
+def defaults_diff(before, after):
+    if before is None or after is None:
+        return None
+    return {"added": sorted(set(after) - set(before)), "removed": sorted(set(before) - set(after)),
+            "changed": sorted(k for k in set(before) & set(after) if before[k] != after[k])}
 
 
 def pid_gone(pid):
@@ -436,6 +491,8 @@ def run_helper(rpc, url, inproc_tab):
     rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
     time.sleep(1)  # test harness: the split settles
     pixels = {"before_open": probe_color_share()}
+    bundle_id = app_bundle_id()
+    DEFAULTS["before"] = defaults_snapshot(bundle_id)
     reply = rpc("debug.chromium_host", {"op": "open", "url": url, "focus": True}) or {}
     if reply.get("error"):
         RESULT["modes"]["helper"] = {"error": reply["error"]}
@@ -470,6 +527,18 @@ def run_helper(rpc, url, inproc_tab):
         fx, fy, dy = spots[element]
         return {"x": bx + bw * fx, "y": by + bh * fy + dy}
     row = drive(rpc, "helper", title, {}, {}, click_point)
+    # The host is a second executable of cmux.app with its bundle id: it must stay out of the Dock, the menu bar
+    # and Cmd-Tab (UIElement), never be frontmost while cmux takes keys, and `open -b` must reach cmux, not it.
+    host_pid, app_pid = state.get("pid"), (rpc("debug.chromium_host") or {}).get("app_pid")
+    types = ls_types()
+    identity = {"host_pid": host_pid, "app_pid": app_pid, "host_type": types.get(host_pid), "app_type": types.get(app_pid),
+                "front_after_input": front_pid()}
+    opened = subprocess.run(["/usr/bin/open", "-b", bundle_id], capture_output=True, text=True, timeout=30)
+    time.sleep(1.5)  # test harness: LaunchServices activates the target app
+    identity["open_b"] = {"exit": opened.returncode, "stderr": opened.stderr.strip()[:200], "front": front_pid(),
+                          "host_still_runs": not pid_gone(host_pid), "host_type": ls_types().get(host_pid)}
+    identity["pass"] = (identity["host_type"] in ("UIElement", "BackgroundOnly") and identity["front_after_input"] != host_pid
+                        and identity["open_b"]["front"] != host_pid and identity["open_b"]["host_type"] in ("UIElement", "BackgroundOnly"))
     # The same baseline with the page in the host: cmux's pump still runs for in-process Chromium (the
     # in-process tab, idle in the other pane, and the spare page), the host's page idles and scrolls.
     host_point = click_point("t")
@@ -482,6 +551,7 @@ def run_helper(rpc, url, inproc_tab):
     row["hop_us"] = hop
     row["ping_us"] = rpc("debug.chromium_host.measure", {"op": "ping", "count": 500}, timeout=60)
     RESULT["modes"]["helper"] = row
+    row["identity"] = identity
     row["host_pid"] = state.get("pid")
     row["fork_api"] = state.get("fork_api")
 
@@ -539,6 +609,8 @@ def run_lifetime(app, url):
     row["close"] = {"pid": pid, "ended": ended, "seconds": seconds, "phase": after.get("phase"),
                     "restarts_before": restarts, "restarts_after": after.get("restarts")}
     row["close"]["pass"] = ended and seconds < QUIT_LIMIT_S and after.get("phase") == "idle" and after.get("restarts") == restarts
+    # Keys of cmux's defaults domain that changed while the host ran (cmux writes some itself: read the names).
+    RESULT["modes"]["helper"]["defaults_while_host_ran"] = defaults_diff(DEFAULTS.get("before"), defaults_snapshot(app_bundle_id()))
 
     # 2. a host whose UI thread never reads quit (SIGSTOP; a child of the cmux this bench started) is SIGKILLed at the limit.
     rpc("debug.chromium_host", {"op": "open", "url": url})  # over the focused pane
@@ -554,18 +626,31 @@ def run_lifetime(app, url):
                          "exits": (rpc("debug.chromium_host") or {}).get("exits")}
     row["stop_close"]["pass"] = ended and QUIT_LIMIT_S - 1 <= seconds <= QUIT_LIMIT_S + 5
 
-    # 3. SIGKILL to cmux: the host reads EOF and ends itself within the limit (launchd reaps the orphan).
+    # 3. A Quit AppleEvent to cmux's bundle id (the Dock's Quit): cmux must get it, not the host (the same bundle
+    # id); then the host reads EOF and ends itself within the limit. When cmux does not quit (a confirmation, or
+    # Automation not allowed for this bench), SIGKILL to cmux checks the EOF end instead.
     rpc("debug.chromium_host", {"op": "open", "url": url})
     state = shown_host(pid)
     if not state:
-        row["cmux_killed"] = {"error": "no host after the second reopen", "state": rpc("debug.chromium_host")}
+        row["cmux_quit"] = {"error": "no host after the second reopen", "state": rpc("debug.chromium_host")}
         return False
     pid = state["pid"]
-    app.process.kill()  # the cmux process this bench started
-    app.process.wait(30)
+    quit_event = subprocess.run(["/usr/bin/osascript", "-e", f'tell application id "{app_bundle_id()}" to quit'],
+                                capture_output=True, text=True, timeout=40)
+    try:
+        app.process.wait(20)
+        cmux_quit = True
+    except subprocess.TimeoutExpired:
+        cmux_quit = False
+    row["ae_quit"] = {"osascript_exit": quit_event.returncode, "stderr": quit_event.stderr.strip()[:200],
+                      "cmux_quit": cmux_quit, "host_ended_first": pid_gone(pid) and not cmux_quit}
+    row["ae_quit"]["pass"] = cmux_quit and not row["ae_quit"]["host_ended_first"]
+    if not cmux_quit:
+        app.process.kill()  # the cmux process this bench started
+        app.process.wait(30)
     ended, seconds = timed_end(pid, QUIT_LIMIT_S + 15)
-    row["cmux_killed"] = {"pid": pid, "ended": ended, "seconds": seconds}
-    row["cmux_killed"]["pass"] = ended and seconds <= QUIT_LIMIT_S + 1
+    row["cmux_killed" if not cmux_quit else "cmux_quit"] = {"pid": pid, "ended": ended, "seconds": seconds,
+                                                             "pass": ended and seconds <= QUIT_LIMIT_S + 1}
     if not ended:
         os.kill(pid, signal.SIGKILL)  # leave no host behind on the measure host (a grandchild of this bench)
     return True
