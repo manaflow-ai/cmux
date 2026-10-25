@@ -6,13 +6,15 @@
 // When the list opens or names new pull requests, the page registers them with the host
 // (`link.inspect`, sixty-four to a call, the host's bound per request), which reads every stale one
 // in one batched GraphQL query and never the same link twice in a minute; then it asks the host
-// for each answer (`pr.inspect`), a local call that never waits on GitHub. While the host says a
-// read is running, the page asks it again every WAIT_MS (a call to the App, as the hover card
-// does). A later transcript change registers the list again at most once a minute, and so does
-// each minute the list stays open and shown, so a row the chat no longer touches still follows a
-// merge, a push or a new comment: one batched read per minute for the links gone stale, never one
-// per row. That timer stops when the list closes or unmounts, and skips a minute while the page
-// is hidden. The header's pull request (the chat folder's, which the App reads live) wins over
+// for each answer (`pr.inspect` with `cached`), a local call that answers from the cache and never
+// starts a GitHub read, so no row ever costs a read of its own. While the host says a read is
+// running, the page asks it again every WAIT_MS (a call to the App). Each minute the list stays
+// open and shown it registers again, so a row the chat no longer touches still follows a merge, a
+// push or a new comment: one batched read per minute for the links gone stale. A transcript
+// update that names no new pull request does nothing here. Nothing registers or asks while
+// Changes is folded, the Inspector is closed or the page is hidden; the timers and the
+// visibility listener stop when it folds, closes or unmounts, and a page shown again registers
+// at once. The header's pull request (the chat folder's, which the App reads live) wins over
 // the cache.
 import { useEffect, useSyncExternalStore } from "react";
 import { kindTotals } from "../../../fileKinds";
@@ -20,6 +22,7 @@ import { callChipHost } from "../chips/host";
 import {
   askPullRequest,
   pullRequestAnswer,
+  pullRequestsVersion,
   subscribePullRequests,
   type PullRequestAnswer,
 } from "../chips/pullRequestStore";
@@ -32,40 +35,14 @@ export const REGISTER_BATCH = 64;
 export const REGISTER_EVERY_MS = 60_000;
 /// How long the page waits before asking the host again while it reads.
 const WAIT_MS = 1_500;
-/// How long a read may take from its start to its answer: two gh reads run at a time and each may
-/// take AgentChatPullRequestReader's 30 s timeout, so an answer that finished this long after a
-/// close was asked for after it.
-export const READ_SLACK_MS = 60_000;
-
 const registered = new Map<string, number>();
-/// The state the page first saw each pull request in, and when (epoch ms). A row compares that with
-/// when the chat closed it: a read that started before the close and answered after it still says
-/// open, but the page saw it open before the close, so the close stands (the header's own rule,
-/// headerState.stateSince). The host's `fetchedAt` is when a read finished, too late on its own,
-/// so it bounds the time only less READ_SLACK_MS (``stateSince``).
-const firstSeen = new Map<string, { state: string; at: number }>();
-const MAX_SEEN = 500;
 
-function seenSince(url: string, state: string, now: number): number {
-  const seen = firstSeen.get(url);
-  if (seen?.state === state) return seen.at;
-  if (!seen && firstSeen.size >= MAX_SEEN) firstSeen.delete(firstSeen.keys().next().value!);
-  firstSeen.set(url, { state, at: now });
-  return now;
-}
-
-/// When the row's state was true, at the latest: when the page first saw it, but never later than
-/// the host's read could have started (`fetchedAt`, seconds, less READ_SLACK_MS). A cached open
-/// answer read before the chat's close, which the page first sees after it (the list was closed
-/// meanwhile), so stays before the close and cannot reopen the row.
-function stateSince(url: string, state: string, fetchedAt: number | undefined, now: number): number {
-  const seen = seenSince(url, state, now);
-  return typeof fetchedAt === "number" ? Math.min(seen, fetchedAt * 1_000 - READ_SLACK_MS) : seen;
-}
+const hidden = () => typeof document !== "undefined" && document.visibilityState === "hidden";
 
 /// Registers the links not registered in the last minute, REGISTER_BATCH to a call, then asks the host
-/// for each one's answer.
+/// for each one's answer from its cache. Nothing while the page is hidden.
 export function refreshChanges(urls: readonly string[], now = Date.now()): void {
+  if (hidden()) return;
   // A registration older than a minute is due again anyway, so it need not be kept.
   for (const [url, at] of registered) if (now - at >= REGISTER_EVERY_MS) registered.delete(url);
   const due = urls.filter((url) => !registered.has(url));
@@ -90,10 +67,7 @@ const BREAKDOWN: Record<string, ChangeKind> = {
 };
 
 /// One answer as the row reads it; undefined when the host has none.
-export function changesStatus(
-  answer: PullRequestAnswer | undefined,
-  now = Date.now(),
-): InspectorPullRequestStatus | undefined {
+export function changesStatus(answer: PullRequestAnswer | undefined): InspectorPullRequestStatus | undefined {
   const pr = answer?.pullRequest;
   if (!pr) return undefined;
   const failing = pr.checkList.filter((check) => check.state === "failed").length;
@@ -117,7 +91,9 @@ export function changesStatus(
     ...(failing > 0 ? { failing } : {}),
     // The host's count of those that fail at the base branch's tip too (dimmed on the row).
     ...(failing > 0 && (pr.checks.failingOnBase ?? 0) > 0 ? { failingOnBase: pr.checks.failingOnBase } : {}),
-    ...(pr.state ? { since: stateSince(pr.url, pr.state, answer.fetchedAt, now) } : {}),
+    // What the answer says was true when its read began (the host's `readFrom`): a row the chat
+    // closed reopens only for a read that began after the close, however long its batch took.
+    ...(pr.state && typeof answer.readFrom === "number" ? { since: answer.readFrom * 1_000 } : {}),
   };
 }
 
@@ -128,57 +104,78 @@ export type ChangesStatuses = {
 };
 
 const EMPTY: ChangesStatuses = { statuses: {}, reading: false };
-/// The last statuses built, so an unchanged list keeps the object React has.
-let cache: { key: string; answers: readonly (PullRequestAnswer | undefined)[]; value: ChangesStatuses } = {
-  key: "",
-  answers: [],
-  value: EMPTY,
-};
+/// The last statuses built, so an unchanged list keeps the object React has, and a render is no
+/// pass over the list until the list or one of the store's answers changes.
+let cache: {
+  key: string;
+  version: number;
+  answers: readonly (PullRequestAnswer | undefined)[];
+  value: ChangesStatuses;
+} = { key: "", version: -1, answers: [], value: EMPTY };
 
 function statusesOf(key: string): ChangesStatuses {
   if (!key) return EMPTY;
+  const version = pullRequestsVersion();
+  if (key === cache.key && version === cache.version) return cache.value;
   const urls = key.split("\n");
   const answers = urls.map(pullRequestAnswer);
-  if (key === cache.key && answers.every((answer, index) => answer === cache.answers[index])) return cache.value;
+  if (key === cache.key && answers.every((answer, index) => answer === cache.answers[index])) {
+    cache = { ...cache, version };
+    return cache.value;
+  }
   const statuses: Record<string, InspectorPullRequestStatus> = {};
   urls.forEach((url, index) => {
     const status = changesStatus(answers[index]);
     if (status) statuses[url] = status;
   });
-  cache = { key, answers, value: { statuses, reading: answers.some((answer) => answer?.reading === true) } };
+  cache = {
+    key,
+    version,
+    answers,
+    value: { statuses, reading: answers.some((answer) => answer?.reading === true) },
+  };
   return cache.value;
 }
 
-/// Registers `urls` again every `every` ms while the page is shown, so a row follows its pull request
-/// while the chat is quiet. Stops when the returned function runs (the list closed or unmounted);
-/// a minute while the page is hidden is skipped, not caught up.
+/// Registers `urls` again every `every` ms while the page is shown, and at once when a hidden page
+/// is shown again, so a row follows its pull request while the chat is quiet. Stops when the
+/// returned function runs (the list folded, closed or unmounted); a minute while the page is
+/// hidden is skipped, not caught up.
 export function keepChangesFresh(urls: readonly string[], every = REGISTER_EVERY_MS): () => void {
-  const timer = setInterval(() => {
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    refreshChanges(urls);
-  }, every);
-  return () => clearInterval(timer);
+  const timer = setInterval(() => refreshChanges(urls), every);
+  const shown = () => {
+    if (!hidden()) refreshChanges(urls);
+  };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", shown);
+  return () => {
+    clearInterval(timer);
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", shown);
+  };
 }
 
-/// What the App's cache has for `urls`, refreshed while `open` when the list or `tick` (the
-/// transcript) changes, and each minute it stays open.
-export function useChangesStatuses(urls: readonly string[], open: boolean, tick: unknown): ChangesStatuses {
-  const key = open ? urls.join("\n") : "";
+/// What the App's cache has for `urls` while `shown` (the Inspector drawn); registered and asked
+/// for only while `active` too (Changes unfolded), when the list changes and each minute after.
+export function useChangesStatuses(urls: readonly string[], shown: boolean, active: boolean): ChangesStatuses {
+  const key = shown ? urls.join("\n") : "";
+  const live = active ? key : "";
   const read = () => statusesOf(key);
   const { statuses, reading } = useSyncExternalStore(subscribePullRequests, read, read);
   useEffect(() => {
-    if (key) refreshChanges(key.split("\n"));
-  }, [key, tick]);
-  // Each minute while open: the host re-reads the links gone stale, in batches.
-  useEffect(() => (key ? keepChangesFresh(key.split("\n")) : undefined), [key]);
+    if (!live) return;
+    const list = live.split("\n");
+    refreshChanges(list);
+    // Each minute while it stays unfolded: the host re-reads the links gone stale, in batches.
+    return keepChangesFresh(list);
+  }, [live]);
   // While the host reads, ask it again: a call to the App, which answers from its cache.
   useEffect(() => {
-    if (!key || !reading) return;
+    if (!live || !reading) return;
     const timer = setInterval(() => {
-      for (const url of key.split("\n")) if (pullRequestAnswer(url)?.reading) askPullRequest(url);
+      if (hidden()) return;
+      for (const url of live.split("\n")) if (pullRequestAnswer(url)?.reading) askPullRequest(url);
     }, WAIT_MS);
     return () => clearInterval(timer);
-  }, [key, reading]);
+  }, [live, reading]);
   return { statuses, reading };
 }
 
@@ -208,6 +205,5 @@ export function withHeader(
 /// Tests start from nothing.
 export function resetChangesStatuses(): void {
   registered.clear();
-  firstSeen.clear();
-  cache = { key: "", answers: [], value: EMPTY };
+  cache = { key: "", version: -1, answers: [], value: EMPTY };
 }

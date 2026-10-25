@@ -13,12 +13,17 @@ public nonisolated struct AgentPanePullRequestAnswer: Equatable, Sendable {
     public var pullRequest: AgentPanePullRequest?
     /// When gh gave that answer, in seconds since 1970; nil with no answer.
     public var fetchedAt: Double?
+    /// When the read that gave it began, in seconds since 1970: what it says was true then, so a
+    /// pull request the chat closed after this reopens only for a read that began later.
+    public var readFrom: Double?
     /// A read is running now, so the page asks the host again shortly instead of giving up.
     public var reading: Bool
 
-    public init(pullRequest: AgentPanePullRequest? = nil, fetchedAt: Double? = nil, reading: Bool = false) {
+    public init(pullRequest: AgentPanePullRequest? = nil, fetchedAt: Double? = nil, readFrom: Double? = nil,
+                reading: Bool = false) {
         self.pullRequest = pullRequest
         self.fetchedAt = fetchedAt
+        self.readFrom = readFrom
         self.reading = reading
     }
 }

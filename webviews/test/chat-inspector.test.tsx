@@ -588,7 +588,7 @@ test("a folded Changes registers nothing with the host and asks it nothing", asy
   const container = installDom(true);
   const calls: string[] = [];
   setChipHost(async (method) => {
-    calls.push(method);
+    if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
     return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
   });
   setInspectorSection("changes", false);

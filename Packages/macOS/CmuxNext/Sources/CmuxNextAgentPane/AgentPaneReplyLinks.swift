@@ -51,6 +51,9 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
     /// however often it is hovered (``AgentReplyPullRequests``).
     public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
+    /// The same answer from the cache alone, never starting a read (`pr.inspect` with `cached`):
+    /// the Inspector's Changes asks it for many links, whose reads its batched registration starts.
+    public var cachedPullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
@@ -66,11 +69,12 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
     /// `pr.inspect`'s reply: the pull request the host already has, when it was read, and whether
     /// a read is running. `null` with no answer yet; the card then shows what the chat knows.
-    func respondToPullRequest(_ url: URL) -> [String: Any] {
-        let answer = pullRequest(url)
+    func respondToPullRequest(_ url: URL, cached: Bool = false) -> [String: Any] {
+        let answer = cached ? cachedPullRequest(url) : pullRequest(url)
         var reply: [String: Any] = ["pullRequest": answer.pullRequest?.json.foundationObject ?? NSNull(),
                                     "reading": answer.reading]
         if let fetchedAt = answer.fetchedAt { reply["fetchedAt"] = fetchedAt }
+        if let readFrom = answer.readFrom { reply["readFrom"] = readFrom }
         return AgentPaneReply.success(reply)
     }
 
@@ -86,8 +90,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
         switch request {
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": choices.list(from: browsers)])
-        case .inspectPullRequest(let url):
-            return respondToPullRequest(url)
+        case .inspectPullRequest(let url, let cached):
+            return respondToPullRequest(url, cached: cached)
         case .openIn(let url, let browserId):
             if browserId == "cmux" {
                 guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
