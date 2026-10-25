@@ -55,7 +55,13 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import { cliHost, incomingPrompt, type IncomingContext, type IncomingMessage } from "./conversation/incomingMessage";
+import {
+  cliHost,
+  incomingPrompt,
+  type IncomingContext,
+  type IncomingMessage,
+  type IncomingPrompt,
+} from "./conversation/incomingMessage";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -425,11 +431,24 @@ export function queuedMessage(msg: any, context?: IncomingContext): IncomingMess
   const text = String(msg?.text ?? "");
   const incoming = incomingPrompt(text, msg, context);
   if (incoming?.kind === "message") return incoming.message;
+  return namedSender(text, msg);
+}
+
+/// A prompt acpmux records with the agent that sent it (`fromAgent`, `acpmux send --from`) as that
+/// agent's message: a queued one, and a steer it sent into the turn, which draws as the received
+/// card with its read note (conversation/QueuedMessageCard.tsx), not as the person's bubble.
+function namedSender(text: string, msg: any): IncomingMessage | undefined {
   const name = typeof msg?.fromAgent === "string" ? msg.fromAgent.trim() : "";
   if (!name) return undefined;
   const lead = text.trimStart();
   const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
   return { name, text: (named ? lead.slice(named.length) : text).trim(), raw: text };
+}
+
+/// A prompt record no envelope or provenance names the sender of, read by its `fromAgent`.
+function fromAgentPrompt(raw: string, msg: any): IncomingPrompt | undefined {
+  const message = namedSender(raw, msg);
+  return message && { kind: "message", message };
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -3165,7 +3184,7 @@ export class AcpmuxDirectClient {
           ? undefined
           : blank
             ? ({ kind: "hidden" } as const)
-            : incomingPrompt(raw, msg, this.incomingContext());
+            : (incomingPrompt(raw, msg, this.incomingContext()) ?? fromAgentPrompt(raw, msg));
         const shown =
           incoming?.kind === "message"
             ? { text: incoming.message.text, incoming, resend: raw }

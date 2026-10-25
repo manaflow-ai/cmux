@@ -3948,6 +3948,15 @@ article.acpmux-row:empty {
 .cv-received__reply:focus-visible {
   color: var(--cv-text);
 }
+/* Another agent's message the agent has not read yet (QueuedMessageCard.tsx): one quiet caption at
+   the line's end, always shown, still. No spinner, no dot, no motion. */
+.cv-received__queued {
+  flex: none;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  line-height: var(--cv-meta-row);
+  white-space: nowrap;
+}
 /* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
    reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
 .cv-waiting {

@@ -13,7 +13,7 @@ import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
-import type { Subsessions } from "./subagents/subsessions";
+import { ownQueue } from "./conversation/queuedMessages";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -187,8 +187,6 @@ type Props = {
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   /// Stable: each queued thumbnail reads once.
   queueImage?(id: string): Promise<string | undefined>;
-  /// The listed chats, among which a queued agent's message finds its sender's (ComposerQueue.tsx).
-  queueSubsessions?: Subsessions;
   /// Asks a queued prompt in a new side chat and withdraws it (the queued row's Open in side chat);
   /// absent where the chat opens no side chat.
   onQueueSideChat?(promptId: string, prompt: string): Promise<boolean>;
@@ -304,7 +302,6 @@ export function Composer({
   onQueueLost,
   onQueueSideChat,
   queueImage,
-  queueSubsessions,
   draft,
   leading,
   permissionAccess,
@@ -1464,7 +1461,7 @@ export function Composer({
     locationSlotSession.current = undefined;
     locationSlotWasShown.current = false;
   }
-  const keepLocationSlot = !locationVisible && locationWasVisible && snapshot.queue.length === 0;
+  const keepLocationSlot = !locationVisible && locationWasVisible && ownQueue(snapshot.queue).length === 0;
   const context = locationVisible ? (
     <ComposerContext
       projectChoices={projectChoices}
@@ -1575,7 +1572,6 @@ export function Composer({
         onLost={onQueueLost}
         onSideChat={onQueueSideChat}
         readImage={queueImage}
-        subsessions={queueSubsessions}
         onLeave={() => field.current?.focus()}
       />
       {context}

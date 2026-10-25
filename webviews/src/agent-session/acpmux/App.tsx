@@ -39,7 +39,10 @@ import {
   nextDrawnRow,
   isBeforeFooter,
   isLastFooter,
+  QUEUED_MESSAGE,
 } from "./model";
+import { ownQueue, queuedMessageRows } from "./conversation/queuedMessages";
+import { QueuedMessageCard, QueuedMessageMenu, QueuedMessageNote } from "./conversation/QueuedMessageCard";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -880,7 +883,23 @@ const MessageRow = memo(
             images={row.images}
             onOpen={openSenderChat}
             onReply={replyToMessage}
-            actions={<ReceivedActions row={row} text={row.incoming.message.text} />}
+            actions={
+              row.steer === "waiting" ? (
+                // A steer the agent has not read yet: a quiet note, and Send now in its ⋯ menu.
+                <>
+                  <QueuedMessageNote after="step" />
+                  <ReceivedActions row={row} text={row.incoming.message.text} />
+                  {row.steerPromptId && (
+                    <QueuedMessageMenu
+                      steer={sendSteerNow(row.steerPromptId)}
+                      steerLabel="steer.sendNow"
+                    />
+                  )}
+                </>
+              ) : (
+                <ReceivedActions row={row} text={row.incoming.message.text} />
+              )
+            }
             githubRepository={githubRepository}
           />
         </div>
@@ -1258,6 +1277,18 @@ const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", 
 /// lists, this Mac's or a peer's, beside this one or in the tab that shows it (`sender`).
 const openSenderChat = (sessionId: string) =>
   void callNative("chat.offer.open", { sessionId, sender: true }).catch(() => undefined);
+/// Send now on a steer the agent has not read (`_acpmux/queue_edit` send_now with its promptId).
+const sendSteerNow = (promptId: string) => () => void editQueued(promptId, { op: "send_now" }).catch(() => false);
+/// Another agent's message waiting in the queue: its received card after the running turn
+/// (conversation/QueuedMessageCard.tsx).
+const QueuedMessageRow = memo(
+  function QueuedMessageRow({ row, githubRepository }: RowProps) {
+    return (
+      <QueuedMessageCard row={row} onOpen={openSenderChat} onReply={replyToMessage} githubRepository={githubRepository} />
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
 /// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
 const replyToMessage = (message: IncomingMessage, text: string) =>
   callNative<void>("chat.message.reply", {
@@ -1291,6 +1322,7 @@ const OfferResultRow = memo(
 );
 
 const NO_STARTED: readonly StartedSession[] = [];
+const NO_ROWS: readonly AcpmuxRow[] = [];
 const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
 const NO_COMMANDS: readonly BackgroundCommand[] = [];
@@ -1329,6 +1361,7 @@ const defaultRegistry: NativeRegistry = {
   sessionStart: SessionStartRow,
   sessionOffer: SessionOfferRow,
   [OFFER_RESULT]: OfferResultRow,
+  [QUEUED_MESSAGE]: QueuedMessageRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -2347,7 +2380,15 @@ export function VirtualTranscript({
     // Rows that only grew below the ones there (a streaming turn) left none behind, also when the
     // running turn's line stays last under them (`below`, conversation/turns.ts).
     if (previous && previous.length <= rows.length) {
-      const line = previous.at(-1)?.below === true && rows.at(-1)?.id === previous.at(-1)!.id ? 1 : 0;
+      // So do the queued messages after it (conversation/queuedMessages.ts), each still last.
+      let line = 0;
+      while (
+        line < previous.length &&
+        (previous[previous.length - 1 - line]!.kind === QUEUED_MESSAGE ||
+          previous[previous.length - 1 - line]!.below === true) &&
+        rows[rows.length - 1 - line]?.id === previous[previous.length - 1 - line]!.id
+      )
+        line += 1;
       // `rowsChange` already found the first changed object while this render was prepared. Reuse
       // that boundary instead of copying the unchanged prefix and walking it a second time for
       // every streamed snapshot. Only the changed suffix can have lost a row id.
@@ -4212,7 +4253,8 @@ function AcpmuxPane() {
     [clientSnapshot, switchView, catalog],
   );
   useEffect(() => setMinimapVisible(true), [snapshot.sessionId]);
-  const queueIds = useMemo(() => snapshot.queue.map((entry) => entry.id), [snapshot.queue]);
+  // The person's own queued prompts: another agent's message never draws in the composer's queue.
+  const queueIds = useMemo(() => ownQueue(snapshot.queue).map((entry) => entry.id), [snapshot.queue]);
   // Another chat ends the replay: coming back to this one opens it live.
   if (replaying && snapshot.sessionId !== replaying) setReplaying(undefined);
   // A /btw failure belongs to its chat: another chat drops it.
@@ -4736,7 +4778,7 @@ function AcpmuxPane() {
   const lastTurns = useRef<{ turns: TurnView; subagents: SubagentRows } | undefined>(undefined);
   /// Debug Settings `agent.sessionStatus`: a running turn's activity line under its todo list.
   const sessionStatus = useSessionStatus();
-  const transcriptRows = useMemo(() => {
+  const turnRowsShown = useMemo(() => {
     if (childRows) return withoutAskedCalls(withoutQuietThoughts(childRows), panelAsks);
     const startedRows = withStartedSessions(sourceRows, started, startedCache.current);
     // Labs: a Claude workflow is a card where it started (summary/WorkflowCard.tsx), not a tray line.
@@ -4775,6 +4817,18 @@ function AcpmuxPane() {
     subagentTray,
     workflowLabsEnabled,
   ]);
+  // Another agent's messages waiting in the queue: their received cards after the running turn, in
+  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows. A chat with none
+  // keeps its rows as they are; one with some copies the row list once per change.
+  const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const queuedRows = useMemo(
+    () => (childRows ? NO_ROWS : (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current))),
+    [childRows, snapshot.queue],
+  );
+  const transcriptRows = useMemo(
+    () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
+    [turnRowsShown, queuedRows],
+  );
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -5281,6 +5335,19 @@ function AcpmuxPane() {
               restore: (text, attachments) => composerHandle.current?.restore(text, attachments),
             }),
         }),
+      // Another agent's queued message, from its card's ⋯ menu (conversation/queuedMessages.ts): the
+      // queue row's Steer and Delete, and Edit message, which takes it into the composer.
+      ...(connected && {
+        queuedMessage: {
+          steer: (promptId: string) => editQueued(promptId, { op: "send_now" }),
+          remove: removeQueued,
+          edit: async (promptId: string, text: string) => {
+            const removed = await removeQueued(promptId);
+            if (removed) composerHandle.current?.restore(text, []);
+            return removed;
+          },
+        },
+      }),
       ...(connected &&
         loginCommand &&
         snapshot.summary?.hostKind !== "cloud" && {
@@ -8764,7 +8831,6 @@ function AcpmuxPane() {
                 : undefined
             }
             queueImage={readQueuedImage}
-            queueSubsessions={subsessions}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}
