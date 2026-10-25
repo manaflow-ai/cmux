@@ -12,7 +12,9 @@ describe("agentRun", () => {
 
   test("an inline prompt, through the perl alarm and timeout wrappers", () => {
     expect(
-      agentRun(`cd /tmp && perl -e 'alarm 120; exec @ARGV' codex exec -m gpt-6.1-sol --skip-git-repo-check "Reply with OK." 2>&1 | tail -5`),
+      agentRun(
+        `cd /tmp && perl -e 'alarm 120; exec @ARGV' codex exec -m gpt-6.1-sol --skip-git-repo-check "Reply with OK." 2>&1 | tail -5`,
+      ),
     ).toEqual({ harness: "codex", model: "gpt-6.1-sol", prompt: "Reply with OK." });
     expect(agentRun(`timeout -k 5 600 nohup env A=1 codex exec "Codex xhigh re-review of hq#4038"`)?.prompt).toBe(
       "Codex xhigh re-review of hq#4038",

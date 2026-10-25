@@ -109,7 +109,12 @@ export function agentRunOf(argv: readonly string[]): AgentRun | undefined {
 
 /// `stdin` is what the command string's own standard input reads (`reach H '…' < prompt.txt`):
 /// its commands that redirect none read it.
-function runIn(command: string, stdin: Stdin | undefined, host: string | undefined, depth: number): AgentRun | undefined {
+function runIn(
+  command: string,
+  stdin: Stdin | undefined,
+  host: string | undefined,
+  depth: number,
+): AgentRun | undefined {
   // A command string inside a command string inside …: deep enough for `reach H 'sh -c "…"'`.
   if (depth > 4) return undefined;
   for (const simple of simpleCommands(command)) {
@@ -123,7 +128,12 @@ const base = (word: string) => word.slice(word.lastIndexOf("/") + 1);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 /// Looks through the wrappers before the command that runs, then reads that command.
-function unwrap(argv: string[], stdin: Stdin | undefined, host: string | undefined, depth: number): AgentRun | undefined {
+function unwrap(
+  argv: string[],
+  stdin: Stdin | undefined,
+  host: string | undefined,
+  depth: number,
+): AgentRun | undefined {
   // `X=1 codex …`, and env's own `env X=1 codex …`.
   let at = 0;
   while (at < argv.length && ASSIGNMENT.test(argv[at]!)) at += 1;
@@ -172,7 +182,9 @@ function unwrap(argv: string[], stdin: Stdin | undefined, host: string | undefin
     case "ssh": {
       const after = skipFlags(rest, SSH_VALUES);
       const [target, ...command] = after;
-      return target && command.length > 0 ? runIn(command.join(" "), stdin, target.replace(/^.*@/, ""), depth + 1) : undefined;
+      return target && command.length > 0
+        ? runIn(command.join(" "), stdin, target.replace(/^.*@/, ""), depth + 1)
+        : undefined;
     }
   }
   const cli = CLIS[name];
@@ -203,7 +215,8 @@ function optionValue(word: string, next: string | undefined, names: readonly str
 }
 
 function read(cli: Cli, args: readonly string[], stdin: Stdin | undefined, host: string | undefined) {
-  if (args.some((word) => word === "--help" || word === "-h" || word === "--version" || word === "-V")) return undefined;
+  if (args.some((word) => word === "--help" || word === "-h" || word === "--version" || word === "-V"))
+    return undefined;
   const run: AgentRun = { ...(cli.family && { harness: cli.family }), ...(host && { host }) };
   // The subcommand that started the run, or the flag.
   let started: string | undefined;
@@ -457,8 +470,7 @@ function closing(src: string, open: number): number {
     else if (c === "'") {
       const close = src.indexOf("'", at + 1);
       at = close < 0 ? src.length : close + 1;
-    }
-    else if (c === '"') {
+    } else if (c === '"') {
       at += 1;
       while (at < src.length && src[at] !== '"') at += src[at] === "\\" ? 2 : 1;
       at += 1;
