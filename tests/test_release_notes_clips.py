@@ -87,6 +87,14 @@ class ClipTests(unittest.TestCase):
         # Nothing else changed in the highlight after that: the build after has no highlight.
         git(self.repo, "commit", "-q", "--allow-empty", "-m", "later")
         self.assertEqual(self.build(second, git(self.repo, "rev-parse", "HEAD")), [])
+        # A new title over the same clip announces nothing again.
+        path = os.path.join(self.repo, HIGHLIGHT)
+        with open(path) as f:
+            text = f.read()
+        with open(path, "w") as f:
+            f.write(text.replace("title: Archive sidebar workspaces", "title: Archive workspaces"))
+        git(self.repo, "commit", "-qam", "release-notes: retitle archive")
+        self.assertEqual(self.build(second, git(self.repo, "rev-parse", "HEAD")), [])
 
     def test_an_old_highlight_is_not_announced_again(self):
         first = self.commit("", "sidebar: archive (#1)", date="2026-09-01T12:00:00Z")

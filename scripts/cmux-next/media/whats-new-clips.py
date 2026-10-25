@@ -337,8 +337,8 @@ def check(specs: Path = SPECS, highlights: Path = HIGHLIGHTS) -> list[str]:
         match = CLIP_LINE.match(lines[0])
         if len(lines) > 1 or not match:
             problems.append(f"{path.name}: one line 'clip: URL | SHA256'")
-        elif not match["url"].startswith(f"{URL_PREFIX}{path.stem}/"):
-            problems.append(f"{path.name}: the clip lives at {URL_PREFIX}{path.stem}/")
+        elif not re.fullmatch(re.escape(f"{URL_PREFIX}{path.stem}/") + r"[0-9a-f]{12}\.webp", match["url"]):
+            problems.append(f"{path.name}: the clip lives at {URL_PREFIX}{path.stem}/SHA12.webp")
         if not (specs / f"{path.stem}.json").is_file():
             problems.append(f"{path.name}: a clip needs its spec, clips/{path.stem}.json, so the next one is recorded the same way")
     return problems

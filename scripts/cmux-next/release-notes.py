@@ -245,7 +245,8 @@ def reannounced(since, head, added):
             continue
         before = parse_highlight(path, git("show", f"{since}:{path}"))
         after = parse_highlight(path, git("show", f"{head}:{path}"))
-        if not after["media"] or before["media"] == after["media"]:
+        clip = lambda h: [(m["url"], m["sha256"]) for m in h["media"]]
+        if not after["media"] or clip(before) == clip(after):  # a new title alone re-announces nothing
             continue
         born = git("log", "--diff-filter=A", "--format=%ct", "-1", head, "--", path).strip()
         if born and head_time - int(born) <= CLIP_REANNOUNCE_DAYS * 86400:

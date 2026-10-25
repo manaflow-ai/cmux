@@ -119,6 +119,9 @@ class HighlightTests(unittest.TestCase):
             self.assertTrue(any("no highlight gone.md" in p for p in clips.check(specs, highlights)))
             (highlights / "other.md").write_text(f"title: T\nclip: {URL} | {SHA}\n\nBody.\n")
             self.assertTrue(any("lives at" in p for p in clips.check(specs, highlights)))
+            (highlights / "other.md").unlink()
+            (highlights / "sidebar-archive.md").write_text(f"title: T\nclip: {URL}?x=1 | {SHA}\n\nBody.\n")
+            self.assertTrue(any("lives at" in p for p in clips.check(specs, highlights)))  # release-notes.py drops it
 
 
 if __name__ == "__main__":
