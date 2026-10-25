@@ -154943,6 +154943,30 @@
         }
       }
     },
+    "settings.agentPane.display.environment": {
+      "comment": "Settings > Appearance > Agent Chat: the machine and folder Session Info chip's placement below the tab row",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session Info Chip"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.environment.help": {
+      "comment": "Settings > Appearance > Agent Chat > Session Info Chip: help for the Left / Right / Off choice",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the machine · folder chip sits below the tab row. Left keeps it at the top-left; Right moves it to the top-right; Off hides it."
+          }
+        }
+      }
+    },
     "settings.agentPane.display.inspector": {
       "comment": "Settings > Appearance > Agent Chat: the row choosing how Session Info (the chat's right-hand panel, formerly the Inspector) opens",
       "extractionState": "manual",
