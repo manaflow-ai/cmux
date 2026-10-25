@@ -31,9 +31,9 @@
 set -euo pipefail
 temp="${RUNNER_TEMP:-$(mktemp -d)}"
 root="$(git rev-parse --show-toplevel)"
+list="$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt"
 exports=()
-while IFS= read -r path; do exports+=("$path"); done < <(
-  sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt")
+while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$list")
 (( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 
 base_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)")"
@@ -56,12 +56,35 @@ inputs=()
 while IFS= read -r path; do inputs+=("$path"); done < <(
   printf '%s\n%s\n' "$base_stamp" "$head_stamp" | awk 'NF == 2 { print $2 }' | sort -u)
 
+# An export the base parent still wrote and HEAD does not: HEAD^1's settings sources include the
+# export tests, so the base export writes it back even though HEAD dropped it from the list. HEAD's
+# re-export never touches it and the committed-exports fallback does not list it, so it would sit in
+# the checkout for the "Regenerate stale files" step's `docs/mdm/*` glob to collect and push back --
+# the removal undone by the repair (review of #23915). HEAD's copy if it still tracks one (a file
+# that stopped being an export but stayed committed), otherwise gone.
+gone=()
+while IFS= read -r path; do
+  printf '%s\n' "${exports[@]}" | grep -qxF "$path" || gone+=("$path")
+done < <(git show "HEAD^1:$(git ls-files --full-name -- "$list")" 2>/dev/null |
+  sed -e 's/#.*//' -e '/^[[:space:]]*$/d')
+
+# A path HEAD does not have. `git checkout HEAD^1 -- path` below STAGES it, so deleting the file
+# alone leaves the index holding it (`AD` in git status), which is a staged addition for anything
+# that commits with `git add -A` afterwards. The index entry goes back to HEAD's too: absent.
+restore_absent() {
+  rm -f "$1"
+  git reset -q HEAD -- "$1" 2>/dev/null || true
+}
+
 restored=0
 restore() {
   (( restored )) && return 0
   restored=1
+  for path in ${gone[@]+"${gone[@]}"}; do
+    if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
+  done
   for path in "${inputs[@]}"; do
-    if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f "$path"; fi
+    if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
   done
   # From HEAD's sources again: this rewrites every export and rebuilds the package's test
   # products, so both the checkout and the built binaries are HEAD's.

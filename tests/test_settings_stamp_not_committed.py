@@ -86,19 +86,52 @@ class OneListOfTheExports(unittest.TestCase):
         "scripts/cmux-next/base-autofix-settings-landed.sh",  # judges whether the tip's are current
         "scripts/cmux-next/base-autofix-land.sh",             # matches them on the tip
         "scripts/cmux-next/tests/pr-autofix.test.sh",         # its fixture is exactly them
+        "scripts/ci/run-swift-testing-suites.sh",             # puts them in the fleet's artifact
+        "scripts/cmux-next/generated_outputs.py",             # maps them to the inputs that own them
+        "scripts/ci/next_batch.py",                           # knows only a mini can rebuild them
+        "scripts/cmux-next/pr-autofix-apply.sh",              # lets a repair push them
+        "scripts/cmux-next/swift-exports-key.py",             # keys the export cache on them
     )
 
+    # A test's own fixture may name the exports it drives: a short copy there weakens that test,
+    # it does not write a wrong artifact. Only the scripts CI runs have to read the list.
+    FIXTURES = (
+        "scripts/cmux-next/tests/base-autofix-push.test.sh",
+        "scripts/cmux-next/tests/base-autofix-settings-landed.test.sh",
+        "scripts/cmux-next/tests/generated-ownership.test.sh",
+    )
+
+    # The checks below read only the code, so a path in a comment is prose, not a copy.
+    @staticmethod
+    def code_of(script: str) -> str:
+        return "\n".join(line for line in (ROOT / script).read_text(encoding="utf-8").splitlines()
+                         if not line.lstrip().startswith("#"))
+
     def test_no_script_keeps_its_own_copy_of_the_list(self):
-        """Six scripts need this list, and each one reads it. A hand-kept enumeration is a place it
+        """Seven scripts need this list, and each one reads it. A hand-kept enumeration is a place it
         can drift: the base export rewrites EVERY export, so a script whose copy is short leaves one
         holding base bytes. A classifier that matches a path or two by glob
         (`docs/mdm/*`) is not an enumeration; naming most of the list is."""
         for script in self.READERS:
             body = (ROOT / script).read_text(encoding="utf-8")
             self.assertIn("settings-exports.txt", body, f"{script} does not read the list")
-            code = "\n".join(line for line in body.splitlines() if not line.lstrip().startswith("#"))
-            named = [path for path in self.paths() if path in code]
+            named = [path for path in self.paths() if path in self.code_of(script)]
             self.assertLess(len(named), 3, f"{script} enumerates the list ({named}) instead of reading it")
+
+    def test_no_script_anywhere_enumerates_the_exports(self):
+        """The check above only looks at the scripts that read the list, so it cannot see a copy in
+        a script that does not. scripts/ci/run-swift-testing-suites.sh was exactly that: it put all
+        six exports in the fleet's artifact from its own list, so an export added to the real list
+        would have been missing there and nothing would have said so (review of #23915). Every
+        script that names most of the exports has to be a reader."""
+        scripts = git("ls-files", "--", "scripts/*.sh", "scripts/*.py").stdout.split()
+        for script in scripts:
+            if script in self.READERS or script in self.FIXTURES:
+                continue
+            named = [path for path in self.paths() if path in self.code_of(script)]
+            self.assertLess(len(named), 3,
+                            f"{script} keeps its own copy of the exports ({named}); it must read "
+                            "scripts/cmux-next/settings-exports.txt and join READERS")
 
     def test_every_script_that_reads_the_list_is_named_here(self):
         """A new reader has to join READERS, so the check above covers it. The workflows and the
@@ -212,12 +245,13 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             self.assertIn("EXPORTED", result.stdout)
 
     def run_step_on_merge(self, base_edit, pr_edit, env_extra=None, keep=(), swift_exit=None,
-                          build_products=False) -> subprocess.CompletedProcess:
+                          build_products=False, legacy=False) -> subprocess.CompletedProcess:
         """The step on a merge commit: base_edit(repo) lands on the base without an export, then
         pr_edit(repo) is the pull request; the fake export writes both exports from A.swift's text.
 
         `swift_exit` puts a `swift` on PATH that exits with it, for the restore's plain rebuild of
         the package; `build_products` leaves built products in the package for it to keep or remove.
+        `legacy` adds a third source and export, for a pull request that removes one.
 
         Returns the step's result with `.repo` set, and asserts the checkout is HEAD's apart from
         the paths in `keep` (the exports the event itself leaves stale)."""
@@ -250,9 +284,17 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
         (repo / "docs/mdm/managed-preferences.md").write_text("w1\n")
         fake = repo / "scripts/cmux-next"
         fake.mkdir(parents=True)
-        (fake / "settings-exports.txt").write_text(
-            "schemas/settings/settings-schema.json\ndocs/mdm/managed-preferences.md\n")
+        listed = ["schemas/settings/settings-schema.json", "docs/mdm/managed-preferences.md"]
+        if legacy:
+            # A third source and the export it writes, so a pull request can REMOVE one. The base
+            # export runs from HEAD^1's sources, which still have LEGACY.swift, so it writes the
+            # removed export back into the checkout.
+            (settings / "LEGACY.swift").write_text("l1\n")
+            (repo / "docs/mdm/legacy.md").write_text("l1\n")
+            listed.append("docs/mdm/legacy.md")
+        (fake / "settings-exports.txt").write_text("".join(f"{path}\n" for path in listed))
         # `$1` is OUT, whose basename says which call this is; the restore's is settings-head-exports.
+        # The legacy export is written only while its source is there, as the real export tests do.
         (fake / "regenerate-settings-exports.sh").write_text(
             "#!/bin/sh\nset -e\nsrc=Packages/macOS/CmuxNext/Sources/CmuxNextSettings\n"
             'case "${CMUX_TEST_EXPORT_FAILS_ON_RESTORE:-}${1##*/}" in\n'
@@ -260,7 +302,12 @@ class ExportsAreComparedWithAFreshExport(unittest.TestCase):
             "esac\n"
             'cp "$src/A.swift" schemas/settings/settings-schema.json\n'
             'cp "$src/B.swift" docs/mdm/managed-preferences.md\n'
-            "for f in schemas/settings/settings-schema.json docs/mdm/managed-preferences.md; do\n"
+            'written="schemas/settings/settings-schema.json docs/mdm/managed-preferences.md"\n'
+            'if [ -f "$src/LEGACY.swift" ]; then\n'
+            '  cp "$src/LEGACY.swift" docs/mdm/legacy.md\n'
+            '  written="$written docs/mdm/legacy.md"\n'
+            "fi\n"
+            'for f in $written; do\n'
             '  git diff --quiet -- "$f" || echo "regenerated: $f"\n'
             "done\n")
         (fake / "regenerate-settings-exports.sh").chmod(0o755)
@@ -379,6 +426,24 @@ class TheCheckoutIsHeadsAfterwards(ExportsAreComparedWithAFreshExport):
         after = self.exports_after(result)
         self.assertEqual(after[self.SCHEMA], "v1\n", "the schema is neither HEAD's export nor the committed copy")
         self.assertEqual(after[self.DOCS], "w2\n", "the docs are neither HEAD's export nor the committed copy")
+
+    def test_an_export_this_event_removed_does_not_come_back(self):
+        """The pull request drops an export (its source, its file and its line in the list) and the
+        base changes another source without exporting. The base export runs from HEAD^1's sources,
+        which still have the removed source, so it writes the removed export back. Nothing in HEAD's
+        list covers it, so it would stay in the checkout for the "Regenerate stale files" step's
+        `docs/mdm/*` glob to collect and push: the removal undone by the repair (review of #23915)."""
+        def pr_edit(repo):
+            (repo / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/LEGACY.swift").unlink()
+            (repo / "docs/mdm/legacy.md").unlink()
+            (repo / "scripts/cmux-next/settings-exports.txt").write_text(
+                "schemas/settings/settings-schema.json\ndocs/mdm/managed-preferences.md\n")
+        result = self.run_step_on_merge(
+            self.write("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/A.swift", "v2\n"),
+            pr_edit, keep=(self.SCHEMA,), legacy=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((result.repo / "docs/mdm/legacy.md").exists(),
+                         "the base export put the removed export back and it was left there")
 
     PRODUCTS = "Packages/macOS/CmuxNext/.build"
 
