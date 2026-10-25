@@ -42,6 +42,8 @@ pub const THREAD_UNKNOWN: u32 = u32::MAX;
 const NAME_PENDING: u32 = 0xFFFF;
 /// The fewest chunks a ring has.
 const MIN_CHUNKS: usize = 4;
+/// The most chunks a ring has (1 GiB of records, 32x the largest role's recording).
+const MAX_CHUNKS: usize = 1 << 20;
 
 /// Header field offsets (all little-endian; see the crate doc).
 mod off {
@@ -297,8 +299,7 @@ pub struct RingLayout {
 
 impl RingLayout {
     pub fn of(config: &RingConfig) -> RingLayout {
-        let chunk_count =
-            config.records.div_ceil(RECORDS_PER_CHUNK).clamp(MIN_CHUNKS, u32::MAX as usize >> 1);
+        let chunk_count = config.records.div_ceil(RECORDS_PER_CHUNK).clamp(MIN_CHUNKS, MAX_CHUNKS);
         let thread_capacity = config.threads as usize;
         let thread_offset = HEADER_BYTES;
         let name_offset = thread_offset + thread_capacity * THREAD_ENTRY_BYTES;
@@ -473,14 +474,11 @@ impl Ring {
         put32(off::PID, config.pid);
         put32(off::ROLE_CLOCK, u32::from(config.role as u8) | u32::from(config.clock as u8) << 8);
         put64(off::START_NS, config.start_ns);
-        for (index, half) in boot_session.chunks_exact(8).enumerate() {
-            put64(
-                off::BOOT_SESSION + 8 * index,
-                u64::from_le_bytes(half.try_into().expect("8 bytes")),
-            );
+        for (index, half) in boot_session.as_chunks::<8>().0.iter().enumerate() {
+            put64(off::BOOT_SESSION + 8 * index, u64::from_le_bytes(*half));
         }
-        for (index, half) in config.build_id.chunks_exact(8).enumerate() {
-            put64(off::BUILD_ID + 8 * index, u64::from_le_bytes(half.try_into().expect("8 bytes")));
+        for (index, half) in config.build_id.as_chunks::<8>().0.iter().enumerate() {
+            put64(off::BUILD_ID + 8 * index, u64::from_le_bytes(*half));
         }
         put32(off::CHUNK_OFFSET, layout.chunk_offset as u32);
         put32(off::CHUNK_COUNT, self.chunk_count.load(Ordering::Relaxed));
@@ -608,8 +606,8 @@ impl Ring {
         self.a64(base, at + off::T_TID).store(info.tid, Ordering::Relaxed);
         self.a32(base, at + off::T_QOS).store(info.qos, Ordering::Relaxed);
         self.a32(base, at + off::T_NAME_LEN).store(u32::from(info.name_len), Ordering::Relaxed);
-        for (word, bytes) in info.name.chunks_exact(8).enumerate() {
-            let value = u64::from_le_bytes(bytes.try_into().expect("8 bytes"));
+        for (word, bytes) in info.name.as_chunks::<8>().0.iter().enumerate() {
+            let value = u64::from_le_bytes(*bytes);
             self.a64(base, at + off::T_NAME + 8 * word).store(value, Ordering::Relaxed);
         }
         self.a32(base, at + off::T_STATE).store(1, Ordering::Release);
@@ -982,17 +980,17 @@ pub struct Decoded {
 }
 
 fn read_u32(bytes: &[u8], at: usize) -> Result<u32, DecodeError> {
-    let slice = bytes.get(at..at + 4).ok_or(DecodeError::Truncated)?;
-    Ok(u32::from_le_bytes(slice.try_into().expect("4 bytes")))
+    let word = bytes.get(at..).and_then(<[u8]>::first_chunk).ok_or(DecodeError::Truncated)?;
+    Ok(u32::from_le_bytes(*word))
 }
 
 fn read_u64(bytes: &[u8], at: usize) -> Result<u64, DecodeError> {
-    let slice = bytes.get(at..at + 8).ok_or(DecodeError::Truncated)?;
-    Ok(u64::from_le_bytes(slice.try_into().expect("8 bytes")))
+    let word = bytes.get(at..).and_then(<[u8]>::first_chunk).ok_or(DecodeError::Truncated)?;
+    Ok(u64::from_le_bytes(*word))
 }
 
 fn read_16(bytes: &[u8], at: usize) -> Result<[u8; 16], DecodeError> {
-    Ok(bytes.get(at..at + 16).ok_or(DecodeError::Truncated)?.try_into().expect("16 bytes"))
+    bytes.get(at..).and_then(<[u8]>::first_chunk).copied().ok_or(DecodeError::Truncated)
 }
 
 /// Decodes a ring file (or a [`Ring::snapshot`]). Keeps only records whose sequence is the

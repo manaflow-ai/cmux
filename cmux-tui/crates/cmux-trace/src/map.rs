@@ -23,7 +23,9 @@ pub(crate) struct HeapBlock {
 impl HeapBlock {
     /// A zeroed block of `len` bytes (`len` > 0).
     pub(crate) fn zeroed(len: usize) -> HeapBlock {
-        let layout = Layout::from_size_align(len.max(1), BLOCK_ALIGN).expect("ring block layout");
+        // A size past isize::MAX is an allocation that cannot succeed (rings are capped far below it).
+        let layout = Layout::from_size_align(len.max(1), BLOCK_ALIGN)
+            .unwrap_or_else(|_| std::alloc::handle_alloc_error(Layout::new::<u8>()));
         // SAFETY: the layout has a nonzero size.
         let raw = unsafe { std::alloc::alloc_zeroed(layout) };
         let Some(ptr) = NonNull::new(raw) else { std::alloc::handle_alloc_error(layout) };
