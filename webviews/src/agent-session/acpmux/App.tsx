@@ -1915,6 +1915,7 @@ export function VirtualTranscript({
   dock,
   queueWithdrawn,
   queueIds,
+  queuedTail,
   focusComposer,
   openAt,
   onAnchor,
@@ -1952,6 +1953,9 @@ export function VirtualTranscript({
   /// IDs from the queue snapshot: a folded prompt has no card in the DOM, but remains queued and
   /// must not be recorded as withdrawn when the fold changes.
   queueIds?: readonly string[];
+  /// The waiting agent messages at the rows' end (conversation/queuedMessages.ts), one array while
+  /// the queue holds them.
+  queuedTail?: readonly AcpmuxRow[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
   onToggleActivity: (id: string) => void;
@@ -2381,21 +2385,24 @@ export function VirtualTranscript({
   useEffect(() => () => observer?.disconnect(), [observer]);
   // Forget rows that left the transcript (a session switch, older history unloaded).
   const previousRowList = useRef<AcpmuxRow[] | undefined>(undefined);
+  const previousTail = useRef<readonly AcpmuxRow[]>(NO_ROWS);
   useEffect(() => {
     const previous = previousRowList.current;
     previousRowList.current = rows;
     // Rows that only grew below the ones there (a streaming turn) left none behind, also when the
     // running turn's line stays last under them (`below`, conversation/turns.ts).
     if (previous && previous.length <= rows.length) {
-      // So do the queued messages after it (conversation/queuedMessages.ts), each still last.
-      let line = 0;
-      while (
-        line < previous.length &&
-        (previous[previous.length - 1 - line]!.kind === QUEUED_MESSAGE ||
-          previous[previous.length - 1 - line]!.below === true) &&
-        rows[rows.length - 1 - line]?.id === previous[previous.length - 1 - line]!.id
-      )
-        line += 1;
+      // So do the waiting agent messages after it (conversation/queuedMessages.ts), the same tail
+      // array while the queue holds: checked by identity, not row by row. A changed tail scans.
+      const tail = queuedTail ?? NO_ROWS;
+      const keptTail = previousTail.current === tail ? tail.length : 0;
+      previousTail.current = tail;
+      const before = previous.length - 1 - keptTail;
+      const line =
+        keptTail +
+        (before >= 0 && previous[before]!.below === true && rows[rows.length - 1 - keptTail]?.id === previous[before]!.id
+          ? 1
+          : 0);
       // `rowsChange` already found the first changed object while this render was prepared. Reuse
       // that boundary instead of copying the unchanged prefix and walking it a second time for
       // every streamed snapshot. Only the changed suffix can have lost a row id.
@@ -2417,7 +2424,7 @@ export function VirtualTranscript({
       if ([...current.keys()].every((id) => ids.has(id))) return current;
       return new Map([...current].filter(([id]) => ids.has(id)));
     });
-  }, [rows]);
+  }, [rows, queuedTail]);
   useLayoutEffect(flushDrawn);
   // Minimal Mode draws another agent's closed message as its line alone (IncomingMessageCard.tsx):
   // a toggle forgets those rows' drawn heights, so rows offscreen place by the new estimate instead of
@@ -8250,6 +8257,7 @@ function AcpmuxPane() {
                                                   dock={quick ? undefined : dock}
                                                   queueWithdrawn={snapshot.queueWithdrawn}
                                                   queueIds={quick ? undefined : queueIds}
+                                                  queuedTail={queuedRows}
                                                   find={quick ? undefined : find}
                                                   sessionId={
                                                     childRows
