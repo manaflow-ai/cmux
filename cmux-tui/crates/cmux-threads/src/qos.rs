@@ -1,17 +1,22 @@
 //! Thread quality of service: one table for every cmux thread.
 //!
 //! The classes and their macOS values copy Chromium's ThreadType table
-//! (base/threading/platform_thread_apple.mm `ThreadTypeToQoSClass`). Linux
-//! uses nice values like Chromium's `kThreadTypeToNiceValueMap`
-//! (base/threading/platform_thread_linux.cc), capped at 0:
+//! (base/threading/platform_thread_apple.mm `ThreadTypeToQoSClass`). The
+//! Linux nice values are the p02-threads spec's (task 200: 0/0/0/5/10), not
+//! Chromium's `kThreadTypeToNiceValueMap` (base/threading/platform_thread_linux.cc
+//! maps kBackground 10, kUtility 1, kResourceEfficient 0, kDefault 0):
 //!
 //! | ThreadQos       | Chromium ThreadType          | macOS QoS class            | Linux nice |
 //! | --------------- | ---------------------------- | -------------------------- | ---------- |
 //! | Background      | kBackground                  | QOS_CLASS_BACKGROUND       | 10         |
 //! | Utility         | kUtility, kResourceEfficient | QOS_CLASS_UTILITY          | 5          |
-//! | Default         | (none: unclassified work)    | QOS_CLASS_DEFAULT          | 0          |
+//! | Default         | (none: child processes)      | QOS_CLASS_DEFAULT          | 0          |
 //! | UserInitiated   | kDefault                     | QOS_CLASS_USER_INITIATED   | 0          |
 //! | UserInteractive | kDisplayCritical             | QOS_CLASS_USER_INTERACTIVE | 0          |
+//!
+//! Utility is nice 5, not Chromium's 1, by cmux choice: automation lanes
+//! then clearly yield to the nice-0 request and echo threads on a loaded
+//! Linux host.
 //!
 //! Linux stops at nice 0 because an unprivileged thread cannot lower its
 //! nice value. A change that would lower it is attempted only when Chromium's
@@ -30,7 +35,9 @@ pub enum ThreadQos {
     Background = 0,
     /// Automation, watchers, best-effort lanes (Chromium kUtility).
     Utility = 1,
-    /// Work that has not been classified yet.
+    /// The class a user shell or agent child process starts at, set around
+    /// its fork (p02-threads tasks 207 and 223: `with_qos(Default, ...)`).
+    /// Not a class for daemon threads.
     Default = 2,
     /// Request dispatch the person waits on (Chromium kDefault).
     UserInitiated = 3,
@@ -91,10 +98,12 @@ impl ThreadQos {
         }
     }
 
-    /// The class of a macOS QoS class, `None` for QOS_CLASS_UNSPECIFIED.
+    /// The class of a raw macOS QoS class value as the kernel reports it,
+    /// `None` for QOS_CLASS_UNSPECIFIED and for classes outside the table
+    /// (QOS_CLASS_MAINTENANCE).
     #[cfg(target_vendor = "apple")]
-    pub fn from_qos_class(class: libc::qos_class_t) -> Option<Self> {
-        Self::ALL.into_iter().find(|qos| qos.qos_class() as u32 == class as u32)
+    pub fn from_qos_class(raw: u32) -> Option<Self> {
+        Self::ALL.into_iter().find(|qos| qos.qos_class() as u32 == raw)
     }
 }
 
@@ -111,6 +120,9 @@ pub enum LiveQos {
     Class(ThreadQos),
     /// macOS: the thread has no QoS class (QOS_CLASS_UNSPECIFIED).
     Unspecified,
+    /// macOS: a raw QoS class outside the table, such as
+    /// QOS_CLASS_MAINTENANCE (0x05) inherited from a maintenance workqueue.
+    Other(u32),
     /// Linux: the thread's nice value.
     Nice(i32),
     /// The platform has no per-thread QoS, or the read failed.
@@ -162,10 +174,13 @@ pub fn current() -> LiveQos {
 /// Runs `f` at `qos` and restores the calling thread's QoS after, also when
 /// `f` panics.
 ///
-/// On Linux a demotion that the thread could not undo (raising nice above a
-/// value it may not lower back to) is not made: `f` runs at the current QoS
-/// and the refusal is counted, so the thread never leaves `with_qos` slower
-/// than it entered.
+/// A change the thread could not undo is not made: `f` runs at the current
+/// QoS and the refusal is counted. On Linux that is a demotion (raising nice
+/// above a value it may not lower back to); on macOS a thread whose class is
+/// outside the table (QOS_CLASS_MAINTENANCE), which the kernel takes no
+/// request for. A macOS thread with no class (QOS_CLASS_UNSPECIFIED) comes
+/// back at [`ThreadQos::Default`], the class with the same base priority
+/// (31), and its registry row records Default as its effective QoS.
 pub fn with_qos<R>(qos: ThreadQos, f: impl FnOnce() -> R) -> R {
     let saved = sys::save();
     let effective = registry::with_current(registry::Row::effective);
@@ -183,14 +198,24 @@ struct Restore {
     effective: Option<Option<ThreadQos>>,
 }
 
+/// What [`sys::restore`] put back: `Ok(Some(qos))` when the thread now runs
+/// at `qos` (macOS), `Ok(None)` when the saved native value is back (a Linux
+/// nice), so the effective QoS saved from the registry row holds again.
+/// `Err` when the kernel refused.
+type Restored = Result<Option<ThreadQos>, ()>;
+
 impl Drop for Restore {
     fn drop(&mut self) {
-        if sys::restore(&self.saved) {
-            if let Some(effective) = self.effective {
-                registry::with_current(|row| row.set_effective(effective));
+        match sys::restore(&self.saved) {
+            Ok(Some(qos)) => {
+                registry::with_current(|row| row.set_effective(Some(qos)));
             }
-        } else {
-            record_refusal();
+            Ok(None) => {
+                if let Some(effective) = self.effective {
+                    registry::with_current(|row| row.set_effective(effective));
+                }
+            }
+            Err(()) => record_refusal(),
         }
     }
 }
@@ -204,13 +229,21 @@ pub(crate) fn live_of(thread: &registry::NativeThread) -> LiveQos {
 
 #[cfg(target_vendor = "apple")]
 mod sys {
-    use super::{LiveQos, QosChange, ThreadQos};
+    use super::{LiveQos, QosChange, Restored, ThreadQos};
     use crate::registry::NativeThread;
 
-    pub(super) struct Saved {
-        class: libc::qos_class_t,
-        relative_priority: libc::c_int,
+    pub(super) const UNSPECIFIED: u32 = libc::qos_class_t::QOS_CLASS_UNSPECIFIED as u32;
+
+    /// A thread's QoS as the kernel reported it. The class stays a raw `u32`:
+    /// the kernel can report classes `libc::qos_class_t` has no variant for
+    /// (QOS_CLASS_MAINTENANCE).
+    #[derive(Clone, Copy)]
+    pub(super) struct Raw {
+        pub(super) class: u32,
+        pub(super) relative_priority: libc::c_int,
     }
+
+    pub(super) struct Saved(pub(super) Option<Raw>);
 
     pub(super) fn apply_self(qos: ThreadQos) -> QosChange {
         // SAFETY: plain FFI call on the calling thread.
@@ -218,22 +251,29 @@ mod sys {
         if rc == 0 { QosChange::Applied } else { QosChange::Refused }
     }
 
-    fn read(pthread: libc::pthread_t) -> Option<Saved> {
-        let mut class = libc::qos_class_t::QOS_CLASS_UNSPECIFIED;
+    fn read(pthread: libc::pthread_t) -> Option<Raw> {
+        let mut class: u32 = UNSPECIFIED;
         let mut relative_priority = 0;
-        // SAFETY: `pthread` is a live thread (see `live_of`); the out
-        // pointers are valid for the call.
-        let rc =
-            unsafe { libc::pthread_get_qos_class_np(pthread, &mut class, &mut relative_priority) };
-        (rc == 0).then_some(Saved { class, relative_priority })
+        // SAFETY: `pthread` is a live thread (see `live_of`). The class
+        // out-pointer is a `u32`, the enum's repr, so every value the kernel
+        // writes is valid; the out pointers are valid for the call.
+        let rc = unsafe {
+            libc::pthread_get_qos_class_np(
+                pthread,
+                (&raw mut class).cast::<libc::qos_class_t>(),
+                &mut relative_priority,
+            )
+        };
+        (rc == 0).then_some(Raw { class, relative_priority })
     }
 
     fn live(pthread: libc::pthread_t) -> LiveQos {
         match read(pthread) {
-            Some(saved) => {
-                ThreadQos::from_qos_class(saved.class).map_or(LiveQos::Unspecified, LiveQos::Class)
-            }
             None => LiveQos::Unknown,
+            Some(Raw { class: UNSPECIFIED, .. }) => LiveQos::Unspecified,
+            Some(Raw { class, .. }) => {
+                ThreadQos::from_qos_class(class).map_or(LiveQos::Other(class), LiveQos::Class)
+            }
         }
     }
 
@@ -248,29 +288,38 @@ mod sys {
 
     pub(super) fn save() -> Saved {
         // SAFETY: pthread_self has no preconditions.
-        read(unsafe { libc::pthread_self() })
-            .unwrap_or(Saved { class: libc::qos_class_t::QOS_CLASS_DEFAULT, relative_priority: 0 })
+        Saved(read(unsafe { libc::pthread_self() }))
     }
 
-    pub(super) fn can_restore(_qos: ThreadQos, _saved: &Saved) -> bool {
-        true
+    /// The class a restore sets: the saved class, or Default for no class
+    /// (the kernel takes no "unspecified" request; both run at base priority
+    /// 31). `None` when the saved class is outside the table or was not read.
+    pub(super) fn restore_class(saved: &Saved) -> Option<(ThreadQos, libc::c_int)> {
+        let raw = saved.0?;
+        let qos = match raw.class {
+            UNSPECIFIED => ThreadQos::Default,
+            class => ThreadQos::from_qos_class(class)?,
+        };
+        Some((qos, raw.relative_priority))
     }
 
-    pub(super) fn restore(saved: &Saved) -> bool {
-        // A thread with no class goes back to the default class: the kernel
-        // takes no "unspecified" request.
-        let class = match saved.class {
-            libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
-            class => class,
+    pub(super) fn can_restore(_qos: ThreadQos, saved: &Saved) -> bool {
+        restore_class(saved).is_some()
+    }
+
+    pub(super) fn restore(saved: &Saved) -> Restored {
+        let Some((qos, relative_priority)) = restore_class(saved) else {
+            return Err(());
         };
         // SAFETY: plain FFI call on the calling thread.
-        unsafe { libc::pthread_set_qos_class_self_np(class, saved.relative_priority) == 0 }
+        let rc = unsafe { libc::pthread_set_qos_class_self_np(qos.qos_class(), relative_priority) };
+        if rc == 0 { Ok(Some(qos)) } else { Err(()) }
     }
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod sys {
-    use super::{LiveQos, QosChange, ThreadQos};
+    use super::{LiveQos, QosChange, Restored, ThreadQos};
     use crate::registry::NativeThread;
 
     pub(super) struct Saved {
@@ -344,14 +393,14 @@ mod sys {
         saved.nice.is_some_and(|nice| qos.linux_nice() <= nice || may_lower_nice_to(nice))
     }
 
-    pub(super) fn restore(saved: &Saved) -> bool {
-        saved.nice.is_some_and(set_nice)
+    pub(super) fn restore(saved: &Saved) -> Restored {
+        if saved.nice.is_some_and(set_nice) { Ok(None) } else { Err(()) }
     }
 }
 
 #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
 mod sys {
-    use super::{LiveQos, QosChange, ThreadQos};
+    use super::{LiveQos, QosChange, Restored, ThreadQos};
     use crate::registry::NativeThread;
 
     pub(super) struct Saved;
@@ -376,8 +425,8 @@ mod sys {
         true
     }
 
-    pub(super) fn restore(_saved: &Saved) -> bool {
-        true
+    pub(super) fn restore(_saved: &Saved) -> Restored {
+        Ok(None)
     }
 }
 
@@ -386,7 +435,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn linux_nice_table_matches_chromium_capped_at_zero() {
+    fn linux_nice_table_matches_spec_capped_at_zero() {
         let nice: Vec<i32> = ThreadQos::ALL.iter().map(|qos| qos.linux_nice()).collect();
         assert_eq!(nice, [10, 5, 0, 0, 0]);
     }
@@ -411,8 +460,28 @@ mod tests {
             QOS_CLASS_USER_INTERACTIVE as u32
         );
         for qos in ThreadQos::ALL {
-            assert_eq!(ThreadQos::from_qos_class(qos.qos_class()), Some(qos));
+            assert_eq!(ThreadQos::from_qos_class(qos.qos_class() as u32), Some(qos));
         }
-        assert_eq!(ThreadQos::from_qos_class(QOS_CLASS_UNSPECIFIED), None);
+        assert_eq!(ThreadQos::from_qos_class(QOS_CLASS_UNSPECIFIED as u32), None);
+        assert_eq!(ThreadQos::from_qos_class(QOS_CLASS_MAINTENANCE), None);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    const QOS_CLASS_MAINTENANCE: u32 = 0x05;
+
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn macos_restore_rule_for_classes_outside_the_table() {
+        use sys::{Raw, Saved, UNSPECIFIED, can_restore, restore_class};
+        let saved = |class| Saved(Some(Raw { class, relative_priority: -3 }));
+        // No class comes back as Default, the class the kernel takes.
+        assert_eq!(restore_class(&saved(UNSPECIFIED)), Some((ThreadQos::Default, -3)));
+        let utility = ThreadQos::Utility.qos_class() as u32;
+        assert_eq!(restore_class(&saved(utility)), Some((ThreadQos::Utility, -3)));
+        // A class with no request (maintenance) or an unread one cannot be
+        // put back, so with_qos does not change it.
+        assert_eq!(restore_class(&saved(QOS_CLASS_MAINTENANCE)), None);
+        assert!(!can_restore(ThreadQos::Background, &saved(QOS_CLASS_MAINTENANCE)));
+        assert!(!can_restore(ThreadQos::Background, &Saved(None)));
     }
 }
