@@ -31,9 +31,10 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
   const subsessions = useContext(SubsessionContext);
   const pane = useContext(SubagentPaneContext);
   const nav = useContext(SubagentNavContext);
-  // The acpmux session it made, once the session list has it by its name.
-  const chat = useSenderChat(agent.session ?? "", undefined).sessionId;
-  const openChat = agent.session && chat && subsessions ? () => subsessions.open(chat) : undefined;
+  // The acpmux session it made: the sub-session acpmux recorded, or the one the session list has
+  // by its name.
+  const chat = useSenderChat(agent.session ?? "", agent.child).sessionId;
+  const openChat = (agent.child ?? agent.session) && chat && subsessions ? () => subsessions.open(chat) : undefined;
   const openRun = pane ?? nav;
   return (
     <AgentCard

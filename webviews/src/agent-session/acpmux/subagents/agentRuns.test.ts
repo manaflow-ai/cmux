@@ -52,8 +52,14 @@ describe("agentRun", () => {
       host: "big-red",
       prompt: "Review #24977",
     });
-    // A sub-session acpmux records with its typed state and result (#25019) is drawn from those.
-    expect(agentRun(`acpmux run --parent 01a1-parent -m codex -n fix "Fix the flaky test"`)).toBeUndefined();
+    // A sub-session of a chat (#25019), whose state and result that chat's log records.
+    expect(agentRun(`acpmux run --parent 01a1-parent -m codex -n fix "Fix the flaky test"`)).toEqual({
+      harness: "codex",
+      session: "fix",
+      prompt: "Fix the flaky test",
+      parent: "01a1-parent",
+    });
+    expect(agentRun(`acpmux new --parent=p1 -m codex "Go"`)?.parent).toBe("p1");
     expect(agentRun(`sr codex exec -m gpt-6-astra "hi"`)?.harness).toBe("codex");
     // Attached short options, env's split string, and a prompt after `--`.
     expect(agentRun(`acpmux run -mclaude/opus -exhigh "Go"`)).toEqual({

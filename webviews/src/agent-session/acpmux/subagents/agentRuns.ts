@@ -26,6 +26,9 @@ export type AgentRun = {
   session?: string;
   /// The machine it runs on: `reach HOST`, `ssh HOST` or acpmux's `--host`.
   host?: string;
+  /// The chat `acpmux run --parent` starts it under (acpmux #25019): a sub-session of that chat,
+  /// whose state and reply its log records (subagentFold.ts `reduceChild`).
+  parent?: string;
 };
 
 type Stdin = { text?: string; file?: string };
@@ -346,9 +349,12 @@ function read(cli: Cli, args: readonly string[], stdin: Stdin | undefined, host:
   else if ((prompt === "-" || (!file && cli.stdinPrompt)) && stdin?.text !== undefined) run.prompt = stdin.text;
   // A session `acpmux new` makes with nothing to do runs no agent yet.
   if (started === "new" && prompt === undefined && !file) return undefined;
-  // `acpmux run --parent` (acpmux #25019) makes a real sub-session of the chat, with typed state
-  // and result: the session list and its records draw it, not its command.
-  if (options.some((word) => word === "--parent" || word.startsWith("--parent="))) return undefined;
+  // `acpmux run --parent` (acpmux #25019) makes a sub-session of that chat, with typed state and result.
+  if (cli.values.includes("--parent"))
+    for (let at = 0; at < options.length; at += 1) {
+      const parent = optionValue(options[at]!, options[at + 1], ["--parent"]);
+      if (typeof parent === "string") run.parent = parent;
+    }
   return run;
 }
 

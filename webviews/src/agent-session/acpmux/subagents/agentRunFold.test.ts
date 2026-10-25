@@ -144,3 +144,67 @@ test("a call that is no other family's agent stays a command", () => {
   expect(send(call("c3", `claude -p "Summarize the log"`))).toBe(true);
   expect(fold.all()[0]).toMatchObject({ harness: "claude", name: "Summarize the log", kind: "Claude" });
 });
+
+// `acpmux run --parent` (acpmux #25019): the chat's log records its child's start and each turn's end.
+const PARENT_RUN = `acpmux run --parent chat-1 -n fix "Fix the flaky test"`;
+const child = (fold: SubagentFold, at: number, record: Record<string, unknown>) =>
+  fold.reduceChild({ seq: 100 + at, at: at * 1000, msg: record }, { childSessionId: "child-1", ...record });
+
+test("an acpmux run --parent call is the child acpmux records, with its harness, model and reply", () => {
+  const { fold, send } = folder();
+  // The command names no harness: it draws as the call until acpmux says what started.
+  expect(send(call("c1", PARENT_RUN))).toBe(false);
+  expect(fold.takeRows()).toEqual([]);
+  const started = {
+    event: "started",
+    shortName: "fix",
+    harness: "codex",
+    model: "gpt-6-astra",
+    effort: "xhigh",
+  };
+  expect(child(fold, 2, { ...started, prompt: "Fix the flaky test", state: "running" })).toBe("c1");
+  expect(fold.isRun("c1")).toBe(true);
+  const [row] = fold.takeRows();
+  expect(row!.subagents![0]).toMatchObject({
+    id: "run:c1",
+    name: "Fix the flaky test",
+    kind: "Codex · gpt-6-astra xhigh",
+    harness: "codex",
+    child: "child-1",
+    session: "fix",
+    state: "running",
+    startedAt: 1000,
+  });
+  const reply = "Fixed: the test waits for the socket.";
+  expect(child(fold, 3, { event: "turn_ended", state: "done", result: { state: "done", reply } })).toBeUndefined();
+  expect(fold.all()[0]).toMatchObject({ state: "completed", result: reply, endedAt: 3000 });
+  // What the shell printed after is not its reply: acpmux's record is.
+  const end = { sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed", content: text("Fixed…") };
+  expect(send(end)).toBe(true);
+  expect(fold.all()[0]!.result).toBe(reply);
+  // A later turn that failed says so.
+  child(fold, 5, { event: "turn_ended", state: "failed", result: { state: "failed", error: "model at capacity" } });
+  expect(fold.all()[0]).toMatchObject({ state: "failed", result: "model at capacity" });
+  // A turn that said nothing has no reply.
+  child(fold, 6, { event: "turn_ended", state: "cancelled", result: { state: "cancelled" } });
+  expect(fold.all()[0]!.state).toBe("cancelled");
+  expect(fold.all()[0]!.result).toBeUndefined();
+});
+
+test("a child of the chat's own family, or one no call of the chat started, is not a run", () => {
+  const { fold, send } = folder();
+  expect(send(call("c1", PARENT_RUN))).toBe(false);
+  expect(child(fold, 2, { event: "started", shortName: "fix", harness: "claude-sr2" })).toBeUndefined();
+  expect(send({ sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed" })).toBe(false);
+  // The start_session tool's child has its own card.
+  expect(child(fold, 3, { event: "started", harness: "codex", state: "running" })).toBeUndefined();
+  expect(child(fold, 4, { event: "turn_ended", state: "done", result: { reply: "Done." } })).toBeUndefined();
+  expect(fold.all()).toEqual([]);
+  // The start_session tool's child, while a call waits for its own, is not that call's.
+  expect(send(call("c2", `acpmux run --parent chat-1 "Review the tray"`))).toBe(false);
+  const started = { event: "started", harness: "codex", state: "running" };
+  expect(child(fold, 6, { ...started, childSessionId: "child-3", prompt: "Fix the tests" })).toBeUndefined();
+  // The call's own child, by what it was asked.
+  expect(child(fold, 7, { ...started, childSessionId: "child-2", prompt: "Review the tray" })).toBe("c2");
+  expect(fold.all()[0]).toMatchObject({ id: "run:c2", child: "child-2", harness: "codex" });
+});

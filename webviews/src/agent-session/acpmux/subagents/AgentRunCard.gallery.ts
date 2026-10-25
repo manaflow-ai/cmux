@@ -44,6 +44,8 @@ type Call = {
   /// Its output, and whether the call failed.
   output?: string;
   failed?: boolean;
+  /// For `acpmux run --parent`, the child acpmux records (acpmux #25019): its harness, model and effort.
+  child?: { harness: string; model: string; effort: string };
 };
 
 const text = (said: string) => [{ type: "content", content: { type: "text", text: said } }];
@@ -71,6 +73,14 @@ function folded(calls: Call[]): AcpmuxRow[] {
         ...(call.background && { run_in_background: true }),
       },
     });
+    const child = call.child;
+    const record = (when: number, fields: Record<string, unknown>) =>
+      child &&
+      fold.reduceChild(
+        { seq: (seq += 1), at: when, msg: fields },
+        { childSessionId: `child-${call.id}`, shortName: call.id, ...child, ...fields },
+      );
+    record(at + 300, { event: "started", state: "running" });
     if (call.background)
       send(at + 500, {
         sessionUpdate: "tool_call_update",
@@ -82,6 +92,8 @@ function folded(calls: Call[]): AcpmuxRow[] {
       });
     if (call.ran === undefined) continue;
     const end = minutesAgo(call.started - call.ran);
+    const state = call.failed ? "failed" : "done";
+    record(end - 200, { event: "turn_ended", state, result: { state, reply: call.output } });
     if (!call.background)
       send(end, {
         sessionUpdate: "tool_call_update",
@@ -138,6 +150,16 @@ const done = (): Call[] => [
   { id: "acpmux", command: ACPMUX, started: 2, ran: 1.6, output: "No regressions: the tray keeps its height." },
 ];
 
+/// A child of the chat `acpmux run --parent` started: its command names no harness.
+const child = (): Call => ({
+  id: "fix",
+  command: 'acpmux run --parent "$ACPMUX_SESSION" -n fix "Fix the flaky socket test"',
+  started: 4,
+  ran: 3.1,
+  output: "Fixed: the test waits for the socket before it connects, so it no longer races the server.",
+  child: { harness: "codex", model: "gpt-6-astra", effort: "xhigh" },
+});
+
 const ask = "Get Codex to review #24977 and hq#4038.";
 /// The acpmux session `acpmux run -n tray-review` made, as the session list has it.
 const reviewChat = session({
@@ -146,7 +168,11 @@ const reviewChat = session({
   name: "tray-review",
   harness: "codex",
 });
-const withChat = (snapshot: ReturnType<typeof chat>) => ({ ...snapshot, sessions: [...snapshot.sessions, reviewChat] });
+const fixChat = session({ sessionId: "child-fix", title: "Fix the flaky socket test", name: "fix", harness: "codex" });
+const withChat = (snapshot: ReturnType<typeof chat>) => ({
+  ...snapshot,
+  sessions: [...snapshot.sessions, reviewChat, fixChat],
+});
 
 export default agentPaneEntry({
   id: "agent-pane.agent-runs",
@@ -183,6 +209,10 @@ export default agentPaneEntry({
       snapshot: withChat(
         chat([user(ask, 9.2), ...folded(done()), assistant("Codex says SHIP; the Sol probe failed at capacity.", 0.2)]),
       ),
+    },
+    "card-child": {
+      note: "Shipped: an `acpmux run --parent` call's child as acpmux records it (#25019): its harness, model and effort though the command names none, its reply from its turn's end, and Open chat opens it.",
+      snapshot: withChat(chat([user("Have Codex fix the flaky socket test.", 4.2), ...folded([child()])])),
     },
     group: {
       note: "Not picked: the run as an ordinary subagent group card. It says less (no model, no reply) and hides the result one more click away.",
