@@ -1058,6 +1058,8 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
+      // Four lines start folded: open them.
+      await act(async () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
       const details = [...root.querySelectorAll(".acpmux-summary-agent__kind")].map((node) => node.textContent);
       expect(details).toEqual([
         "Running bun test test/subagent-tray.test.tsx",
