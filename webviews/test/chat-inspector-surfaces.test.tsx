@@ -1,11 +1,7 @@
-// The Inspector shows only over the chat, where its header toggle is, and it can always be closed
-// (inspector/ChatInspector.tsx `inspectorShown`, `covered`, `beside`). Leo, 2026-10-22, the Inspector
-// over a turn's diff in place, its toggle under the hidden header: "WHY DOES IT STAY ON IN THESE
-// RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" While a view takes the pane in the chat's place (a
-// diff in place, the event Inspector: App.tsx `covered`) the panel steps aside with its open state
-// kept, and comes back when that view closes; opening it (its toggle, the palette, a running line's
-// count) closes that view first. Shown, its own x and Esc close it. With a document in the side
-// panel beside the chat, the panel measures the chat's room without it and floats clear of it.
+// The Inspector stays visible while the pane changes underneath it (inspector/ChatInspector.tsx
+// `inspectorShown`, `covered`, `beside`) so the session rail does not blink out during a split or a
+// covered view. Its header toggle and Esc still close it. With a document in the side panel beside
+// the chat, the panel measures the chat's room without it and floats clear of it.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { act, useState } from "react";
@@ -137,30 +133,31 @@ async function mount(covered: boolean) {
   return container;
 }
 
-test("it shows only when on, open, not stepped aside for a split, and not covered by another view", () => {
+test("it shows whenever it is on and open, including covered and split states", () => {
   expect(inspectorShown({ on: true, open: true })).toBe(true);
   expect(inspectorShown({ on: false, open: true })).toBe(false);
   expect(inspectorShown({ on: true, open: false })).toBe(false);
-  expect(inspectorShown({ on: true, open: true, suppressed: true })).toBe(false);
-  expect(inspectorShown({ on: true, open: true, covered: true })).toBe(false);
+  expect(inspectorShown({ on: true, open: true })).toBe(true);
 });
 
-test("left open, it steps aside while a diff is in place and is back, still open, when the diff closes", async () => {
+test("left open, it stays visible while a diff is in place and is still open when the diff closes", async () => {
   const container = await mount(true);
-  expect(panel(container)).toBeNull();
-  expect(toggle(container).getAttribute("aria-pressed")).toBe("false");
+  expect(panel(container)).not.toBeNull();
+  expect(toggle(container).getAttribute("aria-pressed")).toBe("true");
   // The viewer's open state is kept, for every chat tab.
   expect(inspectorState().open).toBe(true);
   await act(async () => cover!(false));
   expect(panel(container)).not.toBeNull();
   expect(toggle(container).getAttribute("aria-pressed")).toBe("true");
-  // A diff opened over it again: it steps aside again, and no Esc listener of its own is left.
+  // A diff opened over it again: the rail stays present and its Esc listener remains active.
   await act(async () => cover!(true));
-  expect(panel(container)).toBeNull();
+  expect(panel(container)).not.toBeNull();
   const escape = new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
-  dom!.window.document.body.dispatchEvent(escape);
-  expect(escape.defaultPrevented).toBe(false);
-  expect(inspectorState().open).toBe(true);
+  const row = container.querySelector<HTMLElement>("aside.acpmux-chat-inspector button")!;
+  row.focus();
+  row.dispatchEvent(escape);
+  expect(escape.defaultPrevented).toBe(true);
+  expect(inspectorState().open).toBe(false);
 });
 
 // The toggle is in reach over a covered chat when the diff sits beside the transcript (a pane 1160px

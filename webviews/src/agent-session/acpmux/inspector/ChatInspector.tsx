@@ -97,9 +97,6 @@ export const PUSH_MIN_CHAT = 440;
 /// The room the panel keeps from the pane's right edge, floating or pushing, and from the
 /// transcript's column when it floats (inspector.css --acpmux-inspector-inset).
 export const FLOAT_MARGIN = 8;
-/// How long after an output click a narrowing counts as that diff's split.
-const SPLIT_SETTLE_MS = 2000;
-
 /// Whether the Inspector pushes the chat: only with Settings Push always. By default it floats
 /// outside the pane's layout and never takes a column (Leo, 2026-10-24: "it was never supposed to be
 /// a sidebar; y'all kept doing sidebars").
@@ -128,20 +125,16 @@ export const inspectorChatShift = (paneWidth: number, width: number, column?: Ch
   return lacks > 0 && lacks <= inset ? lacks : 0;
 };
 
-/// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
-/// chat tab), not stepped aside for a diff split, and only over the chat: never while a view takes
-/// the pane in its place (`covered`: a turn's diff in place hides the header, and the toggle with it).
+/// Whether the Inspector shows: on (Debug Settings `agent.inspector`) and open (the viewer's, in
+/// every chat tab). The rail stays mounted while another view covers the chat or a split opens: its
+/// glass remains available at the pane edge instead of disappearing during a layout transition.
 export const inspectorShown = ({
   on,
   open,
-  suppressed = false,
-  covered = false,
 }: {
   on: boolean;
   open: boolean;
-  suppressed?: boolean;
-  covered?: boolean;
-}) => on && open && !suppressed && !covered;
+}) => on && open;
 
 /// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
 const SIDE_PANEL = ":scope > .acpmux-artifact";
@@ -268,14 +261,10 @@ export function useChatInspector({
   // Open alone: the width and the folds are the panel's (InspectorPresence), so a drag step or a fold
   // does not draw the whole chat pane again.
   const open = useInspectorOpen();
-  // Closed for now (not remembered): an output's diff split left no room beside the chat.
-  const [suppressed, setSuppressed] = useState(false);
-  const suppress = useCallback(() => setSuppressed(true), []);
-  const shown = inspectorShown({ on, open, suppressed, covered });
+  const shown = inspectorShown({ on, open });
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: InspectorSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
-  const openedOutputAt = useRef(0);
   const label = t("chatInspector.title");
   // Opening it while a view covers the chat closes that view first. The palette's opener outlives a
   // render, so it reads the latest from a ref.
@@ -288,7 +277,6 @@ export function useChatInspector({
     if (!on) return;
     return registerPicker(label, () => {
       uncover.current?.();
-      setSuppressed(false);
       setInspectorOpen(true);
     });
   }, [on, label]);
@@ -321,22 +309,17 @@ export function useChatInspector({
     if (shown) setInspectorOpen(false);
     else {
       bringBack?.();
-      setSuppressed(false);
       setInspectorOpen(true);
     }
   };
   const reveal = (section: InspectorSectionId) => {
     bringBack?.();
-    setSuppressed(false);
     setInspectorSection(section, true);
     setInspectorOpen(true);
     setRevealed({ section, at: Date.now() });
   };
   const openOutput = onOpenOutput
-    ? (path: string) => {
-        openedOutputAt.current = Date.now();
-        onOpenOutput(path);
-      }
+    ? (path: string) => onOpenOutput(path)
     : undefined;
   return {
     on: true,
@@ -352,8 +335,6 @@ export function useChatInspector({
         shell={shell}
         beside={beside}
         wide={wide}
-        openedOutputAt={openedOutputAt}
-        onSuppress={suppress}
         registry={registry}
         subagents={subagents}
         sessions={sessions}
@@ -397,8 +378,6 @@ function InspectorPresence({
   shell,
   beside,
   wide,
-  openedOutputAt,
-  onSuppress,
   registry,
   subagents,
   sessions,
@@ -426,10 +405,6 @@ function InspectorPresence({
   beside?: unknown;
   /// A handoff review's form shows: the shift is measured against it.
   wide?: boolean;
-  /// When an output's diff was last opened (Date.now()).
-  openedOutputAt: { readonly current: number };
-  /// That diff's split left no room for the chat beside the Inspector: the Inspector steps aside.
-  onSuppress: () => void;
   registry?: ProcessRegistry;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -518,16 +493,6 @@ function InspectorPresence({
     [drawn, asks, views],
   );
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
-  // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
-  // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
-  // again. Floating, it takes no room from the chat and stays.
-  const roomy = !push || paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
-  const roomyRef = useRef(roomy);
-  useEffect(() => {
-    const was = roomyRef.current;
-    roomyRef.current = roomy;
-    if (was && !roomy && Date.now() - openedOutputAt.current < SPLIT_SETTLE_MS) onSuppress();
-  }, [roomy, openedOutputAt, onSuppress]);
   if (!drawn) return null;
   return (
     <InspectorPanel
