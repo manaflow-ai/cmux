@@ -88,7 +88,8 @@ extension TraceRingTests {
             let records = try #require(TraceRingFile.records(atPath: path))
             let image = ring.image()
             let firstFileTicket = TraceRingCheck.u64(image, 200) + (TraceRingCheck.u64(image, 112) >> 32)
-            #expect(records.contains { $0.arg0 >> 32 == 99 }, "the copied heap records are in the file")
+            // The writers wrap the full heap before the adoption runs, so the copied chunks hold their records.
+            #expect(records.contains { $0.ticket < firstFileTicket }, "the copied heap records are in the file")
             for tag in 0 ..< 8 {
                 let mine = records.filter { $0.arg0 >> 32 == UInt64(tag) }
                 let values = mine.map { $0.arg0 & 0xFFFF_FFFF }
