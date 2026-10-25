@@ -14,16 +14,19 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
 
     /// The resolved path of the binary the daemon runs.
     public var path: String
+    /// The socket it was read on: Restart acpmux replaces only the daemon on that socket.
+    public var socketPath: String
 
-    public init(path: String) {
+    public init(path: String, socketPath: String) {
         self.path = path
+        self.socketPath = socketPath
     }
 
     /// Who holds `socketPath` now, read from a connection's own peer facts. Nil when nothing
     /// answers or the peer runs as another user: the app never offers to stop another user's daemon.
     static func read(socketPath: String) -> AcpmuxSocketOwner? {
         guard let peer = AcpmuxServerPeer.socketPeer(socketPath: socketPath), peer.uid == getuid() else { return nil }
-        return AcpmuxSocketOwner(path: peer.executablePath)
+        return AcpmuxSocketOwner(path: peer.executablePath, socketPath: socketPath)
     }
 
     /// Daemons (by pid) a person already asked this process to replace: a second ask while the
@@ -45,7 +48,16 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
     /// A launchd job that runs that pid is booted out first so KeepAlive does not start it again,
     /// and only while the connection to that very process is still open: a process that exited
     /// closed it, so its pid, even reused by the same binary, is never booted out.
-    @concurrent static func takeOver(environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner) async -> Bool {
+    ///
+    /// `bootOut` (the launchd bootout, given the pid and whether its connection is still open) and
+    /// `exited` (whether that pid exits in time) are the real ones but in tests.
+    @concurrent static func takeOver(
+        environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner,
+        bootOut: @Sendable (Int32, @escaping @Sendable () -> Bool) async -> Bool = { pid, stillRunning in
+            await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, stillRunning: stillRunning)
+        },
+        exited: @Sendable (Int32) async -> Bool = { pid in await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) }
+    ) async -> Bool {
         guard let descriptor = try? AcpmuxServerPeer.connect(environment.socketPath) else { return false }
         var open = true
         defer { if open { Darwin.close(descriptor) } }
@@ -71,8 +83,8 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
             return false
         }
         logger.info("acpmux \(pid) at \(peer.executablePath, privacy: .public) is not this app's; a person asked to restart it from \(environment.executable.path, privacy: .public)")
-        if await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, stillRunning: { connected(descriptor) }) {
-            return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        if await bootOut(pid, { connected(descriptor) }) {
+            return await exited(pid)
         }
         do {
             _ = try request(id: 3, method: "_acpmux/shutdown", on: descriptor, initialize: false, until: Date().addingTimeInterval(5))
@@ -85,7 +97,7 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
         Darwin.close(descriptor)
         open = false
         // The old daemon holds its lock until it exits; the new one needs it.
-        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        return await exited(pid)
     }
 
     /// Whether the peer still holds its end of `descriptor`: no hang-up, and no end of stream

@@ -87,8 +87,8 @@ enum AgentPaneHandshakeReply {
             var details: [String: Any] = [:]
             // A refused chat of another machine still names that machine on its chip (cx-k21v).
             if let machine = (error as? any AgentPaneHostRefusal)?.machineName { details["machineName"] = machine }
-            // A daemon another binary runs holds this app's socket: asking again cannot help, so
-            // the page stops retrying on its own and offers Restart acpmux (`acpmux.restart`).
+            // A daemon another binary runs holds this app's socket: the page offers Restart acpmux
+            // (`acpmux.restart`), which replaces it with this app's own.
             if case .daemonRefused(_, _, _, _, let owner?) = error as? AgentPaneHostError {
                 details["restartAcpmux"] = true
                 model.acpmuxRestartOffered = owner

@@ -107,9 +107,14 @@ struct AcpmuxRefusedDaemonTests {
 }
 
 /// A unix socket served by this test process that answers every JSON-RPC request with a status.
-nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
+/// ``calls`` lists the methods each connection sent, by connection, in order.
+nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop; `recorded` only under `lock`
     private let descriptor: Int32
     private let path: String
+    private let lock = NSLock()
+    private var recorded: [[String]] = []
+
+    var calls: [[String]] { lock.withLock { recorded } }
 
     init(socketPath: String, home: String? = nil, agentHosts: Bool = true) throws {
         path = socketPath
@@ -127,16 +132,18 @@ nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written 
         }
         guard bound == 0, listen(descriptor, 8) == 0 else { throw POSIXError(.EADDRINUSE) }
         let listener = descriptor
-        Thread.detachNewThread {
+        Thread.detachNewThread { [self] in
             while true {
                 let client = accept(listener, nil, nil)
                 guard client >= 0 else { return }
-                Thread.detachNewThread { Self.serve(client, home: home, agentHosts: agentHosts) }
+                let connection = lock.withLock { recorded.append([]); return recorded.count - 1 }
+                let record: @Sendable (String) -> Void = { [self] method in lock.withLock { recorded[connection].append(method) } }
+                Thread.detachNewThread { Self.serve(client, home: home, agentHosts: agentHosts, record: record) }
             }
         }
     }
 
-    private static func serve(_ client: Int32, home: String?, agentHosts: Bool) {
+    private static func serve(_ client: Int32, home: String?, agentHosts: Bool, record: @Sendable (String) -> Void) {
         defer { close(client) }
         var buffer = Data()
         var chunk = [UInt8](repeating: 0, count: 4096)
@@ -149,6 +156,7 @@ nonisolated final class FakeDaemon: @unchecked Sendable {  // the fd is written 
                 buffer.removeSubrange(buffer.startIndex...newline)
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
                       let id = object["id"] else { continue }
+                record(object["method"] as? String ?? "")
                 var result: [String: Any] = [
                     "webUrl": "ws://127.0.0.1:9/?token=t", "pid": Int(getpid()), "build": "other", "agentHosts": agentHosts,
                 ]
