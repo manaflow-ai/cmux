@@ -63,6 +63,7 @@ enum MenuGlyphs {
     /// `image(forResource:)` opens Messages' asset catalog: file reads and a dispatch_sync onto CoreUI's serial
     /// `com.apple.CoreUI.UICatalog-cache` queue, 2.2 ms on the main thread at the first warm, blocking probe
     /// 2026-10-24) and not on the cooperative pool (file I/O). Utility: a prefetch nothing waits for.
+    /// A GCD utility thread, not BackgroundWork: this shared package cannot reach CmuxNextWakeups (lead, 2026-10-25).
     private static func loadArt() async -> [String: NSImage] {
         let bundle = messagesBundle, names = Array(messagesAssets.values)
         return await withCheckedContinuation { done in
