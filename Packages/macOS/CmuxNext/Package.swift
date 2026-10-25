@@ -1242,6 +1242,18 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
+        // Stand-in for p09-observability-000's CmuxNextTrace target (the Release trace ring), so 003
+        // compiles before 000 lands; 000 owns these entries.
+        .target(
+            name: "CmuxNextTrace",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTraceTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextWakeups",
             // Signposts: the main-thread scheduler's `stall.main_task` and `stall.over_budget` (MainFrameBudget), and
