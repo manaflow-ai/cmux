@@ -252,7 +252,7 @@ public final class IPhoneHostService {
             }) {
                 guard let self else { return }
                 if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
+                    approverSync = makeApproverSync(environment)
                 }
                 approverSync?.updateWorkspaceRoots(folders)
             }
@@ -277,7 +277,7 @@ public final class IPhoneHostService {
                     continue
                 }
                 if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
+                    approverSync = makeApproverSync(environment)
                 }
                 approverSync?.updateNewChatPicks(picks.params)
             }

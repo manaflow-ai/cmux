@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextMobile
 import CmuxNextWakeups
 import Foundation
 import os
@@ -13,6 +14,12 @@ import os
 /// - acpmux keeps approvers in memory only, so a restarted daemon starts with
 ///   none: the connection stays open, and each new one sends the list again.
 /// - Nothing to sync (no paired phones) and no connection: it does not connect.
+/// - Each paired phone gets its own acpmux credential (`_acpmux/pair_issue` role `phone`,
+///   the person only), issued again on each new connection and kept in memory only; hostd's
+///   channel for that phone presents it, so the phone's Full-access setting (Settings >
+///   Devices, off by default) can cover it. A phone that is no longer paired has its record
+///   revoked at once, and on each new connection any phone record no paired phone owns is
+///   revoked (a phone removed while the app was not running).
 @MainActor
 final class MobileHostApproverSync {
     private let environment: AcpmuxEnvironment
@@ -36,6 +43,19 @@ final class MobileHostApproverSync {
     private var picksClearPending = false
     private var needed: Bool {
         hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending || newChatPicks != nil || picksClearPending
+            || !credentials.isEmpty
+    }
+    /// Hands hostd every phone's credential, by phone device id, whenever the set changes.
+    var phoneCredentialsChanged: (@MainActor ([String: String]) -> Void)?
+    /// Each paired phone's acpmux record id and credential, by phone device id.
+    private var credentials: [String: (record: String, token: String)] = [:]
+    /// Open `pair_issue` requests on this connection: request id → phone device id.
+    private var issuing: [Int: String] = [:]
+    /// The open `pair_list` request on this connection, for the phone records no phone owns.
+    private var listRequest: Int?
+    /// The paired phones, from the approvers (an approver's id is its phone device id).
+    private var phoneIDs: Set<String> {
+        Set((params?["approvers"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? [])
     }
     private var nextID = 10
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone.approvers")
@@ -141,8 +161,19 @@ final class MobileHostApproverSync {
             }
             proven = true
             backoff.reset()
+            // A new connection (the daemon may have restarted): every phone gets a new credential.
+            credentials = [:]
+            issuing = [:]
+            nextID += 1
+            listRequest = nextID
+            line.send(Self.frame(id: nextID, method: "_acpmux/pair_list", params: [:]))
             send()
         default:
+            if let phone = issuing.removeValue(forKey: id) { return issued(phone, message) }
+            if id == listRequest {
+                listRequest = nil
+                return revokeUnowned(message)
+            }
             if let error = message["error"] as? [String: Any] {
                 logger.error("acpmux refused a person update: \(String(describing: error["message"]), privacy: .public)")
             } else {
@@ -158,6 +189,55 @@ final class MobileHostApproverSync {
         guard let connection, proven, let params else { return }
         nextID += 1
         connection.send(Self.frame(id: nextID, method: "_acpmux/approvers_set", params: params))
+        syncPhones()
+    }
+
+    /// Issues a credential for each paired phone without one, and revokes the record of each
+    /// phone no longer paired (its setting ends with it, and acpmux holds its chats again).
+    private func syncPhones() {
+        guard let connection, proven else { return }
+        let wanted = phoneIDs
+        let pending = Set(issuing.values)
+        for phone in wanted.sorted() where credentials[phone] == nil && !pending.contains(phone) {
+            nextID += 1
+            issuing[nextID] = phone
+            connection.send(Self.frame(id: nextID, method: "_acpmux/pair_issue", params: [
+                "name": MobileHostPairedDevices.acpmuxRecordName(phone), "role": "phone",
+            ]))
+        }
+        let gone = credentials.keys.filter { !wanted.contains($0) }
+        for phone in gone {
+            if let record = credentials.removeValue(forKey: phone)?.record { revoke(record) }
+        }
+        if !gone.isEmpty { phoneCredentialsChanged?(credentials.mapValues(\.token)) }
+    }
+
+    private func issued(_ phone: String, _ message: [String: Any]) {
+        guard let result = message["result"] as? [String: Any], let record = result["deviceId"] as? String,
+              let token = result["token"] as? String else {
+            let reason = (message["error"] as? [String: Any])?["message"]
+            return logger.error("acpmux refused a phone's credential: \(String(describing: reason), privacy: .public)")
+        }
+        // Unpaired while it was issued: it never reaches hostd.
+        guard phoneIDs.contains(phone) else { return revoke(record) }
+        credentials[phone] = (record, token)
+        phoneCredentialsChanged?(credentials.mapValues(\.token))
+    }
+
+    /// Revokes every live phone record (`pair_list`) no paired phone owns.
+    private func revokeUnowned(_ message: [String: Any]) {
+        let owned = Set(phoneIDs.map(MobileHostPairedDevices.acpmuxRecordName))
+        let devices = (message["result"] as? [String: Any])?["devices"] as? [[String: Any]] ?? []
+        for device in devices where device["role"] as? String == "phone" && device["revoked_at"] is NSNull {
+            guard let record = device["id"] as? String, let name = device["name"] as? String, !owned.contains(name) else { continue }
+            revoke(record)
+        }
+    }
+
+    private func revoke(_ record: String) {
+        guard let connection, proven else { return }
+        nextID += 1
+        connection.send(Self.frame(id: nextID, method: "_acpmux/pair_revoke", params: ["id": record]))
     }
 
     private func sendRoots() {
@@ -178,6 +258,8 @@ final class MobileHostApproverSync {
         guard connection === line else { return }
         connection = nil
         proven = false
+        issuing = [:]
+        listRequest = nil
         if needed { scheduleReconnect() }
     }
 
