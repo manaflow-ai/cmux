@@ -484,7 +484,8 @@ impl Hub {
         self.subsession_folder_check(pm, folder, Walk::BeforeCard).await?;
         let decided = self.ensure_folder_trusted(parent, folder, harness, short).await?;
         let rules = !Self::web_turn(parent);
-        self.subsession_folder_check(pm, folder, Walk::Answered { rules }).await?;
+        // The parent as it is after the card: one that left full access meanwhile walks as it is now.
+        self.subsession_folder_check(&parent.meta(), folder, Walk::Answered { rules }).await?;
         Ok(decided)
     }
 
