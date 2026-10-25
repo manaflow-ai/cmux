@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The perf lab's SQLite store: one WAL connection, forward-only versioned migrations.
+"""The perf lab's SQLite store: WAL, one connection per thread, forward-only versioned migrations.
 
 Chromeperf keeps the same split (catapult `dashboard/dashboard/models/graph_data.py`): a
 TestMetadata row per series (`test_path` = master/bot/suite/measurement/story) and one Row per
@@ -14,11 +14,12 @@ The store takes plain records, not result-v1 documents: mapping `cmux-perf-resul
 """
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import sqlite3
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -27,10 +28,14 @@ ALERT_GROUP_STATES = (
     "new", "triaged", "bisecting", "culprit", "assigned",
     "fixed", "flag-off", "accepted", "invalid", "lab-drift",
 )
+# What a run was for. Only waterfall runs are series points; bisect, verify, try, A/A and reference
+# attempts share a series key on pinpoint hosts with the same host class (3.1, 3.6) but are job data.
+RUN_KINDS = ("waterfall", "bisect", "verify", "try", "aa", "reference")
 
 Migration = tuple[int, str, tuple[str, ...]]
 
 _STATES_SQL = ", ".join(f"'{state}'" for state in ALERT_GROUP_STATES)
+_KINDS_SQL = ", ".join(f"'{kind}'" for kind in RUN_KINDS)
 
 MIGRATIONS: tuple[Migration, ...] = (
     (1, "initial lab schema", (
@@ -39,21 +44,20 @@ MIGRATIONS: tuple[Migration, ...] = (
             sha TEXT NOT NULL,
             config TEXT NOT NULL CHECK (config IN ('bench', 'bench-checks', 'release', 'debug')),
             commit_pos INTEGER NOT NULL,
-            measure_version TEXT NOT NULL,
             artifact_digest TEXT,
             built_at TEXT,
             UNIQUE (sha, config))""",
         """CREATE TABLE hosts (
             id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
             host_class TEXT NOT NULL,
             chip TEXT NOT NULL,
             memory_gb INTEGER NOT NULL,
             display_hz INTEGER NOT NULL,
-            role TEXT,
             fingerprint TEXT NOT NULL,
             first_seen TEXT NOT NULL,
-            last_seen TEXT NOT NULL)""",
+            last_seen TEXT NOT NULL,
+            UNIQUE (name, chip, memory_gb, display_hz, fingerprint))""",
         f"""CREATE TABLE alert_groups (
             id INTEGER PRIMARY KEY,
             state TEXT NOT NULL CHECK (state IN ({_STATES_SQL})),
@@ -65,26 +69,29 @@ MIGRATIONS: tuple[Migration, ...] = (
             reason TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL)""",
-        """CREATE TABLE jobs (
+        f"""CREATE TABLE jobs (
             id INTEGER PRIMARY KEY,
             controller_job_id TEXT UNIQUE,
-            kind TEXT NOT NULL CHECK (kind IN ('waterfall', 'bisect', 'verify', 'try', 'aa', 'reference')),
+            kind TEXT NOT NULL CHECK (kind IN ({_KINDS_SQL})),
             state TEXT NOT NULL,
             story TEXT,
             host_class TEXT,
             base_sha TEXT,
             head_sha TEXT,
             alert_group_id INTEGER REFERENCES alert_groups (id),
-            params_json TEXT NOT NULL DEFAULT '{}',
+            params_json TEXT NOT NULL DEFAULT '{{}}',
             result_json TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL)""",
-        """CREATE TABLE runs (
+        f"""CREATE TABLE runs (
             id INTEGER PRIMARY KEY,
             run_uuid TEXT NOT NULL UNIQUE,
+            content_digest TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ({_KINDS_SQL})),
             build_id INTEGER NOT NULL REFERENCES builds (id),
             host_id INTEGER NOT NULL REFERENCES hosts (id),
             job_id INTEGER REFERENCES jobs (id),
+            measure_version TEXT NOT NULL,
             story TEXT NOT NULL,
             engine TEXT NOT NULL,
             tier TEXT,
@@ -92,7 +99,7 @@ MIGRATIONS: tuple[Migration, ...] = (
             macos_major INTEGER NOT NULL,
             macos_build TEXT NOT NULL,
             features_hash TEXT NOT NULL,
-            features_json TEXT NOT NULL DEFAULT '{}',
+            features_json TEXT NOT NULL DEFAULT '{{}}',
             safe_mode TEXT NOT NULL,
             attachments_json TEXT NOT NULL DEFAULT '[]',
             started_at TEXT NOT NULL,
@@ -147,15 +154,6 @@ MIGRATIONS: tuple[Migration, ...] = (
             actor TEXT NOT NULL,
             reason TEXT,
             at TEXT NOT NULL)""",
-        """CREATE TABLE expectations (
-            id INTEGER PRIMARY KEY,
-            story TEXT NOT NULL,
-            host TEXT NOT NULL,
-            issue_url TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            created_by TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            UNIQUE (story, host))""",
         """CREATE TABLE traces (
             id INTEGER PRIMARY KEY,
             run_id INTEGER REFERENCES runs (id),
@@ -187,13 +185,24 @@ def series_key(*, story: str, metric: str, engine: str, host_class: str,
     return f"{SERIES_KEY_VERSION}:{hashlib.sha256(canonical.encode()).hexdigest()[:32]}"
 
 
+def migration_digest(name: str, statements: Sequence[str]) -> str:
+    """What schema_version records per migration, so an edited applied migration is refused."""
+    return hashlib.sha256(json.dumps([name, list(statements)]).encode()).hexdigest()
+
+
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
 def _stamp(moment: datetime) -> str:
-    """UTC ISO-8601, so stored stamps compare as text."""
-    return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
+    """Fixed-width UTC ISO-8601, so stored stamps compare as text in time order."""
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        raise StoreError(f"{moment.isoformat()}: a stored time needs a timezone")
+    return moment.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _optional_stamp(moment: datetime | None) -> str | None:
+    return None if moment is None else _stamp(moment)
 
 
 @dataclass(frozen=True)
@@ -201,9 +210,8 @@ class Build:
     sha: str
     config: str
     commit_pos: int
-    measure_version: str
     artifact_digest: str | None = None
-    built_at: str | None = None
+    built_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -213,7 +221,6 @@ class Host:
     memory_gb: int
     display_hz: int
     fingerprint: str
-    role: str | None = None
 
     @property
     def host_class(self) -> str:
@@ -233,19 +240,21 @@ class Metric:
 @dataclass(frozen=True)
 class Run:
     run_uuid: str
+    kind: str
+    measure_version: str
     story: str
     engine: str
     macos_major: int
     macos_build: str
     features_hash: str
     safe_mode: str
-    started_at: str
+    started_at: datetime
     features: dict[str, object] = field(default_factory=dict)
     attachments: Sequence[object] = ()
     tier: str | None = None
     session: str | None = None
     job_id: int | None = None
-    finished_at: str | None = None
+    finished_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -254,30 +263,51 @@ class Point:
     sha: str
     run_uuid: str
     started_at: str
+    measure_version: str
     samples: list[float]
     summary: dict[str, float] | None
     features_hash: str
     macos_build: str
     safe_mode: str
+    host_name: str
+    host_fingerprint: str
+
+
+def _content_digest(run: Run, build: Build, host: Host, metrics: Sequence[Metric]) -> str:
+    """Identifies one ingest of a run: a replay of the same run is a no-op, a different one is refused."""
+    record = {
+        "run": {**asdict(run), "started_at": _stamp(run.started_at), "finished_at": _optional_stamp(run.finished_at),
+                "attachments": list(run.attachments)},
+        "build": {**asdict(build), "built_at": _optional_stamp(build.built_at)},
+        "host": asdict(host),
+        "metrics": [{**asdict(metric), "samples": list(metric.samples)} for metric in metrics],
+    }
+    return hashlib.sha256(json.dumps(record, sort_keys=True, default=str).encode()).hexdigest()
 
 
 class Store:
-    """The lab's only database handle. labd composes one and passes it to every reader and writer."""
+    """One SQLite connection, owned by the thread that opened it (sqlite3 refuses use from another thread).
+
+    labd opens one Store per thread: WAL lets readers run beside the single writer, and every write takes
+    BEGIN IMMEDIATE, so writers in other threads or processes wait on busy_timeout instead of interleaving.
+    """
 
     def __init__(self, path: Path | str, *, migrations: Sequence[Migration] = MIGRATIONS,
-                 clock: Callable[[], datetime] = utc_now) -> None:
+                 clock: Callable[[], datetime] = utc_now, busy_timeout_ms: int = 5000) -> None:
         self._migrations = tuple(sorted(migrations))
         if [version for version, _, _ in self._migrations] != list(range(1, len(self._migrations) + 1)):
             raise StoreError("migration versions must be 1..n with no gaps or repeats")
         self._clock = clock
-        self._db = sqlite3.connect(str(path), isolation_level=None)
+        self._db = sqlite3.connect(str(path), isolation_level=None, timeout=busy_timeout_ms / 1000)
         self._db.row_factory = sqlite3.Row
-        mode = self._db.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+        # SQLite answers a racing switch into WAL with SQLITE_BUSY and no busy wait; the flock serializes openers.
+        with open(f"{path}.open-lock", "a") as guard:
+            fcntl.flock(guard, fcntl.LOCK_EX)
+            mode = self._db.execute("PRAGMA journal_mode=WAL").fetchone()[0]
         if mode != "wal":
             self._db.close()
             raise StoreError(f"{path}: journal_mode is {mode}, the lab store needs WAL")
         self._db.execute("PRAGMA foreign_keys=ON")
-        self._db.execute("PRAGMA busy_timeout=5000")
 
     def close(self) -> None:
         self._db.close()
@@ -303,44 +333,66 @@ class Store:
         return self._db.execute("SELECT COALESCE(MAX(version), 0) FROM schema_version").fetchone()[0]
 
     def migrate(self) -> int:
-        """Applies each migration newer than the database's version, each in its own transaction."""
-        self._db.execute("""CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)""")
-        current = self.schema_version()
-        known = self._migrations[-1][0] if self._migrations else 0
-        if current > known:
-            raise StoreError(f"database schema {current} is newer than this store ({known}); deploy a newer labd")
-        for version, name, statements in self._migrations:
-            if version <= current:
-                continue
+        """Applies every migration newer than the database in one write transaction; returns the version.
 
-            def apply(version: int = version, name: str = name, statements: tuple[str, ...] = statements) -> None:
+        The applied versions are read under the write lock, so concurrent migrate() calls (labd and a
+        lab.py CLI) apply each migration once and the later callers find it applied.
+        """
+        def apply() -> int:
+            self._db.execute("""CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY, name TEXT NOT NULL, digest TEXT NOT NULL, applied_at TEXT NOT NULL)""")
+            applied = {row["version"]: row for row in self._db.execute("SELECT * FROM schema_version")}
+            known = len(self._migrations)
+            if applied and max(applied) > known:
+                raise StoreError(f"database schema {max(applied)} is newer than this store ({known}); "
+                                 "deploy a newer labd")
+            for version, name, statements in self._migrations:
+                digest = migration_digest(name, statements)
+                row = applied.get(version)
+                if row is not None:
+                    if (row["name"], row["digest"]) != (name, digest):
+                        raise StoreError(f"migration {version} ({row['name']}) was applied with other statements; "
+                                         "migrations are forward-only, add a new one")
+                    continue
                 for statement in statements:
                     self._db.execute(statement)
-                self._db.execute("INSERT INTO schema_version VALUES (?, ?, ?)", (version, name, self._now()))
+                self._db.execute("INSERT INTO schema_version VALUES (?, ?, ?, ?)",
+                                 (version, name, digest, self._now()))
+            return known
 
-            self._write(apply)
-        return self.schema_version()
+        return self._write(apply)
 
     def _build_id(self, build: Build) -> int:
+        """One row per (sha, config). A different commit position or artifact digest is an ingest bug: refused."""
+        row = self._db.execute(
+            "SELECT id, commit_pos, artifact_digest FROM builds WHERE sha = ? AND config = ?",
+            (build.sha, build.config)).fetchone()
+        if row is None:
+            return self._db.execute(
+                "INSERT INTO builds (sha, config, commit_pos, artifact_digest, built_at) VALUES (?, ?, ?, ?, ?)",
+                (build.sha, build.config, build.commit_pos, build.artifact_digest,
+                 _optional_stamp(build.built_at))).lastrowid
+        if row["commit_pos"] != build.commit_pos:
+            raise StoreError(f"{build.sha} ({build.config}): commit position {build.commit_pos} differs from "
+                             f"stored {row['commit_pos']}")
+        if None not in (row["artifact_digest"], build.artifact_digest) and row["artifact_digest"] != build.artifact_digest:
+            raise StoreError(f"{build.sha} ({build.config}): artifact digest {build.artifact_digest} differs "
+                             f"from stored {row['artifact_digest']}")
         self._db.execute(
-            """INSERT INTO builds (sha, config, commit_pos, measure_version, artifact_digest, built_at)
-               VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (sha, config) DO NOTHING""",
-            (build.sha, build.config, build.commit_pos, build.measure_version, build.artifact_digest, build.built_at))
-        return self._db.execute(
-            "SELECT id FROM builds WHERE sha = ? AND config = ?", (build.sha, build.config)).fetchone()[0]
+            "UPDATE builds SET artifact_digest = COALESCE(artifact_digest, ?), built_at = COALESCE(built_at, ?) "
+            "WHERE id = ?", (build.artifact_digest, _optional_stamp(build.built_at), row["id"]))
+        return row["id"]
 
     def _host_id(self, host: Host) -> int:
+        """One immutable row per host configuration; only last_seen moves, so a run keeps the fingerprint and Hz it had."""
         now = self._now()
-        self._db.execute(
-            """INSERT INTO hosts (name, host_class, chip, memory_gb, display_hz, role, fingerprint, first_seen, last_seen)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT (name) DO UPDATE SET host_class = excluded.host_class, chip = excluded.chip,
-                 memory_gb = excluded.memory_gb, display_hz = excluded.display_hz, role = excluded.role,
-                 fingerprint = excluded.fingerprint, last_seen = excluded.last_seen""",
-            (host.name, host.host_class, host.chip, host.memory_gb, host.display_hz, host.role,
-             host.fingerprint, now, now))
-        return self._db.execute("SELECT id FROM hosts WHERE name = ?", (host.name,)).fetchone()[0]
+        return self._db.execute(
+            """INSERT INTO hosts (name, host_class, chip, memory_gb, display_hz, fingerprint, first_seen, last_seen)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT (name, chip, memory_gb, display_hz, fingerprint) DO UPDATE SET last_seen = excluded.last_seen
+               RETURNING id""",
+            (host.name, host.host_class, host.chip, host.memory_gb, host.display_hz, host.fingerprint,
+             now, now)).fetchone()[0]
 
     def _series_id(self, run: Run, host: Host, build: Build, metric: Metric) -> int:
         key = series_key(story=run.story, metric=metric.name, engine=run.engine, host_class=host.host_class,
@@ -357,20 +409,34 @@ class Store:
         return row["id"]
 
     def insert_run(self, run: Run, *, build: Build, host: Host, metrics: Sequence[Metric]) -> int:
-        """Stores one story run and its metrics in one transaction; returns the run id."""
+        """Stores one story run and its metrics in one transaction; returns the run id.
+
+        The same run_uuid with the same content (an ingest retry or a history re-import) returns the
+        stored id and writes nothing; the same run_uuid with other content is refused.
+        """
         if not metrics:
             raise StoreError(f"{run.run_uuid}: a run needs at least one metric")
+        if run.kind not in RUN_KINDS:
+            raise StoreError(f"{run.run_uuid}: run kind {run.kind!r} is not one of {RUN_KINDS}")
+        digest = _content_digest(run, build, host, metrics)
 
         def write() -> int:
+            stored = self._db.execute("SELECT id, content_digest FROM runs WHERE run_uuid = ?",
+                                      (run.run_uuid,)).fetchone()
+            if stored is not None:
+                if stored["content_digest"] != digest:
+                    raise StoreError(f"{run.run_uuid}: run already stored with other content")
+                return stored["id"]
             run_id = self._db.execute(
-                """INSERT INTO runs (run_uuid, build_id, host_id, job_id, story, engine, tier, session, macos_major,
-                                     macos_build, features_hash, features_json, safe_mode, attachments_json,
-                                     started_at, finished_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (run.run_uuid, self._build_id(build), self._host_id(host), run.job_id, run.story, run.engine,
-                 run.tier, run.session, run.macos_major, run.macos_build, run.features_hash,
-                 json.dumps(run.features, sort_keys=True), run.safe_mode, json.dumps(list(run.attachments)),
-                 run.started_at, run.finished_at)).lastrowid
+                """INSERT INTO runs (run_uuid, content_digest, kind, build_id, host_id, job_id, measure_version, story,
+                                     engine, tier, session, macos_major, macos_build, features_hash, features_json,
+                                     safe_mode, attachments_json, started_at, finished_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (run.run_uuid, digest, run.kind, self._build_id(build), self._host_id(host), run.job_id,
+                 run.measure_version, run.story, run.engine, run.tier, run.session, run.macos_major, run.macos_build,
+                 run.features_hash, json.dumps(run.features, sort_keys=True), run.safe_mode,
+                 json.dumps(list(run.attachments)), _stamp(run.started_at),
+                 _optional_stamp(run.finished_at))).lastrowid
             for metric in metrics:
                 self._db.execute(
                     "INSERT INTO results (run_id, series_id, samples_json, summary_json) VALUES (?, ?, ?, ?)",
@@ -387,18 +453,20 @@ class Store:
         return {row["metric"]: json.loads(row["samples_json"]) for row in rows}
 
     def series_points(self, key: str, *, limit: int = 50) -> list[Point]:
-        """The newest `limit` points of a series, oldest first, in commit order."""
+        """The newest `limit` waterfall points of a series, oldest first, in commit order."""
         rows = self._db.execute(
-            """SELECT b.commit_pos, b.sha, u.run_uuid, u.started_at, r.samples_json, r.summary_json,
-                      u.features_hash, u.macos_build, u.safe_mode
+            """SELECT b.commit_pos, b.sha, u.run_uuid, u.started_at, u.measure_version, r.samples_json,
+                      r.summary_json, u.features_hash, u.macos_build, u.safe_mode, h.name, h.fingerprint
                FROM results r JOIN series s ON s.id = r.series_id JOIN runs u ON u.id = r.run_id
-               JOIN builds b ON b.id = u.build_id
-               WHERE s.series_key = ? ORDER BY b.commit_pos DESC, u.started_at DESC, r.id DESC LIMIT ?""",
+               JOIN builds b ON b.id = u.build_id JOIN hosts h ON h.id = u.host_id
+               WHERE s.series_key = ? AND u.kind = 'waterfall'
+               ORDER BY b.commit_pos DESC, u.started_at DESC, r.id DESC LIMIT ?""",
             (key, limit)).fetchall()
-        return [Point(row["commit_pos"], row["sha"], row["run_uuid"], row["started_at"],
+        return [Point(row["commit_pos"], row["sha"], row["run_uuid"], row["started_at"], row["measure_version"],
                       json.loads(row["samples_json"]),
                       json.loads(row["summary_json"]) if row["summary_json"] is not None else None,
-                      row["features_hash"], row["macos_build"], row["safe_mode"]) for row in reversed(rows)]
+                      row["features_hash"], row["macos_build"], row["safe_mode"], row["name"], row["fingerprint"])
+                for row in reversed(rows)]
 
     def annotate(self, *, kind: str, start_pos: int, end_pos: int, text: str, created_by: str,
                  key: str | None = None) -> int:
