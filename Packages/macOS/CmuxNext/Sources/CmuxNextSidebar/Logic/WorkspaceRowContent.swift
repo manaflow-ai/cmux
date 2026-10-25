@@ -157,17 +157,23 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
+    /// Age labels, made once per distinct day count or minute (see ``AgeTextCache``); a memo of a pure function, not state.
+    private static let ageLabels = AgeTextCache()
+
     /// The age of a change, short: a time today, else days (`3d`), weeks
     /// (`3w`) or months (`5mo`), as T3 Code and Codex label chats.
     static func ageText(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
-        if days <= 0 { return date.formatted(date: .omitted, time: .shortened) }
-        // One unit, from whole days, like All chats' ages (`SidebarChatsDesign.age`): no timer.
-        let formatter = DateComponentsFormatter()
-        formatter.unitsStyle = .abbreviated
-        formatter.maximumUnitCount = 1
-        formatter.allowedUnits = [.day, .weekOfMonth, .month]
-        return formatter.string(from: TimeInterval(days) * 86_400) ?? ""
+        let minute = Int(date.timeIntervalSince1970 / 60)
+        return ageLabels.label(days: days <= 0 ? nil : days, minute: minute, locale: .current, timeZone: calendar.timeZone) {
+            if days <= 0 { return date.formatted(date: .omitted, time: .shortened) }
+            // One unit, from whole days, like All chats' ages (`SidebarChatsDesign.age`): no timer.
+            let formatter = DateComponentsFormatter()
+            formatter.unitsStyle = .abbreviated
+            formatter.maximumUnitCount = 1
+            formatter.allowedUnits = [.day, .weekOfMonth, .month]
+            return formatter.string(from: TimeInterval(days) * 86_400) ?? ""
+        }
     }
 
     /// The chip a row may draw: what asks for the user (needs you, failed, lost, Red CI). A finished
