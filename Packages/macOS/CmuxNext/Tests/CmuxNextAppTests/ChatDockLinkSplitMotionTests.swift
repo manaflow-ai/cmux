@@ -1,7 +1,9 @@
 import AppKit
+@testable import CmuxNextAgentPane
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextPagesTestSupport
 @testable import CmuxNextTerminal
 import Testing
 
@@ -20,12 +22,32 @@ struct ChatDockLinkSplitMotionTests {
         /// A real terminal: a `TerminalSession` with a libghostty surface, the view the app puts in a
         /// terminal pane, fed by a recording IO instead of a PTY.
         case terminal
+        /// An agent chat: the app's `AgentPaneView` on the shared page host, shown in Chromium (the
+        /// default, `agent.chromium`). Its page's view holds a `CEFHostView` filling it, as a CEF tab's
+        /// content view does, so the page's clip shape is read through the chat's own views.
+        case chat
     }
+
+    private actor NoChatHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
+    /// The agent page the chat loads (the page host registers its root once per process, so it is
+    /// made once and never deleted).
+    static let chatPage: URL? = {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "right-split-chat-\(UUID().uuidString)")
+        let file = directory.appending(path: "index.html")
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
+              (try? Data("<html><body><textarea></textarea></body></html>".utf8).write(to: file)) != nil else { return nil }
+        return file
+    }()
 
     final class Panes: LayoutPaneContentProvider {
         let content: Content
         private(set) var page: CEFHostView?
         private(set) var terminal: TerminalSession?
+        private(set) var chat: AgentPaneView?
+        private var hosting: FakeChromiumHosting?
         let io = GridRecordingTerminalIO()
         init(_ content: Content = .plain) { self.content = content }
         func makeContentView(for pane: PaneID) -> NSView {
@@ -42,6 +64,20 @@ struct ChatDockLinkSplitMotionTests {
                 let session = TerminalSession(io: io)
                 terminal = session
                 return session.view
+            case .chat:
+                let hosting = FakeChromiumHosting()
+                hosting.onMade = { [weak self] made in
+                    let page = CEFHostView(frame: made.contentView.bounds)
+                    page.autoresizingMask = [.width, .height]
+                    made.contentView.addSubview(page)
+                    self?.page = page
+                }
+                self.hosting = hosting
+                guard let file = ChatDockLinkSplitMotionTests.chatPage,
+                      let chat = AgentPaneView(model: AgentPaneModel(host: NoChatHost()), source: .bundled(file), pageHost: true,
+                                               chromium: hosting) else { return NSView() }
+                self.chat = chat
+                return chat
             }
         }
     }
@@ -94,6 +130,7 @@ struct ChatDockLinkSplitMotionTests {
 
         func close() {
             provider.io.finish()
+            provider.chat?.close()
             window.close()
         }
 
@@ -148,6 +185,17 @@ struct ChatDockLinkSplitMotionTests {
         guard !sameX(shown, expected) else { return nil }
         return String(format: "%@ x %.1f w %.1f: shows %.1f...%.1f, strip %.1f...%.1f", label, host.frame.minX,
                       host.frame.width, shown.minX, shown.maxX, expected.minX, expected.maxX)
+    }
+
+    /// Why `host` shows nothing, or a part starting inside it, while its leading part is inside the
+    /// strip, or nil when it does not: the pane hidden while it slid in, then "a small sliver opening
+    /// up from the center" (Leo 2026-10-24).
+    static func centreError(_ host: PaneHostView, in screen: ScreenContentView, _ label: String) -> String? {
+        guard !host.isHidden else { return nil }
+        let shown = Self.shown(host), expected = Self.expectedShown(host, in: screen)
+        guard expected.minX < 0.5, expected.width > 1, shown.minX > 0.5 || shown.width < 1 else { return nil }
+        return String(format: "%@: shows %.1f...%.1f of a pane whose 0...%.1f is inside the strip", label, shown.minX,
+                      shown.maxX, expected.maxX)
     }
 
     /// Why the Chromium page in `host` is off its part inside the strip, or nil when it is right: the
@@ -355,6 +403,103 @@ struct ChatDockLinkSplitMotionTests {
         #expect(Self.sameX(Self.shown(link), link.bounds), "the dragged terminal is masked: \(Self.shown(link)) of \(link.bounds)")
         #expect(session.view.frame.width > link.bounds.width / 2, "the terminal does not fill its pane: \(session.view.frame)")
         #expect(wrong.isEmpty, "the terminal's pane mask is off the strip: \(wrong.prefix(8).joined(separator: "; "))")
+    }
+
+    /// The whole right split (Leo 2026-10-24: "obviously it's not JUST browsers terminals are in that
+    /// same right area split the whole right side got fucked up at some point"): a terminal, a
+    /// Chromium page and an agent chat, each in the pane that opens right of a docked chat. On every
+    /// frame of the open spring, its landing and a real drag of the chat's edge (each move, the
+    /// release and its spring to rest):
+    /// - the pane's content is the pane's final size from the open's first frame (the strip moves the
+    ///   pane; nothing grows),
+    /// - what shows of the pane is its part inside the strip, from its leading edge to the strip's
+    ///   right edge while it slides in, never nothing and never a part starting inside it,
+    /// - a Chromium page (the browser's, the chat's) clips to that same part with no hole over it,
+    /// and at rest the pane shows all of itself and its content fills it.
+    @Test func aRightTerminalOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.terminal) }
+
+    @Test func aRightPageOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.page) }
+
+    @Test func aRightChatOpensAtItsFullSizeFromTheRightEdge() async throws { try await openRightSplit(.chat) }
+
+    private func openRightSplit(_ kind: Content) async throws {
+        let screen = Screen(kind)
+        defer { screen.close() }
+        let link = try #require(screen.host(Self.anchor)), view = try #require(screen.screen)
+        let clipMaxX = try #require(screen.screen?.geometry.clipMaxX)
+        switch kind {
+        case .terminal:
+            let session = try #require(screen.provider.terminal, "the pane holds no terminal")
+            try #require(session.surfaceView.surface != nil, "libghostty created no surface")
+        case .chat:
+            let chat = try #require(screen.provider.chat, "the agent page is missing")
+            // The page host makes the chat's Chromium page asynchronously, as in the app.
+            let deadline = Date().addingTimeInterval(10)
+            while chat.chromiumPage == nil, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(chat.chromiumPage != nil, "the chat never showed in Chromium")
+        case .page, .plain:
+            break
+        }
+        let page = screen.provider.page
+        if kind == .page || kind == .chat { try #require(page != nil, "the pane shows no Chromium page") }
+        #expect(page?.isDescendant(of: link) ?? true, "the page is not in the right pane")
+        let content = link.content
+
+        var wrong: [String] = []
+        func check(_ label: String) {
+            if let error = Self.maskError(link, in: view, label) { wrong.append(error) }
+            if let error = Self.centreError(link, in: view, label) { wrong.append(error) }
+            if let page, let error = Self.pageError(page, in: link, screen: view, label) { wrong.append(error) }
+        }
+        func fillsItsPane(_ label: String) {
+            #expect(Self.sameX(Self.shown(link), link.bounds), "\(label): the pane is masked: \(Self.shown(link)) of \(link.bounds)")
+            #expect(content.frame.size == link.contentRect.size, "\(label): the content \(content.frame) does not fill \(link.contentRect)")
+            guard let page else { return }
+            let holes = (page.cmuxOcclusionRects() as? [NSValue])?.map(\.rectValue) ?? []
+            #expect(page.bounds.width > 100 && !holes.contains(page.bounds), "\(label): the page is hidden: holes \(holes)")
+            let clip = page.cmuxClipPath()?.bounds ?? page.bounds
+            #expect(abs(clip.width - page.bounds.width) < 1, "\(label): the page shows \(clip) of \(page.bounds)")
+        }
+
+        // The open: a lone chat docks left and the pane slides in from the right edge.
+        screen.model.handOffContent(of: Self.anchor)
+        screen.show(Self.docked)
+        screen.root.layoutSubtreeIfNeeded()
+        var frames: [CGRect] = [], sizes: [CGSize] = [], pageSizes: [CGSize] = [], partly = 0
+        func record(_ label: String) {
+            check(label)
+            frames.append(link.frame)
+            sizes.append(content.frame.size)
+            if let page { pageSizes.append(page.bounds.size) }
+            let part = Self.expectedShown(link, in: view).width
+            if part > 1, part < link.frame.width - 1 { partly += 1 }
+        }
+        record("open 0")
+        for frame in 1...120 {
+            screen.step()
+            screen.root.layoutSubtreeIfNeeded()
+            record("open \(frame)")
+        }
+        let first = try #require(frames.first), rest = try #require(frames.last)
+        #expect(first.minX >= clipMaxX - 1, "the pane did not start at the strip's right edge: \(first.minX) < \(clipMaxX)")
+        #expect(frames.allSatisfy { abs($0.width - rest.width) <= 1 }, "the pane resized while it opened: \(frames.map(\.width))")
+        #expect(sizes.allSatisfy { $0 == link.contentRect.size },
+                "the content was not its final size \(link.contentRect.size) from the first frame: \(Set(sizes.map(\.width)))")
+        #expect(pageSizes.allSatisfy { $0 == pageSizes.last }, "the page resized while it opened: \(Set(pageSizes.map(\.width)))")
+        #expect(partly > 3, "the pane never showed partly inside the strip while it slid in (\(partly) frames)")
+        fillsItsPane("landed")
+
+        // A real drag of the chat's edge: narrower (the pane widens to the left), then back.
+        let before = link.frame
+        try screen.dragDockEdge(by: -240) { check("narrow \($0)") }
+        #expect(link.frame.width > before.width + 100, "the drag did not widen the pane: \(before) -> \(link.frame)")
+        fillsItsPane("narrowed")
+        let widened = link.frame
+        try screen.dragDockEdge(by: 120) { check("widen \($0)") }
+        #expect(link.frame.width < widened.width - 50, "the drag back did not narrow the pane: \(widened) -> \(link.frame)")
+        fillsItsPane("widened")
+        let firstWrong = wrong.prefix(8).joined(separator: "; ")
+        #expect(wrong.isEmpty, "\(kind): the right pane is off its part inside the strip on \(wrong.count) frames: \(firstWrong)")
     }
 
     /// `clipToStrip` on a host away from the screen's origin: a strip clip and a pane in front, in
