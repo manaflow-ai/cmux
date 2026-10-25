@@ -1889,6 +1889,18 @@ class Nightly(unittest.TestCase):
         self.assertIn("the fleet accepted", summary)
         self.assertNotIn("cancel", api.calls)
 
+    def test_a_next_build_a_mini_takes_is_watched_until_the_run_finishes(self):
+        # nightly-next's prepare-nightly-variant takes the side label later and can still be refused.
+        clock = Clock()
+        api = NightlyAPI(clock, nightly_run(started_at=30))
+        code, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(code, 0)
+        self.assertNotIn("the fleet accepted", summary)
+        self.assertIn("stopped: watch limit reached", summary)
+        self.assertGreaterEqual(clock.seconds, rescue.NIGHTLY_WATCH_LIMIT_SECONDS)
+        self.assertNotIn("cancel", api.calls)
+        self.assertNotIn("rerun-failed", api.calls)
+
     def test_the_budget_is_the_configured_one_with_no_copied_allowance(self):
         # CI_OWNED_POOL_RESCUE_SECONDS alone: no nightly-only round on top (it was 930 s at 30).
         for seconds in ("30", "120"):
@@ -1928,6 +1940,43 @@ class Nightly(unittest.TestCase):
                          finished=lambda s: s >= 200)
         _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
         self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_a_later_job_refused_after_the_build_was_accepted_is_still_moved(self):
+        # Run 40144317744: build-nightly-app ran on cmux14-glaeda-3, and the
+        # prepare-nightly-variant job behind it, created 20 minutes later on the
+        # same side label, was refused for disk. The watch had already stopped.
+        built_at, refused_at = 20 * 60, 21 * 60
+
+        def jobs(seconds):
+            found = [job("decide", status="completed", labels=[BLACKSMITH])]
+            app = job("build-nightly-app", labels=[SIDE], created=15, runner="cmux14-glaeda-3",
+                      status="completed" if seconds >= built_at else "in_progress")
+            app.update(started_at=stamp(20), steps=[{"name": "Set up runner", "conclusion": "success"}])
+            if seconds >= built_at:
+                app.update(conclusion="success", completed_at=stamp(built_at))
+            found.append(app)
+            if seconds >= refused_at:
+                prepare = refused_job("prepare-nightly-variant (arm64)", seconds=60, labels=(SIDE,),
+                                      steps=[{"name": "Set up runner", "conclusion": "failure"}])
+                found.append(prepare)
+            elif seconds >= built_at:
+                found.append(job("prepare-nightly-variant (arm64)", labels=[SIDE], created=built_at))
+            return found
+
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, finished=lambda s: s >= refused_at + 120)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertNotIn("the fleet accepted", summary)
+        # The refusal waits for the run to finish: nothing healthy is cancelled.
+        self.assertNotIn("cancel", api.calls)
+        self.assertEqual(api.calls[-1], "rerun-failed")
+
+    def test_a_run_cancelled_before_any_job_stops_when_it_finishes(self):
+        clock = Clock()
+        api = NightlyAPI(clock, lambda s: [], finished=lambda s: s >= 100)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertIn("stopped: the run finished with no job", summary)
+        self.assertLess(clock.seconds, 300)
 
     def test_only_a_nightly_honours_a_runner_label(self):
         # A pull request's compile admission names a warm runner as a preference: still rescued.
