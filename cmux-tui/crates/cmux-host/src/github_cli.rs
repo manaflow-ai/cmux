@@ -1,4 +1,4 @@
-//! `cmux github …` on a cmux Cloud machine: git and `gh` with short-lived,
+//! `cmux github …` on a cmux Cloud machine: git with short-lived,
 //! repo-scoped GitHub tokens and no login on the machine.
 //!
 //! - `credential get|store|erase`: a git credential helper. `get` asks the
@@ -6,9 +6,6 @@
 //!   the repo git names and answers `username=x-access-token` and
 //!   `password=<token>`; `store` and `erase` do nothing (no helper keeps
 //!   it, so the token lives as long as the git process).
-//! - `gh [--write] ARGS…`: runs `gh` with `GH_TOKEN` set for that one
-//!   process, for the repo named by `-R/--repo`, else `GH_REPO`, else the
-//!   current checkout's `origin`.
 //!
 //! Nothing is wired by default. To opt in, a user sets
 //! `credential.https://github.com.helper` to `!cmux github credential`
@@ -16,7 +13,7 @@
 //! `credential.https://github.com.useHttpPath` to `true`, so git names
 //! the repo.
 //!
-//! The token lives only in this process and the git or gh process it
+//! The token lives only in this process and the git process it
 //! answers. Nothing here writes it to disk or prints it anywhere but the
 //! credential protocol's stdout.
 //!
@@ -40,7 +37,7 @@ use crate::cloud::github::{TokenAsk, valid_repo};
 use crate::cloud::wire::AGENT_SOCKET;
 use crate::json::JsonField;
 
-const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS...";
+const USAGE: &str = "usage: cmux github credential get|store|erase";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
 /// The agent answers within this: an ask that waited 60 s in its queue is
 /// answered `busy` (`github_minter::MAX_QUEUE_WAIT`), and one mint is at
@@ -247,25 +244,6 @@ pub fn credential_asks(repo: &str, op: GitOp, workflows: bool) -> Vec<TokenAsk> 
     asks
 }
 
-/// The `gh` permission set: reads, or (`--write`) contents, pull requests
-/// and issues write.
-pub fn gh_ask(repo: &str, write: bool) -> TokenAsk {
-    let level = if write { "write" } else { "read" };
-    TokenAsk {
-        repo: repo.to_owned(),
-        permissions: perms(&[
-            ("contents", level),
-            ("pull_requests", level),
-            ("issues", level),
-            ("checks", "read"),
-            ("actions", "read"),
-            ("statuses", "read"),
-            ("metadata", "read"),
-        ]),
-        label: Some("gh".to_owned()),
-    }
-}
-
 /// git's credential description (`key=value` lines up to a blank line).
 pub fn parse_credential_input(input: &str) -> Map<String, Value> {
     let mut out = Map::new();
@@ -349,130 +327,6 @@ pub fn credential_get(
     (String::new(), last.map(|e| format!("{repo}: {e}")))
 }
 
-/// What `gh` runs with: the repo, whether to ask for write, and gh's own
-/// arguments (cmux's `--write` and a leading `--` taken out).
-#[derive(Debug, PartialEq, Eq)]
-pub struct GhPlan {
-    pub repo: String,
-    pub write: bool,
-    pub args: Vec<String>,
-}
-
-pub fn gh_plan(
-    args: &[String],
-    gh_repo_env: Option<&str>,
-    origin: &dyn Fn() -> Option<String>,
-) -> Result<GhPlan, String> {
-    let mut rest = args;
-    let mut write = false;
-    if let Some((first, after)) = rest.split_first()
-        && first == "--write"
-    {
-        write = true;
-        rest = after;
-    }
-    if let Some((first, after)) = rest.split_first()
-        && first == "--"
-    {
-        rest = after;
-    }
-    // `gh api URL`, `gh pr view URL` and the like go where the URL says: an
-    // argument that is a URL must be https to GitHub's own hosts.
-    if !rest.iter().all(|arg| url_arg_ok(arg)) {
-        return Err(
-            "the token is for github.com: a URL argument must be https://github.com or its API"
-                .to_owned(),
-        );
-    }
-    // `gh repo view HOST/owner/name` goes to HOST (gh sends GH_TOKEN to
-    // *.ghe.com too): a repo argument may name github.com only.
-    if rest.iter().any(|arg| other_host_repo(arg)) {
-        return Err("the token is for github.com: a HOST/owner/name argument must name github.com"
-            .to_owned());
-    }
-    let mut named = None;
-    let mut it = rest.iter();
-    while let Some(arg) = it.next() {
-        if arg == "--" {
-            break;
-        }
-        if arg == "--repo" {
-            named = it.next().cloned();
-        } else if let Some(cluster) = arg.strip_prefix('-').filter(|c| !c.starts_with('-')) {
-            // gh's shorthand forms: `-R o/r`, `-Ro/r`, `-R=o/r`, `-wR o/r`. A
-            // value that only looks like one is read as a repo too, so the
-            // check below refuses it rather than letting gh pick a host.
-            if let Some((_, rest)) = cluster.split_once('R') {
-                let rest = rest.strip_prefix('=').unwrap_or(rest);
-                named = if rest.is_empty() { it.next().cloned() } else { Some(rest.to_owned()) };
-            }
-        } else if let Some(v) = arg.strip_prefix("--repo=") {
-            named = Some(v.to_owned());
-        } else if arg == "--hostname" || arg.starts_with("--hostname=") {
-            let host = match arg.strip_prefix("--hostname=") {
-                Some(host) => Some(host.to_owned()),
-                None => it.next().cloned(),
-            };
-            if !host.is_some_and(|h| h.eq_ignore_ascii_case("github.com")) {
-                return Err("the token is for github.com; --hostname must be github.com".to_owned());
-            }
-        }
-    }
-    let (raw, from) = match (named, gh_repo_env.filter(|v| !v.is_empty())) {
-        (Some(named), _) => (named, "-R/--repo"),
-        (None, Some(env)) => (env.to_owned(), "GH_REPO"),
-        (None, None) => match origin() {
-            Some(url) => (url, "the origin remote"),
-            None => {
-                return Err(
-                    "no repo: pass -R owner/name, set GH_REPO, or run in a GitHub checkout"
-                        .to_owned(),
-                );
-            }
-        },
-    };
-    let repo =
-        repo_from(&raw).ok_or_else(|| format!("{from} is not a github.com owner/name repo"))?;
-    Ok(GhPlan { repo, write, args: rest.to_vec() })
-}
-
-/// Whether `arg`, when it is a URL (`scheme://...`), is https to github.com,
-/// api.github.com or uploads.github.com. Text with a URL inside (a `--body`
-/// value, say) is not a URL argument.
-fn url_arg_ok(arg: &str) -> bool {
-    let Some((scheme, rest)) = arg.split_once("://") else { return true };
-    if !scheme.bytes().all(|b| b.is_ascii_alphanumeric() || b"+.-".contains(&b)) {
-        return true;
-    }
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
-    scheme.eq_ignore_ascii_case("https")
-        && ["github.com", "api.github.com", "uploads.github.com"]
-            .iter()
-            .any(|host| authority.eq_ignore_ascii_case(host))
-}
-
-/// Whether `arg` is `HOST/owner/name` with a HOST (dotted labels) other
-/// than github.com.
-fn other_host_repo(arg: &str) -> bool {
-    let mut parts = arg.split('/');
-    let (Some(host), Some(owner), Some(name), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return false;
-    };
-    let hostlike = host.contains('.')
-        && host.split('.').all(|label| {
-            !label.is_empty() && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        });
-    hostlike && !owner.is_empty() && !name.is_empty() && !host.eq_ignore_ascii_case("github.com")
-}
-
-fn origin_url() -> Option<String> {
-    let out =
-        std::process::Command::new("git").args(["remote", "get-url", "origin"]).output().ok()?;
-    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
-}
-
 fn credential(args: &[String]) -> u8 {
     match args {
         [op] if op == "get" => {}
@@ -498,36 +352,6 @@ fn credential(args: &[String]) -> u8 {
     0
 }
 
-fn gh(args: &[String]) -> u8 {
-    let env_repo = std::env::var("GH_REPO").ok();
-    let plan = match gh_plan(args, env_repo.as_deref(), &origin_url) {
-        Ok(plan) => plan,
-        Err(e) => {
-            eprintln!("cmux github gh: {e}");
-            return 2;
-        }
-    };
-    let minted = match ask_retrying(Path::new(AGENT_SOCKET), &gh_ask(&plan.repo, plan.write)) {
-        Ok(minted) => minted,
-        Err(e) => {
-            eprintln!("cmux github gh: {}: {e}", plan.repo);
-            return 1;
-        }
-    };
-    use std::os::unix::process::CommandExt;
-    let err = std::process::Command::new("gh")
-        .args(&plan.args)
-        .env("GH_TOKEN", &minted.token)
-        // Only github.com: the token is for it and no other host.
-        .env("GH_HOST", "github.com")
-        .env_remove("GITHUB_TOKEN")
-        .env_remove("GH_ENTERPRISE_TOKEN")
-        .env_remove("GITHUB_ENTERPRISE_TOKEN")
-        .exec();
-    eprintln!("cmux github gh: gh: {err}");
-    1
-}
-
 fn usage(msg: &str) -> u8 {
     eprintln!("cmux github: {msg}\n{USAGE}");
     2
@@ -538,7 +362,6 @@ pub fn run(args: &[String]) -> u8 {
     let Some((verb, rest)) = args.split_first() else { return usage("missing verb") };
     match verb.as_str() {
         "credential" => credential(rest),
-        "gh" => gh(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             0
@@ -686,80 +509,6 @@ mod tests {
     }
 
     #[test]
-    fn gh_takes_its_repo_from_flags_env_then_origin() {
-        let none = || None;
-        let origin = || Some("git@github.com:o/from-origin.git".to_owned());
-        let plan = gh_plan(&strings(&["--write", "pr", "create", "-R", "o/r"]), Some("x/y"), &none)
-            .unwrap();
-        assert_eq!(
-            plan,
-            GhPlan {
-                repo: "o/r".to_owned(),
-                write: true,
-                args: strings(&["pr", "create", "-R", "o/r"])
-            }
-        );
-        assert_eq!(
-            gh_plan(&strings(&["pr", "view", "--repo=o/r2"]), None, &none).unwrap().repo,
-            "o/r2"
-        );
-        // Every shorthand -R form names the repo, and one on another host
-        // (or a value that only looks like -R) is refused, never left to gh.
-        let repo_of = |v: &[&str]| gh_plan(&strings(v), Some("o/env"), &none).map(|p| p.repo);
-        assert_eq!(repo_of(&["pr", "view", "-Ro/r3"]).unwrap(), "o/r3");
-        assert_eq!(repo_of(&["pr", "view", "-R=o/r4"]).unwrap(), "o/r4");
-        assert_eq!(repo_of(&["pr", "view", "-wR", "o/r5"]).unwrap(), "o/r5");
-        assert!(repo_of(&["pr", "view", "-Revil.example.com/o/r"]).is_err());
-        assert!(repo_of(&["pr", "view", "-R=evil.example.com/o/r"]).is_err());
-        assert!(repo_of(&["issue", "create", "--title", "-Rfoo"]).is_err());
-        assert!(
-            gh_plan(&strings(&["api", "x", "--hostname", "evil.ghe.com"]), Some("o/r"), &none)
-                .is_err()
-        );
-        assert!(
-            gh_plan(&strings(&["api", "x", "--hostname=GitHub.com"]), Some("o/r"), &none).is_ok()
-        );
-        // URL arguments: https to GitHub's hosts only, never plaintext.
-        let url = |v: &[&str]| gh_plan(&strings(v), Some("o/r"), &none).is_ok();
-        assert!(url(&["api", "https://api.github.com/repos/o/r"]));
-        assert!(url(&["pr", "view", "https://github.com/o/r/pull/1"]));
-        assert!(url(&["pr", "create", "--body", "see http://example.com"]));
-        assert!(!url(&["api", "http://github.com/secret"]));
-        assert!(!url(&["api", "https://github.com.evil/x"]));
-        assert!(!url(&["api", "HTTPS://evil.example.com"]));
-        assert!(!url(&["api", "https://x@api.github.com/repos"]));
-        // HOST/owner/name positionals: github.com only.
-        assert!(!url(&["repo", "view", "evil.ghe.com/o/r"]));
-        assert!(!url(&["repo", "clone", "Evil.Example.com/o/r"]));
-        assert!(url(&["repo", "view", "github.com/o/r"]));
-        assert!(url(&["repo", "view", "o/r"]));
-        assert!(url(&["api", "repos/o/r"]));
-        assert!(url(&["gist", "create", "../a/b"]));
-        let env = gh_plan(&strings(&["--", "pr", "list"]), Some("o/env"), &origin).unwrap();
-        assert_eq!(
-            (env.repo.as_str(), env.write, env.args),
-            ("o/env", false, strings(&["pr", "list"]))
-        );
-        assert_eq!(
-            gh_plan(&strings(&["pr", "list"]), None, &origin).unwrap().repo,
-            "o/from-origin"
-        );
-        assert!(gh_plan(&strings(&["pr", "list"]), None, &none).is_err());
-        assert!(gh_plan(&strings(&["pr", "list", "-R", "gitlab.com/o/r"]), None, &none).is_err());
-    }
-
-    #[test]
-    fn gh_asks_reads_unless_write() {
-        let read = gh_ask("o/r", false);
-        assert!(read.permissions.values().all(|v| v == "read"));
-        let write = gh_ask("o/r", true);
-        assert_eq!(write.permissions["contents"], "write");
-        assert_eq!(write.permissions["pull_requests"], "write");
-        assert_eq!(write.permissions["checks"], "read");
-        assert!(!write.permissions.contains_key("workflows"));
-    }
-
-    #[test]
     fn the_git_operation_comes_from_the_nearest_git_command_line() {
         let op = |v: &[&str]| git_op_of(&strings(v));
         assert_eq!(op(&["git", "push", "origin", "HEAD"]), Some(GitOp::Push));
@@ -835,6 +584,10 @@ mod tests {
         assert!(out.contains(SECRET));
     }
 
+    fn push_ask() -> TokenAsk {
+        credential_asks("o/r", GitOp::Push, false).remove(0)
+    }
+
     /// A fake Cloud agent: reads one line, answers `reply`, returns the line.
     fn fake_agent(
         reply: &'static str,
@@ -858,7 +611,7 @@ mod tests {
         let (_dir, socket, agent) = fake_agent(
             "{\"ok\":true,\"token\":\"ghs_fake_installation_token_0000000000\",\"expires_at\":\"2026-10-25T02:00:00Z\"}\n",
         );
-        let ask = gh_ask("o/r", true);
+        let ask = push_ask();
         let got = ask_agent(&socket, &ask).unwrap();
         assert_eq!(got.token, SECRET);
         assert!(!format!("{got:?}").contains(SECRET), "Debug redacts the token");
@@ -871,17 +624,13 @@ mod tests {
         let (_dir, socket, agent) = fake_agent(
             "{\"ok\":false,\"error\":{\"code\":\"needs_reauth\",\"message\":\"installation suspended\"}}\n",
         );
-        let err = ask_agent(&socket, &gh_ask("o/r", false)).unwrap_err();
+        let err = ask_agent(&socket, &push_ask()).unwrap_err();
         assert_eq!(err, refused("needs_reauth", "installation suspended"));
         agent.join().unwrap();
         let (_dir, socket, agent) = fake_agent("not json\n");
-        assert_eq!(
-            ask_agent(&socket, &gh_ask("o/r", false)).unwrap_err().code,
-            "vm.agent_bad_answer"
-        );
+        assert_eq!(ask_agent(&socket, &push_ask()).unwrap_err().code, "vm.agent_bad_answer");
         agent.join().unwrap();
-        let missing =
-            ask_agent(Path::new("/nonexistent/agent.sock"), &gh_ask("o/r", false)).unwrap_err();
+        let missing = ask_agent(Path::new("/nonexistent/agent.sock"), &push_ask()).unwrap_err();
         assert_eq!(missing.code, "vm.agent_unreachable");
     }
 }

@@ -43,7 +43,7 @@ fn team_vm_verb(raw_args: &[String], surface: Surface) -> bool {
         && matches!(raw_args.get(1).map(String::as_str), Some("restricted-shell" | "whoami"))
 }
 
-/// `cmux github credential|gh|setup` (crate `cmux-host`): git and gh on a
+/// `cmux github credential` (crate `cmux-host`): git and gh on a
 /// cmux Cloud machine with tokens its Cloud agent gets, mounted on the
 /// `cmux` surface only. The helper `setup` writes runs `cmux github
 /// credential` by the `cmux` link's path.
