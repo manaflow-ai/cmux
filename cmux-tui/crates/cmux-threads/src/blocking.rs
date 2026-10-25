@@ -12,7 +12,9 @@
 //!   through a wrapper in [`crate::checked`] or [`scoped_blocking_call`].
 //! - [`allow_blocking`] takes an [`AllowReason`]: the friend list. Its
 //!   `OwnDescriptor` row can only be made in this crate, by [`own_fd_read`],
-//!   [`own_fd_write`] and [`own_fd_write_all`], so it is never thread-wide.
+//!   [`own_fd_write`] and [`own_fd_write_all`], so it is never thread-wide,
+//!   and it covers only the one descriptor the thread registered with
+//!   [`register_own_descriptor`] before it disallowed blocking.
 //! - [`BlockingKind::IpcReply`] has no allowance: a cross-process round trip on
 //!   a disallowed thread is always a violation.
 //!
@@ -116,7 +118,8 @@ pub enum AllowReason {
     Shutdown,
     /// An echo or reader thread blocks on the descriptor it owns: that wait is
     /// the thread's job. Call-scoped and made only by [`own_fd_read`],
-    /// [`own_fd_write`] and [`own_fd_write_all`]; it permits only
+    /// [`own_fd_write`] and [`own_fd_write_all`] on the descriptor named by the
+    /// thread's [`register_own_descriptor`] token; it permits only
     /// [`BlockingKind::FdRead`] and [`BlockingKind::FdWrite`].
     #[non_exhaustive]
     OwnDescriptor,
@@ -269,9 +272,10 @@ pub fn disallow_blocking() {
 }
 
 /// Forbids blocking on the current thread while `f` runs (Chrome's
-/// `ScopedDisallowBlocking`), for work items that must not block.
+/// `ScopedDisallowBlocking`), for work items that must not block. The
+/// innermost scope wins: an outer allowance does not apply inside `f`.
 pub fn with_blocking_disallowed<R>(f: impl FnOnce() -> R) -> R {
-    scoped_state(ThreadState::with_disallowed, f)
+    scoped_state(|_| ThreadState::new(true, None), f)
 }
 
 /// Whether blocking is disallowed on the current thread (ignoring allowances).
@@ -325,35 +329,108 @@ fn violation(kind: BlockingKind) {
     );
 }
 
-/// Reads the descriptor the current thread owns, under the call-scoped
-/// [`AllowReason::OwnDescriptor`] allowance. One `read(2)`; `EINTR` is returned
-/// to the caller like `std::io::Read::read`.
+#[cfg(unix)]
+const NO_OWN_FD: std::os::fd::RawFd = -1;
+
+#[cfg(unix)]
+thread_local! {
+    static OWN_FD: Cell<std::os::fd::RawFd> = const { Cell::new(NO_OWN_FD) };
+}
+
+/// The current thread's registration of the descriptor it owns, made by
+/// [`register_own_descriptor`]. It borrows the descriptor, so the number
+/// cannot be closed and reused while it is registered, and it stays on its
+/// thread. Dropping it ends the registration.
+#[cfg(unix)]
+#[must_use = "the registration ends when the token drops"]
+pub struct OwnDescriptorToken<'fd> {
+    /// The registration this one replaced, or `None` when it was refused.
+    previous: Option<std::os::fd::RawFd>,
+    _fd: std::marker::PhantomData<std::os::fd::BorrowedFd<'fd>>,
+    _thread: std::marker::PhantomData<*const ()>,
+}
+
+#[cfg(unix)]
+impl OwnDescriptorToken<'_> {
+    /// Whether the registration took effect.
+    pub const fn is_registered(&self) -> bool {
+        self.previous.is_some()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for OwnDescriptorToken<'_> {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous {
+            OWN_FD.with(|own| own.set(previous));
+        }
+    }
+}
+
+/// Registers `fd` as the descriptor the current thread owns, so
+/// [`own_fd_read`] and [`own_fd_write`] may block on it after the thread
+/// disallows blocking. This is thread setup: call it before
+/// [`disallow_blocking`]. On a thread that already disallows blocking (a
+/// request thread), the registration is refused and records a
+/// [`BlockingKind::FdRead`] violation at the caller, so a request thread
+/// cannot grant itself a wait on a holder or host socket.
+#[cfg(unix)]
+#[track_caller]
+pub fn register_own_descriptor(fd: std::os::fd::BorrowedFd<'_>) -> OwnDescriptorToken<'_> {
+    use std::os::fd::AsRawFd;
+    let previous = if STATE.with(Cell::get).disallowed() {
+        violation(BlockingKind::FdRead);
+        None
+    } else {
+        Some(OWN_FD.with(|own| own.replace(fd.as_raw_fd())))
+    };
+    OwnDescriptorToken {
+        previous,
+        _fd: std::marker::PhantomData,
+        _thread: std::marker::PhantomData,
+    }
+}
+
+/// Checks a `kind` call on `fd`: the [`AllowReason::OwnDescriptor`] allowance
+/// applies only when `fd` is the thread's registered descriptor.
+#[cfg(unix)]
+#[inline]
+#[track_caller]
+fn assert_own_descriptor_allowed(fd: std::os::fd::BorrowedFd<'_>, kind: BlockingKind) {
+    use std::os::fd::AsRawFd;
+    let owned = OWN_FD.with(Cell::get) == fd.as_raw_fd();
+    if !(owned && AllowReason::OwnDescriptor.permits(kind)) {
+        assert_blocking_allowed(kind);
+    }
+}
+
+/// Reads the descriptor the current thread registered with
+/// [`register_own_descriptor`], under the call-scoped
+/// [`AllowReason::OwnDescriptor`] allowance. Any other descriptor is checked
+/// like any blocking read. One `read(2)`; `EINTR` is returned to the caller
+/// like `std::io::Read::read`.
 #[cfg(unix)]
 #[track_caller]
 pub fn own_fd_read(fd: std::os::fd::BorrowedFd<'_>, buf: &mut [u8]) -> std::io::Result<usize> {
     use std::os::fd::AsRawFd;
-    allow_blocking(AllowReason::OwnDescriptor, || {
-        scoped_blocking_call(BlockingKind::FdRead, || {
-            // SAFETY: `fd` is open for the borrow and `buf` is writable for its length.
-            let n = unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
-            usize::try_from(n).map_err(|_| std::io::Error::last_os_error())
-        })
-    })
+    assert_own_descriptor_allowed(fd, BlockingKind::FdRead);
+    // SAFETY: `fd` is open for the borrow and `buf` is writable for its length.
+    let n = unsafe { libc::read(fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+    usize::try_from(n).map_err(|_| std::io::Error::last_os_error())
 }
 
-/// Writes to the descriptor the current thread owns, under the call-scoped
-/// [`AllowReason::OwnDescriptor`] allowance. One `write(2)`.
+/// Writes to the descriptor the current thread registered with
+/// [`register_own_descriptor`], under the call-scoped
+/// [`AllowReason::OwnDescriptor`] allowance. Any other descriptor is checked
+/// like any blocking write. One `write(2)`.
 #[cfg(unix)]
 #[track_caller]
 pub fn own_fd_write(fd: std::os::fd::BorrowedFd<'_>, buf: &[u8]) -> std::io::Result<usize> {
     use std::os::fd::AsRawFd;
-    allow_blocking(AllowReason::OwnDescriptor, || {
-        scoped_blocking_call(BlockingKind::FdWrite, || {
-            // SAFETY: `fd` is open for the borrow and `buf` is readable for its length.
-            let n = unsafe { libc::write(fd.as_raw_fd(), buf.as_ptr().cast(), buf.len()) };
-            usize::try_from(n).map_err(|_| std::io::Error::last_os_error())
-        })
-    })
+    assert_own_descriptor_allowed(fd, BlockingKind::FdWrite);
+    // SAFETY: `fd` is open for the borrow and `buf` is readable for its length.
+    let n = unsafe { libc::write(fd.as_raw_fd(), buf.as_ptr().cast(), buf.len()) };
+    usize::try_from(n).map_err(|_| std::io::Error::last_os_error())
 }
 
 /// Writes all of `buf` to the descriptor the current thread owns, retrying
@@ -625,30 +702,140 @@ mod tests {
         assert_eq!(count_at(after), 0);
     }
 
+    #[test]
+    fn scoped_disallow_wins_over_an_outer_allowance() {
+        let (inside, after) = on_disallowed_thread(|| {
+            allow_blocking(AllowReason::Shutdown, || {
+                let inside = with_blocking_disallowed(|| {
+                    assert_eq!(current_allowance(), None);
+                    let line = line!() + 1;
+                    assert_blocking_allowed(BlockingKind::Fs);
+                    line
+                });
+                assert_eq!(current_allowance(), Some(AllowReason::Shutdown));
+                let after = line!() + 1;
+                assert_blocking_allowed(BlockingKind::Fs);
+                (inside, after)
+            })
+        });
+        assert_eq!(count_at(inside), 1);
+        assert_eq!(count_at(after), 0);
+    }
+
+    /// Runs `f` on a named thread that registers `own` (one end of a socket
+    /// pair) as its descriptor, then disallows blocking.
+    #[cfg(unix)]
+    fn on_echo_thread<R: Send + 'static>(
+        own: std::os::unix::net::UnixStream,
+        peer: std::os::unix::net::UnixStream,
+        f: impl FnOnce(std::os::fd::BorrowedFd<'_>, std::os::fd::BorrowedFd<'_>) -> R + Send + 'static,
+    ) -> R {
+        use std::os::fd::AsFd;
+        set_mode(BlockingMode::Record);
+        std::thread::Builder::new()
+            .name("blocking-echo-test".into())
+            .spawn(move || {
+                let token = register_own_descriptor(own.as_fd());
+                assert!(token.is_registered());
+                disallow_blocking();
+                f(own.as_fd(), peer.as_fd())
+            })
+            .expect("spawn test thread")
+            .join()
+            .expect("test thread")
+    }
+
     #[cfg(unix)]
     #[test]
     fn own_descriptor_io_is_permitted_and_call_scoped() {
-        use std::os::fd::AsFd;
-        let (read_back, after) = on_disallowed_thread(|| {
-            let (reader, writer) = std::io::pipe().expect("pipe");
-            own_fd_write_all(writer.as_fd(), b"echo").expect("write");
+        use std::io::{Read, Write};
+        let (own, mut peer) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+        peer.write_all(b"echo").expect("seed");
+        let peer_for_thread = peer.try_clone().expect("clone peer");
+        let (read_back, own_lines, after) = on_echo_thread(own, peer_for_thread, |own, _| {
             let mut buf = [0u8; 8];
-            let n = own_fd_read(reader.as_fd(), &mut buf).expect("read");
+            let read_line = line!() + 1;
+            let n = own_fd_read(own, &mut buf).expect("read");
+            let write_line = line!() + 1;
+            own_fd_write_all(own, &buf[..n]).expect("write");
             assert_eq!(current_allowance(), None);
             let after = line!() + 1;
             assert_blocking_allowed(BlockingKind::FdRead);
-            (buf[..n].to_vec(), after)
+            (buf[..n].to_vec(), [read_line, write_line], after)
         });
         assert_eq!(read_back, b"echo");
+        let mut echoed = [0u8; 4];
+        peer.read_exact(&mut echoed).expect("echo back");
+        assert_eq!(&echoed, b"echo");
         assert_eq!(count_at(after), 1);
+        for line in own_lines {
+            assert_eq!(count_at(line), 0, "own descriptor I/O at line {line} recorded a site");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn own_fd_io_on_an_unregistered_descriptor_is_a_violation() {
+        use std::io::Write;
+        let (own, peer) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+        let mut own_writer = own.try_clone().expect("clone own");
+        own_writer.write_all(b"reply").expect("seed");
+        let (read_line, write_line) = on_echo_thread(own, peer, |_, foreign| {
+            let mut buf = [0u8; 8];
+            let read_line = line!() + 1;
+            let n = own_fd_read(foreign, &mut buf).expect("read");
+            assert_eq!(&buf[..n], b"reply");
+            let write_line = line!() + 1;
+            own_fd_write_all(foreign, b"request").expect("write");
+            (read_line, write_line)
+        });
         let snapshot = snapshot();
-        assert!(
-            !snapshot.sites.iter().any(|site| site.file.ends_with("blocking.rs")
-                && (site.kinds.contains(BlockingKind::FdRead)
-                    || site.kinds.contains(BlockingKind::FdWrite))
-                && site.line != after),
-            "own_fd_* recorded a site: {snapshot:?}"
-        );
+        let read_site = snapshot.site(file!(), read_line).expect("foreign read recorded");
+        assert_eq!(read_site.count, 1);
+        assert_eq!(read_site.kinds.iter().collect::<Vec<_>>(), vec![BlockingKind::FdRead]);
+        let write_site = snapshot.site(file!(), write_line).expect("foreign write recorded");
+        assert_eq!(write_site.kinds.iter().collect::<Vec<_>>(), vec![BlockingKind::FdWrite]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_disallowed_thread_cannot_register_a_descriptor() {
+        use std::io::Write;
+        use std::os::fd::AsFd;
+        let (socket, mut peer) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+        peer.write_all(b"x").expect("seed");
+        let (register_line, read_line) = on_disallowed_thread(move || {
+            let register_line = line!() + 1;
+            let token = register_own_descriptor(socket.as_fd());
+            assert!(!token.is_registered());
+            let mut buf = [0u8; 1];
+            let read_line = line!() + 1;
+            own_fd_read(socket.as_fd(), &mut buf).expect("read");
+            (register_line, read_line)
+        });
+        assert_eq!(count_at(register_line), 1);
+        assert_eq!(count_at(read_line), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dropping_the_token_ends_the_registration() {
+        use std::io::Write;
+        use std::os::fd::AsFd;
+        set_mode(BlockingMode::Record);
+        let (socket, mut peer) = std::os::unix::net::UnixStream::pair().expect("socket pair");
+        peer.write_all(b"x").expect("seed");
+        let read_line = std::thread::spawn(move || {
+            drop(register_own_descriptor(socket.as_fd()));
+            disallow_blocking();
+            let mut buf = [0u8; 1];
+            let read_line = line!() + 1;
+            own_fd_read(socket.as_fd(), &mut buf).expect("read");
+            read_line
+        })
+        .join()
+        .expect("test thread");
+        assert_eq!(count_at(read_line), 1);
     }
 
     #[test]
@@ -706,6 +893,14 @@ mod tests {
         }
     }
 
+    /// One check in its own frame, so each iteration does the TLS read: an
+    /// inlined check in a loop lets LLVM hoist the load out of it. The cost
+    /// measured is an upper bound (it adds a call and a return).
+    #[inline(never)]
+    fn one_check(kind: BlockingKind) {
+        assert_blocking_allowed(kind);
+    }
+
     /// Best of five runs of `CALLS` checks, in ns per check.
     fn ns_per_check() -> f64 {
         const CALLS: u32 = 2_000_000;
@@ -713,7 +908,7 @@ mod tests {
             .map(|_| {
                 let start = Instant::now();
                 for _ in 0..CALLS {
-                    assert_blocking_allowed(std::hint::black_box(BlockingKind::Fs));
+                    one_check(std::hint::black_box(BlockingKind::Fs));
                 }
                 start.elapsed().as_secs_f64() * 1e9 / f64::from(CALLS)
             })

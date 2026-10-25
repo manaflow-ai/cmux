@@ -27,7 +27,9 @@ pub use blocking::{
     assert_blocking_allowed, disallow_blocking, scoped_blocking_call, with_blocking_disallowed,
 };
 #[cfg(unix)]
-pub use blocking::{own_fd_read, own_fd_write, own_fd_write_all};
+pub use blocking::{
+    OwnDescriptorToken, own_fd_read, own_fd_write, own_fd_write_all, register_own_descriptor,
+};
 pub use qos::{LiveQos, QosChange, ThreadQos, current, refused_changes, set_current, with_qos};
 pub use registry::{
     QosSlot, ThreadInfo, current_slot, deregister_current, register_current, snapshot,

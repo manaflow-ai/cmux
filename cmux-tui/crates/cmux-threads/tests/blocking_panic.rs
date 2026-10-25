@@ -1,9 +1,39 @@
 //! Panic mode is process-wide, so it gets its own test binary.
-#![cfg(debug_assertions)]
 
-use cmux_threads::blocking::{BlockingMode, set_mode, snapshot};
+use cmux_threads::blocking::{BlockingMode, mode, set_mode, snapshot};
 use cmux_threads::{checked, disallow_blocking};
 
+/// Release never panics: `Panic` reads back as `Record` and a violation is
+/// only recorded.
+#[cfg(not(debug_assertions))]
+#[test]
+fn release_treats_panic_mode_as_record() {
+    set_mode(BlockingMode::Panic);
+    assert_eq!(mode(), BlockingMode::Record);
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+    let line = std::thread::Builder::new()
+        .name("mux-conn-test".into())
+        .spawn(move || {
+            disallow_blocking();
+            let line = line!() + 1;
+            let bytes = checked::fs::read(&manifest).expect("read");
+            assert!(!bytes.is_empty());
+            line
+        })
+        .expect("spawn")
+        .join()
+        .expect("a disallowed read does not panic in Release");
+    assert_eq!(snapshot().site(file!(), line).map(|site| site.count), Some(1));
+}
+
+#[cfg(debug_assertions)]
+#[test]
+fn panic_mode_reads_back_in_debug() {
+    set_mode(BlockingMode::Panic);
+    assert_eq!(mode(), BlockingMode::Panic);
+}
+
+#[cfg(debug_assertions)]
 #[test]
 fn disallowed_checked_read_panics_with_the_caller_location() {
     set_mode(BlockingMode::Panic);
