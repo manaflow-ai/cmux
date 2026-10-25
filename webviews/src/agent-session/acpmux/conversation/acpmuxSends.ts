@@ -10,7 +10,8 @@
 // @ARGV'`, `nohup`, `nice`, `command`, `exec`. Only a command in command position counts: `echo
 // "acpmux send x y"` prints words. A line that also does other work (`git push && acpmux send …`)
 // stays a command row, so that work stays in sight; `cd`, `export`, an echo and filters on the
-// send's output (`| tail -1`) do none.
+// send's output that read no file (`| tail -1`) do none. A redirect that writes a file is work, and
+// so is a command substitution (`$(…)`, backticks) unless it only reads (`"$(cat note.md)"`).
 //
 // Options are read per `acpmux send --help`; `--status ID` (a delivery's state) and `--help` send
 // nothing. The text is unknown when the prompt comes from stdin that is not in the line (`-`, or no
@@ -52,12 +53,18 @@ export function acpmuxSendCall(tool: Tool): AcpmuxSendCall | undefined {
 export type ShellWord = { text: string; literal: boolean };
 
 /// A simple command: its words, its stdin when the line gives it (a here-document, a here-string,
-/// or `file` for `< path`), and the operator after it (`;` for a line break, "" at the end).
+/// or `file` for `< path`), the operator after it (`;` for a line break, "" at the end), whether a
+/// redirect writes a file (`> out`, not `2>&1` or `>/dev/null`), and the scripts its command
+/// substitutions run (`$(…)`, backticks, in its words or an unquoted here-document).
 export type ShellCommand = {
   words: ShellWord[];
   stdin?: ShellWord | "file";
   op: "" | ";" | "&&" | "||" | "|" | "&";
+  writes?: true;
+  runs?: string[];
 };
+
+type Pending = Partial<Pick<ShellCommand, "stdin" | "runs">>;
 
 const REDIRECT = /^(?:\d*(?:<<<|<<-|<<|>>|>&|<&|>\||<>|>|<)|&>>|&>)/;
 const META = /[\s;&|()<>]/;
@@ -68,21 +75,30 @@ export function shellCommands(line: string): ShellCommand[] {
   const commands: ShellCommand[] = [];
   let words: ShellWord[] = [];
   let stdin: ShellCommand["stdin"];
+  let writes = false;
+  let runs: string[] = [];
   /// Here-documents opened on the current line, read once it ends.
-  let pending: { delimiter: string; strip: boolean; quoted: boolean; command: { stdin?: ShellCommand["stdin"] } }[] =
-    [];
+  let pending: { delimiter: string; strip: boolean; quoted: boolean; command: Pending }[] = [];
   // The command being read, so a here-document read after its line lands on it.
-  let current: { stdin?: ShellCommand["stdin"] } = {};
+  let current: Pending = {};
   let index = 0;
   const end = (op: ShellCommand["op"]) => {
-    if (words.length || stdin) {
-      const command: ShellCommand = { words, op, ...(stdin && { stdin }) };
+    if (words.length || stdin || writes || runs.length || pending.some((doc) => doc.command === current)) {
+      const command: ShellCommand = {
+        words,
+        op,
+        ...(stdin && { stdin }),
+        ...(writes && { writes: true as const }),
+        ...(runs.length && { runs }),
+      };
       commands.push(command);
       // The here-document's body is read after the line; it fills this command's stdin then.
       for (const doc of pending) if (doc.command === current) doc.command = command;
     }
     words = [];
     stdin = undefined;
+    writes = false;
+    runs = [];
     current = {};
   };
   const readBodies = () => {
@@ -98,6 +114,10 @@ export function shellCommands(line: string): ShellCommand[] {
       }
       const body = lines.length ? `${lines.join("\n")}\n` : "";
       doc.command.stdin = { text: body, literal: doc.quoted || !/[$`]/.test(body) };
+      if (!doc.quoted) {
+        const found = substitutions(body);
+        if (found.length) doc.command.runs = [...(doc.command.runs ?? []), ...found];
+      }
     }
     pending = [];
   };
@@ -127,8 +147,9 @@ export function shellCommands(line: string): ShellCommand[] {
       index += redirect[0].length;
       while (line[index] === " " || line[index] === "\t") index += 1;
       const start = index;
-      const [target, next] = readWord(line, index);
+      const [target, next] = readWord(line, index, runs);
       index = next;
+      if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") writes = true;
       if (op === "<<" || op === "<<-") {
         const quoted = /['"\\]/.test(line.slice(start, next));
         pending.push({ delimiter: target.text, strip: op === "<<-", quoted, command: current });
@@ -147,7 +168,7 @@ export function shellCommands(line: string): ShellCommand[] {
       }
       continue;
     }
-    const [word, next] = readWord(line, index);
+    const [word, next] = readWord(line, index, runs);
     const raw = line.slice(index, next);
     index = next;
     // `{ …; }` groups commands; the braces are not words of them.
@@ -162,8 +183,11 @@ export function shellCommands(line: string): ShellCommand[] {
   return commands;
 }
 
-/// The word at `from`, and where it ends.
-function readWord(line: string, from: number): [ShellWord, number] {
+/// Redirects that write the file they name.
+const WRITES = new Set([">", ">>", ">|", "<>", "&>", "&>>"]);
+
+/// The word at `from`, and where it ends; the scripts of its command substitutions go in `runs`.
+function readWord(line: string, from: number, runs: string[] = []): [ShellWord, number] {
   let text = "";
   let literal = true;
   let index = from;
@@ -193,7 +217,7 @@ function readWord(line: string, from: number): [ShellWord, number] {
           if (line[index + 1] !== "\n") text += line[index + 1];
           index += 2;
         } else if (inner === "$" || inner === "`") {
-          const stop = expansionEnd(line, index);
+          const stop = expansionEnd(line, index, runs);
           if (stop > index + 1) literal = false;
           text += line.slice(index, stop);
           index = stop;
@@ -204,7 +228,7 @@ function readWord(line: string, from: number): [ShellWord, number] {
       if (line[index + 1] !== "\n") text += line[index + 1] ?? "";
       index += 2;
     } else if (char === "$" || char === "`") {
-      const stop = expansionEnd(line, index);
+      const stop = expansionEnd(line, index, runs);
       if (stop > index + 1) literal = false;
       text += line.slice(index, stop);
       index = stop;
@@ -215,17 +239,36 @@ function readWord(line: string, from: number): [ShellWord, number] {
 
 const ANSI_C: Record<string, string> = { n: "\n", t: "\t", r: "\r", "'": "'", '"': '"', "\\": "\\", e: "\u001b" };
 
-/// Where an expansion at `from` (`$name`, `${…}`, `$(…)`, `` `…` ``) ends; a lone `$` is one character.
-function expansionEnd(line: string, from: number): number {
+/// Where an expansion at `from` (`$name`, `${…}`, `$(…)`, `` `…` ``) ends; a lone `$` is one
+/// character. A command substitution's script goes in `runs`.
+function expansionEnd(line: string, from: number, runs: string[] = []): number {
   if (line[from] === "`") {
     let index = from + 1;
     while (index < line.length && line[index] !== "`") index += line[index] === "\\" ? 2 : 1;
+    runs.push(line.slice(from + 1, index));
     return Math.min(line.length, index + 1);
   }
   const next = line[from + 1];
-  if (next === "(" || next === "{") return balancedEnd(line, from + 1);
+  if (next === "(") {
+    const stop = balancedEnd(line, from + 1);
+    runs.push(line.slice(from + 2, line[stop - 1] === ")" ? stop - 1 : stop));
+    return stop;
+  }
+  if (next === "{") return balancedEnd(line, from + 1);
   const name = /^(?:[A-Za-z_]\w*|[0-9#?$!@*-])/.exec(line.slice(from + 1));
   return name ? from + 1 + name[0].length : from + 1;
+}
+
+/// The scripts of the command substitutions in an unquoted here-document's body.
+function substitutions(body: string): string[] {
+  const runs: string[] = [];
+  for (let index = 0; index < body.length; ) {
+    const char = body[index]!;
+    if (char === "\\") index += 2;
+    else if (char === "`" || (char === "$" && body[index + 1] === "(")) index = expansionEnd(body, index, runs);
+    else index += 1;
+  }
+  return runs;
 }
 
 /// The end of the bracket at `open` and what it holds, quotes inside kept whole.
@@ -259,13 +302,19 @@ const RUNNERS: Record<string, Set<string>> = {
 };
 /// Steps that only set up the shell, or report: they do no work a send row would hide.
 const SETUP = new Set(["cd", "pushd", "popd", "export", "set", "unset", "true", ":", "wait", "exit", "echo", "printf"]);
-/// Steps a send's output may pipe through (`| tail -1`): they only cut what it printed.
-const FILTERS = new Set(["tail", "head", "cat", "grep", "jq", "tee", "wc", "sed", "awk", "cut", "tr", "sort", "uniq"]);
+/// Steps a send's output may pipe through (`| tail -1`), with how many operands each takes besides
+/// its options: they only cut what it printed, and read no file and write none.
+const FILTERS: Record<string, number> = { tail: 0, head: 0, cat: 0, wc: 0, cut: 0, grep: 1, jq: 1, tr: 2 };
+/// What a command substitution may run and still only read (`"$(cat note.md)"`).
+const READERS = new Set(["cat", "head", "tail", "date", "basename", "dirname", "pwd", "echo", "printf"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
 /// `reach`'s options that take a value (`reach --help`).
 const REACH_VALUES = new Set(["--origin", "--registry", "--keep-tunnel", "--timeout"]);
-/// `acpmux send`'s options that take a value (`acpmux send --help`).
+/// `acpmux send`'s options that take a value, and its flags (`acpmux send --help`).
 const SEND_VALUES = new Set(["--timeout", "--on-permission", "--stall", "--prompt-id", "--from", "--supersede"]);
+const SEND_FLAGS = new Set(["--json", "--steer", "--no-steer", "--suppress-reads", "--no-wait", "-q", "--quiet"]);
+/// `acpmux`'s own flags, which may come before `send` (`acpmux --help`).
+const ACPMUX_FLAGS = new Set(["--json", "--suppress-reads"]);
 
 const ASSIGNMENT = /^[A-Za-z_]\w*=/;
 const program = (word: ShellWord | undefined) => (word?.literal ? (word.text.split("/").pop() ?? "") : "");
@@ -283,14 +332,17 @@ function unwrapped(words: readonly ShellWord[]): ShellWord[] {
       // `timeout [-s SIG] [-k DUR] [--foreground] DURATION COMMAND…`.
       rest = afterOptions(rest.slice(1), new Set(["-s", "-k", "--signal", "--kill-after"])).slice(1);
     } else if (name === "perl") {
-      // `perl -e 'alarm N; exec @ARGV' COMMAND…`: a script that runs its arguments.
-      const at = rest.findIndex((word) => word.text === "-e" || word.text === "-E");
-      if (at < 0 || !/\bexec\s*\(?\s*@ARGV\b/.test(rest[at + 1]?.text ?? "")) return rest;
-      rest = rest.slice(at + 2);
+      // `perl -e 'alarm N; exec @ARGV' COMMAND…`: a script that does nothing but run its arguments.
+      const flag = rest[1]?.text;
+      if ((flag !== "-e" && flag !== "-E") || !PERL_EXEC.test(rest[2]?.text ?? "")) return rest;
+      rest = rest.slice(3);
     } else return rest;
   }
   return rest;
 }
+
+/// `alarm N; exec @ARGV` and nothing else.
+const PERL_EXEC = /^\s*(?:alarm\s*\(?\s*\d+\s*\)?\s*;\s*)?exec\s*\(?\s*@ARGV\s*\)?\s*;?\s*$/;
 
 /// The words after a runner's options (and, for `env`, its assignments).
 function afterOptions(words: ShellWord[], values: ReadonlySet<string>, assignments = false): ShellWord[] {
@@ -324,9 +376,11 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
       const flag = words.findIndex((word, place) => place > 0 && /^-[a-z]*c[a-z]*$/.test(word.text));
       const script = flag > 0 ? words[flag + 1] : undefined;
       if (script?.literal) send = acpmuxSend(script.text, host, depth + 1);
-    } else if ((name === "acpmux" || name === "acpmux-debug-cli") && words[1]?.text === "send")
-      send = sendArgs(words.slice(2), stdinOf(commands, index), host);
-    else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send")
+    } else if (name === "acpmux" || name === "acpmux-debug-cli") {
+      let sub = 1;
+      while (ACPMUX_FLAGS.has(words[sub]?.text ?? "")) sub += 1;
+      if (words[sub]?.text === "send") send = sendArgs(words.slice(sub + 1), stdinOf(commands, index), host);
+    } else if (name === "cmux" && words[1]?.text === "acp" && words[2]?.text === "send")
       send = sendArgs(words.slice(3), stdinOf(commands, index), host);
     if (send) {
       if (found) return undefined;
@@ -335,18 +389,38 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     }
   }
   if (!found) return undefined;
-  // Every other step only sets up, reports, feeds the send, or filters what it printed.
-  const quiet = commands.every((command, index) => {
-    if (index === at) return true;
-    const name = program(unwrapped(command.words)[0]);
-    if (!command.words.length || SETUP.has(name)) return true;
-    if (command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) return true;
-    const pipedFromSend = index > at && commands.slice(at, index).every((step) => step.op === "|");
-    if (pipedFromSend && FILTERS.has(name)) return true;
+  // No step writes a file or runs a substitution that does more than read, and every step but the
+  // send only sets up, reports, feeds the send, or filters what it printed.
+  let pipedFromSend = false;
+  for (const [index, command] of commands.entries()) {
+    pipedFromSend = index > at && commands[index - 1]!.op === "|" && (index === at + 1 || pipedFromSend);
+    if (command.writes || !(command.runs ?? []).every((script) => onlyReads(script, depth))) return undefined;
+    if (index === at) continue;
+    const words = unwrapped(command.words);
+    const name = program(words[0]);
+    if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
+    if (pipedFromSend && name in FILTERS && operands(words.slice(1)) <= FILTERS[name]!) continue;
     // `cat <<EOF | acpmux send x -`: cat only hands the send its text.
-    return name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1;
-  });
-  return quiet ? found : undefined;
+    if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
+    return undefined;
+  }
+  return found;
+}
+
+/// How many of a filter's words are operands (a pattern, a file), not options or their numbers;
+/// an expansion counts as one.
+const operands = (words: readonly ShellWord[]) =>
+  words.filter((word) => !word.literal || !(word.text.startsWith("-") || /^\+?\d+[a-zA-Z]?$/.test(word.text))).length;
+
+/// Whether a command substitution's script only reads: readers piped or listed, writing nothing.
+function onlyReads(script: string, depth: number): boolean {
+  if (depth > 3) return false;
+  return shellCommands(script).every(
+    (command) =>
+      !command.writes &&
+      READERS.has(program(command.words[0])) &&
+      (command.runs ?? []).every((inner) => onlyReads(inner, depth + 1)),
+  );
 }
 
 /// The text the command at `index` reads from stdin, when the line holds it: its here-document or
@@ -383,6 +457,8 @@ function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefi
       const name = text.split("=", 1)[0]!;
       // `--status ID` reads a delivery's state; help prints usage. Neither sends anything.
       if (name === "--status" || name === "--help" || /^-[a-zA-Z]*h/.test(name)) return undefined;
+      // An option acpmux does not know fails the call: it sends nothing.
+      if (!SEND_FLAGS.has(name) && !SEND_VALUES.has(name)) return undefined;
       if (name === "--no-wait") noWait = true;
       if (SEND_VALUES.has(name) && !text.includes("=")) index += 1;
     } else positional.push(word);
