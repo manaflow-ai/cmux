@@ -119,11 +119,19 @@ export const SubagentTray = memo(function SubagentTray({
   // Its subagents and the chats it started are one word: subagents.
   const subagents = items.filter((item) => item.kind !== "command").length;
   const commands = items.length - subagents;
+  // Running is what runs: a subagent or chat that waits on the person is counted as waiting.
+  const waitingOnYou = items.filter((item) =>
+    item.kind === "agent"
+      ? subagentStatus(item.agent, waiting) === "waiting"
+      : item.kind === "session" && item.session.state === "waiting",
+  ).length;
+  const running = subagents - waitingOnYou;
   const starts = items.map(itemStart).filter((start): start is number => start !== undefined);
   const title =
     [
-      working ? subagents > 0 && t("subagents.allRunning", { n: subagents }) : items.length > 0 && t("bgWork.running"),
+      working ? running > 0 && t("subagents.allRunning", { n: running }) : items.length > 0 && t("bgWork.running"),
       !working && subagents > 0 && t("subagents.count", { n: subagents }),
+      working && waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
       commands > 0 && t("turn.working.commands", { n: commands }),
     ]
       .filter((part): part is string => typeof part === "string")
@@ -198,7 +206,7 @@ export const SubagentTray = memo(function SubagentTray({
             item.agent.state !== "running"
               ? item.agent.kind
               : item.agent.actionShell
-                ? toolDetail(t, item.agent.action)
+                ? toolDetail(t, item.agent.action, true)
                 : (item.agent.action ?? item.agent.kind)
           }
           mark={item.agent.harness}

@@ -669,8 +669,11 @@ describe("the tray tells the truth", () => {
     );
     try {
       const head = root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
-      // Four subagents (two harness subagents, two chats it started) and one command: five rows.
-      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("4 subagents running · 1 command");
+      // Four subagents (two harness subagents, two chats it started, one waiting) and one command: five rows.
+      // A chat that waits on the person is counted as waiting, never as running.
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe(
+        "3 subagents running · 1 waiting · 1 command",
+      );
       if (head.getAttribute("aria-expanded") !== "true") await act(async () => head.click());
       const lines = liveLines(root);
       expect(lines.length).toBe(5);
@@ -962,8 +965,14 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     // ACP titles other calls in capitalized words; a shell call's title is the command as typed.
     for (const title of ["Read AgentCard.tsx", "Run cargo test -p acpmux", "Edit 2 files", "Grep retries"])
       expect(isCommandTitle(title)).toBe(false);
-    for (const command of ["git status", "ls", "cat README.md", "make test", "./x.sh", "FOO=1 bun test", "~/bin/x"])
+    for (const command of ["git status", "ls", "cat -n README.md", "make test -j4", "./x.sh", "FOO=1 bun test", "~/bin/x"])
       expect(isCommandTitle(command)).toBe(true);
+    // Without shell provenance a lowercase title needs a known program or shell structure.
+    for (const prose of ["find the issue", "make a plan", "go ahead", "cat README.md"])
+      expect(isCommandTitle(prose)).toBe(false);
+    // A shell call's own title (ACP execute) is its command whatever it starts with.
+    expect(isCommandTitle("cat README.md", true)).toBe(true);
+    expect(isCommandTitle("terraform plan", true)).toBe(true);
     expect(toolDetail(t as never, "cd repo && terraform plan")).toBe("Running terraform plan");
     expect(toolDetail(t as never, "Read AgentCard.tsx")).toBe("Read AgentCard.tsx");
     // A plan step is prose, whatever it starts with, and is never split: only the tool part changes.
@@ -1058,6 +1067,8 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {} }),
     );
     try {
+      // Four running, none waiting: the header counts them all as running.
+      expect(root.querySelector(".acpmux-running-tray__title")?.textContent).toBe("4 subagents running");
       // Four lines start folded: open them.
       await act(async () => root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!.click());
       const details = [...root.querySelectorAll(".acpmux-summary-agent__kind")].map((node) => node.textContent);
