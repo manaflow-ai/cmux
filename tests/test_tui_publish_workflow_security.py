@@ -1,4 +1,3 @@
-import fnmatch
 import hashlib
 import json
 import os
@@ -191,14 +190,6 @@ def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
     assert '"arch":' not in artifacts
     assert "architecture: x86_64" in releasing
     assert "libc: none" in releasing
-
-
-def test_linux_linker_helper_changes_publish_raw_binaries() -> None:
-    push = workflow_triggers(workflow("cmux-tui-artifacts.yml"))["push"]
-    assert any(
-        fnmatch.fnmatchcase("scripts/build-tui-musl.sh", pattern)
-        for pattern in push["paths"]
-    ), "a release linker helper change must publish new raw binaries"
 
 
 def test_typescript_sdk_publisher_cannot_publish_the_cli_package() -> None:

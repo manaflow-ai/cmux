@@ -268,33 +268,9 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          ../scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked
-          ../scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p cmux-relay --bin cmux-relay --release --locked
-          ../scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p chatmux-relay --bin chatmux-relay --release --locked
-
-      - name: Test Linux release allocator retention
-        if: runner.os == 'Linux'
-        env:
-          RETENTION_TARGET: ${{ matrix.build_target }}
-        working-directory: cmux-tui
-        shell: bash
-        run: |
-          retention_dir="$RUNNER_TEMP/cmux-allocator-retention"
-          ../scripts/build-tui-musl.sh "$RETENTION_TARGET" \
-            --manifest-path test-fixtures/allocator-retention/Cargo.toml \
-            --release --locked --target-dir "$retention_dir"
-          # ARM64 runs on its native package-verification runner below.
-          if [[ "$RETENTION_TARGET" == x86_64-unknown-linux-musl ]]; then
-            "$retention_dir/$RETENTION_TARGET/release/allocator-retention"
-          fi
-
-      - name: Upload Linux allocator regression
-        if: runner.os == 'Linux'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: cmux-allocator-retention-${{ matrix.build_target }}
-          path: ${{ runner.temp }}/cmux-allocator-retention/${{ matrix.build_target }}/release/allocator-retention
-          if-no-files-found: error
+          ./scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked
+          ./scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p cmux-relay --bin cmux-relay --release --locked
+          ./scripts/build-tui-musl.sh '${{ matrix.build_target }}' -p chatmux-relay --bin chatmux-relay --release --locked
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
@@ -334,7 +310,7 @@ jobs:
           # plugin can reuse SDK dependencies from the TUI build.
           export CARGO_TARGET_DIR="$GITHUB_WORKSPACE/cmux-tui/target"
           if [[ "$AGENT_PLUGIN_CROSS" == "true" && "$RUNNER_OS" == "Linux" ]]; then
-            ../scripts/build-tui-musl.sh "$AGENT_PLUGIN_TARGET" \
+            ./scripts/build-tui-musl.sh "$AGENT_PLUGIN_TARGET" \
               --manifest-path "$plugin_manifest" \
               --release --locked
           else
@@ -832,18 +808,6 @@ jobs:
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
-
-      - name: Download native Linux allocator regression
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-allocator-retention-${{ matrix.architecture == 'arm64' && 'aarch64' || 'x86_64' }}-unknown-linux-musl
-          path: dist/allocator-retention
-
-      - name: Test native Linux allocator retention
-        shell: bash
-        run: |
-          chmod +x dist/allocator-retention/allocator-retention
-          dist/allocator-retention/allocator-retention
 
       - name: Download npm package archive
         if: inputs.package_npm

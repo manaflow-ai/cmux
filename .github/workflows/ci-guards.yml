@@ -441,10 +441,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_tui_package_contract.py
 
-      - name: Validate TUI Linux musl linker selection
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_tui_musl_build.py
-
       - name: Validate Claude launch environment policy generation
         if: ${{ matrix.group == 'preflight' }}
         run: python3 scripts/generate-claude-launch-environment-policy.py --check

@@ -7,7 +7,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-WRAPPER = ROOT / "scripts/build-tui-musl.sh"
+WRAPPER = ROOT / "cmux-tui/scripts/build-tui-musl.sh"
 
 
 class MuslBuildTests(unittest.TestCase):
