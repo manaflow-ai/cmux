@@ -64,6 +64,8 @@ final class SettingsPageProvider: PageProvider {
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
     /// Settings > Devices' Remove (plans/cmux-next/add-device-DESIGN.md 2.5): the error to show, or nil.
     var removeDevice: (@MainActor (String) async -> String?)?
+    /// Settings > Devices' Full access switch on a paired client machine: the error to show, or nil.
+    var setDeviceFullAccess: (@MainActor (String, Bool) async -> String?)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -122,6 +124,11 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.devices.remove":
             guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
             return try await Self.host(removeDevice, "devices")(id).map { ["error": .string($0)] } ?? .object([:])
+        case "cmux.settings.devices.full_access":
+            guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("id and on are required")
+            }
+            return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
