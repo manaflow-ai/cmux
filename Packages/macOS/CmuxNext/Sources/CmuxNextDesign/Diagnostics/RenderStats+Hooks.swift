@@ -77,12 +77,16 @@ extension RenderStats {
     private static func scanDefiners() -> [Selector: [(type: AnyClass, method: Method)]] {
         var definers: [Selector: [(type: AnyClass, method: Method)]] = [:]
         // A lookup on the root resolves a method its class adds lazily, so the method list below has it.
-        for (root, selectors) in hookedSelectors { for selector in selectors { _ = class_getInstanceMethod(root, selector) } }
+        for entry in hookedSelectors { for selector in entry.selectors { _ = class_getInstanceMethod(entry.root, selector) } }
         var classCount: UInt32 = 0
         guard let list = objc_copyClassList(&classCount) else { return [:] }
-        defer { free(UnsafeMutableRawPointer(list)) }
+        let raw = UnsafeMutableRawPointer(list)
+        defer { free(raw) }
+        // Read as raw pointers: the autoreleasing list retains what it reads, and a root class without
+        // `retain` (JSExport) aborts. A metatype is not reference counted.
+        let classes = raw.assumingMemoryBound(to: UnsafeRawPointer.self)
         for index in 0..<Int(classCount) {
-            let type: AnyClass = list[index]
+            let type = unsafeBitCast(classes[index], to: AnyClass.self)
             guard let selectors = hookedSelectors.first(where: { isClass(type, kindOf: $0.root) })?.selectors else { continue }
             var methodCount: UInt32 = 0
             guard let methods = class_copyMethodList(type, &methodCount) else { continue }
