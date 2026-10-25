@@ -166,7 +166,7 @@ import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
 import { ArtifactContext, type Artifact } from "./conversation/artifactPreview";
-import { artifactVersions } from "./conversation/artifactVersions";
+import { artifactForIdentity, artifactVersions } from "./conversation/artifactVersions";
 import { renderCall } from "./conversation/renderCall";
 import { DateLine } from "./conversation/DateLine";
 import { ShortcutsContext, readShortcuts, type ShortcutLabels } from "./shortcuts";
@@ -543,7 +543,13 @@ const MessageRow = memo(
       );
     }
     return (
-      <RevealedMarkdown text={row.text ?? ""} streaming={row.streaming === true} githubRepository={githubRepository} />
+      <RevealedMarkdown
+        text={row.text ?? ""}
+        streaming={row.streaming === true}
+        githubRepository={githubRepository}
+        artifactIdentity={row.id}
+        artifactRevision={row.version}
+      />
     );
   },
   (previous, next) =>
@@ -2172,17 +2178,25 @@ function AcpmuxPane() {
   const [artifact, setArtifact] = useState<Artifact & { sessionId?: string; opened: number }>();
   if (artifact && snapshot.sessionId !== artifact.sessionId) setArtifact(undefined);
   const artifactSession = snapshot.sessionId;
-  // Its versions (cx-ncc.64): the chat's finished replies' documents of its kind and title.
+  // A streaming row can rewrite the fence after it was opened. Resolve the same identity from
+  // each snapshot; a lower row version is stale and leaves the last accepted source in place.
   const artifactRows = artifact ? snapshot.rows : undefined;
+  const liveArtifact = useMemo(() => {
+    if (!artifact || !artifactRows || !artifact.identity) return artifact;
+    return (
+      artifactForIdentity(artifactRows, artifact.identity, artifact.revision ?? -Infinity) ?? artifact
+    );
+  }, [artifact, artifactRows]);
+  // Its versions (cx-ncc.64): the chat's documents of its kind and title, including a live rewrite.
   const artifactVersionList = useMemo(
     () =>
-      artifact && artifactRows
+      liveArtifact && artifactRows
         ? artifactVersions(
-            artifactRows.flatMap((row) => (row.kind === "assistant" && !row.streaming && row.text ? [row.text] : [])),
-            artifact,
+            artifactRows.flatMap((row) => (row.kind === "assistant" && row.text ? [row.text] : [])),
+            liveArtifact,
           )
         : undefined,
-    [artifact, artifactRows],
+    [liveArtifact, artifactRows],
   );
   const openArtifact = useCallback(
     (next: Artifact) =>
@@ -5248,10 +5262,10 @@ function AcpmuxPane() {
             </>
           )}
         </div>
-        {artifact && (
+        {artifact && liveArtifact && (
           <ArtifactPanel
             key={artifact.opened}
-            artifact={artifact}
+            artifact={liveArtifact}
             versions={artifactVersionList}
             onClose={() => setArtifact(undefined)}
             onSave={saveDocumentNatively}

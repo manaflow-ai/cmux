@@ -37,6 +37,9 @@ export type CodeBlockProps = {
   lang?: string;
   /** Header label; defaults to the language's display name. */
   label?: string;
+  /** Stable identity and source revision for an artifact in a streaming assistant row. */
+  artifactIdentity?: string;
+  artifactRevision?: number;
 };
 
 /// Loads the highlighted card; the page starts it once it has painted (App.tsx).

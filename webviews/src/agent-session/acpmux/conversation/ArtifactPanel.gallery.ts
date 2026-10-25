@@ -43,6 +43,12 @@ const notesV1 = `# Uploader retry
 
 Uploads now retry, doubling from 200 ms.`;
 
+const notesV2 = `# Uploader retry
+
+Uploads now retry **three times**, doubling from 200 ms.
+
+- Backoff caps at 1.6 s.`;
+
 export default agentPaneEntry({
   id: "agent-pane.artifact-panel",
   title: "Side preview panel",
@@ -70,7 +76,10 @@ export default agentPaneEntry({
         user("Write release notes for the retry change", 9),
         assistant(`A first draft:\n\n${fence("markdown", notesV1)}`, 8),
         summary(8, { status: "completed", durationMs: 12_000 }),
-        user("Add the failure table", 6),
+        user("Add the retry limit", 7),
+        assistant(`Updated:\n\n${fence("markdown", notesV2)}`, 6),
+        summary(6, { status: "completed", durationMs: 16_000 }),
+        user("Add the failure table", 4),
         assistant(`Updated:\n\n${fence("markdown", notes)}`, 5),
         summary(5, { status: "completed", durationMs: 21_000 }),
       ]),

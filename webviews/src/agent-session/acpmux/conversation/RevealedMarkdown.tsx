@@ -84,14 +84,24 @@ export function RevealedMarkdown({
   text,
   streaming,
   githubRepository,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   return (
     <MessageBoundary source={text}>
-      <Revealed text={text} streaming={streaming} githubRepository={githubRepository} />
+      <Revealed
+        text={text}
+        streaming={streaming}
+        githubRepository={githubRepository}
+        artifactIdentity={artifactIdentity}
+        artifactRevision={artifactRevision}
+      />
     </MessageBoundary>
   );
 }
@@ -100,14 +110,26 @@ function Revealed({
   text,
   streaming,
   githubRepository,
+  artifactIdentity,
+  artifactRevision,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }) {
   const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
+    <Markdown
+      streaming={streaming}
+      fresh={fresh}
+      now={now}
+      waiting={settled}
+      githubRepository={githubRepository}
+      artifactIdentity={artifactIdentity}
+      artifactRevision={artifactRevision}
+    >
       {visible}
     </Markdown>
   );

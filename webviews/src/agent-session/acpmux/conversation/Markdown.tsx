@@ -545,6 +545,8 @@ function Block({
   enter = false,
   code = "final",
   tail,
+  artifactIdentity,
+  artifactRevision,
 }: {
   block: MdBlock;
   opts: InlineOptions;
@@ -556,6 +558,8 @@ function Block({
   code?: "open" | "handoff" | "final" | "plain";
   /** The reply's newest characters, which fade in at the end of this, its last block. */
   tail?: FreshTail;
+  artifactIdentity?: string;
+  artifactRevision?: number;
 }): ReactNode {
   const motion = enter ? " cv-enter" : "";
   const inline = (text: string) => (tail ? renderFresh(text, tail, opts) : renderInline(text, opts));
@@ -643,7 +647,14 @@ function Block({
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
       if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
-      return <CodeBlock code={block.code} lang={block.lang} />;
+      return (
+        <CodeBlock
+          code={block.code}
+          lang={block.lang}
+          artifactIdentity={artifactIdentity}
+          artifactRevision={artifactRevision}
+        />
+      );
     case "math":
       return <MathDisplay tex={block.tex} />;
     case "footnote": {
@@ -715,6 +726,9 @@ export type MarkdownProps = InlineOptions & {
   waiting?: boolean;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
+  /** The assistant row id and version used to keep an opened artifact live while it streams. */
+  artifactIdentity?: string;
+  artifactRevision?: number;
 };
 
 function noteRank(block: MdBlock, opts: InlineOptions): number {
@@ -732,6 +746,8 @@ export function Markdown({
   waiting = false,
   githubRepository,
   plainCode = false,
+  artifactIdentity,
+  artifactRevision,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
@@ -779,6 +795,8 @@ export function Markdown({
         enter={streaming && live}
         code={open ? "open" : plainCode ? "plain" : live || streamedFences.current.has(entry.key) ? "handoff" : "final"}
         tail={index === blocks.length - 1 ? freshTail : undefined}
+        artifactIdentity={artifactIdentity ? `${artifactIdentity}\u0000${entry.key}` : undefined}
+        artifactRevision={artifactRevision}
       />
     );
   };

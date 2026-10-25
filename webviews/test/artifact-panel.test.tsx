@@ -294,6 +294,28 @@ test("the panel steps between a document's versions, starting on the one opened"
   expect(button("Next version")).toBeUndefined();
 });
 
+test("the open panel follows a newer live revision and ignores a stale one", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");
+  const version = (body: string, revision: number) => ({
+    kind: "markdown" as const,
+    lang: "md",
+    code: `# Notes\n\n${body}`,
+    identity: "assistant-live\u00000",
+    revision,
+  });
+  const first = version("First.", 1);
+  const second = version("Second.", 2);
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<ArtifactPanel artifact={first} versions={[first]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("First.");
+  act(() => root!.render(<ArtifactPanel artifact={second} versions={[first, second]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Second.");
+  act(() => root!.render(<ArtifactPanel artifact={first} versions={[first, second]} onClose={() => {}} />));
+  expect(host.querySelector(".acpmux-artifact-doc p")?.textContent).toBe("Second.");
+});
+
 test("the panel names the document, copies when saving fails, and hands focus back on close", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ArtifactPanel } = await import("../src/agent-session/acpmux/conversation/ArtifactPanel");

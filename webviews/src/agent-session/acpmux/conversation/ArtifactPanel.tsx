@@ -3,7 +3,7 @@
 // render frame (RenderCard.tsx), an origin of its own that allows no connection, so a document cannot
 // reach the pane, its bridge, acpmux or the network; Markdown draws as the transcript draws it. The
 // pane on a dev server has no render frame, so there HTML and SVG show their source only.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import { copyText } from "./clipboard";
@@ -46,6 +46,20 @@ export function ArtifactPanel({
   const list = found >= 0 ? versions : [opened];
   const index = Math.max(0, found);
   const artifact = list[index]!;
+  // A live fence keeps the panel on the newest accepted revision, even when an older version with
+  // the same title remains in the transcript's version list.
+  const previousOpened = useRef(opened);
+  useEffect(() => {
+    const previous = previousOpened.current;
+    if (
+      opened.identity &&
+      previous.identity === opened.identity &&
+      opened.revision !== undefined &&
+      (previous.revision === undefined || opened.revision > previous.revision)
+    )
+      setShown(opened.code);
+    previousOpened.current = opened;
+  }, [opened]);
   const previews = artifact.kind === "markdown" || canRender();
   const [tab, setTab] = useState<"preview" | "code">(previews ? "preview" : "code");
   const [copied, setCopied] = useState(false);

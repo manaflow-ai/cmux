@@ -3,7 +3,15 @@
 import { createContext } from "react";
 
 export type ArtifactKind = "html" | "svg" | "markdown";
-export type Artifact = { kind: ArtifactKind; lang: string; code: string };
+/// A fence's identity is stable while its assistant row streams. Revision is the row version that
+/// produced this source; callers use it to discard a delayed snapshot from before the opened one.
+export type Artifact = {
+  kind: ArtifactKind;
+  lang: string;
+  code: string;
+  identity?: string;
+  revision?: number;
+};
 
 const KINDS: Record<string, ArtifactKind> = {
   html: "html",

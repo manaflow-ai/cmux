@@ -4,6 +4,41 @@
 import { artifactKind, documentName, type Artifact } from "./artifactPreview";
 import { parseMarkdown, type MdBlock } from "./Markdown";
 
+export type ArtifactSourceRow = { id: string; version: number; kind: string; text?: string };
+
+/// The row and parser block key identify one fence across streamed snapshots.
+export function artifactIdentity(rowId: string, blockKey: string): string {
+  return `${rowId}\u0000${blockKey}`;
+}
+
+/// Finds a newer source for one opened fence. A snapshot at or before `afterRevision` is stale,
+/// so the panel keeps its last accepted source while an out-of-order harness update catches up.
+export function artifactForIdentity(
+  rows: readonly ArtifactSourceRow[],
+  identity: string,
+  afterRevision = -Infinity,
+): Artifact | undefined {
+  const separator = identity.lastIndexOf("\u0000");
+  if (separator < 1) return undefined;
+  const rowId = identity.slice(0, separator);
+  const blockKey = identity.slice(separator + 1);
+  const index = Number(blockKey);
+  if (!Number.isSafeInteger(index) || index < 0) return undefined;
+  const row = rows.find((candidate) => candidate.id === rowId && candidate.kind === "assistant");
+  if (!row || row.version <= afterRevision || !row.text) return undefined;
+  const block = parseMarkdown(row.text)[index];
+  if (!block || block.type !== "code") return undefined;
+  const kind = artifactKind(block.lang, block.code);
+  if (!kind) return undefined;
+  return {
+    kind,
+    lang: block.lang ?? kind,
+    code: block.code,
+    identity,
+    revision: row.version,
+  };
+}
+
 /// The chat's documents of `artifact`'s kind and title, oldest first, each text once. One with no
 /// title, or that the replies do not hold, is its only version.
 export function artifactVersions(replies: readonly string[], artifact: Artifact): Artifact[] {
@@ -17,7 +52,12 @@ export function artifactVersions(replies: readonly string[], artifact: Artifact)
       seen.add(document.code);
       versions.push(document);
     }
-  return seen.has(artifact.code) ? versions : [artifact];
+  if (!seen.has(artifact.code)) {
+    // A live rewrite is not finished yet, but it is still the newest version of this document.
+    if (!artifact.identity || versions.length === 0) return [artifact];
+    versions.push(artifact);
+  }
+  return versions;
 }
 
 /// A finished reply's documents, parsed once: the panel reads them again on every streamed delta.
