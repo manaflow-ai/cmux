@@ -1023,6 +1023,8 @@ const WorkingRow = memo(
     a.row.doingDraft === b.row.doingDraft &&
     a.row.doingGroup === b.row.doingGroup &&
     a.row.doingGroupOpen === b.row.doingGroupOpen &&
+    a.row.doingSendTo === b.row.doingSendTo &&
+    a.row.doingSendSession === b.row.doingSendSession &&
     a.sessionId === b.sessionId,
 );
 /// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).

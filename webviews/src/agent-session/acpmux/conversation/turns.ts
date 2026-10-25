@@ -805,6 +805,7 @@ function liveTurn(
     // One running call reads once: not here while its own row names it (`ownRow`).
     if (doing && doing.row !== true) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row) Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
     // Before any output it reads "Thinking"; a thought coming in labels itself (ThoughtRow.tsx).
@@ -828,6 +829,7 @@ function liveTurn(
     if (doing?.draft) status.doingDraft = true;
     if (doing && (liveRuns || doing.row !== true)) {
       status.doing = doing.title;
+      Object.assign(status, sendingTo(doing.tool));
       if (doing.row && doing.row !== true && !liveRuns)
         Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
@@ -1016,7 +1018,9 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 
 /// The newest call still running in a live turn's latest row, by its title, and where the
 /// transcript draws its own row (`ownRow`).
-function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft: boolean; row: OwnRow } | undefined {
+function inFlightCall(
+  row: AcpmuxRow,
+): { title: string; command: boolean; draft: boolean; row: OwnRow; tool: NonNullable<AcpmuxActivity["tool"]> } | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
@@ -1025,7 +1029,9 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; draft:
     // The row's own label, never the call's raw JSON input; a command reads as itself.
     const title = toolLabel(tool, "", (command) => command).trim();
     const draft = isDraftCall(tool);
-    return title ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!) } : undefined;
+    return title
+      ? { title, command: tool.kind === "execute", draft, row: ownRow(row, items[index]!), tool }
+      : undefined;
   }
   return undefined;
 }
