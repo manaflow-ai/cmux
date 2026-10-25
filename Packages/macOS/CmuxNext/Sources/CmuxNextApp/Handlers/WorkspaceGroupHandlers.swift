@@ -208,7 +208,7 @@ enum WorkspaceGroupHandlers {
         spawn.slot = slot
         spawn.onListed = { key, bridge in
             // A slot that did not resolve where it is listed (the group is in another room) placed nothing.
-            let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
+            let sections = SidebarRowSection.withoutPlaceholders(bridge.sections)
             let section = SectionID.machine(MachineID(daemon.machineID))
             guard slot?.position(moving: [key], section: section, in: sections) == nil, let session = daemon.store.registryID else { return }
             // The group lives in the home session's personal state, whichever machine runs the workspace.
