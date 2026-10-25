@@ -120,6 +120,8 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
         const more = { ...(waiting && { waiting }), ...(harness && { harness }) };
         return [{ sessionId: id, ...(name && { name }), state, ...(reply && { reply }), ...more }];
       });
+      // Rows it cannot read are not "no sub-sessions": the generic row shows what came back.
+      if (rows.length > 0 && sessions.length === 0) return undefined;
       return { tool: kind, running, timedOut: result!.value!.timedOut === true, sessions };
     }
     default:

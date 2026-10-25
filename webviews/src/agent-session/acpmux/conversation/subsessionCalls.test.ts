@@ -239,3 +239,7 @@ test("a row with no lane yet reads its state from its status dot", () => {
     sessions: [{ sessionId: "s-new", state: "working" }],
   });
 });
+
+test("a list whose rows cannot be read keeps the generic row", () => {
+  expect(subsessionCall(codex("list_sessions", {}, { sessions: [{ name: "no id" }] }))).toBeUndefined();
+});
