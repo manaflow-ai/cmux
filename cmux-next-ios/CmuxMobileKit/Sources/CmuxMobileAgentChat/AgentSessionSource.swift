@@ -60,6 +60,9 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case questionAnswered(questionId: String, answer: AgentQuestionAnswer)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
+    /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
+    /// `_meta.acpmux.fullAccess`, read on each connection; false after acpmux refuses it).
+    case fullAccess(Bool)
     case status(AgentSessionSummary.Status)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
