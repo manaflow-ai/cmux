@@ -177,7 +177,7 @@ final class BlockingViolationTable: Sendable {
     func flushBeforeTrap() -> DispatchTimeoutResult {
         let handOff = DispatchWorkItem(qos: .userInteractive, flags: .enforceQoS) { [self] in drain() }
         drainQueue.async(execute: handOff)
-        return handOff.wait(timeout: .now() + .milliseconds(trapFlushMilliseconds))
+        return handOff.wait(timeout: .now() + .milliseconds(trapFlushMilliseconds)) // concurrency-allow: only the opt-in trap path waits, bounded at 50 ms, and the process stops right after; the main thread never resumes
     }
 
     // MARK: allowance (main thread)
