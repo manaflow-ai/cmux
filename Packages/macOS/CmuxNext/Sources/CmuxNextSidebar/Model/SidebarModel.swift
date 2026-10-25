@@ -111,6 +111,14 @@ public final class SidebarModel {
     }
     /// Where each workspace sits in `sections`; rebuilt on the first patch after a set.
     @ObservationIgnored var rowIndex: SidebarRowIndex?
+    /// The order this window lists its workspaces in, with each one's position and neighbours in O(1)
+    /// (``SidebarWorkspaceOrder``). Built once per structural change of the rows (a move, a group change, a create
+    /// or close), so every reader after it costs no walk of the rows; a row's content patch keeps it.
+    public var workspaceOrder: SidebarWorkspaceOrder {
+        access(keyPath: \.sections)
+        SidebarPerfCounters.add(.orderBuilds)
+        return SidebarWorkspaceOrder(storedSections)
+    }
     /// `itemOrder` and the inputs it was made from.
     @ObservationIgnored var itemOrderCache: (inputs: SidebarItemOrderInputs, order: SidebarItemOrder)?
     /// Told the workspaces `patchWorkspaces` changed in place (the list reconfigures their rows).
