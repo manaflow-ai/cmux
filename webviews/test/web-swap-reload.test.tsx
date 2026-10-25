@@ -241,6 +241,8 @@ test("a chip the host refused keeps the update waiting, and goes again when aske
   expect(hold()).toBe("composer.attachments-unsaved");
   // The host takes writes again: the next ask sends the chips, and the one after finds them kept.
   refuse = false;
+  // The ask above already sent once more (refused); once it settles, the next ask sends again.
+  await act(async () => {});
   await act(async () => void hold());
   await settle();
   expect(store.chats.get("chat-a")?.map((chip) => chip.id)).toEqual(["shot-1"]);
