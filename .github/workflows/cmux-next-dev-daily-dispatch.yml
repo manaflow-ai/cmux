@@ -133,8 +133,10 @@ jobs:
             // A run is spaced only while it is still active; the next push or
             // tick after the window asks for the newest tip.
             const spacingMs = 5 * 60 * 1000;
+            // Only a run this dispatcher started: its name carries a full SHA.
+            const devName = /^cmux NEXT DEV daily · [0-9a-f]{40}$/;
             const recent = data.workflow_runs.find((run) =>
-              (run.name?.startsWith('cmux NEXT DEV daily · ') || run.display_title?.startsWith('cmux NEXT DEV daily · ')) &&
+              (devName.test(run.name || '') || devName.test(run.display_title || '')) &&
               ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) &&
               Date.now() - Date.parse(run.created_at) < spacingMs);
             if (recent) {

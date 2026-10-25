@@ -145,15 +145,21 @@ def built(calls):
     return [c[2]["dev_daily_sha"] for c in calls if c[0] == "dispatch" and c[1] == "cmux-next.yml"]
 
 
-def active_run(run_id, sha, age_s):
+def active_run(run_id, sha, age_s, status="in_progress", title=None, name="cmux-next"):
     created = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=age_s)
-    return {"id": run_id, "head_sha": sha, "status": "in_progress", "conclusion": None,
+    return {"id": run_id, "head_sha": sha, "status": status, "conclusion": None,
             "created_at": created.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "name": "cmux-next", "display_title": f"cmux NEXT DEV daily · {sha}"}
+            "name": name, "display_title": title or f"cmux NEXT DEV daily · {sha}"}
 
 
-calls = run([active_run(20, "2" * 40, 60)], {})
-check(built(calls) == [], f"a DEV build under five minutes old must space the next one, got {built(calls)}")
+for status in ("queued", "requested", "waiting", "pending", "in_progress"):
+    calls = run([active_run(20, "2" * 40, 60, status=status)], {})
+    check(built(calls) == [], f"a {status} DEV build under five minutes old must space the next one, got {built(calls)}")
+calls = run([active_run(20, "2" * 40, 60, title="cmux-next", name=f"cmux NEXT DEV daily · {'2' * 40}")], {})
+check(built(calls) == [], f"a DEV build named by run.name must space the next one, got {built(calls)}")
+for title in ("cmux NEXT DEV daily · publish 123", "cmux NEXT DEV daily · abc", f"cmux NEXT DEV daily · {'2' * 40} extra"):
+    calls = run([active_run(20, "2" * 40, 60, title=title)], {})
+    check(built(calls) == [TIP], f"{title!r} is not a dispatched DEV build and must not space the tip, got {built(calls)}")
 calls = run([active_run(21, "2" * 40, 6 * 60)], {})
 check(built(calls) == [TIP], f"a DEV build over five minutes old must not hold the tip, got {built(calls)}")
 finished = dev_run(22, "2" * 40, "failure")
