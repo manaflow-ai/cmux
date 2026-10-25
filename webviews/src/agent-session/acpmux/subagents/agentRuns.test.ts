@@ -68,6 +68,9 @@ describe("agentRun", () => {
       prompt: "Look",
     });
     expect(agentRun(`codex exec -- --help`)?.prompt).toBe("--help");
+    expect(agentRun(`perl -e 'alarm 1; exec @ARGV' -- codex exec "x"`)?.prompt).toBe("x");
+    expect(agentRun(`exec -a worker codex exec "x"`)?.prompt).toBe("x");
+    expect(agentRun(`bash -o pipefail -lc 'codex exec "x"'`)?.prompt).toBe("x");
     expect(agentRun(`env --split-string='codex exec "Look"'`)?.prompt).toBe("Look");
     expect(agentRun(`acpmux run -m codex -- --parent`)?.prompt).toBe("--parent");
     expect(agentRun(`claude -p --model opus "Summarize the log"`)).toEqual({
@@ -96,6 +99,9 @@ describe("agentRun", () => {
       `nohup A=1 codex exec`,
       `${"exec ".repeat(40)}codex exec "deep"`,
       `perl -e 'print "exec @ARGV"' codex exec "text"`,
+      `sh build.sh -c 'codex exec "x"'`,
+      `perl tool.pl -e 'alarm 1; exec @ARGV' codex exec "x"`,
+      `env -S 'echo ok; codex exec' codex exec "x"`,
     ])
       expect(agentRun(command)).toBeUndefined();
   });

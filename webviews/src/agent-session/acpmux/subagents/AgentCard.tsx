@@ -24,6 +24,8 @@ export type AgentCardProps = {
   slot?: boolean;
   /// How long it has run, or ran, after its state.
   time?: string;
+  /// Its state's word when the state's own is not it (a run that was stopped).
+  stateLabel?: string;
   onOpen?: () => void;
   /// The open button's word: "Open chat" when absent.
   openLabel?: string;
@@ -39,6 +41,7 @@ export function AgentCard({
   queued,
   slot,
   time,
+  stateLabel,
   onOpen,
   openLabel,
   children,
@@ -57,7 +60,7 @@ export function AgentCard({
         {state && (
           <span className="cv-agent-card__state" data-state={slot ? "slot" : state}>
             {state === "working" && <Spinner size={12} loading />}
-            {slot ? t("subsession.state.slot") : t(SUBSESSION_STATE_LABEL[state])}
+            {slot ? t("subsession.state.slot") : (stateLabel ?? t(SUBSESSION_STATE_LABEL[state]))}
             {queued ? ` · ${t("subsession.queued", { n: queued })}` : ""}
             {time ? ` · ${time}` : ""}
           </span>

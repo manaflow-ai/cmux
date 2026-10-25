@@ -14,13 +14,16 @@ import { ChevronRight } from "../conversation/icons";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { AgentCard } from "./AgentCard";
-import { elapsed, running, SubagentNavContext, SubagentPaneContext, useNow } from "./SubagentGroup";
+import { elapsed, running, STATE_LABEL, SubagentNavContext, SubagentPaneContext, useNow } from "./SubagentGroup";
 import type { Subagent } from "./subagentFold";
 import { SubsessionContext, useSenderChat, type SubsessionState } from "./subsessions";
 
-/// A run's state as a card's: running is working, a completed one done, anything else failed.
+/// A run's state as a card's: running is working, a failed one failed, any other end done, with
+/// its own word when it was stopped or lost (`cancelled`, `disconnected`).
 const cardState = (agent: Subagent): SubsessionState =>
-  running(agent) ? "working" : agent.state === "completed" ? "done" : "failed";
+  running(agent) ? "working" : agent.state === "failed" ? "failed" : "done";
+const stopped = (state: string): state is "cancelled" | "disconnected" =>
+  state === "cancelled" || state === "disconnected";
 
 export function AgentRunCard({ agent }: { agent: Subagent }) {
   const t = useT();
@@ -41,6 +44,7 @@ export function AgentRunCard({ agent }: { agent: Subagent }) {
       doing={[agent.kind, agent.host].filter(Boolean).join(" · ") || undefined}
       state={cardState(agent)}
       time={formatDuration(elapsed(agent, now))}
+      stateLabel={stopped(agent.state) ? t(STATE_LABEL[agent.state]) : undefined}
       onOpen={openChat ?? (openRun ? () => openRun(agent.id) : undefined)}
       openLabel={openChat ? undefined : t("bgTask.showOutput")}
     >

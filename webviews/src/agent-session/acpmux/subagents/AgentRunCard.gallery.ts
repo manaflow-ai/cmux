@@ -20,7 +20,7 @@ const REVIEW =
   'cd ~/Projects/cmux && codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=xhigh "Codex xhigh re-review of hq#4038 and review of leo-workspace#1023"';
 /// A recorded review through reach, its prompt read from a file and its last message written to one.
 const REACHED =
-  "reach cmux16 'cd ~/Projects/cmux && git fetch -q origin pull/24977/head; codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=xhigh -o ~/.scratch/lane/final.txt - < ~/.scratch/lane/prompt.txt > ~/.scratch/lane/log 2>&1; cat ~/.scratch/lane/final.txt'";
+  "reach build-box 'cd ~/Projects/cmux && git fetch -q origin pull/24977/head; codex exec --sandbox read-only -m gpt-6-astra -c model_reasoning_effort=xhigh -o ~/.scratch/lane/final.txt - < ~/.scratch/lane/prompt.txt > ~/.scratch/lane/log 2>&1; cat ~/.scratch/lane/final.txt'";
 const FAILED = `cd /tmp && perl -e 'alarm 120; exec @ARGV' codex exec -m gpt-6.1-sol --skip-git-repo-check "Reply with OK." 2>&1 | tail -5`;
 const ACPMUX =
   'timeout 900 acpmux run -n tray-review -m codex/gpt-6-astra -e xhigh "Review the tray change for regressions"';
@@ -153,7 +153,7 @@ export default agentPaneEntry({
   title: "Agents a shell call starts",
   area: "Agent pane",
   height: 620,
-  covers: ["agent-session/acpmux/subagents/AgentRunCard.tsx", "agent-session/acpmux/subagents/agentRuns.ts"],
+  covers: ["agent-session/acpmux/subagents/AgentRunCard.tsx"],
   variants: {
     before: {
       note: "Before: the call is a Command row with the raw shell line, and Session Info lists it under Background tasks as `cd ~/Projects/cmux && codex exec …`.",

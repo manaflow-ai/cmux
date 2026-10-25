@@ -135,6 +135,9 @@ export class SubagentFold {
   /// that read one: what such a read shows is the run's reply.
   private readonly runOutputs = new Map<string, string>();
   private readonly outputReads = new Map<string, string>();
+  /// A call started another family's agent while the chat's harness was not known: once it is,
+  /// the pane folds the records again (direct.ts ``learnChatThread``).
+  deferredRun = false;
 
   constructor(private readonly stops: SubagentStops = subagentStops()) {}
   /// The subagents whose end the harness reported (not one ``stopRunning`` guessed): a progress
@@ -243,6 +246,8 @@ export class SubagentFold {
     // Only another family's: both harnesses known and different (a chat whose harness is not known
     // yet keeps its calls).
     if (!run?.harness || !this.harness || harnessFamily(run.harness) === harnessFamily(this.harness)) {
+      // The pane folds again once it knows the chat's harness (direct.ts ``learnChatThread``).
+      if (run?.harness && !this.harness) this.deferredRun = true;
       this.notRuns.add(call);
       return false;
     }
@@ -355,6 +360,8 @@ export class SubagentFold {
       if (left.state === "completed" && !this.called.has(agent.id)) continue;
       agent.state = left.state;
       agent.endedAt = at;
+      // A run's output file says nothing more once it ended.
+      if (agent.command) this.forgetOutput(agent.id);
       this.settleReason(agent);
       this.touch(agent);
       changed = true;
