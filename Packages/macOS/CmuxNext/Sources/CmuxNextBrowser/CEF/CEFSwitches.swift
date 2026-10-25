@@ -73,7 +73,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // WasEverAttachedToAnyFrame), which an agent's CDP session does. The fork's switch keeps
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
-        if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        if rendererPaths {
+            result.append(Self.processReusePerRendererDevTools)
+            result.append(Self.processPerSiteMainFrameThresholdsArgument)
+        }
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -97,6 +100,30 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
         result.append(contentsOf: extraSwitches)
         return result
+    }
+
+    /// One site's cap in the per-site main-frame sharing table.
+    struct MainFrameThreshold: Equatable, Sendable {
+        var scheme: String
+        var mainFrames: Int
+    }
+
+    /// The fork's per-site sharing switch (fork API 29). Chrome's kProcessPerSiteUpToMainFrameThreshold
+    /// has one cap for every site, its ProcessPerSiteMainFrameThreshold parameter (2,
+    /// content/public/common/content_features.cc); the fork reads a cap per scheme from this table, and a
+    /// scheme with no entry keeps Chrome's 2 (web tabs).
+    static let processPerSiteMainFrameThresholdsSwitch = "cmux-process-per-site-main-frame-thresholds"
+
+    /// The New Tab and every agent chat are one origin (`cmux-page://cmux.agent`), shared the way Chrome
+    /// shares one process for every NTP (ChromeContentBrowserClient::ShouldUseProcessPerSite). 8 main
+    /// frames bound how many pages one renderer crash or one streaming chat reaches
+    /// (plans/cmux-next/chrome-parity/p13-webui.md, risk 4).
+    static let processPerSiteMainFrameThresholds = [MainFrameThreshold(scheme: "cmux-page", mainFrames: 8)]
+
+    /// `cmux-process-per-site-main-frame-thresholds=cmux-page:8`.
+    static var processPerSiteMainFrameThresholdsArgument: String {
+        processPerSiteMainFrameThresholdsSwitch + "="
+            + processPerSiteMainFrameThresholds.map { "\($0.scheme):\($0.mainFrames)" }.joined(separator: ",")
     }
 
     /// Chrome's own promotions, tips and first-run prompts are for Google
