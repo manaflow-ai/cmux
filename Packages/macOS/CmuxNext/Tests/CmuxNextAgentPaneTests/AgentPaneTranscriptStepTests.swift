@@ -10,36 +10,16 @@ import Testing
 /// Ctrl-Opt arrow keys, and Previous and Next Bookmarked Prompt are command palette actions with no
 /// default key. Each step reaches the page as its own command, which the page turns into the window
 /// event the thread minimap handles (App.tsx `command`, ThreadMinimap.tsx).
-@Suite(.serialized, .timeLimit(.minutes(1)))
+@Suite(.serialized)
 @MainActor
 struct AgentPaneTranscriptStepTests {
     private actor NoHost: AgentPaneHostProviding {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// Collects the host events a subscribed page receives. A new subscription's events reach it
-    /// on a later main-actor turn (`AgentPageProvider` replays across bridge gaps, #24617), so a
-    /// test waits for the count it expects.
+    /// Collects the host events a subscribed page receives.
     private final class Received {
         var events: [JSONValue] = []
-        private var waiter: (count: Int, kind: String, continuation: CheckedContinuation<Void, Never>)?
-
-        func append(_ event: JSONValue) {
-            events.append(event)
-            if let waiter, count(waiter.kind) >= waiter.count {
-                self.waiter = nil
-                waiter.continuation.resume()
-            }
-        }
-
-        func count(_ kind: String) -> Int { events.filter { $0["kind"] == .string(kind) }.count }
-
-        func waitFor(_ count: Int, of kind: String) async {
-            guard self.count(kind) < count else { return }
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                waiter = (count, kind, continuation)
-            }
-        }
     }
 
     @Test func bookmarkStepsArePaletteActionsWithNoDefaultKey() throws {
@@ -71,7 +51,6 @@ struct AgentPaneTranscriptStepTests {
         defer { subscription.cancel() }
 
         for step in AgentTranscriptStep.allCases { view.step(step) }
-        await received.waitFor(AgentTranscriptStep.allCases.count, of: "command")
         let commands = received.events.filter { $0["kind"] == .string("command") }
         #expect(commands == [
             AgentPageEvent.command("previousTurn").data,
@@ -92,7 +71,6 @@ struct AgentPaneTranscriptStepTests {
         defer { subscription.cancel() }
 
         view.stopTurn()
-        await received.waitFor(1, of: "stopTurn")
 
         #expect(received.events.filter { $0["kind"] == .string("stopTurn") } == [
             AgentPageEvent(kind: "stopTurn", value: .string("session-a")).data,
