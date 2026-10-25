@@ -3,6 +3,16 @@ import type { Choice } from "./ComposerPickers";
 import type { ReasoningSliderStyle } from "./composerSettings";
 import { useT } from "./i18n";
 
+/** The normalized position of a discrete stop, including the track endpoints. */
+export function effortStopShare(index: number, stopCount: number): number {
+  return stopCount > 1 ? index / (stopCount - 1) : 0;
+}
+
+/** The x-coordinate of a thumb or stop center. Both use this endpoint-inclusive geometry. */
+export function effortStopCenterX(trackLeft: number, trackWidth: number, index: number, stopCount: number): number {
+  return trackLeft + trackWidth * effortStopShare(index, stopCount);
+}
+
 /// The effort's stepped slider: a native range input (arrow keys, Home and End step it), drawn
 /// as a track with one stop per level the agent offers (a click on the track jumps to the
 /// nearest stop), over its ends (Faster, Smarter) and the level the model recommends. The model
@@ -47,7 +57,7 @@ export function EffortTrack({
     const choice = efforts[index];
     if (choice && choice.id !== current) onPick(choice.id);
   };
-  const share = efforts.length > 1 ? level / (efforts.length - 1) : 0;
+  const share = effortStopShare(level, efforts.length);
   return (
     <>
       <div
@@ -62,7 +72,7 @@ export function EffortTrack({
               key={choice.id}
               className="acpmux-effort-stop"
               aria-hidden="true"
-              style={{ "--acpmux-stop": efforts.length > 1 ? index / (efforts.length - 1) : 0 } as React.CSSProperties}
+              style={{ "--acpmux-stop": effortStopShare(index, efforts.length) } as React.CSSProperties}
             />
           ),
         )}

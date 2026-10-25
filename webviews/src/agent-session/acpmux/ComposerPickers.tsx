@@ -229,7 +229,7 @@ export function ComposerPickers({
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
   // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
   // non-toggleable Fast remains in the model menu.
-  const { showContextUsage, harnessSwitch } = useComposerSettings();
+  const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
@@ -853,6 +853,7 @@ export function ComposerPickers({
             pending.current = undefined;
             onEffort(effort.id, value);
           },
+          ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
         }
       : heldLevels.length > 1 && chipHarness && !profileDeclaresNoEffort
         ? {
@@ -863,6 +864,7 @@ export function ComposerPickers({
               setHeldPick({ harness: chipHarness, value });
               onEffort(heldOption?.id ?? "effort", value);
             },
+            ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
           }
         : undefined;
   // Accounts are this Mac's acpmux routes: a chat on another machine has none here.

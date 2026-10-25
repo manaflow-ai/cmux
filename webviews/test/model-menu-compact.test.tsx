@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import { DEFAULT_COMPOSER, setComposerSettings } from "../src/agent-session/acpmux/composerSettings";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -71,6 +72,7 @@ beforeAll(() => {
 afterEach(() => {
   act(() => root?.unmount());
   root = undefined;
+  setComposerSettings(DEFAULT_COMPOSER);
   host.replaceChildren();
   dom.window.localStorage.clear();
   for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
@@ -266,7 +268,7 @@ test("the compact chip names the model and its effort, and a click opens the sho
   // No separate effort chip: Effort is a row of the menu.
   expect(host.querySelector(".acpmux-effort")).toBeNull();
   await open();
-  expect(menu()?.textContent).toContain("Model · this session");
+  expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
   const rows = itemsOf(menu()!);
   expect(rows.some((row) => row?.startsWith("Effort") && row.includes("Medium"))).toBe(true);
@@ -277,6 +279,15 @@ test("the compact chip names the model and its effort, and a click opens the sho
       .filter((row) => /^(Effort|More models|Account)/.test(row ?? ""))
       .map((row) => row?.match(/^(Effort|More models|Account)/)?.[0]),
   ).toEqual(["Effort", "More models", "Account"]);
+});
+
+test("the optional reasoning slider replaces Effort's levels only when enabled", async () => {
+  setComposerSettings({ reasoningSlider: true });
+  await mount([]);
+  await open();
+  const effort = await openSub("Effort");
+  expect(effort.querySelector(".acpmux-effort-range")).not.toBeNull();
+  expect(effort.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0);
 });
 
 test("a number key picks that model in place", async () => {

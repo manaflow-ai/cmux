@@ -174,6 +174,16 @@ const quick: ModelPickerProps = {
   },
 };
 
+/// The optional effort treatment Leo asked to compare: the default stays the Effort submenu, while
+/// this variant uses the same stepped track with endpoint-inclusive thumb geometry.
+const quickSlider: ModelPickerProps = {
+  ...quick,
+  quick: {
+    ...quick.quick!,
+    effort: { ...quick.quick!.effort!, slider: true, sliderStyle: "accent" },
+  },
+};
+
 /// A started Claude chat that can fork, on a Mac with a second Claude account (its own profile).
 const startedFork: ModelPickerProps = {
   ...quick,
@@ -204,7 +214,7 @@ export default componentEntry<GalleryProps>({
     "ui/ScrollArea.tsx#ScrollArea",
     "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
-  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
+  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
     import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
       <UpdateOfferContext.Provider value={offer}>
@@ -285,7 +295,10 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
       },
     },
+    // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
+    // the harness-only rail with no machine/session initials.
     "quick-menu": { props: quick, play: openQuick },
+    "quick-menu-slider": { props: quickSlider, play: openQuick },
     // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
     "quick-menu-accounts": {
       props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
