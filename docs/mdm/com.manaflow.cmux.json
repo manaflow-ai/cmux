@@ -13,6 +13,17 @@
       "title" : "Chat Code Size",
       "type" : "number"
     },
+    "agentPane.display.environment.placement" : {
+      "default" : "left",
+      "description" : "Left puts it in a row below the tab row; Right keeps it in the header (or leads the tab-row tools); Off hides it.",
+      "enum" : [
+        "left",
+        "right",
+        "off"
+      ],
+      "title" : "Session Info Chip",
+      "type" : "string"
+    },
     "agentPane.display.font.lineHeight" : {
       "default" : 1.625,
       "description" : "agentPane.display.font.lineHeight",

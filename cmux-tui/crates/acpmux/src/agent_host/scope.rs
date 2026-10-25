@@ -70,8 +70,17 @@ pub(crate) fn names_scope(cgroup: &str, unit: &str) -> bool {
     unified(cgroup).is_some_and(|path| path.ends_with(&format!("/{HOST_SLICE}/{unit}")))
 }
 
-/// The `busctl` arguments that create the scope `unit` holding `pid`.
-pub(crate) fn busctl_args(unit: &str, pid: u32) -> Vec<String> {
+/// The `busctl` arguments that create the scope `unit` holding `pid`, with
+/// `TasksMax=tasks_max` (`u64::MAX`: `infinity`, no cap; a scope without the
+/// property would get systemd's `DefaultTasksMax`). The cap is the session scope's
+/// (`session_scope::tasks_max`): a host's scope holds its session's harness
+/// too when that harness got no scope of its own (no `systemd-run`, a
+/// remote profile), so a fork storm stops there as it would in a session
+/// scope. The value is the daemon's (`ACPMUX_SESSION_TASKS_MAX` in its
+/// environment), not a profile's: a host is placed before its session's
+/// profile environment reaches it, so a profile override applies to the
+/// session scope only.
+pub(crate) fn busctl_args(unit: &str, pid: u32, tasks_max: u64) -> Vec<String> {
     let mut args: Vec<String> = [
         "--user",
         "--quiet",
@@ -85,10 +94,11 @@ pub(crate) fn busctl_args(unit: &str, pid: u32) -> Vec<String> {
     .into_iter()
     .map(str::to_owned)
     .collect();
-    args.extend([unit.to_owned(), "fail".into(), "3".into()]);
+    args.extend([unit.to_owned(), "fail".into(), "4".into()]);
     args.extend(["PIDs".into(), "au".into(), "1".into(), pid.to_string()]);
     args.extend(["Slice".into(), "s".into(), HOST_SLICE.into()]);
     args.extend(["CollectMode".into(), "s".into(), "inactive-or-failed".into()]);
+    args.extend(["TasksMax".into(), "t".into(), tasks_max.to_string()]);
     args.push("0".into());
     args
 }
@@ -189,7 +199,11 @@ mod linux {
             uid,
         );
         let call = tokio::process::Command::new(busctl)
-            .args(busctl_args(unit, host))
+            .args(busctl_args(
+                unit,
+                host,
+                crate::session_scope::tasks_max(&|key| std::env::var(key).ok()).unwrap_or(u64::MAX),
+            ))
             .env_clear()
             .envs(env)
             .stdin(Stdio::null())
@@ -279,17 +293,20 @@ mod tests {
     #[test]
     fn the_scope_request_names_the_host_pid_and_the_host_slice_on_the_user_bus() {
         let unit = scope_unit(4242, "0a1b2c3d");
-        let joined = busctl_args(&unit, 4242).join(" ");
+        let joined = busctl_args(&unit, 4242, 4096).join(" ");
         assert!(joined.starts_with("--user --quiet call org.freedesktop.systemd1 "), "{joined}");
         assert!(
             joined.contains(
-                "StartTransientUnit ssa(sv)a(sa(sv)) acpmux-agent-host-4242-0a1b2c3d.scope fail 3"
+                "StartTransientUnit ssa(sv)a(sa(sv)) acpmux-agent-host-4242-0a1b2c3d.scope fail 4"
             ),
             "{joined}"
         );
         assert!(joined.contains("PIDs au 1 4242 Slice"), "{joined}");
         assert!(joined.contains("Slice s acpmuxhosts.slice"), "{joined}");
-        assert!(joined.ends_with("CollectMode s inactive-or-failed 0"), "{joined}");
+        assert!(joined.ends_with("CollectMode s inactive-or-failed TasksMax t 4096 0"), "{joined}");
+        // No cap: `infinity` (uint64 max), never systemd's DefaultTasksMax.
+        let joined = busctl_args(&unit, 4242, u64::MAX).join(" ");
+        assert!(joined.ends_with("TasksMax t 18446744073709551615 0"), "{joined}");
     }
 
     #[test]
