@@ -195,7 +195,8 @@ impl Text {
     }
 }
 
-/// The transcript, and whether it was longer than `FILE_BYTES`. Blocking.
+/// The transcript, and whether only its end was read (it was longer than `FILE_BYTES`, or had more
+/// than `INDEXED_LINES` lines). Blocking.
 fn read(
     home: &Path,
     session: &str,
@@ -230,8 +231,9 @@ fn read(
     Err(missing())
 }
 
-/// The opened transcript's lines, from its last `FILE_BYTES` when it is longer, and whether it
-/// was. A line the cut fell inside is left out; one the cut fell just before is kept.
+/// The opened transcript's lines, from its last `FILE_BYTES` when it is longer and its last
+/// `INDEXED_LINES` lines when it has more, and whether either cut it. A line the byte cut fell
+/// inside is left out; one it fell just before is kept.
 fn lines_of(mut file: File) -> Result<(Text, bool), RpcError> {
     use std::io::{Read, Seek, SeekFrom};
     let unreadable = |_| refused("transcript.unreadable", "the transcript could not be read");

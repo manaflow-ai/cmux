@@ -175,7 +175,7 @@ Default density is **compact** (`DesignSettings.swift:25 (DesignSettings.density
 | iconSize / smallIconSize | 14 / 12 | 16 / 14 | :88-90 |
 | scrollEdgeFade | 18 | 22 | :91 |
 | panePadding | 2 | 4 | Metrics.swift:91-95 (`Metrics.panePadding`) |
-| divider thickness / hit width | 1 / 7 | 1 / 7 | ChromeTunables.swift:32-33 (`ChromeTunables.dividerThickness`, `dividerHitWidth`) |
+| divider thickness / hit width | 1 / 7 | 1 / 7 | MetricTunables.swift:107-112 (`MetricTunables.dividerThickness`, `dividerHitWidth`) |
 | tab background inset / content inset | 1 / 8 | 1 / 8 | ChromeTunables.swift:28-31 (`tabBackgroundInset`, `tabContentLeadingInset`) |
 | terminal text inset | 4 | 4 | PaneChromeMetrics.swift:46 (`PaneChromeMetrics.terminalTextInset`) |
 

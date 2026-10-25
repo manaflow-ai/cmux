@@ -16,6 +16,9 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_health.rs"]
+mod health;
+
 /// Source of `Peer::generation`.
 static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
 
@@ -103,6 +106,10 @@ pub struct Peer {
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
+    /// The peer's last `_acpmux/host_health` and when it came (`peer_health.rs`).
+    health: StdMutex<Option<(u64, Value)>>,
+    /// An ask for it is out.
+    health_asking: AtomicBool,
 }
 
 impl Peer {
@@ -143,6 +150,8 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
+            health: StdMutex::new(None),
+            health_asking: AtomicBool::new(false),
         })
     }
 
@@ -300,6 +309,7 @@ impl Peer {
 
     pub fn summary(&self) -> Value {
         let link = self.link();
+        let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
             "url": self.url,
@@ -316,6 +326,8 @@ impl Peer {
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "attempts": link.attempts,
+            "health": health,
+            "healthAt": health_at,
         })
     }
 
@@ -543,6 +555,7 @@ impl Peer {
             for sid in attached {
                 let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
+            me.refresh_health();
             Ok::<(), RpcError>(())
         });
 
@@ -558,6 +571,7 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
         let result = loop {
@@ -581,6 +595,10 @@ impl Peer {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
                         Err(_) => break Err(stopped_reading(budget)),
+                    }
+                    ticks += 1;
+                    if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
+                        self.refresh_health();
                     }
                 }
                 frame = source.next() => {

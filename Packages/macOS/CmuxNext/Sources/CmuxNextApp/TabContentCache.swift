@@ -135,16 +135,22 @@ final class TabContentCache {
     /// closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
+    /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
+    let resizes: ResizeCoordinator
+
     /// - Parameters:
     ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
     ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
     ///     frame); tests pass one that collects the work or runs it at once.
+    ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
-         afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) }) {
+         afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
+         resizes: ResizeCoordinator = ResizeCoordinator()) {
         self.daemon = daemon
         self.cef = cef
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
         self.afterFrame = afterFrame
+        self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
         wireNotices()
     }
@@ -182,7 +188,7 @@ final class TabContentCache {
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
         let gate = ProvisionalTab.isProvisional(surface: tab.surface) ? TerminalTargetGate() : nil
-        let io = DaemonTerminalIO(target: target, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
+        let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)

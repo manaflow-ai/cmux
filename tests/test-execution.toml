@@ -149,6 +149,11 @@ path = "tests/test_build_metrics.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_swift_typecheck_diagnostics.py"
+lane = "manual"
+reason = "Static phase-dependency and diagnostics-parser regression checks; feat-cmux-next guards has no Python test lane."
+
+[[test]]
 path = "tests/test_check_package_resolved_policy.py"
 lane = "linux-guard"
 
@@ -1029,6 +1034,14 @@ path = "tests/test_job_reuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_dev_release_product_key.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dev_release_product_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_merge_compile_guard.py"
 lane = "linux-guard"
 
@@ -1052,6 +1065,11 @@ lane = "linux-guard"
 path = "tests/test_cmux_next_arch_layers.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. arch-layers.py is a report for the refactor lane, not a gate; run python3 tests/test_cmux_next_arch_layers.py yourself after changing it or architecture-layers.json (under 1 s, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_guardrails_blocking.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. guardrails.py's main-blocking, raw-blocking and thread-doc rules run only in the local pre-push hook; run python3 tests/test_cmux_next_guardrails_blocking.py yourself (about 12 s, git only, no build)."
 
 [[test]]
 path = "tests/test_cmux_next_guardrails.py"
@@ -1239,6 +1257,10 @@ path = "tests/test_cmux_next_release_build_retention.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_dev_release_import_out.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_route.py"
 lane = "linux-guard"
 
@@ -1344,6 +1366,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_generated_catch_up.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_generated_fold.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1559,6 +1585,10 @@ path = "tests/test_cmux_next_dev_daily_dispatch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_dev_kick.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_swiftpm_build_metrics.py"
 lane = "linux-guard"
 
@@ -1604,6 +1634,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_release_notes_pr_media.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_release_notes_clips.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_whats_new_clips.py"
 lane = "linux-guard"
 
 [[test]]

@@ -49,7 +49,7 @@ import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { useTabRow } from "../header/tabRow";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { paneHeader, transcriptColumn, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { registerPicker } from "../pickerOpeners";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
@@ -82,8 +82,11 @@ import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./p
 import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
+import { WorkflowTasks } from "./WorkflowTasks";
+import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
+import { MIN_GUTTER } from "../threadMinimap/model";
 import "./inspector.css";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
@@ -98,28 +101,39 @@ export const FLOAT_MARGIN = 8;
 /// How long after an output click a narrowing counts as that diff's split.
 const SPLIT_SETTLE_MS = 2000;
 
-/// Whether the Inspector pushes the chat: with Settings Push always; by default only when the
-/// pane's right gutter, beside the transcript's centered column (model.ts transcriptColumn), has
-/// no room for the panel and its margins, so the panel never lies over the transcript's text.
-/// Unmeasured, it pushes.
-export const pushes = (placement: InspectorPlacement, paneWidth: number, width: number, column?: ChatColumn) =>
-  placement === "push" || paneWidth <= 0 || transcriptColumn(paneWidth, column).inset < width + 2 * FLOAT_MARGIN;
+/// Whether the Inspector pushes the chat: only with Settings Push always. By default it floats
+/// outside the pane's layout and never takes a column (Leo, 2026-10-24: "it was never supposed to be
+/// a sidebar; y'all kept doing sidebars").
+export const pushes = (placement: InspectorPlacement) => placement === "push";
 
 /// A pushed panel's width: its own, narrowed so the chat keeps PUSH_MIN_CHAT beside it and its
 /// right margin, down to the panel's narrowest.
 export const pushedWidth = (paneWidth: number, width: number) =>
   paneWidth <= 0 ? width : Math.min(width, Math.max(INSPECTOR_WIDTH.min, paneWidth - PUSH_MIN_CHAT - FLOAT_MARGIN));
 
-/// The overlay handoff starts moving the chat before the panel reaches the transcript column. This
-/// keeps a resize across the float/push boundary continuous: at the boundary the overlay's shift is
-/// exactly the room the pushed panel will take, so the pushed layout lands on the same chat center.
-export const CHAT_SHIFT_RANGE = 64;
-export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn) => {
+/// How far the chat's column moves left for the floating panel. Leo, 2026-10-24: "making it not a
+/// part of the true agent pane area except in the case when both would fit if only the agent pane
+/// shifted left". When the right gutter (model.ts transcriptColumn) holds the panel and its margins,
+/// nothing moves; when the two gutters together hold it, the column moves left by what the right one
+/// lacks; otherwise nothing moves and the panel floats over the chat. The left gutter keeps the
+/// thread rail's room (threadMinimap/model.ts MIN_GUTTER), so the column never slides over the rail,
+/// which stays at the pane's left edge (inspector.css; Leo, 2026-10-25: "when that session rail is
+/// there, the session rail ends up pushing it to the side").
+/// A handoff review's form (handoff/styles.css: 760px, 18px from each edge) is wider than the column:
+/// with `wide`, the gutter is the form's. The form takes the transcript's place, so no thread rail
+/// draws beside it: the shift keeps the form's own edge clearance instead of the rail's room.
+export const HANDOFF_FORM_WIDTH = 760;
+/// The form's clearance from each pane edge (handoff/styles.css `min(760px, calc(100% - 36px))`).
+export const HANDOFF_FORM_EDGE = 18;
+export const inspectorChatShift = (paneWidth: number, width: number, column?: ChatColumn, wide = false) => {
   if (paneWidth <= 0 || width <= 0) return 0;
-  const inset = transcriptColumn(paneWidth, column).inset;
-  const boundary = width + 2 * FLOAT_MARGIN;
-  const progress = Math.max(0, Math.min(1, (boundary + CHAT_SHIFT_RANGE - inset) / CHAT_SHIFT_RANGE));
-  return progress * ((width + FLOAT_MARGIN) / 2);
+  const columnInset = transcriptColumn(paneWidth, column).inset;
+  const inset = wide
+    ? Math.min(columnInset, (paneWidth - Math.min(HANDOFF_FORM_WIDTH, paneWidth - 2 * HANDOFF_FORM_EDGE)) / 2)
+    : columnInset;
+  const lacks = width + 2 * FLOAT_MARGIN - inset;
+  const room = inset - (wide ? HANDOFF_FORM_EDGE : MIN_GUTTER);
+  return lacks > 0 && lacks <= room ? lacks : 0;
 };
 
 /// Whether the Inspector shows: on (Debug Settings `agent.inspector`), open (the viewer's, in every
@@ -139,6 +153,13 @@ export const inspectorShown = ({
 
 /// The side panel beside the chat (conversation/ArtifactPanel.tsx), a child of the pane's shell.
 const SIDE_PANEL = ":scope > .acpmux-artifact";
+
+/// The Inspector starts below the visible header and the Left placement row. Right uses the
+/// original header slot, so it keeps the original inset.
+export function inspectorTopOffset(tabRowHeight: number, environmentRowVisible: boolean): string {
+  const headerTop = tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)";
+  return environmentRowVisible ? `calc(${headerTop} + var(--ui-row-height))` : headerTop;
+}
 
 /// The chat's room in the pane: the pane's width less the side panel's beside the chat, and that
 /// panel's width, which the floating Inspector keeps clear of.
@@ -191,6 +212,7 @@ export function useChatInspector({
   onStopProcess,
   subagents,
   sessions,
+  workflows,
   onOpenFolder,
   onSaveEnvironment,
   onShowCall,
@@ -210,8 +232,8 @@ export function useChatInspector({
   /// The side panel beside the chat, changing as it opens or closes (App.tsx `artifact.opened`):
   /// the panel measures the chat's room without it.
   beside?: unknown;
-  /// What the chat shows under its header is wider than the transcript's column (App.tsx: a handoff
-  /// review's form): the panel pushes it aside, never floats over it, and its toggle stays in reach.
+  /// What the chat shows under its header is a handoff review's form, wider than the transcript's
+  /// column (App.tsx): the chat's shift left is measured against the form. It never pushes.
   wide?: boolean;
   /// This Mac's name from the handshake, for a local chat.
   machineName?: string;
@@ -239,6 +261,8 @@ export function useChatInspector({
   };
   /// The chats the chat's agent started (App.tsx `childSessions`), and how one opens.
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
+  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   /// Opens one of the chat's folders in the Files tree beside the chat (a chat on this Mac).
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
@@ -345,10 +369,10 @@ export function useChatInspector({
         wide={wide}
         openedOutputAt={openedOutputAt}
         onSuppress={suppress}
-        onClose={closeInspector}
         registry={registry}
         subagents={subagents}
         sessions={sessions}
+        workflows={workflows}
         revealed={revealed}
         onRevealed={clearRevealed}
         onStopProcess={onStopProcess}
@@ -367,7 +391,7 @@ export function useChatInspector({
 
 const INSPECTOR_TOGGLE = "button.acpmux-chat-inspector-toggle";
 
-/// Closes the Inspector from its x or Esc and gives the keyboard to its header toggle, so focus is
+/// Closes the Inspector from Esc and gives the keyboard to its header toggle, so focus is
 /// not dropped on the page when the panel it was in leaves. Over a diff in place the header, and the
 /// toggle with it, is hidden and cannot take focus: the page gets it, as before.
 const closeInspector = () => {
@@ -390,10 +414,10 @@ function InspectorPresence({
   wide,
   openedOutputAt,
   onSuppress,
-  onClose,
   registry,
   subagents,
   sessions,
+  workflows,
   revealed,
   onRevealed,
   onStopProcess,
@@ -415,13 +439,12 @@ function InspectorPresence({
   shell?: HTMLElement | null;
   /// The side panel beside the chat, as it opens or closes: the chat's room is measured again.
   beside?: unknown;
-  /// The chat shows something wider than the transcript's column: the panel pushes.
+  /// A handoff review's form shows: the shift is measured against it.
   wide?: boolean;
   /// When an output's diff was last opened (Date.now()).
   openedOutputAt: { readonly current: number };
   /// That diff's split left no room for the chat beside the Inspector: the Inspector steps aside.
   onSuppress: () => void;
-  onClose: () => void;
   registry?: ProcessRegistry;
   subagents?: {
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -429,6 +452,8 @@ function InspectorPresence({
     onOpen: (id: string) => void;
   };
   sessions?: { list: readonly StartedSession[]; onOpen: (sessionId: string) => void };
+  /// The chat's Claude workflows (Labs, App.tsx `workflows`), in Background tasks (WorkflowTasks.tsx).
+  workflows?: { list: readonly WorkflowSummary[]; onStop?: (id: string) => Promise<unknown> };
   revealed?: { section: InspectorSectionId; at: number };
   onRevealed: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
@@ -452,9 +477,17 @@ function InspectorPresence({
   // The chat's room: the pane less the side panel beside it (a document), whose edge the floating
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
-  const push = pushes(wide ? "push" : display.inspector, paneWidth, width, column);
-  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column);
+  const push = pushes(display.inspector);
+  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const tabRowHeight = useTabRow().height;
+  // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
+  // below it while open so the card never covers the chip; Right preserves the original header slot,
+  // and connection warnings, Off, or covered views remove that row.
+  const environmentRowVisible =
+    display.environmentPlacement === "left" &&
+    Boolean(snapshot.summary?.cwd || snapshot.summary?.branch) &&
+    !paneHeader(snapshot).status;
+  const inspectorTop = inspectorTopOffset(tabRowHeight, environmentRowVisible);
   // The overlay handoff is a layout assist, not panel motion. Set the placement marker before the
   // shift so the overlay transition is disabled for the one frame where flex layout takes the panel's
   // room; otherwise the old overlay shift would animate back and briefly move the chat right again.
@@ -508,9 +541,10 @@ function InspectorPresence({
     [drawn, asks, views],
   );
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
-  // An output's diff opens beside the chat. When that split leaves too little room for a readable
-  // chat beside the Inspector, it steps aside until the toggle opens it again.
-  const roomy = paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
+  // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
+  // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
+  // again. Floating, it takes no room from the chat and stays.
+  const roomy = !push || paneWidth <= 0 || paneWidth - pushedWidth(paneWidth, width) - FLOAT_MARGIN >= PUSH_MIN_CHAT;
   const roomyRef = useRef(roomy);
   useEffect(() => {
     const was = roomyRef.current;
@@ -525,10 +559,9 @@ function InspectorPresence({
       placement={push ? "push" : "overlay"}
       // Floating or pushing, it starts under the chat header (styles.css --acpmux-header-height; in the
       // pane's tab row, the row's height), so the header's tools, its own toggle among them, stay in reach.
-      under={tabRowHeight > 0 ? `${tabRowHeight}px` : "var(--acpmux-header-height, 44px)"}
+      under={inspectorTop}
       side={push ? 0 : side}
       presence={presence}
-      onClose={onClose}
     >
       {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
       <ChatInspector
@@ -555,6 +588,8 @@ function InspectorPresence({
         transcriptTasks={transcriptTasks}
         // The chats the chat's agent started are the chat's.
         sessions={scope ? undefined : sessions?.list}
+        workflows={scope ? undefined : workflows?.list}
+        onStopWorkflow={workflows?.onStop}
         onOpenSession={sessions?.onOpen}
         revealed={revealed}
         onRevealed={onRevealed}
@@ -576,9 +611,12 @@ function InspectorPresence({
 
 /// The panel's frame: its width, its place beside the chat (push) or floating in the chat's right
 /// gutter (overlay), and the drag handle on its left edge (a double-click puts the width back). With
-/// `presence`, it enters from and leaves toward the pane's right edge. The main panel keeps only a
-/// floating close control; a scoped subagent may supply a title as its own breadcrumb. Either way,
-/// it starts `under` (a CSS length: the chat header's height) below the pane's top, at the top by default.
+/// `presence`, it enters from and leaves toward the pane's right edge. The main panel has no head and
+/// no close button: its header toggle and Esc close it (Leo, 2026-10-24: "you still didn't remove the,
+/// like, top bit with the closing mark. It doesn't— it's not necessary"), and it steps aside whenever a
+/// view takes the pane, so its toggle is always in reach. A scoped subagent supplies a title as its own
+/// breadcrumb. It starts `under` (a CSS length: the chat header's height) below the pane's top, at the
+/// top by default.
 export function InspectorPanel({
   width,
   placement,
@@ -597,12 +635,12 @@ export function InspectorPanel({
   /// floats in the chat's gutter, left of the side panel.
   side?: number;
   presence?: Presence;
-  /// Its own close button: over a diff in place the chat header, with the toggle, is out of reach.
+  /// Its own close button, in the gallery's chrome choices only.
   onClose?: () => void;
   /// Its head's title in place of "Inspector": a subagent's panel names the subagent (SubagentTitle).
   title?: ReactNode;
-  /// The main panel uses a close-only control, while the gallery compares it with the old title row
-  /// and a compact close-only row. A scoped subagent supplies its own title.
+  /// With `onClose`, the gallery's chrome choices: a floating close, the old title row, a compact
+  /// close-only row.
   chrome?: "title" | "close" | "compact-close";
   children: ReactNode;
 }) {
@@ -619,7 +657,7 @@ export function InspectorPanel({
       inert={presence?.leaving}
       className="ui-glass ui-glass-floats acpmux-chat-inspector"
       data-placement={placement}
-      data-chrome={onClose ? (title ? "title" : chrome) : "none"}
+      data-chrome={title ? "title" : onClose ? chrome : "none"}
       style={
         {
           width,
@@ -656,13 +694,13 @@ export function InspectorPanel({
         }}
         onDoubleClick={() => setInspectorWidth(INSPECTOR_WIDTH.fallback)}
       />
-      {onClose &&
-        (title || chrome === "title" || chrome === "compact-close" ? (
-          <div className="acpmux-chat-inspector__head">
-            {title ??
-              (chrome === "title" ? (
-                <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>
-              ) : null)}
+      {title || (onClose && (chrome === "title" || chrome === "compact-close")) ? (
+        <div className="acpmux-chat-inspector__head">
+          {title ??
+            (chrome === "title" ? (
+              <span className="acpmux-chat-inspector__title">{t("chatInspector.title")}</span>
+            ) : null)}
+          {onClose && (
             <button
               type="button"
               className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close"
@@ -672,8 +710,10 @@ export function InspectorPanel({
             >
               <Icon name="action.close" size={12} />
             </button>
-          </div>
-        ) : (
+          )}
+        </div>
+      ) : (
+        onClose && (
           <button
             type="button"
             className="acpmux-chat-inspector-icon-button acpmux-chat-inspector__close acpmux-chat-inspector__close--floating"
@@ -683,7 +723,8 @@ export function InspectorPanel({
           >
             <Icon name="action.close" size={12} />
           </button>
-        ))}
+        )
+      )}
       {children}
     </aside>
   );
@@ -721,6 +762,8 @@ export function ChatInspector({
   listed = false,
   transcriptTasks = [],
   sessions = [],
+  workflows = [],
+  onStopWorkflow,
   onOpenSession,
   revealed,
   onRevealed,
@@ -769,6 +812,9 @@ export function ChatInspector({
   /// The chats the agent started, listed under Subagents.
   sessions?: readonly StartedSession[];
   onOpenSession?: (sessionId: string) => void;
+  /// The chat's Claude workflows (Labs): they head Background tasks, and leave Subagents.
+  workflows?: readonly WorkflowSummary[];
+  onStopWorkflow?: (id: string) => Promise<unknown>;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
@@ -958,16 +1004,19 @@ export function ChatInspector({
       />
     </InspectorSection>
   );
-  const subagentsSection = agents.length + sessions.length > 0 && (
+  // A workflow Background tasks lists (Labs) is not a Subagents row too.
+  const workflowIds = new Set(workflows.map((workflow) => workflow.id));
+  const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
+  const subagentsSection = listedAgents.length + sessions.length > 0 && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, agents, waiting, sessions))}
+      meta={value(subagentCounts(t, listedAgents, waiting, sessions))}
     >
       <SubagentsSection
-        agents={agents}
+        agents={listedAgents}
         waiting={waiting}
         onOpen={onOpenSubagent}
         sessions={sessions}
@@ -977,8 +1026,8 @@ export function ChatInspector({
   );
   // The dev servers are background commands too: their rows head the one Background tasks section
   // (they were a card of their own, most often one row). Every server runs.
-  const running = runningTasks + servers.length;
-  const tasks = servers.length + commands.length + scheduled.length > 0 && (
+  const running = runningTasks + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
+  const tasks = servers.length + commands.length + scheduled.length + workflows.length > 0 && (
     <InspectorSection
       id="tasks"
       title={t("summary.backgroundTasks")}
@@ -986,6 +1035,7 @@ export function ChatInspector({
       onOpenChange={fold("tasks")}
       meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
     >
+      {workflows.length > 0 && <WorkflowTasks workflows={workflows} onStop={onStopWorkflow} />}
       {servers.length > 0 && <ServersSection servers={servers} onStop={onStopProcess} onOpenUrl={onOpenUrl} />}
       {commands.length + scheduled.length > 0 && (
         <TasksSection

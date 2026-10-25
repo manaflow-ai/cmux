@@ -14,17 +14,26 @@ took it (`delivered_to`): every Command event must reach the layout (LayoutRootV
 with no Command at that point must reach none of it (the pane keeps a plain scroll). Either check failing
 fails the run, so a pan that never moved is never a frame number.
 
-Base rounds (same build, same session): `layout.scrollModifier` set to `none` (settings.set) and plain
-gestures, the strip pan before this setting existed. Command and base rounds alternate in an ABBA order, so
-a drift during the session falls on both alike; the setting ends at `command`. Rows `"mode": "command"` and
-`"mode": "base"`; compare their p95 and missed frames.
+Base rounds (same build, same session, terminal target only): `layout.scrollModifier` set to `none`
+(settings.set) and plain gestures, the strip pan before this setting existed. Command and base rounds
+alternate in an ABBA order, so a drift during the session falls on both alike; the setting ends at
+`command`. Rows `"mode": "command"` and `"mode": "base"`; compare their p95 and missed frames.
+
+Input to frame (`key.scroll_frame`, the app's always-on signpost per scroll event): one `log stream` per
+session (perf-signposts.py Recording) while the rounds run; each interval goes to the round whose time window
+holds its begin (the signposts' machTimestamp is mach_continuous_time, and this script stamps the windows with
+CLOCK_MONOTONIC_RAW, the same clock on one host; a session whose windows hold none fails the run). Per mode: `scroll_frame` (dispatch to the turn's commit) and `input_to_frame` (plus the event's
+queue age) p50/p95/max over the events the layout took, and the commits the boundary missed.
 
 --target picks the pane under the pointer:
   terminal  (default) the terminal that newColumn made: the layout's own window path.
   chromium  a Chromium page opened in that pane (openBrowser.chromium on a local page); the events go to the
-            page's own child window (`debug.mouse` scroll with `target: "page"`), the route a real gesture
-            over a Chromium page takes (LayoutRootView's page-window routing, CEFSwipeNavigation). Before
-            any number, `debug.cef` must show no unavailable state and no WebKit fallback, or the run fails.
+            page's own child window (`debug.mouse` scroll with `target: "page"`), the layout's page-window
+            route. Before any number, `debug.cef` must show no unavailable state and no WebKit fallback, or
+            the run fails. Command rounds only: under `none` a plain scroll over a page is the page's by
+            design, so there is no base pan there; compare with a terminal run's Command row. The page
+            scroll calls the layout and the page view directly, so NSApp/NSWindow.sendEvent and the other
+            event monitors (the Chromium swipe's, the hover cards', the spare pool's) are not on its path.
 
 --dry-run launches nothing: it parses the arguments and checks every call this script makes on BenchApp
 (bench_launch.py), on the STRESS builder and on its module (perf-stress-session.py) against their real
@@ -61,11 +70,25 @@ if not opts.dry_run and not (opts.app and opts.out):
     parser.error("--app and --out are required (or --dry-run)")
 
 
-def load_stress():
-    spec = importlib.util.spec_from_file_location("perf_stress_session", os.path.join(HERE, "perf-stress-session.py"))
+def load(name, filename):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, filename))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_stress():
+    return load("perf_stress_session", "perf-stress-session.py")
+
+
+# The signpost reader (Recording, parse): loaded once, here, so --dry-run checks the bench against it too.
+signposts = load("perf_signposts", "perf-signposts.py")
+
+
+def uptime():
+    """Seconds on the clock of the signposts' machTimestamp: `log` stamps it with mach_continuous_time (it
+    counts the host's sleep; trace.py), which is CLOCK_MONOTONIC_RAW on macOS, not CLOCK_UPTIME_RAW."""
+    return time.clock_gettime(time.CLOCK_MONOTONIC_RAW)
 
 
 def pct(values, q):
@@ -95,12 +118,30 @@ class Session:
         return after
 
     def chromium_page(self, pane):
-        """Opens a Chromium page in `pane` (selected) and checks debug.cef; raises when it is not Chromium."""
+        """Opens a Chromium page in `pane` (selected) and checks debug.cef; raises when it is not Chromium, or
+        when no Chromium page window comes up over the pane: every Command event then misses the layout's
+        page-window route, and a pan that never ran is no frame number (0 of 336 events, 2026-10-24: the
+        open added no tab and the run went on)."""
         workspace = self.stress.focused_workspace()
+        refusals = len(self.stress.refusals)
         self.stress.add_tab(workspace, pane, "chromium")
         problems = self.stress_module.cef_problems(self.app.rpc("debug.cef"), self.stress_module.WEB_DEV_CONFIG)
         if problems:
             raise RuntimeError(f"the page is not Chromium: {problems}")
+        kinds = [t.get("kind") for t in self.stress.tabs(workspace, pane)]
+        if "browser" not in kinds:
+            raise RuntimeError(f"openBrowser.chromium added no browser tab to {pane} (its tabs: {kinds}; "
+                               f"refusals: {self.stress.refusals[refusals:]})")
+
+        def page_window():
+            for page in (self.app.rpc("debug.cef") or {}).get("devtools") or []:
+                if page.get("pane") == pane and any(c.get("visible") and not c.get("devtools") for c in page.get("child_windows") or []):
+                    return page
+            return None
+
+        if not self.stress_module.wait(page_window, 20, step=0.2):
+            raise RuntimeError(f"no Chromium page window came up over {pane} in 20 s (debug.cef devtools: "
+                               f"{json.dumps((self.app.rpc('debug.cef') or {}).get('devtools'))[:300]})")
         return problems
 
     def point(self, pane):
@@ -136,14 +177,21 @@ def pan_round(app, name, mode, index, session, point):
     dx = opts.dx if index % 2 == 0 else -opts.dx
     app.rpc("debug.hangs", {"clear": True})
     app.rpc("debug.frames", {"action": "start"})
+    started = uptime()
     delivered = session.gesture(point, dx, command=mode == "command")
     time.sleep(opts.settle)  # bench harness: the frames run until the strip's spring rests
+    window = (started, uptime())
     frames = app.rpc("debug.frames", {"action": "stop"}) or {}
     # The main-thread stalls of the pan (over the hang threshold): the longest one's stack says what a long frame was.
     hangs = app.rpc("debug.hangs", {"limit": 8}) or {}
     stalls = sorted(hangs.get("hangs") or [], key=lambda h: -(h.get("duration_ms") or 0)) if isinstance(hangs, dict) else []
     taken = sum(1 for d in delivered if d == "LayoutRootView")
-    run = {"session": name, "mode": mode, "round": index, "dx": dx, "events": len(delivered), "layout_took": taken,
+    # Who took each event (`delivered_to`, or the error text): where a pan went when the layout did not take it.
+    took = {}
+    for receiver in delivered:
+        took[receiver] = took.get(receiver, 0) + 1
+    run = {"session": name, "mode": mode, "round": index, "dx": dx, "window_s": window, "events": len(delivered),
+           "layout_took": taken, "delivered_to": took,
            "frames": frames.get("frames"), "refresh_ms": frames.get("refresh_ms"), "p50_ms": frames.get("p50_ms"),
            "p95_ms": frames.get("p95_ms"), "max_ms": frames.get("max_ms"), "missed": frames.get("missed"),
            "missed_at_ms": frames.get("missed_at_ms"), "stalls": len(stalls),
@@ -157,17 +205,47 @@ def pan_round(app, name, mode, index, session, point):
     return run
 
 
-def summarize(name, mode, runs, report):
-    """The row of one mode's rounds, checked: every event reached the layout and frames were drawn."""
+def scroll_frames(intervals, runs):
+    """`key.scroll_frame` of the events the layout took in `runs` (an interval belongs to the round whose
+    window holds its begin): scroll_frame and input_to_frame p50/p95/max in ms, and the missed commits."""
+    windows = [r["window_s"] for r in runs]
+    mine = [i for i in intervals if i["name"] == "key.scroll_frame" and i.get("end_fields", {}).get("target") == "layout"
+            and any(start <= i["at_s"] <= end for start, end in windows)]
+    committed = [i for i in mine if not i["missed"]]
+
+    def stats(values):
+        values = sorted(values)
+        if not values:
+            return None
+        return {"n": len(values), "p50_ms": pct(values, 0.5), "p95_ms": pct(values, 0.95), "max_ms": round(values[-1], 2)}
+
+    aged = [i["ms"] + float(i["fields"]["age_ms"]) for i in committed if float(i["fields"].get("age_ms", "-1")) >= 0]
+    return {"scroll_frame": stats([i["ms"] for i in committed]), "input_to_frame": stats(aged),
+            "missed_commits": len(mine) - len(committed)}
+
+
+def summarize(name, mode, runs, report, intervals=None):
+    """The row of one mode's rounds, checked: every event reached the layout and frames were drawn. With the
+    session's signpost `intervals`, its input to frame too."""
     report["runs"].extend(runs)
     row = {"session": name, "mode": mode, "target": opts.target, "rounds": len(runs),
            "refresh_ms": pct([r["refresh_ms"] for r in runs], 0.5),
            "missed_total": sum(r["missed"] or 0 for r in runs), "frames_total": sum(r["frames"] or 0 for r in runs),
            "p95_ms": pct([r["p95_ms"] for r in runs], 0.5), "max_ms": pct([r["max_ms"] for r in runs], 1.0),
            "events_to_layout": sum(r["layout_took"] for r in runs), "events": sum(r["events"] for r in runs)}
+    if intervals is not None:
+        row.update(scroll_frames(intervals, runs))
+        if not row["input_to_frame"]:
+            report["problems"].append(f"{name} {mode}: no key.scroll_frame of the layout's events was recorded")
     report["summary"].append(row)
     if row["events_to_layout"] != row["events"]:
-        report["problems"].append(f"{name} {mode}: {row['events'] - row['events_to_layout']} events missed the layout")
+        elsewhere = {}
+        for run in runs:
+            for receiver, count in run["delivered_to"].items():
+                if receiver != "LayoutRootView":
+                    elsewhere[receiver] = elsewhere.get(receiver, 0) + count
+        report["problems"].append(f"{name} {mode}: {row['events'] - row['events_to_layout']} events missed the layout, "
+                                  f"delivered to {json.dumps(elsewhere)[:300]}")
     if not row["frames_total"]:
         report["problems"].append(f"{name} {mode}: no frames drawn")
     print("COMMAND-PAN " + json.dumps(row), flush=True)
@@ -197,16 +275,25 @@ def measure(app, name, session, panes, report):
         report["problems"].append(f"{name}: the layout took {control_taken} plain events over a pane")
     # The two modes alternate in an ABBA order (command, base, base, command, ...), so a drift during the
     # session (a warming cache, a host getting busy) falls on both modes alike instead of on the one that ran last.
-    runs = {"command": [], "base": []}
+    # Over a Chromium page there is no base pan (a plain scroll there is the page's), so Command rounds only.
+    modes = ("command", "base") if opts.target == "terminal" else ("command",)
+    runs = {mode: [] for mode in modes}
+    recording = signposts.Recording(app.process.pid, ["key"])
     try:
         for index in range(opts.rounds):
-            for mode in (("command", "base") if index % 2 == 0 else ("base", "command")):
+            for mode in (modes if index % 2 == 0 else tuple(reversed(modes))):
                 set_modifier(app, "command" if mode == "command" else "none")
                 runs[mode].append(pan_round(app, name, mode, index, session, point))
     finally:
         set_modifier(app, "command")
-    for mode in ("command", "base"):
-        summarize(name, mode, runs[mode], report)
+        lines = recording.stop()
+    with open(os.path.join(opts.out, f"signposts-{name}.ndjson"), "w") as f:
+        f.write("\n".join(lines) + "\n")
+    parsed = signposts.parse(lines, None)
+    if parsed["lost"]:
+        report["problems"].append(f"{name}: log stream lost messages {parsed['lost']} time(s); input to frame is not a full sample")
+    for mode in modes:
+        summarize(name, mode, runs[mode], report, parsed["intervals"])
 
 
 def dry_run():
@@ -214,7 +301,8 @@ def dry_run():
 
     Receivers are named by how this file reaches them: `app.m(...)` and `BenchApp(...)` (bench_launch.BenchApp),
     `<x>.stress.m(...)` (perf_stress_session.Stress), `<x>.stress_module.f(...)` / `stress_module.f(...)` (the
-    module). A call with *args or **kwargs is skipped (it cannot be bound statically) and counted."""
+    module), `signposts.f(...)` (perf_signposts) and `recording.m(...)` (perf_signposts.Recording). A call with
+    *args or **kwargs is skipped (it cannot be bound statically) and counted."""
     stress_module = load_stress()
     tree = ast.parse(open(os.path.abspath(__file__)).read())
     problems, checked, skipped = [], 0, 0
@@ -235,6 +323,11 @@ def dry_run():
         if name == "stress_module" and hasattr(stress_module, func.attr) and callable(getattr(stress_module, func.attr)):
             value = getattr(stress_module, func.attr)
             return f"perf_stress_session.{func.attr}", value.__init__ if inspect.isclass(value) else value, inspect.isclass(value)
+        if name == "signposts" and callable(getattr(signposts, func.attr, None)):
+            value = getattr(signposts, func.attr)
+            return f"perf_signposts.{func.attr}", value.__init__ if inspect.isclass(value) else value, inspect.isclass(value)
+        if name == "recording" and hasattr(signposts.Recording, func.attr):
+            return f"Recording.{func.attr}", getattr(signposts.Recording, func.attr), True
         return None
 
     for call in (node for node in ast.walk(tree) if isinstance(node, ast.Call)):

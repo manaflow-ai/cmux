@@ -13,6 +13,7 @@ use cmux_local_auth::{ListenerPolicy, Refusal};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -20,7 +21,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::{Semaphore, broadcast, mpsc};
 /// Windows: the daemon socket is `cmux::local_socket` (AF_UNIX with its
 /// same-user checks), in `windows_socket.rs`.
 #[cfg(windows)]
@@ -44,6 +45,9 @@ pub struct Conn {
     pub origin: Origin,
     /// The proof it presented (`conn_auth.rs`); what the mode rule reads.
     pub auth: ConnAuth,
+    /// The paired machine whose credential it presented (`ConnAuth::Device`
+    /// or `ReadOnlyDevice`), from the handshake only, never from a request.
+    device: Option<String>,
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
@@ -86,6 +90,104 @@ pub struct Conn {
     ephemeral: StdMutex<Option<Vec<String>>>,
     /// The media files it opened (`hub/media_read.rs`), closed when it closes.
     media: crate::hub::media_handles::Handles,
+}
+
+// Bound only request handlers that do finite work on behalf of the connection.
+// A prompt or wait can remain open for an entire agent turn, so counting it
+// here would make unrelated prompts fail after an arbitrary burst of work.
+const REQUEST_WORK_LIMIT: usize = 64;
+const NOTIFICATION_QUEUE_LIMIT: usize = 16;
+const NOTIFICATION_WORK_LIMIT: usize = 16;
+const NOTIFICATION_WAIT_LIMIT: usize = 64;
+const WORK_BACKPRESSURE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn request_uses_work_budget(method: &str) -> bool {
+    !matches!(
+        method,
+        method::SESSION_NEW
+            | method::SESSION_LOAD
+            | method::SESSION_RESUME
+            | method::SESSION_FORK
+            | method::SESSION_PROMPT
+            | method::MUX_ATTACH
+            | method::MUX_WAIT
+    )
+}
+
+fn try_request_slot(
+    slots: &Arc<Semaphore>,
+    method: &str,
+) -> Result<Option<tokio::sync::OwnedSemaphorePermit>, ()> {
+    if !request_uses_work_budget(method) {
+        return Ok(None);
+    }
+    slots.clone().try_acquire_owned().map(Some).map_err(|_| ())
+}
+
+fn notification_deadline(method: &str) -> Option<std::time::Duration> {
+    (method != crate::rpc::method::SESSION_CANCEL).then_some(WORK_BACKPRESSURE_WAIT)
+}
+
+enum NotificationAdmission {
+    Accepted,
+    Closed,
+    Dropped,
+}
+
+fn admit_notification(
+    tx: &mpsc::Sender<(String, Value)>,
+    waiter_slots: &Arc<Semaphore>,
+    waits: &mut Vec<tokio::task::JoinHandle<()>>,
+    item: (String, Value),
+) -> NotificationAdmission {
+    waits.retain(|waiter| !waiter.is_finished());
+    match tx.try_send(item) {
+        Ok(()) => NotificationAdmission::Accepted,
+        Err(mpsc::error::TrySendError::Closed(_)) => NotificationAdmission::Closed,
+        Err(mpsc::error::TrySendError::Full(item)) => {
+            let Ok(waiter_slot) = waiter_slots.clone().try_acquire_owned() else {
+                return NotificationAdmission::Dropped;
+            };
+            let tx = tx.clone();
+            waits.push(tokio::spawn(async move {
+                let _waiter_slot = waiter_slot;
+                // Waiters race with direct sends. This does not affect current
+                // handlers: only session/cancel notifications have effects.
+                let _ = tx.send(item).await;
+            }));
+            NotificationAdmission::Accepted
+        }
+    }
+}
+
+fn spawn_notification_worker<F, Fut>(
+    mut notifications: mpsc::Receiver<(String, Value)>,
+    handler: F,
+) -> tokio::task::JoinHandle<()>
+where
+    F: Fn(String, Value) -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut handlers = tokio::task::JoinSet::new();
+        while let Some((notification_method, params)) = notifications.recv().await {
+            let handler = handler.clone();
+            handlers.spawn(async move {
+                if let Some(deadline) = notification_deadline(&notification_method) {
+                    let _ =
+                        tokio::time::timeout(deadline, handler(notification_method, params)).await;
+                } else {
+                    // Cancellation must run to completion: Hub::cancel does
+                    // cleanup before scheduling its forced turn end.
+                    handler(notification_method, params).await;
+                }
+            });
+            if handlers.len() >= NOTIFICATION_WORK_LIMIT {
+                let _ = handlers.join_next().await;
+            }
+        }
+        while handlers.join_next().await.is_some() {}
+    })
 }
 
 impl Conn {
@@ -734,7 +836,10 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_authed(hub, in_rx, out_tx, origin, proof).await;
+            match device {
+                Some(device) => serve_connection_device(hub, in_rx, out_tx, device).await,
+                None => serve_connection_authed(hub, in_rx, out_tx, origin, proof).await,
+            }
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -910,7 +1015,20 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None).await
+}
+
+/// A paired machine's connection, served as its role says
+/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
+/// proved `device`'s credential, or an in-process caller that vouches for it.
+pub async fn serve_connection_device(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    device: crate::pairing::DeviceAuth,
+) {
+    let (origin, auth) = pairing::origin_of(&device);
+    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -921,6 +1039,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    device: Option<String>,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -931,6 +1050,7 @@ async fn serve_connection_from(
         id: uuid::Uuid::now_v7().to_string(),
         origin,
         auth,
+        device,
         raw_text,
         name: StdMutex::new(String::new()),
         out,
@@ -957,7 +1077,28 @@ async fn serve_connection_from(
     tracing::debug!(conn = %conn.id, "client connected");
 
     let fan = fanout::start(hub.clone(), conn.clone());
+    let request_slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
+    let (notification_tx, notification_rx) =
+        mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
+    let (cancel_tx, cancel_rx) = mpsc::channel::<(String, Value)>(NOTIFICATION_QUEUE_LIMIT);
+    let notification_handler = {
+        let hub = hub.clone();
+        let conn = conn.clone();
+        move |method: String, params| {
+            let hub = hub.clone();
+            let conn = conn.clone();
+            async move { handle_notification(&hub, &conn, &method, params).await }
+        }
+    };
+    let notification_worker =
+        spawn_notification_worker(notification_rx, notification_handler.clone());
+    let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
 
+    let notification_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
+    let mut notification_waits: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    let cancel_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
+    let mut cancel_waits: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    let dropped_notifications = Arc::new(AtomicU64::new(0));
     while let Some(line) = inbound.recv().await {
         if line.trim().is_empty() {
             continue;
@@ -971,12 +1112,25 @@ async fn serve_connection_from(
         };
         match msg {
             Message::Request { id, method: m, mut params } => {
+                let slot = match try_request_slot(&request_slots, &m) {
+                    Ok(slot) => slot,
+                    Err(()) => {
+                        let error = RpcError::new(-32000, "connection request limit reached")
+                            .with_data(json!({
+                                "reason": "connection.busy",
+                                "retryable": true,
+                            }));
+                        conn.send(&Message::err(id, error));
+                        continue;
+                    }
+                };
                 // In order, before the request is spawned: a later request
                 // on this connection sees the person decided.
                 conn.bind_person(&hub, &m, &mut params);
                 let hub = hub.clone();
                 let conn = conn.clone();
                 tokio::spawn(async move {
+                    let _slot = slot;
                     let result = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
                     conn.send(&match result {
                         Ok(v) => Message::ok(id, v),
@@ -987,17 +1141,79 @@ async fn serve_connection_from(
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             Message::Notification { method: m, params } => {
-                let hub = hub.clone();
-                let conn = conn.clone();
-                tokio::spawn(async move {
-                    handle_notification(&hub, &conn, &m, params.unwrap_or(Value::Null)).await;
-                });
+                let params = params.unwrap_or(Value::Null);
+                if m == method::SESSION_CANCEL {
+                    match admit_notification(
+                        &cancel_tx,
+                        &cancel_waiters,
+                        &mut cancel_waits,
+                        (method::SESSION_CANCEL.to_owned(), params),
+                    ) {
+                        NotificationAdmission::Accepted => {}
+                        NotificationAdmission::Closed => break,
+                        NotificationAdmission::Dropped => {
+                            if dropped_notifications.fetch_add(1, Ordering::Relaxed) == 0 {
+                                tracing::warn!(conn = %conn.id, "dropping notifications after bounded admission waiters are full");
+                            }
+                        }
+                    }
+                    continue;
+                }
+                match admit_notification(
+                    &notification_tx,
+                    &notification_waiters,
+                    &mut notification_waits,
+                    (m, params),
+                ) {
+                    NotificationAdmission::Accepted => {}
+                    NotificationAdmission::Closed => break,
+                    NotificationAdmission::Dropped => {
+                        if dropped_notifications.fetch_add(1, Ordering::Relaxed) == 0 {
+                            tracing::warn!(conn = %conn.id, "dropping notifications after bounded admission waiters are full");
+                        }
+                    }
+                }
             }
             Message::Response { .. } => {
                 // acpmux sends no requests to clients today (permission goes
                 // through _acpmux/permission_pending + permission_respond).
             }
         }
+    }
+    // Cancellation has to reach the hub even when ordinary notifications are
+    // still draining. Its worker is bounded independently and must never be
+    // aborted by connection cleanup.
+    for waiter in cancel_waits {
+        let _ = waiter.await;
+    }
+    drop(cancel_tx);
+    let _ = cancel_worker.await;
+
+    let deadline = tokio::time::Instant::now() + WORK_BACKPRESSURE_WAIT;
+    let mut waiters = notification_waits.into_iter();
+    while let Some(mut waiter) = waiters.next() {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if tokio::time::timeout(remaining, &mut waiter).await.is_err() {
+            waiter.abort();
+            let _ = waiter.await;
+            for waiter in waiters {
+                waiter.abort();
+                let _ = waiter.await;
+            }
+            tracing::debug!(conn = %conn.id, "notification admission waiters did not drain");
+            break;
+        }
+    }
+    drop(notification_tx);
+    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+    let mut notification_worker = notification_worker;
+    if tokio::time::timeout(remaining, &mut notification_worker).await.is_err() {
+        notification_worker.abort();
+        let _ = notification_worker.await;
+    }
+    let dropped = dropped_notifications.load(Ordering::Relaxed);
+    if dropped > 0 {
+        tracing::debug!(conn = %conn.id, dropped, "notification admission drops during connection");
     }
     fan.abort();
     conn.media.close_all();
@@ -1182,14 +1398,17 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+pub(crate) mod machine_health;
 mod models_fanout;
 mod new_worktree;
 pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;
+mod peer_status;
 pub mod peer_text;
 mod pending;
+mod place;
 mod processes;
 mod worktrees;
 use crate::hub::is_permission_ask;
@@ -1209,6 +1428,160 @@ mod wait;
 #[cfg(windows)]
 mod windows_socket;
 use requests::handle_notification;
+
+#[cfg(test)]
+mod request_admission_tests {
+    use super::{
+        NOTIFICATION_QUEUE_LIMIT, NOTIFICATION_WORK_LIMIT, REQUEST_WORK_LIMIT,
+        notification_deadline, request_uses_work_budget, try_request_slot,
+    };
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    #[test]
+    fn long_running_requests_do_not_consume_short_work_budget() {
+        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_PROMPT));
+        assert!(!request_uses_work_budget(crate::rpc::method::MUX_WAIT));
+        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_NEW));
+        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_LOAD));
+        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_RESUME));
+        assert!(!request_uses_work_budget(crate::rpc::method::SESSION_FORK));
+        assert!(!request_uses_work_budget(crate::rpc::method::MUX_ATTACH));
+        // A method no handler serves; built, not a literal, so the registry check
+        // (protocol::tests) does not read it as a served method.
+        let unknown = ["_acpmux", "unknown"].join("/");
+        assert!(request_uses_work_budget(&unknown));
+
+        let slots = Semaphore::new(REQUEST_WORK_LIMIT);
+        let _holds: Vec<_> = (0..REQUEST_WORK_LIMIT)
+            .map(|_| slots.try_acquire().expect("short work slot"))
+            .collect();
+        assert!(slots.try_acquire().is_err());
+
+        // Open prompts and waits are admitted independently of the finite
+        // handler budget, so a connection can keep more than 64 turns open.
+        let slots = Arc::new(Semaphore::new(REQUEST_WORK_LIMIT));
+        for _ in 0..(REQUEST_WORK_LIMIT + 1) {
+            assert!(
+                try_request_slot(&slots, crate::rpc::method::SESSION_PROMPT).unwrap().is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn cancellation_handlers_have_no_abort_deadline() {
+        assert_eq!(notification_deadline(crate::rpc::method::SESSION_CANCEL), None);
+        assert_eq!(notification_deadline("$/cancel_request"), Some(super::WORK_BACKPRESSURE_WAIT));
+    }
+
+    #[tokio::test]
+    async fn accepted_notification_is_drained_after_input_disconnects() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::sync::mpsc;
+
+        let (tx, rx) = mpsc::channel(1);
+        let handled = Arc::new(AtomicUsize::new(0));
+        let worker = super::spawn_notification_worker(rx, {
+            let handled = handled.clone();
+            move |_method, _params| {
+                let handled = handled.clone();
+                async move {
+                    handled.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        });
+        tx.send(("session/cancel".to_owned(), serde_json::json!({}))).await.unwrap();
+        drop(tx);
+        worker.await.unwrap();
+        assert_eq!(handled.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn cancellation_lane_is_independent_of_slow_notifications() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::sync::{Notify, mpsc};
+
+        let (notification_tx, notification_rx) = mpsc::channel(NOTIFICATION_QUEUE_LIMIT);
+        let (cancel_tx, cancel_rx) = mpsc::channel(NOTIFICATION_QUEUE_LIMIT);
+        let notification_started = Arc::new(Notify::new());
+        let release_notifications = Arc::new(Notify::new());
+        let cancel_handled = Arc::new(AtomicBool::new(false));
+
+        let notification_worker = super::spawn_notification_worker(notification_rx, {
+            let notification_started = notification_started.clone();
+            let release_notifications = release_notifications.clone();
+            move |_method, _params| {
+                let notification_started = notification_started.clone();
+                let release_notifications = release_notifications.clone();
+                async move {
+                    notification_started.notify_one();
+                    release_notifications.notified().await;
+                }
+            }
+        });
+        let cancel_worker = super::spawn_notification_worker(cancel_rx, {
+            let cancel_handled = cancel_handled.clone();
+            move |_method, _params| {
+                let cancel_handled = cancel_handled.clone();
+                async move { cancel_handled.store(true, Ordering::SeqCst) }
+            }
+        });
+
+        for _ in 0..NOTIFICATION_WORK_LIMIT {
+            notification_tx.try_send(("session/update".to_owned(), serde_json::json!({}))).unwrap();
+        }
+        notification_started.notified().await;
+        cancel_tx
+            .send((crate::rpc::method::SESSION_CANCEL.to_owned(), serde_json::json!({})))
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !cancel_handled.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancel lane should not wait for ordinary handlers");
+
+        release_notifications.notify_waiters();
+        drop(notification_tx);
+        drop(cancel_tx);
+        notification_worker.await.unwrap();
+        cancel_worker.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancellation_worker_finishes_after_input_closes() {
+        use tokio::sync::{Notify, mpsc};
+
+        let (tx, rx) = mpsc::channel(1);
+        let started = Arc::new(Notify::new());
+        let release = Arc::new(Notify::new());
+        let mut worker = super::spawn_notification_worker(rx, {
+            let started = started.clone();
+            let release = release.clone();
+            move |_method, _params| {
+                let started = started.clone();
+                let release = release.clone();
+                async move {
+                    started.notify_one();
+                    release.notified().await;
+                }
+            }
+        });
+
+        tx.send((crate::rpc::method::SESSION_CANCEL.to_owned(), serde_json::json!({})))
+            .await
+            .unwrap();
+        started.notified().await;
+        drop(tx);
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), &mut worker).await.is_err()
+        );
+        release.notify_one();
+        worker.await.unwrap();
+    }
+}
 
 #[cfg(test)]
 mod nodelay_tests {

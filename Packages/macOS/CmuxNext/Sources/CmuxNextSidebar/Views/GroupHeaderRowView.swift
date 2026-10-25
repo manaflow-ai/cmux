@@ -56,6 +56,8 @@ final class GroupHeaderRowView: SidebarRowView {
     let addButton = SidebarIconButton(icon: .actionAdd, pointSize: { Metrics.smallIconSize - Metrics.space1 },
                                       label: GroupEditorStrings.newWorkspace)
     private var pinned = false
+    /// Archived in the sidebar document: the bar and its ink draw dimmed (`SidebarStyle.archivedAlpha`).
+    private var archived = false
     private var hasIcon = false
     /// No members: the + is not offered (the editor's New Workspace in Group
     /// is), so a click on it can never race the editor closing on a new,
@@ -145,6 +147,7 @@ final class GroupHeaderRowView: SidebarRowView {
         isEmpty = group.workspaces.isEmpty && group.items.isEmpty
         name.stringValue = group.name
         pinned = group.isPinned
+        archived = group.isArchived
         hasIcon = group.icon != nil
         glyph.configure(icon: group.icon)
         pin.image = pinned ? NSImage.icon(.statePinned, size: Metrics.smallIconSize) : nil
@@ -182,6 +185,7 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     /// A state fill on the bar (hover, open editor, drop); the bar itself always shows.
+    override var debugArchived: Bool { archived }
     override var debugFill: Bool { super.debugFill || isHovered || isEditing || isDropTarget }
     override var debugDisclosure: (icon: String, frame: CGRect, shown: Bool)? { (chevronIcon.rawValue, chevron.frame, !chevron.isHidden) }
 
@@ -256,7 +260,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // One ink for every glyph on the bar (cx-qno.22): name, icon, pin,
             // chevron, + and more, chosen once on the bar's color; it holds
             // text contrast on every state above and the buttons' fills.
-            let ink = chip.ink.nsColor
+            let ink = chip.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
             name.textColor = ink
             count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
             glyph.symbolInk = ink
@@ -271,6 +275,7 @@ final class GroupHeaderRowView: SidebarRowView {
             paintFill(nil)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
+            pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1 // dimmed with no fade (archiving-DESIGN.md)
             layer?.borderColor = Palette.focusRing.cgColor
             layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
             layer?.cornerRadius = SidebarStyle.rowCornerRadius
@@ -283,9 +288,9 @@ final class GroupHeaderRowView: SidebarRowView {
     /// Hover, the open editor and a drop take the row's own fill.
     private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
         let line = tint.lineRGB(themed: look.themed)
-        let ink = look.style == .tinted
+        let ink = (look.style == .tinted
             ? ThemeTokens.readable(line, over: tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast).nsColor
-            : tokens.textPrimary.nsColor
+            : tokens.textPrimary.nsColor).withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
         count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
         glyph.symbolInk = ink
@@ -298,6 +303,8 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         dot.isHidden = false
         dot.backgroundColor = line.nsColor.cgColor
+        pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1
+        dot.opacity = pill.opacity
         pill.borderWidth = 0
         layer?.borderColor = tokens.focusRing.nsColor.cgColor
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0

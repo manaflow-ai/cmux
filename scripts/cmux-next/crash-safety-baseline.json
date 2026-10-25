@@ -38,7 +38,7 @@
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1151,
+   "cmux-tui-core": 1150,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -137,7 +137,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 9,
+    "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 1,
     "CmuxNextPages": 1,
@@ -159,8 +159,8 @@
     "CmuxNextApp": 5,
     "CmuxNextChromiumRuntime": 1,
     "CmuxNextCloud": 1,
-    "CmuxNextCompat": 4,
-    "CmuxNextCrashReporting": 10,
+    "CmuxNextCompat": 10,
+    "CmuxNextCrashReporting": 11,
     "CmuxNextDesign": 2,
     "CmuxNextFiles": 2,
     "CmuxNextHome": 1,

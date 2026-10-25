@@ -46,36 +46,67 @@ for name in (try? fm.contentsOfDirectory(atPath: frameworks)) ?? [] {
 guard !binaries.isEmpty else { print("runtime-symbols: no binaries in \(app)"); exit(2) }
 
 let os = ProcessInfo.processInfo.operatingSystemVersion
+#if arch(arm64)
+let arch = "arm64"
+#else
+let arch = "x86_64"
+#endif
 var missing: [String] = []
 var checked = 0
+var libraries = 0
 for binary in binaries {
-    guard let dependents = run(["-dependents", binary]), let imports = run(["-imports", binary]) else {
+    // The guest's own slice only: a universal framework's x86_64 slice imports symbols (`_stat$INODE64`,
+    // `_objc_msgSend_stret`) that arm64 never binds.
+    guard let dependents = run(["-arch", arch, "-dependents", binary]), let imports = run(["-arch", arch, "-imports", binary]) else {
         print("runtime-symbols: dyld_info could not read \(binary)"); exit(2)
     }
-    // System libraries only (bundled @rpath ones are the same on every OS), keyed by their leaf name.
+    if binary == binaries.first {
+        // The format this OS's dyld_info prints, for the record (it differs between majors).
+        print("dependents head: " + dependents.split(separator: "\n").prefix(4).joined(separator: " | "))
+        print("imports head: " + imports.split(separator: "\n").prefix(4).joined(separator: " | "))
+    }
+    // Every linked library in load-command order (an import's ordinal is its 1-based index here); only system
+    // ones (/usr/lib, /System) are checked: bundled @rpath ones are the same on every OS.
+    var ordered: [(path: String, handle: UnsafeMutableRawPointer?)] = []
     var handles: [String: UnsafeMutableRawPointer] = [:]
     for line in dependents.split(separator: "\n") {
+        guard let start = line.firstIndex(where: { $0 == "/" || $0 == "@" }), !line.hasSuffix(":") else { continue }
+        let path = String(line[start...]).trimmingCharacters(in: .whitespaces)
+        let attributes = String(line[..<start])
+        let system = path.hasPrefix("/usr/lib/") || path.hasPrefix("/System/")
+        var handle: UnsafeMutableRawPointer?
+        if system {
+            handle = dlopen(path, RTLD_LAZY | RTLD_LOCAL)
+            if handle == nil, !attributes.contains("weak") { missing.append("\(binary): library \(path)") }
+            if let handle { handles[leaf(path)] = handle; libraries += 1 }
+        }
+        ordered.append((path, handle))
+    }
+    for line in imports.split(separator: "\n") where !line.contains("weak") {
         let fields = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
-        guard let path = fields.last, path.hasPrefix("/usr/lib/") || path.hasPrefix("/System/") else { continue }
-        let weak = fields.dropLast().contains { $0.contains("weak") }
-        guard let handle = dlopen(path, RTLD_LAZY | RTLD_LOCAL) else {
-            if !weak { missing.append("\(binary): library \(path)") }
+        let handle: UnsafeMutableRawPointer?
+        let symbol: String?
+        if let from = line.range(of: "(from "), line.hasSuffix(")") {
+            // macOS 15 and later: `0x0000  _symbol  (from library)`.
+            handle = handles[String(line[from.upperBound..<line.index(before: line.endIndex)])]
+            symbol = line[..<from.lowerBound].split(separator: " ", omittingEmptySubsequences: true).last.map(String.init)
+        } else if fields.count >= 3, fields[0].hasPrefix("0x"), fields[1].hasPrefix("0x"),
+                  let ordinal = Int(fields[1].dropFirst(2), radix: 16), ordinal >= 1, ordinal <= ordered.count {
+            // macOS 14: `0x0000  0x01B  _symbol`, the second column the library's ordinal.
+            handle = ordered[ordinal - 1].handle
+            symbol = fields[2]
+        } else {
             continue
         }
-        handles[leaf(path)] = handle
-    }
-    for line in imports.split(separator: "\n") where !line.contains("[weak-import]") {
-        guard let from = line.range(of: "(from "), line.hasSuffix(")") else { continue }
-        let library = String(line[from.upperBound..<line.index(before: line.endIndex)])
-        guard let handle = handles[library] else { continue }
-        let fields = line[..<from.lowerBound].split(separator: " ", omittingEmptySubsequences: true)
-        guard let symbol = fields.last, symbol.hasPrefix("_") else { continue }
+        guard let handle, let symbol, symbol.hasPrefix("_") else { continue }
         checked += 1
         if dlsym(handle, String(symbol.dropFirst())) == nil {
-            missing.append("\(binary.replacingOccurrences(of: app + "/", with: "")): \(symbol) (\(library))")
+            missing.append("\(binary.replacingOccurrences(of: app + "/", with: "")): \(symbol)")
         }
     }
 }
-print("runtime-symbols macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion): \(checked) strong system imports in \(binaries.count) binaries, \(missing.count) missing")
+print("runtime-symbols macOS \(os.majorVersion).\(os.minorVersion).\(os.patchVersion): \(checked) strong system imports from \(libraries) system libraries in \(binaries.count) binaries, \(missing.count) missing")
 for line in missing.prefix(200) { print("MISSING \(line)") }
+// A check that read nothing proves nothing: no verdict, never a pass.
+guard checked > 0 else { print("runtime-symbols: no import was checked; the dyld_info format was not understood"); exit(2) }
 exit(missing.isEmpty ? 0 : 1)

@@ -256,8 +256,8 @@ final class BrowserTabService {
     /// WebKit fallback for the last two.
     /// `url` is the page the tab opens, for its `browser.siteEngines` rule.
     func resolve(requested: String?, inherited: String? = nil, url: URL? = nil) -> BrowserEngineResolver.Outcome {
-        BrowserEngineResolver.resolve(requested: requested, inherited: inherited, siteEngine: preference.siteEngines.engine(for: url),
-                                      defaultEngine: preference.defaultEngine, cefUnavailable: cefUnavailable())
+        BrowserEngineResolver(defaultEngine: preference.defaultEngine, cefUnavailable: cefUnavailable())
+            .resolve(requested: requested, inherited: inherited, siteEngine: preference.siteEngines.engine(for: url))
     }
 
     /// Whether someone asked for the engine of `tab` (`BrowserEngineChoice.pinned`).

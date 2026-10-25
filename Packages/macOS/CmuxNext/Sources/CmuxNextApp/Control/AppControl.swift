@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextErrorJournal
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextTerminal
 import CmuxNextWakeups
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
@@ -25,7 +26,7 @@ final class AppControl {
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
     #endif
@@ -116,6 +117,8 @@ final class AppControl {
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
             .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
+            BlockingControl(detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
             .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
                 let report = budget.report
@@ -144,6 +147,16 @@ final class AppControl {
             .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
             // A full-screen or Space transition: notifications, resizes, layout passes (fullscreen-transition.py).
             .mainActor("debug.window_transition") { call in .value(DebugWindowTransition.shared.handle(call.params)) },
+            // A split's or close's terminals: grids sent, drawn and announced, ms from start (bench-terminal-resize.py split-resize).
+            .mainActor("debug.terminal_final_grid") { [weak services] call in
+                guard let trace = services?.finalGridTrace else { return .value(.null) }
+                if call.params["action"]?.stringValue == "start" { trace.start(); return .value(["started": true]) }
+                func marks(_ list: [TerminalFinalGridTrace.Mark]) -> CmuxNextSettings.JSONValue { .array(list.map { ["ms": .number($0.ms), "grid": .string($0.grid)] }) }
+                return .value(["terminals": .object(trace.stop().mapValues { terminal in
+                    ["sends": marks(terminal.sends), "drawn": marks(terminal.drawn), "owner": marks(terminal.owner),
+                     "fitted": terminal.fitted.map(CmuxNextSettings.JSONValue.string) ?? .null]
+                })])
+            },
             // Sidebar work: rebuilds, row patches/configures, ffi calls (sidebar-rows-perf-live.py).
             .mainActor("debug.sidebar_perf") { call in .value(.object(SidebarView.perfCounters(reset: call.params["reset"]?.boolValue == true).mapValues { .number(Double($0)) })) },
             // Click by Hint labels (hint-mode-e2e.py).
@@ -454,10 +467,9 @@ final class AppControl {
                 .value(services.map { services in
                     services.burstTrace.control(call.params, facts: [
                         "key_repeat_delay_s": .number(NSEvent.keyRepeatDelay), "key_repeat_interval_s": .number(NSEvent.keyRepeatInterval),
-                        "quick_press_window_s": .number(services.quickPressWindow()),
                         "sequence_playing": .bool(player.isPlaying),
                         "pending_intents": JSONValue(services.daemon.store.pendingIntents.count),
-                        "resize_idle": .bool(ResizeCoordinator.shared.isIdle),
+                        "resize_idle": .bool(services.resizes.isIdle),
                         // The attach machines' own due echoes: a closed view is gone from the cache, so it never waits.
                         "terminals_awaiting_echo": JSONValue(services.cache.terminals.values.filter { $0.io.awaitsEcho }.count),
                     ])

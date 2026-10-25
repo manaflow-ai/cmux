@@ -9,6 +9,38 @@ const NOT_TAKEN = new Set(["unsupported", "native.invalid_request"]);
 const CHUNK_BYTES = 512 * 1024;
 const LEGACY_FRAME_SAFE_BYTES = 24 * 1024 * 1024;
 
+/// How long one step of an upload (begin, one chunk, finish) may wait for the host: past it the
+/// upload fails with a note and its chip offers Retry, never loading forever (Leo, 2026-10-24: "I
+/// can't even cancel these... supposedly in-progress attachments").
+export const UPLOAD_STEP_DEADLINE_MS = 30_000;
+export const UPLOAD_TIMED_OUT = "The upload timed out: the app did not answer.";
+
+/// `call`, refused with UPLOAD_TIMED_OUT when the host does not answer within `ms`.
+export function callWithin(call: Call, ms = UPLOAD_STEP_DEADLINE_MS): Call {
+  return (method, params) =>
+    new Promise((resolve, reject) => {
+      let late = false;
+      const timer = setTimeout(() => {
+        late = true;
+        reject(new Error(UPLOAD_TIMED_OUT));
+      }, ms);
+      call(method, params).then(
+        (value) => {
+          clearTimeout(timer);
+          // An upload the host started after the page gave up on it: the host drops its stage.
+          const token = (value as { token?: unknown } | null)?.token;
+          if (late && method === "chat.upload.begin" && typeof token === "string")
+            void call("chat.upload.cancel", { token }).catch(() => undefined);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+}
+
 function notTaken(error: unknown): boolean {
   return NOT_TAKEN.has((error as { code?: string } | null)?.code ?? "");
 }
@@ -28,7 +60,8 @@ function uploadedPaths(value: unknown): string[] {
     : [];
 }
 
-export async function uploadToMachine(files: File[], call: Call): Promise<UploadResult> {
+export async function uploadToMachine(files: File[], host: Call): Promise<UploadResult> {
+  const call = callWithin(host);
   if (!files.length || files.some((file) => !file.name)) return undefined;
   const paths: string[] = [];
   const manifest = files.map(({ name, size }) => ({ name, size }));
@@ -72,7 +105,8 @@ export async function uploadToMachine(files: File[], call: Call): Promise<Upload
       if (!path || extra) throw new Error("The upload could not be completed.");
       paths.push(path);
     } catch (error) {
-      await call("chat.upload.cancel", { token }).catch(() => undefined);
+      // Straight to the host, not behind another step deadline.
+      void host("chat.upload.cancel", { token }).catch(() => undefined);
       return { error: error instanceof Error ? error.message : String(error) };
     }
   }

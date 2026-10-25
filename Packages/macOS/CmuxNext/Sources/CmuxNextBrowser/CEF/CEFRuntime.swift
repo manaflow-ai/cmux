@@ -27,6 +27,8 @@ final class CEFRuntime {
     private(set) var layout: CEFRuntimeLayout?
     private(set) var storage = CEFProfileStorage.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier)
     var pump: CEFMessagePump?
+    /// The pump's gate for requests from Chromium threads (read off the main thread).
+    nonisolated let pumpGate = CEFPumpCrossThreadGate()
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
     // Routing tables (main thread).
@@ -86,6 +88,13 @@ final class CEFRuntime {
     /// replies before its caller can wait. Non-nil only during that call.
     var synchronousDevToolsResults: [CEFDevToolsKey: Result<String, any Error>]?
     let siteReplies = CEFReplyWaiters<Int32, CEFSiteReply>()
+    /// `cmux_shim_tab_evaluate` calls waiting for their answer (fork API 29, `CEFRuntime+Evaluate`).
+    let evaluations = CEFReplyWaiters<Int32, CEFEvaluationResult>()
+    var evaluationBrowsers: [Int32: Int32] = [:]
+    var earlyEvaluations: [Int32: CEFEvaluationResult] = [:]
+    var nextEvaluation: Int32 = 1
+    /// What the running fork offers (`CEFForkFeatures`).
+    var forkFeatures: CEFForkFeatures { shim.map(CEFForkFeatures.init) ?? CEFForkFeatures(forkAPIVersion: 0, shimHasRendererPaths: false) }
     /// Browser of each pending site reply, so a closed browser fails them.
     var siteReplyBrowsers: [Int32: Int32] = [:]
     /// Replies that arrived before their caller awaited.
@@ -388,7 +397,8 @@ final class CEFRuntime {
 
         let pump = CEFMessagePump(
             work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.shim?.doWork() } },
-            safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion())
+            safetyNet: CEFPumpSchedule.safetyNet(forkAPIVersion: shim.forkAPIVersion()),
+            gate: pumpGate
         )
         self.pump = pump
         pump.start()
@@ -397,7 +407,7 @@ final class CEFRuntime {
         let builtInPlan = CEFBuiltInExtensions(adBlockerEnabled: builtInAdBlockerSetting())
             .plan(resources: Bundle.main.resourceURL, profiles: storage.root)
         let switchSet = CEFSwitches.current(
-            forkAPIVersion: shim.forkAPIVersion(),
+            forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment,
             builtInExtensions: builtInPlan.folders, keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled
@@ -426,6 +436,12 @@ final class CEFRuntime {
                 : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"),
                                                       entry.entry)
             if added != 1 { logger.error("cmux-page \(id, privacy: .public) refused by the shim") }
+        }
+        // Every document's start scripts and report channels, once for every browser, in the
+        // renderer (fork API 29): no tab opens a DevTools session for them (`CEFDocumentScripts`).
+        if CEFForkFeatures(shim).rendererPaths {
+            let refused = CEFDocumentScripts(post: .pageChannel).installInRenderer(shim)
+            if !refused.isEmpty { logger.error("document scripts refused by the shim: \(refused.joined(separator: ", "), privacy: .public)") }
         }
         // Google Chrome's native messaging hosts after cmux's own.
         for folder in CEFNativeMessaging.googleChromeFolders(home: FileManager.default.homeDirectoryForCurrentUser) {

@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextDesign
 import SwiftUI
 
@@ -52,5 +53,32 @@ struct SleepySceneView: View {
         // The scene is a night sky in every appearance: its controls draw for a dark surface (in Light
         // Mode the Lock Mac button had dark text on a clear bezel, near-invisible on the sky).
         .environment(\.colorScheme, .dark)
+    }
+}
+
+extension SleepySceneView {
+    /// The scene as an AppKit view, for a window's `contentView`: the overlay windows and the
+    /// scene's tests take this, so only this file bridges the scene into AppKit.
+    static func hostView(workingAgents: @escaping @MainActor () -> Int,
+                         wake: @escaping @MainActor () -> Void,
+                         lockMac: @escaping @MainActor () -> Void) -> NSView {
+        NSHostingView(rootView: SleepySceneView(workingAgents: workingAgents, wake: wake, lockMac: lockMac))
+    }
+}
+
+/// Hosts ``NightSkyView`` (Core Animation, in CmuxNextDesign) in the SwiftUI scene. It lives here,
+/// beside its only consumer, so CmuxNextDesign's sky stays AppKit; it goes when the scene is AppKit.
+private struct NightSky: NSViewRepresentable {
+    /// Whether the stars twinkle and the Zs rise (``NightSkyView/loops``).
+    var loops: Bool
+
+    func makeNSView(context: Context) -> NightSkyView {
+        let view = NightSkyView(frame: .zero)
+        view.loops = loops
+        return view
+    }
+
+    func updateNSView(_ view: NightSkyView, context: Context) {
+        view.loops = loops
     }
 }

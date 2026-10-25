@@ -257,6 +257,9 @@ pub mod method {
     /// `{sessionId, runId?, agentId, before?, after?, limit?}`
     /// (`claude_stdio/agent_transcript.rs`).
     pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// Every Claude workflow of this daemon's chats: `{includeEnded?}` →
+    /// `{workflows}` (`hub/workflow_index.rs`).
+    pub const MUX_WORKFLOWS: &str = "_acpmux/workflows";
     /// The app pane's reply in place, checked and signed (`server/app_reply.rs`).
     pub const MUX_APP_REPLY: &str = "_acpmux/app_reply";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
@@ -357,6 +360,11 @@ pub mod method {
     pub const MUX_STEER: &str = "_acpmux/steer";
     pub const MUX_BRIEFS: &str = "_acpmux/briefs";
     pub const MUX_REPORT: &str = "_acpmux/report";
+    /// A brief for a session already on this daemon, and a session's tasks (`hub/tasks.rs`).
+    pub const MUX_TASK_NEW: &str = "_acpmux/task_new";
+    pub const MUX_TASKS: &str = "_acpmux/tasks";
+    /// The session an agent link, id or name names, here or on a peer (`hub/locate.rs`).
+    pub const MUX_RESOLVE: &str = "_acpmux/resolve";
     /// A chat's image or video, read on the machine that runs it (`hub/media_read.rs`).
     pub const MUX_MEDIA_OPEN: &str = "_acpmux/media_open";
     pub const MUX_MEDIA_RANGE: &str = "_acpmux/media_range";
@@ -469,6 +477,7 @@ pub mod method {
     pub const MUX_PAIR_LIST: &str = "_acpmux/pair_list";
     pub const MUX_PAIR_REVOKE: &str = "_acpmux/pair_revoke";
     pub const MUX_PAIR_ISSUE: &str = "_acpmux/pair_issue";
+    pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     pub const MUX_PAIR_REDEEM: &str = "_acpmux/pair_redeem";
     // Notifications from acpmux to attached clients.
     pub const MUX_EVENT: &str = "_acpmux/event";

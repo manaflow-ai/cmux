@@ -15,7 +15,7 @@ into one Chrome trace event file (JSON, gzip) keyed by pid and thread, that ui.p
                    (categories stalls, tab-switch, pane-focus), on per-category tracks of the emitting process
   stalls           the app's main-thread watchdog (`debug.hangs`, threshold --hang-ms): every stall with its
                    main-thread stack sample and CPU time, on a track of the app
-  daemon spans     CMUX_TUI_DEBUG_SPANS (the daemon's create-path timing marks): each request's marks as
+  daemon spans     CMUX_TUI_DEBUG_SPANS (the daemon's create-path timing marks; set as CMUX_NEXT_TUI_DEBUG_SPANS on the app): each request's marks as
                    nested slices on a track of the daemon (placed by when its line was written; see the doc)
   chromium         Chromium's own trace over CDP (`Tracing.start` on the DevTools port the Debug build opens
                    with CMUX_NEXT_CEF_EXTRA_SWITCHES=remote-debugging-port=N), clock-checked with
@@ -1041,9 +1041,11 @@ class TraceApp:
         self.probe = os.path.join(out, "typing.csv")
         self.flows = os.path.join(out, "flows")
         os.makedirs(self.flows, exist_ok=True)
-        # CMUX_TRACE_FLOWS reaches the daemon (a CMUX_ key, TerminalEnvironment) and from it the hosts and the holder.
+        # The app keeps only CMUX_NEXT_* launch knobs (LaunchIdentity strips every other inherited CMUX* variable):
+        # the daemon launch passes these two on as CMUX_TRACE_FLOWS and CMUX_TUI_DEBUG_SPANS (DaemonDiagnosticKnobs),
+        # and the daemon's terminal hosts and holder inherit them.
         env = {"CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms), "CMUX_NEXT_TYPING_PROBE": self.probe,
-               "CMUX_TUI_DEBUG_SPANS": self.spans, "CMUX_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
+               "CMUX_NEXT_TUI_DEBUG_SPANS": self.spans, "CMUX_NEXT_TRACE_FLOWS": self.flows, "CMUX_NEXT_NO_ACTIVATE": None}
         self.cdp_port = None
         if not opts.no_cef:
             self.cdp_port = opts.cdp_port or free_port()
@@ -1622,7 +1624,9 @@ def parse_toc(path):
     return toc
 
 
-THREAD_FMT = re.compile(r"^(.*?)\s+0x[0-9a-fA-F]+\s*\((.*?)(?:,\s*pid:\s*(\d+))?\)\s*$")
+# A thread's `fmt`: `Main Thread 0x1a (cmux DEV, pid: 42)` (xctrace 26.0) or `Main Thread (0x10f45bf)
+# (fixture-emitter, pid: 70219)` (Xcode 26.6, tests/trace-fixtures/xcode-26): the name, the id, then the process.
+THREAD_FMT = re.compile(r"^(.*?)\s+\(?0x[0-9a-fA-F]+\)?\s*\((.*?)(?:,\s*pid:\s*(\d+))?\)\s*$")
 
 
 def parse_value(elem, vals):
@@ -1972,7 +1976,10 @@ def flame_events(samples, offset_us, keep):
             while len(stack) > depth:
                 name, start = stack.pop()
                 if at > start:
-                    events.append({"ph": "X", "pid": pid, "tid": tid, "ts": round(start, 3), "dur": round(at - start, 3),
+                    # The end is rounded once, not the duration: a frame and its callers that close at one
+                    # time end at the same rounded time, so no callee ends past its caller.
+                    begin = round(start, 3)
+                    events.append({"ph": "X", "pid": pid, "tid": tid, "ts": begin, "dur": round(round(at, 3) - begin, 3),
                                    "name": name[:240], "cat": "cpu"})
 
         for at, weight, frames in rows:
@@ -1988,6 +1995,10 @@ def flame_events(samples, offset_us, keep):
             last_end = at + weight
         if last_end is not None:
             close(0, last_end)
+    # A callee closes (and is listed) before its caller, and both can start at one time: callers first, so an
+    # importer that keeps the file's order for equal times nests them (Perfetto's did not: every such pair was
+    # a slice_spill_overlapping_complete_event).
+    events.sort(key=lambda e: (e["pid"], e["tid"], e["ts"], -e["dur"]))
     return events
 
 
@@ -2038,6 +2049,41 @@ def chromium_events(out, threads_by_pid):
         merged.append(e)
     return merged, {"events": len(merged), "mapped_threads": len(mapping), "clock": clock,
                     "os_thread": {f"{p}:{t}": o for (p, t), o in mapping.items()}}
+
+
+def chromium_on_own_tracks(chrome, samples, tracks):
+    """Chromium's events, each thread on a track of its own: a Chromium thread id that is also a sampled OS
+    thread id (Chromium's trace names threads by their system id) moves to a synthetic track, so its slices
+    never share a track with that thread's sampled frames (the two do not nest: Perfetto's importer reported
+    each partial overlap as slice_spill_overlapping_complete_event). `chrome` itself keeps its ids
+    (summarize maps them to OS threads)."""
+    sampled = {(thread.get("pid"), thread.get("tid")) for _, _, thread, _ in samples}
+    moved = []
+    for e in chrome:
+        key = (e.get("pid"), e.get("tid"))
+        if key in sampled:
+            e = dict(e, tid=tracks.tid(key[0], ("chromium", key[1])))
+        moved.append(e)
+    # Chromium itself can end a nested complete event a microsecond after its parent (MainFrameAborted in
+    # ProxyMain::BeginMainFrame): the child ends with its parent, so the track nests.
+    by_track = collections.defaultdict(list)
+    for index, e in enumerate(moved):
+        if e.get("ph") == "X" and "ts" in e:
+            by_track[(e.get("pid"), e.get("tid"))].append(index)
+    for indexes in by_track.values():
+        indexes.sort(key=lambda i: (float(moved[i]["ts"]), -float(moved[i].get("dur") or 0)))
+        ends = []
+        for i in indexes:
+            e = moved[i]
+            start = float(e["ts"])
+            while ends and ends[-1] <= start:
+                ends.pop()
+            end = start + float(e.get("dur") or 0)
+            if ends and end > ends[-1]:
+                moved[i] = e = dict(e, dur=ends[-1] - start)
+                end = ends[-1]
+            ends.append(end)
+    return moved
 
 
 def daemon_span_events(out, daemon_pid, tracks):
@@ -2254,13 +2300,15 @@ def flow_events(flows, tracks, lane_names):
     for entry in flows:
         hops = entry["hops"]
         for index, hop in enumerate(hops):
-            end = hops[index + 1]["at_us"] if index + 1 < len(hops) else hop["at_us"] + 1.0
-            start = hop["at_us"]
+            # Rounded to the ns, as the importer reads them: unrounded, a hop's end can pass the next hop's
+            # start by a float ulp on the same lane (slice_spill_overlapping_complete_event).
+            end = round(hops[index + 1]["at_us"] if index + 1 < len(hops) else hop["at_us"] + 1.0, 3)
+            start = round(hop["at_us"], 3)
             pid = hop["pid"]
             lane = lanes[pid].place(start, max(end, start + 1.0))
             tid = tracks.tid(pid, ("key flow", lane))
             lane_names[(pid, tid)] = "key flow" + (f" {lane + 1}" if lane else "")
-            event = {"ph": "X", "pid": pid, "tid": tid, "ts": start, "dur": max(end - start, 1.0), "name": hop["hop"],
+            event = {"ph": "X", "pid": pid, "tid": tid, "ts": start, "dur": round(max(end - start, 1.0), 3), "name": hop["hop"],
                      "cat": "key.flow", "bind_id": f"0x{entry['flow']:x}",
                      "args": {"flow": f"0x{entry['flow']:x}", "thread": hop.get("tid"),
                               "to_next_ms": round((end - start) / 1000, 3), "complete": entry["complete"]}}
@@ -2414,7 +2462,7 @@ def build(out):
     span_events, span_info, span_rows = daemon_span_events(out, daemon_pid, tracks)
     lane_names.update(span_info.pop("track_names"))
     events += span_events
-    events += chrome
+    events += chromium_on_own_tracks(chrome, samples, tracks)
     driver = read_json(os.path.join(out, "driver.json"), []) or []
     driver_lanes = collections.defaultdict(Lanes)
     for item in driver:
@@ -2842,7 +2890,7 @@ def summary_text(s):
 # The tracks that must import as their own thread tracks, by name prefix (the synthetic tracks build() names).
 IMPORT_TRACKS = ("signposts ", "watchdog stalls", "daemon spans", "key flow")
 IMPORT_QUERY_FLOWS = """
-select count(*) as flows from flow
+select count(*) as flows from flow f join slice s on s.id = f.slice_out where s.category = 'key.flow'
 """
 IMPORT_QUERY_TRACKS = """
 select p.pid as pid, t.tid as tid, t.name as name, count(s.id) as slices
@@ -3000,6 +3048,20 @@ def check_parsers_and_merge():
         # main and mid run 0-3 ms (two adjacent samples), then the thread is off CPU until 10 ms.
         assert by["main"] == [(1100.0, 2000.0), (10100.0, 1000.0)], by
         assert by["leafA"] == [(1100.0, 1000.0)] and by["leafB"][0] == (2100.0, 1000.0), by
+        # Of the slices that start together on a thread, the caller (the longest) comes first: an importer that
+        # keeps the file's order for equal times nests them.
+        first_dur = {}
+        for e in events:
+            first_dur.setdefault((e["pid"], e["tid"], e["ts"]), e["dur"])
+            assert e["dur"] <= first_dur[(e["pid"], e["tid"], e["ts"])], events
+        # A Chromium thread id that is also a sampled thread's id moves to a track of its own.
+        moved = chromium_on_own_tracks([{"ph": "X", "pid": 42, "tid": 26, "ts": 0, "dur": 1},
+                                        {"ph": "X", "pid": 42, "tid": 7, "ts": 0, "dur": 1}], samples, SyntheticTracks({26, 7}))
+        assert moved[0]["tid"] not in (26, 7) and moved[1]["tid"] == 7, moved
+        # A Chromium child that ends after its parent ends with it.
+        nested = chromium_on_own_tracks([{"ph": "X", "pid": 9, "tid": 1, "ts": 0, "dur": 10},
+                                         {"ph": "X", "pid": 9, "tid": 1, "ts": 5, "dur": 6}], [], SyntheticTracks(set()))
+        assert nested[1]["dur"] == 5, nested
         lanes = Lanes()
         assert [lanes.place(0, 10), lanes.place(1, 5), lanes.place(4, 12), lanes.place(11, 13)] == [0, 0, 1, 0]
         bundle = "/x/cmux DEV t.app"
@@ -3827,7 +3889,51 @@ def check_focus_quiet_terminal():
     assert "typed pane: p1 -> p1 (NOT a quiet terminal" in text, text
 
 
-SELF_TESTS = [check_parsers_and_merge, check_stage_bounds, check_stage_errors,
+FIXTURES = os.path.join(HERE, "tests", "trace-fixtures")
+
+
+def check_real_xctrace_exports():
+    """Real exports (scripts/cmux-next/trace_fixtures.py on a fleet Mac, one folder per Xcode major): the column
+    tags time_profile_samples, xctrace_signposts, syscall_waits and parse_toc read are the ones xctrace writes.
+
+    At least one folder must exist. Each folder present is checked; a missing major is not a failure: the fleet
+    has no macOS 14 or 15 host today (every worker reports macos-26 or macos-27, 2026-10-24), so the Xcode 15 and
+    16 sets are added when such a host exists. A syscall table with no rows (a System Trace that ended before
+    its kernel tracing started) checks only its columns."""
+    folders = sorted(d for d in os.listdir(FIXTURES) if d.startswith("xcode-")) if os.path.isdir(FIXTURES) else []
+    assert folders, f"no real xctrace exports in {FIXTURES} (record them with trace_fixtures.py on a fleet Mac)"
+    for folder in folders:
+        where = os.path.join(FIXTURES, folder)
+        emitter = read_json(os.path.join(where, "fixture.json"))["emitter"]
+        toc = parse_toc(os.path.join(where, "profile-toc.xml"))
+        assert {"time-profile", "os-signpost"} <= set(toc["schemas"]) and toc["start_date"], (folder, toc)
+        assert "syscall" in parse_toc(os.path.join(where, "system-toc.xml"))["schemas"], folder
+        samples = time_profile_samples(os.path.join(where, "time-profile.xml"))
+        main = [x for x in samples if x[2].get("name") == "Main Thread" and isinstance(x[2].get("pid"), int)
+                and isinstance(x[2].get("tid"), int)]
+        assert main and all(x[1] > 0 for x in main), (folder, samples[:2])
+        spin = [x for x in main if any(emitter["spin_function"] in str(f) for f in x[3])]
+        # 20 rounds of 20 ms at 1 ms sampling: about 400 samples in the spin; half of that is a broken parse.
+        assert len(spin) >= emitter["rounds"] * emitter["spin_ms"] // 2, (folder, len(spin), main[0][3][:5])
+        stats = {}
+        posts = xctrace_signposts(os.path.join(where, "os-signpost.xml"), stats)
+        begins = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("begin")]
+        ends = [x for x in posts if x[1] == emitter["signpost"] and x[2].lower().startswith("end")]
+        assert len(begins) == len(ends) == emitter["rounds"], (folder, stats, posts[:3])
+        assert all(isinstance(x[0], int) for x in begins), begins[:2]
+        syscall = os.path.join(where, "syscall.xml")
+        rows = sum(1 for _ in xctrace_rows(syscall))
+        columns = re.findall(r"<mnemonic>([^<]+)</mnemonic>", open(syscall).read(4000))
+        assert {"start", "thread", "call", "duration", "backtrace"} <= set(columns), (folder, columns)
+        if rows:
+            waits = syscall_waits(syscall)
+            sleeps = [x for x in waits if x[2].get("name") == "Main Thread" and "semwait" in x[3]
+                      and x[1] >= emitter["usleep_ms"] * 1_000_000 * 0.8]
+            assert len(sleeps) >= emitter["rounds"] // 2, (folder, len(waits), [(x[3], x[1]) for x in waits[:5]])
+        print(f"{folder}: {len(spin)} spin samples, {len(begins)} signpost intervals, {rows} syscall rows")
+
+
+SELF_TESTS = [check_real_xctrace_exports, check_parsers_and_merge, check_stage_bounds, check_stage_errors,
               check_hold_defers_the_bound,
               check_stop_survives_a_failing_source, check_record_ends_cleanly, check_xctrace_held_before_start,
               check_wrapped_group_ends,

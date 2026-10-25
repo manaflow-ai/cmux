@@ -1,8 +1,8 @@
-import { afterEach, expect, test } from "bun:test";
-import { act, useState } from "react";
+import { afterEach, expect, jest, test } from "bun:test";
+import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PendingSteer } from "./PendingSteer";
+import { PendingSteer, takesSteersBack } from "./PendingSteer";
 import { TurnActionsContext } from "./turnActions";
 import type { AcpmuxRow } from "../model";
 
@@ -49,39 +49,116 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(sendResult: boolean) {
-  const container = installDom();
-  function Harness() {
-    const [row, setRow] = useState<AcpmuxRow>(waiting);
-    return (
-      <TurnActionsContext.Provider value={{}}>
-        <PendingSteer
-          row={row}
-          send={async () => {
-            if (sendResult) setRow({ ...row, steer: undefined, steerPromptId: undefined });
-            return sendResult;
-          }}
-        />
-      </TurnActionsContext.Provider>
-    );
-  }
+// acpmux answers send_now before the agent reads the steer: its row still says waiting then, as on
+// Leo's row (2026-10-24: "after i clicked send now and it worked it should just disappear").
+// Each steer has its own promptId: a Send now that worked is remembered by it for the page's life.
+const steers = { count: 0 };
+async function render(sendResult: boolean, row: AcpmuxRow = { ...waiting, steerPromptId: `p-${(steers.count += 1)}` }) {
+  const container = dom?.window.document.getElementById("root") ?? installDom();
+  const unsteer = async () => true;
   await act(async () => {
     root = createRoot(container);
-    root.render(<Harness />);
+    root.render(
+      <TurnActionsContext.Provider value={{ unsteer }}>
+        <PendingSteer row={row} send={async () => sendResult} />
+      </TurnActionsContext.Provider>,
+    );
   });
   return container;
 }
 
-test("Send now disappears when delivery succeeds", async () => {
-  const succeeded = await render(true);
-  const successButton = succeeded.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
-  await act(async () => successButton.click());
-  expect(succeeded.querySelector(".cv-user__send-now")).toBeNull();
+// The fold's timer is the behavior: fake timers run it out.
+const runFold = () => act(() => void jest.advanceTimersByTime(1_000));
+
+afterEach(() => void jest.useRealTimers());
+
+test("Send now and the X fade out once Send now worked, while the steer still reads waiting", async () => {
+  const container = await render(true);
+  jest.useFakeTimers();
+  expect(container.querySelector(".cv-user__take-back")).not.toBeNull();
+  // jsdom has no layout: the controls are 64px wide here.
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "offsetWidth", { configurable: true, get: () => 64 });
+  const button = container.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
+  await act(async () => button.click());
+  // At once it leaves: no second click, and it fades and folds its width from where it was drawn
+  // (no line moves).
+  const leaving = container.querySelector<HTMLElement>(".cv-user__pending--leaving");
+  expect(leaving).not.toBeNull();
+  expect(leaving!.style.getPropertyValue("--cv-pending-width")).toBe("64px");
+  expect(leaving!.getAttribute("aria-hidden")).toBe("true");
+  expect(button.disabled).toBe(true);
+  await runFold();
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+test("a row drawn again after Send now worked shows no controls while the steer still waits", async () => {
+  const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-scrolled" };
+  const container = await render(true, steer);
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // The transcript dropped the row (scrolled away) and draws it again: acpmux still says waiting.
+  await act(async () => root!.unmount());
+  await render(true, steer);
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+  // Another steer that waits still shows them.
+  await act(async () => root!.unmount());
+  await render(true);
+  expect(container.querySelector(".cv-user__send-now")).not.toBeNull();
 });
 
 test("Send now remains available when delivery fails", async () => {
   const failed = await render(false);
+  jest.useFakeTimers();
   const failureButton = failed.querySelector<HTMLButtonElement>(".cv-user__send-now")!;
   await act(async () => failureButton.click());
+  await runFold();
   expect(failed.querySelector(".cv-user__send-now")).not.toBeNull();
+  expect(failed.querySelector(".cv-user__pending--leaving")).toBeNull();
+});
+
+test("Send now and the X fold away when the agent reads the steer first", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const draw = (row: AcpmuxRow) =>
+    act(async () =>
+      root!.render(
+        <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+          <PendingSteer row={row} send={() => new Promise<boolean>(() => {})} />
+        </TurnActionsContext.Provider>,
+      ),
+    );
+  const steer: AcpmuxRow = { ...waiting, steerPromptId: "p-read-first" };
+  await draw(steer);
+  jest.useFakeTimers();
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-user__send-now")!.click());
+  // acpmux's snapshot says the agent read it before Send now's reply came.
+  await draw({ ...steer, version: 2, steer: "landed" });
+  expect(container.querySelector(".cv-user__pending--leaving")).not.toBeNull();
+  await runFold();
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+test("a steer read before it was drawn has no Send now or X", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <TurnActionsContext.Provider value={{ unsteer: async () => true }}>
+        <PendingSteer row={{ ...waiting, steer: "landed" }} send={async () => true} />
+      </TurnActionsContext.Provider>,
+    );
+  });
+  expect(container.querySelector(".cv-user__pending")).toBeNull();
+});
+
+// Leo, 2026-10-24: "where's the, like, X button? All I see is the send now". His Claude chats run
+// a Claude Code profile under its own family name (claude-sr2). Only acpmux's Claude Code adapter
+// takes a steer back, and `backgroundsWork` marks a chat that runs it; other agents steer too.
+test("the X is offered in every Claude Code chat, whatever its family is named, and nowhere else", () => {
+  const sr2 = { harness: "claude-sr2", family: "claude-sr2", steering: true, backgroundsWork: true };
+  const claude = { harness: "claude", family: "claude", steering: true, backgroundsWork: true };
+  const codex = { harness: "codex", family: "codex", steering: true, backgroundsWork: false };
+  expect(takesSteersBack(sr2, true)).toBe(true);
+  expect(takesSteersBack(claude, true)).toBe(true);
+  expect(takesSteersBack(codex, true)).toBe(false);
+  expect(takesSteersBack(claude, false)).toBe(false);
 });

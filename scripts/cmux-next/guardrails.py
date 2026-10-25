@@ -1631,18 +1631,21 @@ def module_of(path: str) -> str:
 
 # ---- task-priority (PL-qos)
 # Every off-main task and queue states its priority on purpose (Lawrence's threading items 3 and 5,
-# plans/cmux-next/threading-model.md): a detached Task names `priority:`, a global queue its `qos:`, a new serial
+# plans/cmux-next/PATTERNS.md P14): a detached Task names `priority:`, a global queue its `qos:`, a new serial
 # queue its `qos:` or its `target:`. A plain `Task { }` is not counted: it inherits its caller's priority and actor,
 # which is right in almost every case (lead, 2026-10-24). The argument list is read to its closing parenthesis, so a
 # call split over lines counts by what it names.
 TASK_CALL = re.compile(r"\bTask\.detached\s*[({]|\bDispatchQueue\.global\(|\bDispatchQueue\(\s*label:")
 STATED = re.compile(r"\b(priority|qos|target):")
+RESERVED_LEVEL = re.compile(r"\b(priority|qos):\s*(\.|\w+\.)?(userInteractive|unspecified|background)\b")
 QOS_ALLOW = "qos-allow:"
 TASK_ARGS_MAX_LINES = 8  # an argument list longer than this is not a queue or task init in this codebase
 
 
 def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
-    """Whether the detached Task or queue call on line INDEX names no priority, QoS or target."""
+    """Whether the detached Task or queue call on line INDEX names no priority, QoS or target, or names a level the
+    model keeps for other work: `.userInteractive` (the main thread and the threads a frame waits for only),
+    `.unspecified` (unstated in effect) or `.background` (work nothing ever waits for: say so in the escape)."""
     code = code_of(version.lines[index])
     match = TASK_CALL.search(code)
     if match is None:
@@ -1658,9 +1661,9 @@ def unstated_priority(version: Version, index: int) -> tuple[bool, list[int]]:
             depth -= c == ")"
             if depth == 0:
                 args += line[:i + 1]
-                return not STATED.search(args), []
+                return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
         args += line + "\n"
-    return not STATED.search(args), []
+    return not STATED.search(args) or bool(RESERVED_LEVEL.search(args)), []
 
 
 RULES = (
@@ -1722,16 +1725,35 @@ RULES = (
          None,
          line_rule(r"CMUX_BENCH_HOOKS|--config[= ]bench\b", None),
          scope=SHIPPED_BUILD + (".xcconfig", "project.pbxproj")),
-    Rule("task-priority", "A detached Task or dispatch queue without a stated priority",
+    Rule("task-priority", "A detached Task or dispatch queue without a stated priority, or at a reserved level",
          "a task or queue that does not say how much a person waits for it runs at whatever QoS it inherits: work "
          "nobody waits for competes with typing and frames, and the main thread can wait on work that runs below it "
-         "(priority inversion; plans/cmux-next/threading-model.md)",
+         "(priority inversion; plans/cmux-next/PATTERNS.md P14). .userInteractive is for the main thread and the "
+         "threads a frame waits for; .unspecified states nothing; .background may wait without limit",
          "say it: `Task.detached(priority: WorkPriority.bestEffort.taskPriority) { ... }` (or `.high`/`.medium`/`.utility`), "
          "`DispatchQueue.global(qos: .utility)`, `DispatchQueue(label: ..., qos: .utility)`; blocking work (file I/O, a "
          "process wait, a sync C call, a long parse) goes to `BackgroundWork.run(_:mayBlock:)` or `AsyncProcess`, never "
          "into a Task on the cooperative pool",
-         "// qos-allow: <why it inherits its caller's priority on purpose>",
+         "// qos-allow: <why: a frame waits for it (userInteractive), it inherits on purpose, or nothing ever waits for it (background)>",
          matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
+    Rule("appkit-index", "A raw AppKit row or column index read (`.clickedRow`, `.clickedColumn`, `.selectedColumn`, "
+         "`item(atRow:`, `selectedRow(inColumn:`)",
+         "they are -1 when a click lands off the rows or nothing is selected, and past the end after a reload; "
+         "AppKit raises NSRangeException for such an index and the app ends (#24776, NSBrowser itemAtRow:inColumn:)",
+         "CmuxNextCompat's checked accessors: `table.clickedRowIfValid` / `selectedRowIfValid`, "
+         "`browser.clickedItemIfValid` / `selectedItemIfValid` / `item(ifValidRow:inColumn:)`; still check the row "
+         "against the model array you index",
+         "// index-allow: <why the index is valid here>",
+         line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
+                   "index-allow:")),
+    Rule("undo-text-write", "Undo turned on for a text view (`allowsUndo = true`)",
+         "AppKit's `string` setter replaces the text without telling the undo manager: a typing action keeps its "
+         "range into the old text and Cmd-Z raises NSRangeException (#24912)",
+         "write text from code only through CmuxNextDesign's `replaceAllTextUndoably(_:)` (one undo step; "
+         "TextBoxTextView.replaceText, ShareCmuxMessageTextView.replaceText), then mark the line "
+         "`// undo-safe: <the view's replaceText>`",
+         "// undo-safe: <the view's replaceText>",
+         line_rule(r"\ballowsUndo\s*=\s*true\b", "undo-safe:")),
     Rule("app-size", f"CmuxNextApp's composition root grows (in source lines: the root's wiring +{ROOT_BUDGET} per "
          f"push, moves into the root included, plus one Host file; new App files only as moves; growth of the App "
          f"and of its feature files warns)",
@@ -1770,6 +1792,386 @@ RULES = (
          scope=(APP,),
          net=True),
 )
+
+
+# ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
+# plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
+# detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
+# They judge only the lines the push changed (no whole-file context scan), so the gate stays fast.
+# The block owns its lines from here to `RULES += BLOCKING_RULES`; other rules go above it.
+THREADING_DOC = "plans/cmux-next/threading-model.md"
+THREADING_DOC_SECTION = "## Registered threads and queues"
+PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
+# The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
+BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
+BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
+FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
+            r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
+            r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
+            r"trashItem|url")
+# Raw blocking primitives: each has a checked seam in CmuxNextCompat/Threading. A `.wait(` preceded by `await`
+# in its statement is an async wait (Backoff.wait, a continuation), never a blocking one: see blocking_match.
+RAW_BLOCKING = re.compile(
+    r"\bData\(contentsOf:|\bString\(contentsOf(File)?:|\bNS(Data|String|Dictionary|Array|Image)\(contentsOf(File|URL)?:"
+    r"|\bFileManager\.default\.(" + FILE_OPS + r")\("
+    r"|\.write\(to:|\.waitUntilExit\(\)|\.readDataToEndOfFile\(\)|\.readToEnd\(\)|\.availableData\b|\.readData\(ofLength:"
+    r"|\.resourceValues\(forKeys:|\bxpc_connection_send_message_with_reply_sync\(|\bposix_spawnp?\(|(?<![\w.])fork\(\)"
+    r"|(?P<wait>(?<=[\w)\]])\.wait\((timeout:|wallTimeout:|until:)?[^)]*\))"
+    r"|\.sync\s*(\{|\(execute:)")
+# The checked seams: fine off the main thread, a violation on it.
+SEAM_BLOCKING = re.compile(
+    r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
+    r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
+    r"PosixSpawn)\(")
+# Never on any thread of the app: a main-queue sync hop deadlocks from main and stalls it from elsewhere; a
+# sleep holds a thread to wait for time.
+ALWAYS_BLOCKING = re.compile(r"DispatchQueue\.main\.sync\b|\bThread\.sleep\b|(?<![\w.])(usleep|nanosleep)\(")
+# A new thread or queue. `extension Thread {` and a type annotation are not one.
+# `Thread {` counts only where a value starts (after `=`, `(`, `,`, `return`, or as a statement), so a superclass,
+# a return type or a type annotation (`class W: Thread {`, `-> Thread {`, `var t: Thread {`) is not one.
+THREAD_CREATE = re.compile(r"\bDispatchQueue\(\s*label:|(?:^\s*|[=(,]\s*|\breturn\s+)Thread\s*(\{|\(block:|\(target:)"
+                           r"|\bThread\.detachNewThread\b|\bOperationQueue\(\)|\bpthread_create\(|\bDispatchSerialQueue\("
+                           r"|\bDispatchWorkloop\(")
+THREAD_NAME = re.compile(r'(\.name\s*=|label:)\s*(?P<literal>"((?:\\.|[^"\\])*)")?')
+ALLOWANCE_DECL = re.compile(r"\bstatic\s+let\s+(\w+)\s*=\s*BlockingAllowance\(")
+THREAD_BINDING = re.compile(r"\b(?:let|var)\s+(\w+)\s*(?::\s*\w+\s*)?=\s*(?:Thread\b|OperationQueue\(\))")
+THREAD_NAME_WINDOW = 80  # lines after `let thread = Thread {` that its `thread.name = "..."` may follow
+AWAIT = re.compile(r"\bawait\b")
+STATEMENT_START = re.compile(r"[;{}]")
+# How a block's header (its opener line, joined with the lines of a header split over several lines) decides
+# where the block's body runs. MAIN: openers that run their body on the main thread. DECLARATION: a function,
+# initializer, subscript or accessor body (the body runs where its declaration's isolation says), or a type
+# body. CONTROL: control flow, which runs inline. Any other `{` is a closure: it may run later or on another
+# thread, so main-blocking does not judge its body (the runtime detector does).
+MAIN_OPENER = re.compile(r"\bDispatchQueue\.main\.(async|sync)\s*(\(execute:)?\s*\{|\bMainActor\.run\s*(\([^{]*\))?\s*\{"
+                         r"|\bTask\s*(\([^{]*\))?\s*\{\s*@MainActor\b")
+DECLARATION_OPENER = re.compile(r"^\s*(@[\w.]+(\([^)]*\))?\s+|(public|package|internal|private|fileprivate|open|final|"
+                                r"static|class|override|mutating|nonmutating|nonisolated|isolated|convenience|required|"
+                                r"lazy|dynamic|indirect|distributed)\s+)*"
+                                r"(func|init[?!]?|deinit|subscript|get|set|willSet|didSet|_read|_modify|class|struct|enum|"
+                                r"actor|extension|protocol)\b"
+                                r"|^\s*(@[\w.]+(\([^)]*\))?\s+|(public|package|internal|private|fileprivate|open|"
+                                r"static|class|override|nonisolated|lazy)\s+)*var\s+\w+\s*:[^=]*\{\s*$")
+CONTROL_OPENER = re.compile(r"^\s*(\}\s*)?(if|else|guard|for|while|repeat|switch|case|default|do|catch|defer)\b|^\s*\{\s*$")
+# A line that ends a statement (the header of the next block starts after it).
+STATEMENT_END = re.compile(r"[{};]\s*$|^\s*$|^\s*(//|\*|/\*|@\w)")
+HEADER_LINES = 12  # the most lines one block header (a long function signature or condition) is read across
+# HEAD's threading doc and package manifest, and loaded helpers; check() refreshes the doc and manifest per run.
+BLOCKING_CONTEXT: dict[str, object] = {}
+
+
+class Prefiltered:
+    """PATTERN behind one literal-keyword search: most lines hold none of KEYS, and that search costs a tenth of
+    the full alternation."""
+
+    def __init__(self, pattern: re.Pattern, keys: tuple[str, ...]) -> None:
+        self.pattern = pattern
+        self.keys = re.compile("|".join(re.escape(key) for key in keys))
+        # blocking_match's answer per code text: three rules ask about the same changed lines.
+        self.answers: dict[str, bool] = {}
+
+    def search(self, text: str):
+        return self.pattern.search(text) if self.keys.search(text) else None
+
+
+BLOCKING_KEYS = ("contentsOf", "FileManager", ".wait(", "waitUntilExit", ".sync", "readToEnd", "availableData", "readData",
+                 "esourceValues", "xpc_", "blocking", "write(to:", "posix_spawn", "fork(")
+RAW_SCAN = Prefiltered(RAW_BLOCKING, BLOCKING_KEYS)
+MAIN_SCAN = Prefiltered(re.compile(RAW_BLOCKING.pattern + "|" + SEAM_BLOCKING.pattern), BLOCKING_KEYS)
+ALWAYS_SCAN = Prefiltered(ALWAYS_BLOCKING, ("main.sync", "sleep"))
+THREAD_SCAN = Prefiltered(re.compile(THREAD_CREATE.pattern + "|" + ALLOWANCE_DECL.pattern),
+                          ("Thread", "Queue", "pthread_", "Workloop", "BlockingAllowance"))
+
+
+def blocking_match(scan: Prefiltered, code: str) -> bool:
+    """Whether CODE holds a blocking call SCAN names. A `.wait(` whose statement has an `await` before it is an
+    async wait (`try await backoff.wait(owner:)`), not a blocking one."""
+    answer = scan.answers.get(code)
+    if answer is None:
+        answer = scan.answers[code] = _blocking_match(scan, code)
+    return answer
+
+
+def _blocking_match(scan: Prefiltered, code: str) -> bool:
+    match = scan.search(code)
+    while match is not None:
+        if match.groupdict().get("wait") is None:
+            return True
+        before = code[:match.start()]
+        statement = before[max((m.end() for m in STATEMENT_START.finditer(before)), default=0):]
+        if not AWAIT.search(statement):
+            return True
+        match = scan.pattern.search(code, match.end())
+    return False
+
+
+def main_actor_scope():
+    """check-main-actor-work.py next to this file (the hook copies it): its lexical main-actor scopes."""
+    if "scope" not in BLOCKING_CONTEXT:
+        spec = importlib.util.spec_from_file_location("cmux_next_main_actor_scope", HERE / "check-main-actor-work.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        BLOCKING_CONTEXT["scope"] = module
+    return BLOCKING_CONTEXT["scope"]
+
+
+def ui_targets() -> set[str]:
+    """The targets HEAD's manifest builds with `uiSwiftSettings` (main-actor by default), as check-concurrency.sh
+    reads them."""
+    if "ui_targets" not in BLOCKING_CONTEXT:
+        manifest = BLOCKING_CONTEXT.get("manifest")
+        found = re.findall(r'\.(?:target|executableTarget)\(\s*name:\s*"([^"]+)".*?swiftSettings:\s*(\w+)',
+                           manifest if isinstance(manifest, str) else "", re.S)
+        BLOCKING_CONTEXT["ui_targets"] = {name for name, settings in found if settings == "uiSwiftSettings"}
+    return BLOCKING_CONTEXT["ui_targets"]
+
+
+def block_header(lines: list[str], number: int, code: str) -> str:
+    """The whole header of the block that opens on 1-based line NUMBER (whose code up to its `{` is CODE): the
+    lines back to the previous statement's end, joined, so `func f(\n a: A\n) async throws {` and
+    `if a,\n b {` read as one header."""
+    parts = [code]
+    j = number - 2
+    while j >= 0 and number - 1 - j <= HEADER_LINES:
+        text = code_of(lines[j])
+        if STATEMENT_END.search(text):
+            break
+        parts.insert(0, text)
+        j -= 1
+    return " ".join(part.strip() for part in parts)
+
+
+def runs_on_main(version: Version, index: int) -> bool:
+    """Whether VERSION's line INDEX runs on the main thread for sure: inside an opener that runs on main
+    (`DispatchQueue.main.async {`, `MainActor.run {`, `Task { @MainActor in`), or main-actor code (a
+    uiSwiftSettings target's default or `@MainActor`, minus nonisolated / @concurrent / actor / Task.detached
+    scopes, as check-main-actor-work.py reads them) directly in a function body. Inside any other closure it is
+    not judged: such a body may run later or elsewhere."""
+    answers = version.memo.setdefault("runs_on_main", {})
+    if index not in answers:
+        answers[index] = _runs_on_main(version, index)
+    return answers[index]
+
+
+def _runs_on_main(version: Version, index: int) -> bool:
+    if "main_lines" not in version.memo:
+        module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+        version.memo["main_lines"] = main_actor_scope().main_actor_lines(version.lines, module in ui_targets())
+    main_lines = version.memo["main_lines"]
+    declared_main = index < len(main_lines) and main_lines[index]
+    code = code_of(version.lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    for opener, number in enclosing_openers(version.lines, index, OPENER_STOP, prefix):
+        header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        # The whole opener line: `Task { @MainActor in` names its isolation after the `{`.
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(code_of(version.lines[number - 1])):
+            return True
+        if DECLARATION_OPENER.search(header):
+            return declared_main
+        if CONTROL_OPENER.search(header):
+            continue
+        return False  # inside a closure
+    return declared_main
+
+
+# Where the walk out of the blocks stops: an opener line that names a declaration (a function or type body).
+# A function whose signature spans lines opens on a `) {` line, so the walk passes it and stops at its type.
+OPENER_STOP = re.compile(r"\b(func|init|deinit|subscript|class|struct|enum|actor|extension|protocol)\b")
+
+
+ASYNC_DECLARATION = re.compile(r"\bfunc\b[^{]*\)\s*(async|async\s+throws|async\s+throws\([^)]*\)|async\s+rethrows)\b")
+CALLER_ISOLATION_OPT_OUT = re.compile(r"@concurrent\b|\bnonisolated\b(?!\s*\(unsafe\))|@MainActor\b|\bactor\b")
+ACTOR_DECLARATION = re.compile(r"(^|\s)(distributed\s+)?actor\s+\w+")
+
+
+def may_run_on_main(version: Version, index: int) -> bool:
+    """Whether VERSION's line INDEX sits directly in a non-`@concurrent` async function of a target that is not
+    main-actor by default, outside an actor. Under NonisolatedNonsendingByDefault such a function runs on its
+    caller's executor, so a main-actor caller runs it on main (AsyncProcess.run's spawn stalled screen.close
+    807 ms, 2026-10-24). PL-qos proposal; a warning, never a refusal (30 such sites on the tip, 2026-10-24)."""
+    module = version.path[len(SOURCES):].split("/", 1)[0] if version.path.startswith(SOURCES) else ""
+    if module in ui_targets():
+        return False
+    code = code_of(version.lines[index])
+    match = MAIN_SCAN.search(code)
+    prefix = code[:match.start()] if match else ""
+    openers = enclosing_openers(version.lines, index, OPENER_STOP, prefix)
+    for position, (opener, number) in enumerate(openers):
+        header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        if DECLARATION_OPENER.search(header):
+            if not ASYNC_DECLARATION.search(header) or CALLER_ISOLATION_OPT_OUT.search(header):
+                return False
+            outer = enclosing_openers(version.lines, number - 1, ACTOR_DECLARATION)
+            return not any(ACTOR_DECLARATION.search(o) for o, _ in outer)
+        if not CONTROL_OPENER.search(header):
+            return False  # a closure: may run anywhere
+    return False
+
+
+@dataclass
+class WarnHit(Added):
+    """A hit that check() reports as a warning, never a refusal."""
+    warn: bool = True
+
+
+def changed_debt(changes: list[FileChange], judge: Callable[[Version, int, str], bool]) -> list[Added]:
+    """New debt among the lines the push changed, as matcher_rule counts it (a per-file count ratchet with moves),
+    without matcher_rule's scan of unchanged lines: JUDGE(version, 0-based line, code) decides a changed line."""
+    def debt(version: Version, changed: list[Added]) -> list[Added]:
+        out = []
+        for line in changed:
+            index = line.number - 1
+            if index < len(version.lines) and escaped(version.lines, index, BLOCKING_ALLOW):
+                continue
+            if judge(version, index, code_of(line.text)):
+                out.append(line)
+        return out
+    return resolve([(debt(*blocking_sides(c)[0]), debt(*blocking_sides(c)[1])) for c in changes])
+
+
+def blocking_sides(change: FileChange) -> tuple[tuple[Version, list[Added]], tuple[Version, list[Added]]]:
+    """CHANGE's head and base Versions, made once per push for the blocking rules: `FileChange.head` makes a new
+    Version per read, and the three rules would each redo the file's main-actor scope walk and each line's
+    walk out of its blocks (memoized on the Version)."""
+    if "blocking_sides" not in change.memo:
+        change.memo["blocking_sides"] = ((change.head, change.added), (change.base, change.removed))
+    return change.memo["blocking_sides"]
+
+
+def outside_seams(changes: list[FileChange]) -> list[FileChange]:
+    return [c for c in changes if not c.path.startswith(BLOCKING_SEAMS)]
+
+
+def blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added lines that block on the main thread: a blocking call (raw or seam) that surely runs on main
+    (runs_on_main), and a main-queue sync hop or a sleep anywhere."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        if ALWAYS_SCAN.search(code):
+            return True
+        return blocking_match(MAIN_SCAN, code) and index < len(version.lines) and runs_on_main(version, index)
+    return changed_debt(outside_seams(changes), judge)
+
+
+def maybe_blocking_on_main(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls (raw or seam) that may run on main through a caller-isolated async function
+    (may_run_on_main): warnings only."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (index < len(version.lines) and blocking_match(MAIN_SCAN, code) and not runs_on_main(version, index)
+                and may_run_on_main(version, index))
+    return [WarnHit(h.path, h.number, h.text) for h in changed_debt(outside_seams(changes), judge)]
+
+
+def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added raw blocking primitives that main-blocking does not report (off the main thread, or in a closure)."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        return (blocking_match(RAW_SCAN, code) and not ALWAYS_SCAN.search(code)
+                and not (index < len(version.lines) and runs_on_main(version, index)))
+    return changed_debt(outside_seams(changes), judge)
+
+
+def doc_labels(doc: str) -> list[re.Pattern]:
+    """The thread and queue labels the threading doc's "Registered threads and queues" section lists in
+    backticks, each `<x>` inside a label a wildcard (a token that is only a placeholder lists nothing)."""
+    start = doc.find(THREADING_DOC_SECTION)
+    if start < 0:
+        raise RuntimeError(f"{THREADING_DOC} has no \"{THREADING_DOC_SECTION[3:]}\" section")
+    end = doc.find("\n## ", start + len(THREADING_DOC_SECTION))
+    section = doc[start:end if end >= 0 else len(doc)]
+    patterns = []
+    for token in re.findall(r"`([^`\n]+)`", section):
+        literal = re.sub(r"<[^>]*>", "", token)
+        if len(literal.strip(" .-_")) < 3:
+            continue  # `<x>`, `<pid>`: a placeholder, not a label
+        patterns.append(re.compile("^" + ".+".join(re.escape(part) for part in re.split(r"<[^>]*>", token)) + "$"))
+    return patterns
+
+
+def label_listed(label: str, patterns: list[re.Pattern]) -> bool:
+    text = re.sub(r"\\\([^)]*\)", "x", label)  # a string interpolation stands for any text
+    return any(p.match(text) for p in patterns)
+
+
+def undocumented_threads(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added threads, queues and BlockingAllowance reasons that plans/cmux-next/threading-model.md does not list.
+    A thread or queue whose label is not a string literal (a variable) is not judged."""
+    listed: dict[str, object] = {}
+
+    def doc() -> dict[str, object]:
+        """The doc's labels and allowances, read when a push adds a thread, queue or allowance to judge."""
+        if not listed:
+            text = BLOCKING_CONTEXT.get("threading_doc")
+            if not isinstance(text, str):
+                raise RuntimeError(f"{THREADING_DOC} could not be read at the pushed head")
+            listed.update(labels=doc_labels(text), allowances=set(re.findall(r"^\|\s*`(\w+)`\s*\|", text, re.M)))
+        return listed
+
+    def judge(version: Version, index: int, code: str) -> bool:
+        if not THREAD_SCAN.search(code):
+            return False
+        decl = ALLOWANCE_DECL.search(code)
+        if decl:
+            return decl.group(1) not in doc()["allowances"]
+        # The label on the line, or `<name>.name = ...` on a later line of the same function for
+        # `let <name> = Thread {` / `OperationQueue()` (the body of a Thread closure comes before its name).
+        bound = THREAD_BINDING.search(code)
+        line = version.lines[index] if index < len(version.lines) else code  # code_of blanks the string literals
+        following = version.lines[index + 1:index + 1 + THREAD_NAME_WINDOW] if index < len(version.lines) else []
+        for text in [line] + ([t for t in following if re.search(r"\b" + re.escape(bound.group(1)) + r"\.name\s*=", t)]
+                              if bound else []):
+            named = THREAD_NAME.search(text)
+            if named:
+                literal = named.group("literal")
+                return literal is not None and not label_listed(literal[1:-1], doc()["labels"])
+        return True  # an unnamed thread or queue: name it and list it
+
+    return changed_debt(changes, judge)
+
+
+def load_blocking_context(texts: dict[tuple[str, str], str], head: str) -> None:
+    """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open)."""
+    for key in ("threading_doc", "manifest", "ui_targets"):
+        BLOCKING_CONTEXT.pop(key, None)
+    for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
+        if (head, path) in texts:
+            BLOCKING_CONTEXT[key] = texts[(head, path)]
+
+BLOCKING_RULES = (
+    Rule("main-blocking", "A blocking call on the main thread (file I/O, a socket read, a wait, a process wait or a "
+         "sync hop directly in main-actor code; `DispatchQueue.main.sync`, `Thread.sleep`, `usleep` anywhere)",
+         "the main thread never blocks (plans/cmux-next/threading-model.md, Chrome's ScopedBlockingCall): one disk, "
+         "lock or process wait on it drops frames and delays the next input; in Debug the runtime detector reports it",
+         "move the work off the main thread (an actor, `Task.detached`, a `nonisolated` async function, the daemon) "
+         "and apply its result on main; a wait becomes an `await` or a callback. The checked seams "
+         "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
+         "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
+         blocking_on_main),
+    Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
+         "`.wait()`, `.sync {`, `waitUntilExit()`, `readToEnd()`, sync XPC, `posix_spawn`, `fork()`) instead of its "
+         "checked seam",
+         "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
+         "main thread blocks it unseen",
+         "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
+         "`url.blockingResourceValues`, `handle.blockingReadToEnd()`, `semaphore.blockingWait()`, "
+         "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `blockingRead/Recv/Write/Send`",
+         "// blocking-allow: <why the seam does not fit>",
+         raw_blocking),
+    Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
+         "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
+         "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",
+         "mark the function `@concurrent` (or move the work into an actor) so it never runs on the caller's main thread",
+         "// blocking-allow: <why every caller is off the main thread>",
+         maybe_blocking_on_main),
+    Rule("thread-doc", "A new thread, queue or blocking allowance that plans/cmux-next/threading-model.md does not list",
+         "every thread and queue has an owner, a QoS, a bound and a back-pressure rule written down, and every "
+         "main-thread blocking allowance is reviewed (Chrome's ScopedAllowBlocking friend list)",
+         "name the thread or queue and add its label to the doc's \"Registered threads and queues\" (and a table row "
+         "for a new kind); add a new BlockingAllowance to \"Reviewed blocking allowances\" in the same push",
+         "// blocking-allow: <why this thread needs no entry>",
+         undocumented_threads),
+)
+RULES += BLOCKING_RULES
+# ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
 
 
 # ---------------------------------------------------------------- diff
@@ -2085,7 +2487,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
     texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
-                  + [(head, MANIFEST), (base, MANIFEST)], blob_ids)
+                  + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
     warnings: list[tuple[str, str]] = []
@@ -2097,6 +2499,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     if late:
         texts.update(blobs(repo, [(head, p) for p in late] + [(base, p) for p in late], blob_ids))
     LEX_CACHE["dir"] = lex_cache_dir(repo)
+    load_blocking_context(texts, head)
     for path in paths:
         change = changes[path]
         # A side with changed lines has the file: git lists no added line of a path absent at head.

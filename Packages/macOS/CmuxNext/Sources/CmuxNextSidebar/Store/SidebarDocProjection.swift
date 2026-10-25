@@ -79,6 +79,8 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
     public var bandGroups: [Group]
     /// The machine sections made remote groups (remote-groups-DESIGN.md slice 4), by document section id.
     public var hostGroups: Set<String> = []
+    /// The items whose rows draw archived: archived, or under an archived group (archiving-DESIGN.md).
+    public var archived: Set<String> = []
 
     /// The layout item kind of a group placed in Pinned or a custom section.
     public static let groupKind = "group"
@@ -93,8 +95,10 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         var sectionIndex: [String: Int] = [:]
         var bandGroups: [Group] = []
         var machineOrder: [String] = []
+        var archivedItems: Set<String> = []
 
         for row in rows {
+            if row.archived, let id = row.item { archivedItems.insert(id) }
             // A live machine without a stored section yet (`sec_m_<session>`) still lists, unplaced.
             let record = records.sections[row.section]
                 ?? SidebarDocSection(id: row.section, kind: .machine(session: row.ref?.sessionID ?? SidebarDocWire.Section.session(fromID: row.section)))
@@ -144,6 +148,7 @@ public nonisolated struct SidebarDocProjection: Hashable, Sendable {
         self.machineOrder = machineOrder
         self.unplaced = unplaced
         self.bandGroups = bandGroups
+        archived = archivedItems
         hostGroups = Set(records.sections.values.filter(\.hostGroup).map(\.id))
     }
 

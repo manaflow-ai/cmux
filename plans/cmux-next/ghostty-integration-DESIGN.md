@@ -157,6 +157,49 @@ Open after this batch:
 - G6 rest (one IO thread fewer per manual surface, shared atlas textures) and G7 per-process idle
   owner: not started.
 
+## 4d. Cmd-D and Cmd-W resize the terminal's program at the start (2026-10-24)
+
+Lawrence: "for cmd d and then cmd w, i think we need to trigger TUI resize much faster, even before
+animation starts or finishes playing". Before, the layout held every terminal's grid from the first
+split or close until the spring landed (`onTerminalGridHold` -> `ResizeCoordinator.setHeld`), so a TUI
+redrew only after the animation and the daemon echo.
+
+- Seam (PL-motion-core, `pl-motion-core-b11`): `PaneMotionTargeting.paneMotionWillRest(sizeChange:)
+  -> PaneMotionAnchor`, called in the key's turn for each pane whose rest size changes, and again on a
+  burst retarget; never per frame. The split/close grid hold is gone; the full screen hold stays.
+- Terminal: the surface fits its final grid (`ghostty_surface_fit_grid`, ghostty-next PR 53: a
+  shrinking pane does not have its final size yet, and Ghostty's padding math is not visible to
+  Swift) and reports it at once (`TerminalGridPolicy.finalSized`). A daemon IO takes every grid on the
+  main actor (`TerminalIO.resizeOnMain`), so a final grid never races an older grid still in the
+  ordered input stream; `ResizeCoordinator.submitFinal` sends it in the caller's turn, and the
+  one-in-flight echo rule keeps only the newest of a burst. The landing at the final grid reports
+  nothing.
+- Presentation: no frame reflows. A pane that grows has its content held at the rest size, so the
+  surface is already final and its reflow preview reflows once until the owner announces the grid. A
+  pane that shrinks keeps its larger view; once the owner announces the final grid the preview is off
+  (`previewsViewGrid`), so Ghostty pads the final grid instead of reflowing it back to the wider frame.
+- Anchor: a pane that grows downward pins its held content to the bottom when the cursor is in the
+  lower half of a normal screen (the owner pulls scrollback down as rows grow, so the prompt is on the
+  last row); a full-screen program (alternate screen) or a cursor near the top pins to the top.
+- M6 (PL-burst): a window's full screen transition holds only its own terminals' grids
+  (`Motion.isFullScreenTransitioning(_:)`); `ResizeCoordinator.shared` is removed, `AppServices`
+  makes and injects the one coordinator.
+- A3 (PL-script): a hidden or parked terminal's layout changes record the size only; showing it
+  applies the last size once (no `ghostty_surface_set_size` and no PTY resize per hidden change). A
+  terminal that is not shown reports no grid at all, its first forced report included; it reports
+  when shown.
+- A terminal that joins a pane already on a spring (a split's new pane gets its terminal from the
+  daemon's echo about 75 ms in) asks the placement for its rest size change
+  (`RestingPlacement.restContentSizeChange`) when it is shown and sends that final grid, once
+  (review of pl-motion-core b14: before, 2 PTY resizes per Cmd-D for the new pane;
+  `SplitTerminalResizeCountTests`).
+- Tests: `TerminalPaneMotionFinalGridTests` (a real surface in a `LayoutRootView`: Cmd-D and Cmd-W,
+  both axes, ask the IO for the final grid in the key's turn, once, nothing at the landing; a prompt
+  on the last row rides the bottom of a pane that grows down), `TerminalHiddenResizeTests`,
+  `ResizeCoordinatorFinalGridTests`, `TerminalGridPolicyHoldTests`. Bench:
+  `bench-terminal-resize.py --layouts=split-resize,split-resize-stress` (`debug.terminal_final_grid`:
+  key -> first and final grid sent, -> owner's final grid, -> first frame drawn at it).
+
 ## 4c. Review dispositions (batch 1, reviewers of both lead sessions)
 
 Reviewers #1 and #2 (PR 46/47 at 7d5fa1573 and the cmux side), finding by finding:

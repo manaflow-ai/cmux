@@ -4,6 +4,7 @@
 // commands. Real Chromium from Playwright.
 import path from "node:path";
 import type { Browser, Page } from "playwright";
+import type { PluginOption } from "vite";
 import { installPaintedFrames } from "./paintedFrames";
 import { warmViteServer } from "./warmDevServer";
 
@@ -105,6 +106,8 @@ export async function papercutPane(
     extra?: PapercutStep[];
     session?: Record<string, unknown>;
     ready?: string;
+    /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
+    vitePlugins?: PluginOption[];
   },
 ) {
   const { createServer } = await import("vite");
@@ -144,6 +147,7 @@ export async function papercutPane(
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     server: { port: 0, host: "127.0.0.1", strictPort: false },
     logLevel: "error",
+    plugins: options.vitePlugins,
   });
   await vite.listen();
   await warmViteServer(vite, "/");
@@ -188,4 +192,16 @@ export async function papercutPane(
     await daemon.stop(true);
   };
   return { open, close, methods };
+}
+
+/// Settings > Agent Chat > Inspector: Push always (or back to the default), as the host's `display`
+/// event sets it (chatDisplay.ts). By default the Inspector floats and never takes a column.
+export async function inspectorPushAlways(page: Page, on = true) {
+  await page.evaluate(async (on) => {
+    // The pane's dev server serves src/agent-session/acpmux at its root (vite.config.acpmux-pane.mjs),
+    // so this is the module the page already loaded.
+    const url = "/chatDisplay.ts";
+    const display = (await import(/* @vite-ignore */ url)) as { setChatDisplay(value: unknown): void };
+    display.setChatDisplay({ "agentPane.display.inspector.placement": on ? "push" : "overlay" });
+  }, on);
 }

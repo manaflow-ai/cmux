@@ -195,6 +195,29 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
 
+    // Renderer paths that keep a tab off DevTools (fork API 29, `CEFForkFeatures.rendererPaths`), so
+    // same-site tabs can share a renderer as in Chrome. Optional: a shim built before them lacks the
+    // exports and still loads; `CEFForkFeatures` uses them only when all are there and the fork's API
+    // is 29 or later.
+    /// A document-start script for every browser: world ("" page), source, all frames, run now.
+    let addDocumentScript: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32) -> Int32)?
+    /// `cmuxPost(channel, string)` in an isolated world: world, channel. Posts come as PAGE_MESSAGE.
+    let addPageChannel: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
+    /// Runs a script in the main frame: browser, token, world, script, user gesture. EVALUATE_RESULT answers.
+    let tabEvaluate: (@convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32)?
+    /// `WebContents::SetPageFrozen`: browser, frozen; 0 when the browser is gone or (freezing) visible.
+    let tabSetFrozen: (@convention(c) (Int32, Int32) -> Int32)?
+    /// `CefBrowserHost::SendMouseClickEvent` down and up: browser, x, y (view points), button, modifiers, clicks.
+    let tabSendClick: (@convention(c) (Int32, Double, Double, Int32, Int32, Int32) -> Int32)?
+    /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
+    let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
+
+    /// Every renderer-path export is there (`CEFForkFeatures`).
+    var hasRendererPaths: Bool {
+        addDocumentScript != nil && addPageChannel != nil && tabEvaluate != nil && tabSetFrozen != nil && tabSendClick != nil
+            && tabSetColorScheme != nil
+    }
+
     // Remote localhost (plans/cmux-next/remote-localhost.md).
     let setContextProxy: @convention(c) (UnsafePointer<CChar>?, Int32) -> Int32
     let contextProxyState: @convention(c) (UnsafePointer<CChar>?) -> Int32
@@ -274,6 +297,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
             guard let symbol = symbol(name) else { throw .missingSymbol(name) }
             return unsafeBitCast(symbol, to: T.self)
+        }
+
+        /// A function only newer shims export: nil when this one has none.
+        func optional<T>(_ name: String) -> T? {
+            symbol(name).map { unsafeBitCast($0, to: T.self) }
         }
     }
 
@@ -392,6 +420,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         certificateProceed = try r("cmux_shim_certificate_proceed")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
+        addDocumentScript = r.optional("cmux_shim_add_document_script")
+        addPageChannel = r.optional("cmux_shim_add_page_channel")
+        tabEvaluate = r.optional("cmux_shim_tab_evaluate")
+        tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
+        tabSendClick = r.optional("cmux_shim_tab_send_click")
+        tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
