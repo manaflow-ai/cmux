@@ -25,7 +25,7 @@ async fn an_adopted_turn_whose_model_went_quiet_ends_as_stalled_and_frees_its_ag
     std::fs::write(
         daemon.home.join("config.json"),
         json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}}, "defaultHarness": "fake",
-               "permissionPolicy": "approve-all", "stalledTurnMs": 6000})
+               "permissionPolicy": "approve-all", "stalledTurnMs": 8000})
         .to_string(),
     )
     .unwrap();
@@ -39,12 +39,16 @@ async fn an_adopted_turn_whose_model_went_quiet_ends_as_stalled_and_frees_its_ag
             json!({"sessionId": session, "prompt": [{"type": "text", "text": "hang"}]}),
         )
         .await;
-    daemon.wait_event(&session, "working chunk", |e| chunk(e, "working"));
+    let heard = daemon.wait_event(&session, "working chunk", |e| chunk(e, "working"))["at"]
+        .as_u64()
+        .unwrap();
     let started = daemon.wait_event(&session, "turn_started", |e| e["kind"] == "turn_started");
     let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
 
     daemon.sigterm();
     drop(client);
+    // Down for 5 s: that silence counts too.
+    std::thread::sleep(Duration::from_secs(5));
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     let row = listed(&daemon, &session).await;
@@ -60,14 +64,11 @@ async fn an_adopted_turn_whose_model_went_quiet_ends_as_stalled_and_frees_its_ag
     assert_eq!(result["msg"]["errorSource"], "acpmux", "{result}");
     assert_eq!(result["msg"]["turnId"], started["msg"]["turnId"], "{result}");
     let quiet = result["msg"]["stalledMs"].as_u64().unwrap();
-    assert!(quiet >= 6000, "ended before stalledTurnMs: {result}");
-    let heard = daemon.wait_event(&session, "working chunk", |e| chunk(e, "working"))["at"]
-        .as_u64()
-        .unwrap();
-    assert!(
-        result["at"].as_u64().unwrap() < heard + 6000 + 20_000,
-        "counted from the restart, not the model's last word: {result}"
-    );
+    assert!(quiet >= 8000, "ended before stalledTurnMs: {result}");
+    let at = result["at"].as_u64().unwrap();
+    assert!(at >= heard + 8000, "ended before stalledTurnMs: {result}");
+    // Counted from the restart it would end 8 s after it, past 13 s.
+    assert!(at < heard + 12_000, "counted from the restart, not the model's last word: {result}");
     let row = listed(&daemon, &session).await;
     assert_ne!(row["status"], "running", "{row}");
     assert!(row["turn"].is_null(), "{row}");
