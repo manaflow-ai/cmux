@@ -79,6 +79,28 @@ struct RemoteMachinesSidebarTests {
         sidebar.expanded = []
     }
 
+    /// The user 2026-10-25: machines are not separate things. Remote chats show as plain rows (no machine
+    /// header, no Offline row), each carrying only its machine's name as a small caption.
+    @Test func mergedRowsHaveNoMachineHeadersAndHideOfflineMachines() {
+        let peers = [AcpmuxPeerList.Peer(name: "huge-blue", connected: true), AcpmuxPeerList.Peer(name: "big-red", connected: false),
+                     AcpmuxPeerList.Peer(name: "idle-box", connected: true)]
+        let machines = RemoteMachinesSidebar.machines(
+            lanes: [Self.lane("old", peer: "huge-blue", since: 10, title: "Old"), Self.lane("new", peer: "huge-blue", .working, since: 20, title: "New"),
+                    Self.lane("gone", peer: "big-red", .working, since: 30, title: "Gone")], peers: peers)
+        let rows = RemoteMachinesSidebar.mergedRows(machines: machines, displayName: { $0 == "huge-blue" ? "Huge Blue" : nil })
+        #expect(rows.map(\.info.title) == ["New", "Old"])
+        #expect(rows.allSatisfy { $0.info.caption == "Huge Blue" && $0.info.indent == 0 && $0.info.icon != .cloud })
+        #expect(rows[0].info.activity == .working)
+        #expect(rows[0].item.id.rawValue == LayoutItemID.transientPrefix + "remote:session:id-new")
+        #expect(RemoteMachinesSidebar(lanes: AgentLaneStore()).activate(rows[0].item.id))
+    }
+
+    @Test func mergedRowsAreCappedToOnePage() {
+        let lanes = (0..<(RemoteMachinesSidebar.pageSize + 5)).map { Self.lane("s\($0)", peer: "huge-blue", since: TimeInterval($0)) }
+        let rows = RemoteMachinesSidebar.mergedRows(machines: RemoteMachinesSidebar.machines(lanes: lanes, peers: nil), displayName: { _ in nil })
+        #expect(rows.count == RemoteMachinesSidebar.pageSize)
+    }
+
     /// The groups draw after the top items, above the workspaces, in order.
     @Test func groupsFollowTheTopItems() {
         let model = SidebarModel()
