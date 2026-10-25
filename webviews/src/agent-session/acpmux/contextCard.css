@@ -16,13 +16,13 @@
   pointer-events: auto;
 }
 
-/* Codex's hover tooltip: the no-breakdown state is three quiet lines, centered and short. A
-   harness that reports categories uses the fuller card below (ContextCard.tsx). */
+/* The composer popover stays compact in both states. It uses the same glass material supplied by
+   AnchoredCard (.ui-card.ui-glass), while this sheet only controls its content rhythm. */
 .acpmux-context-pop--compact.ui-card {
-  width: 200px;
-  max-width: min(200px, calc(100vw - 24px));
-  padding: 8px 10px 9px;
-  text-align: center;
+  width: 230px;
+  max-width: min(230px, calc(100vw - 24px));
+  padding: 10px 12px 9px;
+  text-align: left;
 }
 .acpmux-context-pop--compact .acpmux-context-card-title {
   color: var(--agent-text);
@@ -57,10 +57,9 @@
 
 .acpmux-context-card-bar {
   display: flex;
-  gap: 2px;
-  height: 4px;
+  height: 3px;
   margin-top: 8px;
-  border-radius: 2px;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   overflow: hidden;
 }
@@ -68,6 +67,9 @@
 .acpmux-context-card-bar > span {
   flex: none;
   height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: var(--agent-accent);
 }
 
 .acpmux-context-card [data-segment="used"],
@@ -86,9 +88,11 @@
 
 .acpmux-context-card-parts {
   display: grid;
-  gap: 4px;
-  margin-top: 10px;
+  gap: 3px;
+  margin: 9px 0 0;
+  padding: 0;
   font-size: var(--text-detail);
+  list-style: none;
 }
 
 .acpmux-context-card-part {
@@ -104,6 +108,10 @@
   border-radius: 2px;
 }
 
+.acpmux-context-card-swatch[data-tone="0"] { background: var(--agent-accent); }
+.acpmux-context-card-swatch[data-tone="1"] { background: color-mix(in oklab, var(--agent-accent) 72%, transparent); }
+.acpmux-context-card-swatch[data-tone="2"] { background: color-mix(in oklab, var(--agent-accent) 48%, transparent); }
+
 .acpmux-context-card-part-tokens {
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
@@ -112,9 +120,9 @@
 .acpmux-context-card-foot {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 9px;
 }
 
 .acpmux-context-card-compact,
@@ -130,8 +138,18 @@
 }
 
 .acpmux-context-card-details {
-  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 2px 0 0;
+  padding-inline: 0;
+  border-top: 1px solid color-mix(in srgb, var(--agent-text) 12%, transparent);
+  border-radius: 0;
+  text-align: left;
+  padding-top: 7px;
 }
+
+.acpmux-context-card-details span { margin-inline-start: auto; }
 
 .acpmux-context-card-compact:hover:not(:disabled),
 .acpmux-context-card-details:hover {
