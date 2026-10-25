@@ -16,6 +16,9 @@ user name are replaced; the file must then hold none of them, or the run fails. 
 MAX_BYTES (a fixture that grows means the recording caught more than the emitter).
 
   python3 scripts/cmux-next/trace_fixtures.py OUT
+
+It also holds the hand-written `input.latency` recording that trace.py's self-test case 'input latency slices'
+builds (`input_latency_ndjson`): InputLatencyTracker's closed slots as `log stream --signpost` lines.
 """
 import json, os, pwd, re, shutil, socket, subprocess, sys, tempfile
 
@@ -46,6 +49,79 @@ for _ in 0..<20 {
 print(sink > 0 ? "done" : "?")
 '''
 TABLES = {"profile": ["time-profile", "os-signpost"], "system": ["syscall"]}
+
+
+INPUT_PID = 42
+INPUT_FLOW = (10 << 32) | 77  # the terminal key's flow id: its key.flow hops carry the same one
+MS = 1_000_000
+# (fields, {stage: ns after `generated`}) per closed slot; a stage not listed is one the slot skipped.
+INPUT_SLOTS = [
+    # 0: a terminal key with every stage, the cross-process ones included, linked to its key.flow chain.
+    ({"id": 1, "kind": "key", "target": "terminal", "entrypoint": "person", "source": "estimatedVsync",
+      "update": 1, "flow": INPUT_FLOW, "generated_ns": 5_000 * MS},
+     {"arrived_main": 0.3 * MS, "dispatch_start": 0.4 * MS, "text_input_start": 0.45 * MS, "text_input_end": 0.6 * MS,
+      "dispatch_end": 0.7 * MS, "daemon_received": 0.9 * MS, "pty_written": 1 * MS, "echo_read": 2 * MS,
+      "echo_sent": 2.1 * MS, "main_commit": 3 * MS, "content_submitted": 3.5 * MS, "presented": 12 * MS}),
+    # 1: a text view key typed before key 0 presented (its own lane): no text input, no cross-process stages, and
+    # a content_submitted after presented (left out, counted).
+    ({"id": 2, "kind": "key", "target": "textView", "entrypoint": "person", "source": "metalPresented", "update": 1,
+      "generated_ns": 5_004 * MS},
+     {"arrived_main": 0.2 * MS, "dispatch_start": 0.25 * MS, "dispatch_end": 1.25 * MS, "main_commit": 2 * MS,
+      "presented": 8 * MS, "content_submitted": 9 * MS}),
+    # 2: a coalesced click that skipped dispatch_start (a stage in the middle).
+    ({"id": 3, "kind": "click", "target": "chromiumPage", "entrypoint": "person", "source": "pageEstimated",
+      "update": 1, "coalesced": 3, "generated_ns": 5_020 * MS},
+     {"last_generated": 2 * MS, "arrived_main": 3 * MS, "dispatch_end": 4 * MS, "main_commit": 5 * MS,
+      "presented": 20 * MS}),
+    # 3: a click held inside click 2's span: it goes to another lane, never nested in it.
+    ({"id": 4, "kind": "click", "target": "chromiumPage", "entrypoint": "person", "source": "pageEstimated",
+      "update": 1, "generated_ns": 5_025 * MS},
+     {"arrived_main": 0.5 * MS, "dispatch_start": 0.6 * MS, "dispatch_end": 1 * MS, "presented": 5 * MS}),
+    # 4: a scroll that changed nothing on screen: drawn, not folded (Chrome's caused_frame_update).
+    ({"id": 5, "kind": "scroll", "target": "layout", "entrypoint": "person", "source": "estimatedVsync",
+      "update": 0, "generated_ns": 5_050 * MS},
+     {"arrived_main": 1 * MS, "dispatch_start": 1.1 * MS, "dispatch_end": 2 * MS, "presented": 9 * MS}),
+    # 5: a scripted key: drawn, not folded into the person's rows.
+    ({"id": 6, "kind": "key", "target": "terminal", "entrypoint": "automation", "source": "estimatedVsync",
+      "update": 1, "generated_ns": 5_070 * MS},
+     {"arrived_main": 0.1 * MS, "dispatch_start": 0.2 * MS, "dispatch_end": 0.5 * MS, "presented": 5 * MS}),
+    # 6: a terminal key whose echo never came (noEcho): no presented, its slice ends at its last stage.
+    ({"id": 7, "kind": "key", "target": "terminal", "entrypoint": "person", "source": "estimatedVsync",
+      "update": 1, "generated_ns": 5_090 * MS},
+     {"arrived_main": 0.2 * MS, "dispatch_start": 0.3 * MS, "dispatch_end": 0.9 * MS}),
+    # 7: a second text view key, so its row has two samples.
+    ({"id": 8, "kind": "key", "target": "textView", "entrypoint": "person", "source": "metalPresented", "update": 1,
+      "generated_ns": 5_100 * MS},
+     {"arrived_main": 0.2 * MS, "dispatch_start": 0.3 * MS, "dispatch_end": 1 * MS, "main_commit": 1.5 * MS,
+      "presented": 10 * MS}),
+    # 8: no generated stage: it cannot be placed.
+    ({"id": 9, "kind": "key", "target": "terminal", "entrypoint": "person", "source": "estimatedVsync", "update": 1},
+     {"presented": 5_200 * MS}),
+]
+# The terminal key's key.flow hops (TypingLatencyProbe): enough for trace.py to assemble its chain.
+INPUT_FLOW_HOPS = [("app.key.dispatch", 5_000 * MS + 0.4 * MS), ("app.key.terminal", 5_000 * MS + 0.5 * MS)]
+
+
+def input_latency_ndjson():
+    """The input latency recording as `log stream --signpost --style ndjson` writes it (timebase 1/1: the
+    machTimestamp is ns; no sleep since boot): each slot one `input.latency` event when it closed, its stage
+    times as `<stage>_ns` uptime fields, and the terminal key's key.flow hops."""
+    lines = ["#timebase 1/1", "#continuous-minus-uptime-us 0"]
+
+    def event(signpost_id, name, category, at_ns, message):
+        lines.append(json.dumps({"eventType": "signpostEvent", "subsystem": "com.cmuxterm.app.next",
+                                 "category": category, "signpostName": name, "signpostID": signpost_id,
+                                 "signpostType": "event", "processID": INPUT_PID, "threadID": 259,
+                                 "machTimestamp": int(at_ns), "eventMessage": message}))
+
+    for index, (fields, offsets) in enumerate(INPUT_SLOTS):
+        generated = fields.get("generated_ns", 0)
+        stages = {f"{stage}_ns": int(generated + offset) for stage, offset in offsets.items()}
+        message = " ".join(f"{key}={value}" for key, value in {**fields, **stages}.items())
+        event(100 + index, "input.latency", "input", max(stages.values()), message)
+    for index, (hop, at_ns) in enumerate(INPUT_FLOW_HOPS):
+        event(200 + index, "key.flow", "keyFlow", at_ns, f"hop={hop} flow={INPUT_FLOW} age_us=5")
+    return "\n".join(lines) + "\n"
 
 
 def run(command, **kwargs):
