@@ -1252,8 +1252,7 @@ class OutsideTheDiff(unittest.TestCase):
         for path in (".xcode-version", "biome.json", "web/.oxlintrc.json", "Makefile", "webviews/a.yaml",
                      "cmux-tui/rust-toolchain"):
             self.assertTrue(excuse.guarded(path), path)
-        for path in ("webviews/src/A.tsx", "Packages/macOS/CmuxNext/Sources/A/B.swift", "cmux-tui/src/lib.rs",
-                     "Packages/macOS/CmuxNext/Tests/ATests/ATests.swift"):
+        for path in ("webviews/src/A.tsx", "Packages/macOS/CmuxNext/Sources/A/B.swift", "cmux-tui/src/lib.rs"):
             self.assertFalse(excuse.guarded(path), path)
 
     # Fourth review round of #25036.
@@ -1299,6 +1298,23 @@ class OutsideTheDiff(unittest.TestCase):
             self.gh.logs[1] = self.web_log(line)
             with self.assertRaisesRegex(excuse.Refused, "says a test failed"):
                 self.judge()
+
+    # Sixth review round of #25036.
+    def test_a_pr_changing_any_test_blocks(self):
+        for path in ("cmuxTests/AppTests.swift", "cmuxUITests/LaunchTests.swift", "tests_v2/test_x.py",
+                     "webviews/test/status.test.ts", "webviews/src/a.spec.tsx",
+                     "Packages/macOS/CmuxNext/Tests/ATests/ATests.swift", "webviews/src/__mocks__/x.ts"):
+            self.assertTrue(excuse.guarded(path), path)
+            self.files = [{"filename": path}]
+            with self.assertRaisesRegex(excuse.Refused, "a build input"):
+                self.judge()
+
+    def test_a_windows_path_is_matched_to_the_changed_file(self):
+        self.assertEqual(excuse.file_paths(r"error: src\foo.rs:3:5: x"), {"src/foo.rs"})
+        self.gh.logs[1] = self.web_log(r"error[E0425]: cannot find value in src\foo.rs:3:5")
+        self.files = [{"filename": "cmux-tui/src/foo.rs"}]
+        with self.assertRaisesRegex(excuse.Refused, "which this pull request changes"):
+            self.judge()
 
     def test_a_pr_changing_a_build_input_blocks(self):
         for path in ("web/vercel.json", "Dockerfile", "cmux-tui/scripts/requirements-windows-conpty.txt",

@@ -177,13 +177,14 @@ ERRORISH = re.compile(r"##\[error\]|\berrors?\b|\bfatal\b|\bexceptions?\b", re.I
 # reads, never what decides how checks run or what files build to. Check code, workflows,
 # baselines and allowlists decide what a check reports without the report naming them, and
 # build inputs (manifests, lockfiles, project, container and tool config, any dotfile) change
-# what every file builds to. Rather than list every such input, only source-type files outside
-# dot folders are allowed, minus the build inputs written in a source language.
+# what every file builds to; a test, spec, fixture, snapshot or mock (cmuxTests/, tests_v2/,
+# webviews/test/, *.test.ts) changes what a test job reports. Rather than list every such
+# input, only source-type files outside dot folders are allowed, minus those.
 SOURCE_EXTENSIONS = frozenset(
     "swift m mm h c cc cpp hpp rs zig go py rb js mjs cjs jsx ts tsx mts cts css scss html vue svelte md "
     "png jpg jpeg gif svg pdf webp ico ttf otf xcstrings strings xib storyboard".split())
 GUARDED = re.compile(
-    r"^(?:\.github|tests|config)/|(?:^|/)scripts/|(?:^|/)\.|baseline|allowlist|(?:^|/)(?:Package\.swift|"
+    r"^(?:\.github|config)/|test|spec|fixture|snapshot|mock|(?:^|/)scripts/|(?:^|/)\.|baseline|allowlist|(?:^|/)(?:Package\.swift|"
     r"[^/]*\.config\.[cm]?[jt]s|build\.zig|setup\.py|conftest\.py|noxfile\.py|Rakefile|Fastfile)$",
     re.IGNORECASE)
 
@@ -545,7 +546,8 @@ def file_paths(text: str) -> set[str]:
     for token in TOKEN.findall(text) + QUOTED.findall(text):
         if URL_LIKE.search(token):
             continue  # a URL is somewhere else, not a file of this repository
-        token =re.sub(r":\d+(?::\d+)?:?$", "", token.rstrip(".:")).removeprefix("./")
+        # Windows paths (the cmux-tui Windows lane prints `src\foo.rs`) compare with forward slashes.
+        token = re.sub(r":\d+(?::\d+)?:?$", "", token.replace("\\", "/").rstrip(".:")).removeprefix("./")
         name = token.rsplit("/", 1)[-1]
         if "." not in name.strip("."):
             continue
