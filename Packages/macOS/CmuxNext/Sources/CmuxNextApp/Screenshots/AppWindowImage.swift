@@ -92,10 +92,13 @@ extension ScreenshotMask.Rules {
     static let app = ScreenshotMask.Rules(
         covers: ScreenshotMask.covers,
         area: { view in
-            // Everything under a browser's toolbar that can show the page's pixels. Masked even
-            // when it is hidden: the screen lags the view tree, so a page hidden this turn can
-            // still be in the window server's image.
-            if let chrome = view as? BrowserChromeView { return chrome.pageArea }
+            // A browser pane whole, its toolbar and tab strip included: the address bar shows a
+            // URL, which can carry a token or a one-time link, and the title and the badges come
+            // from the page. #23983 masked the whole chrome and this keeps that. It is an `area`
+            // rather than a `covers`, so `read` still descends and sees a page whose pixels have
+            // moved out from under the mask. Masked even when hidden: the screen lags the view
+            // tree, so a page hidden this turn can still be in the window server's image.
+            if let chrome = view as? BrowserChromeView { return chrome }
             // A chat's last frame, drawn under the pane's content until its page paints. Hidden
             // it has already been replaced by the content above it, which `visit` reaches itself.
             guard let launch = (view as? PaneContentView)?.launchImageView, !launch.isHidden else { return nil }

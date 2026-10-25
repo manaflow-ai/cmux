@@ -28,6 +28,8 @@ import WebKit
 
         /// The page area in window coordinates.
         var pageRect: NSRect { chrome.pageArea.convert(chrome.pageArea.bounds, to: nil) }
+        /// The whole browser pane in window coordinates: what a capture masks.
+        var chromeRect: NSRect { chrome.convert(chrome.bounds, to: nil) }
 
         func close() {
             window.orderOut(nil)
@@ -236,7 +238,7 @@ import WebKit
         fixture.chrome.isHidden = true
         sampler.stop()
         #expect(ScreenshotMask.read(fixture.window, rules: .app).regions.isEmpty)
-        #expect(sampler.mask.regions.contains(fixture.pageRect))
+        #expect(sampler.mask.regions.contains(fixture.chromeRect))
     }
 
     /// A web view outside any browser chrome (no app page holds it) is masked too, and a page
@@ -249,7 +251,7 @@ import WebKit
         fixture.plain.addSubview(stray)
         let mask = ScreenshotMask.read(fixture.window, rules: .app)
         #expect(mask.regions.contains(stray.convert(stray.bounds, to: nil)))
-        #expect(mask.regions.contains(fixture.pageRect))
+        #expect(mask.regions.contains(fixture.chromeRect), "a browser pane is masked whole, its toolbar included")
         #expect(mask.isSettled)
         fixture.chrome.pageArea.layer?.transform = CATransform3DMakeTranslation(12, 0, 0)
         #expect(!ScreenshotMask.read(fixture.window, rules: .app).isSettled)

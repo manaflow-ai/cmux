@@ -28,7 +28,7 @@ extension BrowserChromeView {
 
     /// Everything under the toolbar that can show the page's pixels: the page, a docked
     /// DevTools or Web Inspector, a sleeping page's picture and the page's overlays. An
-    /// agent's window capture masks this whole view (`ScreenshotMask`).
+    /// agent's window capture masks the whole chrome, this view included (`ScreenshotMask`).
     public var pageArea: NSView { contentContainer }
 
     /// Whether `view` is a browser tab's page content (a WebKit or Chromium page, with its
