@@ -33,6 +33,8 @@ export type SubsessionReply = {
   reply?: string;
   /// What it waited on the person for, when it did (the row's `waitingOn`).
   waiting?: SessionWaiting;
+  /// It waits for a run slot (the row's `waitsForSlot`): it has not started.
+  slot?: true;
   harness?: string;
 };
 
@@ -112,16 +114,21 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
         const name = text(row.shortName) ?? text(row.name);
         const reply = text(typeof row.lastReply === "string" ? row.lastReply.trim() : undefined);
         const state = rowState(row);
+        if (!state) return [];
         // A question's first prompt is in the row's doing line (subsession_send.rs `doing`).
         const asked = typeof row.doing === "string" ? QUESTION_DOING.exec(row.doing)?.[1] : undefined;
         const waiting =
           state === "input" ? sessionWaiting({ waitingOn: row.waitingOn, waitingPrompt: asked }) : undefined;
         const harness = text(row.harness);
-        const more = { ...(waiting && { waiting }), ...(harness && { harness }) };
+        const more = {
+          ...(waiting && { waiting }),
+          ...(harness && { harness }),
+          ...(row.waitsForSlot === true && { slot: true as const }),
+        };
         return [{ sessionId: id, ...(name && { name }), state, ...(reply && { reply }), ...more }];
       });
-      // Rows it cannot read are not "no sub-sessions": the generic row shows what came back.
-      if (rows.length > 0 && sessions.length === 0) return undefined;
+      // A row it cannot read (no id, no state) is not left out: the generic row shows what came back.
+      if (sessions.length !== rows.length) return undefined;
       return { tool: kind, running, timedOut: result!.value!.timedOut === true, sessions };
     }
     default:
@@ -130,8 +137,9 @@ export function subsessionCall(tool: Tool, call: McpCall | undefined = mcpCall(t
 }
 
 /// A family row's state (`subsession_row`): its lane, `working`, `input`, `failed`, `lost` or `idle`,
-/// else (a session with no lane yet) its status dot, as the session list reads one (subsessionState).
-function rowState(row: Record<string, unknown>): SubsessionReply["state"] {
+/// else (a session with no lane yet) its status dot or its status, as the session list reads one
+/// (subsessionState); nil for a row that says none of them, which the card does not guess at.
+function rowState(row: Record<string, unknown>): SubsessionReply["state"] | undefined {
   switch (row.state ?? row.indicator) {
     case "working":
       return "working";
@@ -140,9 +148,14 @@ function rowState(row: Record<string, unknown>): SubsessionReply["state"] {
     case "failed":
     case "lost":
       return "failed";
-    default:
+    case "idle":
+    case "done":
       return "done";
   }
+  if (row.status === "running") return "working";
+  if (row.status === "waiting") return "input";
+  if (row.status === "idle" || row.status === "done") return "done";
+  return undefined;
 }
 
 function deliveryOf(result: { value?: Record<string, unknown>; text: string }): SubsessionDelivery | undefined {

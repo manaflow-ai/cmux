@@ -192,16 +192,18 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private func endpoint(startsDaemon asked: Bool) async throws -> AcpmuxWebEndpoint {
-        let startsDaemon = asked && startsDaemons
+        if environment == nil { environment = resolveEnvironment() }
+        guard var environment else {
+            Self.logger.error("acpmux environment unresolved startsDaemon=\(asked && startsDaemons, privacy: .public)")
+            throw AgentPaneHostError.acpmuxNotFound
+        }
+        // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) is another app's: only look, as the Chief's tabs do.
+        let owned = startsDaemons && !environment.isAttached
+        let startsDaemon = asked && owned
         if let task = inFlight[startsDaemon] { return try await task.value }
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
-        if environment == nil { environment = resolveEnvironment() }
-        guard var environment else {
-            Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
-            throw AgentPaneHostError.acpmuxNotFound
-        }
         environment.computerUse = computerUse()
         environment.offersSessionTools = offersSessionTools()
         environment.agentPairGuard = agentPairGuard()
@@ -209,7 +211,6 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
-        let owned = startsDaemons
         var heal: (@Sendable (Int32) async -> Bool)?
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
@@ -308,8 +309,11 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // this launch's person key (a signed daemon takes it by this app's signature), so
             // the reconnected pane's allows keep working.
             guard startsDaemon else {
-                _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
-                await AcpmuxComputerUse.enroll(environment)
+                // An attached daemon keeps its owner's person key and Computer Use endpoint.
+                if !environment.isAttached {
+                    _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
+                    await AcpmuxComputerUse.enroll(environment)
+                }
                 do {
                     return try await Self.verifiedEndpoint(environment)
                 } catch let refusal as AcpmuxServerPeer.Refusal {
@@ -342,7 +346,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // the user stopped it. A reconnect starts one only after a crash
             // (cx-6bgzj); the new daemon adopts the agents still running.
             guard startsDaemon || owned && crashed(environment.home) else {
-                throw owned ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
+                throw owned || environment.isAttached ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
             }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
             logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")

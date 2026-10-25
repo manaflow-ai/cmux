@@ -9,6 +9,7 @@ import { addPseudoLocales } from "../pseudo";
 import type { StageContext } from "./context";
 import { installChipHost } from "./chips";
 import { resetSummaryCards } from "../../agent-session/acpmux/summary/cardState";
+import { setChatDisplay } from "../../agent-session/acpmux/chatDisplay";
 
 type Message = { id?: string; method?: string; params?: Record<string, unknown> };
 
@@ -39,6 +40,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     bridge.applyTheme({ ...context.agentTheme, ...state.theme });
     bridge.applyCustomization({ themeCSS: agentPaneFontCSS(context.env.fontFamily, context.env.fontSize) });
     bridge.applySessionStatus?.(state.sessionStatus === true);
+    // The chat's look as the app's `display` push sends it (none: the default look).
+    setChatDisplay(state.display ?? {});
     bridge.applyWorkflowLabs?.(state.workflowLabs === true);
     bridge.receive(structuredClone(snapshot));
   };

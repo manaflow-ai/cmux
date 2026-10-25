@@ -34,4 +34,17 @@ public protocol WindowSnapshotsProviding: AnyObject {
 public protocol AppServicesProviding: AnyObject {
     var daemonRouting: any DaemonRoutingProviding { get }
     var windowSnapshotService: any WindowSnapshotsProviding { get }
+    var windowAccess: any WindowAccessProviding { get }
+    var machineWorkspaces: any MachineWorkspaceProviding { get }
+    var pageActions: any PageActionProviding { get }
+}
+
+/// ID-based window access for feature modules. The concrete WindowManager stays
+/// in CmuxNextApp; consumers receive only immutable snapshots and IDs.
+@MainActor
+public protocol WindowAccessProviding: AnyObject {
+    var activeWindowSnapshot: (any WindowSnapshotProviding)? { get }
+    var windowSnapshots: [any WindowSnapshotProviding] { get }
+    func snapshot(windowID: String) -> (any WindowSnapshotProviding)?
+    func ownerWindowID(workspaceID: String) -> String?
 }

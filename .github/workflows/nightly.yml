@@ -3075,11 +3075,16 @@ jobs:
 
   prepare-nightly-variant-fallback:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
-    if: always() && needs.prepare-nightly-variant-primary.result == 'failure' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
+    # This job must not be skipped when the primary succeeds: GitHub skips every job whose
+    # needs chain holds a skipped job unless its `if` calls a status function, so a skipped
+    # fallback skipped signing and publishing (runs 40154003204 and 40155340212 built an app
+    # and published nothing). After a successful primary it runs on Linux, finds the primary's
+    # result and does nothing; after a failed primary it prepares on the Blacksmith Mac.
+    if: always() && (needs.prepare-nightly-variant-primary.result == 'failure' || needs.prepare-nightly-variant-primary.result == 'success') && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     permissions:
       contents: read
       actions: read
-    runs-on: blacksmith-12vcpu-macos-26
+    runs-on: ${{ needs.prepare-nightly-variant-primary.result == 'success' && 'ubuntu-24.04' || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -3099,9 +3104,13 @@ jobs:
         if: env.PREPARE_FALLBACK == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          PRIMARY_RESULT: ${{ needs.prepare-nightly-variant-primary.result }}
           ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
         run: |
           set -euo pipefail
+          # Every primary leg uploaded its prepared app; no API call, so a spent
+          # installation rate limit cannot fail this no-op leg.
+          if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"
           if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
