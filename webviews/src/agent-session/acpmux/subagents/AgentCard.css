@@ -74,3 +74,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A run's command behind Raw (AgentRunCard.tsx): the code font, wrapped, at most a few lines tall. */
+.cv-agent-run__command {
+  margin: 4px 0 0 24px;
+  max-height: 160px;
+  overflow: auto;
+  font-family: var(--cv-font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

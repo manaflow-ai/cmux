@@ -2673,6 +2673,12 @@ export class AcpmuxDirectClient {
   /// when an older acpmux recorded that thread as one of its own subagents, a parent or an owner (a Codex child reporting its parent thread), they are
   /// folded again by lineage, so the chat's own rows come back and its subagents stop nesting.
   private learnChatThread(): void {
+    // A shell call that started another family's agent before the chat's harness was known draws
+    // as that agent now (subagentFold.ts ``deferredRun``).
+    if (this.summary?.harness && !this.subagents.harness && this.subagents.deferredRun) {
+      this.rebuildKeepingLiveState();
+      return;
+    }
     const thread = this.chatThread();
     if (!thread || this.subagents.chat === thread || !this.subagents.names(thread)) return;
     this.rebuildKeepingLiveState();
@@ -2924,6 +2930,26 @@ export class AcpmuxDirectClient {
   private closeSegment(): void {
     this.endAssistantSegment();
     this.streamingActivity = undefined;
+  }
+
+  /// Takes tool call `callId` out of the row that drew it, and the row with it when it held only that.
+  private dropToolItem(callId: string): void {
+    const id = this.toolRows.get(callId);
+    if (id === undefined) return;
+    this.toolRows.delete(callId);
+    const row = this.rows.get(id);
+    if (!row?.items) return;
+    const items = row.items.filter((item) => item.tool?.id !== callId);
+    if (items.length === 0) {
+      this.rows.delete(id);
+      if (this.streamingActivity === id) this.streamingActivity = undefined;
+    } else
+      this.rows.set(id, {
+        ...row,
+        version: row.version + 1,
+        items,
+        toolCount: items.filter((entry) => entry.kind === "tool").length,
+      });
   }
 
   /// The subagent group rows that changed, into the transcript.
@@ -3286,7 +3312,12 @@ export class AcpmuxDirectClient {
     if (!update) return;
     this.subagents.cause = this.turnStopCause(event);
     this.subagents.chat = this.chatThread();
+    this.subagents.harness = this.summary?.harness;
     if (this.subagents.reduce(event, update)) {
+      // A shell call known to start another agent only once its command came (a later update)
+      // drew a row before: the agent's card stands for it now.
+      if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
+        this.dropToolItem(update.toolCallId);
       this.takeSubagentRows();
       return;
     }
