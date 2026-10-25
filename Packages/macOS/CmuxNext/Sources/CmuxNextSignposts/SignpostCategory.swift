@@ -4,6 +4,12 @@
 /// Instruments session can record one path (`log stream --signpost --predicate 'category ==
 /// "action"'`). The raw values are stable: benches, Instruments templates and PL-telemetry's
 /// opt-in hang reports match on them.
+///
+/// Each category is also one bit of the Release trace ring's category flags (``traceBit``; Chrome's
+/// per-category `category_group_enabled` flag, base/trace_event/builtin_categories.h). The black box
+/// records the ``isBlackBoxDefault`` categories from launch; a `trace.start` recording adds the others
+/// (plans/cmux-next/chrome-parity/p09-observability.md section 3A). Owners of the list: PL-arch and
+/// PL-telemetry. A new category takes the next free bit: the Swift, Rust and C writers share the bits.
 public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     /// Keyboard, menu, palette, context-menu and CLI actions (`ActionRegistry`).
     case action
@@ -25,7 +31,73 @@ public nonisolated enum SignpostCategory: String, Sendable, CaseIterable {
     /// refusal the person saw, a grid sent to a PTY, that terminal's first output after it. Events,
     /// not intervals; the bench times each against the press before it.
     case burst
+    /// The app's requests to the cmux-tui daemon, from the send to the reply. Owner: PL-daemon.
+    case daemon
+    /// Display frames: ticks, Core Animation commits, GPU completion, the estimated present and frame
+    /// sequences. Owner: PL-motion-core.
+    case frame
+    /// Work items from their post to their run (BackgroundWork, LaneScheduler, MainActorWorkQueue and
+    /// detached tasks), linked by a flow like Chrome's `TaskAnnotator`. Owner: Performance Lead.
+    case task
+    /// Hang watch: a watched thread past its deadline, a fatal-hang candidate, an invalidated scope.
+    /// Owner: PL-telemetry.
+    case hang
+    /// Input events other than a key-down (mouse, drag, scroll, IME commit, paste) to the frame that
+    /// shows them, like Chrome's `EventLatency`. Owner: PL-typing.
+    case input
+    /// The responsiveness of cmux's own web pages: slow interactions and long animation frames.
+    /// Owner: PL-telemetry.
+    case webview
+    /// The remote desktop view: input sent, frame decoded, frame shown. Owner: PL-telemetry.
+    case remote
+    /// Child-process ends and soft invariant reports: Chromium helper exits, WebKit content-process
+    /// ends, unresponsive renderers, dump-without-crashing sites. Owner: PL-telemetry.
+    case crash
+    /// The app's control socket: requests from the CLI, MCP and agents, from the accept to the reply.
+    /// Owner: Performance Lead.
+    case control
+    /// Ghostty's renderer threads, through the ghostty-next trace hook. Owner: PL-ghostty.
+    case ghostty
+    /// Live window resize ticks to the frame that shows them. Owner: PL-motion-core.
+    case resize
 
     /// The unified-log subsystem every cmux signpost uses.
     public static let subsystem = "com.cmuxterm.app.next"
+
+    /// This category's bit (0-63) in the trace ring's category flags. A bit never changes or moves to
+    /// another category: rings written by an older build decode with the same bits.
+    public var traceBit: UInt8 {
+        switch self {
+        case .action: 0
+        case .motion: 1
+        case .key: 2
+        case .switch: 3
+        case .create: 4
+        case .cef: 5
+        case .launch: 6
+        case .stall: 7
+        case .burst: 8
+        case .daemon: 9
+        case .frame: 10
+        case .task: 11
+        case .hang: 12
+        case .input: 13
+        case .webview: 14
+        case .remote: 15
+        case .crash: 16
+        case .control: 17
+        case .ghostty: 18
+        case .resize: 19
+        }
+    }
+
+    /// Whether the always-on black box records this category from launch (section 3A: action, key,
+    /// switch, create, cef, launch, daemon, hang, crash). The others fire per frame, per job or per
+    /// event, so only a `trace.start` recording turns them on.
+    public var isBlackBoxDefault: Bool {
+        switch self {
+        case .action, .key, .switch, .create, .cef, .launch, .daemon, .hang, .crash: true
+        case .motion, .stall, .burst, .frame, .task, .input, .webview, .remote, .control, .ghostty, .resize: false
+        }
+    }
 }

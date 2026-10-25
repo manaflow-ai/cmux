@@ -1,25 +1,33 @@
 /// One interval or event name in the cmux signpost catalog.
 ///
 /// Names are `<category>.<what>` and never change meaning: the Debug benches, the Release benches
-/// (`scripts/cmux-next/perf-signposts.py`) and PL-telemetry's opt-in hang reports read the same
-/// strings. Add a case here, with what its interval spans, before a call site uses it. The cases
-/// are the catalog: `allCases` is the list tests and readers enumerate, so no second list exists.
+/// (`scripts/cmux-next/perf-signposts.py`), the Release trace ring and PL-telemetry's opt-in hang
+/// reports read the same strings. The cases are the catalog: `allCases` is the list tests and readers
+/// enumerate, so no second list exists.
+///
+/// The raw value is the name's id in the Release trace ring (a record stores this `UInt16`, the ring
+/// header stores the id-to-name table). Ids are fixed and append-only: a new case takes the next free
+/// id, and an id is never reused, so a ring written by an older build decodes. The catalog was frozen
+/// for the p09-observability program (plans/cmux-next/chrome-parity/p09-observability.md, task 000):
+/// an emitter task uses these cases and does not edit this file; a missing name is a follow-up to
+/// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
 /// ``stallMainTask`` and ``stallOverBudget`` have an emitter today. The other cases are
-/// **reserved**: the lane named on each adds the emitter (plans/cmux-next/architecture-refactor-DESIGN.md
-/// section 7). Until then no build records them, and no bench or report may quote them.
+/// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
+/// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
+/// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
 ///
 /// ```swift
 /// let state = Signposter.action.begin(.actionPerform, "id=tab.new")
 /// ```
-public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomStringConvertible {
+public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, CustomStringConvertible {
     // MARK: action
 
     /// From `ActionRegistry` starting an action to its handler returning: the handler's own
     /// synchronous main-thread time. Message: `id=<action id> origin=<origin> input_age_ms=<age>`,
     /// where the age is that of the OS input event AppKit is dispatching for a `user` run, else -1.
-    case actionPerform
+    case actionPerform = 1
     /// From `ActionRegistry` starting an action to the end of the next Core Animation commit
     /// (``CommitBoundary``): the synchronous perform plus the commit of what it changed in that
     /// turn. Work the handler defers (an awaited daemon reply, Chromium's `CreateBrowser`, a later
@@ -27,7 +35,7 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// not the time to the frame that shows the action's result: use the action's own end signal
     /// for that. Same begin message as ``actionPerform``; the end message is `commit=missed` when
     /// the boundary missed the turn's commit (see ``CommitBoundary/Outcome/missed``).
-    case actionCommit
+    case actionCommit = 2
     /// A gate before an action runs: the confirmation presenter of a destructive action, or the
     /// palette opening to collect a missing argument, from `ActionRegistry` handing over to the
     /// gate until the gate returns (or starts a timed run itself). Not a run of the action: the
@@ -35,14 +43,19 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// has its own ``actionPerform`` and ``actionCommit`` with the age of the gesture that
     /// started it, so readers keep gates out of the action's rows. Same begin message as
     /// ``actionPerform``.
-    case actionGate
+    case actionGate = 3
 
     // MARK: motion (reserved: PL-motion-core, DisplayLinkDriver)
 
-    /// Reserved. One layout motion frame: the display-link tick to its presentation applied.
-    case motionFrame
-    /// Reserved. A whole motion: the structural change to the spring at rest.
-    case motionRun
+    /// Reserved (task 026, PL-motion-core). One layout motion frame: the display-link tick to its
+    /// presentation applied. Ring: B/E, one per window per tick; arg0 moved panes, arg1 frame dt in us.
+    case motionFrame = 4
+    /// Reserved (task 026, PL-motion-core). A whole motion: the structural change to the spring at rest.
+    /// Ring: AB/AE; end arg0 frames, arg1 the longest frame in us.
+    case motionRun = 5
+    /// Reserved (task 039, PL-motion-core; perf-hot `drag-frame`). One tab drag tick: the ghost move and
+    /// the drop-target update. Ring: B/E; arg0 the tick's dt in us.
+    case motionDragFrame = 18
 
     // MARK: key (PL-typing)
 
@@ -50,13 +63,13 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
     /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
-    case keyToFrame
+    case keyToFrame = 6
     /// One hop of a key press's flow across processes (a point event, not an interval), emitted only
     /// while `CMUX_NEXT_TRACE_FLOWS` is set (`TypingLatencyProbe`). Message: `hop=<hop> flow=<id>
     /// age_us=<n>`, where `flow` is the id the app minted for the key press (the daemon's `send`
     /// request carries it) and `age_us` the key event's age at the hop, or -1.
     /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.
-    case keyFlow
+    case keyFlow = 7
     /// A scroll event (a trackpad gesture's touch, began, change or end, its momentum, or a mouse-wheel notch)
     /// the app dispatches to the end of the Core Animation commit that ends that turn (``ScrollFrameSignpost``,
     /// from the app's one input dispatch context, as ``keyToFrame``). Begin message: `phase=<touch|began|changed|
@@ -64,40 +77,209 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
     /// who took it: `layout` when the layout scrolled the strip, rows, an area or a canvas (that commit shows the
     /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
     /// frame); `commit=missed` as for ``actionCommit``.
-    case scrollToFrame
+    case scrollToFrame = 8
+    /// Reserved (task 040, PL-typing; perf-hot `omnibar-suggest`). One omnibar suggestion pass for a typed
+    /// key, from the query to the reduced result list. Ring: B/E; end arg0 the result count.
+    case keyOmnibarSuggest = 19
+    /// Reserved (task 040, PL-typing; perf-hot `palette-search`). One palette search for a typed key, from
+    /// the query to the ranked rows. Ring: B/E; end arg0 the result count.
+    case keyPaletteSearch = 20
+
+    // MARK: key echo hops (reserved: task 102, PL-trace)
+    // The 12 thread handoffs of a key's echo (ghostty-integration-DESIGN.md, "Key to frame"): a flow-out
+    // when a thread queues the item, a flow-in when the next thread takes it, under the same name. Ring:
+    // arg0 the key's flow id, arg1 the terminal hash. The Rust and C writers use the same strings.
+
+    /// Reserved (task 102, PL-trace). The terminal host's PTY thread: the echo read from the PTY.
+    case keyEchoHostPTYRead = 21
+    /// Reserved (task 102, PL-trace). The terminal host's client writer: the output frame to the daemon.
+    case keyEchoHostClientWrite = 22
+    /// Reserved (task 102, PL-trace). The daemon's frames thread: the host frame taken off the socket.
+    case keyEchoDaemonFrames = 23
+    /// Reserved (task 102, PL-trace). The daemon's surface parse of the output.
+    case keyEchoSurfaceParse = 24
+    /// Reserved (task 102, PL-trace). The daemon's attach-out encode of the output event.
+    case keyEchoAttachEncode = 25
+    /// Reserved (task 102, PL-trace). The daemon's line-out writer: the event written to the app socket.
+    case keyEchoLineOut = 26
+    /// Reserved (task 102, PL-trace). The app's transport reader (`LineTransport`): the line read.
+    case keyEchoAppTransportRead = 27
+    /// Reserved (task 102, PL-trace). The hop to the main actor.
+    case keyEchoMainActor = 28
+    /// Reserved (task 102, PL-trace). The terminal output lane (`TerminalOutputLane`): the bytes fed to Ghostty.
+    case keyEchoOutputLane = 29
+    /// Reserved (task 102, PL-trace). Ghostty's renderer thread: the frame that draws the echo.
+    case keyEchoRenderer = 30
+    /// Reserved (task 102, PL-trace). The Metal completion handler of that frame.
+    case keyEchoGPUDone = 31
+    /// Reserved (task 102, PL-trace). The main thread's IOSurface contents handoff of that frame.
+    case keyEchoContents = 32
 
     // MARK: switch (reserved: PL-switch, SwitchFrameTimer)
 
-    /// Reserved. A workspace switch: the intent to the commit that shows the new workspace.
-    case switchWorkspace
-    /// Reserved. A tab switch: the intent to the commit that shows the tab's content.
-    case switchTab
-    /// Reserved. A pane focus move: the intent to the settled focus.
-    case switchPaneFocus
+    /// Reserved (task 027, PL-switch). A workspace switch: the intent to the commit that shows the new
+    /// workspace. Ring: AB/AE; begin arg0 the input age in us.
+    case switchWorkspace = 9
+    /// Reserved (task 028, PL-switch). A tab switch: the intent to the commit that shows the tab's content.
+    /// Ring: AB/AE; begin arg0 the kind (0 cold, 1 warm, 2 page).
+    case switchTab = 10
+    /// Reserved (task 029, PL-switch). A pane focus move: the intent to the settled focus. Ring: AB/AE.
+    case switchPaneFocus = 11
+    /// Reserved (task 039, PL-switch; perf-hot `cmd-tab`). The app becoming active or a window becoming key
+    /// (`keyDidMove`) to the commit that shows it. Ring: B/E.
+    case switchAppActivation = 33
 
     // MARK: create (reserved: PL-cef-tab)
 
-    /// Reserved. A new tab: the intent to its first themed frame. Message: `kind=<terminal|chromium|webkit|chat|page>`.
-    case createTab
-    /// Reserved. A new workspace: the intent to its sidebar row drawn.
-    case createWorkspace
+    /// Reserved (task 030, PL-cef-tab). A new tab: the intent to its first themed frame. Message:
+    /// `kind=<terminal|chromium|webkit|chat|page>`. Ring: AB/AE keyed by the intent id; begin arg0 the kind,
+    /// end arg0 the outcome (0 shown, 1 closed before its first frame); an instant marks the stand-in commit.
+    case createTab = 12
+    /// Reserved (task 031, PL-cef-tab). A new workspace: the intent to its sidebar row drawn. Ring: AB/AE.
+    case createWorkspace = 13
 
     // MARK: cef (reserved: PL-motion-cef, PL-cef-tab)
 
-    /// Reserved. One Chromium message pump pass on the main thread.
-    case cefPump
-    /// Reserved. `CefBrowserHost::CreateBrowser` on the main thread.
-    case cefCreateBrowser
+    /// Reserved (task 032, PL-cef-tab). One Chromium message pump pass on the main thread (or in the
+    /// Chromium host). Ring: B/E; begin arg0 the armed reason, end arg0 1 for a long run, arg1 elapsed us.
+    case cefPump = 14
+    /// Reserved (task 033, PL-cef-tab). `CefBrowserHost::CreateBrowser` on the main thread, or the Chromium
+    /// host's create to its reply. Ring: AB/AE; begin arg0 1 for a spare, arg1 the profile index.
+    case cefCreateBrowser = 15
+    /// Reserved (task 038, PL-motion-cef; perf-hot `cef-geometry`). A page's parent geometry change and its
+    /// catcher sync. Ring: B/E, plus an instant per geometry post; end arg0 the catcher count.
+    case cefGeometry = 34
+    /// Reserved (task 038, PL-motion-cef; perf-hot `cef-host-input`). One input event sent to a Chromium page
+    /// or to the Chromium host. Ring: instant; arg0 the event kind.
+    case cefHostInput = 35
+
+    // MARK: launch (reserved: task 034, Performance Lead)
+    // Each is an async slice from the process start (PROC_PIDTBSDINFO, on the uptime clock) to its mark.
+    // Ring: AB/AE; end arg0 the launch temperature (0 warm, 1 lukewarm, 2 cold).
+
+    /// Reserved (task 034, Performance Lead). The process start to the first line of `main`.
+    case launchProcessToMain = 36
+    /// Reserved (task 034, Performance Lead). The process start to the first window ordered front.
+    case launchFirstWindow = 37
+    /// Reserved (task 034, Performance Lead). The process start to the first window's first frame (`FirstFrameGate`).
+    case launchFirstFrame = 38
+    /// Reserved (task 034, Performance Lead). The process start to the daemon connection's handshake.
+    case launchDaemonReady = 39
+    /// Reserved (task 034, Performance Lead). The process start to the first terminal's first output.
+    case launchFirstTerminalOutput = 40
 
     // MARK: stall (emitter: the main-thread scheduler, CmuxNextWakeups `MainFrameBudget`)
 
     /// One task the main-thread scheduler runs, from its start to its return: a frame batch
     /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|visible|automation|background>
     /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
-    case stallMainTask
+    case stallMainTask = 16
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
     /// `class=<class> owner=<owner> ms=<task time> budget_ms=<the class's budget>`.
-    case stallOverBudget
+    case stallOverBudget = 17
+    /// Reserved (task 035, PL-ghostty). Creating a terminal surface on main (`TerminalTimings`). Ring: B/E.
+    case stallCreateSurface = 41
+    /// Reserved (task 036, Performance Lead). Opening the command palette on main (`DebugTimings`). Ring: B/E.
+    case stallPaletteOpen = 42
+    /// Reserved (task 036, Performance Lead). Opening the icon picker on main (`DebugTimings`). Ring: B/E.
+    case stallIconPickerOpen = 43
+
+    // MARK: daemon (reserved: task 025, PL-daemon)
+    /// Reserved (task 025, PL-daemon). One app request to the cmux-tui daemon, from the send to the reply
+    /// or the timeout. Ring: AB/AE keyed by the request id; begin arg0 the command id (`DaemonCommandName`),
+    /// end arg0 the outcome (0 reply, 1 error, 2 timeout). Task 103 links it to the daemon's side by a flow.
+    case daemonRequest = 44
+
+    // MARK: frame (reserved: PL-motion-core, PL-ghostty)
+    /// Reserved (task 037, PL-motion-core; perf-hot `frame-tick`). One display-link tick (`FrameScheduler`).
+    /// Ring: instant; arg0 the tick's timestamp, arg1 its target timestamp (uptime ns).
+    case frameTick = 45
+    /// Reserved (task 037, PL-motion-core). The end of a Core Animation commit (``CommitBoundary``). Ring: instant.
+    case frameCommit = 46
+    /// Reserved (task 049, PL-ghostty). A Ghostty frame's Metal completion handler. Ring: instant; arg0 surface hash.
+    case frameGPUDone = 47
+    /// Reserved (task 037, PL-motion-core). The first vsync at or after max(``frameCommit``, ``frameGPUDone``)
+    /// for a flow-marked commit: an estimate, not a measured present. Ring: instant with the "estimated" flag;
+    /// arg0 the flow id, arg1 the vsync target (uptime ns).
+    case framePresentEstimate = 48
+    /// Reserved (task 057, PL-motion-core). A frame sequence's summary when it closes (Chrome's
+    /// `FrameSequenceTracker`). Ring: instant; arg0 expected frames, arg1 frames that committed changes.
+    case frameSequence = 49
+
+    // MARK: task (reserved: task 042, Performance Lead)
+    /// Reserved (task 042, Performance Lead). A work item posted (Chrome's `PostTask` with `FROM_HERE`).
+    /// Ring: flow-out; arg0 the item's flow id, arg1 the interned post site.
+    case taskPost = 50
+    /// Reserved (task 042, Performance Lead). A work item run, with the flow-in from its post. Ring: B/E;
+    /// arg0 the lane and priority, arg1 the queue wait in us.
+    case taskRun = 51
+
+    // MARK: hang (reserved: PL-telemetry)
+    /// Reserved (task 068, PL-telemetry). A watched thread past its hang-watch deadline. Ring: instant;
+    /// arg0 the thread's name id, arg1 how far past the deadline, in ms.
+    case hangThreadHung = 52
+    /// Reserved (task 110, PL-telemetry). The main thread stalled for 2 s: the fatal-hang candidate is
+    /// written to the crash-key page. Ring: instant; arg0 the stall's start (uptime ns).
+    case hangInProgress = 53
+    /// Reserved (task 067, PL-telemetry). A thread's open scopes invalidated before a nested run loop, a
+    /// modal or a network or process wait. Ring: instant; arg0 the thread's name id.
+    case hangInvalidated = 54
+
+    // MARK: input (reserved: task 111, PL-typing)
+    /// Reserved (task 111, PL-typing). An input event other than a key-down, from its `NSEvent` timestamp to
+    /// the next content-changing commit (events that change no frame are dropped). Ring: AB/AE; begin arg0
+    /// the kind (mouse_down, mouse_up, drag, scroll, ime_commit, paste).
+    case inputFrame = 55
+
+    // MARK: webview (reserved: task 114, PL-telemetry)
+    /// Reserved (task 114, PL-telemetry). A slow interaction in a cmux web page (`PerformanceObserver`
+    /// 'event', over 16 ms). Ring: instant; arg0 the page index, arg1 the duration in us.
+    case webviewINP = 56
+    /// Reserved (task 114, PL-telemetry). A long animation frame (or a long task on WebKit) in a cmux web
+    /// page. Ring: instant; arg0 the page index, arg1 the duration in us.
+    case webviewLoAF = 57
+
+    // MARK: remote (reserved: task 127, PL-telemetry)
+    /// Reserved (task 127, PL-telemetry). An input event sent to the remote desktop. Ring: instant; arg0 its
+    /// sequence number.
+    case remoteInput = 58
+    /// Reserved (task 127, PL-telemetry). A remote desktop frame decoded. Ring: instant; arg0 the frame number.
+    case remoteFrameDecoded = 59
+    /// Reserved (task 127, PL-telemetry). A remote desktop frame shown. Ring: instant; arg0 the frame number,
+    /// arg1 the input sequence number it echoes, or 0.
+    case remotePresent = 60
+
+    // MARK: crash (reserved: PL-telemetry)
+    /// Reserved (task 083, PL-telemetry). An abnormal Chromium helper exit. Ring: instant; arg0 the process
+    /// type, arg1 the exit reason and code.
+    case crashHelperExit = 61
+    /// Reserved (task 108, PL-telemetry). A WebKit content process ended (`webViewWebContentProcessDidTerminate`).
+    /// Ring: instant; arg0 the surface kind.
+    case crashWebContentEnd = 62
+    /// Reserved (task 108, PL-telemetry). A Chromium page unresponsive, from the shown state to its end.
+    /// Ring: AB/AE.
+    case crashRendererUnresponsive = 63
+    /// Reserved (task 109, PL-telemetry). A child process exit the app saw (daemon, holder, host, acpmux,
+    /// helpers). Ring: instant; arg0 the child kind, arg1 the exit (0 clean, 1 signal, 2 panic, 3 oom).
+    case crashChildExit = 64
+    /// Reserved (task 130, PL-telemetry). A Release invariant that reported without crashing. Ring: instant;
+    /// arg0 the interned site.
+    case crashDumpWithoutCrashing = 65
+
+    // MARK: control (reserved: tasks 042 and 115, Performance Lead)
+    /// Reserved (tasks 042 and 115, Performance Lead). One control-socket request, from the accept to the
+    /// reply, with instants for parsed, queued and dispatched. Ring: AB/AE keyed by the request; begin arg0
+    /// the method id, arg1 the source (cli, mcp, agent, app).
+    case controlRequest = 66
+
+    // MARK: ghostty (reserved: task 049, PL-ghostty)
+    /// Reserved (task 049, PL-ghostty). One Ghostty frame on its renderer thread (`drawFrame`), through the
+    /// ghostty-next trace hook. Ring: B/E; arg0 the surface hash.
+    case ghosttyRender = 67
+
+    // MARK: resize (reserved: task 111, PL-motion-core)
+    /// Reserved (task 111, PL-motion-core). One live window resize tick to the commit that shows it. Ring: AB/AE.
+    case resizeFrame = 68
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
@@ -107,26 +289,109 @@ public nonisolated enum SignpostName: Sendable, Hashable, CaseIterable, CustomSt
         case .actionGate: "action.gate"
         case .motionFrame: "motion.frame"
         case .motionRun: "motion.run"
+        case .motionDragFrame: "motion.drag_frame"
         case .keyToFrame: "key.frame"
         case .keyFlow: "key.flow"
         case .scrollToFrame: "key.scroll_frame"
+        case .keyOmnibarSuggest: "key.omnibar_suggest"
+        case .keyPaletteSearch: "key.palette_search"
+        case .keyEchoHostPTYRead: "key.echo.host_pty_read"
+        case .keyEchoHostClientWrite: "key.echo.host_client_write"
+        case .keyEchoDaemonFrames: "key.echo.daemon_frames"
+        case .keyEchoSurfaceParse: "key.echo.surface_parse"
+        case .keyEchoAttachEncode: "key.echo.attach_encode"
+        case .keyEchoLineOut: "key.echo.line_out"
+        case .keyEchoAppTransportRead: "key.echo.app_transport_read"
+        case .keyEchoMainActor: "key.echo.main_actor"
+        case .keyEchoOutputLane: "key.echo.output_lane"
+        case .keyEchoRenderer: "key.echo.renderer"
+        case .keyEchoGPUDone: "key.echo.gpu_done"
+        case .keyEchoContents: "key.echo.contents"
         case .switchWorkspace: "switch.workspace"
         case .switchTab: "switch.tab"
         case .switchPaneFocus: "switch.pane_focus"
+        case .switchAppActivation: "switch.app_activation"
         case .createTab: "create.tab"
         case .createWorkspace: "create.workspace"
         case .cefPump: "cef.pump"
         case .cefCreateBrowser: "cef.create_browser"
+        case .cefGeometry: "cef.geometry"
+        case .cefHostInput: "cef.host_input"
+        case .launchProcessToMain: "launch.process_to_main"
+        case .launchFirstWindow: "launch.first_window"
+        case .launchFirstFrame: "launch.first_frame"
+        case .launchDaemonReady: "launch.daemon_ready"
+        case .launchFirstTerminalOutput: "launch.first_terminal_output"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
+        case .stallCreateSurface: "stall.create_surface"
+        case .stallPaletteOpen: "stall.palette_open"
+        case .stallIconPickerOpen: "stall.icon_picker_open"
+        case .daemonRequest: "daemon.request"
+        case .frameTick: "frame.tick"
+        case .frameCommit: "frame.commit"
+        case .frameGPUDone: "frame.gpu_done"
+        case .framePresentEstimate: "frame.present_estimate"
+        case .frameSequence: "frame.sequence"
+        case .taskPost: "task.post"
+        case .taskRun: "task.run"
+        case .hangThreadHung: "hang.thread_hung"
+        case .hangInProgress: "hang.in_progress"
+        case .hangInvalidated: "hang.invalidated"
+        case .inputFrame: "input.frame"
+        case .webviewINP: "webview.inp"
+        case .webviewLoAF: "webview.loaf"
+        case .remoteInput: "remote.input"
+        case .remoteFrameDecoded: "remote.frame_decoded"
+        case .remotePresent: "remote.present"
+        case .crashHelperExit: "crash.helper_exit"
+        case .crashWebContentEnd: "crash.webkit_content_end"
+        case .crashRendererUnresponsive: "crash.renderer_unresponsive"
+        case .crashChildExit: "crash.child_exit"
+        case .crashDumpWithoutCrashing: "crash.dump_without_crashing"
+        case .controlRequest: "control.request"
+        case .ghosttyRender: "ghostty.render"
+        case .resizeFrame: "resize.frame"
         }
     }
 
-    /// The category whose ``Signposter`` emits this name: the part of the name before the first
-    /// dot. Nil only for a malformed name, which the catalog test refuses.
-    public var category: SignpostCategory? {
-        SignpostCategory(rawValue: String(description.prefix { $0 != "." }))
+    /// The category whose ``Signposter`` emits this name and whose flag gates its ring records: the
+    /// part of the name before the first dot (the catalog test checks the two agree). A switch, so the
+    /// ring writer reads it with no `String`.
+    public var traceCategory: SignpostCategory {
+        switch self {
+        case .actionPerform, .actionCommit, .actionGate: .action
+        case .motionFrame, .motionRun, .motionDragFrame: .motion
+        case .keyToFrame, .keyFlow, .scrollToFrame, .keyOmnibarSuggest, .keyPaletteSearch, .keyEchoHostPTYRead,
+             .keyEchoHostClientWrite, .keyEchoDaemonFrames, .keyEchoSurfaceParse, .keyEchoAttachEncode, .keyEchoLineOut,
+             .keyEchoAppTransportRead, .keyEchoMainActor, .keyEchoOutputLane, .keyEchoRenderer, .keyEchoGPUDone,
+             .keyEchoContents:
+            .key
+        case .switchWorkspace, .switchTab, .switchPaneFocus, .switchAppActivation: .switch
+        case .createTab, .createWorkspace: .create
+        case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput: .cef
+        case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
+             .launchFirstTerminalOutput:
+            .launch
+        case .stallMainTask, .stallOverBudget, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen: .stall
+        case .daemonRequest: .daemon
+        case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
+        case .taskPost, .taskRun: .task
+        case .hangThreadHung, .hangInProgress, .hangInvalidated: .hang
+        case .inputFrame: .input
+        case .webviewINP, .webviewLoAF: .webview
+        case .remoteInput, .remoteFrameDecoded, .remotePresent: .remote
+        case .crashHelperExit, .crashWebContentEnd, .crashRendererUnresponsive, .crashChildExit,
+             .crashDumpWithoutCrashing:
+            .crash
+        case .controlRequest: .control
+        case .ghosttyRender: .ghostty
+        case .resizeFrame: .resize
+        }
     }
+
+    /// ``traceCategory``, as the optional the callers written before it read. Never nil.
+    public var category: SignpostCategory? { traceCategory }
 
     /// The name as a `String`.
     public var description: String { staticName.withUTF8Buffer { String(decoding: $0, as: UTF8.self) } }
