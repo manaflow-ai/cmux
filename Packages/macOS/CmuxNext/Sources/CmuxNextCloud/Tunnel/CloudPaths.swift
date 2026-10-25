@@ -21,7 +21,8 @@ public struct CloudPaths: Sendable {
 
     var privateKey: URL { root.appendingPathComponent("wireguard.private.key") }
     var deviceIDFile: URL { root.appendingPathComponent("device-id") }
-    var wireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
+    /// Where builds before the stdin config wrote the hub's config (with the private key).
+    var legacyWireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
     var linkState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
 
     /// Unix socket paths are limited to 104 bytes; the hub socket lives in
@@ -58,6 +59,9 @@ public struct CloudPaths: Sendable {
         for directory in [root, linkState] {
             try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
+        // The hub's config now travels on stdin; an earlier build's file copy of it (with the
+        // private key) goes.
+        try? FileManager.checked.removeItem(at: legacyWireGuardConfig)
     }
 
     /// Writes `text` atomically with mode 0600.

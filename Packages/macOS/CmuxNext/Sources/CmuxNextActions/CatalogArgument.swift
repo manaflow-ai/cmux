@@ -313,6 +313,16 @@ nonisolated enum CatalogArgument {
                               suggestions: ActionSuggestions(source: "browserFit", pinned: pinned))
     }
 
+    /// How Open Desktop shows a Cloud machine's screen (`cloudOpenDesktop`): `web`, its noVNC
+    /// page in a Chromium tab (the default), or `native`, the remote view pane straight to the
+    /// machine's VNC server over the app's Cloud tunnel.
+    static var desktopViewerChoice: ActionArgument {
+        ActionArgument(name: "viewer", title: String(localized: "argument.viewer", defaultValue: "Viewer", bundle: .module), kind: .enumeration([
+            ActionEnumCase(value: "web", title: String(localized: "argument.value.viewerWeb", defaultValue: "Browser", bundle: .module)),
+            ActionEnumCase(value: "native", title: String(localized: "argument.value.viewerNative", defaultValue: "Native", bundle: .module)),
+        ]), isRequired: false)
+    }
+
     /// A device title from the daemon's list, or none (`browserDevice`).
     static var deviceString: ActionArgument {
         ActionArgument(name: "device", title: String(localized: "argument.device", defaultValue: "Device", bundle: .module), kind: .string,
