@@ -79,11 +79,11 @@ export function shellCommands(line: string): ShellCommand[] {
   let runs: string[] = [];
   /// Here-documents opened on the current line, read once it ends.
   let pending: { delimiter: string; strip: boolean; quoted: boolean; command: Pending }[] = [];
-  // The command being read, so a here-document read after its line lands on it.
-  let current: Pending = {};
+  /// The here-documents the command being read opened, so their bodies read after its line land on it.
+  let docs: (typeof pending)[number][] = [];
   let index = 0;
   const end = (op: ShellCommand["op"]) => {
-    if (words.length || stdin || writes || runs.length || pending.some((doc) => doc.command === current)) {
+    if (words.length || stdin || writes || runs.length || docs.length) {
       const command: ShellCommand = {
         words,
         op,
@@ -93,13 +93,13 @@ export function shellCommands(line: string): ShellCommand[] {
       };
       commands.push(command);
       // The here-document's body is read after the line; it fills this command's stdin then.
-      for (const doc of pending) if (doc.command === current) doc.command = command;
+      for (const doc of docs) doc.command = command;
     }
     words = [];
     stdin = undefined;
     writes = false;
     runs = [];
-    current = {};
+    docs = [];
   };
   const readBodies = () => {
     for (const doc of pending) {
@@ -152,7 +152,9 @@ export function shellCommands(line: string): ShellCommand[] {
       if (op === ">&" ? !/^(?:\d+|-)$/.test(target.text) : WRITES.has(op) && target.text !== "/dev/null") writes = true;
       if (op === "<<" || op === "<<-") {
         const quoted = /['"\\]/.test(line.slice(start, next));
-        pending.push({ delimiter: target.text, strip: op === "<<-", quoted, command: current });
+        const doc = { delimiter: target.text, strip: op === "<<-", quoted, command: {} };
+        pending.push(doc);
+        docs.push(doc);
       } else if (op === "<<<") stdin = { text: `${target.text}\n`, literal: target.literal };
       else if (op === "<" || op === "<>") stdin = "file";
       continue;
@@ -254,7 +256,12 @@ function expansionEnd(line: string, from: number, runs: string[] = []): number {
     runs.push(line.slice(from + 2, line[stop - 1] === ")" ? stop - 1 : stop));
     return stop;
   }
-  if (next === "{") return balancedEnd(line, from + 1);
+  if (next === "{") {
+    // `${V:-$(cmd)}` runs cmd too.
+    const stop = balancedEnd(line, from + 1);
+    runs.push(...substitutions(line.slice(from + 2, stop)));
+    return stop;
+  }
   const name = /^(?:[A-Za-z_]\w*|[0-9#?$!@*-])/.exec(line.slice(from + 1));
   return name ? from + 1 + name[0].length : from + 1;
 }
@@ -302,14 +309,23 @@ const RUNNERS: Record<string, Set<string>> = {
 };
 /// Steps that only set up the shell, or report: they do no work a send row would hide.
 const SETUP = new Set(["cd", "pushd", "popd", "export", "set", "unset", "true", ":", "wait", "exit", "echo", "printf"]);
-/// Steps a send's output may pipe through (`| tail -1`), with how many operands each takes besides
-/// its options: they only cut what it printed, and read no file and write none.
-const FILTERS: Record<string, number> = { tail: 0, head: 0, cat: 0, wc: 0, cut: 0, grep: 1, jq: 1, tr: 2 };
+/// Steps a send's output may pipe through (`| tail -1`): how many operands each may have (a
+/// pattern, a jq filter) and the options it may take, none of which reads or writes a file. A word
+/// that is a number is an option's value (`-n 5`). They only cut what the send printed.
+const FILTERS: Record<string, { operands: number; options: RegExp }> = {
+  tail: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/ },
+  head: { operands: 0, options: /^-(?:[nc]?\d*|[qv])$/ },
+  cat: { operands: 0, options: /^-[AbeEnstuv]+$/ },
+  wc: { operands: 0, options: /^-[lwcmL]+$/ },
+  grep: { operands: 1, options: /^-[ivcnqxwoEFGPhsHm]+\d*$/ },
+  jq: { operands: 1, options: /^-(?:[rcjaMSCe]+|-raw-output|-compact-output|-exit-status|-join-output)$/ },
+};
 /// What a command substitution may run and still only read (`"$(cat note.md)"`).
 const READERS = new Set(["cat", "head", "tail", "date", "basename", "dirname", "pwd", "echo", "printf"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "fish"]);
-/// `reach`'s options that take a value (`reach --help`).
-const REACH_VALUES = new Set(["--origin", "--registry", "--keep-tunnel", "--timeout"]);
+/// `reach`'s options that take a value and still run the command (`reach --help`); any other
+/// option (`--help`, `--list`, `--why`, …) does something else.
+const REACH_VALUES = new Set(["--origin", "--registry", "--timeout"]);
 /// `acpmux send`'s options that take a value, and its flags (`acpmux send --help`).
 const SEND_VALUES = new Set(["--timeout", "--on-permission", "--stall", "--prompt-id", "--from", "--supersede"]);
 const SEND_FLAGS = new Set(["--json", "--steer", "--no-steer", "--suppress-reads", "--no-wait", "-q", "--quiet"]);
@@ -342,7 +358,7 @@ function unwrapped(words: readonly ShellWord[]): ShellWord[] {
 }
 
 /// `alarm N; exec @ARGV` and nothing else.
-const PERL_EXEC = /^\s*(?:alarm\s*\(?\s*\d+\s*\)?\s*;\s*)?exec\s*\(?\s*@ARGV\s*\)?\s*;?\s*$/;
+const PERL_EXEC = /^\s*alarm\s+\d+\s*;\s*exec\s+@ARGV\s*;?\s*$/;
 
 /// The words after a runner's options (and, for `env`, its assignments).
 function afterOptions(words: ShellWord[], values: ReadonlySet<string>, assignments = false): ShellWord[] {
@@ -368,7 +384,9 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     const name = program(words[0]);
     let send: AcpmuxSend | undefined;
     if (name === "reach") {
-      const rest = afterOptions(words.slice(1), REACH_VALUES);
+      let at = 1;
+      while (REACH_VALUES.has(words[at]?.text ?? "")) at += 2;
+      const rest = words.slice(at);
       const inner = rest.slice(1);
       if (rest[0]?.literal && inner.length && inner.every((word) => word.literal))
         send = acpmuxSend(inner.map((word) => word.text).join(" "), rest[0].text, depth + 1);
@@ -399,7 +417,7 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
     const words = unwrapped(command.words);
     const name = program(words[0]);
     if (SETUP.has(name) || command.words.every((word) => word.literal && ASSIGNMENT.test(word.text))) continue;
-    if (pipedFromSend && name in FILTERS && operands(words.slice(1)) <= FILTERS[name]!) continue;
+    if (pipedFromSend && name in FILTERS && onlyFilters(words.slice(1), FILTERS[name]!)) continue;
     // `cat <<EOF | acpmux send x -`: cat only hands the send its text.
     if (name === "cat" && index === at - 1 && command.op === "|" && command.words.length === 1) continue;
     return undefined;
@@ -407,10 +425,17 @@ export function acpmuxSend(line: string, host?: string, depth = 0): AcpmuxSend |
   return found;
 }
 
-/// How many of a filter's words are operands (a pattern, a file), not options or their numbers;
-/// an expansion counts as one.
-const operands = (words: readonly ShellWord[]) =>
-  words.filter((word) => !word.literal || !(word.text.startsWith("-") || /^\+?\d+[a-zA-Z]?$/.test(word.text))).length;
+/// Whether a filter's words are options it may take, numbers, and at most its operands.
+function onlyFilters(words: readonly ShellWord[], filter: (typeof FILTERS)[string]): boolean {
+  let operands = 0;
+  for (const word of words) {
+    if (!word.literal) return false;
+    if (word.text.length > 1 && word.text.startsWith("-")) {
+      if (!filter.options.test(word.text)) return false;
+    } else if (!/^\+?\d+$/.test(word.text) && ++operands > filter.operands) return false;
+  }
+  return true;
+}
 
 /// Whether a command substitution's script only reads: readers piped or listed, writing nothing.
 function onlyReads(script: string, depth: number): boolean {
@@ -448,6 +473,7 @@ function stdinOf(commands: readonly ShellCommand[], index: number): ShellWord | 
 function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefined, host?: string) {
   const positional: ShellWord[] = [];
   let noWait = false;
+  let steer: string | undefined;
   let options = true;
   for (let index = 0; index < args.length; index++) {
     const word = args[index]!;
@@ -457,8 +483,13 @@ function sendArgs(args: readonly ShellWord[], stdin: ShellWord | "file" | undefi
       const name = text.split("=", 1)[0]!;
       // `--status ID` reads a delivery's state; help prints usage. Neither sends anything.
       if (name === "--status" || name === "--help" || /^-[a-zA-Z]*h/.test(name)) return undefined;
-      // An option acpmux does not know fails the call: it sends nothing.
-      if (!SEND_FLAGS.has(name) && !SEND_VALUES.has(name)) return undefined;
+      // An option acpmux does not know, a value on a flag, or both --steer and --no-steer fail the
+      // call: it sends nothing.
+      if (SEND_FLAGS.has(name) ? text.includes("=") : !SEND_VALUES.has(name)) return undefined;
+      if (name === "--steer" || name === "--no-steer") {
+        if (steer && steer !== name) return undefined;
+        steer = name;
+      }
       if (name === "--no-wait") noWait = true;
       if (SEND_VALUES.has(name) && !text.includes("=")) index += 1;
     } else positional.push(word);
