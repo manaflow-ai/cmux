@@ -6,7 +6,8 @@ import QuartzCore
 import Testing
 
 /// RenderStats (p03-rendering-001): render work counted per owner class only while armed, for the
-/// counting benches (`debug.frames` with `render: true`, `debug.damage`).
+/// counting benches (`debug.frames` with `render: true`, `debug.damage`), and RenderFrameLog, its
+/// per-frame view for `debug.frames`. One serialized suite: the hooks are process-wide.
 @MainActor
 @Suite(.serialized) struct RenderStatsTests {
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -24,50 +25,120 @@ import Testing
         override func draw(_ dirtyRect: NSRect) {}
     }
 
+    /// Two views that do not draw, each first displayed in one state (disarmed, armed).
+    class DisarmedBackedView: NSView {}
+    class ArmedBackedView: NSView {}
+
     final class ProbeWindow: NSWindow {}
 
     nonisolated final class ProbeLayer: CALayer {}
+    nonisolated final class AddedWhileDisarmedLayer: CALayer {}
+    nonisolated final class AddedWhileArmedLayer: CALayer {}
 
     nonisolated final class OffMainCalls: Sendable {
         let count = Atomic<Int>(0)
     }
 
+    private typealias SetContents = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
+    private static let setContents = #selector(setter: CALayer.contents)
+
     private func count(_ stats: RenderStats, _ counter: RenderStats.Counter, owner: AnyClass) -> Int {
-        stats.owners().first { $0.id == ObjectIdentifier(owner) }?.totals[counter] ?? 0
+        stats.owners().first { $0.key == RenderStats.classKey(owner) }?.totals[counter] ?? 0
     }
 
-    private func rootIMPs() -> [IMP?] {
-        RenderStats.hookedSelectors.flatMap { root, selectors in
-            selectors.map { selector in class_getInstanceMethod(root, selector).map(method_getImplementation) }
+    /// `stats` armed and counting.
+    private func armed(_ stats: RenderStats = RenderStats()) async -> RenderStats {
+        #expect(stats.arm())
+        #expect(await stats.ready())
+        return stats
+    }
+
+    /// The IMPs of every method hooked on its root, and of the test classes' own hooked methods.
+    private func hookedIMPs() -> [IMP?] {
+        let roots = RenderStats.hookedMethods().filter(\.onRoot).map { class_getInstanceMethod($0.root, $0.selector) }
+        let subclasses = [
+            class_getInstanceMethod(SuperCallingView.self, #selector(NSView.setFrameSize(_:))),
+            class_getInstanceMethod(DrawingView.self, #selector(NSView.updateLayer)),
+            class_getInstanceMethod(DrawingView.self, #selector(NSView.draw(_:))),
+        ]
+        return (roots + subclasses).map { $0.map(method_getImplementation) }
+    }
+
+    /// NSView's own `drawRect:` and `updateLayer`, which the hooks never replace.
+    private func viewDrawingIMPs() -> [IMP?] {
+        [#selector(NSView.draw(_:)), #selector(NSView.updateLayer)].map { class_getMethodImplementation(NSView.self, $0) }
+    }
+
+    /// Disarmed, every hooked method (root and subclass) runs its original IMP; armers nest, and the last
+    /// disarm restores. NSView's `drawRect:` and `updateLayer` stay NSView's own while armed.
+    @Test func disarmedHooksAreTheOriginalIMPs() async {
+        let original = hookedIMPs()
+        let drawing = viewDrawingIMPs()
+        #expect(original.allSatisfy { $0 != nil })
+        let stats = await armed()
+        let armedIMPs = hookedIMPs()
+        for index in original.indices { #expect(armedIMPs[index] != original[index]) }
+        #expect(viewDrawingIMPs() == drawing)
+        stats.arm()
+        stats.disarm()
+        #expect(stats.isCounting)
+        #expect(hookedIMPs() == armedIMPs)
+        stats.disarm()
+        #expect(!stats.isArmed)
+        #expect(!stats.isCounting)
+        #expect(hookedIMPs() == original)
+        // A second arm reuses the same hooks.
+        _ = await armed(stats)
+        #expect(hookedIMPs() == armedIMPs)
+        stats.disarm()
+        #expect(hookedIMPs() == original)
+    }
+
+    /// Two probes (`debug.frames`, `debug.damage`) share the app's one instance: it counts until both
+    /// end their arms, and in either disarm order every IMP ends as the original.
+    @Test func twoArmersShareOneInstanceAndEitherDisarmOrderRestoresTheIMPs() async {
+        let original = hookedIMPs()
+        let stats = RenderStats()
+        let frames = RenderFrameLog(stats: stats, windows: { [] })
+        let damage = RenderFrameLog(stats: stats, windows: { [] })
+        for order in [[frames, damage], [damage, frames]] {
+            #expect(await frames.arm())
+            #expect(await damage.arm())
+            #expect(hookedIMPs() != original)
+            order[0].disarm()
+            order[0].disarm()
+            #expect(stats.isCounting)
+            order[1].disarm()
+            #expect(!stats.isCounting)
+            #expect(!stats.isArmed)
+            #expect(hookedIMPs() == original)
         }
     }
 
-    /// Disarmed, every hooked method runs its original IMP; armers nest, and the last disarm restores.
-    @Test func disarmedHooksAreTheOriginalIMPs() {
+    /// The class scan runs off the caller's turn, once: a later arm with no class loaded since reuses it.
+    @Test func aSecondArmReusesTheClassScan() async {
         let stats = RenderStats()
-        let original = rootIMPs()
-        #expect(original.allSatisfy { $0 != nil })
+        let clock = ContinuousClock()
+        let armCall = clock.measure { _ = stats.arm() }
+        #expect(armCall < .milliseconds(50))
+        #expect(await stats.ready())
+        #expect(stats.fullScans == 1)
+        stats.disarm()
+        let start = clock.now
         #expect(stats.arm())
-        let armed = rootIMPs()
-        for index in original.indices { #expect(armed[index] != original[index]) }
-        stats.arm()
+        #expect(await stats.ready())
+        let second = start.duration(to: clock.now)
         stats.disarm()
-        #expect(stats.isArmed)
-        #expect(rootIMPs() == armed)
+        #expect(stats.fullScans == 1)
+        #expect(second < .milliseconds(500))
+        stats.forgetScan()
+        #expect(await armed(stats).fullScans == 2)
         stats.disarm()
-        #expect(!stats.isArmed)
-        #expect(rootIMPs() == original)
-        // A second arm reuses the same hooks.
-        stats.arm()
-        #expect(rootIMPs() == armed)
-        stats.disarm()
-        #expect(rootIMPs() == original)
     }
 
-    @Test func threeFrameSetsCountThreeAndAnEqualSetCountsZero() {
+    @Test func threeFrameSetsCountThreeAndAnEqualSetCountsZero() async {
         let view: NSView = PlainView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
-        let stats = RenderStats()
-        stats.arm()
+        let stats = await armed()
         view.setFrameSize(NSSize(width: 20, height: 20))
         view.setFrameSize(NSSize(width: 30, height: 30))
         view.setFrameOrigin(NSPoint(x: 5, y: 5))
@@ -82,42 +153,72 @@ import Testing
     }
 
     /// An override that calls `super` is one set, counted at the override's class.
-    @Test func anOverrideCallingSuperCountsOnce() {
+    @Test func anOverrideCallingSuperCountsOnce() async {
         let view: NSView = SuperCallingView(frame: .zero)
-        let stats = RenderStats()
-        stats.arm()
+        let stats = await armed()
         defer { stats.disarm() }
         for side in [10.0, 20.0, 30.0] { view.setFrameSize(NSSize(width: side, height: side)) }
         #expect(count(stats, .frameSets, owner: SuperCallingView.self) == 3)
         #expect(stats.totals[.frameSets] == 3)
     }
 
-    @Test func updateLayerAndDrawCountDamageRectsAndArea() {
+    /// A rect from bad layout math (NaN, infinite) counts as a rect with no area and does not trap.
+    @Test func updateLayerAndDrawCountDamageRectsAndArea() async {
         let view: NSView = DrawingView(frame: NSRect(x: 0, y: 0, width: 10, height: 20))
-        let stats = RenderStats()
-        stats.arm()
+        let stats = await armed()
         defer { stats.disarm() }
         view.updateLayer()
         view.draw(NSRect(x: 0, y: 0, width: 5, height: 4))
-        #expect(count(stats, .damageRects, owner: DrawingView.self) == 2)
+        view.draw(NSRect(x: 0, y: 0, width: CGFloat.nan, height: 4))
+        view.draw(NSRect(x: 0, y: 0, width: CGFloat.infinity, height: 4))
+        #expect(count(stats, .damageRects, owner: DrawingView.self) == 4)
         #expect(count(stats, .damageArea, owner: DrawingView.self) == 200 + 20)
     }
 
-    @Test func trackingAreaAddsCount() {
+    @Test func damageAreaIsZeroForBadSizesAndClampsHugeOnes() {
+        #expect(RenderStats.damageArea(width: 5, height: 4) == 20)
+        #expect(RenderStats.damageArea(width: .nan, height: 4) == 0)
+        #expect(RenderStats.damageArea(width: .infinity, height: 4) == 0)
+        #expect(RenderStats.damageArea(width: -5, height: 4) == 0)
+        #expect(RenderStats.damageArea(width: 1e300, height: 1e300) == Int.max)
+    }
+
+    /// A view that does not draw keeps NSView's `drawRect:` while armed, so AppKit treats it as disarmed:
+    /// a display pass leaves its layer contents as they are with the hooks out.
+    @Test func aViewThatDoesNotDrawDisplaysAsWhenDisarmed() async {
+        let disarmed = Self.hasContentsAfterDisplay(DisarmedBackedView(frame: NSRect(x: 0, y: 0, width: 40, height: 40)))
+        let stats = await armed()
+        defer { stats.disarm() }
+        #expect(class_getMethodImplementation(ArmedBackedView.self, #selector(NSView.draw(_:)))
+            == class_getMethodImplementation(NSView.self, #selector(NSView.draw(_:))))
+        #expect(Self.hasContentsAfterDisplay(ArmedBackedView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))) == disarmed)
+    }
+
+    private static func hasContentsAfterDisplay(_ view: NSView) -> Bool {
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        view.wantsLayer = true
+        window.contentView = view
+        view.needsDisplay = true
+        view.displayIfNeeded()
+        let hasContents = view.layer?.contents != nil
+        window.contentView = nil
+        return hasContents
+    }
+
+    @Test func trackingAreaAddsCount() async {
         let view: NSView = PlainView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
-        let stats = RenderStats()
-        stats.arm()
+        let stats = await armed()
         defer { stats.disarm() }
         view.addTrackingArea(NSTrackingArea(rect: view.bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: view))
         #expect(count(stats, .trackingAreaAdds, owner: PlainView.self) == 1)
     }
 
-    @Test func windowCallsCountOnlyChanges() {
+    @Test func windowCallsCountOnlyChanges() async {
         let window: NSWindow = ProbeWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
                                  backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        let stats = RenderStats()
-        stats.arm()
+        let stats = await armed()
         defer { stats.disarm() }
         window.setFrame(NSRect(x: 10, y: 10, width: 300, height: 120), display: false)
         window.setFrame(window.frame, display: false)
@@ -129,8 +230,7 @@ import Testing
     /// Renderer threads set layer contents: every change counts, a repeat of the same object does not, and the
     /// counters take it without a data race (run under TSan: `swift test --sanitize=thread`).
     @Test func contentsSetsFromBackgroundThreadsCountWithoutARace() async {
-        let stats = RenderStats()
-        stats.arm()
+        let stats = await armed()
         defer { stats.disarm() }
         let (offMain, sets) = await Self.setContentsOffMain(threads: 8, setsPerThread: 50)
         #expect(offMain == 8)
@@ -168,35 +268,47 @@ import Testing
         return context.makeImage()
     }
 
-    /// A method a class gains while disarmed (TypingFrameProbe adds `setContents:` to a layer class at runtime)
-    /// is hooked by the next arm, and the call it forwards to `CALayer` counts once.
-    @Test func aMethodAddedWhileDisarmedIsHookedByTheNextArm() {
-        let stats = RenderStats()
-        stats.arm()
+    /// A `setContents:` a layer class gains at runtime (TypingFrameProbe's), added while disarmed or while
+    /// armed, counts once at the hook it reaches; after disarm it reaches CALayer's own IMP, and a later
+    /// arm counts it again (it never kept an old hook).
+    @Test func aMethodAddedAtRuntimeCountsThroughTheHookItReaches() async {
+        let rootIMP = class_getMethodImplementation(CALayer.self, Self.setContents)
+        Self.addForwardingSetContents(to: AddedWhileDisarmedLayer.self)
+        let stats = await armed()
+        Self.addForwardingSetContents(to: AddedWhileArmedLayer.self)
+        let early = AddedWhileDisarmedLayer()
+        early.contents = Self.image(gray: 0)
+        early.contents = Self.image(gray: 1)
+        let late = AddedWhileArmedLayer()
+        late.contents = Self.image(gray: 0)
+        late.contents = Self.image(gray: 1)
+        #expect(count(stats, .contentsSets, owner: AddedWhileDisarmedLayer.self) == 2)
+        #expect(count(stats, .contentsSets, owner: AddedWhileArmedLayer.self) == 2)
+        #expect(stats.owners().filter { $0.name.contains("AddedWhile") }.count == 2)
         stats.disarm()
-        let layerClass: AnyClass = AddedMethodLayer.self
-        let selector = #selector(setter: CALayer.contents)
-        typealias SetContents = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
-        if let inherited = class_getInstanceMethod(CALayer.self, selector) {
-            let forward = unsafeBitCast(method_getImplementation(inherited), to: SetContents.self)
-            let block: @convention(block) (AnyObject, AnyObject?) -> Void = { layer, contents in forward(layer, selector, contents) }
-            class_addMethod(layerClass, selector, imp_implementationWithBlock(block), method_getTypeEncoding(inherited))
-        }
-        stats.arm()
-        defer { stats.disarm() }
-        let layer = AddedMethodLayer()
-        layer.contents = Self.image(gray: 0)
-        layer.contents = Self.image(gray: 1)
-        #expect(count(stats, .contentsSets, owner: AddedMethodLayer.self) == 2)
-        #expect(stats.owners().filter { $0.name.contains("AddedMethodLayer") }.count == 1)
+        #expect(class_getMethodImplementation(CALayer.self, Self.setContents) == rootIMP)
+
+        let again = await armed()
+        defer { again.disarm() }
+        late.contents = Self.image(gray: 0)
+        #expect(count(again, .contentsSets, owner: AddedWhileArmedLayer.self) == 1)
     }
 
-    nonisolated final class AddedMethodLayer: CALayer {}
+    /// Adds `setContents:` to `type` as TypingFrameProbe does: it calls its superclass's IMP as it is at the call.
+    private static func addForwardingSetContents(to type: AnyClass) {
+        let selector = setContents
+        guard let superclass = class_getSuperclass(type), let inherited = class_getInstanceMethod(superclass, selector) else { return }
+        let block: @convention(block) (AnyObject, AnyObject?) -> Void = { layer, contents in
+            if let imp = class_getMethodImplementation(superclass, selector) {
+                unsafeBitCast(imp, to: SetContents.self)(layer, selector, contents)
+            }
+        }
+        class_addMethod(type, selector, imp_implementationWithBlock(block), method_getTypeEncoding(inherited))
+    }
 
-    @Test func armingRoutesLayoutPassGuardLayoutCalls() {
+    @Test func armingRoutesLayoutPassGuardLayoutCalls() async {
         let guardian = LayoutPassGuard.shared
-        let stats = RenderStats(layoutGuard: guardian)
-        stats.arm()
+        let stats = await armed(RenderStats(layoutGuard: guardian))
         #expect(guardian.renderStats === stats)
         stats.recordLayout(of: PlainView.self)
         #expect(count(stats, .layouts, owner: PlainView.self) == 1)
@@ -207,9 +319,8 @@ import Testing
     }
 
     /// Owners past the table's capacity still count, in the overflow cell, and the totals stay whole.
-    @Test func ownersPastCapacityGoToTheOverflowCell() {
-        let stats = RenderStats(ownerCapacity: 1)
-        stats.arm()
+    @Test func ownersPastCapacityGoToTheOverflowCell() async {
+        let stats = await armed(RenderStats(ownerCapacity: 1))
         defer { stats.disarm() }
         stats.recordLayout(of: PlainView.self)
         stats.recordLayout(of: DrawingView.self)
@@ -220,6 +331,65 @@ import Testing
         #expect(stats.totals == RenderStats.Totals())
         #expect(stats.owners().isEmpty)
     }
+
+    /// Per recorded frame, the counts since the previous tick (the first tick only marks); the owner counts
+    /// cover the same frames as the sums, and both stay readable after the arm ends, until `clear()`.
+    @Test func renderFrameLogKeepsCountsPerRecordedFrame() async {
+        let stats = RenderStats()
+        let log = RenderFrameLog(stats: stats, windows: { [] })
+        #expect(Array(log.report(raw: true).keys) == ["render_armed"])
+        #expect(await log.arm())
+        log.clear()
+        stats.recordLayout(of: PlainView.self) // before the first tick: outside the frames
+        log.tick(record: false)
+        stats.recordLayout(of: PlainView.self)
+        stats.recordLayout(of: PlainView.self)
+        log.tick(record: true)
+        stats.recordLayout(of: DrawingView.self)
+        log.tick(record: true)
+        stats.recordLayout(of: PlainView.self) // after the last tick: outside the frames
+
+        let report = log.report(raw: true)
+        #expect(report["render_armed"] as? Bool == true)
+        #expect(report["layouts"] as? Int == 3)
+        #expect(report["layouts_max"] as? Int == 2)
+        #expect(report["layouts_per_frame"] as? [Int] == [2, 1])
+        #expect(report["frame_sets_per_frame"] as? [Int] == [0, 0])
+        #expect(report["hidden_looping_animations"] as? Int == 0)
+        let owners = Self.layoutsByOwner(report)
+        #expect(owners["PlainView"] == 2)
+        #expect(owners["DrawingView"] == 1)
+
+        log.disarm()
+        #expect(!stats.isCounting)
+        let stopped = log.report(raw: false)
+        #expect(stopped["render_armed"] as? Bool == false)
+        #expect(stopped["layouts"] as? Int == 3)
+        #expect(stopped["layouts_per_frame"] == nil)
+        #expect(Self.layoutsByOwner(stopped) == owners)
+        log.clear()
+        #expect(Array(log.report(raw: false).keys) == ["render_armed"])
+    }
+
+    private static func layoutsByOwner(_ report: [String: Any]) -> [String: Int] {
+        var layouts: [String: Int] = [:]
+        for entry in report["render_owners"] as? [[String: Any]] ?? [] {
+            if let name = entry["owner"] as? String, let count = entry["layouts"] as? Int { layouts[name] = count }
+        }
+        return layouts
+    }
+
+    /// A disarm while the class scan runs: the install finds no arm and puts no hook in.
+    @Test func aDisarmDuringTheScanInstallsNothing() async {
+        let original = hookedIMPs()
+        let stats = RenderStats()
+        #expect(stats.arm())
+        stats.disarm()
+        #expect(!(await stats.ready()))
+        #expect(!stats.isArmed)
+        #expect(hookedIMPs() == original)
+    }
+    #endif
 
     @Test func infiniteAnimationsCountOnlyWhereNobodySeesThem() {
         let root = CALayer()
@@ -242,12 +412,17 @@ import Testing
         RenderStats.countHiddenLoops(in: root, hidden: true, into: &counts)
         #expect(counts == [String(describing: CALayer.self): 2])
     }
-    #else
-    @Test func releaseBuildsHaveNoHooks() {
+
+    #if !(DEBUG || CMUX_BENCH_HOOKS)
+    @Test func releaseBuildsHaveNoHooks() async {
         let stats = RenderStats()
         #expect(!RenderStats.isAvailable)
         #expect(!stats.arm())
         #expect(!stats.isArmed)
+        #expect(!(await stats.ready()))
+        let log = RenderFrameLog(stats: stats, windows: { [] })
+        #expect(!(await log.arm()))
+        #expect(Array(log.report(raw: true).keys) == ["render_armed"])
     }
     #endif
 }

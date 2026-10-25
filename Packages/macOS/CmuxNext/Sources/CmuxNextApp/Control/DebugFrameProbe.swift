@@ -18,8 +18,10 @@ import CmuxNextWakeups
 /// `raw: true` adds the per-frame arrays to the reply.
 ///
 /// `start` with `render: true` also arms ``RenderStats`` (DEBUG and bench
-/// builds; a counting pass, never a timed one: its hooks cost time), and the
-/// reply adds its per-frame counts (``RenderFrameLog/report(raw:)``).
+/// builds; a counting pass, never a timed one: its hooks cost time) and
+/// replies once its hooks count (their first class scan runs off the main
+/// thread); the frames start then. Every reply adds the render keys
+/// (``RenderFrameLog/report(raw:)``), which stay readable after `stop`.
 @MainActor
 final class DebugFrameProbe {
     static let maximumRun: Duration = .seconds(600)
@@ -43,23 +45,31 @@ final class DebugFrameProbe {
     private var observers: [CFRunLoopObserver] = []
     private let render: RenderFrameLog
 
-    init(render: RenderFrameLog = RenderFrameLog()) { self.render = render }
+    /// - Parameter render: per-frame counts of the app's one ``RenderStats`` (AppControl owns it).
+    init(render: RenderFrameLog) { self.render = render }
 
-    func handle(_ params: [String: JSONValue]) -> JSONValue {
+    func handle(_ params: [String: JSONValue]) -> ControlReply {
         let raw = params["raw"]?.boolValue == true
         switch params["action"]?.stringValue ?? "read" {
         case "start":
-            render.setArmed(params["render"]?.boolValue == true)
+            if params["render"]?.boolValue == true { return .followUp { [self] in await startCounting(raw: raw) } }
+            render.disarm()
             start()
         case "stop":
             let stats = stats(raw: raw)
             stop()
-            return stats
+            return .value(stats)
         case "reset":
             clear()
         default:
             break
         }
+        return .value(stats(raw: raw))
+    }
+
+    /// `start` with `render: true`: the frames start once the render hooks count (not after a `stop` that came first).
+    private func startCounting(raw: Bool) async -> JSONValue {
+        if await render.arm() { start() }
         return stats(raw: raw)
     }
 
@@ -75,7 +85,7 @@ final class DebugFrameProbe {
         expiry.cancel()
         for observer in observers { CFRunLoopObserverInvalidate(observer) }
         observers.removeAll()
-        render.setArmed(false)
+        render.disarm()
     }
 
     private func clear() {

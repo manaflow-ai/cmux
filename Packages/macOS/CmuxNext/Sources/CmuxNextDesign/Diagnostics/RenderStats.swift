@@ -13,22 +13,30 @@ import QuartzCore
 /// while `record_rendering_stats` is on, and `cc::DamageTracker`
 /// (cc/trees/damage_tracker.cc) names the layers that damaged a frame. Here the
 /// hooks exist only in `DEBUG || CMUX_BENCH_HOOKS` builds and are installed only
-/// while armed (``arm()``, `debug.frames` with `render: true`, `debug.damage`);
-/// ``disarm()`` puts every original IMP back. In Release ``arm()`` returns false
-/// and no hook is compiled.
+/// while armed; ``disarm()`` puts every original IMP back. In Release ``arm()``
+/// returns false and no hook is compiled.
 ///
-/// Each hooked method is replaced on the root class (`NSView`, `CALayer`,
-/// `NSWindow`) and on every loaded subclass that defines its own, and a call
-/// counts once, at the receiver's most derived hooked class: an override that
-/// calls `super` is not counted twice. A set that does not change the value
-/// (an equal frame, size, origin, alpha or the same contents object) counts 0.
-/// Counters are lock-free atomics, so a contents set from a renderer thread
-/// counts without a race; frame, window and `updateLayer` calls count on the
-/// main thread only (they read view state). Each ``arm()`` rescans the
-/// loaded classes, so a class loaded or a method added while disarmed is
-/// hooked too. One `-[NSView setFrame:]` that moves and resizes counts 2 (AppKit
-/// sends `setFrameOrigin:` and `setFrameSize:`). Share one instance per app:
-/// two armed instances count separately.
+/// Method IMPs are process-wide, so the app has one instance: the composition
+/// root (AppControl) makes it and passes it to every probe (`debug.frames`,
+/// `debug.damage`), whose arms nest on it.
+///
+/// The first ``arm()`` scans the loaded classes off the main thread and then
+/// installs the hooks on it (``ready()`` waits for that); a later arm scans
+/// again only when the runtime's class count changed. Each method is hooked on
+/// its root class (`NSView`, `CALayer`, `NSWindow`) and on every subclass that
+/// defines its own, except `drawRect:` and `updateLayer`, which are hooked on
+/// subclasses only: a view that does not override them keeps NSView's own IMP,
+/// which AppKit reads to decide whether the view gets a backing store.
+///
+/// A call counts once, at the receiver's most derived hooked class: an override
+/// that calls `super` is not counted twice, and a method added at runtime that
+/// calls its superclass's IMP at call time (TypingFrameProbe) counts at the hook
+/// it reaches. A set that does not change the value (an equal frame, size,
+/// origin, alpha or the same contents object) counts 0. Counters are lock-free
+/// atomics, so a contents set from a renderer thread counts without a race;
+/// frame, window and `updateLayer` calls count on the main thread only (they
+/// read view state). One `-[NSView setFrame:]` that moves and resizes counts 2
+/// (AppKit sends `setFrameOrigin:` and `setFrameSize:`).
 @MainActor
 public final class RenderStats {
     public nonisolated enum Counter: Int, CaseIterable, Sendable {
@@ -60,7 +68,7 @@ public final class RenderStats {
         }
 
         /// Calls of every counter but the damage area.
-        public var calls: Int { Counter.allCases.reduce(0) { $1 == .damageArea ? $0 : $0 + self[$1] } }
+        public var calls: Int { Counter.allCases.reduce(0) { $1 == .damageArea ? $0 : $0 &+ self[$1] } }
 
         public static func - (lhs: Totals, rhs: Totals) -> Totals {
             var result = Totals()
@@ -70,7 +78,8 @@ public final class RenderStats {
     }
 
     public nonisolated struct Owner: Sendable, Equatable {
-        public var id: ObjectIdentifier
+        /// The owner class's ``RenderStats/classKey(_:)``.
+        public var key: UInt
         public var name: String
         public var totals: Totals
     }
@@ -84,12 +93,20 @@ public final class RenderStats {
         #endif
     }
 
+    /// Someone holds an ``arm()``.
     public var isArmed: Bool { armers > 0 }
+    /// This instance's hooks are installed and counting.
+    public private(set) var isCounting = false
     private var armers = 0
     nonisolated let ledger: Ledger
     private let layoutGuard: LayoutPassGuard?
     #if DEBUG || CMUX_BENCH_HOOKS
-    private var hooks = HookSet()
+    var hooks = HookSet()
+    private var installing: Task<Void, Never>?
+    /// The last class scan, kept while the runtime's class count stays the same.
+    private var lastScan: ClassScan?
+    /// How many full class scans ran (a scan the class count let pass is not one).
+    private(set) var fullScans = 0
     #endif
 
     /// `layoutGuard` counts `layout()` calls while armed (it hooks `-[NSView layout]` for the app already).
@@ -98,23 +115,29 @@ public final class RenderStats {
         ledger = Ledger(capacity: ownerCapacity)
     }
 
-    /// Starts counting; armers nest (`debug.frames` and `debug.damage` can both
-    /// hold it). The first arm clears the counts and installs the hooks.
-    /// Returns false in a build without hooks.
+    /// Holds one arm; arms nest (`debug.frames` and `debug.damage` can both
+    /// hold one). The first starts the install, which clears the counts;
+    /// ``ready()`` waits for it. Returns false, and holds nothing, in a build
+    /// without hooks.
     @discardableResult
     public func arm() -> Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
         armers += 1
-        guard armers == 1 else { return true }
-        ledger.reset()
-        hooks = Self.hooks(reusing: hooks, ledger: ledger)
-        ledger.arm(generation: hooks.generation)
-        for hook in hooks.hooks { method_setImplementation(hook.method, hook.replacement) }
-        layoutGuard?.renderStats = self
+        if armers == 1, !isCounting, installing == nil {
+            installing = Task { await self.install() }
+        }
         return true
         #else
         return false
         #endif
+    }
+
+    /// Waits for the install that ``arm()`` started; true when this instance counts.
+    public func ready() async -> Bool {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        await installing?.value
+        #endif
+        return isCounting
     }
 
     /// Ends one ``arm()``; the last one puts every original IMP back.
@@ -122,31 +145,73 @@ public final class RenderStats {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard armers > 0 else { return }
         armers -= 1
-        guard armers == 0 else { return }
+        guard armers == 0, isCounting else { return }
         ledger.disarm()
         // A hook another swizzler chained onto stays and forwards (its generation check fails from now on).
         for hook in hooks.hooks where method_getImplementation(hook.method) == hook.replacement {
             method_setImplementation(hook.method, hook.original)
         }
+        isCounting = false
         if layoutGuard?.renderStats === self { layoutGuard?.renderStats = nil }
         #endif
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The class scan (off the main thread, and only when the class count
+    /// changed), then the hooks, unless every arm ended meanwhile.
+    private func install() async {
+        if let fresh = await Self.scanClasses(unlessCountIs: lastScan?.classCount) {
+            lastScan = fresh
+            fullScans += 1
+        }
+        installing = nil
+        guard armers > 0, !isCounting, let scan = lastScan else { return }
+        ledger.reset()
+        hooks = makeHooks(for: scan)
+        ledger.arm(generation: hooks.generation)
+        for hook in hooks.hooks { method_setImplementation(hook.method, hook.replacement) }
+        isCounting = true
+        layoutGuard?.renderStats = self
+    }
+
+    /// Drops the kept class scan, so the next arm scans in full.
+    func forgetScan() { lastScan = nil }
+    #endif
+
     /// Clears every count (owners too).
     public func reset() { ledger.reset() }
 
-    /// All owners summed since the first arm or the last ``reset()``.
+    /// All owners summed since the install or the last ``reset()``.
     public var totals: Totals { ledger.totals() }
 
-    /// Counts per owner class since the first arm or the last ``reset()``, most calls first.
+    /// Counts per owner class since the install or the last ``reset()``, most calls first.
     public func owners() -> [Owner] {
-        ledger.owners().map { Owner(id: ObjectIdentifier($0.type), name: Self.name(of: $0.type), totals: $0.totals) }
+        ledger.owners().map { Owner(key: $0.key, name: Self.name(of: $0.type), totals: $0.totals) }
             .sorted { $0.totals.calls > $1.totals.calls }
+    }
+
+    /// The counts per owner ``Owner/key`` now, without names (cheap enough for every frame).
+    public func ownerTotals() -> [UInt: Totals] {
+        Dictionary(ledger.owners().map { ($0.key, $0.totals) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// `LayoutPassGuard` reports one `-[NSView layout]` call.
     func recordLayout(of type: AnyClass) {
         ledger.add(.layouts, owner: type)
+    }
+
+    /// A class's one identity here: its Objective-C class object, the same for a
+    /// Swift metatype (`NSView.self`, `type(of:)`) and a runtime class pointer.
+    public nonisolated static func classKey(_ type: AnyClass) -> UInt {
+        UInt(bitPattern: ObjectIdentifier(type as AnyObject))
+    }
+
+    /// Points of damage for a rect of this size; 0 for an empty, negative or
+    /// non-finite size, `Int.max` past it.
+    nonisolated static func damageArea(width: CGFloat, height: CGFloat) -> Int {
+        let area = Double(width) * Double(height)
+        guard area.isFinite, area > 0 else { return 0 }
+        return area < Double(Int.max) ? Int(area.rounded()) : Int.max
     }
 
     /// A KVO subclass counts as the class it observes.
@@ -182,9 +247,9 @@ public final class RenderStats {
         for sublayer in layer.sublayers ?? [] { countHiddenLoops(in: sublayer, hidden: hidden, into: &counts) }
     }
 
-    /// Lock-free counts: one cell per owner class (open addressing on the
-    /// class pointer, at most ``probes`` probes, then the overflow cell) and
-    /// one for all owners.
+    /// Lock-free counts: one cell per owner class (open addressing on its
+    /// ``RenderStats/classKey(_:)``, at most ``probes`` probes, then the
+    /// overflow cell) and one for all owners.
     nonisolated final class Ledger: Sendable {
         let total = Cell()
         let overflow = Cell()
@@ -211,9 +276,8 @@ public final class RenderStats {
             cell(for: owner).add(counter, amount)
         }
 
-        /// The class pointer itself (an `AnyClass` is one class pointer), so ``owners()`` can turn it back.
         private func cell(for owner: AnyClass) -> Cell {
-            let key = unsafeBitCast(owner, to: UInt.self)
+            let key = RenderStats.classKey(owner)
             var index = Int((key >> 4) % UInt(cells.count))
             for _ in 0..<min(Self.probes, cells.count) {
                 let cell = cells[index]
@@ -221,7 +285,12 @@ public final class RenderStats {
                 if found == key { return cell }
                 if found == 0 {
                     let claim = cell.key.compareExchange(expected: 0, desired: key, ordering: .acquiringAndReleasing)
-                    if claim.exchanged || claim.original == key { return cell }
+                    if claim.exchanged {
+                        // The metatype, for the owner's name (a metatype is never freed).
+                        cell.type.store(unsafeBitCast(owner, to: UInt.self), ordering: .releasing)
+                        return cell
+                    }
+                    if claim.original == key { return cell }
                 }
                 index = (index + 1) % cells.count
             }
@@ -230,15 +299,17 @@ public final class RenderStats {
 
         func totals() -> Totals { total.totals() }
 
-        /// Owner classes with counts; the overflow cell is reported as `RenderStats.Ledger`.
-        func owners() -> [(type: AnyClass, totals: Totals)] {
-            var owners: [(type: AnyClass, totals: Totals)] = cells.compactMap { cell in
+        /// Owner classes with counts; the overflow cell is reported as `RenderStats.Ledger` (key `UInt.max`).
+        /// A cell whose claim is still storing its metatype is left out of this read.
+        func owners() -> [(key: UInt, type: AnyClass, totals: Totals)] {
+            var owners: [(key: UInt, type: AnyClass, totals: Totals)] = cells.compactMap { cell in
                 let key = cell.key.load(ordering: .acquiring)
-                guard key != 0 else { return nil }
-                return (unsafeBitCast(key, to: AnyClass.self), cell.totals())
+                let type = cell.type.load(ordering: .acquiring)
+                guard key != 0, type != 0 else { return nil }
+                return (key, unsafeBitCast(type, to: AnyClass.self), cell.totals())
             }
             let spill = overflow.totals()
-            if spill != Totals() { owners.append((type: Ledger.self as AnyClass, totals: spill)) }
+            if spill != Totals() { owners.append((key: UInt.max, type: Ledger.self, totals: spill)) }
             return owners
         }
 
@@ -251,6 +322,7 @@ public final class RenderStats {
 
     nonisolated final class Cell: Sendable {
         let key = Atomic<UInt>(0)
+        let type = Atomic<UInt>(0)
         private let frameSets = Atomic<Int>(0)
         private let layouts = Atomic<Int>(0)
         private let damageRects = Atomic<Int>(0)
@@ -271,6 +343,7 @@ public final class RenderStats {
 
         func clear() {
             for counter in Counter.allCases { with(counter) { $0.store(0, ordering: .relaxed) } }
+            type.store(0, ordering: .relaxed)
             key.store(0, ordering: .releasing)
         }
 

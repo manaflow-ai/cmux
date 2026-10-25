@@ -20,19 +20,52 @@ extension RenderStats {
         let replacement: IMP
     }
 
-    /// The hooks of one scan and the generation their blocks count for.
+    /// The installed hooks and the generation their blocks count for.
     struct HookSet {
         var hooks: [Hook] = []
         var generation = 0
     }
 
-    /// The classes that define one hooked selector themselves (by ``classKey(_:)``).
+    /// One method the hooks replace: on `root` too, or on its subclasses only.
+    nonisolated struct HookedMethod {
+        let root: AnyClass
+        let selector: Selector
+        let onRoot: Bool
+    }
+
+    /// The hooked methods, in ``ClassScan/definers`` order.
+    nonisolated static func hookedMethods() -> [HookedMethod] {
+        [
+            HookedMethod(root: NSView.self, selector: #selector(NSView.setFrameSize(_:)), onRoot: true),
+            HookedMethod(root: NSView.self, selector: #selector(NSView.setFrameOrigin(_:)), onRoot: true),
+            HookedMethod(root: NSView.self, selector: #selector(NSView.addTrackingArea(_:)), onRoot: true),
+            HookedMethod(root: NSView.self, selector: #selector(NSView.updateLayer), onRoot: false),
+            HookedMethod(root: NSView.self, selector: #selector(NSView.draw(_:)), onRoot: false),
+            HookedMethod(root: CALayer.self, selector: #selector(setter: CALayer.contents), onRoot: true),
+            HookedMethod(root: NSWindow.self, selector: #selector(NSWindow.setFrame(_:display:)), onRoot: true),
+            HookedMethod(root: NSWindow.self, selector: #selector(setter: NSWindow.alphaValue), onRoot: true),
+        ]
+    }
+
+    /// One class that defines a hooked method itself: its ``classKey(_:)`` and its `Method`'s address.
+    nonisolated struct Definer: Sendable, Hashable {
+        let key: UInt
+        let method: UInt
+    }
+
+    /// Per hooked method (``hookedMethods()`` order), the classes that define it, and the class count it saw.
+    nonisolated struct ClassScan: Sendable {
+        let classCount: Int32
+        let definers: [[Definer]]
+    }
+
+    /// The classes that define one hooked method (by ``classKey(_:)``).
     nonisolated struct Definers: Sendable {
-        let classes: Set<ObjectIdentifier>
+        let classes: Set<UInt>
 
         /// No hooked class lies between the receiver's class and `owner`: the
         /// call is the outermost hooked one (an override calling `super` counts once).
-        func isOutermost(_ object: AnyObject, at owner: ObjectIdentifier) -> Bool {
+        func isOutermost(_ object: AnyObject, at owner: UInt) -> Bool {
             var next: AnyClass? = object_getClass(object)
             while let type = next {
                 let key = classKey(type)
@@ -44,89 +77,99 @@ extension RenderStats {
         }
     }
 
-    /// One identity per class: its Objective-C class object. A metatype of a
-    /// pure Objective-C class is Swift's wrapper metadata when Swift made it
-    /// (`NSView.self`, `class_getSuperclass`) and the class itself when read from
-    /// the runtime's class list, so `ObjectIdentifier` of the metatype differs
-    /// between the two. Only for NSObject classes (the bridge retains the class object).
-    nonisolated static func classKey(_ type: AnyClass) -> ObjectIdentifier {
-        ObjectIdentifier(type as AnyObject)
+    /// The scan of every loaded class, or nil when the runtime still has
+    /// `count` classes. Runs off the main thread and yields as it goes. It
+    /// reads the class list as raw pointers and sends no message (a retain
+    /// included) to a class it has not placed under a root: a root class
+    /// without `retain` (JSExport) aborts on one.
+    @concurrent
+    nonisolated static func scanClasses(unlessCountIs count: Int32?) async -> ClassScan? {
+        let classCount = objc_getClassList(nil, 0)
+        if let count, count == classCount { return nil }
+        let methods = hookedMethods()
+        var roots = RootIndex()
+        for (index, method) in methods.enumerated() {
+            roots.add(method.root, index: index)
+            // A lookup resolves a method the root adds lazily, so its method list has it.
+            _ = class_getInstanceMethod(method.root, method.selector)
+        }
+        var definers = [[Definer]](repeating: [], count: methods.count)
+        var listCount: UInt32 = 0
+        guard let list = objc_copyClassList(&listCount) else { return ClassScan(classCount: classCount, definers: definers) }
+        let raw = UnsafeMutableRawPointer(list)
+        defer { free(raw) }
+        let classes = raw.assumingMemoryBound(to: UnsafeRawPointer.self)
+        for position in 0..<Int(listCount) {
+            if position % 1_024 == 1_023 { await Task.yield() }
+            let key = UInt(bitPattern: classes[position])
+            let type = unsafeBitCast(classes[position], to: AnyClass.self)
+            let root = roots.indexes[key] != nil ? key : roots.root(above: type)
+            guard let hooked = roots.indexes[root] else { continue }
+            var methodCount: UInt32 = 0
+            guard let methodList = class_copyMethodList(type, &methodCount) else { continue }
+            defer { free(methodList) }
+            for method in UnsafeBufferPointer(start: methodList, count: Int(methodCount)) {
+                let name = method_getName(method)
+                for slot in hooked where methods[slot].selector == name && (key != root || methods[slot].onRoot) {
+                    definers[slot].append(Definer(key: key, method: UInt(bitPattern: method)))
+                }
+            }
+        }
+        return ClassScan(classCount: classCount, definers: definers)
     }
 
-    static let hookedSelectors: [(root: AnyClass, selectors: [Selector])] = [
-        (NSView.self, [#selector(NSView.setFrameSize(_:)), #selector(NSView.setFrameOrigin(_:)), #selector(NSView.updateLayer),
-                       #selector(NSView.draw(_:)), #selector(NSView.addTrackingArea(_:))]),
-        (CALayer.self, [#selector(setter: CALayer.contents)]),
-        (NSWindow.self, [#selector(NSWindow.setFrame(_:display:)), #selector(setter: NSWindow.alphaValue)]),
-    ]
+    /// The hooked roots by ``classKey(_:)``, and which root each class lies under.
+    nonisolated struct RootIndex {
+        /// Per root key, its methods' indexes in ``hookedMethods()``.
+        private(set) var indexes: [UInt: [Int]] = [:]
+        /// Per metatype (`class_getSuperclass` gives metatypes), its root's key, 0 for none.
+        private var under: [ObjectIdentifier: UInt] = [:]
 
-    /// The hooks for the classes loaded now: `previous` when the same methods
-    /// still have the IMPs it replaces, else a new set of a new generation (the
-    /// old blocks, should another swizzler still call one, stop counting).
-    static func hooks(reusing previous: HookSet, ledger: Ledger) -> HookSet {
-        let definers = scanDefiners()
-        let methods = Set(definers.values.flatMap { $0.map(\.method) })
-        if !previous.hooks.isEmpty, Set(previous.hooks.map(\.method)) == methods,
-           previous.hooks.allSatisfy({ method_getImplementation($0.method) == $0.original }) {
-            return previous
+        mutating func add(_ root: AnyClass, index: Int) {
+            indexes[classKey(root), default: []].append(index)
+            under[ObjectIdentifier(root)] = classKey(root)
         }
-        var set = HookSet(generation: previous.generation + 1)
-        for (selector, entries) in definers {
-            let chain = Definers(classes: Set(entries.map { classKey($0.type) }))
-            for entry in entries {
+
+        /// The key of the root above `type`, 0 for none.
+        mutating func root(above type: AnyClass) -> UInt {
+            var walked: [ObjectIdentifier] = []
+            var next: AnyClass? = class_getSuperclass(type)
+            var found: UInt = 0
+            while let current = next {
+                let id = ObjectIdentifier(current)
+                if let known = under[id] { found = known; break }
+                walked.append(id)
+                next = class_getSuperclass(current)
+            }
+            for id in walked { under[id] = found }
+            return found
+        }
+    }
+
+    /// The hooks for `scan`: the installed set when the same methods still
+    /// have the IMPs it replaces, else a new set of a new generation (the old
+    /// blocks, should another swizzler still call one, stop counting).
+    func makeHooks(for scan: ClassScan) -> HookSet {
+        let methods = Self.hookedMethods()
+        let entries: [[(key: UInt, method: Method)]] = scan.definers.map { definers in
+            definers.compactMap { definer in Method(bitPattern: definer.method).map { (definer.key, $0) } }
+        }
+        let wanted = Set(entries.joined().map { $0.method })
+        if !hooks.hooks.isEmpty, Set(hooks.hooks.map(\.method)) == wanted,
+           hooks.hooks.allSatisfy({ method_getImplementation($0.method) == $0.original }) {
+            return hooks
+        }
+        var set = HookSet(generation: hooks.generation + 1)
+        for (index, list) in entries.enumerated() where index < methods.count {
+            let chain = Definers(classes: Set(list.map { $0.key }))
+            for entry in list {
                 let original = method_getImplementation(entry.method)
-                let hook = RenderCountingHook(ledger: ledger, generation: set.generation, chain: chain, owner: classKey(entry.type))
-                guard let block = hook.block(for: selector, calling: original) else { continue }
+                let hook = RenderCountingHook(ledger: ledger, generation: set.generation, chain: chain, owner: entry.key)
+                guard let block = hook.block(for: methods[index].selector, calling: original) else { continue }
                 set.hooks.append(Hook(method: entry.method, original: original, replacement: imp_implementationWithBlock(block)))
             }
         }
         return set
-    }
-
-    /// Each root and every loaded class under it that defines a hooked selector
-    /// itself. Reads the class list with C calls only (no message to a class
-    /// before it is known to be under a root).
-    private static func scanDefiners() -> [Selector: [(type: AnyClass, method: Method)]] {
-        var definers: [Selector: [(type: AnyClass, method: Method)]] = [:]
-        func add(_ type: AnyClass, _ selectors: [Selector]) {
-            var methodCount: UInt32 = 0
-            guard let methods = class_copyMethodList(type, &methodCount) else { return }
-            defer { free(methods) }
-            for method in UnsafeBufferPointer(start: methods, count: Int(methodCount)) where selectors.contains(method_getName(method)) {
-                definers[method_getName(method), default: []].append((type, method))
-            }
-        }
-        for entry in hookedSelectors {
-            // A lookup resolves a method the class adds lazily, so its method list has it.
-            for selector in entry.selectors { _ = class_getInstanceMethod(entry.root, selector) }
-            add(entry.root, entry.selectors)
-        }
-        var classCount: UInt32 = 0
-        guard let list = objc_copyClassList(&classCount) else { return [:] }
-        let raw = UnsafeMutableRawPointer(list)
-        defer { free(raw) }
-        // Read as raw pointers: the autoreleasing list retains what it reads, and a root class without
-        // `retain` (JSExport) aborts. A metatype is not reference counted.
-        let classes = raw.assumingMemoryBound(to: UnsafeRawPointer.self)
-        for index in 0..<Int(classCount) {
-            let type = unsafeBitCast(classes[index], to: AnyClass.self)
-            guard let selectors = hookedSelectors.first(where: { isSubclass(type, of: $0.root) })?.selectors else { continue }
-            add(type, selectors)
-        }
-        return definers
-    }
-
-    /// Whether `root` is a strict superclass of `type`. Compares the
-    /// superclasses only: they come from the runtime as Swift-made metatypes,
-    /// like `root`; `type` itself is a class-list entry (see ``classKey(_:)``).
-    private static func isSubclass(_ type: AnyClass, of root: AnyClass) -> Bool {
-        let rootID = ObjectIdentifier(root)
-        var next: AnyClass? = class_getSuperclass(type)
-        while let current = next {
-            if ObjectIdentifier(current) == rootID { return true }
-            next = class_getSuperclass(current)
-        }
-        return false
     }
 }
 
@@ -138,7 +181,7 @@ nonisolated struct RenderCountingHook {
     let ledger: RenderStats.Ledger
     let generation: Int
     let chain: RenderStats.Definers
-    let owner: ObjectIdentifier
+    let owner: UInt
 
     private func counts(_ object: AnyObject, onMainOnly: Bool) -> Bool {
         ledger.isArmed(generation: generation) && (!onMainOnly || Thread.isMainThread) && chain.isOutermost(object, at: owner)
@@ -172,7 +215,7 @@ nonisolated struct RenderCountingHook {
                 original(view, selector)
                 let size = MainActor.assumeIsolated { view.bounds.size } // main-proof: checked in counts
                 ledger.add(.damageRects, owner: Swift.type(of: view))
-                ledger.add(.damageArea, Int((size.width * size.height).rounded()), owner: Swift.type(of: view))
+                ledger.add(.damageArea, RenderStats.damageArea(width: size.width, height: size.height), owner: Swift.type(of: view))
             }
             return block
         case #selector(NSView.draw(_:)):
@@ -182,7 +225,7 @@ nonisolated struct RenderCountingHook {
                 original(view, selector, dirty)
                 guard counted else { return }
                 ledger.add(.damageRects, owner: Swift.type(of: view))
-                ledger.add(.damageArea, Int((dirty.width * dirty.height).rounded()), owner: Swift.type(of: view))
+                ledger.add(.damageArea, RenderStats.damageArea(width: dirty.width, height: dirty.height), owner: Swift.type(of: view))
             }
             return block
         case #selector(NSView.addTrackingArea(_:)):

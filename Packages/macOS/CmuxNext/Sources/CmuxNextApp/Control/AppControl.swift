@@ -21,7 +21,7 @@ final class AppControl {
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     private let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
-    private let frameProbe = DebugFrameProbe()
+    private let frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: RenderStats(layoutGuard: .shared)))
     private let mainCPUProbe = DebugMainCPUProbe()
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
@@ -116,7 +116,7 @@ final class AppControl {
         service.router.register(DebugHibernationControl.methods(services))
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }])
         service.router.register([
-            .mainActor("debug.frames") { [probe = frameProbe] call in .value(probe.handle(call.params)) },
+            .mainActor("debug.frames") { [probe = frameProbe] call in probe.handle(call.params) }.withDeadline(.fixed(RenderFrameLog.armDeadline)),
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
