@@ -90,12 +90,24 @@ import Testing
         _ = SidebarPerfCounters.report(reset: true)
         // Main-thread CPU, as SidebarScrollBench times a frame: other work on the host delays the toggle, but it
         // adds nothing to the toggle's own cost.
-        var samples: [Double] = []
+        // In the app a click runs inside the run loop's Core Animation transaction, which commits the layer tree to
+        // the render server after the turn (the frame's commit, not the toggle). Here no run loop wraps the click, so
+        // the move's own transaction (RowMotion.animate, 39f51c07e54) was the outermost one and its commit laid out
+        // and drew the whole window inside the timed span: about 13 ms at every list size. The outer transaction
+        // stands in for the run loop's; its commit is outside the timed span, as in the app.
+        var samples: [Double] = [], commits: [Double] = []
         for _ in 0..<runs {
+            CATransaction.flush()
+            CATransaction.begin()
             let started = SidebarScrollBench.threadCPU()
             work(h)
-            samples.append((SidebarScrollBench.threadCPU() - started) * 1000)
+            let ended = SidebarScrollBench.threadCPU()
+            CATransaction.commit()
+            samples.append((ended - started) * 1000)
+            commits.append((SidebarScrollBench.threadCPU() - ended) * 1000)
         }
+        commits.sort()
+        print("group-toggle-commit median=\(String(format: "%.3f", commits[commits.count / 2]))ms (the turn's transaction commit, not counted)")
         let reloads = SidebarPerfCounters.report(reset: true)["list_reloads"] ?? 0
         samples.sort()
         return Cost(median: samples[samples.count / 2], p90: samples[(samples.count * 9) / 10], reloadsPerToggle: Double(reloads) / Double(runs))
