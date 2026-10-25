@@ -167,6 +167,11 @@ async fn to_an_agent_that_does_not_steer_an_agents_send_queues_named() {
         );
     let queued = record(&b, "queued", &prompt.id).await;
     assert_eq!(queued["fromAgent"], "lane-a", "{queued}");
+    // The session's queue names it too, for a client that reads the queue, not the record.
+    let session = b.hub.resolve(&b.id).unwrap();
+    let summary = b.hub.session_summary(&session);
+    assert_eq!(summary["queue"][0]["fromAgent"], "lane-a", "{summary}");
+    assert_eq!(b.hub.composers_view(&session)["queue"][0]["fromAgent"], "lane-a");
     open_gate(&b.gate);
     let r = tokio::time::timeout(Duration::from_secs(10), send).await.unwrap().unwrap().unwrap();
     assert!(r.reply.contains("rebase first"), "its own turn's reply, got {:?}", r.reply);
@@ -199,6 +204,8 @@ async fn a_no_steer_send_queues_behind_a_turn_that_could_take_it() {
         tokio::spawn(async move { collect_reply(client, &id, "mine", opts(false), &p).await });
     let queued = record(&b, "queued", &mine.id).await;
     assert!(queued.get("fromAgent").is_none(), "{queued}");
+    let summary = b.hub.session_summary(&b.hub.resolve(&b.id).unwrap());
+    assert_eq!(summary["queue"][0]["fromAgent"], Value::Null, "{summary}");
     open_gate(&b.gate);
     let r = tokio::time::timeout(Duration::from_secs(10), send).await.unwrap().unwrap().unwrap();
     assert!(r.reply.contains("mine"), "its own turn's reply, got {:?}", r.reply);

@@ -566,7 +566,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.supersede = supersede;
             // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
             let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
-            let steer = send_steers(steer, no_steer, no_wait, agent);
+            let asked = steer;
+            let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
             if no_wait {
                 return super::send_async::queue(
@@ -581,6 +582,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await;
             }
             let id = resolve_id(&client, &session).await?;
+            // A sub-session's waiting send to its parent waits for the parent's turn to end, as
+            // its send_message does (`hub/subsession_send.rs`), unless it asks to steer.
+            if steer && !asked && to_parent(&client, &id).await {
+                steer = false;
+            }
             let on_permission = OnPermission::parse(&on_permission)?;
             // Never refuse: report what the prompt queues behind.
             let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -875,6 +881,21 @@ fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool 
     !no_steer && (steer || no_wait || agent)
 }
 
+/// Whether `target` is the parent of the acpmux session this send runs in (`startedBy`).
+async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
+    let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty())
+    else {
+        return false;
+    };
+    let info = client.request(method::MUX_INFO, json!({"sessionId": own, "waitLogs": false}));
+    info.await.is_ok_and(|info| started_by(&info, target))
+}
+
+/// The session `info` describes was started by `target`.
+fn started_by(info: &Value, target: &str) -> bool {
+    info.get("startedBy").and_then(Value::as_str) == Some(target)
+}
+
 /// The agent of the session `info` describes takes a prompt mid-turn.
 fn steering(info: &Value) -> bool {
     info.get("steering").and_then(Value::as_bool) == Some(true)
@@ -882,7 +903,8 @@ fn steering(info: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::send_steers;
+    use super::{send_steers, started_by};
+    use serde_json::json;
 
     #[test]
     fn send_steers_messages_by_default_and_queues_the_persons_waiting_sends() {
@@ -900,5 +922,12 @@ mod tests {
         assert!(send_steers(false, false, true, true), "and so does its --no-wait send");
         assert!(!send_steers(false, true, false, true), "--no-steer opts out");
         assert!(!send_steers(false, true, true, true), "--no-steer opts out with --no-wait too");
+    }
+
+    #[test]
+    fn a_session_started_by_the_target_sends_to_its_parent() {
+        assert!(started_by(&json!({"sessionId": "child", "startedBy": "p"}), "p"));
+        assert!(!started_by(&json!({"sessionId": "child", "startedBy": "p"}), "other"));
+        assert!(!started_by(&json!({"sessionId": "root", "startedBy": null}), "p"));
     }
 }
