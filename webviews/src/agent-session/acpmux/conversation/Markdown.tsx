@@ -646,7 +646,15 @@ function Block({
       if (code === "open") return <PlainCode code={block.code} lang={block.lang} open />;
       if (code === "plain") return <PlainCode code={block.code} lang={block.lang} />;
       if (isChart(block.lang, block.code)) return <DiagramBlock lang={block.lang} code={block.code} />;
-      if (code === "handoff") return <CodeHandoff code={block.code} lang={block.lang} />;
+      if (code === "handoff")
+        return (
+          <CodeHandoff
+            code={block.code}
+            lang={block.lang}
+            artifactIdentity={artifactIdentity}
+            artifactRevision={artifactRevision}
+          />
+        );
       return (
         <CodeBlock
           code={block.code}

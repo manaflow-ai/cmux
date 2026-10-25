@@ -44,7 +44,17 @@ export function PlainCode({ code, lang, open = false }: { code: string; lang: st
 const HANDOFF_LIMIT_MS = 1_000;
 
 /// A fence that closed while the reply streamed: highlighted once, then faded in over the plain card.
-export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
+export function CodeHandoff({
+  code,
+  lang,
+  artifactIdentity,
+  artifactRevision,
+}: {
+  code: string;
+  lang: string;
+  artifactIdentity?: string;
+  artifactRevision?: number;
+}) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -65,7 +75,7 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
     <div ref={ref} className={`cv-code-handoff is-${stage}`}>
       {stage !== "done" && <PlainCode code={code} lang={lang} />}
       <div className="cv-code-handoff__real" onAnimationEnd={() => setStage("done")}>
-        <CodeBlock code={code} lang={lang} />
+        <CodeBlock code={code} lang={lang} artifactIdentity={artifactIdentity} artifactRevision={artifactRevision} />
       </div>
     </div>
   );
