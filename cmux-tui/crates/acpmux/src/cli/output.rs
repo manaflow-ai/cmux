@@ -298,6 +298,7 @@ pub(crate) async fn stream_prompt(
     let c = client.clone();
     let params = prompt.params(id, text, steer, None);
     let turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
+    let mut steered = crate::cli::steer_reply::SteerReply::default();
     let mut t = Transcript::default();
     let mut printed_assistant = 0usize;
     let mut last_tool = String::new();
@@ -329,13 +330,14 @@ pub(crate) async fn stream_prompt(
             }
         };
         tokio::select! {
-            r = &mut turn => break r?,
+            r = &mut turn, if !steered.waiting() => match steered.answered(r?) {
+                Some(answer) => break answer,
+                None => continue,
+            },
             _ = tick => {
                 if let Some(d) = deadline
                     && tokio::time::Instant::now() >= d {
-                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
-                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                        return Err(timed_out(&client, id, opts, &steered, &mut turn).await);
                     }
                 if !activity {
                     return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
@@ -347,6 +349,7 @@ pub(crate) async fn stream_prompt(
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {
                     activity = true;
                 }
@@ -548,6 +551,26 @@ pub(crate) fn print_item(item: &Item) {
     }
 }
 
+/// The error of a send whose `--timeout` passed. Its own turn is stopped first; a turn it steered
+/// into is another prompt's, so that turn runs on (`steer_reply.rs`).
+async fn timed_out(
+    client: &Arc<Client>,
+    id: &str,
+    opts: CollectOpts,
+    steered: &crate::cli::steer_reply::SteerReply,
+    turn: &mut tokio::task::JoinHandle<Result<Value>>,
+) -> anyhow::Error {
+    let secs = opts.timeout.unwrap_or(0);
+    if steered.waiting() {
+        let text = format!("no reply after {secs}s; the turn it steered into runs on");
+        return crate::cli::errors::AppError::timeout(text).with_session(id).into();
+    }
+    let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), turn).await;
+    let text = format!("turn cancelled after {secs}s");
+    crate::cli::errors::AppError::timeout(text).with_session(id).into()
+}
+
 /// Send a prompt and return the reply without printing. Honors the timeout
 /// (cooperative cancel, exit 3), the permission policy (deny answers
 /// reject; fail also ends the turn, exit 5), stall detection, and retries:
@@ -601,8 +624,9 @@ async fn collect_once(
         client.notifications().await.ok_or_else(|| anyhow!("notifications already taken"))?;
     client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
     let c = client.clone();
-    let params = prompt.params(id, text, false, None);
+    let params = prompt.params(id, text, opts.steer, None);
     let mut turn = tokio::spawn(async move { c.request(method::SESSION_PROMPT, params).await });
+    let mut steered = crate::cli::steer_reply::SteerReply::default();
     let mut t = Transcript::default();
     let started = tokio::time::Instant::now();
     let deadline = opts.timeout.map(|s| started + std::time::Duration::from_secs(s));
@@ -625,13 +649,14 @@ async fn collect_once(
             }
         };
         tokio::select! {
-            r = &mut turn => break r?,
+            r = &mut turn, if !steered.waiting() => match steered.answered(r?) {
+                Some(answer) => break answer,
+                None => continue,
+            },
             _ = tick => {
                 if let Some(d) = deadline
                     && tokio::time::Instant::now() >= d {
-                        let _ = client.notify(method::SESSION_CANCEL, json!({"sessionId": id})).await;
-                        let _ = tokio::time::timeout(std::time::Duration::from_millis(2500), &mut turn).await;
-                        return Err(crate::cli::errors::AppError::timeout(format!("turn cancelled after {}s", opts.timeout.unwrap_or(0))).with_session(id).into());
+                        return Err(timed_out(&client, id, opts, &steered, &mut turn).await);
                     }
                 if !activity {
                     return Err(crate::cli::errors::AppError::new(crate::cli::errors::Code::Runtime, "prompt_stalled", format!("no update from the agent within {}s of sending; the turn keeps running (acpmux last {id} to check)", opts.stall_secs)).with_session(id).into());
@@ -643,6 +668,7 @@ async fn collect_once(
                 if m == method::MUX_DISCONNECTED { return Err(prompt.closed(&client, id, "streaming the session")); }
                 let p = params.unwrap_or(Value::Null);
                 if p.get("sessionId").and_then(Value::as_str) != Some(id) { continue; }
+                if let Some(answer) = steered.heard(&m, &p) { break answer; }
                 if agent_activity(&m, &p) {
                     activity = true;
                 }

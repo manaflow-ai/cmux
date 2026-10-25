@@ -70,7 +70,13 @@ fn from_lane() -> PromptId {
 }
 
 fn opts(steer: bool) -> CollectOpts {
-    CollectOpts { timeout: Some(60), on_permission: OnPermission::Wait, stall_secs: 0, retries: 0, steer }
+    CollectOpts {
+        timeout: Some(60),
+        on_permission: OnPermission::Wait,
+        stall_secs: 0,
+        retries: 0,
+        steer,
+    }
 }
 
 /// The record `kind` of prompt `prompt_id`, within 10 s.
@@ -102,7 +108,10 @@ async fn an_agents_waiting_send_steers_and_answers_with_the_turns_final_reply() 
     let b = busy(true).await;
     let prompt = from_lane();
     let (agent, id, p) = (b.client().await, b.id.clone(), prompt.clone());
-    let send = tokio::spawn(async move { collect_reply(agent, &id, "rebase first", opts(true), &p).await });
+    let send =
+        tokio::spawn(
+            async move { collect_reply(agent, &id, "rebase first", opts(true), &p).await },
+        );
     // Into the running turn, not the queue.
     let sent = record(&b, "user_message", &prompt.id).await;
     assert_eq!(sent["steer"], true, "{sent}");
@@ -152,7 +161,10 @@ async fn to_an_agent_that_does_not_steer_an_agents_send_queues_named() {
     let b = busy(false).await;
     let prompt = from_lane();
     let (agent, id, p) = (b.client().await, b.id.clone(), prompt.clone());
-    let send = tokio::spawn(async move { collect_reply(agent, &id, "rebase first", opts(true), &p).await });
+    let send =
+        tokio::spawn(
+            async move { collect_reply(agent, &id, "rebase first", opts(true), &p).await },
+        );
     let queued = record(&b, "queued", &prompt.id).await;
     assert_eq!(queued["fromAgent"], "lane-a", "{queued}");
     open_gate(&b.gate);
@@ -168,7 +180,9 @@ async fn a_no_steer_send_queues_behind_a_turn_that_could_take_it() {
     let prompt = from_lane();
     let (agent, id, p) = (b.client().await, b.id.clone(), prompt.clone());
     let send =
-        tokio::spawn(async move { collect_reply(agent, &id, "rebase first", opts(false), &p).await });
+        tokio::spawn(
+            async move { collect_reply(agent, &id, "rebase first", opts(false), &p).await },
+        );
     let queued = record(&b, "queued", &prompt.id).await;
     assert_eq!(queued["fromAgent"], "lane-a", "{queued}");
     open_gate(&b.gate);
@@ -181,7 +195,8 @@ async fn a_no_steer_send_queues_behind_a_turn_that_could_take_it() {
     record(&b, "user_message", &person.id).await;
     let mine = PromptId::new(None);
     let (client, id, p) = (b.client().await, b.id.clone(), mine.clone());
-    let send = tokio::spawn(async move { collect_reply(client, &id, "mine", opts(false), &p).await });
+    let send =
+        tokio::spawn(async move { collect_reply(client, &id, "mine", opts(false), &p).await });
     let queued = record(&b, "queued", &mine.id).await;
     assert!(queued.get("fromAgent").is_none(), "{queued}");
     open_gate(&b.gate);

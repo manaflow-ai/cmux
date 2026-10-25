@@ -564,8 +564,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
-            // A message (--no-wait) steers; a send that waits for its reply queues.
-            let steer = send_steers(steer, no_steer, no_wait, prompt_id.from_agent.is_some());
+            // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
+            let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
+            let steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
             if no_wait {
                 return super::send_async::queue(
@@ -862,13 +863,16 @@ async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<(
     Ok(())
 }
 
-/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent
-/// with `--no-wait` does (inter-session messages land in the running turn instead of waiting
-/// minutes for it to end), while a send that waits for its reply queues: a steer is answered
-/// `steered` as soon as the agent reads it, before the reply. A steer never stops a turn: the
-/// agent reads it at its next tool boundary, and to an agent that does not steer it queues.
-fn send_steers(steer: bool, no_steer: bool, no_wait: bool, _agent: bool) -> bool {
-    !no_steer && (steer || no_wait)
+/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else an agent's send
+/// (`agent`: `--from`, `ACPMUX_FROM`, or one in an acpmux session) and a message sent with
+/// `--no-wait` do, so inter-session messages land in the running turn instead of waiting
+/// minutes for it to end (Leo, 2026-10-25: "I don't know why these things are queued up").
+/// The person's send that waits for its reply queues, as Cmd-Return does. A send that waits
+/// and steers answers with the reply of the turn it went into (`steer_reply.rs`). A steer never
+/// stops a turn: the agent reads it at its next tool boundary, and to an agent that does not
+/// steer it queues.
+fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool {
+    !no_steer && (steer || no_wait || agent)
 }
 
 /// The agent of the session `info` describes takes a prompt mid-turn.
