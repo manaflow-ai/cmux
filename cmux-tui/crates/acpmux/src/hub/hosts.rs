@@ -410,7 +410,14 @@ impl Hub {
         let remote_claude = self.remote_claude(session);
         work.unsandboxed = remote_claude;
         let mut canary_passed = false;
-        let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+        // Which logged updates are a subagent's, as the tap tells them live: by the subagents
+        // the log itself started, never by an update's own `_meta`.
+        let mut subagents = crate::subagents::SubagentTree::default();
+        subagents.set_own(session.meta().agent_session_id.as_deref());
+        let _ = self.store.scan(&session.id, 0, &mut |mut e: EventRecord| {
+            let subagents_own = e.dir == "in"
+                && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+                && e.msg.get_mut("params").is_some_and(|p| subagents.annotate(p).is_some());
             if e.dir == "mux" {
                 let text = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
                 match e.kind.as_str() {
@@ -505,9 +512,7 @@ impl Hub {
                 }
                 // A subagent's updates are not the turn's own (`permissions.rs` `on_update`).
                 ("in", "tool_call" | "tool_call_update" | "plan")
-                    if current
-                        && work.turn.is_some()
-                        && e.msg.pointer("/params/_meta/acpmux/subagent").is_none() =>
+                    if current && work.turn.is_some() && !subagents_own =>
                 {
                     work.doing.note(&e.msg["params"]["update"]);
                 }

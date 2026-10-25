@@ -418,6 +418,18 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "meta-gate: PATH" is "work-gate:" with no plan, its own tool call "Own build" marked as a
+    # subagent's in its params' _meta.acpmux (the hub, not the agent, says whose an update is).
+    if text.startswith("meta-gate:"):
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": sid, "_meta": {"acpmux": {"subagent": "child-1"}},
+            "update": {"sessionUpdate": "tool_call", "toolCallId": "mg-1", "title": "Own build", "kind": "execute",
+                       "status": "in_progress"}}})
+        with open(text[len("meta-gate:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "mg-1", "status": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "child-gate: PATH" starts subagent child-1, whose tool call "Child build" runs while
     # the turn blocks on the FIFO at PATH; then the child's call and the turn end.
     if text.startswith("child-gate:"):
