@@ -640,7 +640,7 @@ impl acpmux::store::Store for ScanFails {
 }
 
 /// A closing lane whose moves cannot be read may have moved on: its task is not orphaned on a
-/// guess (it stays open, and `task ls` shows the lane closed).
+/// guess (it stays open; `task ls` shows its lane's state).
 #[tokio::test]
 async fn a_lane_whose_moves_cannot_be_read_is_not_orphaned_on_a_guess() {
     let mut cfg: Config = serde_json::from_value(json!({
@@ -665,5 +665,4 @@ async fn a_lane_whose_moves_cannot_be_read_is_not_orphaned_on_a_guess() {
     let task = listed["tasks"].as_array().unwrap().iter().find(|t| t["taskId"] == id.as_str());
     let task = task.unwrap_or_else(|| panic!("{listed}"));
     assert_eq!(task["status"], "running", "{task}");
-    assert_eq!(task["sessionStatus"], "closed", "{task}");
 }

@@ -17,10 +17,12 @@
 //!   ("Task T "…" orphaned: codex-lane closed with it still open"). `task ls` lists orphans
 //!   first. A later result, from the giver or a revived lane, still ends it. The close itself
 //!   decides (`Hub::kill` → `orphan_tasks_of`), never a later look at what is loaded: a chat
-//!   that moves on, to another daemon or back here in place of its closed copy, keeps its tasks,
-//!   and a start that loads no sessions orphans nothing. The ledger row is written first, its
-//!   card marked owed (`result.cardOwed`); `watch_orphans` sends each owed card once, on the
-//!   close's event, at the start (a card a crash left owed) and after a lag.
+//!   whose move to another daemon was committed (its log says so), or that comes back here in
+//!   place of its closed copy, keeps its tasks, and a start that loads no sessions orphans
+//!   nothing. The ledger row is written first, its card marked owed (`result.cardOwed`) until
+//!   the giver's chat accepts it; `watch_orphans` sends owed cards on the close's event, at the
+//!   start (a card a crash left owed) and after a lag, and the card's prompt id makes any second
+//!   send a duplicate.
 //!
 //! A task for a peer's session is not here yet.
 
@@ -193,13 +195,16 @@ impl Hub {
             &id,
             result["state"].as_str().unwrap_or_default(),
         );
+        let at = result["at"].clone();
+        let (hub, card) = (self.clone(), (id.clone(), at.clone()));
         let opts = PromptOptions {
             prompt_id: Some(format!("task-result-{id}-{}", result["at"])),
             resend: true,
             provenance: Some(provenance),
+            // Accepted, or a duplicate of one accepted before: an orphan card is no longer owed.
+            on_accepted: Some(Box::new(move |_| hub.card_sent(&card.0, &card.1))),
             ..PromptOptions::default()
         };
-        let at = result["at"].clone();
         let blocks = vec![json!({"type": "text", "text": card_text(row, result, &lane_name)})];
         let hub = self.clone();
         // Off the report's path: the call returns, and the giver's turn runs.
@@ -213,16 +218,26 @@ impl Hub {
 
     /// Orphans every open task of `session`, a lane that ends now: closed, or deleted when
     /// `deleted` (module docs). Called by `Hub::kill`, under no lock; nothing for a chat that
-    /// moves on (`moving`, `replaced`). Each row's card is owed until `watch_orphans` sends it.
+    /// moved on (`replaced`, `moved_on`). Each row's card is owed until the giver accepts it.
     pub(super) fn orphan_tasks_of(&self, session: &super::Session, deleted: bool) {
-        let replaced = session.replaced.load(std::sync::atomic::Ordering::SeqCst);
-        if replaced || session.moving().is_some() {
+        // Replaced: this very close is the chat coming back here in place of its copy.
+        if session.replaced.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
         let mine = |row: &Value| worked_on(row) && row["sessionId"] == session.id.as_str();
         let rows = self.briefs.matching(mine);
-        if rows.is_empty() || self.moved_on(&session.id) {
+        if rows.is_empty() {
             return;
+        }
+        match self.moved_on(&session.id) {
+            Ok(false) => {}
+            Ok(true) => return,
+            // Unread, it may have moved on: the task stays as it is, and `task ls` shows the
+            // lane closed.
+            Err(e) => {
+                tracing::warn!(lane = %session.id, "a closing lane's moves could not be read: {e}");
+                return;
+            }
         }
         let gone = if deleted { "is gone" } else { "closed" };
         for row in rows {
@@ -244,18 +259,19 @@ impl Hub {
         }
     }
 
-    /// Whether chat `id` last moved to another daemon: its log's latest move record is its
-    /// commit here (`transferred`), not an arrival (`transferred_in`). Read from the log, so it
-    /// holds after a restart and whatever a racing abort did to `moving`; the commit logs it
-    /// before it closes the copy it leaves.
-    fn moved_on(&self, id: &str) -> bool {
+    /// Whether chat `id` moved to another daemon: its log's latest move record is its commit
+    /// here (`transferred`), not an arrival (`transferred_in`). Only a committed move counts (the
+    /// commit logs it before it closes the copy it leaves); a chat closed while a move is still
+    /// in flight ends here. Read from the log, so it holds after a restart and whatever a racing
+    /// abort did to `moving`.
+    fn moved_on(&self, id: &str) -> anyhow::Result<bool> {
         let mut away = false;
         let kinds = ["transferred", "transferred_in"];
-        let _ = self.store.scan_kinds(id, &kinds, &mut |e: crate::store::EventRecord| {
+        self.store.scan_kinds(id, &kinds, &mut |e: crate::store::EventRecord| {
             away = e.kind == "transferred";
             true
-        });
-        away
+        })?;
+        Ok(away)
     }
 
     /// Sends the cards orphaned tasks owe (module docs) on each local close or delete, at the
@@ -287,30 +303,34 @@ impl Hub {
         });
     }
 
-    /// Sends each owed orphan card once: the mark is cleared under the ledger's lock first, so
-    /// two passes never both send it. A card whose giver is not loaded stays owed (a start whose
-    /// session list failed loads none) for a later pass.
+    /// Sends each owed orphan card. The mark stays until the giver's chat accepts the card
+    /// (`send_task_result` clears it), so a crash before that sends it again; the card's prompt
+    /// id makes a second send, from a racing pass or after a restart, a duplicate that runs
+    /// nothing. A card whose giver is not loaded (a start whose session list failed loads none)
+    /// waits for a later pass.
     fn send_owed_cards(self: &Arc<Self>) {
         let owed = |row: &Value| orphaned(row) && row["result"]["cardOwed"] == true;
         for row in self.briefs.matching(owed) {
             let giver = row.get("fromSession").and_then(Value::as_str).unwrap_or_default();
-            if self.resolve(giver).is_err() {
-                continue;
-            }
-            let id = row.get("briefId").and_then(Value::as_str).unwrap_or_default();
-            let mut mine = false;
-            let row = self.briefs.update(id, |r| {
-                if owed(r) {
-                    if let Some(result) = r["result"].as_object_mut() {
-                        result.remove("cardOwed");
-                    }
-                    mine = true;
-                }
-            });
-            if let Some(row) = row.filter(|_| mine) {
+            if self.resolve(giver).is_ok() {
                 self.send_task_result(&row, None);
             }
         }
+    }
+
+    /// Clears the owed mark of task `id`'s result made `at` (`send_owed_cards`), once its card
+    /// reached the giver's chat. Nothing when the task has a newer result since.
+    fn card_sent(&self, id: &str, at: &Value) {
+        if self.briefs.get(id).is_none_or(|r| r["result"]["cardOwed"] != true) {
+            return;
+        }
+        self.briefs.update(id, |r| {
+            if &r["result"]["at"] == at
+                && let Some(result) = r["result"].as_object_mut()
+            {
+                result.remove("cardOwed");
+            }
+        });
     }
 
     /// Records on task `id` that the card of its result made `at` did not reach the chat that
