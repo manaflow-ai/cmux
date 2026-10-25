@@ -36,16 +36,39 @@ PR_17470 = [
 ]
 
 
+def call_end(text: str, index: int) -> int:
+    """The index of the parenthesis that closes the call open at INDEX (inside its arguments), skipping
+    string literals and comments; the end of TEXT when it never closes."""
+    depth = 1
+    while index < len(text):
+        char = text[index]
+        if char == '"':
+            index += 1
+            while index < len(text) and text[index] != '"':
+                index += 2 if text[index] == "\\" else 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = len(text) if newline < 0 else newline
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+        index += 1
+    return len(text)
+
+
 def manifest_target_paths() -> set[str]:
     """The path of each target Package.swift declares: its own `path:` when it sets one
     (CmuxNextTestExitTrace lives in Tests/Support), else Tests/<name> for a test target and
     Sources/<name> otherwise."""
     manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
-    starts = list(re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest))
     paths = set()
-    for index, start in enumerate(starts):
-        end = starts[index + 1].start() if index + 1 < len(starts) else len(manifest)
-        own = re.search(r'\bpath:\s*"([^"]+)"', manifest[start.end():end])
+    for start in re.finditer(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest):
+        # The target's own arguments end at its call's closing parenthesis: the last target in the list must
+        # not read a `path:` further down (the package dependencies' `.package(path:)` follow it since #24978).
+        own = re.search(r'\bpath:\s*"([^"]+)"', manifest[start.end():call_end(manifest, start.end())])
         kind, name = start.groups()
         default = f"{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
         paths.add(f"{PACKAGE}/{own.group(1) if own else default}")
