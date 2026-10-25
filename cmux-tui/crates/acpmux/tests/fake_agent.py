@@ -874,6 +874,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
+    # each sign well inside the stall limit (`hub/stalled_turn.rs`).
+    if text.startswith("ticking:"):
+        n, ms = (int(v) for v in text[len("ticking:"):].split(":"))
+        for i in range(n):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"tick{i} "}})
+            time.sleep(ms / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
