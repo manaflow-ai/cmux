@@ -278,3 +278,96 @@ test("each drawn tick is a list item that names its place among every prompt", a
     await act(async () => root.unmount());
   }
 }, 120_000);
+
+test("a clicked tick keeps focus while the chat scrolls it out of the rail's window", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(span(0, 2000), new Set())}
+          sessionId="long-click"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    // A pointer click on the latest prompt's tick: it takes focus as a clicked button does, which
+    // neither grows it nor opens the card (no keyboard focus, no hover, no card hold it drawn).
+    const clicked = document.querySelector<HTMLElement>(`[data-tick="1999"]`)!;
+    await act(async () => clicked.click());
+    expect(document.activeElement).toBe(clicked);
+    // The chat scrolls to its top: the rail's list follows the band there, far past the tick.
+    const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+    scroller.scrollTop = 0;
+    await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
+    expect(document.querySelector(`[data-tick="0"]`)).not.toBeNull();
+    // The focused tick is still drawn and focused, and the keyboard goes on from it.
+    expect(clicked.isConnected).toBe(true);
+    expect(document.activeElement).toBe(clicked);
+    await act(async () => {
+      clicked.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+      );
+    });
+    expect((document.activeElement as HTMLElement).dataset.tick).toBe("1998");
+  } finally {
+    await act(async () => root.unmount());
+  }
+}, 120_000);
+
+test("after earlier turns go, streaming does no search of the ticks, and the card stays on its prompt", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  // Every element a findIndex visits on a tick list (items with a key and a prompt), as it runs.
+  const findIndex = Array.prototype.findIndex;
+  let visited = 0;
+  Array.prototype.findIndex = function (this: unknown[], ...args: Parameters<typeof findIndex>) {
+    const first = this[0] as { key?: unknown; prompt?: unknown } | undefined;
+    if (first && typeof first === "object" && "key" in first && "prompt" in first) visited += this.length;
+    return findIndex.apply(this, args);
+  } as typeof findIndex;
+  const show = (rows: AcpmuxRow[]) =>
+    act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(rows, new Set())}
+          sessionId="long-shrink"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+  try {
+    const chat = span(0, 2000);
+    await show(chat);
+    // Keyboard focus on the latest prompt's tick: it grows and its card opens.
+    const latest = document.querySelector<HTMLElement>(`[data-tick="1999"]`)!;
+    await act(async () => latest.focus());
+    expect(document.querySelector(".acpmux-minimap__card")?.textContent).toContain("Question 1999");
+    // The first 500 turns go (the chat is cut): the prompt is now row 1499.
+    const kept = chat.slice(500 * 3);
+    await show(kept);
+    expect((document.activeElement as HTMLElement).dataset.tick).toBe("1499");
+    // 200 tokens stream into the last reply: no render searches the ticks for the focused prompt.
+    const at = kept.findIndex((item) => item.id === "t1999-answer");
+    visited = 0;
+    let reply = "Answer 1999.";
+    for (let token = 0; token < 200; token += 1) {
+      reply += ` word${token}`;
+      const rows = kept.slice();
+      rows[at] = { ...kept[at]!, text: reply, version: token + 2 };
+      await show(rows);
+    }
+    expect(visited).toBe(0);
+    // The card and the grown, active tick are the focused prompt's.
+    const active = document.querySelector<HTMLElement>('[data-tick][data-tone="active"]');
+    expect(active?.dataset.tick).toBe("1499");
+    expect(active?.getAttribute("aria-label")).toContain("Question 1999");
+    expect(document.querySelector(".acpmux-minimap__card")?.textContent).toContain("Question 1999");
+  } finally {
+    Array.prototype.findIndex = findIndex;
+    await act(async () => root.unmount());
+  }
+}, 300_000);

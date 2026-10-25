@@ -168,6 +168,8 @@ export function ThreadMinimap({
   const [reveal, setReveal] = useState<number | undefined>(undefined);
   /// The focused, hovered and card rows as of the last commit, each with its prompt's key.
   const keyed = useRef<{ focused?: KeyedRow; hovered?: KeyedRow; card?: KeyedRow }>({});
+  /// The prompt key of the tick the page's focus is on, if one is.
+  const [domFocus, setDomFocus] = useState<string | undefined>(undefined);
   const [cardHeight, setCardHeight] = useState(0);
   const rail = useRef<HTMLElement>(null);
   const list = useRef<HTMLOListElement>(null);
@@ -420,13 +422,9 @@ export function ThreadMinimap({
       const index = was.index + added;
       const node = list.current;
       const shell = rail.current;
-      if (added > 0) {
-        const by = (row: number | undefined) => (row === undefined ? row : row + added);
-        setHovered(by);
-        setFocused(by);
-        setCardRow(by);
-        if (scrub.current?.at !== undefined) scrub.current.at += added;
-      }
+      // The hovered, focused and card rows follow their prompts by key (the rows' keys below); a
+      // scrub's row follows here.
+      if (added > 0 && scrub.current?.at !== undefined) scrub.current.at += added;
       if (node && shell) {
         let moved = railTop + index * ROW_PITCH - scrolled - was.y;
         const room = Math.max(0, turns.length * ROW_PITCH - height);
@@ -587,37 +585,44 @@ export function ThreadMinimap({
     [intend, dismiss, jump],
   );
 
-  /// The rows the list draws (tickWindow.ts), the same array while they stay the same, so a render
-  /// that moves none (a streamed token) renders no row.
-  /// The focused, hovered and card rows by their prompt's key: older turns arriving above renumber
-  /// every row before the commit's effects renumber these, and the row focus is on must stay drawn.
-  /// A row the state still names by the index it had last commit, whose prompt has moved, is the
-  /// row its prompt is at now; a row the state changed to is itself.
-  const resolve = (index: number | undefined, last: KeyedRow | undefined) => {
-    if (index === undefined || !last || last.index !== index || ticks[index]?.key === last.key) return index;
-    const at = ticks.findIndex((tick) => tick.key === last.key);
-    return at < 0 ? undefined : at;
-  };
-  const keep = {
+  /// Each tick's row by its prompt's key, built once per change of the ticks (a new prompt, older
+  /// turns, a cut), never per token.
+  const rowOf = useMemo(() => new Map(ticks.map((tick, index) => [tick.key, index])), [ticks]);
+  /// The focused, hovered and card rows by their prompt's key. Older turns arriving or earlier ones
+  /// going renumber every row in the render that changes the ticks, before any effect can: a row the
+  /// state still names by the index it had at the last commit is the row its prompt is at now (a
+  /// lookup, no search), and the effect below sets the state to it. A row the state changed to since
+  /// is itself.
+  const resolve = (index: number | undefined, last: KeyedRow | undefined) =>
+    index === undefined || !last || last.index !== index ? index : rowOf.get(last.key);
+  const held = {
     focused: resolve(focused, keyed.current.focused),
     hovered: resolve(hovered, keyed.current.hovered),
-    card: showCard ? resolve(cardRow, keyed.current.card) : undefined,
+    card: resolve(cardRow, keyed.current.card),
   };
-  const drawn = tickRanges(ticks.length, listTop, height, [keep.focused, keep.hovered, reveal, keep.card]);
+  /// The tick that has the page's focus (a pointer's click focuses one too, without the keyboard's
+  /// grow or card), by its prompt's key: it stays drawn wherever the list scrolls.
+  const domFocused = domFocus === undefined ? undefined : rowOf.get(domFocus);
+  /// The rows the list draws (tickWindow.ts), the same array while they stay the same, so a render
+  /// that moves none (a streamed token) renders no row.
+  const drawn = tickRanges(ticks.length, listTop, height, [
+    held.focused,
+    held.hovered,
+    reveal,
+    showCard ? held.card : undefined,
+    domFocused,
+  ]);
   const drawnKey = drawn.join(" ");
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed on the ranges' contents, not the new array.
   const ranges = useMemo(() => drawn, [drawnKey]);
+  // oxlint-disable-next-line react-hooks/exhaustive-deps -- runs after every commit on purpose: it keeps the rows' keys as of this commit, and its setState calls run only when the ticks moved a row.
   useLayoutEffect(() => {
-    /// The row a state index names (its stale index, as the state still has it) and its key now.
-    const at = (state: number | undefined, index: number | undefined) =>
-      state === undefined || index === undefined || !ticks[index]
-        ? undefined
-        : { index: state, key: ticks[index]!.key };
-    keyed.current = {
-      focused: at(focused, keep.focused),
-      hovered: at(hovered, keep.hovered),
-      card: at(cardRow, keep.card),
-    };
+    if (held.focused !== focused) setFocused(held.focused);
+    if (held.hovered !== hovered) setHovered(held.hovered);
+    if (held.card !== cardRow) setCardRow(held.card);
+    const at = (index: number | undefined) =>
+      index === undefined || !ticks[index] ? undefined : { index, key: ticks[index]!.key };
+    keyed.current = { focused: at(held.focused), hovered: at(held.hovered), card: at(held.card) };
   });
 
   if (full)
@@ -722,6 +727,14 @@ export function ThreadMinimap({
               "--acpmux-minimap-rows": Math.max(1, Math.ceil(height / ROW_PITCH)),
             } as React.CSSProperties
           }
+          onFocus={(event) => {
+            const tick = (event.target as Element).closest?.<HTMLElement>("[data-tick]");
+            const key = tick ? ticks[Number(tick.dataset.tick)]?.key : undefined;
+            if (key !== undefined) setDomFocus(key);
+          }}
+          onBlur={(event) => {
+            if (!within(event.currentTarget, event.relatedTarget)) setDomFocus(undefined);
+          }}
           onScroll={(event) => {
             listOffset.current = event.currentTarget.scrollTop;
             setListTop(listOffset.current);
