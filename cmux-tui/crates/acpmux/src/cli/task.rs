@@ -130,11 +130,16 @@ fn report(state: &str, r: ResultArgs) -> (&'static str, Value) {
     (method::MUX_REPORT, params)
 }
 
-/// One task: id, state, its lane and the lane's state now, the title, and the result's summary.
+/// One task: id, state, its lane and the lane's state now (and how long it has stalled), the
+/// title, and the result's summary.
 fn line(row: &Value) -> String {
     let s = |v: &Value| v.as_str().unwrap_or("?").to_owned();
-    let lane =
+    let mut lane =
         row["lane"]["state"].as_str().map_or_else(|| s(&row["sessionStatus"]), str::to_owned);
+    if let Some(since) = row["lane"]["stalledSince"].as_u64() {
+        let minutes = crate::store::now_ms().saturating_sub(since) / 60_000;
+        lane.push_str(&format!(", stalled {minutes}m"));
+    }
     let mut text = format!(
         "{:<11} {:<8} {} ({lane})  {}",
         s(&row["taskId"]),

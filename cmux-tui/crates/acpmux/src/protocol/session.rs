@@ -234,6 +234,12 @@ pub struct Lane {
     /// The session's title, else its latest prompt, one line, secrets masked
     /// (`secret_scan`).
     pub title: Option<String>,
+    /// A `working` lane that has stalled: since when its turn has had no tool
+    /// call in flight and no sign of its model (`turn.stalledSince`); null
+    /// otherwise. The state stays `working`, so a client that reads only it
+    /// is unchanged.
+    #[serde(default, rename = "stalledSince")]
+    pub stalled_since: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -275,6 +281,10 @@ pub struct TurnSummary {
     pub activity: Option<String>,
     /// Its plan's entry in progress; null without one.
     pub plan_step: Option<String>,
+    /// Since when it has stalled: no tool call in flight and no sign of its
+    /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
+    /// null while it has not.
+    pub stalled_since: Option<u64>,
 }
 
 /// A prompt waiting for the running turn to end.

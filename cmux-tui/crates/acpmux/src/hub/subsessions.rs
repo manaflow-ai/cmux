@@ -856,6 +856,8 @@ impl Hub {
             // working, input, failed, lost or idle, and since when (`views::lane`).
             "state": summary["lane"]["state"].clone(),
             "stateSince": summary["lane"]["since"].clone(),
+            // Working, but quiet with no tool call in flight since then (`hub/activity.rs`).
+            "stalledSince": summary["lane"]["stalledSince"].clone(),
             "doing": super::subsession_send::doing(&summary),
             // question or permission: only the person allows a permission, in the app.
             "waitingOn": pick("waitingOn"),
