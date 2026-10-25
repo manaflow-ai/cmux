@@ -4,8 +4,9 @@ import Observation
 import Testing
 @testable import CmuxNextDaemon
 
-/// A clock whose sleeps end at once: a stage's deadline passes on the next turn.
-private struct ElapsedClock: Clock {
+/// A clock that moves only when the test advances it; each sleep that starts is signalled on
+/// ``sleeps``, so a test advances only once a deadline sleeps on it (no poll).
+private final class StageClock: Clock, Sendable {
     struct Instant: InstantProtocol {
         var offset: Duration
         func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
@@ -13,9 +14,69 @@ private struct ElapsedClock: Clock {
         static func < (lhs: Instant, rhs: Instant) -> Bool { lhs.offset < rhs.offset }
     }
 
-    var now: Instant { Instant(offset: .zero) }
+    private struct Sleeper {
+        let id: Int
+        let deadline: Instant
+        let continuation: CheckedContinuation<Void, any Error>
+    }
+
+    private struct State {
+        var now = Instant(offset: .zero)
+        var sleepers: [Sleeper] = []
+        var cancelled: Set<Int> = []
+        var nextID = 0
+    }
+
+    private let state = Mutex(State())
+    private let slept: AsyncStream<Void>.Continuation
+    /// One element per sleep that started and did not end at once.
+    let sleeps: AsyncStream<Void>
+
+    init() {
+        (sleeps, slept) = AsyncStream.makeStream()
+    }
+
+    var now: Instant { state.withLock { $0.now } }
     var minimumResolution: Duration { .zero }
-    func sleep(until deadline: Instant, tolerance: Duration?) async throws {}
+
+    func sleep(until deadline: Instant, tolerance: Duration?) async throws {
+        let id = state.withLock { state in
+            state.nextID += 1
+            return state.nextID
+        }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                let outcome: Result<Void, any Error>? = state.withLock { state in
+                    if state.cancelled.remove(id) != nil { return .failure(CancellationError()) }
+                    if deadline <= state.now { return .success(()) }
+                    state.sleepers.append(Sleeper(id: id, deadline: deadline, continuation: continuation))
+                    return nil
+                }
+                if let outcome { continuation.resume(with: outcome) } else { slept.yield() }
+            }
+        } onCancel: {
+            let sleeper: Sleeper? = state.withLock { state in
+                guard let index = state.sleepers.firstIndex(where: { $0.id == id }) else {
+                    state.cancelled.insert(id)
+                    return nil
+                }
+                return state.sleepers.remove(at: index)
+            }
+            sleeper?.continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    /// Moves the clock on and wakes every sleeper whose deadline it reached.
+    func advance(by duration: Duration) {
+        let due: [Sleeper] = state.withLock { state in
+            state.now = state.now.advanced(by: duration)
+            let now = state.now
+            let due = state.sleepers.filter { $0.deadline <= now }
+            state.sleepers.removeAll { $0.deadline <= now }
+            return due
+        }
+        for sleeper in due { sleeper.continuation.resume() }
+    }
 }
 
 /// Set once from an observation's change callback (called synchronously inside the mutation).
@@ -199,28 +260,38 @@ struct StoreStageTests {
     }
 
     /// The earliest deadline holds: a batch that joins with a later one never keeps the stage open
-    /// longer (PL-main review, major 4).
-    @Test func aLaterJoinDoesNotPushTheDeadlineBack() async {
+    /// longer (PL-main review, major 4). On a clock the test moves: only the first deadline passes.
+    @Test func aLaterJoinDoesNotPushTheDeadlineBack() async throws {
         let store = Self.store()
+        let clock = StageClock()
+        var sleeps = clock.sleeps.makeAsyncIterator()
         let scope = DaemonCommandScope()
-        _ = store.openStage(for: scope, until: .now, clock: ElapsedClock())
-        _ = store.openStage(for: DaemonCommandScope(), until: .now + .seconds(600), clock: ElapsedClock())
-        for _ in 0..<100 where store.stage != nil { await Task.yield() }
-        #expect(store.stage == nil, "the second batch's later deadline kept the stage open")
+        let first = store.openStage(for: scope, until: clock.now.advanced(by: .seconds(10)), clock: clock)
+        DaemonCommandScope.$current.withValue(scope) {
+            store.intend(.renameTab(surface: 4, name: "batch"), transaction: .generate())
+        }
+        _ = store.openStage(for: DaemonCommandScope(), until: clock.now.advanced(by: .seconds(600)), clock: clock)
+        _ = await sleeps.next() // the deadline sleeps on the clock
+        clock.advance(by: .seconds(10))
+        try await store.waitUntil("the stage commits at the first batch's deadline") { store.tab(surface: 4)?.name == "batch" }
+        #expect(!first.stage.isOpen, "the second batch's later deadline kept the stage open")
     }
 
     /// A batch whose commit never comes does not hold the store: the stage commits at its deadline.
-    @Test func aStageCommitsByItselfAtItsDeadline() async {
+    @Test func aStageCommitsByItselfAtItsDeadline() async throws {
         let store = Self.store()
+        let clock = StageClock()
+        var sleeps = clock.sleeps.makeAsyncIterator()
         let scope = DaemonCommandScope()
-        _ = store.openStage(for: scope, until: .now, clock: ElapsedClock())
+        let batch = store.openStage(for: scope, until: clock.now.advanced(by: .seconds(5)), clock: clock)
         DaemonCommandScope.$current.withValue(scope) {
             store.intend(.renameTab(surface: 4, name: "batch"), transaction: .generate())
         }
         #expect(store.tab(surface: 4)?.name == nil)
-        for _ in 0..<100 where store.stage != nil { await Task.yield() }
-        #expect(store.stage == nil, "the stage outlived its deadline")
-        #expect(store.tab(surface: 4)?.name == "batch")
+        _ = await sleeps.next()
+        clock.advance(by: .seconds(5))
+        try await store.waitUntil("the stage commits at its deadline") { store.tab(surface: 4)?.name == "batch" }
+        #expect(!batch.stage.isOpen, "the stage outlived its deadline")
     }
 
     // MARK: Review of d41d2d3a232..d2849fdd7c9 (lead cmux-ad)
@@ -246,7 +317,8 @@ struct StoreStageTests {
             store.intend(.renameTab(surface: 6, name: "batch"), transaction: .generate())
         }
         let through = Task { await store.applied(through: 2) }
-        await Task.yield()
+        await Task.yield() // the main actor runs the task up to its wait
+        #expect(store.sequenceWaits[2] == 1, "the wait did not start before its event")
         _ = store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: Self.renamed(6, "batch", workspace: 1, pane: 10, screen: 100))])
         await through.value
         #expect(store.stage == nil, "applied(through:) waited on the script's stage")
