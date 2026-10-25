@@ -106,7 +106,8 @@ export default agentPaneEntry({
       snapshot: chat(running, { isWorking: true, queue: [queued[10]!, own] }),
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-received__line" });
-        await ctx.click({ selector: '[data-menu="queued-message"]' });
+        await ctx.waitFor(() => ctx.document.querySelector('[data-menu="queued-message"]'));
+        ctx.document.querySelector<HTMLButtonElement>('[data-menu="queued-message"]')!.click();
         await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menuitem"]').length >= 4);
       },
     },

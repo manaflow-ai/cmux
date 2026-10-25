@@ -146,7 +146,6 @@ export function QueuedMessageCard({
         onReply={onReply}
         actions={
           <>
-            <QueuedMessageNote after="turn" />
             <QueuedMessageMenu
               {...(act && !queued.next && !steered
                 ? { steer: () => void act.steer(promptId).then((ok) => ok && setSteered(true), fail) }
@@ -158,6 +157,8 @@ export function QueuedMessageCard({
               {...(act ? { remove: () => void act.remove(promptId).catch(fail) } : {})}
               queueing
             />
+            {/* Last: a row's focus Copy (App.tsx) sits over the line's end, never over the menu. */}
+            <QueuedMessageNote after="turn" />
           </>
         }
         githubRepository={githubRepository}

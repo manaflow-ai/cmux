@@ -892,11 +892,11 @@ const MessageRow = memo(
               row.steer === "waiting" ? (
                 // A steer the agent has not read yet: a quiet note, and Send now in its ⋯ menu.
                 <>
-                  <QueuedMessageNote after="step" />
                   <ReceivedActions row={row} text={row.incoming.message.text} />
                   {row.steerPromptId && (
                     <QueuedMessageMenu steer={sendSteerNow(row.steerPromptId)} steerLabel="steer.sendNow" />
                   )}
+                  <QueuedMessageNote after="step" />
                 </>
               ) : (
                 <ReceivedActions row={row} text={row.incoming.message.text} />
