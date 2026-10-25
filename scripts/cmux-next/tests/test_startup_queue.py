@@ -116,6 +116,25 @@ class BlockingTests(unittest.TestCase):
         self.assertEqual([(h["location"], h["runs"], h["count"]) for h in hits], [("A.swift:1", 2, 5), ("B.swift:2", 1, 1)])
         self.assertIn("interrupted", warnings[0])
 
+    def test_a_site_without_first_ms_is_counted_and_warned(self):
+        hits, warnings, _ = sq.blocking_hits([blocking_run(900, [{"kind": "fileRead", "location": "A.swift:1",
+                                                                  "count": 1}])], "startup_complete")
+        self.assertEqual([(h["location"], h["first_ms_known"]) for h in hits], [("A.swift:1", False)])
+        self.assertIn("launch window is not proved", warnings[-1])
+        files = Files()
+        out = os.path.join(files.folder, "o.json")
+        run_cli(["blocking", files.json("r.json", [blocking_run(900, [{"kind": "k", "location": "L", "count": 1}])]),
+                 "--json", out])
+        self.assertTrue(any("not proved" in w for w in read_doc(out)["warnings"]))
+
+    def test_a_run_without_the_until_mark_is_left_out(self):
+        late = {"result": {"sites": [{"kind": "fileRead", "location": "Late.swift:1", "count": 1, "first_ms": 9999}]}}
+        hits, warnings, used = sq.blocking_hits(sq.capture_runs([late]), "startup_complete")
+        self.assertEqual((hits, used), ([], 0))
+        self.assertIn("no startup_complete mark", warnings[0])
+        files = Files()
+        self.assertEqual(run_cli(["blocking", files.json("r.json", late), "--check"])[0], 2)
+
     def test_overflow_is_a_warning(self):
         _, warnings, _ = sq.blocking_hits([blocking_run(900, [], overflow=4)], "startup_complete")
         self.assertIn("4 sites past", warnings[0])
@@ -164,6 +183,25 @@ class GapsTests(unittest.TestCase):
         hits, _, used = sq.gaps_hits([Files().json("b.json", self.BENCH)], 20.0, None)
         self.assertEqual(used, 4)
         self.assertEqual({(h["run_set"], h["from"]) for h in hits}, {("nx warm", "main_start"), ("nx cold", "main_start")})
+
+    def test_a_mark_in_some_runs_only_does_not_hide_the_others_gap(self):
+        runs = [{"a": 0, "c": 100}] * 4 + [{"a": 0, "b": 2, "c": 3}]
+        hits = sq.mark_gaps(runs, 5.0, "t warm")
+        self.assertEqual([(h["from"], h["to"], h["p50_ms"], h["n"]) for h in hits], [("a", "c", 100.0, 4)])
+
+    def test_value_marks_are_not_times(self):
+        runs = [{"main_start": 10, "first_window_frame_committed": 200, "launch.pageins_first_frame": 4100,
+                 "launch.main_cpu_ms": 56.5, "launch.temperature": "warm", "launch.interrupted": None}] * 3
+        hits = sq.mark_gaps(runs, 5.0, "t warm")
+        self.assertEqual([(h["from"], h["to"], h["p50_ms"]) for h in hits],
+                         [("main_start", "first_window_frame_committed", 190.0)])
+
+    def test_bad_input_is_an_input_error_not_a_hit(self):
+        files = Files()
+        for data in ({"t": "oops"}, {"t": {"warm": "x"}}, {"t": {"warm": [1, 2]}}, [1]):
+            code, _, err = run_cli(["gaps", files.json("bad.json", data), "--check"])
+            self.assertEqual(code, 2, data)
+            self.assertIn("bench-startup", err)
 
     def test_gaps_has_no_live_mode(self):
         self.assertEqual(run_cli(["gaps", "--app", "/x/cmux DEV t.app"])[0], 2)
@@ -242,9 +280,19 @@ class MainJobsTests(unittest.TestCase):
 
     def test_a_control_reply_is_read(self):
         reply = {"ok": True, "result": census_run(main_jobs=[{"caller": "X.y", "kind": "main_queue", "run_ms": 2,
-                                                              "enqueued_ms": 10}])}
+                                                              "enqueued_ms": 10}], main_turns=[])}
         hits, _, used = sq.mainjobs_hits(sq.capture_runs(reply), "first_window_frame_committed", "startup_complete", 1.0, 5)
         self.assertEqual((used, [h["caller"] for h in hits]), (1, ["X.y"]))
+
+    def test_unscheduled_turns_report_a_median_and_rank_apart_from_jobs(self):
+        turns = [{"start_ms": 300 + i, "duration_ms": ms, "task": None, "allowlisted": False, "site": "Sidebar.reload"}
+                 for i, ms in enumerate((1, 2, 30))]
+        job = [{"caller": "Home.start", "kind": "main_actor", "run_ms": 2, "enqueued_ms": 50}]
+        hits, _, _ = sq.mainjobs_hits(sq.capture_runs([census_run(main_jobs=job, main_turns=turns)]),
+                                      "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual([h["kind"] for h in hits], ["main_actor", "unscheduled_turn"])
+        turn = hits[1]
+        self.assertEqual((turn["count"], turn["p50_ms"], turn["max_ms"]), (3, 2.0, 30.0), "a median, not the 11 ms mean")
 
     def test_runs_without_milestones_are_left_out(self):
         files = Files()
@@ -267,6 +315,65 @@ class GlobalJobsTests(unittest.TestCase):
         self.assertEqual(used, 2)
         self.assertEqual([(h["caller"], h["runs"], h["count"], h["priorities"]) for h in hits],
                          [("Scan.all", 2, 2, ["unspecified"]), ("Feed.refresh", 1, 2, ["utility"])])
+
+    def test_no_priority_detached_tasks_and_global_queues_are_counted(self):
+        # A Task.detached with no priority runs at .medium (21); DispatchQueue.global() at QoS default.
+        jobs = [{"caller": "Index.detached", "priority": 21, "lane": None, "enqueued_ms": 100, "run_ms": 1},
+                {"caller": "Cache.global", "priority": "default", "lane": None, "enqueued_ms": 110, "run_ms": 1},
+                {"caller": "Model.medium", "priority": "medium", "lane": None, "enqueued_ms": 120, "run_ms": 1}]
+        hits, _, _ = sq.globaljobs_hits(sq.capture_runs([census_run(global_jobs=jobs)]), "startup_complete")
+        self.assertEqual({(h["caller"], tuple(h["priorities"])) for h in hits},
+                         {("Index.detached", ("default",)), ("Cache.global", ("default",)), ("Model.medium", ("default",))})
+
+
+class CensusFieldTests(unittest.TestCase):
+    """A debug.startup result from a build without the census (008 without 080/082/085) is not a clean launch."""
+
+    MILESTONES_ONLY = {"milestones": {"first_window_frame_committed": 100, "startup_complete": 300}}
+
+    def test_each_census_mode_refuses_a_result_without_its_arrays(self):
+        files = Files()
+        path = files.json("s.json", self.MILESTONES_ONLY)
+        for mode, field in (("mainjobs", "main_jobs"), ("globaljobs", "global_jobs"), ("arms", "arms")):
+            code, _, err = run_cli([mode, path, "--check"])
+            self.assertEqual(code, 2, mode)
+            self.assertIn(f"no {field}", err)
+
+    def test_a_run_without_the_arrays_is_left_out_with_a_warning(self):
+        runs = sq.capture_runs([census_run(main_jobs=[]), census_run(main_jobs=[], main_turns=[])])
+        _, warnings, used = sq.mainjobs_hits(runs, "first_window_frame_committed", "startup_complete", 1.0, 5)
+        self.assertEqual(used, 1)
+        self.assertIn("run 1: no main_turns", warnings[0])
+
+    def test_interrupted_is_read_by_presence(self):
+        runs = sq.capture_runs([{"marks": {"launch.interrupted": 0}, "result": census_run(arms=[])},
+                                census_run(arms=[], interrupted=1),
+                                {"marks": {"launch.interrupted": False}, "result": census_run(arms=[])}])
+        _, warnings, used = sq.arms_hits(runs, "startup_complete")
+        self.assertEqual(used, 1)
+        self.assertEqual(sum("interrupted" in w for w in warnings), 2)
+
+
+class CaptureModeTests(unittest.TestCase):
+    def test_a_saved_capture_of_the_other_method_is_refused(self):
+        files = Files()
+        startup = files.json("startup.json", {"mode": "mainjobs", "runs": [{"marks": {}, "result": census_run(
+            main_jobs=[], main_turns=[])}]})
+        blocking = files.json("blocking.json", {"mode": "blocking", "runs": [{"marks": {}, "result": census_run(
+            main_jobs=[], main_turns=[], arms=[])}]})
+        for mode, path in (("blocking", startup), ("mainjobs", blocking), ("arms", blocking)):
+            code, _, err = run_cli([mode, path, "--check"])
+            self.assertEqual(code, 2, mode)
+            self.assertIn("capture", err)
+        self.assertEqual(run_cli(["arms", startup])[0], 2, "no arms array: a mainjobs capture has none")
+        self.assertEqual(run_cli(["mainjobs", startup])[0], 0, "same method family")
+
+    def test_a_result_without_sites_is_not_a_blocking_result(self):
+        files = Files()
+        path = files.json("s.json", census_run(main_jobs=[], main_turns=[]))
+        code, _, err = run_cli(["blocking", path, "--check"])
+        self.assertEqual(code, 2)
+        self.assertIn("no sites", err)
 
 
 class ArmsTests(unittest.TestCase):
@@ -296,8 +403,12 @@ class FleetGuardTests(unittest.TestCase):
         self.assertIn("never on a person's Mac", err)
 
     def test_fleet_markers_pass(self):
-        for env in (FLEET, {"NX_ARTIFACTS": "/tmp/a"}, {"GITHUB_ACTIONS": "true"}):
+        for env in (FLEET, {"NX_JOB_ID": "job-1"}, {"GITHUB_ACTIONS": "true"}):
             self.assertIsNone(sq.fleet_refusal(env, "Darwin"), env)
+
+    def test_an_artifacts_folder_alone_is_not_a_fleet_marker(self):
+        for env in ({"NX_ARTIFACTS": "/tmp/a"}, {"GITHUB_ACTIONS": "false"}):
+            self.assertIn("never on a person's Mac", sq.fleet_refusal(env, "Darwin"), env)
 
     def test_linux_never_launches(self):
         self.assertIn("Linux", sq.fleet_refusal(FLEET, "Linux"))
@@ -308,11 +419,13 @@ class FleetGuardTests(unittest.TestCase):
 
 
 class FakeLaunch:
-    launched = []
+    """One app process; the first launch with no daemon running starts one (a new tag pid)."""
 
-    def __init__(self, tag, scratch, extra_env=None):
+    def __init__(self, bench, tag, scratch, extra_env=None):
         self.marks = {"first_window_frame_committed": 210.0, "startup_complete": 800.0}
-        FakeLaunch.launched.append(tag)
+        bench.launched.append((tag, scratch, dict(extra_env or {})))
+        if not bench.pids:
+            bench.pids.append(100 + len(bench.launched))
 
     def wait_for(self, mark, timeout, any_of=False):
         return mark in self.marks if isinstance(mark, str) else True
@@ -336,9 +449,11 @@ class FakeBench:
     FINAL_MARK = "first_terminal_frame"
 
     def __init__(self, reply, daemon=True):
-        self.APPS, self.stopped, self.reply, self.daemon = {}, [], reply, daemon
-        self.Launch = FakeLaunch
-        FakeLaunch.launched = []
+        self.APPS, self.stopped, self.reply, self.launched = {}, [], reply, []
+        self.pids = [11] if daemon else []  # 11: a daemon that ran before the tool
+
+    def Launch(self, tag, scratch, extra_env=None):  # noqa: N802 (bench-startup's class name)
+        return FakeLaunch(self, tag, scratch, extra_env)
 
     def app_tag(self, path):
         return "t1"
@@ -347,10 +462,11 @@ class FakeBench:
         return []
 
     def tag_pids(self, tag):
-        return [11] if self.daemon else []
+        return list(self.pids)
 
     def stop(self, pids):
         self.stopped.append(list(pids))
+        self.pids = [pid for pid in self.pids if pid not in pids]
 
     def app_client(self, tag):
         return FakeClient(self.reply)
@@ -362,15 +478,25 @@ class CollectTests(unittest.TestCase):
         quiet.__enter__()
         self.addCleanup(quiet.__exit__, None, None, None)
 
-    def test_each_run_is_read_at_the_mark_and_the_tag_is_stopped(self):
+    def test_each_run_is_read_at_the_mark_and_a_daemon_from_before_is_left_running(self):
         bench = FakeBench(lambda method: {"ok": True, "result": {"method": method, "sites": []}})
         runs = sq.collect(bench, "/x/cmux DEV t1.app", 3, "warm", "startup_complete", 5, "debug.blocking")
         self.assertEqual([r["result"]["method"] for r in runs], ["debug.blocking"] * 3)
         self.assertEqual(runs[0]["marks"]["startup_complete"], 800.0)
-        self.assertEqual(FakeLaunch.launched, ["t1"] * 3, "a running daemon needs no priming launch")
-        self.assertEqual(bench.stopped[-1], [11])
+        self.assertEqual([tag for tag, _, _ in bench.launched], ["t1"] * 3, "a running daemon needs no priming launch")
+        self.assertEqual(bench.stopped, [[]], "the daemon that ran before the tool is not its to stop")
+        self.assertEqual(bench.pids, [11])
         hits, _, used = sq.blocking_hits(runs, "startup_complete")
         self.assertEqual((hits, used), ([], 3))
+
+    def test_launches_are_activated_and_scratch_folders_removed(self):
+        bench = FakeBench(lambda method: {"result": {}}, daemon=False)
+        sq.collect(bench, "/x/cmux DEV t1.app", 2, "warm", "startup_complete", 5, "debug.startup")
+        self.assertEqual({env.get("CMUX_NEXT_NO_ACTIVATE") for _, _, env in bench.launched}, {"0"},
+                         "a noActivate launch is an interrupted launch (task 108)")
+        scratches = {scratch for _, scratch, _ in bench.launched}
+        self.assertEqual(len(scratches), 2)
+        self.assertFalse(any(os.path.exists(scratch) for scratch in scratches))
 
     def test_cold_stops_the_daemon_and_purges_every_run(self):
         purges = []
@@ -379,11 +505,13 @@ class CollectTests(unittest.TestCase):
                    purge_cache=lambda: purges.append(1))
         self.assertEqual(len(purges), 2)
         self.assertEqual(bench.stopped[:1], [[11]])
+        self.assertEqual(bench.pids, [], "the daemon the cold runs started is stopped at the end")
 
-    def test_warm_primes_when_no_daemon_runs(self):
+    def test_warm_primes_when_no_daemon_runs_and_stops_the_daemon_it_started(self):
         bench = FakeBench(lambda method: {"result": {}}, daemon=False)
         sq.collect(bench, "/x/cmux DEV t1.app", 1, "warm", "startup_complete", 5, "debug.startup")
-        self.assertEqual(len(FakeLaunch.launched), 2, "one priming launch, one measured launch")
+        self.assertEqual(len(bench.launched), 2, "one priming launch, one measured launch")
+        self.assertEqual((bench.stopped, bench.pids), ([[101]], []))
 
     def test_a_build_without_the_method_names_the_build_it_needs(self):
         bench = FakeBench(lambda method: {"ok": False, "error": {"code": "method_not_found"}})

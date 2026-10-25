@@ -6,8 +6,11 @@ Mac and reads what the launch recorded. Each hit names its queue and the task te
 
   blocking    Q5, template 038. Main-thread blocking sites (`debug.blocking`, a Debug or CMUX_BLOCKING_CHECKS +
               CMUX_BENCH_HOOKS build) first hit before --until-mark (default startup_complete). Any run counts.
-  gaps        Q7, template 039. Gaps between consecutive launch marks of a bench-startup.py --json file whose
-              median is >= --min-ms. Interrupted launches (`launch.interrupted`) are left out.
+              debug.blocking has no per-site `first_ms` yet (BlockingDetector keeps no first-hit time): such a
+              site is counted, and the output warns that the launch window is not proved.
+  gaps        Q7, template 039. Gaps between consecutive time marks of each run of a bench-startup.py --json
+              file, grouped by (from, to) across runs, kept at median >= --min-ms. VALUE_MARKS are not times.
+              Interrupted launches (`launch.interrupted`) are left out.
   profile     Q6, template 039. From trace.py launch recordings (trace.json.gz, or the directory holding it):
               app symbols with median >= --symbol-ms inclusive on main before --first-frame-mark; main turns
               >= --turn-ms before --until-mark; swift_once initializers and static initializers >= --once-ms.
@@ -26,8 +29,11 @@ Usage:
   startup-queue.py profile run1/ run2/ ...               or --app: N `trace.py record --scenario launch-<temp>`
   startup-queue.py mainjobs|globaljobs|arms --app "$NX_APP" --runs 5
 
-Fleet guard: --app runs only on the build fleet (`cmux-ci run` sets CMUX_CI_STEP_KEY, nx-remote sets
-NX_ARTIFACTS, or a GitHub runner), never on a person's Mac; elsewhere it exits 2 before it starts anything.
+Fleet guard: --app runs only on macOS with a fleet marker, never on a person's Mac; elsewhere it exits 2 before it
+starts anything. Markers: CMUX_CI_STEP_KEY (`cmux-ci run`) or GITHUB_ACTIONS=true (lib/fleet-only.sh's rule), and
+NX_JOB_ID (an nx-remote job, the marker scripts/measure/blocking-probe.sh accepts), because a live launch needs the
+GUI session of `nx-remote --needs gui`. Live launches are normal activated launches (CMUX_NEXT_NO_ACTIVATE=0): the
+launch these queues measure. A noActivate launch is an interrupted launch (task 108).
 
 --json writes {"mode", "queue", "template", "runs", "thresholds", "warnings", "hits": [...]} (`-` for stdout).
 --check exits 1 when there is any hit. --raw saves the live runs, which the same mode reads back as input.
@@ -40,8 +46,15 @@ Input contract. All times are ms since process start (the launch-mark clock, Lau
     "main_turns": [{"start_ms", "duration_ms", "task": name or null, "allowlisted": bool, "site"}],
     "global_jobs": [{"caller", "priority": name or number or null, "lane": name or null, "enqueued_ms", "run_ms"}],
     "arms": [{"kind", "owner", "site", "armed_ms", "first_fire_ms": ms or null}]}.
-  A saved capture (--raw): {"mode", "runs": [{"marks": {...}, "result": <method result>}]}; a bare result, a
-  list of results or a control reply ({"result": ...}) are read too.
+    Each census mode needs its arrays in a run (mainjobs: main_jobs and main_turns; globaljobs: global_jobs;
+    arms: arms). A run without them is left out; no run with them exits 2. global_jobs' priority is null when
+    the caller passed none (082); 21 / default / medium (what a Task.detached or a DispatchQueue.global()
+    with no priority runs at) is counted as `default`.
+  `launch.interrupted` (a mark, or the result's `interrupted`) means interrupted when present and not false or
+  null; a mark at 0 ms counts.
+  A saved capture (--raw): {"mode", "runs": [{"marks": {...}, "result": <method result>}]}; its mode must read the
+  same method (blocking: debug.blocking; mainjobs, globaljobs, arms: debug.startup). A bare result, a list of
+  results or a control reply ({"result": ...}) are read too.
   trace.py: Chrome trace events; the app is the process named "app: ...", its main thread "Main Thread ...";
   stack samples are nested "cpu" slices; marks are instant events named for the mark (or with it as the
   signpost message); main turns are StartupTrace's "startup.main_turn" slices, else the main thread's on-CPU
@@ -58,6 +71,7 @@ import importlib.util
 import json
 import os
 import platform
+import shutil
 import statistics
 import subprocess
 import sys
@@ -71,9 +85,18 @@ QUEUES = {
     "mainjobs": ("Q11", "081"), "globaljobs": ("Q12", "083"), "arms": ("Q13", "086"),
 }
 CENSUS_MODES = ("mainjobs", "globaljobs", "arms")
-# Swift TaskPriority raw values (and their names) that Q12 names; 0 / None is an unprioritized job.
+# The debug.startup arrays each census mode reads: a result without them has no census, not an empty one.
+CENSUS_FIELDS = {"mainjobs": ("main_jobs", "main_turns"), "globaljobs": ("global_jobs",), "arms": ("arms",)}
+# Swift TaskPriority raw values (and their names) that Q12 names. null / 0: no priority recorded; 21 / default /
+# medium: what a Task.detached or a DispatchQueue.global() given no priority runs at.
 GLOBAL_PRIORITIES = {"utility": "utility", "low": "utility", 17: "utility", "background": "background",
-                     9: "background", "unspecified": "unspecified", None: "unspecified", 0: "unspecified"}
+                     9: "background", "unspecified": "unspecified", None: "unspecified", 0: "unspecified",
+                     21: "default", "default": "default", "medium": "default"}
+# Numeric run keys that are values, not times (tasks 006, 007): never ordered or paired as a gap.
+VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_first_frame", "launch.main_cpu_ms", "launch.interrupted"})
+INTERRUPTED = "launch.interrupted"
+# A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
+LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}
 # Initializer frames (the frame under swift_once names its owner; a C++ or ObjC static initializer).
 STATIC_INIT = ("one-time initialization function for", "static initializer for", "_GLOBAL__sub_I",
                "__cxx_global_var_init", "globalinit_")
@@ -91,11 +114,12 @@ class QueueError(SystemExit):
 
 
 def fleet_refusal(env, system):
-    """Why a live run may not start on this host, or None on the fleet (the same rule as lib/fleet-only.sh)."""
+    """Why a live run may not start on this host, or None on the fleet: lib/fleet-only.sh's markers
+    (CMUX_CI_STEP_KEY, GITHUB_ACTIONS=true) and NX_JOB_ID, an nx-remote job (blocking-probe.sh's marker)."""
     if system != "Darwin":
         return (f"--app launches the app on a macOS fleet host; this host runs {system}. "
                 "Analyze saved files here instead (startup-queue.py MODE FILE...).")
-    if env.get("CMUX_CI_STEP_KEY") or env.get("GITHUB_ACTIONS") == "true" or env.get("NX_ARTIFACTS"):
+    if env.get("CMUX_CI_STEP_KEY") or env.get("GITHUB_ACTIONS") == "true" or env.get("NX_JOB_ID"):
         return None
     return ("--app runs only on the build fleet (cmux-ci run or nx-remote), never on a person's Mac.\n"
             "Run it there:\n  nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\\n"
@@ -138,8 +162,14 @@ def cutoff(marks, name):
     return number((marks or {}).get(name))
 
 
+def flagged(mapping, key):
+    """A flag: present with any value but null or false (a mark at 0 ms is set)."""
+    value = mapping.get(key)
+    return value is not None and value is not False  # identity: 0 == False, yet a mark at 0 ms is set
+
+
 def interrupted(run):
-    return bool(run["marks"].get("launch.interrupted") or run["result"].get("interrupted"))
+    return flagged(run["marks"], INTERRUPTED) or flagged(run["result"], "interrupted")
 
 
 # ---- input: captures ---------------------------------------------------------------------------------------
@@ -164,10 +194,19 @@ def capture_runs(data):
     return runs
 
 
-def load_captures(paths):
+def method_of(mode):
+    return "debug.blocking" if mode == "blocking" else "debug.startup"
+
+
+def load_captures(paths, mode):
+    """Every run of the files; a saved capture of the other method is refused (exit 2)."""
     runs = []
     for path in paths:
-        runs += capture_runs(read_json(path))
+        data = read_json(path)
+        saved = data.get("mode") if isinstance(data, dict) and isinstance(data.get("runs"), list) else None
+        if saved in QUEUES and method_of(saved) != method_of(mode):
+            raise QueueError(f"{path}: a {saved} capture ({method_of(saved)}); {mode} reads {method_of(mode)}")
+        runs += capture_runs(data)
     return runs
 
 
@@ -176,26 +215,38 @@ def load_captures(paths):
 
 def blocking_hits(runs, until_mark):
     """Each main-thread blocking site first hit before the mark, in any run; most runs first."""
-    sites, warnings, used = {}, [], 0
+    sites, warnings, used, unproved = {}, [], 0, 0
     for index, run in enumerate(runs):
+        result, limit = run["result"], cutoff(run["marks"], until_mark)
         if interrupted(run):
             warnings.append(f"run {index + 1}: interrupted launch, left out")
             continue
+        if not isinstance(result.get("sites"), list):
+            warnings.append(f"run {index + 1}: no sites (not a debug.blocking result), left out")
+            continue
+        if limit is None:
+            warnings.append(f"run {index + 1}: no {until_mark} mark, left out (its launch window is unknown)")
+            continue
         used += 1
-        limit = cutoff(run["marks"], until_mark)
-        result = run["result"]
         if number(result.get("overflow")):
             warnings.append(f"run {index + 1}: {int(result['overflow'])} sites past the detector's table")
-        for site in result.get("sites") or []:
-            first = number(site.get("first_ms"))
-            if first is not None and limit is not None and first > limit:
+        for site in result["sites"]:
+            first = number(site.get("first_ms")) if isinstance(site, dict) else None
+            if not isinstance(site, dict) or (first is not None and first > limit):
                 continue
+            unproved += first is None
             key = (str(site.get("kind", "?")), str(site.get("location", "?")))
-            entry = sites.setdefault(key, {"runs": 0, "count": 0})
+            entry = sites.setdefault(key, {"runs": 0, "count": 0, "proved": True})
             entry["runs"] += 1
             entry["count"] += int(number(site.get("count")) or 0)
+            entry["proved"] = entry["proved"] and first is not None
+    if unproved:
+        warnings.append(f"{unproved} sites have no first_ms (debug.blocking keeps no first-hit time): counted, but "
+                        f"they may first block after {until_mark}, so the launch window is not proved")
     hits = [{"kind": kind, "location": location, "runs": entry["runs"], "count": entry["count"],
-             "summary": f"{entry['runs']}/{used} runs, {entry['count']} calls: {kind} at {location}"}
+             "first_ms_known": entry["proved"],
+             "summary": f"{entry['runs']}/{used} runs, {entry['count']} calls: {kind} at {location}"
+                        + ("" if entry["proved"] else " (no first_ms)")}
             for (kind, location), entry in sites.items()]
     hits.sort(key=lambda hit: (-hit["runs"], -hit["count"], hit["location"]))
     return hits, warnings, used
@@ -204,24 +255,30 @@ def blocking_hits(runs, until_mark):
 # ---- Q7 gaps -----------------------------------------------------------------------------------------------
 
 
-def numeric_marks(run):
-    return {name: value for name, value in run.items() if number(value) is not None}
+def time_marks(run):
+    """The run's time marks (numbers that are not VALUE_MARKS), in the order they landed."""
+    marks = sorted((number(value), name) for name, value in run.items()
+                   if name not in VALUE_MARKS and number(value) is not None)
+    return [(name, value) for value, name in marks]
 
 
 def mark_gaps(runs, min_ms, label):
-    """Gaps between marks consecutive in median order, per run where both landed, kept at median >= min_ms."""
-    marks = [numeric_marks(run) for run in runs]
-    names = {name for run in marks for name in run}
-    order = sorted(names, key=lambda name: statistics.median([run[name] for run in marks if name in run]))
+    """Each run's gaps between its own consecutive time marks, grouped by (from, to) across runs, kept at median
+    >= min_ms. A mark that lands in some runs only never hides the gap of the runs without it."""
+    pairs = collections.defaultdict(list)
+    for run in runs:
+        marks = time_marks(run)
+        for (before, start), (after, end) in zip(marks, marks[1:]):
+            pairs[(before, after)].append(end - start)
     hits = []
-    for before, after in zip(order, order[1:]):
-        gaps = [run[after] - run[before] for run in marks if before in run and after in run]
-        if not gaps or statistics.median(gaps) < min_ms:
-            continue
+    for (before, after), gaps in pairs.items():
         median = statistics.median(gaps)
+        if median < min_ms:
+            continue
         hits.append({"run_set": label, "from": before, "to": after, "p50_ms": round(median, 1),
                      "p95_ms": round(p95(gaps), 1), "max_ms": round(max(gaps), 1), "n": len(gaps),
-                     "summary": f"{label}: {before} -> {after} p50 {median:.1f} ms, p95 {p95(gaps):.1f} ms, n {len(gaps)}"})
+                     "summary": f"{label}: {before} -> {after} p50 {median:.1f} ms, p95 {p95(gaps):.1f} ms, "
+                                f"n {len(gaps)}/{len(runs)}"})
     return hits
 
 
@@ -232,10 +289,15 @@ def gaps_hits(paths, min_ms, only_mode):
         if not isinstance(data, dict):
             raise QueueError(f"{path}: expected a bench-startup.py --json file ({{tag: {{mode: [runs]}}}})")
         for tag, modes in data.items():
-            for mode, runs in (modes or {}).items():
+            if not isinstance(modes, dict) or not all(isinstance(runs, list) for runs in modes.values()):
+                raise QueueError(f"{path}: {tag}: expected {{mode: [runs]}} (a bench-startup.py --json file)")
+            for mode, runs in modes.items():
                 if only_mode and mode != only_mode:
                     continue
-                kept = [run for run in runs if isinstance(run, dict) and not run.get("launch.interrupted")]
+                if not all(isinstance(run, dict) for run in runs):
+                    raise QueueError(f"{path}: {tag} {mode}: each run must be a {{mark: ms}} object "
+                                     "(a bench-startup.py --json file)")
+                kept = [run for run in runs if not flagged(run, INTERRUPTED)]
                 if len(kept) < len(runs):
                     warnings.append(f"{tag} {mode}: {len(runs) - len(kept)} interrupted runs left out")
                 used += len(kept)
@@ -398,28 +460,32 @@ def per_key(dicts):
 # ---- Q11 / Q12 / Q13 census --------------------------------------------------------------------------------
 
 
-def census_runs(runs, marks_needed):
-    """The runs that can be classified (not interrupted, every needed mark present), and why others were not."""
+def census_runs(runs, marks_needed, fields):
+    """The runs that can be classified (not interrupted, every needed mark and census array present), and why
+    others were not. A result without the arrays comes from a build without the census, not a clean launch."""
     kept, warnings = [], []
     for index, run in enumerate(runs):
         missing = [name for name in marks_needed if cutoff(run["marks"], name) is None]
+        absent = [field for field in fields if not isinstance(run["result"].get(field), list)]
         if interrupted(run):
             warnings.append(f"run {index + 1}: interrupted launch, left out")
         elif missing:
             warnings.append(f"run {index + 1}: no {', '.join(missing)} mark, left out")
+        elif absent:
+            warnings.append(f"run {index + 1}: no {', '.join(absent)} (a build without the census), left out")
         else:
             kept.append(run)
     return kept, warnings
 
 
 def mainjobs_hits(runs, first_frame_mark, until_mark, job_ms, job_count):
-    kept, warnings = census_runs(runs, (first_frame_mark, until_mark))
+    kept, warnings = census_runs(runs, (first_frame_mark, until_mark), CENSUS_FIELDS["mainjobs"])
     totals, counts = collections.defaultdict(list), collections.defaultdict(list)
-    turns = collections.defaultdict(lambda: {"runs": 0, "count": 0, "ms": 0.0})
+    turns = collections.defaultdict(lambda: {"runs": 0, "durations": []})
     for run in kept:
         first_frame, complete = cutoff(run["marks"], first_frame_mark), cutoff(run["marks"], until_mark)
         run_ms, run_count = collections.defaultdict(float), collections.defaultdict(int)
-        for job in run["result"].get("main_jobs") or []:
+        for job in run["result"]["main_jobs"]:
             if (number(job.get("enqueued_ms")) or 0.0) < first_frame:
                 key = (str(job.get("kind", "?")), str(job.get("caller", "?")))
                 run_ms[key] += number(job.get("run_ms")) or 0.0
@@ -428,28 +494,33 @@ def mainjobs_hits(runs, first_frame_mark, until_mark, job_ms, job_count):
             totals[key].append(run_ms[key])
             counts[key].append(run_count[key])
         seen = set()
-        for turn in run["result"].get("main_turns") or []:
+        for turn in run["result"]["main_turns"]:
             if (number(turn.get("start_ms")) or 0.0) >= complete or turn.get("task") or turn.get("allowlisted"):
                 continue
             site = str(turn.get("site", "?"))
-            turns[site]["count"] += 1
-            turns[site]["ms"] += number(turn.get("duration_ms")) or 0.0
+            turns[site]["durations"].append(number(turn.get("duration_ms")) or 0.0)
             turns[site]["runs"] += site not in seen
             seen.add(site)
-    hits = []
+    jobs = []
     for (kind, caller), values in totals.items():
         ms, count = median_over(values, len(kept)), median_over(counts[(kind, caller)], len(kept))
         if ms >= job_ms or count >= job_count:
-            hits.append({"kind": kind, "caller": caller, "p50_ms": round(ms, 2), "p50_count": count,
+            jobs.append({"kind": kind, "caller": caller, "p50_ms": round(ms, 2), "p50_count": count,
                          "runs": len(values), "summary": f"{kind} jobs from {caller}: p50 {ms:.1f} ms, "
                                                          f"{count:g} jobs before {first_frame_mark}"})
+    # A job hit's p50 is a per-run total, a turn hit's one turn's duration: each list ranks on its own.
+    unscheduled = []
     for site, entry in turns.items():
-        hits.append({"kind": "unscheduled_turn", "caller": site, "runs": entry["runs"], "count": entry["count"],
-                     "p50_ms": round(entry["ms"] / entry["count"], 2),
-                     "summary": f"main turn outside a startup task at {site}: {entry['runs']}/{len(kept)} runs, "
-                                f"{entry['count']} turns before {until_mark}"})
-    hits.sort(key=lambda hit: (-hit["runs"], -hit["p50_ms"]))
-    return hits, warnings, len(kept)
+        durations = entry["durations"]
+        median, longest = statistics.median(durations), max(durations)
+        unscheduled.append({"kind": "unscheduled_turn", "caller": site, "runs": entry["runs"],
+                            "count": len(durations), "p50_ms": round(median, 2), "max_ms": round(longest, 2),
+                            "summary": f"main turn outside a startup task at {site}: {entry['runs']}/{len(kept)} "
+                                       f"runs, {len(durations)} turns before {until_mark}, p50 {median:.1f} ms, "
+                                       f"max {longest:.1f} ms"})
+    jobs.sort(key=lambda hit: (-hit["runs"], -hit["p50_ms"], hit["caller"]))
+    unscheduled.sort(key=lambda hit: (-hit["runs"], -hit["p50_ms"], hit["caller"]))
+    return jobs + unscheduled, warnings, len(kept)
 
 
 def global_priority(value):
@@ -457,12 +528,12 @@ def global_priority(value):
 
 
 def globaljobs_hits(runs, until_mark):
-    kept, warnings = census_runs(runs, (until_mark,))
+    kept, warnings = census_runs(runs, (until_mark,), CENSUS_FIELDS["globaljobs"])
     callers = {}
     for run in kept:
         complete = cutoff(run["marks"], until_mark)
         seen = set()
-        for job in run["result"].get("global_jobs") or []:
+        for job in run["result"]["global_jobs"]:
             priority = global_priority(job.get("priority"))
             if job.get("lane") or priority is None or (number(job.get("enqueued_ms")) or 0.0) >= complete:
                 continue
@@ -483,11 +554,11 @@ def globaljobs_hits(runs, until_mark):
 
 
 def arms_hits(runs, until_mark):
-    kept, warnings = census_runs(runs, (until_mark,))
+    kept, warnings = census_runs(runs, (until_mark,), CENSUS_FIELDS["arms"])
     arms = {}
     for index, run in enumerate(kept):
         complete = cutoff(run["marks"], until_mark)
-        for arm in run["result"].get("arms") or []:
+        for arm in run["result"]["arms"]:
             armed = number(arm.get("armed_ms"))
             if armed is None or armed >= complete:
                 continue
@@ -532,12 +603,12 @@ def purge():
 def prepare(bench, tag, temperature, scratch, timeout, purge_cache):
     """Cold: no daemon and an empty file cache. Warm: a priming launch leaves the daemon running."""
     if bench.app_pids(tag):
-        raise QueueError(f"tag {tag} has an app running; quit it first (this tool only stops what it starts)")
+        raise QueueError(f"tag {tag} has an app running; quit it first (each measured launch starts its own app)")
     if temperature == "cold":
         bench.stop(bench.tag_pids(tag))
         purge_cache()
     elif not bench.tag_pids(tag):
-        prime = bench.Launch(tag, scratch)
+        prime = bench.Launch(tag, scratch, extra_env=LIVE_ENV)
         prime.wait_for([FIRST_FRAME, bench.FINAL_MARK], timeout, any_of=True)
         prime.quit()
 
@@ -555,17 +626,22 @@ def query(bench, tag, method):
 
 
 def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_cache=purge):
-    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe, then quit."""
+    """N launches; each is read with `method` once `until_mark` arrived on the mark pipe, then quit.
+
+    At the end it stops only the tag's processes it started (a warm daemon that ran before is left running; a
+    cold run stops the daemon before each launch, as cold means) and removes its scratch folders."""
     tag = bench.app_tag(app)
     bench.APPS[tag] = os.path.abspath(app)
-    captured = []
+    captured, scratches = [], []
+    before = set(bench.tag_pids(tag))
     try:
         for index in range(runs):
             scratch = tempfile.mkdtemp(prefix=f"startup-queue-{tag}-")
+            scratches.append(scratch)
             with open(os.path.join(scratch, "cmux.json"), "w") as out:
                 out.write("{}\n")
             prepare(bench, tag, temperature, scratch, timeout, purge_cache)
-            launch = bench.Launch(tag, scratch)
+            launch = bench.Launch(tag, scratch, extra_env=LIVE_ENV)
             try:
                 if not launch.wait_for(until_mark, timeout):
                     raise QueueError(f"run {index + 1}: {until_mark} never arrived within {timeout:g} s "
@@ -577,7 +653,9 @@ def collect(bench, app, runs, temperature, until_mark, timeout, method, purge_ca
                              "result": result})
             print(f"  run {index + 1}/{runs}: {until_mark} at {launch.marks[until_mark]:.0f} ms", file=sys.stderr)
     finally:
-        bench.stop(bench.tag_pids(tag))
+        bench.stop([pid for pid in bench.tag_pids(tag) if pid not in before])
+        for scratch in scratches:
+            shutil.rmtree(scratch, ignore_errors=True)
     return captured
 
 
@@ -636,8 +714,7 @@ def live_inputs(args, env, system):
         return record_profiles(args.app, args.runs, args.temperature, args.out)
     bench = load_bench_startup()
     bench.require_gui_session("startup-queue")
-    method = "debug.blocking" if args.mode == "blocking" else "debug.startup"
-    runs = collect(bench, args.app, args.runs, args.temperature, args.until_mark, args.timeout, method)
+    runs = collect(bench, args.app, args.runs, args.temperature, args.until_mark, args.timeout, method_of(args.mode))
     if args.raw:
         with open(args.raw, "w") as out:
             json.dump({"mode": args.mode, "app": os.path.basename(args.app), "runs": runs}, out, indent=1)
@@ -651,7 +728,7 @@ def analyze(args, inputs):
     if args.mode == "profile":
         thresholds = {"symbol_ms": args.symbol_ms, "turn_ms": args.turn_ms, "once_ms": args.once_ms}
         return (*profile_hits(inputs, args.first_frame_mark, args.until_mark, **thresholds), thresholds)
-    runs = capture_runs(inputs) if args.app else load_captures(inputs)
+    runs = capture_runs(inputs) if args.app else load_captures(inputs, args.mode)
     if args.mode == "blocking":
         return (*blocking_hits(runs, args.until_mark), {"until_mark": args.until_mark})
     if args.mode == "mainjobs":
