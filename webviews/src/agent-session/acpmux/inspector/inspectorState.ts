@@ -41,9 +41,10 @@ export const DEFAULT_SECTIONS: InspectorSections = {
 const OPEN_KEY = "cmux.agentPane.inspector.open";
 const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
-/// Each pane's own state, by its chat's session id: `{ [sessionId]: { open, width, sections, at } }`.
-export const INSPECTOR_PANES_KEY = "cmux.agentPane.inspector.panes";
-/// The panes kept: the newest ``PANES_KEPT`` chats seen in the last ``PANE_DAYS`` days.
+/// Each chat's own state, one key per chat (`{ open, width, sections, at }`): a pane writes only its
+/// chat's key, so two panes saving at once never undo each other's change.
+export const INSPECTOR_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
+/// The chats kept: the newest ``PANES_KEPT`` seen in the last ``PANE_DAYS`` days, the pane's own always.
 export const PANES_KEPT = 200;
 const PANE_DAYS = 30;
 
@@ -72,7 +73,14 @@ function parse(raw: string | null): unknown {
   }
 }
 
-/// One pane's Inspector state: what it shows, and the pane it is saved under once its chat has a
+/// A chat's saved state, if it has one.
+function storedState(raw: string | null): State | undefined {
+  const stored = parse(raw) as Stored | undefined;
+  if (!stored || typeof stored !== "object" || typeof stored.open !== "boolean") return undefined;
+  return { open: stored.open, width: widthOf(stored.width), sections: sectionsOf(stored.sections) };
+}
+
+/// One pane's Inspector state: what it shows, and the chat it is saved under while that chat has a
 /// session. `storage` is the page's localStorage (a test passes its own).
 export function createInspectorStore(storage: () => Storage | undefined = () => globalThis.localStorage) {
   const read = (key: string): string | null => {
@@ -90,9 +98,19 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       // Storage off: the page's copy still holds it.
     }
   };
-  const panes = (): Record<string, Stored> => {
-    const value = parse(read(INSPECTOR_PANES_KEY));
-    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, Stored>) : {};
+  const paneKeys = (): string[] => {
+    try {
+      const all = storage();
+      if (!all) return [];
+      const keys: string[] = [];
+      for (let index = 0; index < all.length; index++) {
+        const key = all.key(index);
+        if (key?.startsWith(INSPECTOR_PANE_PREFIX)) keys.push(key);
+      }
+      return keys;
+    } catch {
+      return [];
+    }
   };
   /// Open unless the viewer closed it: a first chat shows it.
   const defaults = (): State => ({
@@ -100,24 +118,29 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
   });
-  const own = (pane: string): State | undefined => {
-    const stored = panes()[pane];
-    if (!stored || typeof stored !== "object" || typeof stored.open !== "boolean") return undefined;
-    return { open: stored.open, width: widthOf(stored.width), sections: sectionsOf(stored.sections) };
+  /// Drops chats past the newest ``PANES_KEPT`` or older than ``PANE_DAYS``, never `own` (a clock
+  /// set back, or a tie, must not drop the chat the pane shows).
+  const prune = (own: string, now: number) => {
+    const others = paneKeys()
+      .filter((key) => key !== own)
+      .map((key) => ({ key, at: (parse(read(key)) as Stored | undefined)?.at }))
+      .sort((a, b) => (typeof b.at === "number" ? b.at : -Infinity) - (typeof a.at === "number" ? a.at : -Infinity));
+    others.forEach(({ key, at }, index) => {
+      if (index >= PANES_KEPT - 1 || typeof at !== "number" || now - at >= PANE_DAYS * 86_400_000) write(key, null);
+    });
   };
-  /// Saves `next` as `pane`'s, dropping panes past the newest ``PANES_KEPT`` or older than ``PANE_DAYS``.
-  const save = (pane: string, next: State) => {
+  const save = (sessionId: string, next: State) => {
     const now = Date.now();
-    const all = { ...panes(), [pane]: { ...next, at: now } };
-    const kept = Object.entries(all)
-      .filter(([, value]) => typeof value?.at === "number" && now - value.at < PANE_DAYS * 86_400_000)
-      .sort(([, a], [, b]) => (b.at as number) - (a.at as number))
-      .slice(0, PANES_KEPT);
-    write(INSPECTOR_PANES_KEY, JSON.stringify(Object.fromEntries(kept)));
+    const key = INSPECTOR_PANE_PREFIX + sessionId;
+    write(key, JSON.stringify({ ...next, at: now }));
+    prune(key, now);
   };
 
   let pane: string | undefined;
   let state: State | undefined;
+  /// The last saved state `shownFor` read for a chat the pane does not show yet, so the snapshot
+  /// stays the same object while nothing changed.
+  let peeked: { key: string; raw: string | null; state: State | undefined } | undefined;
   const listeners = new Set<() => void>();
   const current = (): State => (state ??= defaults());
   const update = (next: State, persist: boolean) => {
@@ -126,27 +149,39 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     state = next;
     if (changed) for (const listener of listeners) listener();
   };
-  const subscribe = (listener: () => void) => {
-    listeners.add(listener);
-    return () => void listeners.delete(listener);
-  };
   return {
     current,
-    subscribe,
+    /// What the pane shows for chat `sessionId`, read before the pane is bound to it, so a pane
+    /// switched to another chat draws that chat's state from its first frame: the chat's saved
+    /// state, else what the pane shows now (a new chat inherits it).
+    shownFor(sessionId: string | undefined): State {
+      if (!sessionId || sessionId === pane) return current();
+      const key = INSPECTOR_PANE_PREFIX + sessionId;
+      const raw = read(key);
+      if (peeked?.key !== key || peeked.raw !== raw) peeked = { key, raw, state: storedState(raw) };
+      return peeked.state ?? current();
+    },
+    subscribe(listener: () => void) {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
     /// The pane shows chat `sessionId` (a relaunch, a new chat's first session, another chat in the
     /// pane): it shows that chat's saved state, or keeps what it shows and saves it as the chat's.
+    /// No session (a new chat not started yet, a harness switch): nothing is saved until one comes,
+    /// and the pane keeps what it shows.
     bind(sessionId: string | undefined) {
-      if (!sessionId || sessionId === pane) return;
-      pane = sessionId;
-      const saved = own(sessionId);
+      if (sessionId === pane) return;
+      pane = sessionId || undefined;
+      if (!pane) return;
+      const saved = storedState(read(INSPECTOR_PANE_PREFIX + pane));
       if (saved) update(saved, false);
-      else save(sessionId, current());
+      else save(pane, current());
     },
     setOpen(open: boolean) {
       write(OPEN_KEY, open ? "1" : "0");
       update({ ...current(), open }, true);
     },
-    /// A drag's width; `save` stores it (at the drag's end, not on every step).
+    /// A drag's width; `persist` stores it (at the drag's end, not on every step).
     setWidth(width: number, persist = true) {
       const next = clampWidth(width);
       if (persist) write(WIDTH_KEY, String(next));
@@ -158,11 +193,12 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       write(SECTIONS_KEY, JSON.stringify(sections));
       update({ ...current(), sections }, true);
     },
-    /// Forgets every choice, every pane's too.
+    /// Forgets every choice, every chat's too.
     reset() {
-      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, INSPECTOR_PANES_KEY]) write(key, null);
+      for (const key of [OPEN_KEY, WIDTH_KEY, SECTIONS_KEY, ...paneKeys()]) write(key, null);
       pane = undefined;
       state = undefined;
+      peeked = undefined;
       update(defaults(), false);
     },
   };
@@ -171,12 +207,17 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
 /// This page's pane.
 const page = createInspectorStore();
 
-/// The live state.
-export const useInspectorState = (): State => useSyncExternalStore(page.subscribe, page.current, page.current);
+/// The live state the pane shows for chat `sessionId` (the chat it shows; omitted: whatever it is bound to).
+export const useInspectorState = (sessionId?: string): State => {
+  const snapshot = () => page.shownFor(sessionId);
+  return useSyncExternalStore(page.subscribe, snapshot, snapshot);
+};
 export const inspectorState = page.current;
 /// Whether it is open, alone: a pane that needs only that is not drawn again on every drag step.
-const openNow = () => page.current().open;
-export const useInspectorOpen = (): boolean => useSyncExternalStore(page.subscribe, openNow, openNow);
+export const useInspectorOpen = (sessionId?: string): boolean => {
+  const open = () => page.shownFor(sessionId).open;
+  return useSyncExternalStore(page.subscribe, open, open);
+};
 /// Keys this pane's state by the chat it shows (useChatInspector, from the snapshot's session).
 export const bindInspectorPane = page.bind;
 export const setInspectorOpen = page.setOpen;

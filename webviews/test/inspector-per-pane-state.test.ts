@@ -1,99 +1,182 @@
 // Session Info (the Inspector, inspector/inspectorState.ts) is each chat pane's own (Leo,
 // 2026-10-25: "basically the video shows the session rail opening and closing it opens and closes on
 // the other side too when you do one... they should all be individual per pane"). Every chat pane is
-// its own page on one origin, so they share localStorage: two stores over one storage stand for two
-// panes, a new store over the same storage for a pane after a relaunch.
+// its own page on one origin, so they share localStorage. Here a pane is its own copy of the module
+// (imported under its own query, as each page loads its own), all over one jsdom localStorage; a
+// pane after a relaunch is a fresh copy over the same storage.
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import {
-  createInspectorStore,
-  INSPECTOR_PANES_KEY,
-  INSPECTOR_WIDTH,
-  PANES_KEPT,
-} from "../src/agent-session/acpmux/inspector/inspectorState";
+
+type Module = typeof import("../src/agent-session/acpmux/inspector/inspectorState");
+const MODULE = new URL("../src/agent-session/acpmux/inspector/inspectorState.ts", import.meta.url).pathname;
+let loads = 0;
+/// A chat pane's page showing chat `sessionId`: its own copy of the module.
+async function page(sessionId: string): Promise<Module> {
+  const module = (await import(`${MODULE}?pane=${++loads}`)) as Module;
+  // Pages before 2026-10-25 had no chat to bind: they all shared one state.
+  (module as Partial<Module>).bindInspectorPane?.(sessionId);
+  return module;
+}
+const PREFIX = "cmux.agentPane.inspector.pane.";
 
 let dom: JSDOM;
-const storage = () => dom.window.localStorage;
-const pane = (sessionId: string) => {
-  const store = createInspectorStore(storage);
-  store.bind(sessionId);
-  return store;
-};
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
+  const replacements: Record<string, unknown> = {
+    localStorage: dom.window.localStorage,
+    addEventListener: dom.window.addEventListener.bind(dom.window),
+    removeEventListener: dom.window.removeEventListener.bind(dom.window),
+  };
+  for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
+  Object.assign(scope, replacements);
 });
 afterEach(() => {
   setSystemTime();
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+  saved.clear();
   dom.window.close();
 });
 
-test("a toggle, a drag or a fold in one pane leaves the other pane as it was", () => {
-  const left = pane("chat-left");
-  const right = pane("chat-right");
-  let drawn = 0;
-  right.subscribe(() => drawn++);
-  expect(left.current().open).toBe(true);
-  expect(right.current().open).toBe(true);
+/// What another page sees of a write: a storage event on its window (jsdom fires none for its own).
+const storageEvent = (key: string) => dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key }));
 
-  left.setOpen(false);
-  left.setWidth(480);
-  left.setSection("context", true);
-  // What the other page sees of the write: a storage event on its window.
-  dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: "cmux.agentPane.inspector.open" }));
-  dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: INSPECTOR_PANES_KEY }));
+test("a toggle, a drag or a fold in one pane leaves the other pane as it was", async () => {
+  const left = await page("chat-left");
+  const right = await page("chat-right");
+  expect(left.inspectorState().open).toBe(true);
+  expect(right.inspectorState().open).toBe(true);
 
-  expect(left.current()).toMatchObject({ open: false, width: 480, sections: { context: true } });
-  expect(right.current()).toMatchObject({ open: true, width: INSPECTOR_WIDTH.fallback, sections: { context: false } });
-  expect(drawn).toBe(0);
+  left.setInspectorOpen(false);
+  left.setInspectorWidth(480);
+  left.setInspectorSection("context", true);
+  for (const key of Object.keys(localStorage)) storageEvent(key);
+
+  expect(left.inspectorState()).toMatchObject({ open: false, width: 480, sections: { context: true } });
+  expect(right.inspectorState()).toMatchObject({ open: true, width: 320, sections: { context: false } });
 });
 
-test("after a relaunch each pane shows its own state again", () => {
-  pane("chat-left").setOpen(false);
-  const right = pane("chat-right");
-  right.setOpen(true);
-  right.setWidth(400);
+test("after a relaunch each pane shows its own state again", async () => {
+  const left = await page("chat-left");
+  const right = await page("chat-right");
+  left.setInspectorOpen(false);
+  right.setInspectorOpen(true);
+  right.setInspectorWidth(400);
 
-  const left = pane("chat-left");
-  const rightAgain = pane("chat-right");
-  expect(left.current().open).toBe(false);
-  expect(rightAgain.current()).toMatchObject({ open: true, width: 400 });
+  expect((await page("chat-left")).inspectorState().open).toBe(false);
+  expect((await page("chat-right")).inspectorState()).toMatchObject({ open: true, width: 400 });
 });
 
-test("a pane with no state of its own starts from the last choice, and the old shared key migrates", () => {
+test("a pane with no state of its own starts from the last choice, and the old shared key migrates", async () => {
   // The single key every pane shared before: an old install's closed Inspector stays closed.
-  storage().setItem("cmux.agentPane.inspector.open", "0");
-  storage().setItem("cmux.agentPane.inspector.width", "420");
-  expect(pane("chat-old").current()).toMatchObject({ open: false, width: 420 });
+  localStorage.setItem("cmux.agentPane.inspector.open", "0");
+  localStorage.setItem("cmux.agentPane.inspector.width", "420");
+  expect((await page("chat-old")).inspectorState()).toMatchObject({ open: false, width: 420 });
 
-  pane("chat-a").setOpen(true);
-  expect(pane("chat-new").current().open).toBe(true);
-  // A pane's state from before it had a session (a new chat) is saved as its chat's.
-  const fresh = createInspectorStore(storage);
-  fresh.setOpen(false);
-  fresh.bind("chat-born");
-  expect(pane("chat-born").current().open).toBe(false);
+  (await page("chat-a")).setInspectorOpen(true);
+  expect((await page("chat-new")).inspectorState().open).toBe(true);
 });
 
-test("the same chat in two panes: a toggle in one does not move the other", () => {
-  const one = pane("chat-same");
-  const two = pane("chat-same");
-  one.setOpen(false);
-  dom.window.dispatchEvent(new dom.window.StorageEvent("storage", { key: INSPECTOR_PANES_KEY }));
-  expect(two.current().open).toBe(true);
+test("the same chat in two panes: a toggle in one does not move the other", async () => {
+  const one = await page("chat-same");
+  const two = await page("chat-same");
+  one.setInspectorOpen(false);
+  for (const key of Object.keys(localStorage)) storageEvent(key);
+  expect(two.inspectorState().open).toBe(true);
 });
 
-test("storage keeps the newest panes of the last 30 days", () => {
+/// Storage as a page that read it now sees it: its reads are that moment's,
+/// its writes land in the real storage.
+function staleView(real: Storage): Storage {
+  const seen = new Map<string, string>();
+  for (let index = 0; index < real.length; index++) {
+    const key = real.key(index)!;
+    seen.set(key, real.getItem(key)!);
+  }
+  return {
+    get length() {
+      return seen.size;
+    },
+    key: (index: number) => [...seen.keys()][index] ?? null,
+    getItem: (key: string) => seen.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      seen.set(key, value);
+      real.setItem(key, value);
+    },
+    removeItem: (key: string) => {
+      seen.delete(key);
+      real.removeItem(key);
+    },
+    clear: () => real.clear(),
+  };
+}
+
+test("two panes saving at once keep both chats' changes", async () => {
+  const { createInspectorStore } = await page("unbound");
+  const a = createInspectorStore(() => localStorage);
+  a.bind("chat-a");
+  // Pane B read the storage before pane A's save landed, and saves after it.
+  const view = staleView(localStorage);
+  const b = createInspectorStore(() => view);
+  b.bind("chat-b");
+  a.setOpen(false);
+  b.setWidth(500);
+
+  const fresh = (sessionId: string) => {
+    const store = createInspectorStore(() => localStorage);
+    store.bind(sessionId);
+    return store.current();
+  };
+  expect(fresh("chat-a").open).toBe(false);
+  expect(fresh("chat-b").width).toBe(500);
+});
+
+test("with no session the pane saves nothing until one comes, then saves under it", async () => {
+  const { createInspectorStore } = await page("unbound");
+  const store = createInspectorStore(() => localStorage);
+  store.bind("chat-a");
+  // A harness switch shows a new chat with no session yet: the last chat is no longer the pane's.
+  store.bind(undefined);
+  store.setOpen(false);
+  const relaunched = createInspectorStore(() => localStorage);
+  relaunched.bind("chat-a");
+  expect(relaunched.current().open).toBe(true);
+  // The new chat's session arrives: what the pane shows is saved as that chat's.
+  store.bind("chat-new");
+  const again = createInspectorStore(() => localStorage);
+  again.bind("chat-new");
+  expect(again.current().open).toBe(false);
+});
+
+test("storage keeps the newest chats of the last 30 days, and always the pane's own", async () => {
+  const { createInspectorStore, PANES_KEPT } = await page("unbound");
+  const pane = (sessionId: string) => {
+    const store = createInspectorStore(() => localStorage);
+    store.bind(sessionId);
+    return store;
+  };
   setSystemTime(new Date("2026-09-01T00:00:00Z"));
   pane("chat-stale").setOpen(false);
-  setSystemTime(new Date("2026-10-25T00:00:00Z"));
   for (let index = 0; index < PANES_KEPT + 20; index++) {
     setSystemTime(new Date(Date.UTC(2026, 9, 25, 0, 0, index)));
     pane(`chat-${index}`).setOpen(index % 2 === 0);
   }
-  const kept = JSON.parse(storage().getItem(INSPECTOR_PANES_KEY)!) as Record<string, unknown>;
-  expect(Object.keys(kept).length).toBe(PANES_KEPT);
-  expect(kept["chat-stale"]).toBeUndefined();
-  expect(kept["chat-0"]).toBeUndefined();
-  expect(kept[`chat-${PANES_KEPT + 19}`]).toBeDefined();
+  const kept = () => Object.keys(localStorage).filter((key) => key.startsWith(PREFIX));
+  expect(kept().length).toBe(PANES_KEPT);
+  expect(localStorage.getItem(`${PREFIX}chat-stale`)).toBeNull();
+  expect(localStorage.getItem(`${PREFIX}chat-0`)).toBeNull();
+  expect(localStorage.getItem(`${PREFIX}chat-${PANES_KEPT + 19}`)).not.toBeNull();
+
+  // The clock set back a day: the pane's chat is older than every kept one, and still kept.
+  setSystemTime(new Date("2026-10-24T00:00:00Z"));
+  const own = pane("chat-now");
+  own.setOpen(false);
+  expect(kept().length).toBe(PANES_KEPT);
+  expect(localStorage.getItem(`${PREFIX}chat-now`)).not.toBeNull();
+  expect(pane("chat-now").current().open).toBe(false);
 });

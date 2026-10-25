@@ -262,6 +262,38 @@ test("open, closed, folds and width are this pane's, and another pane's change n
   expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
 });
 
+test("a pane switched to another chat shows that chat's Inspector at once, never playing the last one out", async () => {
+  const container = installDom(true);
+  const chatB = { ...localChat, sessionId: "chat-b" };
+  // Chat B was left closed, chat A open.
+  await render(container, chatB);
+  await click(toggle(container)!);
+  expect(panel(container)).toBeNull();
+  await render(container, localChat);
+  await click(toggle(container)!);
+  expect(panel(container)).not.toBeNull();
+  // Every phase change of an Inspector panel while the pane switches to chat B (chat A's panel
+  // turning to `leaving` is the last chat's panel playing out over chat B).
+  const phases: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      phases.push(`${record.oldValue} -> ${(record.target as HTMLElement).getAttribute("data-presence")}`);
+  });
+  observer.observe(container, { subtree: true, attributeOldValue: true, attributeFilter: ["data-presence"] });
+  await render(container, chatB);
+  await act(async () => undefined);
+  phases.push(...observer.takeRecords().map((record) => `${record.oldValue} ->`));
+  observer.disconnect();
+  expect({ phases, panel: panel(container), pressed: toggle(container)?.getAttribute("aria-pressed") }).toEqual({
+    phases: [],
+    panel: null,
+    pressed: "false",
+  });
+  // And back to chat A: open again, as it was left.
+  await render(container, localChat);
+  expect(panel(container)).not.toBeNull();
+});
+
 test("a cloud session names its host; no usage and nothing produced have no sections", async () => {
   const container = installDom(true);
   const base = chat([]);

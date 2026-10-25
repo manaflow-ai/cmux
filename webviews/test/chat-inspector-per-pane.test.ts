@@ -40,7 +40,10 @@ await requireBrowserLane("chat-inspector-per-pane.test.ts", async () => {
       running: false,
     });
     // The first load can run Vite's dependency optimizer and reload mid-compile.
-    context = await browsers.values().next().value!.newContext({ viewport: { width: 1200, height: 600 } });
+    context = await browsers
+      .values()
+      .next()
+      .value!.newContext({ viewport: { width: 1200, height: 600 } });
     await (await pane.open()).close();
     await context.close();
   });
