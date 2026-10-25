@@ -452,20 +452,33 @@ fn url_arg_ok(arg: &str) -> bool {
             .any(|host| authority.eq_ignore_ascii_case(host))
 }
 
-/// Whether `arg` is `HOST/owner/name` with a HOST (dotted labels) other
-/// than github.com.
+/// Whether `arg` may name a host other than github.com for gh: a
+/// `HOST/owner/name` whose HOST is anything but `github.com` and looks like
+/// a host (a port, a dot that is not a `./..` path step, brackets), or any
+/// mention of `.ghe.com`, the tenancy hosts gh also sends GH_TOKEN to.
 fn other_host_repo(arg: &str) -> bool {
-    let mut parts = arg.split('/');
-    let (Some(host), Some(owner), Some(name), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
+    let lower = arg.to_ascii_lowercase();
+    if lower.contains(".ghe.com") || lower.contains("ghe.com:") {
+        return true;
+    }
+    if arg.contains("://") {
+        return false; // a URL: url_arg_ok judges it
+    }
+    let value = arg.split_once('=').map_or(arg, |(_, v)| v);
+    let mut parts = value.split('/');
+    let (Some(host), Some(owner), Some(_name)) = (parts.next(), parts.next(), parts.next()) else {
         return false;
     };
-    let hostlike = host.contains('.')
-        && host.split('.').all(|label| {
-            !label.is_empty() && label.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        });
-    hostlike && !owner.is_empty() && !name.is_empty() && !host.eq_ignore_ascii_case("github.com")
+    if host.is_empty()
+        || owner.is_empty()
+        || host == "."
+        || host == ".."
+        || host.contains(char::is_whitespace)
+    {
+        return false;
+    }
+    let hostlike = host.contains([':', '.', '[', ']', '@', '%']);
+    hostlike && !host.eq_ignore_ascii_case("github.com")
 }
 
 fn origin_url() -> Option<String> {
@@ -832,6 +845,13 @@ mod tests {
         assert!(url(&["repo", "view", "o/r"]));
         assert!(url(&["api", "repos/o/r"]));
         assert!(url(&["gist", "create", "../a/b"]));
+        assert!(!url(&["repo", "view", "evil.ghe.com:443/o/r"]));
+        assert!(!url(&["repo", "view", "github.com:443/o/r"]));
+        assert!(!url(&["repo", "view", "evil:443/o/r"]));
+        assert!(!url(&["repo", "view", "[::1]/o/r"]));
+        assert!(!url(&["repo", "view", "evil.example.com/o/r/extra"]));
+        assert!(!url(&["pr", "list", "--repo=evil.ghe.com/o/r"]));
+        assert!(!url(&["api", "--hostname", "github.com", "-F", "h=x.GHE.com"]));
         let env = gh_plan(&strings(&["--", "pr", "list"]), Some("o/env"), &origin).unwrap();
         assert_eq!(
             (env.repo.as_str(), env.write, env.args),
