@@ -764,10 +764,8 @@ async fn dispatch_request(
                 return Err(RpcError::invalid_params(format!("route {r:?} is not a route id")));
             }
             let disallowed_tools = disallowed_tools(meta)?;
-            let asked_policy = policy.is_some();
-            // The proven agent session that asks (`start_mode.rs`, "Inherit"): never the person,
-            // a peer or a Web connection, which have no caller.
-            let starter = hub.starter_of(conn.is_person(), conn.origin.web_class(), conn.caller());
+            let (asked_policy, agent) =
+                (policy.is_some(), conn.caller().filter(|_| !conn.is_person()));
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let req = crate::hub::NewRequest {
@@ -783,10 +781,8 @@ async fn dispatch_request(
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
                 remote: conn.origin.web_class(),
-                keep_harness_mode: hub
-                    .keeps_harness_mode(conn.is_person(), conn.caller(), starter.is_some(), &params)
-                    .await,
-                starter,
+                keep_harness_mode: hub.keeps_harness_mode(agent, &params).await,
+                starter: hub.starter_of(conn.origin.web_class(), agent),
                 route,
                 subsession: None,
                 disallowed_tools,
