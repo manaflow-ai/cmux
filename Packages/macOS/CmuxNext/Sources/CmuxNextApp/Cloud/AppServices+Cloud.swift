@@ -8,10 +8,29 @@ import CmuxNextMobileHost
 import CmuxNextPhoneAccess
 import CmuxNextRemoteLocalhost
 import CmuxNextRemoteLocalhostService
+import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import Observation
 
 extension AppServices {
+    /// The loopback port of a Cloud machine's `cmux-rd` desktop host (`--port`).
+    static let cloudDesktopRdPort: UInt16 = 4103
+
+    /// Open Desktop's `cmux-rd` viewer: Cloud machine `machine`'s desktop host on its own
+    /// loopback, reached over the machine's daemon link (`loopback-forward-v1`, inside the Cloud
+    /// tunnel), with the session token Open Desktop fetched. Nil without the machine or token.
+    func cloudDesktopRdTransport(machine: String) -> (@MainActor () -> RemoteRdStreamTransport?)? {
+        let key = machine.lowercased()
+        guard let id = machines.cloud.first(where: { $0.machineID.lowercased() == key })?.machineID,
+              let token = cloud.desktopRdTokens[key] else { return nil }
+        let remote = remoteLocalhost
+        return {
+            let hello = RemoteRdHello(user: "cmux", install: "cmux-next-\(ProcessInfo.processInfo.processIdentifier)", token: token)
+            return RemoteRdStreamTransport(carrier: remote.browserCarrier(machine: id, port: Self.cloudDesktopRdPort), hello: hello,
+                                           startKey: UUID().uuidString, control: true)
+        }
+    }
+
     /// Open Desktop's native viewer: Cloud machine `machine`'s websockify port (6901, next to its
     /// noVNC) over this Mac's own Cloud tunnel, with the hub's client token; no port opens on this
     /// Mac. Nil when the tunnel cannot reach it (signed out, the machine without an address).

@@ -173,7 +173,9 @@ enum CloudHandlers {
     /// (``RemoteLocalhostService/cloudDesktopURL(machine:)``). Remote localhost routes that page
     /// by its URL through the peer-checked proxy and this Mac's own WireGuard tunnel to the
     /// machine's noVNC (6901 on its loopback), with no TCP port opened on this Mac.
-    /// `viewer`: `web` (the default) shows the machine's noVNC page in a Chromium tab; `native`
+    /// `viewer`: `web` (the default) shows the machine's noVNC page in a Chromium tab; `rd`
+    /// shows the remote view pane on the machine's `cmux-rd` host (H.264 over the daemon link);
+    /// `native`
     /// shows the remote view pane, the app's own VNC client over the same Cloud tunnel. Opened by
     /// a person, it connects at once; by an agent or the CLI, it asks first.
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
@@ -182,16 +184,29 @@ enum CloudHandlers {
               let url = RemoteLocalhostService.cloudDesktopURL(machine: session.machineID) else {
             throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
         }
-        if viewer == "native" {
+        if viewer == "native" || viewer == "rd" {
             guard RemoteViewAvailability().isAvailable else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+            let rd = viewer == "rd"
             guard let record = RemoteViewTabRecord(host: session.machineID.lowercased(), target: .virtual, mode: .control,
-                                                   cloudDesktop: true) else {
+                                                   cloudDesktop: true, cloudRd: rd) else {
                 throw ActionFailure(message: CloudStrings.desktopUnavailable(title))
             }
             let name = CloudStrings.desktopWorkspaceName(title), address = record.url.absoluteString
+            let api = services.cloud.api, machineID = session.machineID, cloud = services.cloud
             services.remoteViewPages.personOpens(record.url)
             WorkspaceHandlers.createAndShow(services: services, name: name, daemon: services.machines.local) { connection, terminal in
                 guard let pane = terminal.pane else { return }
+                if rd {
+                    // The machine's `cmux-rd` host: started on its display :1 (loopback only), and its
+                    // session token fetched over the signed-in Cloud API into memory.
+                    let started = try await api.exec(machineID, command: Self.desktopRdStart)
+                    guard started.exitCode == 0 else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+                    let file = try await api.readFile(machineID, path: Self.desktopRdTokenPath)
+                    let token = Data(base64Encoded: file.dataBase64).map { String(decoding: $0, as: UTF8.self) }?
+                        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    guard token.count == 64 else { throw ActionFailure(message: CloudStrings.desktopUnavailable(title)) }
+                    await MainActor.run { cloud.desktopRdTokens[machineID.lowercased()] = token }
+                }
                 _ = try await connection.newFrontendBrowserTab(url: address, engine: .webkit, in: pane, title: name)
                 if let surface = terminal.surface { try await connection.closeTab(surface) }
             }
@@ -206,6 +221,11 @@ enum CloudHandlers {
             if let surface = terminal.surface { try await connection.closeTab(surface) }
         }
     }
+
+    /// The machine's `cmux-rd` desktop host: its start script (a no-op while it runs) and its
+    /// session token file (0600), under the `cmux` user's cache.
+    static let desktopRdStart = "bash /home/cmux/.cache/cmux-rd/start-rd.sh"
+    static let desktopRdTokenPath = "/home/cmux/.cache/cmux-rd/token"
 
     @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
         let hadWorkspace = !session.daemon.store.workspaces.isEmpty

@@ -37,7 +37,8 @@ public final class RemoteViewPageTab: BrowserTab {
     /// reaches a Cloud machine's desktop over the app's Cloud tunnel.
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
          closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void,
-         cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil) {
+         cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
+         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -51,7 +52,7 @@ public final class RemoteViewPageTab: BrowserTab {
         self.state = state
         switch decision {
         case let .connect(record):
-            let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport)
+            let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport, cloudRd: cloudRd)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):

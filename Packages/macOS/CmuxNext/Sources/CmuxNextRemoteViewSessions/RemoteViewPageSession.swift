@@ -35,6 +35,10 @@ public final class RemoteViewPageSession {
     /// app cannot reach it over its Cloud tunnel (signed out, no address).
     public typealias CloudDesktopTransport = @MainActor (_ machine: String) -> (@Sendable () async throws -> CloudDesktopStream)?
 
+    /// The `cmux-rd` transports of Cloud machine `machine`'s desktop (a new one per session: a
+    /// used transport cannot connect again), or nil when the app has no route or token for it.
+    public typealias CloudRdTransport = @MainActor (_ machine: String) -> (@MainActor () -> RemoteRdStreamTransport?)?
+
     /// The machine's VNC server as websockify serves it next to noVNC, over `open`'s stream.
     nonisolated static func cloudRFBTransport(_ open: @escaping @Sendable () async throws -> CloudDesktopStream) -> any RFBTransport {
         WebSocketRFBTransport(host: "localhost:6901") { CloudDesktopByteStream(try await open()) }
@@ -44,7 +48,7 @@ public final class RemoteViewPageSession {
     private let pane: RemoteDesktopPane
     private let source: any RemoteViewStreamSource
     /// The real host's source and how to make a new transport; nil for the mock.
-    private let rd: (source: RemoteRdDebugSource, make: () -> RemoteRdStreamTransport?)?
+    private let rd: (source: RemoteRdDebugSource, make: @MainActor () -> RemoteRdStreamTransport?)?
     /// The VNC compatibility session; nil for the mock and rd hosts.
     private let vnc: RemoteVNCSession?
     /// The current transport already connected once (it cannot connect again).
@@ -74,7 +78,7 @@ public final class RemoteViewPageSession {
     /// hidden tab ends its session (the host stops streaming) and a shown tab
     /// or Reconnect starts a new one.
     private init(record: RemoteViewTabRecord, first: RemoteRdStreamTransport,
-                 make: @escaping () -> RemoteRdStreamTransport?, closeTab: @escaping @MainActor () -> Void) {
+                 make: @escaping @MainActor () -> RemoteRdStreamTransport?, closeTab: @escaping @MainActor () -> Void) {
         let rdSource = RemoteRdDebugSource(first)
         source = rdSource
         rd = (rdSource, make)
@@ -204,9 +208,13 @@ public final class RemoteViewPageSession {
     /// transports of a Cloud machine's desktop (`via=cloud`) over the app's Cloud tunnel; nil, or
     /// nil for that machine (signed out, no address), shows "not available".
     public static func make(record: RemoteViewTabRecord, closeTab: @escaping @MainActor () -> Void,
-                            cloudTransport: CloudDesktopTransport? = nil) -> RemoteViewPageSession? {
+                            cloudTransport: CloudDesktopTransport? = nil, cloudRd: CloudRdTransport? = nil) -> RemoteViewPageSession? {
         #if DEBUG
         guard RemoteViewAvailability().isAvailable else { return nil }
+        if record.cloudRd {
+            guard let make = cloudRd?(record.host), let first = make() else { return nil }
+            return RemoteViewPageSession(record: record, first: first, make: make, closeTab: closeTab)
+        }
         if record.cloudDesktop {
             guard let open = cloudTransport?(record.host) else { return nil }
             let vnc = RemoteVNCSession(cloudRecord: record, makeTransport: { cloudRFBTransport(open) })

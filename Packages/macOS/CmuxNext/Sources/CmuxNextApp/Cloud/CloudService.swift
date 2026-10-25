@@ -26,6 +26,9 @@ final class CloudService {
     @ObservationIgnored private(set) var hub: CloudTunnelHub?
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
+    /// Open Desktop's `cmux-rd` viewer: each machine's desktop host session token (lowercased id),
+    /// fetched over the signed-in Cloud API when a person opens it, held only in memory.
+    @ObservationIgnored var desktopRdTokens: [String: String] = [:]
     /// The tunnel's SOCKS socket and client token, starting it when needed: how the browser
     /// reaches a machine's localhost over this Mac's own WireGuard tunnel (RemoteLocalhostService).
     /// Nil without the hub.

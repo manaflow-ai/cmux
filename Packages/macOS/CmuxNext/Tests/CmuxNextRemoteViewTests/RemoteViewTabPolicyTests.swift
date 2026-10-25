@@ -39,6 +39,12 @@ import Testing
         #expect(RemoteViewTabRecord(url: URL(string: "cmux://remote-view?host=vm-1&via=cloud&port=5901")) == nil, "a Cloud desktop names no port")
         #expect(RemoteViewTabRecord(host: "vm-1", vncPort: 5901, cloudDesktop: true) == nil)
 
+        let rd = try #require(RemoteViewTabRecord(host: "vm-0dd1c008", target: .virtual, mode: .control, cloudDesktop: true, cloudRd: true))
+        #expect(rd.url.absoluteString == "cmux://remote-view?host=vm-0dd1c008&target=virtual&mode=control&via=cloud-rd")
+        #expect(RemoteViewTabRecord(url: rd.url) == rd)
+        #expect(RemoteViewTabRecord(host: "vm-1", cloudRd: true) == nil, "cmux-rd is a Cloud desktop engine")
+        #expect(policy.decide(record: rd, source: .person, paneAvailable: true) == .connect(rd))
+
         #expect(policy.decide(record: record, source: .person, paneAvailable: true) == .connect(record))
         var view = record
         view.mode = .view
