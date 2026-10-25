@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import CmuxFoundation
 import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
@@ -87,10 +88,13 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
         parent: Int,
         name: String = "node",
         group: Int,
-        bytes: Int64
+        bytes: Int64,
+        started: Int64 = 1_000
     ) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
-            pid: pid, parentPID: parent, name: name, path: nil, ttyDevice: Self.paneTTY,
+            pid: pid,
+            processIdentity: AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: started, startMicroseconds: 0),
+            parentPID: parent, name: name, path: nil, ttyDevice: Self.paneTTY,
             cmuxWorkspaceID: nil, cmuxSurfaceID: nil, cmuxAttributionReason: nil,
             processGroupID: group, terminalProcessGroupID: 300, cpuPercent: 0,
             memoryBytes: bytes, memorySource: .physicalFootprint,
@@ -240,6 +244,29 @@ struct RunawayPaneTreeMemoryPressureResponderTests {
 
         #expect(recorder.groups(for: SIGTERM) == [300])
         #expect(recorder.groups(for: SIGKILL).isEmpty)
+    }
+
+    @Test
+    func reusedGroupIDAfterSIGTERMIsNotForceKilled() async {
+        let recorder = SignalRecorder()
+        // Every member of group 300 exited on SIGTERM. A new job started
+        // later, and its leader got pid 300, so it reuses the group ID.
+        let reused = [
+            process(300, parent: 200, group: 300, bytes: Self.gb, started: 2_000),
+            process(5_000, parent: 300, group: 300, bytes: Self.gb, started: 2_000),
+        ]
+
+        _ = await evaluate(
+            knownAggregate: critical,
+            snapshots: SnapshotSequence([
+                census(session() + runawayJob()),
+                census(session() + reused),
+            ]),
+            recorder: recorder
+        )
+
+        #expect(recorder.groups(for: SIGTERM) == [300])
+        #expect(recorder.groups(for: SIGKILL).isEmpty, "group 300 is another job now")
     }
 
     @Test

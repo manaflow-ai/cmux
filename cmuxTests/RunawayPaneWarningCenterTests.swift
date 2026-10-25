@@ -1,6 +1,7 @@
 import Darwin
 import Foundation
 import Testing
+import CmuxFoundation
 import CmuxMemoryPressure
 
 #if canImport(cmux_DEV)
@@ -76,7 +77,9 @@ struct RunawayPaneWarningCenterTests {
 
     private func process(_ pid: Int, parent: Int, name: String = "node", group: Int, bytes: Int64) -> CmuxTopProcessInfo {
         CmuxTopProcessInfo(
-            pid: pid, parentPID: parent, name: name, path: nil, ttyDevice: warningPaneTTY,
+            pid: pid,
+            processIdentity: AgentPIDProcessIdentity(pid: pid_t(pid), startSeconds: 1_000, startMicroseconds: 0),
+            parentPID: parent, name: name, path: nil, ttyDevice: warningPaneTTY,
             cmuxWorkspaceID: nil, cmuxSurfaceID: nil, cmuxAttributionReason: nil,
             processGroupID: group, terminalProcessGroupID: 300, cpuPercent: 0,
             memoryBytes: bytes, memorySource: .physicalFootprint,
