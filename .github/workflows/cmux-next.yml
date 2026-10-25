@@ -188,6 +188,7 @@ on:
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
+      - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -417,6 +418,7 @@ on:
       - scripts/ci/run-checks-concurrently.sh
       - tests/test_run_checks_concurrently.py
       - tests/test_cmux_next_release_build_retention.py
+      - tests/test_cmux_next_dev_release_import_out.py
       - tests/test_cmux_next_generated_catch_up.py
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
@@ -1618,6 +1620,7 @@ jobs:
           python3 tests/test_cmux_next_pr_autofix_push_gate.py
           python3 tests/test_run_checks_concurrently.py
           python3 tests/test_cmux_next_release_build_retention.py
+          python3 tests/test_cmux_next_dev_release_import_out.py
           python3 tests/test_cmux_next_dev_daily_tree_wait.py
 
       # The tier routing on the committed target graph: a UI change selects its
@@ -4345,6 +4348,12 @@ jobs:
           CMUX_NEXT_CODE_SIGN_ENTITLEMENTS: cmux.next-dev.entitlements
           CMUX_NEXT_AUTH_CALLBACK_SCHEME: cmux-next-dev
           CMUX_NEXT_TUI_MODE: tree
+          # Apple notarizes cmux-next only with the browser-data import compiled
+          # out (cx-f58x; nightly.yml NIGHTLY_NEXT_BROWSER_DATA_IMPORT), and the
+          # DEV app is the tip app (Leo, 2026-10-24). This step only compiles it
+          # out: the tip job in cmux-next-dev-daily.yml proves it before it
+          # notarizes, so a proof failure never holds the DEV zip (#25050).
+          CMUX_NEXT_BROWSER_DATA_IMPORT: compiled-out
           # The DEV app's warm state is the runner's own content-addressed Xcode
           # compilation cache (no kept build products, no remote store:
           # scripts/cmux-next/lib/compilation-cache.sh), built per file with -O
