@@ -36,6 +36,16 @@ public struct SSHReconnectBudget: Sendable {
     /// Cap used when the maximum-delay variable is unset or unusable.
     public let defaultMaximumDelaySeconds: Int
 
+    /// Creates the reconnect budget used by generated SSH supervisor scripts.
+    ///
+    /// - Parameters:
+    ///   - limitEnvironmentName: Environment variable that overrides the reconnect-attempt limit.
+    ///   - fallbackLimit: Attempt limit used when the override is absent or invalid.
+    ///   - maximumLimit: Largest accepted attempt limit and delay cap.
+    ///   - delayEnvironmentName: Environment variable that overrides the reconnect delay.
+    ///   - maximumDelayEnvironmentName: Environment variable that overrides the reconnect-delay cap.
+    ///   - defaultDelaySeconds: Delay used when its override is absent or invalid.
+    ///   - defaultMaximumDelaySeconds: Delay cap used when its override is absent or invalid.
     public init(
         limitEnvironmentName: String = "CMUX_SSH_RECONNECT_LIMIT",
         fallbackLimit: Int = 20,
@@ -122,10 +132,16 @@ public struct SSHReconnectBudget: Sendable {
     ) -> [String] {
         let ceilingDigits = String(maximumLimit).count
         let defaultMaximum = defaultMaximum ?? defaultMaximumDelaySeconds
+        let invalidDelayWarning = CmuxConfigValidationLocalization().format(
+            "ssh.reconnect.delay.invalid",
+            defaultValue: "[cmux] %@=%%s is not a whole number of seconds; using %lld.\n",
+            delayEnvironmentName,
+            defaultDelaySeconds
+        )
         return [
             "\(variable)=\"${\(delayEnvironmentName):-\(defaultDelaySeconds)}\"",
             "case \"$\(variable)\" in ''|*[!0-9]*|0*) "
-                + "printf '[cmux] \(delayEnvironmentName)=%s is not a whole number of seconds; using \(defaultDelaySeconds).\\n' "
+                + "printf \(invalidDelayWarning.remoteCommandShellQuoted) "
                 + "\"$\(variable)\" >&2 || true; \(variable)=\(defaultDelaySeconds) ;; esac",
             "\(maximumVariable)=\"${\(maximumDelayEnvironmentName):-\(defaultMaximum)}\"",
             "case \"$\(maximumVariable)\" in ''|*[!0-9]*|0*) \(maximumVariable)=\(defaultMaximum) ;; esac",
