@@ -108,6 +108,11 @@
   /* The stack is a no-scroll zone (wheelPassThrough.ts): reaching a part's end scrolls nothing else. */
   overscroll-behavior: contain;
 }
+/* The tray never scrolls as a whole: its header and View all stay pinned and only its list scrolls
+   (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane. */
+.acpmux-dock > .acpmux-running-tray {
+  overflow-y: hidden;
+}
 
 /* What joins the bottom stack rises out of the composer as it appears (Leo 2026-10-20, directional
    motion): a question, a notice, the pull request dock, the agents pill and a queued prompt fade in

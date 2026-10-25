@@ -79,19 +79,28 @@ export function trayItems(
 const liveSession = (session: StartedSession) => session.state === "running" || session.state === "waiting";
 
 /// The chat's subagents and started chats that ended, for the tray's bounded status cards: the
-/// subagents in the order they started (nested ones under their parent), then the chats.
+/// subagents that ended last first (nested ones under their parent), so the few the tray shows
+/// under what runs are the latest; then the chats, newest first.
 export function finishedTrayItems(agents: readonly Subagent[], sessions: readonly StartedSession[]): TrayItem[] {
   const ended = agents
     .filter((agent) => agent.state !== "running")
-    .sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id));
+    .sort(
+      (a, b) =>
+        (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt) ||
+        b.startedAt - a.startedAt ||
+        a.id.localeCompare(b.id),
+    );
   const items: TrayItem[] = nestAgents(ended).map(({ agent, depth }) => ({
     kind: "agent",
     id: agent.id,
     agent,
     depth,
   }));
-  for (const session of sessions)
+  // A chat's end time is not known here: the newest chat (sessions come oldest first) goes first.
+  for (let index = sessions.length - 1; index >= 0; index -= 1) {
+    const session = sessions[index]!;
     if (!liveSession(session)) items.push({ kind: "session", id: session.sessionId, session });
+  }
   return items;
 }
 
