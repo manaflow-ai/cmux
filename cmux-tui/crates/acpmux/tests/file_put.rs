@@ -29,6 +29,7 @@ use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const MAX: usize = 10 << 20;
+const CHUNK: usize = 512 << 10;
 
 /// The home every test here shares (the process's, set once).
 fn home() -> &'static Path {
@@ -96,6 +97,33 @@ fn put(session: &str, name: &str, bytes: &[u8]) -> Value {
            "data": base64::engine::general_purpose::STANDARD.encode(bytes)})
 }
 
+fn encode(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
+
+fn begin(session: &str, name: &str, size: u64) -> Value {
+    json!({"sessionId": session, "fileName": name, "size": size})
+}
+
+fn chunk(session: &str, upload: &str, offset: usize, bytes: &[u8]) -> Value {
+    json!({"sessionId": session, "uploadId": upload, "offset": offset, "data": encode(bytes)})
+}
+
+/// Streams `bytes` as `name` into `session` with the resumable methods, [`CHUNK`] at a time, as
+/// the app does; answers the finish's reply.
+async fn stream(c: &mut Client, session: &str, name: &str, bytes: &[u8]) -> Value {
+    let begun = c.call(method::MUX_FILE_PUT_BEGIN, begin(session, name, bytes.len() as u64)).await;
+    let upload = begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}"));
+    for (index, piece) in bytes.chunks(CHUNK).enumerate() {
+        let offset = index * CHUNK;
+        let wrote = c.call(method::MUX_FILE_PUT_CHUNK, chunk(session, upload, offset, piece)).await;
+        assert_eq!(wrote["result"]["offset"], offset + piece.len(), "{wrote}");
+    }
+    let finish =
+        json!({"sessionId": session, "uploadId": upload, "fileName": name, "size": bytes.len()});
+    c.call(method::MUX_FILE_PUT_FINISH, finish).await
+}
+
 fn mode(path: &Path) -> u32 {
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
@@ -156,6 +184,68 @@ async fn a_bad_name_an_oversize_file_an_unknown_chat_and_the_web_are_refused() {
     // Nothing of these was saved.
     let saved = std::fs::read_dir(home().join("uploads").join(&session)).map_or(0, Iterator::count);
     assert_eq!(saved, 0);
+}
+
+/// A streamed file lands whole, owner-only, with nothing of its upload left beside it.
+#[tokio::test]
+async fn a_streamed_file_is_saved_whole_and_owner_only() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("streamed").await;
+    let bytes: Vec<u8> = (0..2 * CHUNK + 3).map(|i| (i % 251) as u8).collect();
+    let reply = stream(&mut c, &session, "clip.bin", &bytes).await;
+    let path = assert_saved(&reply, &session, "clip.bin", &bytes);
+    let left: Vec<_> = std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name())
+        .collect();
+    assert_eq!(left, [std::ffi::OsString::from("clip.bin")]);
+}
+
+/// A file has no size cap (Leo, 2026-10-24: "I thought we removed the file size limit attachment
+/// situation... we shouldn't have this limit"): one past the old 1 GiB cap begins and streams, and
+/// a cancel deletes its partial file and its folder; one the disk cannot hold is refused for space,
+/// naming the machine and what is free, before anything is written.
+#[tokio::test]
+async fn a_file_past_the_old_cap_streams_and_one_the_disk_cannot_hold_is_refused_for_space() {
+    let hub = hub();
+    let mut c = client(&hub, Origin::Local);
+    let session = c.new_session("large").await;
+    let begun =
+        c.call(method::MUX_FILE_PUT_BEGIN, begin(&session, "movie.mov", (1 << 30) + 1)).await;
+    let upload =
+        begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}")).to_owned();
+    let folder = home().join("uploads").join(&session).join(&upload);
+    let wrote =
+        c.call(method::MUX_FILE_PUT_CHUNK, chunk(&session, &upload, 0, &vec![7u8; CHUNK])).await;
+    assert_eq!(wrote["result"]["offset"], CHUNK, "{wrote}");
+    assert_eq!(std::fs::metadata(folder.join(".part")).unwrap().len(), CHUNK as u64);
+    let cancel = json!({"sessionId": session, "uploadId": upload});
+    for _ in 0..2 {
+        let cancelled = c.call(method::MUX_FILE_PUT_CANCEL, cancel.clone()).await;
+        assert!(cancelled.get("error").is_none(), "{cancelled}");
+        assert!(!folder.exists(), "the cancelled upload's partial file stayed");
+    }
+    // A chunk after the cancel is refused and makes no new partial file.
+    let late = c.call(method::MUX_FILE_PUT_CHUNK, chunk(&session, &upload, CHUNK, b"x")).await;
+    assert!(late.get("error").is_some(), "{late}");
+    assert!(!folder.exists());
+
+    let refused =
+        c.call(method::MUX_FILE_PUT_BEGIN, begin(&session, "huge.bin", u64::MAX / 4)).await;
+    let error = &refused["error"];
+    assert_eq!(error["data"]["reason"], "filePut.noSpace", "{refused}");
+    assert!(error["data"]["freeBytes"].is_u64(), "{refused}");
+    let machine = error["data"]["machine"].as_str().unwrap_or_else(|| panic!("{refused}"));
+    let message = error["message"].as_str().unwrap();
+    assert!(
+        message.starts_with(&format!("Not enough space on {machine} for huge.bin (")),
+        "{message}"
+    );
+    assert!(message.ends_with(" free)"), "{message}");
+    let saved = std::fs::read_dir(home().join("uploads").join(&session)).map_or(0, Iterator::count);
+    assert_eq!(saved, 0, "a refused or cancelled upload left a folder");
 }
 
 /// A deleted chat's files go with it: nothing else ever deleted them, so every file dropped into
@@ -284,6 +374,41 @@ async fn a_file_for_a_peers_chat_lands_on_the_peer() {
     assert_eq!(reply["error"]["data"]["reason"], "filePut.tooLarge", "{reply}");
     let reply = ca.call(method::MUX_FILE_PUT, put(&remote, "after.txt", b"ok")).await;
     assert_saved(&reply, &remote, "after.txt", b"ok");
+    assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
+}
+
+/// A file streamed into a peer's chat goes to the peer chunk by chunk, past the one-shot frame
+/// limit, and a cancel there deletes its partial file on the peer.
+#[tokio::test]
+async fn a_streamed_file_for_a_peers_chat_lands_on_the_peer_and_a_cancel_deletes_it_there() {
+    let b = hub();
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "stream").await;
+    let mut cb = client(&b, Origin::Local);
+    let remote = cb.new_session("far-stream").await;
+    let a = hub();
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(&a, Origin::Local);
+    let bytes = vec![3u8; MAX + CHUNK + 1];
+    let reply = stream(&mut ca, &remote, "big.bin", &bytes).await;
+    assert_eq!(reply["result"]["peer"], "b", "{reply}");
+    assert_saved(&reply, &remote, "big.bin", &bytes);
+
+    let begun =
+        ca.call(method::MUX_FILE_PUT_BEGIN, begin(&remote, "gone.bin", 2 * CHUNK as u64)).await;
+    let upload =
+        begun["result"]["uploadId"].as_str().unwrap_or_else(|| panic!("{begun}")).to_owned();
+    let wrote =
+        ca.call(method::MUX_FILE_PUT_CHUNK, chunk(&remote, &upload, 0, &vec![1u8; CHUNK])).await;
+    assert_eq!(wrote["result"]["offset"], CHUNK, "{wrote}");
+    let folder = home().join("uploads").join(&remote).join(&upload);
+    assert!(folder.join(".part").exists());
+    let cancelled = ca
+        .call(method::MUX_FILE_PUT_CANCEL, json!({"sessionId": remote, "uploadId": upload}))
+        .await;
+    assert!(cancelled.get("error").is_none(), "{cancelled}");
+    assert!(!folder.exists(), "the peer kept the cancelled upload's partial file");
     assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
 }
 
