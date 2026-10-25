@@ -201,19 +201,21 @@ await requireBrowserLane("chat-environment-scroll-stability.test.tsx", async () 
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }));
       await page.locator("aside.acpmux-chat-inspector").waitFor({ timeout: 20_000 });
       expect(await page.locator(".acpmux-environment-row .acpmux-env-line").count()).toBe(1);
-      const top = await page
-        .locator("aside.acpmux-chat-inspector")
-        .evaluate((node) => getComputedStyle(node).getPropertyValue("--acpmux-inspector-top"));
-      expect(top).toContain("--ui-row-height");
+      const normalInset = await page.locator("aside.acpmux-chat-inspector").evaluate((panel) => {
+        const row = document.querySelector<HTMLElement>(".acpmux-environment-row")!;
+        return { panelTop: panel.getBoundingClientRect().top, rowBottom: row.getBoundingClientRect().bottom };
+      });
+      expect(Math.abs(normalInset.panelTop - normalInset.rowBottom)).toBeLessThan(2);
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: false, version: 3 }));
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTabRow({ height: 32, trailingInset: 0 }));
       await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 4 }));
       await page.locator("aside.acpmux-chat-inspector").waitFor({ timeout: 20_000 });
       expect(await page.locator(".acpmux-environment-row .acpmux-env-line").count()).toBe(1);
-      const tabRowTop = await page
-        .locator("aside.acpmux-chat-inspector")
-        .evaluate((node) => getComputedStyle(node).getPropertyValue("--acpmux-inspector-top"));
-      expect(tabRowTop.trim()).toBe("calc(32px + var(--ui-row-height))");
+      const tabRowInset = await page.locator("aside.acpmux-chat-inspector").evaluate((panel) => {
+        const row = document.querySelector<HTMLElement>(".acpmux-environment-row")!;
+        return { panelTop: panel.getBoundingClientRect().top, rowBottom: row.getBoundingClientRect().bottom };
+      });
+      expect(Math.abs(tabRowInset.panelTop - tabRowInset.rowBottom)).toBeLessThan(2);
       await page.evaluate(() => {
         (window as any).cmuxAcpmuxBridge.applyHeaderState({ inspector: false, version: 5 });
         (window as any).cmuxAcpmuxBridge.toggleInspector(true);
