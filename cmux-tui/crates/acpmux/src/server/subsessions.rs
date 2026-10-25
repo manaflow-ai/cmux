@@ -11,6 +11,9 @@
 //!   family. A caller names itself or a descendant it may write to
 //!   (`Hub::subsession_write_target`, as `send` and `stop`); the person (the app's proof) names
 //!   any session here. Left out, it is the caller.
+//! - `start`'s `host`: `auto` or `auto-build` weighs this machine with the
+//!   placement engine first and refuses when it has no room; the reply's
+//!   `placed` says why it went ahead (`server/place.rs` `subsession_host`).
 //! - `_acpmux/subsession/answer {sessionId, permissionId, answers}`: the
 //!   caller answers a descendant's pending question, never a permission
 //!   prompt (`hub/subsession_answer.rs`).
@@ -126,6 +129,8 @@ async fn handle(
     }
     if m == method::MUX_SUBSESSION_START {
         let parent = start_parent(hub, conn, params)?;
+        // Weighed before anything starts: a refused placement makes no child.
+        let placed = super::place::subsession_host(hub, str_param(params, "host")).await?;
         let text = |k: &str| str_param(params, k).map(str::to_owned);
         let req = StartRequest {
             prompt: text("prompt").unwrap_or_default(),
@@ -136,7 +141,11 @@ async fn handle(
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
         };
-        return hub.start_subsession(&parent, req).await;
+        let mut started = hub.start_subsession(&parent, req).await?;
+        if let Some(placed) = placed {
+            started["placed"] = json!(placed);
+        }
+        return Ok(started);
     }
     // The caller token is read only on the unix socket (`server/mod.rs`).
     let caller = conn.caller().ok_or_else(|| caller_required(hub, conn))?;

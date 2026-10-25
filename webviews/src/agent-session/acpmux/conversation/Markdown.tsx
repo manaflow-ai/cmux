@@ -38,6 +38,7 @@ import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
 import { entranceAllowed } from "../../shared/pageReveal";
+import { isAgentMotionOff } from "../../shared/motion";
 import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
@@ -641,7 +642,9 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             <button
               type="button"
               aria-describedby={anchor}
-              onClick={() => document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
+              onClick={() =>
+                document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: noteScroll() })
+              }
             >
               {number}
             </button>
@@ -653,6 +656,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   }
   if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
+}
+
+/// How a footnote reference scrolls to its note: a glide, or with cmux's animations off
+/// (ui.animations) or the system's Reduce Motion, in one frame, as Jump to latest does (hq#3581).
+function noteScroll(): ScrollBehavior {
+  const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reduce ? "auto" : "smooth";
 }
 
 /// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
