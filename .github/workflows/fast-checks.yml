@@ -48,10 +48,49 @@ jobs:
           [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
           (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
 
+      # Reuse Git objects and tracked files, but remove all prior untracked
+      # outputs on checkout. Package caches stay on their separate disk below.
+      - name: Mount warm checkout
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1.7.2
+        with:
+          key: cmux-fast-checks-checkout-v1
+          path: ${{ github.workspace }}
+          commit: on-change
+
+      - name: Sanitize persistent checkout metadata
+        working-directory: ${{ github.workspace }}
+        run: |
+          # Keep the sticky disk's Git object store for fetch speed, but never
+          # trust metadata written by a prior command or source snapshot.
+          if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
+            rm -rf -- .git
+          elif [[ -d .git ]]; then
+            # -P is required here: -L would follow a linked objects directory
+            # and could miss the link, preserving an attacker-controlled store.
+            if find -P .git -type l -print -quit | grep -q .; then
+              rm -rf -- .git
+            else
+              rm -rf .git/hooks .git/logs .git/refs
+              rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
+              cat > .git/config <<'EOF'
+          [core]
+            repositoryformatversion = 0
+            filemode = true
+            bare = false
+            logallrefupdates = true
+            hooksPath = /dev/null
+          [remote "origin"]
+            url = https://github.com/manaflow-ai/cmux
+            fetch = +refs/heads/*:refs/remotes/origin/*
+          EOF
+            fi
+          fi
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
+          clean: true
 
       # This cache namespace is private to fast checks. Release/signing jobs
       # never read it. Concurrent callers fork snapshots without a global queue.
@@ -93,6 +132,17 @@ jobs:
         working-directory: webviews
         run: bun install --frozen-lockfile
 
+      - name: Prepare full webview tests
+        if: inputs.setup == 'webviews'
+        run: |
+          if [[ -x scripts/cmux-next/build-web-bundles.sh ]]; then
+            ./scripts/cmux-next/build-web-bundles.sh --force
+          fi
+          if [[ -x webviews/node_modules/.bin/playwright ]]; then
+            cd webviews
+            ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
+          fi
+
       - name: Install gallery dependencies and browsers
         if: inputs.setup == 'playwright'
         run: |
@@ -101,6 +151,10 @@ jobs:
             bun install --frozen-lockfile
           else
             cd webviews
+            if [[ ! -x node_modules/.bin/playwright ]]; then
+              echo 'setup: playwright requires Playwright dependencies in the source snapshot.' >&2
+              exit 2
+            fi
           fi
           bunx --no-install playwright install --with-deps chromium webkit
           echo 'CMUX_GALLERY_IN_VM=1' >> "$GITHUB_ENV"
@@ -139,13 +193,14 @@ jobs:
           actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
           tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          started_at = time.time()
           start = time.monotonic()
           code = subprocess.call(['timeout', '--signal=TERM', '--kill-after=30s',
                                   os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
                                   os.environ['FAST_CHECKS_COMMAND']], cwd=directory)
           after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
           result = dict(source_sha=actual, source_tree=tree, head_after=after,
-              command_seconds=round(time.monotonic() - start, 3), exit_code=code,
+              command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
               run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
           print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
           pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
