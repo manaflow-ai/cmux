@@ -5,10 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Thread rules for the cmux daemon: QoS, named spawn, registry and the blocking detector"
+description = "Named threads with a declared QoS (Chrome's ThreadType table) and a process-wide thread registry: std and libc only"
 
 [lints]
 workspace = true
 
-[dependencies]
+[target.'cfg(unix)'.dependencies]
 libc.workspace = true
