@@ -178,7 +178,7 @@ test("the composer ring keeps Claude's breakdown details and uses a compact tool
   const plain = await open();
   expect(plain.querySelector(".acpmux-context-breakdown")).toBeNull();
   expect(plain.classList.contains("acpmux-context-pop--compact")).toBe(true);
-  expect(plain.querySelector(".acpmux-context-card-compact-percent")?.textContent).toContain("30%");
-  expect(plain.querySelector(".acpmux-context-card-compact-tokens")?.textContent).toContain("60K");
+  expect(plain.querySelector(".acpmux-context-card-line")?.textContent).toContain("30%");
+  expect(plain.querySelector(".acpmux-context-card-line")?.textContent).toContain("60K");
   expect(plain.querySelector(".acpmux-context-card-bar")).not.toBeNull();
 });
