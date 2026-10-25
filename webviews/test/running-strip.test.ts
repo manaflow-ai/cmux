@@ -151,7 +151,8 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!.getBoundingClientRect();
           return {
             moreInside: more.height > 20 && more.bottom <= box.bottom + 0.5,
-            listScrolled: list.scrollHeight <= list.clientHeight || list.scrollTop > 0,
+            // Where the pane leaves the list no room at all it has nothing to scroll.
+            listScrolled: list.clientHeight === 0 || list.scrollTop > 0,
             trayScroll: tray.scrollTop,
             headTop: rect.top - box.top,
             headHeight: rect.height,
