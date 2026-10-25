@@ -95,12 +95,12 @@ export function Thinking({
       : sendName !== undefined
         ? t("send.sending", { target: sendName })
         : doingShell
-        ? doing
-          ? t("tools.runningCommand", { command: doing })
-          : draft
-            ? t("tools.writingCommand")
-            : t("tools.runningUnnamed")
-        : doing);
+          ? doing
+            ? t("tools.runningCommand", { command: doing })
+            : draft
+              ? t("tools.writingCommand")
+              : t("tools.runningUnnamed")
+          : doing);
   // The turn's tokens so far (WorkingFor.tsx), on the line while it times the turn; and, with the
   // running tray off, the work still going in the background, each count opening what it counts
   // (App.tsx counts nothing while the tray lists it).

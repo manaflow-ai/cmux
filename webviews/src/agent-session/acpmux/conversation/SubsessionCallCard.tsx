@@ -165,7 +165,9 @@ function McpDetails({ tool }: { tool: Tool }) {
   const id = useId();
   const call = useMemo(() => mcpCall(tool), [tool]);
   if (!call) return null;
-  return <McpCallDetails id={id} call={call} raw={mcpRawName(tool, call)} output={tool.output} strip={false} reveal={0} />;
+  return (
+    <McpCallDetails id={id} call={call} raw={mcpRawName(tool, call)} output={tool.output} strip={false} reveal={0} />
+  );
 }
 
 /// When the receiver reads the message, after the line.

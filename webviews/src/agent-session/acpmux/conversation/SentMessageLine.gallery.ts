@@ -32,7 +32,7 @@ const reported = bash(
   { output: "queued" },
 );
 const viaTimeout = bash(
-  "timeout 100 acpmux send --no-wait --prompt-id 01a15c51-9277-7e62-8a33-d8d3c74973c9 huge-blue/scroll-jitter 'From composer-scroll: the bottom stack moved into the pane flow. Rebase on it before you touch the dock.'",
+  "timeout 100 acpmux send --no-wait --prompt-id 01a15c51-9277-7e62-8a33-d8d3c74973c9 studio-mac/scroll-jitter 'From composer-scroll: the bottom stack moved into the pane flow. Rebase on it before you touch the dock.'",
   "Tell scroll-jitter about the dock change",
   "completed",
   { output: "steered" },
@@ -44,8 +44,8 @@ const viaHeredoc = bash(
   { output: "queued" },
 );
 const viaReach = bash(
-  `reach cmux16 'perl -e "alarm 60; exec @ARGV" acpmux send --no-wait review-astra "Re-review #4182 at its new head 9c1e0f2."'`,
-  "Ask the reviewer on cmux16 to look again",
+  `reach build-box 'perl -e "alarm 60; exec @ARGV" acpmux send --no-wait review-astra "Re-review #4182 at its new head 9c1e0f2."'`,
+  "Ask the reviewer on build-box to look again",
   "completed",
   { output: "queued" },
 );
@@ -117,7 +117,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/SentMessageLine.tsx"],
   variants: {
     sent: {
-      note: 'Shell sends as "Sent message to <target>" with the message\'s first line: a plain --no-wait (queued), one under timeout to a host/name (steered: read at its next step), a here-document from a cd, one through reach on cmux16 (its session named host/name), one whose text comes from a file (target only), and a sub-session send_message drawing the same row.',
+      note: 'Shell sends as "Sent message to <target>" with the message\'s first line: a plain --no-wait (queued), one under timeout to a host/name (steered: read at its next step), a here-document from a cd, one through reach on build-box (its session named host/name), one whose text comes from a file (target only), and a sub-session send_message drawing the same row.',
       snapshot: sent(),
     },
     "with-preview": {
@@ -132,7 +132,7 @@ export default agentPaneEntry({
       },
     },
     failed: {
-      note: "A send acpmux refused (exit 4, no such session): \"Couldn't send to perf-lane\", opened to its output.",
+      note: 'A send acpmux refused (exit 4, no such session): "Couldn\'t send to perf-lane", opened to its output.',
       snapshot: chat(
         [
           user("Hand the profile to perf-lane.", 2),
