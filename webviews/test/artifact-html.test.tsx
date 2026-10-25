@@ -5,7 +5,7 @@ import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/mode
 
 const page = '<title>Counter</title><button onclick="this.textContent++">0</button>';
 const rows = (tool: NonNullable<AcpmuxActivity["tool"]>): AcpmuxRow[] => [
-  { kind: "activity", items: [{ kind: "tool", text: "", tool }] } as AcpmuxRow,
+  { id: tool.id, version: 1, at: 0, kind: "activity", items: [{ kind: "tool", text: "", tool }] },
 ];
 
 test("JSX fences use the HTML artifact surface", () => {
@@ -31,3 +31,33 @@ for (const title of ["Write", "apply_patch", "write", "write_file"])
       ),
     ).toEqual([]);
   });
+
+test("full write inputs are detected without reading the file; malformed inputs and hunks are not", () => {
+  for (const [title, field] of [
+    ["Write", "file_path"],
+    ["write", "path"],
+    ["write_file", "file_path"],
+  ]) {
+    const tool = {
+      id: title!,
+      title: title!,
+      kind: "edit",
+      status: "completed",
+      inputSummary: JSON.stringify({ [field!]: "counter.HTML", content: page }),
+    };
+    expect(outputArtifacts(rows(tool))[0]?.artifact.code).toBe(page);
+    expect(outputArtifacts(rows({ ...tool, inputSummary: '{"content":' }))).toEqual([]);
+    expect(outputArtifacts(rows({ ...tool, title: "Edit" }))).toEqual([]);
+  }
+});
+
+test("Outputs uses the latest write per path, keeping same-title files distinct", () => {
+  const write = (path: string, code: string) =>
+    rows({ id: code, title: "Write", kind: "edit", status: "completed", diffs: [{ path, newText: code }] });
+  const latest = page.replace(">0<", ">10<");
+  const outputs = outputArtifacts([...write("a.html", page), ...write("b.html", page), ...write("a.html", latest)]);
+  expect(outputs.map(({ artifact }) => [artifact.path, artifact.code])).toEqual([
+    ["a.html", latest],
+    ["b.html", page],
+  ]);
+});

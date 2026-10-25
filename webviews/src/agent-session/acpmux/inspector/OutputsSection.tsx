@@ -5,6 +5,7 @@
 // open GalleryDialog.tsx), its files (each opens its diff), and the web links its replies gave, each
 // once (a pull request's link is under Changes instead).
 import { documentName, type Artifact } from "../conversation/artifactPreview";
+import { writtenArtifacts } from "../conversation/writtenArtifacts";
 import { chatDocuments } from "../conversation/artifactVersions";
 import { renderPages } from "../conversation/renderCall";
 import type { TurnFile } from "../diff";
@@ -39,6 +40,10 @@ export function outputArtifacts(rows: readonly AcpmuxRow[]): OutputArtifact[] {
     seen.add(artifact.code);
     found.push({ key: `document:${found.length}`, title: documentName(artifact) || undefined, artifact });
   }
+  const writes = new Map<string, Artifact>();
+  for (const artifact of writtenArtifacts(rows)) writes.set(artifact.path!, artifact);
+  for (const [path, artifact] of writes)
+    found.push({ key: `file:${path}`, title: documentName(artifact) || path.split("/").pop(), artifact });
   return found;
 }
 

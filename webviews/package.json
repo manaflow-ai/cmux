@@ -71,6 +71,7 @@
     "react-dom": "19.2.3",
     "shiki": "3.23.0",
     "solid-js": "^1.9.17",
+    "sucrase": "3.35.1",
     "vega-interpreter": "1.2.1",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.3.0"
   },
