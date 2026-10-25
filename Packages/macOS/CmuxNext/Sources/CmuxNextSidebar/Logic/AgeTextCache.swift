@@ -7,7 +7,7 @@ import os
 ///
 /// One cache lives in each ``SidebarLayoutOptions``, so it spans one layout pass and holds no state between them. All
 /// caches compare equal: what a cache holds never changes what a layout draws.
-final class AgeTextCache: Hashable, Sendable {
+nonisolated final class AgeTextCache: Hashable, Sendable {
     // OSAllocatedUnfairLock: layout runs off the main actor too; a short dictionary read or write, never held across work.
     private let labels = OSAllocatedUnfairLock(initialState: [Key: String]())
     private static let limit = 4_096
