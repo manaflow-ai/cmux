@@ -103,7 +103,7 @@ case "$script" in
   *ACPMUX_UNAME=*)
     printf 'ACPMUX_UNAME=%s\n\nACPMUX_PROBE\n{"pid":1,"build":"0000000 2026-01-01"}\n\nACPMUX_PROBE\n\nACPMUX_PROBE\n' "$(uname -sm)";;
   # Its wait for the restarted daemon: one answers.
-  "i=0; while :; do s="*) echo '{"pid":2,"build":"fake-new"}';;
+  *"i=0; while :; do s="*) echo '{"pid":2,"build":"fake-new"}';;
   *--version*) echo "acpmux 0.0.0-fake";;
   *"cat ~/.acpmux/config.json"*) echo '{}';;
   "uname -s") echo Linux;;
