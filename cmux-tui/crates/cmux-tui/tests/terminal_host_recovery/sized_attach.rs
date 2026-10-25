@@ -653,6 +653,14 @@ fn a_phone_that_shows_a_larger_grid_does_not_cap_it() {
         }),
     );
     let surface = created["surface"].as_u64().unwrap();
+    // A Mac-wins policy: a cmux-next daemon that reads the settings file
+    // defaults to `smallest` (host-size-policy-v1), where a phone narrows the
+    // grid by design. Pin `latest` (a phone's attach is not activity) so the
+    // test checks only that a phone listing host-grid-view-v1 is not capped.
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd": "set-size-policy", "surface": surface, "policy": {"mode": "latest"}}),
+    );
     let identify = request(&harness.socket, serde_json::json!({"cmd": "identify"}));
     assert!(
         identify["capabilities"]

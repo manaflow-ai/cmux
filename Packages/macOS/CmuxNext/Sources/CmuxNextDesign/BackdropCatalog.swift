@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The wallpaper choices displayed by Appearance settings.
-public nonisolated struct BackdropCatalog: Sendable {
+public nonisolated struct BackdropCatalog: Sendable, Equatable {
     /// The bundled art by collection (Dark Art, Museum Icons, Calm, Doré), then the person's own
     /// images, then the desktop picture, then every macOS wallpaper (``AppleWallpapers``), then the
     /// moving wallpapers (Apple's and downloaded aerials, then the person's own videos).
@@ -12,6 +12,12 @@ public nonisolated struct BackdropCatalog: Sendable {
     /// The bundled art in picker order: by collection, darkest works first within each.
     public static let bundled: [BackdropSelection] = BackdropArtCollection.allCases.flatMap { collection in
         BackdropArt.allCases.filter { $0.collection == collection }.map(BackdropSelection.art)
+    }
+
+    /// The bundled art only (no folder read): what ``BackdropCatalogStore`` shows before its first build.
+    public init(bundledOnly: Void) {
+        choices = Self.bundled
+        appleWallpapers = [:]
     }
 
     /// Builds a catalog from an injected directory listing.

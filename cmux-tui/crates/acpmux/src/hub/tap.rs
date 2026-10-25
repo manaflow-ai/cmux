@@ -59,6 +59,16 @@ fn from_the_model(msg: &Message) -> bool {
     }
 }
 
+/// Whether a logged record shows the model at work, as `from_the_model` judged it when it came
+/// in (`stalled_turn.rs` reads an adopted turn's last one): the update and line kinds above, or a
+/// request the agent made. A history replay (`*.replay`) is not.
+pub(super) fn logged_from_the_model(e: &crate::store::EventRecord) -> bool {
+    e.dir == "in"
+        && (MODEL_UPDATES.contains(&e.kind.as_str())
+            || MODEL_LINES.contains(&e.kind.as_str())
+            || (e.msg.get("id").is_some() && e.msg.get("method").is_some()))
+}
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -70,9 +80,19 @@ impl Hub {
         // A `message_start` was logged and its first delta was not yet.
         let awaiting_first_delta = AtomicBool::new(false);
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            // The sign of work is published before a tool call's end can bring the stalled
+            // deadline nearer and wake the reaper (`stalled_turn.rs`).
             if matches!(dir, Direction::In) && from_the_model(msg) {
                 tap_session.heard.fetch_add(1, Ordering::SeqCst);
+                tap_hub.heard_now(&tap_session);
+                tap_session.last_model_at.store(crate::store::now_ms(), Ordering::Relaxed);
                 tap_hub.heard_after_silence(&tap_session);
+            }
+            if matches!(dir, Direction::In)
+                && let Message::Notification { method, params: Some(p) } = msg
+                && method == crate::rpc::method::SESSION_UPDATE
+            {
+                tap_hub.note_tool_update(&tap_session, &p["update"]);
             }
             let (d, kind) = match (dir, msg) {
                 // Agent host stderr and exit entries: logged here, in entry
@@ -97,6 +117,8 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    // Its workflows ran in the agent's process: they end with it.
+                    tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
                         .append_logged(
                             &tap_session,
@@ -181,6 +203,14 @@ impl Hub {
                 let mut tree = tap_session.subagents.lock().unwrap_or_else(|e| e.into_inner());
                 tree.set_own(own.as_deref());
                 subagent = tree.annotate(params);
+            }
+            // A live update's workflow changes feed the daemon's index of them.
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    value.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.workflow_index.observe(&tap_session.id, events, crate::store::now_ms());
             }
             // Live agent updates (not a session/load replay) also feed the
             // stream watcher, which may record `message_superseded` first.

@@ -1,6 +1,8 @@
 /// Dropped files go to session storage and are linked from the prompt (composer/intakeFiles.ts).
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
+import { base64 } from "./composer/imageWork";
+import { keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { pastedTextBlocks } from "./pastedText";
 
@@ -44,13 +46,9 @@ export type PromptBlock =
   | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
 
-/** Anthropic's per-image limit. */
+/** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-/** Conservative shared preview size; original files stay available through session tools.
- * https://platform.claude.com/docs/en/build-with-claude/vision */
-export const MAX_IMAGE_SIDE = 1568;
-/** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
-export const IMAGE_BUDGET_BYTES = 1536 * 1024;
+export { IMAGE_BUDGET_BYTES, MAX_IMAGE_SIDE, base64 } from "./composer/imageWork";
 /** The bytes a PDF may have to go as a document block: its base64 (13.4 MiB) stays under acpmux's
  * 15 MiB bound on one message (#23247), below the WebSocket's 16 MiB frame, with room for the rest
  * of the prompt; the same cap as a file sent to an ssh peer (`_acpmux/file_put`). A larger PDF goes
@@ -115,29 +113,12 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   }
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    const fitted = await fitImage(file);
-    if (!fitted) return { name, reason: "tooLarge" };
-    return {
-      id,
-      kind: "image",
-      name: name.replace(/(\.[^./]*)?$/, fitted.mimeType === "image/jpeg" ? ".jpg" : ".png"),
-      mimeType: fitted.mimeType,
-      size: fitted.bytes.length,
-      data: base64(fitted.bytes),
-    };
+    // A picture the engine cannot decode is not a picture after all: it goes as a file.
+    return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
   }
   if (CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(name))) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    const converted = await fitImage(file);
-    if (!converted) return { name, reason: "unsupported" };
-    return {
-      id,
-      kind: "image",
-      name: name.replace(/(\.[^./]*)?$/, converted.mimeType === "image/jpeg" ? ".jpg" : ".png"),
-      mimeType: converted.mimeType,
-      size: converted.bytes.length,
-      data: base64(converted.bytes),
-    };
+    return (await imageChip(file, id, name)) ?? { name, reason: "unsupported" };
   }
   if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
   const text = decodeText(new Uint8Array(await file.arrayBuffer()));
@@ -145,61 +126,20 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
 }
 
-/// The steps an image that does not fit takes, in order: its longest side, then the JPEG quality.
-/// A PNG source tries PNG at each side first (a screenshot's text stays sharp). The last step is
-/// far under MAX_IMAGE_BYTES for any real picture, so an image is not refused for its size.
-const FIT_STEPS = [
-  { side: MAX_IMAGE_SIDE, quality: 0.9 },
-  { side: MAX_IMAGE_SIDE, quality: 0.8 },
-  { side: 1200, quality: 0.75 },
-  { side: 800, quality: 0.7 },
-] as const;
-
-/// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
-/// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
-/// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
-/// remains accessible by session path. Undefined when the engine cannot safely normalize it.
-async function fitImage(file: Blob): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | undefined> {
-  if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
-  let bitmap: ImageBitmap | undefined;
-  try {
-    bitmap = await createImageBitmap(file);
-    const longest = Math.max(bitmap.width, bitmap.height, 1);
-    let last: Blob | undefined;
-    let triedPng = 0;
-    for (const step of FIT_STEPS) {
-      const scale = Math.min(1, step.side / longest);
-      const width = Math.max(1, Math.round(bitmap.width * scale));
-      const height = Math.max(1, Math.round(bitmap.height * scale));
-      if (file.type !== "image/jpeg" && triedPng !== width) {
-        triedPng = width;
-        const canvas = new OffscreenCanvas(width, height);
-        const context = canvas.getContext("2d");
-        if (!context) return undefined;
-        context.drawImage(bitmap, 0, 0, width, height);
-        const png = await canvas.convertToBlob({ type: "image/png" });
-        if (png.size <= IMAGE_BUDGET_BYTES)
-          return { mimeType: "image/png", bytes: new Uint8Array(await png.arrayBuffer()) };
-      }
-      const flat = new OffscreenCanvas(width, height);
-      const context = flat.getContext("2d");
-      if (!context) return undefined;
-      context.fillStyle = "#fff";
-      context.fillRect(0, 0, width, height);
-      context.drawImage(bitmap, 0, 0, width, height);
-      last = await flat.convertToBlob({ type: "image/jpeg", quality: step.quality });
-      if (last.size <= IMAGE_BUDGET_BYTES)
-        return { mimeType: "image/jpeg", bytes: new Uint8Array(await last.arrayBuffer()) };
-    }
-    // Past every step (noise no encoder shrinks): the smallest try, which the API still takes.
-    return last && Math.ceil(last.size / 3) * 4 <= MAX_IMAGE_BYTES
-      ? { mimeType: "image/jpeg", bytes: new Uint8Array(await last.arrayBuffer()) }
-      : undefined;
-  } catch {
-    return undefined;
-  } finally {
-    bitmap?.close();
-  }
+/// An image's chip: its metadata-free preview, made off the main thread (composer/imagePool.ts),
+/// with its thumbnail kept for the chip. Undefined when the engine cannot decode it.
+async function imageChip(file: File, id: string, name: string): Promise<ComposerAttachment | undefined> {
+  const prepared = await prepareImageOffThread(file);
+  if (!prepared) return undefined;
+  if (prepared.thumb) keepThumb(id, prepared.thumb);
+  return {
+    id,
+    kind: "image",
+    name: name.replace(/(\.[^./]*)?$/, prepared.mimeType === "image/jpeg" ? ".jpg" : ".png"),
+    mimeType: prepared.mimeType,
+    size: Math.floor((prepared.data.length * 3) / 4) - (prepared.data.match(/=*$/)?.[0].length ?? 0),
+    data: prepared.data,
+  };
 }
 
 /// UTF-8 text without NUL bytes, else undefined (a binary file).
@@ -212,63 +152,9 @@ export function decodeText(bytes: Uint8Array): string | undefined {
   }
 }
 
-/// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
-/// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
-/// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
-/// multi-megabyte image to a small <img>, with the image's natural size (its hover name says it).
-/// Undefined when the engine cannot decode the image or has no OffscreenCanvas; the chip then draws
-/// the image itself.
-export async function thumbnail(
-  image: { mimeType: string; data: string },
-  height = 160,
-): Promise<{ url: string; width: number; height: number } | undefined> {
-  if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
-  try {
-    const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
-    const bitmap = await createImageBitmap(new Blob([bytes], { type: image.mimeType }));
-    if (!bitmap.width || !bitmap.height) {
-      bitmap.close();
-      return undefined;
-    }
-    const ratio = Math.min(2, Math.max(0.7, bitmap.width / bitmap.height));
-    const [sourceWidth, sourceHeight] =
-      bitmap.width / bitmap.height > ratio
-        ? [bitmap.height * ratio, bitmap.height]
-        : [bitmap.width, bitmap.width / ratio];
-    const canvas = new OffscreenCanvas(Math.round(height * ratio), height);
-    const context = canvas.getContext("2d");
-    if (!context) {
-      bitmap.close();
-      return undefined;
-    }
-    context.drawImage(
-      bitmap,
-      (bitmap.width - sourceWidth) / 2,
-      (bitmap.height - sourceHeight) / 2,
-      sourceWidth,
-      sourceHeight,
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    );
-    const natural = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    const blob = await canvas.convertToBlob({ type: "image/png" });
-    return {
-      url: `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`,
-      ...natural,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-export function base64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
-  return btoa(binary);
-}
+/// A thumbnail of a staged image (composer/imageWork.ts), made off the main thread. Undefined when
+/// the engine cannot decode the image; the chip then draws the image itself.
+export const thumbnail = thumbnailOffThread;
 
 /// The prompt's text with each text file appended as a fenced block under its name.
 export function promptText(text: string, attachments: ComposerAttachment[]): string {

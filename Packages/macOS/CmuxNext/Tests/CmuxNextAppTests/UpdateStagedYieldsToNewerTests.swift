@@ -1,6 +1,7 @@
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A staged update gives way to a newer build of the followed ring (Leo 2026-10-22: "how are the
 /// dev build hot swaps? like the update ready i want the latest dev builds to be able to show
