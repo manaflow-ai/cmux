@@ -31,10 +31,18 @@ const REQUEST_FRESHNESS_SECS: u64 = 120;
 /// Spent ids are kept for twice the freshness window, so an id is always still
 /// on record for as long as its request could be accepted on either clock.
 const SPENT_REQUESTS_MAX: usize = 8192;
-/// requestId -> its signed `issuedAt`.
+/// requestId -> when the owner first saw it, by the owner's clock. Never the
+/// caller's `issuedAt`: a caller must not be able to influence when its own id
+/// is forgotten.
 static SPENT_REQUESTS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
 /// A brokered `gh` is one bounded API call; it never waits for a person.
 const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// An owner policy is a small JSON document.
+const POLICY_MAX: u64 = 1024 * 1024;
+/// How much of a stream is read before the rest is dropped. `gh`'s own output
+/// is far smaller; this only bounds a `gh` that will not stop talking, so its
+/// output cannot grow the daemon's memory for as long as `GH_TIMEOUT` allows.
+const STREAM_READ_MAX: u64 = 2 * OUTPUT_MAX as u64;
 /// The owner daemon sets this on the `gh` it runs, and the peer shim refuses
 /// to start with it set, so the shim can never be the `gh` the owner calls.
 pub const SHIM_REFUSAL_ENV: &str = "ACPMUX_GITHUB_BROKER_OWNER";
@@ -148,6 +156,10 @@ fn valid_branch(branch: &str) -> bool {
         && !branch.contains("..")
         && !branch.contains("//")
         && !branch.contains('@')
+        // `gh pr create --head owner:branch` means a fork's branch, so a `:`
+        // would carry the real branch past the policy's prefix check: with
+        // `agent-` granted, `agent-x:main` is branch `main` on fork `agent-x`.
+        && !branch.contains(':')
         && branch.bytes().all(|c| c.is_ascii_graphic() && c != b'\\')
 }
 
@@ -407,16 +419,25 @@ fn spend(
             "GitHub broker request is outside the {REQUEST_FRESHNESS_SECS}s freshness window"
         )));
     }
-    spent.retain(|_, seen| now.saturating_sub(*seen) <= REQUEST_FRESHNESS_SECS * 2);
+    // Retention is measured from the owner's own first sight of an id, never
+    // from the caller's `issuedAt`: a caller that could rewrite the stored
+    // time could retire its own id early and replay the original request.
+    spent.retain(|_, first_seen| now.saturating_sub(*first_seen) <= REQUEST_FRESHNESS_SECS * 2);
     if spent.len() >= SPENT_REQUESTS_MAX {
         // Only a flood inside one window reaches this: fail closed rather than
         // evict an id that a captured request could still be replayed with.
         return Err(RpcError::internal("GitHub broker replay guard is saturated"));
     }
-    if spent.insert(request_id.to_owned(), issued_at).is_some() {
-        return Err(denied("GitHub broker request has already been used"));
+    match spent.entry(request_id.to_owned()) {
+        // A duplicate leaves the recorded time untouched.
+        std::collections::hash_map::Entry::Occupied(_) => {
+            Err(denied("GitHub broker request has already been used"))
+        }
+        std::collections::hash_map::Entry::Vacant(slot) => {
+            slot.insert(now);
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 fn validate_peer_secrets(
@@ -450,6 +471,23 @@ fn clean_output(bytes: &[u8]) -> String {
     out
 }
 
+/// Record one decision. The session's event stream is the surface the app
+/// shows, but on the owner daemon a forwarded request names a session that
+/// lives on the lane, so `append_github_audit` legitimately finds nothing. The
+/// owner must still have its own record of what was done with its credential,
+/// so a row that cannot be appended is logged instead of dropped.
+fn audit(hub: &Arc<crate::hub::Hub>, request: &GithubActionParams, payload: Value) {
+    if hub.append_github_audit(&request.session_id, payload.clone()).is_ok() {
+        return;
+    }
+    tracing::warn!(
+        session = %request.session_id,
+        peer = request.peer_id.as_deref().unwrap_or("-"),
+        forwarded = request.forwarded,
+        "github broker: {payload}"
+    );
+}
+
 pub fn audit_payload(
     request: &GithubActionParams,
     result: Result<&GithubActionResult, &RpcError>,
@@ -468,14 +506,40 @@ pub fn audit_payload(
     })
 }
 
+/// Read at most `STREAM_READ_MAX` from one of the child's pipes, draining it
+/// so the child is never blocked on a full pipe, and dropping the rest.
+async fn read_bounded<R>(pipe: &mut Option<R>) -> Vec<u8>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let Some(pipe) = pipe.as_mut() else { return Vec::new() };
+    let mut kept = Vec::new();
+    if tokio::io::AsyncReadExt::take(&mut *pipe, STREAM_READ_MAX)
+        .read_to_end(&mut kept)
+        .await
+        .is_err()
+    {
+        return kept;
+    }
+    // Whatever is past the cap is read and thrown away rather than left to
+    // block the child.
+    let mut sink = tokio::io::sink();
+    let _ = tokio::io::copy(pipe, &mut sink).await;
+    kept
+}
+
 pub async fn execute(action: AuthorizedGithubAction) -> Result<GithubActionResult, RpcError> {
     let request = &action.request;
     let args = action.gh_args();
-    let child = Command::new("gh")
+    let mut child = Command::new("gh")
         .args(&args)
-        // The peer-facing `gh` shim refuses to run with this set, so a shim
-        // that has been installed as `gh` on the owner's PATH cannot be what
-        // the owner daemon ends up calling (and cannot recurse into itself).
+        // The shim is named `acpmux-gh`, so it is not what a bare `gh` finds.
+        // This marker is the second line of defence: the shim refuses to start
+        // with it set, so a shim deliberately installed as `gh` cannot recurse
+        // into the daemon that called it. A wrapper that strips the marker can
+        // still stand in for `gh`, as anything on the owner's PATH can; the
+        // marker narrows an accident, it is not an identity check.
         .env(SHIM_REFUSAL_ENV, "1")
         .env("GH_PROMPT_DISABLED", "1")
         .env("GH_NO_UPDATE_NOTIFIER", "1")
@@ -486,17 +550,34 @@ pub async fn execute(action: AuthorizedGithubAction) -> Result<GithubActionResul
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| RpcError::internal(format!("GitHub broker could not start gh: {e}")))?;
-    let output = match tokio::time::timeout(GH_TIMEOUT, child.wait_with_output()).await {
+    // Read both streams bounded and concurrently: unbounded buffering would
+    // let a `gh` that will not stop talking grow the daemon's memory for the
+    // whole timeout, and reading them one after the other would let a full
+    // pipe on the other stream stall the child.
+    let mut stdout_pipe = child.stdout.take();
+    let mut stderr_pipe = child.stderr.take();
+    let collect = async {
+        let (out, err, status) = tokio::join!(
+            read_bounded(&mut stdout_pipe),
+            read_bounded(&mut stderr_pipe),
+            child.wait(),
+        );
+        status.map(|status| (status, out, err))
+    };
+    let (status, stdout, stderr) = match tokio::time::timeout(GH_TIMEOUT, collect).await {
         Ok(result) => {
             result.map_err(|e| RpcError::internal(format!("GitHub broker lost gh: {e}")))?
         }
         Err(_) => {
+            // `kill_on_drop` ends the child itself; a wrapper's own children
+            // are its business, as they are for every other spawn here.
             return Err(RpcError::internal(format!(
                 "GitHub action did not finish within {}s",
                 GH_TIMEOUT.as_secs()
             )));
         }
     };
+    let output = std::process::Output { status, stdout, stderr };
     if !output.status.success() {
         // `gh`'s own diagnostics go back to the caller so a denied or broken
         // action is debuggable, bounded and with no owner path in it.
@@ -547,7 +628,12 @@ fn read_policy_file(path: &Path) -> Result<String, RpcError> {
 
     let mut file = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW)
+        // O_NOFOLLOW keeps a symlink from standing in for the file. O_NONBLOCK
+        // is what makes the open itself safe: without it, a policy_path naming
+        // a FIFO would block here until someone opened the write end, and the
+        // caller holds the config read lock across this call. On a regular
+        // file, which is all the check below accepts, O_NONBLOCK does nothing.
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|e| unreadable_policy(path, e))?;
     let metadata = file.metadata().map_err(|e| unreadable_policy(path, e))?;
@@ -557,6 +643,12 @@ fn read_policy_file(path: &Path) -> Result<String, RpcError> {
     {
         return Err(RpcError::invalid_params(format!(
             "GitHub broker policy {} must be an owner-only regular file",
+            path.display()
+        )));
+    }
+    if metadata.len() > POLICY_MAX {
+        return Err(RpcError::invalid_params(format!(
+            "GitHub broker policy {} is larger than {POLICY_MAX} bytes",
             path.display()
         )));
     }
@@ -618,25 +710,43 @@ pub async fn handle(
     // From here the session is established, so a refusal is this session's own
     // business and is audited.
     if let (false, Some(owner)) = (request.forwarded, config.owner_peer.as_deref()) {
-        let peer = hub.peer_by_name(owner).ok_or_else(|| {
-            RpcError::not_found(format!("GitHub broker owner peer {owner:?} is not configured"))
-        })?;
-        if !peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(RpcError::internal(format!(
-                "GitHub broker owner peer {owner:?} is disconnected"
-            )));
-        }
+        // Every refusal below is a genuine refusal for an established session,
+        // so each one is recorded rather than returned silently.
+        let setup = || -> Result<(_, String, String), RpcError> {
+            let peer = hub.peer_by_name(owner).ok_or_else(|| {
+                RpcError::not_found(format!("GitHub broker owner peer {owner:?} is not configured"))
+            })?;
+            if !peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(RpcError::internal(format!(
+                    "GitHub broker owner peer {owner:?} is disconnected"
+                )));
+            }
+            let peer_id = config
+                .peer_id
+                .clone()
+                .ok_or_else(|| denied("lane GitHub broker peer identity is not configured"))?;
+            let peer_secret = config
+                .peer_secret
+                .clone()
+                .ok_or_else(|| denied("lane GitHub broker peer secret is not configured"))?;
+            Ok((peer, peer_id, peer_secret))
+        };
+        let (peer, peer_id, peer_secret) = match setup() {
+            Ok(ready) => ready,
+            Err(error) => {
+                audit(hub, &request, audit_payload(&request, Err(&error)));
+                return Err(error);
+            }
+        };
         request.forwarded = true;
-        let peer_id = config
-            .peer_id
-            .as_deref()
-            .ok_or_else(|| denied("lane GitHub broker peer identity is not configured"))?;
-        let peer_secret = config
-            .peer_secret
-            .as_deref()
-            .ok_or_else(|| denied("lane GitHub broker peer secret is not configured"))?;
-        request.peer_id = Some(peer_id.to_owned());
-        request.peer_proof = Some(sign_request(&request, peer_secret)?);
+        request.peer_id = Some(peer_id);
+        request.peer_proof = match sign_request(&request, &peer_secret) {
+            Ok(proof) => Some(proof),
+            Err(error) => {
+                audit(hub, &request, audit_payload(&request, Err(&error)));
+                return Err(error);
+            }
+        };
         let wire = serde_json::to_value(&request).map_err(|e| RpcError::internal(e.to_string()))?;
         let result = peer.request(crate::rpc::method::MUX_GITHUB_ACTION, wire).await;
         // The session lives on this lane, so this is the event stream the app
@@ -649,15 +759,11 @@ pub async fn handle(
                     session_id: request.session_id.clone(),
                     output: String::new(),
                 };
-                let _ = hub.append_github_audit(
-                    &request.session_id,
-                    audit_payload(&request, Ok(&successful)),
-                );
+                audit(hub, &request, audit_payload(&request, Ok(&successful)));
                 Ok(value.clone())
             }
             Err(error) => {
-                let _ = hub
-                    .append_github_audit(&request.session_id, audit_payload(&request, Err(error)));
+                audit(hub, &request, audit_payload(&request, Err(error)));
                 Err(error.clone())
             }
         };
@@ -669,26 +775,23 @@ pub async fn handle(
     let authorized = match AuthorizedGithubAction::authorize(&config, request.clone()) {
         Ok(action) => action,
         Err(error) => {
-            let _ =
-                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
+            audit(hub, &request, audit_payload(&request, Err(&error)));
             return Err(error);
         }
     };
     if let Err(error) = consume_request(&request.request_id, request.issued_at, unix_now()) {
-        let _ = hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
+        audit(hub, &request, audit_payload(&request, Err(&error)));
         return Err(error);
     }
     match execute(authorized).await {
         Ok(result) => {
             let value =
                 serde_json::to_value(&result).map_err(|e| RpcError::internal(e.to_string()))?;
-            let _ =
-                hub.append_github_audit(&request.session_id, audit_payload(&request, Ok(&result)));
+            audit(hub, &request, audit_payload(&request, Ok(&result)));
             Ok(value)
         }
         Err(error) => {
-            let _ =
-                hub.append_github_audit(&request.session_id, audit_payload(&request, Err(&error)));
+            audit(hub, &request, audit_payload(&request, Err(&error)));
             Err(error)
         }
     }
@@ -943,6 +1046,42 @@ mod tests {
         // which is what keeps the map bounded.
         assert!(spend(&mut spent, "other-1", at + 241, at + 241).is_ok());
         assert!(!spent.contains_key("window-1"));
+    }
+
+    /// A duplicate must not be able to rewrite the time the owner recorded.
+    /// Retention is measured from the owner's first sight of an id, so a
+    /// caller that could backdate the stored time could retire its own id
+    /// early and then replay the original request while it is still fresh.
+    #[test]
+    fn a_duplicate_cannot_backdate_a_spent_id() {
+        let mut spent = HashMap::new();
+        let now = 1_700_000_000u64;
+        // Accepted with an issuedAt at the far edge of the window.
+        assert!(spend(&mut spent, "x", now + REQUEST_FRESHNESS_SECS, now).is_ok());
+        // A duplicate carrying the opposite edge is denied, and leaves the
+        // recorded time alone.
+        assert!(spend(&mut spent, "x", now - REQUEST_FRESHNESS_SECS, now).is_err());
+        assert_eq!(spent.get("x"), Some(&now));
+        // One second past the first request's own freshness window, the replay
+        // is refused, and the id is still on record until retention ends.
+        let replay_at = now + REQUEST_FRESHNESS_SECS + 1;
+        assert!(spend(&mut spent, "x", now + REQUEST_FRESHNESS_SECS, replay_at).is_err());
+        assert!(spent.contains_key("x"));
+    }
+
+    /// The branch prefix is the whole policy for `draft_pr` and `push`, so a
+    /// `:` must never reach `gh --head`, where `owner:branch` means a fork's
+    /// branch and the real branch would escape the granted prefix.
+    #[test]
+    fn a_fork_qualified_branch_cannot_escape_the_prefix() {
+        let mut request = params("test-9");
+        request.action = GithubAction::DraftPr;
+        request.title = Some("broker".into());
+        request.branch = Some("agent-attacker:main".into());
+        assert!(validate_shape(&request).is_err());
+        assert!(
+            AuthorizedGithubAction::authorize(&config("draft_pr", &["agent-"]), request).is_err()
+        );
     }
 
     /// The guard is bounded by retention, not by eviction, so a run of
