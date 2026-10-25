@@ -35,8 +35,30 @@ first terminal frame.
 
 Several tags run interleaved (A run 1, B run 1, A run 2, ...), so machine
 load affects them alike. Prints the load average and, per tag and mode, one
-row per mark: median and max ms since process start, and the median gap from
-the previous row. Kills only processes started from the tag's DerivedData.
+row per mark: p50 (median), p95, p99 (nearest rank) and max ms since process
+start, and the p50 gap from the previous row. Kills only processes started
+from the tag's DerivedData.
+
+--temperature cold (with --mode cold only) is a true cold launch: the daemon
+stopped and the file cache emptied with `sudo -n purge` before each measured
+launch, as Chrome's cold start has no page in memory. `sudo -n` never
+prompts: when purge is refused, the bench names the refusal and stops (exit 2),
+because without it "cold" only means "daemon stopped". --temperature warm
+purges nothing. Either way the summary counts the runs whose
+`launch.temperature` read each value.
+
+Value marks (tasks 007, 108): `launch.temperature`, `launch.pageins_first_frame`,
+`launch.main_cpu_ms` and `launch.interrupted` arrive on the same pipe as
+`<name> <value>` (a number, true/false, or a name). They are not times: no
+table row, gap or --order term. Each run's line and the summary print them
+when the build sends them.
+
+--require-optimized refuses (exit 2), before any launch, a build that is not
+optimized: the Info.plist's CMUXBuildConfiguration when the build stamps it,
+else the bundle itself (bench_launch.bundle_kind: Xcode's .debug.dylib means
+Debug; a bench-hooks or plain bundle is Release-optimized).
+
+--order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run.
 """
 import argparse
 import glob
@@ -56,7 +78,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # The shared launch helper's socket paths and session check (bench_launch.py). Not its bench env: this bench times
 # the launch itself, with the agent pane's real handshake and the account's Chief, as a person's launch runs.
-from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
+from bench_launch import (  # noqa: E402
+    bundle_kind, finder_limits, info_plist, limits_line, require_gui_session, socket_candidates)
 
 DERIVED = os.path.expanduser("~/Library/Developer/Xcode/DerivedData")
 FINAL_MARK = "first_terminal_frame"
@@ -131,6 +154,70 @@ LAUNCH_ORDER = [
     "first_window_frame_committed<launch.post_window_warmups",
     "first_window_frame_committed<launch.agent_page_warmup",
 ]
+
+# Marks whose value is not a time (tasks 007, 108; startup-queue.py's VALUE_MARKS): never a row, a gap or an
+# --order term.
+TEMPERATURE = "launch.temperature"
+PAGEINS = "launch.pageins_first_frame"
+MAIN_CPU = "launch.main_cpu_ms"
+INTERRUPTED = "launch.interrupted"
+VALUE_MARKS = (TEMPERATURE, PAGEINS, MAIN_CPU, INTERRUPTED)
+# A numeric temperature is Chrome's StartupTemperature enum
+# (components/startup_metric_utils/browser/startup_metric_utils.h).
+CHROME_TEMPERATURES = {0: "cold", 1: "warm", 2: "lukewarm", 3: "undetermined"}
+# Percentiles printed after p50 (nearest rank).
+PERCENTILES = (95, 99)
+
+
+class Refused(SystemExit):
+    """A run that cannot measure what was asked (purge refused, an unoptimized build): the reason, exit 2."""
+
+    def __init__(self, message):
+        print(f"bench-startup: {message}", file=sys.stderr, flush=True)
+        super().__init__(2)
+
+
+def mark_value(text):
+    """A mark line's value: ms for a time mark; for a value mark, its number, true/false or name."""
+    try:
+        return float(text)
+    except ValueError:
+        return {"true": True, "false": False}.get(text.lower(), text)
+
+
+def parse_mark_line(line):
+    """`(name, value)` of one `<name> <value>` line from the mark pipe, or None for a line without both."""
+    name, _, value = line.decode(errors="replace").strip().partition(" ")
+    return (name, mark_value(value.strip())) if name and value.strip() else None
+
+
+def is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def percentile(values, percent):
+    """Nearest rank: the smallest value with at least `percent` % of the values at or below it."""
+    ordered = sorted(values)
+    return ordered[max(0, -(-len(ordered) * percent // 100) - 1)]
+
+
+def spread(values):
+    """p50 (the median, as --budget reads it), p95, p99 and max."""
+    return {"p50": statistics.median(values), **{f"p{p}": percentile(values, p) for p in PERCENTILES},
+            "max": max(values)}
+
+
+def temperature_name(value):
+    if is_number(value) and int(value) == value:
+        return CHROME_TEMPERATURES.get(int(value), f"{value:g}")
+    return str(value).lower()
+
+
+def interrupted(run):
+    """startup-queue.py's rule: present and not false or null; a mark at 0 ms counts."""
+    value = run.get(INTERRUPTED)
+    return value is not None and value is not False
+
 
 # Apps given with --app, by tag; other tags are DerivedData builds.
 APPS = {}
@@ -258,10 +345,8 @@ class Launch:
                 return False
             self.buffer += chunk
             *lines, self.buffer = self.buffer.split(b"\n")
-            for line in lines:
-                name, _, ms = line.decode().partition(" ")
-                if name and ms:
-                    self.marks.setdefault(name, float(ms))
+            for parsed in filter(None, map(parse_mark_line, lines)):
+                self.marks.setdefault(*parsed)
         return True
 
     def quit(self):
@@ -444,7 +529,19 @@ def seeded_marker(tag):
     return os.path.join(state_directories(tag)[0], "bench-startup-realistic")
 
 
-def one_run(tag, mode, timeout, profile=None):
+def purge(run=subprocess.run):
+    """Empties the file cache for a true cold launch. `sudo -n` never prompts; a refusal stops the bench."""
+    try:
+        done = run(["sudo", "-n", "purge"], capture_output=True, text=True)
+    except OSError as error:
+        raise Refused(f"cold run refused: cannot run `sudo -n purge` ({error})") from error
+    if done.returncode != 0:
+        reason = (done.stderr or "").strip() or f"exit {done.returncode}"
+        raise Refused(f"cold run refused: `sudo -n purge` failed ({reason}); without it the launch reads the "
+                      "file cache and is not cold")
+
+
+def one_run(tag, mode, timeout, profile=None, temperature=None, purge_cache=purge):
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
         out.write("{}\n")
@@ -476,6 +573,9 @@ def one_run(tag, mode, timeout, profile=None):
         prime = Launch(tag, scratch)
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
+    if temperature == "cold":
+        # Last, after every stop and priming launch: nothing pages back in before the measured launch.
+        purge_cache()
     launch = Launch(tag, scratch)
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
@@ -552,9 +652,9 @@ def daemon_side(tag, runs):
         stop(owner_pids(fresh_session))
         subprocess.run(["rm", "-rf", fresh])
     print(f"\n{tag} daemon side ({runs} runs), ms")
-    print(f"  {'phase':<46} {'median':>8} {'max':>8}")
+    print(f"  {'phase':<46} {spread_header()}")
     for label, values in rows.items():
-        print(f"  {label:<46} {statistics.median(values):>8.0f} {max(values):>8.0f}")
+        print(f"  {label:<46} {spread_cells(spread(values))}")
 
 
 def stall_site(stall):
@@ -578,24 +678,113 @@ def print_stalls(runs):
         print(f"    {len(values)}/{len(runs)} runs, median {statistics.median(values):>4.0f} ms  {site}")
 
 
+def spread_header():
+    return " ".join(f"{column:>8}" for column in ("p50", *(f"p{p}" for p in PERCENTILES), "max"))
+
+
+def spread_cells(values, digits=0):
+    return " ".join(f"{values[column]:>8.{digits}f}" for column in ("p50", *(f"p{p}" for p in PERCENTILES), "max"))
+
+
 def table(runs):
-    """Rows in the order the marks landed (by median), each with its gap
-    from the row before."""
-    medians = []
-    for mark, label in MARKS:
-        values = [run[mark] for run in runs if mark in run]
-        if values:
-            medians.append((statistics.median(values), label, mark, max(values), len(values)))
+    """Rows `(label, mark, spread, gap, n)` in the order the marks landed (by p50), each with the p50 gap from
+    the row before. Only time marks; a value that is not a number is left out."""
     rows = []
+    for mark, label in MARKS:
+        values = [run[mark] for run in runs if is_number(run.get(mark))]
+        if values:
+            rows.append((label, mark, spread(values), len(values)))
+    out = []
     previous = 0.0
-    for median, label, mark, worst, count in sorted(medians, key=lambda row: row[0]):
-        rows.append((label, mark, median, worst, median - previous, count))
-        previous = median
-    return rows
+    for label, mark, values, count in sorted(rows, key=lambda row: row[2]["p50"]):
+        out.append((label, mark, values, values["p50"] - previous, count))
+        previous = values["p50"]
+    return out
 
 
-def main():
-    require_gui_session("bench-startup")
+def run_values(marks):
+    """The value marks a run carries, for its line: `temperature cold, page-ins 4100, interrupted`."""
+    shown = []
+    if TEMPERATURE in marks:
+        shown.append(f"temperature {temperature_name(marks[TEMPERATURE])}")
+    if is_number(marks.get(PAGEINS)):
+        shown.append(f"page-ins {marks[PAGEINS]:.0f}")
+    if is_number(marks.get(MAIN_CPU)):
+        shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
+    if interrupted(marks):
+        shown.append("interrupted")
+    return shown
+
+
+def value_summary(runs, temperature=None):
+    """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
+    CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
+    if not runs or (temperature is None and not any(mark in run for run in runs for mark in VALUE_MARKS)):
+        return []
+    total = len(runs)
+    read = [temperature_name(run[TEMPERATURE]) for run in runs if TEMPERATURE in run]
+    if read:
+        counts = sorted(((read.count(name), name) for name in set(read)), key=lambda item: (-item[0], item[1]))
+        line = f"  {TEMPERATURE}: " + ", ".join(f"{name} {count}" for count, name in counts) + f" of {total} runs"
+        if len(read) < total:
+            line += f" ({total - len(read)} without it)"
+        if temperature:
+            line += f"; {read.count(temperature)} of {total} read {temperature} as asked"
+    else:
+        line = f"  {TEMPERATURE}: missing in all {total} runs (the build sends no task 007 marks)"
+    lines = [line]
+    for mark, unit in ((PAGEINS, ""), (MAIN_CPU, " ms")):
+        values = [run[mark] for run in runs if is_number(run.get(mark))]
+        if values:
+            cells = "  ".join(f"{column} {value:.0f}{unit}" for column, value in spread(values).items())
+            lines.append(f"  {mark}: {cells}  n {len(values)}")
+        else:
+            lines.append(f"  {mark}: missing in all {total} runs")
+    stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
+    lines.append(f"  {INTERRUPTED}: " + (f"runs {', '.join(stopped)} ({len(stopped)} of {total})" if stopped
+                                         else f"none of {total} runs"))
+    return lines
+
+
+BUNDLE_KINDS = {
+    "debug": (False, "a Debug build (Xcode's .debug.dylib beside the executable)"),
+    "bench-hooks": (True, "a bench build (Release optimization, CMUX_BENCH_HOOKS marker)"),
+    "release": (True, "a Release build (no .debug.dylib, no bench-hooks marker)"),
+}
+
+
+def build_evidence(app, binary):
+    """`(optimized, why)` for a bundle: its Info.plist CMUXBuildConfiguration (the Xcode configuration) when the
+    build stamps it, else what the bundle shows (bench_launch.bundle_kind, the rule perf-lab records use)."""
+    stated = info_plist(app).get("CMUXBuildConfiguration")
+    if stated:
+        return str(stated).lower() == "release", f"Info.plist CMUXBuildConfiguration={stated}"
+    return BUNDLE_KINDS[bundle_kind(app, binary)]
+
+
+def require_optimized(tags):
+    """Refuses, before any launch, a tag whose build is not optimized: its numbers would not be launch numbers."""
+    for tag in tags:
+        binary = app_binary(tag)
+        optimized, why = build_evidence(os.path.dirname(os.path.dirname(os.path.dirname(binary))), binary)
+        print(f"build: {tag} is {why}", flush=True)
+        if not optimized:
+            raise Refused(f"--require-optimized: tag {tag} is {why}; bench a Release or bench build "
+                          "(`reload.sh --config bench`, or the fleet's bench artifact)")
+
+
+def parse_order(order):
+    """The marks of a `FIRST<SECOND[<THIRD...]` chain; ValueError for an empty term or a value mark."""
+    marks = [mark.strip() for mark in order.split("<")]
+    if len(marks) < 2 or not all(marks):
+        raise ValueError(f"--order {order!r}: expected FIRST<SECOND (marks joined by <)")
+    values = [mark for mark in marks if mark in VALUE_MARKS]
+    if values:
+        raise ValueError(f"--order {order!r}: {', '.join(values)} is a value, not a time")
+    return marks
+
+
+def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tag", action="append", default=[])
     parser.add_argument("--app", action="append", default=[], help="a staged `cmux DEV <tag>.app` (fleet artifact)")
@@ -614,10 +803,34 @@ def main():
                         help="exit 1 when a mark's median (any tag, mode) is over MS or never arrives")
     parser.add_argument("--order", action="append", default=[], metavar="FIRST<SECOND",
                         help="exit 1 when, in any run, mark SECOND is missing or comes before mark FIRST "
-                             "(for example first_window_frame_committed<launch.non_paint_services)")
+                             "(for example first_window_frame_committed<launch.non_paint_services); "
+                             "a chain A<B<C checks A<B and B<C")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
-    args = parser.parse_args()
+    parser.add_argument("--temperature", choices=["cold", "warm"],
+                        help="cold: `sudo -n purge` before each measured launch (needs --mode cold; a refusal stops "
+                             "the bench, exit 2); warm: no purge. The summary counts the runs whose "
+                             "launch.temperature read it")
+    parser.add_argument("--require-optimized", action="store_true",
+                        help="exit 2 before any launch when a build is not optimized (Info.plist "
+                             "CMUXBuildConfiguration, else the bundle: a Debug build has Xcode's .debug.dylib)")
+    args = parser.parse_args(argv)
+    if not args.tag and not args.app:
+        parser.error("give at least one --tag or --app")
+    for order in args.order:
+        try:
+            parse_order(order)
+        except ValueError as error:
+            parser.error(str(error))
+    if args.temperature == "cold" and [mode for mode in args.mode or ["cold", "warm"] if mode != "cold"]:
+        parser.error("--temperature cold needs --mode cold only: a true cold launch has no daemon and an empty "
+                     "file cache")
+    return args
+
+
+def main():
+    args = parse_args(sys.argv[1:])
+    require_gui_session("bench-startup")
     global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE
     HANG_THRESHOLD_MS = args.hangs
     SEED_FOCUS = args.focus
@@ -625,9 +838,9 @@ def main():
     for path in args.app:
         APPS[app_tag(path)] = os.path.abspath(path)
         args.tag.append(app_tag(path))
-    if not args.tag:
-        parser.error("give at least one --tag or --app")
     RUN_TAGS.extend(args.tag)
+    if args.require_optimized:
+        require_optimized(args.tag)
     modes = args.mode or ["cold", "warm"]
     if "daemon" in modes:
         modes.remove("daemon")
@@ -641,13 +854,14 @@ def main():
         for mode in modes:
             for index in range(args.runs):
                 for tag in args.tag:
-                    marks = one_run(tag, mode, args.timeout, args.profile)
+                    marks = one_run(tag, mode, args.timeout, args.profile, args.temperature)
                     results[tag][mode].append(marks)
 
                     def shown(mark):
-                        return "%.0f ms" % marks[mark] if mark in marks else "missing"
+                        return "%.0f ms" % marks[mark] if is_number(marks.get(mark)) else "missing"
+                    values = "".join(f", {value}" for value in run_values(marks))
                     print(f"  {tag} {mode} run {index + 1}: first live terminal frame {shown(FINAL_MARK)}, "
-                          f"agent pane {shown(AGENT_MARK)}", flush=True)
+                          f"agent pane {shown(AGENT_MARK)}{values}", flush=True)
                     for stall in marks.get("stalls", [])[:3]:
                         print(f"    stall {stall['ms']:.0f} ms (cpu {stall['cpu_ms']:.0f}): "
                               + " < ".join(stall["frames"][:4]), flush=True)
@@ -658,10 +872,13 @@ def main():
     for tag in args.tag:
         for mode in modes:
             runs = results[tag][mode]
-            print(f"\n{tag} {mode} {args.profile or 'kept'} profile ({len(runs)} runs), ms since process start")
-            print(f"  {'phase':<46} {'median':>8} {'max':>8} {'gap':>8}  n")
-            for label, mark, median, worst, gap, count in table(runs):
-                print(f"  {label:<46} {median:>8.0f} {worst:>8.0f} {gap:>+8.0f}  {count}")
+            cold = " (purged)" if args.temperature == "cold" else ""
+            print(f"\n{tag} {mode}{cold} {args.profile or 'kept'} profile ({len(runs)} runs), ms since process start")
+            print(f"  {'phase':<46} {spread_header()} {'gap':>8}  n")
+            for label, mark, values, gap, count in table(runs):
+                print(f"  {label:<46} {spread_cells(values)} {gap:>+8.0f}  {count}")
+            for line in value_summary(runs, args.temperature):
+                print(line)
             if args.hangs:
                 print_stalls(runs)
     if args.json:
@@ -682,7 +899,7 @@ def check_budgets(results, budgets):
         mark, _, limit = budget.partition("=")
         for tag, modes in results.items():
             for mode, runs in modes.items():
-                values = [run[mark] for run in runs if mark in run]
+                values = [run[mark] for run in runs if is_number(run.get(mark))]
                 if len(values) < len(runs):
                     over.append(f"{tag} {mode}: {mark} missing in {len(runs) - len(values)} of {len(runs)} runs")
                 elif values and statistics.median(values) > float(limit):
@@ -691,16 +908,16 @@ def check_budgets(results, budgets):
 
 
 def check_orders(results, orders):
-    """Every `FIRST<SECOND` where some run lacks SECOND or has it before FIRST."""
+    """Every `FIRST<SECOND` where some run lacks SECOND or has it before FIRST; a chain `A<B<C` is A<B and B<C."""
     out = []
-    for order in orders:
-        first, _, second = order.partition("<")
+    pairs = [pair for order in orders for marks in [parse_order(order)] for pair in zip(marks, marks[1:])]
+    for first, second in pairs:
         for tag, modes in results.items():
             for mode, runs in modes.items():
                 for index, run in enumerate(runs):
-                    if second not in run:
+                    if not is_number(run.get(second)):
                         out.append(f"{tag} {mode} run {index + 1}: {second} missing")
-                    elif first in run and run[second] < run[first]:
+                    elif is_number(run.get(first)) and run[second] < run[first]:
                         out.append(f"{tag} {mode} run {index + 1}: {second} at {run[second]:.0f} ms, before {first} at {run[first]:.0f} ms")
     return out
 
