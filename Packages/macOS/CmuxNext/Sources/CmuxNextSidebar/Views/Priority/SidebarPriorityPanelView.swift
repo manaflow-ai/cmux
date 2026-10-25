@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 
@@ -35,7 +36,7 @@ final class SidebarPriorityPanelView: NSView {
     private(set) var draggingID: String?
     /// While a drag is live: the app resigning active or the window losing key with the button up
     /// cancels it, since its release may never come here. Removed when the drag ends.
-    private var dragObservers: [any NSObjectProtocol] = []
+    private var dragObservers: [MainActorObservation] = []
     /// While a drag is live, the app's left presses and releases before their window gets them
     /// (as the main list's `observePointerEnds`): a new press, or a release sent to another window,
     /// means this drag's release never comes. Removed when the drag ends.
@@ -63,11 +64,8 @@ final class SidebarPriorityPanelView: NSView {
 
     // Not an isolated deinit (cx-t7hu: its runtime hop traps when released inside an action's task-local scope).
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            for observer in dragObservers { NotificationCenter.default.removeObserver(observer) }
-            if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
-        }
+        guard Thread.isMainThread else { return } // main-proof: AppKit monitors are main-thread owned
+        if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
     }
 
     nonisolated override var isFlipped: Bool { true }
@@ -237,15 +235,13 @@ final class SidebarPriorityPanelView: NSView {
 
     private func startDrag(_ id: String) {
         draggingID = id
-        let center = NotificationCenter.default
-        // queue: .main (inline for AppKit's post on main), as the main list's focus observers.
-        dragObservers = [center.addObserver(forName: NSApplication.didResignActiveNotification, object: NSApp, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.cancelDrag() } // main-proof: observer on queue: .main
+        dragObservers = [MainActorObservation(NSApplication.didResignActiveNotification, object: NSApp) { [weak self] in
+            self?.cancelDrag()
         }]
         if let window {
-            dragObservers.append(center.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+            dragObservers.append(MainActorObservation(NSWindow.didResignKeyNotification, object: window) { [weak self] in
                 // With the button still held the release still comes to this window.
-                MainActor.assumeIsolated { if NSEvent.pressedMouseButtons & 1 == 0 { self?.cancelDrag() } } // main-proof: observer on queue: .main
+                if NSEvent.pressedMouseButtons & 1 == 0 { self?.cancelDrag() }
             })
         }
         dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
@@ -264,7 +260,7 @@ final class SidebarPriorityPanelView: NSView {
         case .leftMouseDown:
             cancelDrag()
         case .leftMouseUp where eventWindow !== window:
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self, self.draggingID != nil, NSEvent.pressedMouseButtons & 1 == 0 else { return }
                 self.cancelDrag()
             }
@@ -278,7 +274,7 @@ final class SidebarPriorityPanelView: NSView {
     private func stopDrag() {
         guard let id = draggingID else { return }
         draggingID = nil
-        for observer in dragObservers { NotificationCenter.default.removeObserver(observer) }
+        for observer in dragObservers { observer.cancel() }
         dragObservers = []
         if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
         dragMonitor = nil
