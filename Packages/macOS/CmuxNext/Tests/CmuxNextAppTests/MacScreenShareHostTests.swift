@@ -52,14 +52,19 @@ struct MacScreenShareHostTests {
 }
 
 /// Whether each check ran on the main thread, in call order.
-private final class ThreadLog: Sendable {
+private nonisolated final class ThreadLog: Sendable {
     private let calls = Mutex<[Bool]>([])
     func note() { calls.withLock { $0.append(Thread.isMainThread) } }
     var onMain: [Bool] { calls.withLock { $0 } }
 }
 
 /// Numbers the calls of a check from 0.
-private final class Calls: Sendable {
+private nonisolated final class Calls: Sendable {
     private let count = Mutex(0)
-    func next() -> Int { count.withLock { defer { $0 += 1 }; return $0 } }
+    func next() -> Int {
+        count.withLock { value in
+            defer { value += 1 }
+            return value
+        }
+    }
 }
