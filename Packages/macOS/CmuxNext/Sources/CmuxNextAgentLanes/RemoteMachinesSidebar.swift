@@ -150,7 +150,14 @@ public final class RemoteMachinesSidebar {
     public func activate(_ id: LayoutItemID) -> Bool {
         let raw = id.rawValue
         if let peer = Self.suffix(raw, Self.machinePrefix) {
-            if expanded.remove(peer) == nil { expanded.insert(peer) } else { (pages[peer], older[peer]) = (nil, nil); olderShown.remove(peer) }
+            if expanded.remove(peer) == nil {
+                expanded.insert(peer)
+            } else {
+                // A read in flight would land its page on the fresh state of the next unfold.
+                olderReads.removeValue(forKey: peer)?.cancel()
+                (pages[peer], older[peer]) = (nil, nil)
+                olderShown.remove(peer)
+            }
             return true
         }
         if let peer = Self.suffix(raw, Self.olderPrefix) {

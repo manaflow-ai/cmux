@@ -223,13 +223,18 @@ struct RemoteMachinesSidebarTests {
     }
 
     @Test func aSessionsPageReadsTitlesAndTheNextCursor() {
-        let page = AcpmuxSessionPage.page(["sessions": [["sessionId": "s1", "name": "cmux16/cx3-dots", "title": "Dots", "harness": "codex"],
-                                                         ["sessionId": "s2", "name": "cmux16/cx3-rail", "title": "cmux16/cx3-rail"],
-                                                         ["name": "no-id"]],
-                                           "nextCursor": "k5.9"])
+        let closed = ["peer": "cmux16", "status": "closed"]
+        let page = AcpmuxSessionPage.page(["sessions": [closed.merging(["sessionId": "s1", "name": "cmux16/cx3-dots", "title": "Dots", "harness": "codex"]) { $1 },
+                                                         closed.merging(["sessionId": "s2", "name": "cmux16/cx3-rail", "title": "cmux16/cx3-rail"]) { $1 },
+                                                         closed.merging(["name": "no-id"]) { $1 },
+                                                         // An older daemon ignores the filters: another peer's, this Mac's and a live chat stay out.
+                                                         ["sessionId": "o1", "name": "huge-blue/x", "peer": "huge-blue", "status": "closed"],
+                                                         ["sessionId": "o2", "name": "local", "status": "closed"],
+                                                         ["sessionId": "o3", "name": "cmux16/live", "peer": "cmux16", "status": "idle"]],
+                                           "nextCursor": "k5.9"], peer: "cmux16")
         #expect(page.chats == [AcpmuxSessionPage.Chat(id: "s1", title: "Dots", harness: "codex"),
                                AcpmuxSessionPage.Chat(id: "s2", title: "cx3-rail", harness: nil)])
         #expect(page.next == "k5.9")
-        #expect(AcpmuxSessionPage.page(["sessions": [], "nextCursor": NSNull()]).next == nil)
+        #expect(AcpmuxSessionPage.page(["sessions": [], "nextCursor": NSNull()], peer: "cmux16").next == nil)
     }
 }

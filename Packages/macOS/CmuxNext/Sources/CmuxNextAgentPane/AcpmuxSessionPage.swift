@@ -33,14 +33,16 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
         var params: [String: any Sendable] = ["peer": peer, "status": "closed", "limit": limit]
         if let cursor { params["cursor"] = cursor }
         let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/sessions", params: params, deadline: deadline)
-        return Self.page(result)
+        return Self.page(result, peer: peer)
     }
 
-    /// A `_acpmux/sessions` page (`{sessions: [summary], nextCursor}`). A chat's title is its own
-    /// title when it has one, else the last part of its `<peer>/<name>` name.
-    static func page(_ result: [String: Any]) -> Page {
+    /// A `_acpmux/sessions` page (`{sessions: [summary], nextCursor}`), keeping only `peer`'s closed
+    /// chats: a daemon from before the `peer`/`status` filters ignores them and pages everything. A
+    /// chat's title is its own title when it has one, else the last part of its `<peer>/<name>` name.
+    static func page(_ result: [String: Any], peer: String) -> Page {
         let chats: [Chat] = (result["sessions"] as? [[String: Any]] ?? []).compactMap { summary in
-            guard let id = summary["sessionId"] as? String, !id.isEmpty else { return nil }
+            guard let id = summary["sessionId"] as? String, !id.isEmpty,
+                  summary["peer"] as? String == peer, summary["status"] as? String == "closed" else { return nil }
             let name = summary["name"] as? String ?? id
             let title = (summary["title"] as? String).flatMap { $0.isEmpty || $0 == name ? nil : $0 }
                 ?? String(name.split(separator: "/").last ?? Substring(name))
