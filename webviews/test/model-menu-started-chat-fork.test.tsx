@@ -141,13 +141,13 @@ function chat(catalog: Snapshot["catalog"], turnCount: number, extra: Partial<Sn
 }
 
 /// A Claude chat on the composer's model menu, `turnCount` turns in. `fork` is the chat's fork.
-async function mount(turnCount: number, fork?: { ready: boolean }) {
+async function mount(turnCount: number, fork?: { ready: boolean }, installed?: Snapshot["catalog"]) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { ChatAccountsContext } = await import("../src/agent-session/acpmux/chatAccounts");
-  const catalog = await acpmuxCatalog();
+  const catalog = installed ?? (await acpmuxCatalog());
   const forked: string[] = [];
   const switched: string[] = [];
   const accounts = { list: async () => ({ accounts: [] }), set: async () => undefined };
@@ -293,6 +293,51 @@ test("a chat with no message yet starts on another account of the harness from i
   await settle();
   expect(switched).toEqual(["claude-work"]);
   expect(forked).toEqual([]);
+});
+
+// Leo 2026-10-25: "it counts too much account stuff". A harness's profiles (real alias ids, a `work`
+// id that names no agent, twenty numbered accounts each its own family as a registry agent's is)
+// are accounts of its one rail tab, never tabs; ChatGPT draws Codex's OpenAI mark but is a harness
+// of its own, never a Codex account.
+test("two dozen Claude profiles are Accounts of one Claude Code tab; ChatGPT stays its own harness", async () => {
+  const claudeModels = [{ id: "claude-opus-5-5", name: "Opus 5.5" }];
+  const profiles = [
+    { id: "claude-sr2", name: "Claude Code (sr2)", family: "claude-sr2", models: claudeModels },
+    { id: "claude-acp", name: "Claude Agent", family: "claude-acp", models: claudeModels },
+    { id: "work", name: "Work", family: "claude-work", models: claudeModels },
+    { id: "cmux", name: "cmux", family: "claude", models: claudeModels },
+    ...Array.from({ length: 20 }, (_, index) => ({
+      id: `claude-${index + 1}`,
+      name: `Claude account ${index + 1}`,
+      family: `claude-${index + 1}`,
+      models: claudeModels,
+    })),
+  ];
+  const catalog = [
+    ...(await acpmuxCatalog()),
+    ...profiles,
+    { id: "codex-acp", name: "codex-acp", family: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+    { id: "chatgpt", name: "ChatGPT", family: "chatgpt", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+  ] as Snapshot["catalog"];
+  const { switched } = await mount(0, undefined, catalog);
+  await open();
+  const tabs = railTabs().map((tab) => tab.getAttribute("aria-label") ?? "");
+  expect(tabs.filter((tab) => tab.startsWith("Claude"))).toEqual(["Claude Code"]);
+  expect(tabs).toContain("Codex");
+  expect(tabs).toContain("ChatGPT");
+  for (const profile of [...profiles, { name: "codex-acp" }]) expect(tabs).not.toContain(profile.name);
+  const account = await openAccount();
+  const rows = profileRows(account).map(labelOf);
+  expect(rows).toEqual(expect.arrayContaining(["Claude Code", ...profiles.map((profile) => profile.name)]));
+  expect(rows).toHaveLength(profiles.length + 2);
+  expect(rows).not.toContain("ChatGPT");
+  await act(async () =>
+    profileRows(account)
+      .find((row) => labelOf(row) === "Claude Code (sr2)")!
+      .click(),
+  );
+  await settle();
+  expect(switched).toEqual(["claude-sr2"]);
 });
 
 test("the chat composer forks through Continue In…'s chat.handoff.prepare", async () => {

@@ -333,6 +333,60 @@ test("a harness profile shares its provider's one rail icon", async () => {
   expect(claudeTabs).toHaveLength(1);
 });
 
+/// Installed profiles as acpmux lists them: real alias ids (`claude-sr2`, the ACP registry's
+/// `claude-acp`, the `cmux` model router on Claude's stdio, Codex's app-server aliases), a `work`
+/// profile whose id names no agent (a letter tile before), and twenty numbered accounts, each its
+/// own family as a registry agent's is. ChatGPT is a harness of its own that draws Codex's OpenAI mark.
+const claudeProfiles: { id: string; name: string; family?: string }[] = [
+  { id: "claude-sr2", name: "Claude Code (sr2)" },
+  { id: "claude-acp", name: "Claude Agent" },
+  { id: "work", name: "Work", family: "claude-work" },
+  ...Array.from({ length: 20 }, (_, index) => ({ id: `claude-${index + 1}`, name: `Claude account ${index + 1}` })),
+];
+const profileExtras = [
+  ...claudeProfiles.map((profile) => ({ ...profile, models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] })),
+  { id: "cmux", name: "cmux", family: "claude", models: [{ id: "claude-opus-5-5", name: "Opus 5.5" }] },
+  { id: "codex-acp", name: "codex-acp", family: "codex", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+  { id: "codex-app-server", name: "codex-app-server", family: "codex", models: [] },
+  { id: "chatgpt", name: "ChatGPT", models: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }] },
+];
+const railNames = () =>
+  [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map((button) => button.title.split(" · ")[0]!);
+
+test("two dozen Claude profiles are one Claude Code tab, ChatGPT stays its own, and a pick starts Claude Code", async () => {
+  const { sent } = await mount({ harness: "codex", extra: profileExtras });
+  await act(async () => {
+    openFullPicker();
+  });
+  const names = railNames();
+  expect(names.filter((name) => name.startsWith("Claude"))).toEqual(["Claude Code"]);
+  for (const profile of [...claudeProfiles, { name: "cmux" }, { name: "codex-acp" }])
+    expect(names.some((name) => name.startsWith(profile.name))).toBe(false);
+  expect(names.filter((name) => name.startsWith("Codex"))).toHaveLength(1);
+  expect(names.filter((name) => name.startsWith("ChatGPT"))).toHaveLength(1);
+  await openOn("Claude Code");
+  const opus = rows().find((row) => row.dataset.key === "model:claude-opus-5-5")!;
+  await act(async () => opus.click());
+  expect(sent).toEqual([{ method: "harness", value: "claude/claude-opus-5-5" }]);
+});
+
+test("a chat on a profile shows its harness's one tab and lands a pick in place", async () => {
+  const { sent } = await mount({ harness: "claude-sr2", extra: profileExtras });
+  await act(async () => {
+    openFullPicker();
+  });
+  const claude = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].filter((button) =>
+    button.title.startsWith("Claude"),
+  );
+  expect(claude.map((button) => button.title.split(" · ")[0])).toEqual(["Claude Code"]);
+  expect(claude[0]!.getAttribute("aria-selected")).toBe("true");
+  // Its tab is the running profile's: a pick there lands in place, never a switch to `claude`.
+  await openOn("Claude Code");
+  const opus = rows().find((row) => row.dataset.key === "model:claude-opus-5-5")!;
+  await act(async () => opus.click());
+  expect(sent).toEqual([{ method: "model", value: "claude-opus-5-5" }]);
+});
+
 test("before its first message, a machine profile is absent from the harness rail", async () => {
   await mount({
     harness: "codex",
