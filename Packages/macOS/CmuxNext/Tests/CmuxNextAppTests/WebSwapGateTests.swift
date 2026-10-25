@@ -55,7 +55,7 @@ struct WebSwapGateTests {
     @Test func aBackgroundedAppChecksOftenEnoughToSwapAMergeWithinFiveMinutes() {
         // Merge to signed pointer takes about two minutes; the background check must leave room
         // for the download and the grace before the swap.
-        #expect(WebUpdater.defaultBackgroundInterval <= .seconds(120))
+        #expect(WebUpdater.defaultBackgroundInterval == .seconds(120))
     }
 }
 

@@ -106,7 +106,7 @@ public final class WebUpdater {
     /// past the five minutes Leo asked for. Each check is a small pointer read (a 304 while
     /// unchanged), so every two minutes stays quiet.
     let backgroundInterval: Duration
-    public static let defaultBackgroundInterval: Duration = .seconds(120)
+    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(120)
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
