@@ -14,6 +14,7 @@ mod btw;
 mod exit_reason;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
+pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
 mod cancel;
 mod catalog_reload;
@@ -287,6 +288,10 @@ pub struct PromptOptions {
     /// Validated display-only metadata from the app's ordered composer. It is persisted in the
     /// mux record and never forwarded to the agent's ACP prompt.
     pub display_parts: Option<Value>,
+    /// The paired machine whose Full-access setting covered the request that sent it
+    /// (`server/remote_guard.rs` `full_access_device`), read again at dispatch
+    /// (`Hub::full_access_hold`).
+    pub full_access_device: Option<String>,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.

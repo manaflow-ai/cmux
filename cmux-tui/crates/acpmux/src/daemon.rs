@@ -479,6 +479,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
             hub.adopt_agent_hosts().await;
+            // A chat a machine's Full-access setting moved out of its policy's mode goes back:
+            // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
+            hub.hold_policies_again().await;
             hub.finish_startup().await;
             // After the login env import: it names harness homes.
             let sources = crate::chats::ChatSources::daemon(&*hub.config.read().await);

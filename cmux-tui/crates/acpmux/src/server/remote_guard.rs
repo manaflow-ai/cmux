@@ -22,6 +22,11 @@
 //!   `_acpmux/subagent_stop`, which only stops a task the agent already runs
 //!   (`forwards`).
 //!
+//! - A chat's own narrower policy holds its mode for every client (`hub/policy_mode.rs`), so
+//!   a chat a remote connection started (policy `ask`, below) never leaves the asking modes,
+//!   unless a paired machine the person let run chats in Full access sends the switch
+//!   (`full_access_device`); deny-all still holds it then, and a chat started on this machine
+//!   keeps its policy's mode whoever asks.
 //! - Web only (ACP-REMOTE-GUARD), allow lists: only the `ask` and `deny-all`
 //!   policies, rules that cannot auto-approve, the cited asking modes
 //!   (`ASKING_MODES`) and the listed config options; every other value,
@@ -116,6 +121,25 @@ pub(super) fn control_of(
     }
 }
 
+/// The paired machine whose Full-access setting covers this request
+/// (`crate::pairing` module docs), or None: the connection presented that
+/// machine's own `client` credential (`ConnAuth::Device`; never the shared
+/// dashboard token, a peer token, LocalApp or a read-only machine), the
+/// request is held to the Web's rules (it forwards for that machine's Web
+/// client, `via: web`), and the setting is on now, read from the pairing
+/// store for this request. Which machine it is comes from the handshake
+/// (`Conn::device`), never from the request.
+pub(super) fn full_access_device(
+    hub: &crate::hub::Hub,
+    conn: &super::Conn,
+    params: &Value,
+) -> Option<String> {
+    let id = conn.device.as_deref().filter(|_| conn.auth == super::ConnAuth::Device)?;
+    (control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web
+        && hub.pairing.full_access(id))
+    .then(|| id.to_owned())
+}
+
 /// A request forwarded to a peer, which serves this daemon as Peer: one
 /// this daemon holds to the Web's rules says so, and the peer applies them.
 /// One from the app's pane says `via: app`, so the peer's folder-trust gate
@@ -150,6 +174,7 @@ async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: super::Origin,
     auth: super::ConnAuth,
+    device: Option<&str>,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
@@ -412,6 +437,21 @@ async fn check_inner(
     // After the folder checks: what the request starts from, and its mode.
     if web {
         web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
+    }
+    // A chat in Full access by a machine's setting: every request that controls or changes its
+    // turn and queue comes from that machine (`Hub::full_access_hold`; `device`, from
+    // `full_access_device`).
+    if matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::SESSION_CANCEL
+            | method::MUX_QUEUE_EDIT
+            | method::MUX_QUEUE_REMOVE
+            | method::MUX_PERMISSION_RESPOND
+            | method::MUX_PERMISSION_GROUP_RESPOND
+    ) && let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key))
+    {
+        hub.full_access_hold(&s.meta(), control_of(origin, auth, params), device)?;
     }
     Ok(())
 }

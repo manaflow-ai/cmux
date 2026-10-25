@@ -45,6 +45,9 @@ pub struct Conn {
     pub origin: Origin,
     /// The proof it presented (`conn_auth.rs`); what the mode rule reads.
     pub auth: ConnAuth,
+    /// The paired machine whose credential it presented (`ConnAuth::Device`
+    /// or `ReadOnlyDevice`), from the handshake only, never from a request.
+    device: Option<String>,
     /// It reads session text raw (`peer_text.rs`): every origin but a peer.
     raw_text: bool,
     name: StdMutex<String>,
@@ -833,7 +836,10 @@ pub async fn serve_ws_with(
                     read_half.abort();
                 })
             });
-            serve_connection_authed(hub, in_rx, out_tx, origin, proof).await;
+            match device {
+                Some(device) => serve_connection_device(hub, in_rx, out_tx, device).await,
+                None => serve_connection_authed(hub, in_rx, out_tx, origin, proof).await,
+            }
             if let Some(watcher) = watcher {
                 watcher.abort();
             }
@@ -1009,7 +1015,20 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None).await
+    serve_connection_from(hub, inbound, out, origin, auth, None, None).await
+}
+
+/// A paired machine's connection, served as its role says
+/// (`pairing::origin_of`): the WebSocket listener's, once the handshake
+/// proved `device`'s credential, or an in-process caller that vouches for it.
+pub async fn serve_connection_device(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    device: crate::pairing::DeviceAuth,
+) {
+    let (origin, auth) = pairing::origin_of(&device);
+    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id)).await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1020,6 +1039,7 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    device: Option<String>,
 ) {
     if !auth.authenticated() {
         refuse_unauthenticated(&mut inbound, &out, origin).await;
@@ -1030,6 +1050,7 @@ async fn serve_connection_from(
         id: uuid::Uuid::now_v7().to_string(),
         origin,
         auth,
+        device,
         raw_text,
         name: StdMutex::new(String::new()),
         out,
