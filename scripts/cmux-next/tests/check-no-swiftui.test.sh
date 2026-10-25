@@ -35,6 +35,10 @@ fail "$SRC/CmuxNextApp/X.swift" "a stale allowlist entry" 'import AppKit' "$SRC/
 fail "$SRC/CmuxNextApp/X.swift" "an entry for a missing file" 'import AppKit' "$SRC/CmuxNextApp/Gone.swift"
 fail "Packages/macOS/CmuxNext/Tests/T/XTests.swift" "a test file" 'import SwiftUI'
 
+fail "$SRC/CmuxNextApp/New/X.swift" "a moved file whose entry still names its old path" 'import SwiftUI' "$SRC/CmuxNextApp/Old/X.swift"
+grep -q "change the line to the new path" "$tmp/err" \
+  || { echo "FAIL: a gone entry whose file moved names the new path" >&2; cat "$tmp/err" >&2; exit 1; }
+
 pass "$SRC/CmuxNextApp/X.swift" "AppKit only" $'import AppKit\nimport QuartzCore'
 pass "$SRC/CmuxNextApp/X.swift" "an allowlisted file" 'import SwiftUI' "$SRC/CmuxNextApp/X.swift"
 pass "$SRC/CmuxNextApp/X.swift" "an import in a comment" $'import AppKit\n// import SwiftUI\n/* import SwiftUI */'
@@ -63,4 +67,13 @@ git -C "$repo" add -A
 code=0; python3 -I "$CHECK" --base "$base" "$repo" >/dev/null 2>"$tmp/err" || code=$?
 [[ $code -eq 1 ]] && grep -q "Three.swift is new since" "$tmp/err" \
   || { echo "FAIL: must fail: a new allowlist entry (got $code)" >&2; cat "$tmp/err" >&2; exit 1; }
+# A move that also rewrote the file (below git's rename similarity, 84b3fc57) keeps its entry too.
+git -C "$repo" rm -q --cached "$SRC/B/Three.swift"; rm "$repo/$SRC/B/Three.swift"
+mkdir -p "$repo/$SRC/C"
+git -C "$repo" mv "$SRC/A/Two.swift" "$SRC/C/Two.swift"
+printf 'import SwiftUI\nimport AppKit\n\n/// Rewritten while it moved.\nstruct Renamed { let a = 1; let b = 2; let c = 3 }\n' > "$repo/$SRC/C/Two.swift"
+printf '%s\n' "$SRC/B/One.swift" "$SRC/C/Two.swift" > "$repo/$LIST"
+git -C "$repo" add -A
+python3 -I "$CHECK" --base "$base" "$repo" >/dev/null 2>"$tmp/err" \
+  || { echo "FAIL: must pass: a moved and rewritten file keeps its entry" >&2; cat "$tmp/err" >&2; exit 1; }
 echo "check-no-swiftui: ok"

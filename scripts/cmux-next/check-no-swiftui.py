@@ -9,11 +9,16 @@ Findings, in tracked Swift files under Packages/macOS:
      `public import SwiftUI`, `@preconcurrency import SwiftUI`,
      `import struct SwiftUI.Color`) and is not in the allowlist.
   2. An allowlist entry for a file that no longer imports SwiftUI, or no
-     longer exists: delete the line, so the list only shrinks.
+     longer exists: delete the line, so the list only shrinks. If the file
+     is gone and one unlisted file with its name now imports SwiftUI, it
+     moved: the finding names the new path, so the line is re-pointed, not
+     deleted (deleting it left the moved file failing, 91d4ac2f).
   3. With --base REF: an allowlist entry that the allowlist at REF did not
      have. The allowlist only shrinks; a new screen is AppKit. A file moved
-     since REF (a git rename of an entry REF allowed) keeps its entry under
-     its new path.
+     since REF keeps its entry under its new path: a git rename of an entry
+     REF allowed, or (a move that also rewrote the file, below git's rename
+     similarity) an entry swapped for the one entry REF allowed with the
+     same file name whose file is gone.
 
 The allowlist is scripts/cmux-next/no-swiftui-allowlist.txt, one
 repo-relative path per line, sorted; `#` starts a comment.
@@ -87,6 +92,14 @@ def renamed_since(root: pathlib.Path, base: str) -> dict[str, str]:
     return moves
 
 
+def by_name(paths) -> dict[str, list[str]]:
+    """File name -> the paths with that name."""
+    names: dict[str, list[str]] = {}
+    for path in paths:
+        names.setdefault(pathlib.PurePosixPath(path).name, []).append(path)
+    return names
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base", help="the commit the allowlist may only shrink from")
@@ -106,8 +119,14 @@ def main() -> int:
     for f in sorted(importing - allowed_set):
         findings.append(f"{f}: imports SwiftUI. macOS UI is AppKit (plans/cmux-next/no-swiftui-DESIGN.md); "
                         f"the allowlist only shrinks")
+    unlisted = by_name(importing - allowed_set)
     for f in sorted(allowed_set - importing):
-        findings.append(f"{ALLOWLIST}: {f} no longer imports SwiftUI (or is gone): delete its line")
+        moved = unlisted.get(pathlib.PurePosixPath(f).name, [])
+        if len(moved) == 1 and not (root / f).exists():
+            findings.append(f"{ALLOWLIST}: {f} is gone and {moved[0]} imports SwiftUI: if it moved there, "
+                            f"change the line to the new path instead of deleting it")
+        else:
+            findings.append(f"{ALLOWLIST}: {f} no longer imports SwiftUI (or is gone): delete its line")
 
     if args.base:
         try:
@@ -115,8 +134,9 @@ def main() -> int:
                                  check=True, capture_output=True, text=True).stdout
             old_allowed = set(parse_allowlist(old))
             moves = renamed_since(root, args.base)
+            dropped = by_name(f for f in old_allowed - allowed_set if not (root / f).exists())
             for f in sorted(allowed_set - old_allowed):
-                if moves.get(f) in old_allowed:
+                if moves.get(f) in old_allowed or len(dropped.get(pathlib.PurePosixPath(f).name, [])) == 1:
                     continue
                 findings.append(f"{ALLOWLIST}: {f} is new since {args.base}; the allowlist only shrinks")
         except subprocess.CalledProcessError:
