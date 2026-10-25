@@ -1,5 +1,7 @@
 import Foundation
 import os
+import CmuxNextCompat
+import CmuxNextWakeups
 
 /// A captured focus/keyboard desync (plans/cmux-next/input-spec.md
 /// section 4): the invariants that broke, the observation that showed it,
@@ -34,29 +36,35 @@ nonisolated struct DesyncReport: Hashable, Sendable, Codable {
 }
 
 /// Where desync reports go: `~/Library/Logs/cmux-next/<tag>/desync/`
-/// (`release` for untagged builds). Writes happen off the main actor.
+/// (`release` for untagged builds). Writes run on the BackgroundWork files lane, never on the main actor
+/// or the cooperative pool.
 nonisolated struct DesyncReportStore: Sendable {
     /// Reports kept on disk per build; older ones are deleted.
     static let keep = 50
 
     let directory: URL?
+    /// The blocking-work lanes the reports are written on.
+    let work: BackgroundWork
 
-    init(tag: String?, logs: URL? = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first) {
+    /// - Parameter work: the app's blocking-work lanes (`AppServices.work`); tests get lanes of their own.
+    init(tag: String?, logs: URL? = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first,
+         work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.desync")) {
         directory = logs?.appending(path: "Logs/cmux-next/\(tag ?? "release")/desync", directoryHint: .isDirectory)
+        self.work = work
     }
 
     func url(for report: DesyncReport) -> URL? {
         directory?.appending(path: "\(report.id).json")
     }
 
-    /// Writes `data` for `report` and prunes old reports, off the main actor.
+    /// Writes `data` for `report` and prunes old reports, on the files lane at best effort (nobody waits).
     func write(_ data: Data, for report: DesyncReport) {
         guard let directory, let url = url(for: report) else { return }
-        Task.detached(priority: .utility) {
-            let files = FileManager.default
+        work.post(.bestEffort, mayBlock: .files) {
+            let files = FileManager.checked
             do {
                 try files.createDirectory(at: directory, withIntermediateDirectories: true)
-                try data.write(to: url, options: .atomic)
+                try data.blockingWrite(to: url, options: .atomic)
                 let existing = try files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
                     .filter { $0.pathExtension == "json" }
                     .sorted { $0.lastPathComponent < $1.lastPathComponent }

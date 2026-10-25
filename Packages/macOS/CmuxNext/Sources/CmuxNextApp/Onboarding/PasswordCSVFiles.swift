@@ -4,6 +4,8 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import Foundation
+import CmuxNextCompat
+import CmuxNextWakeups
 import UniformTypeIdentifiers
 import os
 
@@ -59,7 +61,7 @@ struct PasswordCSVFiles {
             let report = try await run(PasswordCSVImporter(destination: destination))
             // The app window, not the key window: after the cmux picker that is the palette's panel.
             let windows = services.windows
-            Self.trash(url, report: report, hold: hold) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
+            Self.trash(url, report: report, hold: hold, work: services.work) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
             return nil
         } catch PasswordCSVImporter.Failure.cancelled {
             hold?.release()
@@ -94,8 +96,9 @@ struct PasswordCSVFiles {
     /// not go in (a conflict keeps the saved password, a rejected row), the
     /// file may be the only copy: it stays and the toast offers Move to Trash,
     /// as it does when the move fails. Conflicts the `hold` kept are offered
-    /// for Replace first (cx-dwg.6).
+    /// for Replace first (cx-dwg.6). The Undo's move back runs on `work`'s files lane, never on main.
     static func trash(_ url: URL, report: PasswordImportReport, hold: PasswordConflictHold? = nil,
+                      work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.password-csv"),
                       windowLookup: @escaping @MainActor () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }) {
         let summary = summaryLines(report)
         guard let window = windowLookup() else {
@@ -104,10 +107,10 @@ struct PasswordCSVFiles {
             return
         }
         if let hold, hold.count > 0 {
-            return offerReplace(url, summary, hold, othersMissing: report.store.rejected, in: window, windowLookup: windowLookup)
+            return offerReplace(url, summary, hold, othersMissing: report.store.rejected, in: window, work: work, windowLookup: windowLookup)
         }
         guard report.store.conflict + report.store.rejected == 0 else { return offerTrash(url, summary, in: window) }
-        recycle(url, summary, windowLookup: windowLookup)
+        recycle(url, summary, work: work, windowLookup: windowLookup)
     }
 
     /// Never overwritten silently: the saved passwords stay unless the person
@@ -115,7 +118,8 @@ struct PasswordCSVFiles {
     /// the store; otherwise, or when the toast goes without Replace, it offers
     /// Move to Trash.
     private static func offerReplace(_ url: URL, _ summary: [String], _ hold: PasswordConflictHold, othersMissing: Int,
-                                     in window: NSWindow, windowLookup: @escaping @MainActor () -> NSWindow?) {
+                                     in window: NSWindow, work: BackgroundWork,
+                                     windowLookup: @escaping @MainActor () -> NSWindow?) {
         let toast = CmuxToast(id: fileToastID(url), message: summary.joined(separator: " "),
                               action: CmuxToast.Action(title: PasswordCSVStrings.replace), duration: .seconds(20))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
@@ -134,7 +138,7 @@ struct PasswordCSVFiles {
                     guard let window = windowLookup() else { return }
                     return offerTrash(url, lines, in: window)
                 }
-                recycle(url, lines, windowLookup: windowLookup)
+                recycle(url, lines, work: work, windowLookup: windowLookup)
             }
         }
         handle.onDismiss = { reason in
@@ -152,7 +156,8 @@ struct PasswordCSVFiles {
     }
 
     /// Moves the file to the Trash; the toast's Undo puts it back.
-    private static func recycle(_ url: URL, _ summary: [String], windowLookup: @escaping @MainActor () -> NSWindow?) {
+    private static func recycle(_ url: URL, _ summary: [String], work: BackgroundWork,
+                                windowLookup: @escaping @MainActor () -> NSWindow?) {
         NSWorkspace.shared.recycle([url]) { @Sendable moved, error in
             Task { @MainActor in
                 // Looked up again on the main actor: a window is not Sendable.
@@ -161,8 +166,12 @@ struct PasswordCSVFiles {
                 let toast = CmuxToast(id: fileToastID(url), message: (summary + [PasswordCSVStrings.trashed]).joined(separator: " "),
                                       action: .undo(), duration: .seconds(12))
                 CmuxToastCenter.shared.show(toast, in: window).onAction = {
-                    do { try FileManager.default.moveItem(at: trashed, to: url) } catch {
-                        logger.error("password CSV put back failed: \(String(describing: error), privacy: .public)")
+                    // The person pressed Undo: the move back runs on the files lane at userBlocking.
+                    let log = Self.logger
+                    work.post(.userBlocking, mayBlock: .files) {
+                        do { try FileManager.checked.moveItem(at: trashed, to: url) } catch {
+                            log.error("password CSV put back failed: \(String(describing: error), privacy: .public)")
+                        }
                     }
                 }
             }

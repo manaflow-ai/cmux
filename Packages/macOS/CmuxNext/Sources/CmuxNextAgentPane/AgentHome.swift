@@ -1,5 +1,7 @@
 import Darwin
 public import Foundation
+public import CmuxNextWakeups
+import CmuxNextCompat
 
 /// The agent-home folders (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE): a workspace without a folder (the
 /// default Home workspace) gives its new agent chats `<base>/<workspace-id>`, where `base` is
@@ -132,13 +134,14 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         return trashed
     }
 
-    /// ``standard``'s ``emptyTrashPending(using:)`` with `FileManager.trashItem`, off the main
-    /// thread (at launch and after each closed-history delete).
-    public static func emptyStandardTrashPendingInBackground() {
+    /// ``standard``'s ``emptyTrashPending(using:)`` with `FileManager.trashItem`, on `work`'s files lane
+    /// at best effort (at launch and after each closed-history delete; nothing waits for it).
+    ///
+    /// - Parameter work: the app's blocking-work lanes (`AppServices.work`).
+    public static func emptyStandardTrashPendingInBackground(work: BackgroundWork) {
         guard let home = standard else { return }
-        // task-owner: one sweep of the trash-pending folder; nothing waits for it
-        Task.detached(priority: .utility) {
-            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+        work.post(.bestEffort, mayBlock: .files) {
+            home.emptyTrashPending { try FileManager.checked.trashItem(at: $0, resultingItemURL: nil) }
         }
     }
 

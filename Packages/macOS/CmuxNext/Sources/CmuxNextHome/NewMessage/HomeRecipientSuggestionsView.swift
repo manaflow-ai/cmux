@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// The people under New Message's To: field (Messages' suggestion list):
 /// each row an avatar, the full name and under it what the recipient is
@@ -26,6 +27,9 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     /// The list floats over the page: the shared overlay glass, never the solid popup surface
     /// (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
     let glass = Glass.makeOverlayPanel(cornerRadius: 10, interactive: false)
+    /// The blocking-work lanes the rows' avatar pictures are read on (the App sets `AppServices.work`);
+    /// nil draws a picture avatar's initials (tests, previews).
+    public var work: BackgroundWork?
     static let rowHeight: CGFloat = 44
     static let avatarSize: CGFloat = 28
     static let maxRows = 6
@@ -137,7 +141,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         let item = items[row]
         let shown = self.look(item)
         let cell = NSTableCellView()
-        let avatar = HomeRecipientAvatarView()
+        let avatar = HomeRecipientAvatarView(work: work)
         avatar.show(shown.avatar, name: item.label)
         let name = ThemedLabel(labelWithString: item.label)
         name.font = Typography.body

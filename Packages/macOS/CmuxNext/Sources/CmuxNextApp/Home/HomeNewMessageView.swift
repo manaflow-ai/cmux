@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 
 /// New Message as a page, as in Messages (Lawrence 2026-10-19: "it makes a
 /// modal but iMessage just creates a new page"): the To: field across the
@@ -38,6 +39,7 @@ final class HomeNewMessageView: NSView {
     init(services: AppServices) {
         self.services = services
         super.init(frame: .zero)
+        field.suggestions.work = services.work
         setAccessibilityIdentifier("cmux.home.newMessage")
         content.wantsLayer = true
         content.layer?.masksToBounds = true

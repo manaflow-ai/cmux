@@ -25,7 +25,7 @@ final class InputVerificationService {
         let tag = services.environment.tag
         journal.configure(InputJournalPolicy.resolve(isDebugBuild: ControlService.isDebugBuild, tag: tag,
                                                      environment: ProcessInfo.processInfo.environment))
-        let monitor = InputInvariantMonitor(tag: tag)
+        let monitor = InputInvariantMonitor(tag: tag, work: services.work)
         monitor.services = services
         self.monitor = monitor
         (NSApp as? CmuxApplication)?.inputObserver = { event in

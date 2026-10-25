@@ -1,4 +1,6 @@
 public import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 
 extension CEFEngine {
     /// Clear Browsing Data (cx-d0d.23) in `profile`'s Chromium store:
@@ -18,7 +20,7 @@ extension CEFEngine {
                 // A tab that cannot answer (not started, closing) leaves the cache; cookies still clear.
                 _ = try? await tab.devTools(method: "Network.clearBrowserCache", params: [:])
             } else if !hasOpened(profile) {
-                Self.removeCaches(in: directory)
+                Self.removeCaches(in: directory, work: work)
             }
         }
         guard cookies else { return }
@@ -30,8 +32,8 @@ extension CEFEngine {
     static let cacheDirectories = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache"]
 
     /// Moves the caches aside here (before Chromium can open the profile)
-    /// and deletes them off the main thread: they can hold many files.
-    private static func removeCaches(in directory: URL) {
+    /// and deletes them on `work`'s files lane at best effort: they can hold many files.
+    private static func removeCaches(in directory: URL, work: BackgroundWork) {
         let manager = FileManager.default
         var aside: [URL] = []
         for name in cacheDirectories {
@@ -40,9 +42,9 @@ extension CEFEngine {
             if (try? manager.moveItem(at: from, to: to)) != nil { aside.append(to) }
         }
         guard !aside.isEmpty else { return }
-        // task-owner: one-shot delete of moved-aside cache directories
-        Task.detached(priority: .utility) {
-            for url in aside { try? FileManager.default.removeItem(at: url) }
+        // Nobody waits for the delete; the moved-aside names are never read again.
+        work.post(.bestEffort, mayBlock: .files) {
+            for url in aside { try? FileManager.checked.removeItem(at: url) }
         }
     }
 

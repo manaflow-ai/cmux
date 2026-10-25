@@ -1,5 +1,6 @@
 import CmuxNextCompat
 public import Foundation
+public import CmuxNextWakeups
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
 /// with real Chrome extensions), embedded as child windows that track the
@@ -27,6 +28,8 @@ public final class CEFEngine: BrowserEngine {
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+    /// The blocking-work lanes the engine's own file work runs on (deleting cleared caches).
+    let work: BackgroundWork
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -39,12 +42,14 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - work: The blocking-work lanes for the engine's file work; a test gets lanes of its own.
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
                             stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
-                            contextMenus: BrowserContextMenuBuilder = .shared) {
+                            contextMenus: BrowserContextMenuBuilder = .shared,
+                            work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.cef")) {
         self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
-                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
+                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, work: work)
     }
 
     /// Creates an engine whose runtime may arrive later (Chromium on demand).
@@ -55,10 +60,13 @@ public final class CEFEngine: BrowserEngine {
     ///   - signInCallbacks: The App's sign-in tabs; the runtime sends the shim's callbacks there.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
+    ///   - work: The blocking-work lanes for the engine's file work; the App passes `AppServices.work`.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
-                contextMenus: BrowserContextMenuBuilder = .shared) {
+                contextMenus: BrowserContextMenuBuilder = .shared,
+                work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.cef")) {
+        self.work = work
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks

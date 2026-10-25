@@ -1,5 +1,7 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
+import CmuxNextCompat
 
 /// How a suggestion row under New Message's To: field draws one recipient
 /// beyond its name: its avatar, and a tag after what it is on the line under
@@ -27,6 +29,15 @@ final class HomeRecipientAvatarView: NSView {
     /// Pictures already read, by file: the list rebuilds its rows on every keystroke.
     /// Each New Message list starts empty (``forgetPictures()``), so a changed picture shows.
     private static var pictures: [URL: NSImage] = [:]
+    /// The lanes a picture file is read on; nil reads none (the initials stay).
+    private let work: BackgroundWork?
+
+    init(work: BackgroundWork?) {
+        self.work = work
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { nil }
 
     static func forgetPictures() { pictures = [:] }
 
@@ -48,16 +59,17 @@ final class HomeRecipientAvatarView: NSView {
         needsDisplay = true
     }
 
-    /// The picture file is read off the main thread, then drawn.
+    /// The picture file is read on the files lane (userVisible: the row shows it soon), then drawn.
     private func load(_ url: URL) {
         if let cached = Self.pictures[url] {
             picture = cached
             return
         }
+        guard let work else { return }
         loading = url
         // task-owner: one read of a small avatar file; a later show() drops its result
         Task { [weak self] in
-            let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: url) }.value
+            let data = try? await work.run(.userVisible, mayBlock: .files) { try? Data(blockingContentsOf: url) }
             guard let data, let image = NSImage(data: data), image.isValid else { return }
             Self.pictures[url] = image
             guard let self, loading == url else { return }

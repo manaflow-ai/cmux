@@ -232,7 +232,7 @@ enum DaemonClosedHistory {
     /// Sends the agent-home folders of deleted closed workspaces (the
     /// daemon moved them to `.trash-pending`, cx-gzh.9.2) to the Trash, off
     /// the main thread. At launch and after each delete or clear.
-    static func emptyAgentHomeTrash() { AgentHome.emptyStandardTrashPendingInBackground() }
+    static func emptyAgentHomeTrash(_ services: AppServices) { AgentHome.emptyStandardTrashPendingInBackground(work: services.work) }
 
     /// Deletes `entry` for good on its daemon (History's Remove, Search
     /// Tabs' forget): it cannot be reopened any more.
@@ -243,7 +243,7 @@ enum DaemonClosedHistory {
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             do {
                 try await connection.state.deleteClosed(id)
-                if daemon.isLocal { emptyAgentHomeTrash() }
+                if daemon.isLocal { emptyAgentHomeTrash(services) }
                 return nil
             } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
                 // Already gone (a second Remove, or a reopen that ran first): the goal holds.
@@ -269,7 +269,7 @@ enum DaemonClosedHistory {
                 guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
                 do {
                     try await connection.state.deleteAllClosed(sinceMs: sinceMs)
-                    if daemon.isLocal { emptyAgentHomeTrash() }
+                    if daemon.isLocal { emptyAgentHomeTrash(services) }
                     return nil
                 } catch {
                     daemon.logger.error("closed.delete all failed: \(String(describing: error), privacy: .public)")

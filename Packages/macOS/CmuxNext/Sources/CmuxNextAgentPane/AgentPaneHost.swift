@@ -38,11 +38,11 @@ extension AgentPaneHostProviding {
         throw AgentPaneFilePutFailure.unsupported
     }
 
+    /// Hosts without a daemon take no files: refused before any read (the file can be up to the peer
+    /// limit, and this extension has no blocking-work lanes to read it on). A host that takes files
+    /// implements both `putFile` forms (``AcpmuxHost``, ``AcpmuxChiefSessionRouter``).
     public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        let data = try await Task.detached(priority: .utility) {
-            try Data(contentsOf: file)
-        }.value
-        return try await putFile(sessionId: sessionId, name: name, data: data)
+        throw AgentPaneFilePutFailure.unsupported
     }
 }
 

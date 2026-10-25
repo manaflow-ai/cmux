@@ -61,7 +61,7 @@ enum DebugWindowSnapshot {
                     .map { (image: $0, count: windows.count) }
             }
             let output = floating?.image ?? snapshot.image
-            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
+            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path), work: services.work)
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(snapshot.method.rawValue),
@@ -162,7 +162,7 @@ enum DebugWindowSnapshot {
             let output = painted ?? base.image
             // AppKit/WebKit capture and compositing stay on the main actor;
             // PNG compression and the file write run off-main.
-            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
+            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path), work: services.work)
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),

@@ -41,9 +41,10 @@ final class InputInvariantMonitor {
     private(set) var reportCount = 0
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.input")
 
-    init(tag: String?) {
+    /// - Parameter work: the blocking-work lanes the reports are written on (`AppServices.work`).
+    init(tag: String?, work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.desync")) {
         self.tag = tag
-        store = DesyncReportStore(tag: tag)
+        store = DesyncReportStore(tag: tag, work: work)
     }
 
     var directory: String? { store.directory?.path(percentEncoded: false) }
