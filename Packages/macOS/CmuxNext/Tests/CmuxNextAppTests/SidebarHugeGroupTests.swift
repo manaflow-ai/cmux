@@ -1,0 +1,59 @@
+import AppKit
+@testable import CmuxNextSidebar
+import Foundation
+import Testing
+
+/// Lawrence 2026-10-25: "large groups need to be virtualized better / be lazy better, people will have humongous
+/// groups, and groups of groups." One group of 1,000 and 10,000 workspaces and a deep chain of nested groups:
+/// open (build + first layout), scroll, fold/unfold and reorder. Each prints one `SIDEBAR-HUGE-BENCH` line; the
+/// asserts are loose ceilings that fail an eager path (row views or layout cost that grow with the group).
+@MainActor @Suite(.serialized)
+struct SidebarHugeGroupTests {
+    static func ms(_ body: () -> Void) -> Double {
+        let t0 = SidebarScrollBench.threadCPU()
+        body()
+        return (SidebarScrollBench.threadCPU() - t0) * 1_000
+    }
+
+    struct Numbers {
+        var openMs = 0.0, scrollP50 = 0.0, scrollP95 = 0.0, foldMs = 0.0, unfoldMs = 0.0, reorderMs = 0.0, rowViews = 0
+    }
+
+    static func measure(_ label: String, count: Int, shape: SidebarScrollBench.Shape, groupID: String? = "sb-g0") -> Numbers {
+        var n = Numbers()
+        var bench: SidebarScrollBench?
+        n.openMs = ms { bench = SidebarScrollBench(count: count, shape: shape) }
+        guard let bench else { return n }
+        defer { bench.close() }
+        let frames = bench.run(passes: 1)
+        let cpu = frames.map(\.cpuMs)
+        n.scrollP50 = SidebarScrollBench.percentile(cpu, 0.5)
+        n.scrollP95 = SidebarScrollBench.percentile(cpu, 0.95)
+        n.rowViews = bench.rowViewsInList
+        if let groupID {
+            let id = GroupID(groupID)
+            n.foldMs = ms { _ = bench.model.setGroupCollapsed(id, true); bench.drain(); bench.drawFrame() }
+            n.unfoldMs = ms { _ = bench.model.setGroupCollapsed(id, false); bench.drain(); bench.drawFrame() }
+        }
+        // Reorder: the last loose-or-grouped workspace of the first group moves to its top, as a structural set.
+        n.reorderMs = ms {
+            var sections = bench.model.sections
+            if case var .group(group)? = sections.first?.nodes.first, group.workspaces.count > 1 {
+                group.workspaces.insert(group.workspaces.removeLast(), at: 0)
+                sections[0].nodes[0] = .group(group)
+                bench.model.sections = sections
+                bench.sidebar.renderNow()
+            }
+            bench.drain(); bench.drawFrame()
+        }
+        print(String(format: "SIDEBAR-HUGE-BENCH %@ n=%d | open %.1f ms | scroll p50 %.2f p95 %.2f ms | fold %.1f unfold %.1f reorder %.1f ms | rowViews %d",
+                     label, count, n.openMs, n.scrollP50, n.scrollP95, n.foldMs, n.unfoldMs, n.reorderMs, n.rowViews))
+        return n
+    }
+
+    @Test func oneGroup1k() { _ = Self.measure("one-group", count: 1_000, shape: .oneGroup) }
+    @Test func oneGroup10k() { _ = Self.measure("one-group", count: 10_000, shape: .oneGroup) }
+    @Test func nested1k() { _ = Self.measure("nested-20", count: 1_000, shape: .nested(depth: 20), groupID: "sb-g1") }
+    @Test func nested10k() { _ = Self.measure("nested-20", count: 10_000, shape: .nested(depth: 20), groupID: "sb-g1") }
+    @Test func manyCollapsed10k() { _ = Self.measure("many-collapsed", count: 10_000, shape: .manyCollapsed(perGroup: 10), groupID: "sb-g1") }
+}
