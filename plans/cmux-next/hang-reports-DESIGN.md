@@ -21,8 +21,12 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
   (`AgentRefusal.privacy`): an agent cannot turn it on without the person's confirmation sheet.
 - Consent is per Mac (`HangReportAskPolicy`). cmux-next.json is synced between Macs and agents
   can edit it, so the setting alone never sends: this Mac also needs its consent record
-  (`cmux.next.hangReports.consentedAt` in the app's defaults), which the app writes only on the
-  person's Send Hang Reports click on the card. It is a guard against a synced or agent-edited
+  (`cmux.next.hangReports.consentedAt` in the app's defaults), which the app writes only from
+  the person's own yes: the card's Send Hang Reports, or a `SettingWriter.user` write of the key
+  (`SettingsController.userWillWrite`: the Settings switch, Toggle Setting, a CLI call the
+  confirmation sheet approved; the hook runs before the file write and its undo takes the
+  record back if the write fails). So Not Now on the invitation, then the switch in the same
+  launch, sends with no second card. Sending also stops when the record goes while cmux runs. It is a guard against a synced or agent-edited
   file, not against a process of the same user (`defaults write` can set it; so can any program
   that can already read the user's files). Each send also re-reads the managed
   `DisableTelemetry` (a profile installed while cmux runs stops sending and drops what was
@@ -34,7 +38,7 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
   subscription).
 - The one-time invitation is never shown to a person who turned off anonymous telemetry
   (`sendAnonymousTelemetry`; lead decision 2026-10-23); they can still turn reports on in
-  Settings and confirm on the card. The invitation: a sidebar notice card (`SidebarAsks`, the same card as an agent's
+  Settings (their own write records the consent; no card). The invitation: a sidebar notice card (`SidebarAsks`, the same card as an agent's
   Cloud machine request; no dialog, no sheet) with **Send Hang Reports** and **Not Now**. Either
   answer, or the x, records that it was asked (`cmux.next.hangReports.asked` in the app's
   defaults); it never shows again. The card waits for the first window and never takes focus.
@@ -102,7 +106,11 @@ A refused report is not sent and not stored; the refusal is logged as a count.
 
 **Identity.** `installId` is a random UUID made on this Mac, replaced every 30 days
 (`InstallIdentity`), never derived from the hardware, the account or the Sentry id. No account,
-cookie or device token is sent. The server stores no IP address and logs none (section 5).
+cookie or device token is sent. The request carries fixed headers only (`User-Agent:
+cmux-hang-reports/1`, `Accept-Language: en`, `Accept: */*`, `Content-Type`), never URLSession's
+own language list. The route stores no IP address and logs none (section 5), but the client IP
+reaches Vercel's edge, its request logs and the firewall rate limit like any HTTPS request; the
+privacy text must say so.
 
 Unit tests (`CmuxNextHangReportsTests`) feed realistic MetricKit call stack trees and watchdog
 samples with planted paths (`/Users/alice/...`, an input method under `~/Library`), emails,
@@ -110,7 +118,7 @@ URLs, host names, tokens and environment text, and check that no planted string 
 encoded report, that third-party frames lose their name, UUID and offset, and that the scanner
 refuses a report that carries one.
 
-## 4. Wire format (schema 1)
+## 4. Wire format (schema 2)
 
 `POST https://cmux.com/api/hang-reports`, `content-type: application/json`, body at most 64 KiB,
 user agent `cmux-hang-reports/1`. Answers: `204` stored (or a duplicate `reportId`), `400`
@@ -119,7 +127,7 @@ in its outbox (at most 3, at most 14 days) and tries again at the next trigger.
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "reportId": "5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11",
   "installId": "0b8d4a51-6c9e-4f0f-8f53-3c2d7b4f9e20",
   "day": "2026-10-23",
@@ -151,11 +159,18 @@ start of the image's `__TEXT` segment (MetricKit's `offsetIntoBinaryTextSegment`
 watchdog, return address minus the image's load address). The server checks every field with
 the same limits and patterns and rejects unknown keys.
 
+Schema 2 has the same fields as schema 1. It marks a client with the review 1 and 2 privacy
+fixes; the server refuses schema 1 (`400`, so the old client drops the report from its outbox),
+so a report that an older NIGHTLY queued under the old image rules is never stored when the
+endpoint opens. The client also drops a queued body whose schema or app is not its own.
+`hardware.chip` is a closed set (`Apple M<n>[ Pro| Max| Ultra]`, `Intel`, `other`) and
+`hardware.memoryGB` one of the sizes in `HardwareClass.memorySizesGB`, on both sides.
+
 ## 5. Server
 
 - `web/app/api/hang-reports/route.ts`: a thin Next route handler that runs one Effect program
   (`web/services/hangReports/`): size cap (64 KiB, read bounded), JSON parse, `effect/Schema`
-  decode of schema 1 (strict), per-install daily cap (8 reports per UTC day), insert into
+  decode of schema 2 (strict; schema 1 refused), per-install daily cap (8 reports per UTC day), insert into
   `hang_reports` (`report_id` primary key, `on conflict do nothing`). Rate limit: the Vercel
   firewall rule `CMUX_HANG_REPORTS_RATE_LIMIT_ID` (per client at the edge; a limited request gets
   `429`). The handler reads no IP header, writes no IP into logs, spans or rows, and logs no

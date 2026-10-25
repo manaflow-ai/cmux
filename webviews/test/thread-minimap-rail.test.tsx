@@ -392,6 +392,7 @@ test("a bookmark shows as the tick's dot; the dot and the card toggle it; a prom
 
 test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after and before the one being read", async () => {
   const view = await mount(12);
+  const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
   // Marked from the card: the later prompts' rows are not mounted at the top of the chat.
   const mark = async (index: number) => {
     await act(async () => tick(index).focus());
@@ -400,6 +401,12 @@ test("Next and Previous Bookmarked Prompt scroll to the bookmarked prompts after
   const step = async (name: "nextBookmarkedPrompt" | "previousBookmarkedPrompt") => {
     await act(async () => void dom.window.dispatchEvent(new dom.window.CustomEvent(`cmux-acpmux-${name}`)));
     await view.scrolled();
+    // The jump's direct scroll and the transcript's paced state commit land on consecutive frames;
+    // wait through both before reading the virtualized target row.
+    await act(async () => {
+      await nextFrame();
+      await nextFrame();
+    });
   };
   try {
     await mark(2);

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
@@ -134,7 +134,7 @@ enum DebugAgentPane {
             }
             return .object(fields)
         }
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         if action == "remote_approvals" {
             // cx-kvmz T2: the "Remote approvals are off" notice as a person sees it; `press` clicks its restart.
             let pressed = params["press"]?.boolValue == true ? view.pressRemoteApprovalsRestart() : false

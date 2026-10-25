@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextTerminal
 import CmuxNextCompat
 
@@ -15,8 +16,11 @@ import CmuxNextCompat
 /// follows the responder (first responder in the key window).
 final class FocusEffectApplier: FocusEffectApplying {
     private unowned let controller: WindowController
-    /// The CEF page this window gave focus to (blurred when focus leaves).
-    private weak var focusedChildWindowPage: AnyObject?
+    /// The CEF page this window gave focus to, and the key changes focusing one makes (#24913).
+    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows()) { [weak self] page, focused in
+        guard let self, let page = page as? any BrowserTab else { return }
+        self.setPageFocus(page, focused)
+    }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
     private var observers: [MainActorObservation] = []
@@ -43,8 +47,6 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     func teardown() {
         observers.removeAll()
-        observers.removeAll()
-        overlayPanelObserver = nil
         overlayPanelObserver = nil
     }
 
@@ -175,7 +177,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         // The keyboard moves from the tools back to the page.
         let fromDevTools = focusedDevTools.map { $0 === page } ?? false
         if focusedDevTools != nil { blurDevTools() }
-        if fromDevTools { focusedChildWindowPage = nil }
+        if fromDevTools { pageFocus.page = nil }
         switch page.presentation {
         case .inView:
             blurChildWindowPage()
@@ -186,10 +188,9 @@ final class FocusEffectApplier: FocusEffectApplying {
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
-            guard focusedChildWindowPage !== page else { return }
-            blurChildWindowPage()
-            setPageFocus(page, true)
-            focusedChildWindowPage = page
+            // One key change (#24913): the old page blurs without this window taking the keys
+            // back first; the grant moves them straight to the new page window.
+            pageFocus.focus(page)
         }
     }
 
@@ -203,7 +204,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard focusedDevTools !== devTools else { return }
         blurDevTools()
         // Not `blurChildWindowPage`: that would make this window key again.
-        focusedChildWindowPage = nil
+        pageFocus.page = nil
         devTools.setDevToolsFocused(true)
         focusedDevTools = devTools
     }
@@ -216,21 +217,18 @@ final class FocusEffectApplier: FocusEffectApplying {
 
     private func blurChildWindowPage() {
         blurDevTools()
-        if let page = focusedChildWindowPage as? any BrowserTab {
-            focusedChildWindowPage = nil
-            setPageFocus(page, false)
-        }
+        pageFocus.blurPage()
         reclaimKeyFromPageWindow()
     }
 
     /// The target is in this window, but one of its Chromium page windows
     /// has the keys (a page Chromium activated without a click, e.g. a new
     /// tab's page window; input-spec.md B11): this window takes them back.
-    /// Never activates the app (no key window while it is inactive).
+    /// Never activates the app (no key window while it is inactive). No key change when this
+    /// window is key already (#24913).
     private func reclaimKeyFromPageWindow() {
-        guard let window = controller.window, let key = NSApp.keyWindow, key !== window,
-              ChildWindowKeyRule.shouldReclaim(facts(of: key, in: window)) else { return }
-        window.makeKey()
+        guard let window = controller.window else { return }
+        pageFocus.reclaim(into: window) { ChildWindowKeyRule.shouldReclaim(facts(of: $0, in: window)) }
     }
 
     /// AppKit makes the window that was key at deactivation key again while
@@ -308,7 +306,6 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// The bubble dismisses when it loses the keys.
     private func overlayPanelDidResignKey() {
         overlayPanelObserver = nil
-        overlayPanelObserver = nil
         overlayPanel = nil
         controller.focus.send(.overlayClosed(.groupEditor))
     }
@@ -329,7 +326,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .devTools:
             guard let devTools else { return }
             // A click into a docked DevTools: the tools have the keyboard.
-            focusedChildWindowPage = nil
+            pageFocus.page = nil
             focusedDevTools = devTools.tab
             controller.focus.responderDidChange(.devTools(pane: devTools.key), source: .mouse)
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
@@ -346,7 +343,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .chosenPage, .reapply:
             guard let pane else { return }
             focusedDevTools = nil
-            focusedChildWindowPage = pane.page
+            pageFocus.page = pane.page
             InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
             // A click chose the page. Another owned window over a pane (an
             // extension popup) keeps the old rule: a key change that is not a
@@ -425,7 +422,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     // MARK: Diagnostics
 
     /// The CEF page this window focused, for `debug.focus`.
-    var focusedChildWindowPageID: String? { (focusedChildWindowPage as? any BrowserTab)?.id.rawValue }
+    var focusedChildWindowPageID: String? { (pageFocus.page as? any BrowserTab)?.id.rawValue }
 
     /// The tab whose docked DevTools this window focused, for `debug.focus`.
     var focusedDevToolsTabID: String? { (focusedDevTools as? any BrowserTab)?.id.rawValue }

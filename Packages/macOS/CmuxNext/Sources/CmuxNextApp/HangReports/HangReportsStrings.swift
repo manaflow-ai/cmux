@@ -6,9 +6,11 @@ enum HangReportsStrings {
         String(localized: "hangReports.ask.title", defaultValue: "Help Make cmux Faster?", table: "HangReports", bundle: .module)
     }
 
-    static var askDetail: String {
-        String(localized: "hangReports.ask.detail",
-               defaultValue: "Send a daily report of hangs and slow frames from this Nightly build. It holds call stacks and timings, never file names, text or web addresses. Settings has the switch and shows what is sent.",
+    /// What a report holds and never holds: the card's detail, and the confirmation sheet of
+    /// `cmux settings set diagnostics.hangReports true --confirm` (both record consent).
+    static var privacySummary: String {
+        String(localized: "hangReports.privacySummary",
+               defaultValue: "A daily report of hangs and slow frames from this Nightly build: call stacks, timings, coarse counts of windows and tabs, the cmux and macOS versions, the kind of Mac, and a random install ID that changes every 30 days. It never holds file names, paths, terminal or chat text, web addresses, window titles or host names. View Hang Report shows exactly what is sent.",
                table: "HangReports", bundle: .module)
     }
 

@@ -17,6 +17,27 @@ extension NewTabWidgetSettings {
     /// `tabs.newTabWidgets.styleDots`: Off by default. On: the dots under the page that switch its template (tabs.newTabTemplate).
     public nonisolated static let styleDotsPath = ["tabs", "newTabWidgets", "styleDots"]
     public nonisolated static let styleDotsDefault = false
+    /// `tabs.newTabWidgets.weather`: Off by default. On: the current conditions and today's high and low beside the composer, from Open-Meteo (no key). The place is tabs.newTabWidgets.weatherCity, else the city of this Mac's time zone, so it needs no location permission. Nothing is fetched while it is off. Cached 30 minutes; offline shows the last reading dimmed.
+    public nonisolated static let weatherPath = ["tabs", "newTabWidgets", "weather"]
+    public nonisolated static let weatherDefault = false
+    /// `tabs.newTabWidgets.weatherCity`: Empty uses the city of this Mac's time zone. A city name ("Berlin", "San Francisco") is looked up with Open-Meteo's geocoding.
+    public nonisolated static let weatherCityPath = ["tabs", "newTabWidgets", "weatherCity"]
+    public nonisolated static let weatherCityDefault = ""
+    /// `tabs.newTabWidgets.machines`: Off by default. On: each machine the composer can start a chat on (this Mac, SSH and cloud peers) with its color, its icon and whether it is online.
+    public nonisolated static let machinesPath = ["tabs", "newTabWidgets", "machines"]
+    public nonisolated static let machinesDefault = false
+    /// `tabs.newTabWidgets.clock`: Off by default. On: a quiet local time display beside the composer.
+    public nonisolated static let clockPath = ["tabs", "newTabWidgets", "clock"]
+    public nonisolated static let clockDefault = false
+    /// `tabs.newTabWidgets.timer`: Off by default. On: a small elapsed-time stopwatch beside the composer.
+    public nonisolated static let timerPath = ["tabs", "newTabWidgets", "timer"]
+    public nonisolated static let timerDefault = false
+    /// `tabs.newTabWidgets.warmGreeting`: Off by default. On: a time-of-day greeting such as Good afternoon.
+    public nonisolated static let warmGreetingPath = ["tabs", "newTabWidgets", "warmGreeting"]
+    public nonisolated static let warmGreetingDefault = false
+    /// `tabs.newTabWidgets.quote`: Off by default. On: a bundled public-domain quote, changing daily.
+    public nonisolated static let quotePath = ["tabs", "newTabWidgets", "quote"]
+    public nonisolated static let quoteDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -74,6 +95,76 @@ nonisolated enum NewTabWidgetSettingsSchema {
                 kind: .toggle,
                 default: .bool(NewTabWidgetSettings.styleDotsDefault),
                 keywords: ["new tab", "widget", "template", "style", "dots"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.weatherPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.weather", "Show Weather on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.weather.help", "The current weather and today's high and low, for the city below or your time zone's city."),
+                kind: .toggle,
+                default: .bool(NewTabWidgetSettings.weatherDefault),
+                keywords: ["new tab", "widget", "weather", "temperature", "forecast", "location"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.weatherCityPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.weatherCity", "Weather City"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.weatherCity.help", "A city for the weather widget. Empty uses your time zone's city."),
+                kind: .text,
+                default: .string(NewTabWidgetSettings.weatherCityDefault),
+                keywords: ["new tab", "widget", "weather", "city", "location"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.machinesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.machines", "Show Machines on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.machines.help", "Your machines and whether each is online."),
+                kind: .toggle,
+                default: .bool(NewTabWidgetSettings.machinesDefault),
+                keywords: ["new tab", "widget", "machines", "computers", "ssh", "cloud", "online"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.clockPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.clock", "Show Clock on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.clock.help", "A quiet local time display beside the composer."),
+                kind: .toggle,
+                default: .bool(NewTabWidgetSettings.clockDefault),
+                keywords: ["new tab", "widget", "clock", "time"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.timerPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.timer", "Show Stopwatch on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.timer.help", "A small elapsed-time stopwatch beside the composer."),
+                kind: .toggle,
+                default: .bool(NewTabWidgetSettings.timerDefault),
+                keywords: ["new tab", "widget", "timer", "stopwatch"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.warmGreetingPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.warmGreeting", "Show Warm Greeting on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.warmGreeting.help", "A time-of-day greeting such as Good afternoon."),
+                kind: .toggle,
+                default: .bool(NewTabWidgetSettings.warmGreetingDefault),
+                keywords: ["new tab", "widget", "greeting", "time of day"]
+            ),
+            SettingDescriptor(
+                NewTabWidgetSettings.quotePath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.tabs.newTabWidgets.quote", "Show Quote of the Day on New Tab"),
+                help: SettingsText.keyed("settings.tabs.newTabWidgets.quote.help", "A bundled public-domain quote, changing daily."),
+                kind: .toggle,
+                default: .bool(NewTabWidgetSettings.quoteDefault),
+                keywords: ["new tab", "widget", "quote", "daily"]
             ),
         ]
     }

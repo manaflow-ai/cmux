@@ -1,6 +1,6 @@
 public import Foundation
 
-/// One opt-in hang report, wire schema 1 (plans/cmux-next/hang-reports-DESIGN.md section 4).
+/// One opt-in hang report, wire schema 2 (plans/cmux-next/hang-reports-DESIGN.md section 4).
 ///
 /// Every field is a closed set: enums, bucket labels, version numbers, durations, counts and
 /// ``HangReportFrame`` values whose names passed ``ImageClassifier``. ``HangReportBuilder`` is the only
@@ -11,8 +11,11 @@ public import Foundation
 /// let body = try HangReport.encoder.encode(report)
 /// ```
 public nonisolated struct HangReport: Codable, Sendable, Equatable {
-    /// The wire schema this type writes.
-    public static let schemaVersion = 1
+    /// The wire schema this type writes. 2 has the same fields as 1; it marks a report built with
+    /// review 1 and 2's privacy fixes (Data-volume and `..` image paths are `other`, no redirects,
+    /// per-Mac consent), and the server refuses schema 1, so a report an older NIGHTLY queued is
+    /// refused (and dropped from its outbox) once the endpoint opens.
+    public static let schemaVersion = 2
     /// The most hangs and stalls one report carries.
     public static let maxHangs = 20
     /// The most CPU exceptions one report carries.

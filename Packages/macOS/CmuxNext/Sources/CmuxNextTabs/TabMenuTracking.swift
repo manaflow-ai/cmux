@@ -26,7 +26,6 @@ import CmuxNextCompat
     /// during menu tracking, so the pointer is checked here.
     func end() {
         endObserver = nil
-        endObserver = nil
         guard let strip, strip.buttonReveal.menuOpen else { return }
         strip.buttonReveal.menuOpen = false
         if let window = strip.window, !strip.bounds.contains(strip.convert(window.mouseLocationOutsideOfEventStream, from: nil)) {

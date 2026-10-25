@@ -110,6 +110,25 @@ test("a space and a browser profile with a stored image or SVG icon draw it from
   browser.unmount();
 });
 
+test("Development shows only when the host is a DEV build, however it is reached", async () => {
+  const dev = await renderPage({ path: "/settings/development" });
+  expect(dev.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("development");
+  expect(dev.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).not.toBeNull();
+  expect(dev.container.querySelector('[data-section-link="development"]')).not.toBeNull();
+  dev.unmount();
+  // NIGHTLY and Release: the deep link (and the relay key's focus link) open the default page.
+  for (const path of ["/settings/development", "/settings/development?focus=macScreen.debug.relayOnly"]) {
+    const page = await renderPage({
+      path,
+      setup: (provider) => provider.setHost({ ...provider.host, dev_build: false }),
+    });
+    expect(page.container.querySelector("[data-section]")?.getAttribute("data-section")).toBe("general");
+    expect(page.container.querySelector('[data-row-key="macScreen.debug.relayOnly"]')).toBeNull();
+    expect(page.container.querySelector('[data-section-link="development"]')).toBeNull();
+    page.unmount();
+  }
+});
+
 test("Machines offers Add Device…, which opens the one Add Device card through the palette's action", async () => {
   // add-device-DESIGN.md 2.2: one entry for every new device. The page passes no way, so it only
   // opens the card; the card hands off to Add Machine or Add Server and never approves by itself.
@@ -128,7 +147,11 @@ test("Machines offers Add Device…, which opens the one Add Device card through
 test("Devices lists every device with its role and state, and the recent activity", async () => {
   const page = await renderPage({ path: "/settings/machines" });
   const rows = page.container.querySelectorAll('[data-card="devices"] [data-device-row]');
-  expect(Array.from(rows).map((row) => row.getAttribute("data-device-row"))).toEqual(["peer:mini-7", "phone:p1"]);
+  expect(Array.from(rows).map((row) => row.getAttribute("data-device-row"))).toEqual([
+    "peer:mini-7",
+    "paired:dv_leo",
+    "phone:p1",
+  ]);
   expect(page.container.textContent).toContain("Runs your agents · Connected");
   expect(page.container.querySelector("[data-device-activity]")?.textContent).toContain("Added mini-7");
   page.unmount();
@@ -146,6 +169,30 @@ test("Remove asks once more, then removes the device everywhere and the list upd
   const call = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.remove").at(-1)!;
   expect(call.params).toEqual({ id: "peer:mini-7" });
   expect(remove()).toBeNull();
+  page.unmount();
+});
+
+test("only a paired client machine has a Full access switch, off until turned on, saying what it allows", async () => {
+  const page = await renderPage({ path: "/settings/machines" });
+  const card = page.container.querySelector('[data-card="devices"]')!;
+  const lines = card.querySelectorAll("[data-device-full-access]");
+  expect(Array.from(lines).map((line) => line.getAttribute("data-device-full-access"))).toEqual(["paired:dv_leo"]);
+  const line = () => card.querySelector('[data-device-full-access="paired:dv_leo"]')!;
+  const toggle = () => line().querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  expect(line().textContent).toContain("Full access");
+  expect(line().textContent).toContain("Its chats edit files and run commands here without asking");
+  await act(async () => toggle().click());
+  await settle();
+  const on = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
+  expect(on.params).toEqual({ id: "paired:dv_leo", on: true });
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
+  // Revoking is the same switch, and takes effect with the call.
+  await act(async () => toggle().click());
+  await settle();
+  const off = page.provider.log.filter((entry) => entry.op === "cmux.settings.devices.full_access").at(-1)!;
+  expect(off.params).toEqual({ id: "paired:dv_leo", on: false });
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
   page.unmount();
 });
 

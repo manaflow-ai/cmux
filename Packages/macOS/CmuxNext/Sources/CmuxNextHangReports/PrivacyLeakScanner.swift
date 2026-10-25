@@ -37,13 +37,13 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
     public static let maxStringLength = 128
     private static let safeCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._+()-")
 
-    private let forbiddenTerms: [String]
+    private let forbiddenTerms: @Sendable () -> [String]
 
     /// - Parameter forbiddenTerms: Words no string may hold (``ImageClassifier/personalTerms()``);
-    ///   terms under 4 letters, and words of the report's own vocabulary, are ignored.
-    public init(forbiddenTerms: [String]) {
-        self.forbiddenTerms = forbiddenTerms.map { $0.lowercased() }
-            .filter { $0.count >= ImageClassifier.minimumTermLength && !ImageClassifier.isOwnWord($0) }
+    ///   terms under 4 letters, and words of the report's own vocabulary, are ignored. Read at
+    ///   each scan, never at init: the app passes a value computed once off the main thread.
+    public init(forbiddenTerms: @autoclosure @escaping @Sendable () -> [String]) {
+        self.forbiddenTerms = { ImageClassifier.normalizedTerms(forbiddenTerms()) }
     }
 
     /// Every finding in `json` (empty: safe to send).
@@ -81,7 +81,7 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
         if ImageClassifier.isUUID(text) { return nil }
         if Self.hasTokenRun(text) { return .token }
         let lowered = text.lowercased()
-        if personal, forbiddenTerms.contains(where: { lowered.contains($0) }) { return .personalTerm }
+        if personal, forbiddenTerms().contains(where: { lowered.contains($0) }) { return .personalTerm }
         return nil
     }
 

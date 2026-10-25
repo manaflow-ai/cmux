@@ -223,7 +223,7 @@ function counted<T>(rows: T[]) {
 
 /// Counts the items read from `list` by index, in place: the list keeps its identity (the next
 /// read finds the list it last wrote by it), and every read of an item, a copy's included, counts.
-function countReads<T>(list: T[]) {
+function countReads<T>(list: readonly T[]) {
   const reads = { count: 0 };
   list.forEach((item, index) => {
     let value = item;
@@ -301,7 +301,7 @@ test("a streamed token reads the same few rows in a 300- and a 3000-prompt chat"
   expect(large.previous.turns.every((turn, index) => turn === large.committed[index])).toBe(true);
   // The prompts did not change: the same ticks; the turns are what a fresh read gives.
   expect(large.result.ticks).toBe(large.ticks);
-  expect([...large.result.turns]).toEqual(large.fresh.turns);
+  expect([...large.result.turns]).toEqual([...large.fresh.turns]);
 });
 
 // React may render with the next rows and then drop that render (a scroll or another update wins)
@@ -340,7 +340,7 @@ test("a dropped render leaves the committed turns as they were, and the next rea
     const next = streamed(committed.rows, `Streaming more, step ${step}`);
     const result = minimapTurns(next.next, "s", committed, next.change);
     unchanged(committed, before);
-    expect([...result.turns]).toEqual(minimapTurns(next.next, "s").turns);
+    expect([...result.turns]).toEqual([...minimapTurns(next.next, "s").turns]);
     expect(result.turns.some((turn) => turn.prompt.startsWith("Dropped"))).toBe(false);
     committed = result;
   }

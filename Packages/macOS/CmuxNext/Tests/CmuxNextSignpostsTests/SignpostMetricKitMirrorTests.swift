@@ -1,48 +1,48 @@
-import CmuxNextSignposts
+@testable import CmuxNextSignposts
 import Testing
 
 /// The MetricKit mirror sees the intervals the app really emits (the action intervals, typed
 /// message included) while on, nothing while off, and never per-frame or per-pump intervals.
-@Suite("MetricKit mirror", .serialized)
+/// Each test switches its own mirror, never ``SignpostMetricKitMirror/shared``, so suites that run
+/// in parallel never see a mirror a test turned on.
 struct SignpostMetricKitMirrorTests {
     private let message = ActionSignpostMessage(id: "test.action", origin: "user", inputAgeMilliseconds: -1)
+    private let mirror = SignpostMetricKitMirror()
+
+    private func signposter(_ category: SignpostCategory) -> Signposter { Signposter(category: category, mirror: mirror) }
 
     @Test func offMirrorsNothing() {
-        SignpostMetricKitMirror.shared.setOn(false)
-        let interval = Signposter.action.begin(.actionPerform, message)
+        let interval = signposter(.action).begin(.actionPerform, message)
         #expect(!interval.isMirrored)
-        Signposter.action.end(.actionPerform, interval)
+        signposter(.action).end(.actionPerform, interval)
     }
 
     @Test func actionIntervalsReachTheMirrorWhileOn() {
-        let mirror = SignpostMetricKitMirror.shared
         mirror.setOn(true)
-        defer { mirror.setOn(false) }
-        let perform = Signposter.action.begin(.actionPerform, message)
+        let action = signposter(.action)
+        let perform = action.begin(.actionPerform, message)
         #expect(perform.isMirrored)
-        Signposter.action.end(.actionPerform, perform)
-        let commit = Signposter.action.begin(.actionCommit, message)
+        action.end(.actionPerform, perform)
+        let commit = action.begin(.actionCommit, message)
         #expect(commit.isMirrored)
-        Signposter.action.end(.actionCommit, commit, .committed)
-        let gate = Signposter.action.begin(.actionGate, "id=test.action")
+        action.end(.actionCommit, commit, .committed)
+        let gate = action.begin(.actionGate, "id=test.action")
         #expect(gate.isMirrored)
-        Signposter.action.end(.actionGate, gate)
-        #expect(Signposter.action.interval(.actionPerform, message) { 7 } == 7)
+        action.end(.actionGate, gate)
+        #expect(action.interval(.actionPerform, message) { 7 } == 7)
     }
 
     @Test func perFrameAndPerPumpIntervalsAreNotMirrored() {
-        let mirror = SignpostMetricKitMirror.shared
         mirror.setOn(true)
-        defer { mirror.setOn(false) }
         #expect(!SignpostMetricKitMirror.mirrors(.motionFrame))
         #expect(!SignpostMetricKitMirror.mirrors(.cefPump))
         #expect(SignpostMetricKitMirror.mirrors(.actionPerform))
         #expect(SignpostMetricKitMirror.mirrors(.switchWorkspace))
-        let frame = Signposter.motion.begin(.motionFrame)
+        let frame = signposter(.motion).begin(.motionFrame)
         #expect(!frame.isMirrored)
-        Signposter.motion.end(.motionFrame, frame)
-        let pump = Signposter.cef.begin(.cefPump)
+        signposter(.motion).end(.motionFrame, frame)
+        let pump = signposter(.cef).begin(.cefPump)
         #expect(!pump.isMirrored)
-        Signposter.cef.end(.cefPump, pump)
+        signposter(.cef).end(.cefPump, pump)
     }
 }

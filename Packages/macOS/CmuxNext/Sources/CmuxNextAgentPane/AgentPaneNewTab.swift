@@ -71,6 +71,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// the composer and only these besides. nil is Settings' defaults (none). The other layouts ignore it.
     /// The page validates it.
     public var pageWidgets: [String]?
+    /// The weather widget's last reading (`tabs.newTabWidgets.weather`, ``AgentPaneNewTabWeather``);
+    /// nil while it is off or before the first reading. The page dims one older than its refresh.
+    public var weather: AgentPaneNewTabWeather?
     /// true: `tabs.newTabWidgets.greeting` is false in cmux.json, not the default
     /// (``NewTabWidgetSettings/greetingTurnedOff``): Minimal keeps no room over the composer for the
     /// headline, so the composer stays where it sat with the greeting off; nil keeps the room.

@@ -238,9 +238,9 @@ public actor HangReportService {
         return true
     }
 
-    /// Whether this build of this report would be sent: built by this build, and clean.
+    /// Whether a queued body would be sent: built by this build (its schema and app), and clean.
     private func isSendable(_ body: Data) -> Bool {
-        guard let report = try? JSONDecoder().decode(HangReport.self, from: body),
+        guard let report = try? JSONDecoder().decode(HangReport.self, from: body), report.schema == HangReport.schemaVersion,
               report.app == HangReportBuilder.safeApp(environment.app) else { return false }
         return scanner.findings(in: body).isEmpty
     }

@@ -149,7 +149,7 @@ public final class DesignSettings {
             center.post(name: Motion.speedDidChange, object: nil)
             center.post(name: Motion.reduceMotionDidChange, object: nil)
             center.post(name: Self.hoverCardsDidChange, object: nil)
-            ThemeStore.shared.repaintAll()
+            ThemeScope.app.store.repaintAll()
         }
     }
     /// Hover cards open on hover: `sidebar.hoverCards.enabled` and not calm mode.
@@ -186,6 +186,9 @@ public final class DesignSettings {
     /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
     /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
     public var layoutScrollAreas = false
+    /// `layout.scrollModifier`: Command + scroll moves the layout and a plain scroll goes to the
+    /// pane under the pointer (`command`, default), or the rule before it (`none`).
+    public var layoutScrollModifier: LayoutScrollModifier = .command
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
@@ -216,7 +219,7 @@ public final class DesignSettings {
     /// Pages that show code draw in the terminal's face (`WebTheme.Terminal`): a change of it
     /// repaints, so every page resends its theme.
     private func repaintIfTerminalFaceChanged(from before: String?) {
-        if effectiveTerminalFontFamily != before { ThemeStore.shared.repaintAll() }
+        if effectiveTerminalFontFamily != before { ThemeScope.app.store.repaintAll() }
     }
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()

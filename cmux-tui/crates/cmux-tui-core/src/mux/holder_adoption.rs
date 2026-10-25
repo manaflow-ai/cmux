@@ -41,6 +41,24 @@ impl Mux {
         Ok(false)
     }
 
+    /// After the startup pass re-attached every terminal it could: end the
+    /// holder's other terminals, which no surface will ever claim. Starts
+    /// no holder.
+    #[cfg(unix)]
+    pub(in crate::mux) fn release_unclaimed_holder_terminals(&self, options: &SurfaceOptions) {
+        let Some(host_root) = options.terminal_host_root.as_deref() else { return };
+        if !crate::holder_runtime::HolderService::may_run(host_root) {
+            return;
+        }
+        match crate::holder_runtime::HolderService::for_root(host_root) {
+            Ok(service) => service.release_unclaimed(),
+            Err(error) => eprintln!("cmux-tui: reach the terminal holder: {error}"),
+        }
+    }
+
+    #[cfg(not(unix))]
+    pub(in crate::mux) fn release_unclaimed_holder_terminals(&self, _: &SurfaceOptions) {}
+
     #[cfg(unix)]
     fn adopt_from_holder(
         self: &Arc<Self>,

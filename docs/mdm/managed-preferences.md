@@ -83,6 +83,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
 | `agents.trust.ownOrgs` | array | `[]` |  | Trusted GitHub Owners. A repository is trusted when all of its GitHub remotes belong to these users or organizations. |
 | `mobile.allowIPhoneConnections` | boolean | `false` |  | Allow iPhone Connections. Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account. |
+| `mobile.terminalSizing` | string | `"smallest"` | `smallest`, `mac`, `latest`, `priority` | Terminal Size When Shared. Decides the size of a terminal while this Mac and a phone show it at once. A device that gets a larger terminal than it fits scrolls sideways or shows empty space; text never wraps wrong. Set the priority order in the cmux app on your iPhone. |
+| `mobile.terminalSizingOrder` | array | `[]` |  | Terminal Size Priority. The devices whose size a shared terminal takes first, highest first, when Terminal Size When Shared is Priority Order. |
 | `layout.splitSizing` | string | `"even"` | `even`, `halve` | Split Sizing. Even gives every pane in the column the same size after a split. |
 | `layout.newColumnWidth` | string | `"matchCurrent"` | `matchCurrent`, `fitScreen`, `fixed` | New Column Sizing |
 | `layout.dockColumnEdge` | string | `"nearest"` | `nearest`, `right`, `left`, `top`, `bottom` | Dock Column Edge |
@@ -91,6 +93,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.rows` | boolean | `true` |  | Rows. Off hides New Row and fits a column's existing rows into it without scrolling. |
 | `layout.focusFollowsMouse` | boolean | `false` |  | Focus Follows Mouse. Moving the pointer onto a pane or scrolling over it focuses that pane. Off keeps focus where you type until you click. Momentum and the first second after typing never move focus. |
 | `layout.scrollAreas` | boolean | `false` |  | Scroll Areas. Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns. |
+| `layout.scrollModifier` | string | `"command"` | `command`, `none` | Scroll Columns and Rows With. Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them. |
 | `layout.minimumPaneWidth` | real | `200` | 80 to 800 | Minimum Pane Width |
 | `layout.minimumPaneHeight` | real | `64` | 32 to 600 | Minimum Pane Height |
 | `layout.newPanePlacement` | string | `"tab"` | `tab`, `split` | New Terminals and Browsers. Open a Tab adds a tab to the focused pane. Split Automatically splits the largest pane, like New Pane (Auto Layout). |
@@ -122,6 +125,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.background` | string | `"none"` | `none`, `daily`, `david-death-of-marat`, `velde-small-ship-storm`, `bosch-ascent-blessed`, `goya-witches-flight`, `martin-pandemonium`, `moran-burning-philadelphia`, `goya-burial-sardine`, `arbo-wild-hunt`, `altdorfer-battle-of-issus`, `munch-madonna`, `klee-fish-magic`, `friedrich-forest-moonlight`, `bosch-garden-left`, `rembrandt-storm-galilee`, `cole-voyage-manhood`, `munch-scream`, `bruegel-fall-rebel-angels`, `wright-vesuvius`, `gerome-botsaris`, `martin-joshua`, `velde-gale`, `hogai-nio`, `bosch-garden-central`, `martin-great-day-wrath`, `bonheur-wounded-eagle`, `cole-voyage-old-age`, `friedrich-abbey-oakwood`, `goya-sleep-of-reason`, `bosch-garden-fragment`, `spilliaert-vertigo`, `rothaug-melpomene`, `aivazovsky-ship-stormy-seas`, `cabanel-fallen-angel`, `spilliaert-woman-shoreline`, `el-greco-view-of-toledo`, `rembrandt-prodigal-son`, `velazquez-las-meninas`, `matejko-stanczyk`, `sargent-madame-x`, `millais-joan-of-arc`, `cot-storm`, `rembrandt-night-watch`, `vigee-lebrun-madame-grand`, `waterhouse-lady-shalott`, `fragonard-swing`, `rubens-st-francis-xavier`, `vermeer-pearl-earring`, `danielson-gambogi-self`, `beard-his-majesty`, `marc-foxes`, `degas-green-dancers`, `modigliani-nude-divan`, `raphael-sistine-madonna`, `bouguereau-virgin-lilies`, `wood-american-gothic`, `steinlen-chat-noir`, `degas-blue-dancers`, `botticelli-primavera`, `van-gogh-cafe-terrace`, `matisse-red-room`, `kandinsky-deepened-impulse`, `friedrich-wanderer`, `klimt-adele`, `mucha-job`, `van-gogh-starry-night`, `klimt-tree-of-life`, `klimt-the-kiss`, `van-gogh-starry-night-rhone`, `delacroix-liberty`, `van-gogh-sunflowers`, `klimt-mada-primavesi`, `schiele-kneeling-orange`, `van-gogh-sunflowers-munich`, `michelangelo-sistine-ceiling`, `mondrian-composition-red-plane`, `lemoyne-apotheosis-hercules`, `schiele-moa`, `aivazovsky-ninth-wave`, `popova-painterly-architectonic`, `bruegel-tower-babel`, `botticelli-birth-of-venus`, `kandinsky-yellow-red-blue`, `kandinsky-composition-viii`, `kramskoi-unknown-woman`, `michelangelo-creation-of-adam`, `hokusai-great-wave`, `holbein-ambassadors`, `brueghel-wooden-vessel`, `dahl-dresden-moonlight`, `bosschaert-wan-li-vase`, `cot-springtime`, `ruysch-flowers`, `van-gogh-flowering-plum`, `toulmouche-reluctant-bride`, `rosso-musical-angel`, `grimshaw-blackman-street`, `waterhouse-ophelia`, `biard-magdalena-bay`, `renoir-vase-roses`, `roerich-himalayas`, `velde-close-hauled`, `sohlberg-flower-meadow`, `dahl-cloud-study`, `friedrich-two-men-moon`, `monet-waterlily-pond`, `hesselbom-dusk`, `toulmouche-vanity`, `hiroshige-zoshigaya`, `monet-water-lilies`, `monet-water-lilies-1907`, `bierstadt-storm-rockies`, `korovin-place-opera`, `klimt-garden-sunflowers`, `redon-butterflies`, `aivazovsky-winter-landscape`, `aivazovsky-along-coast`, `grimshaw-silver-moonlight`, `monet-water-lilies-setting-sun`, `hiroshige-hota-coast`, `durer-praying-hands`, `cole-voyage-childhood`, `monet-impression-sunrise`, `monet-woman-parasol`, `velde-cannon-shot`, `cross-pink-cloud`, `laurence-mckinley`, `van-gogh-irises`, `kramskoi-christ-in-the-desert`, `turner-temeraire`, `leonardo-vitruvian-man`, `bruegel-hunters-snow`, `cole-voyage-youth`, `friedrich-monk-by-the-sea`, `van-gogh-wheat-field-cypresses`, `monet-cliff-pourville`, `van-gogh-almond-blossom`, `van-gogh-fishing-boats`, `hokusai-umezawa`, `whistler-falling-rocket`, `dore-fall-of-satan`, `dore-wolves-sheep`, `dore-leviathan`, `dore-paradise-lost-book-vi`, `dore-moses-tables`, `dore-empyrean`, `dore-raven`, `desktop` | Background. Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material. |
 | `appearance.backgroundRotation` | string | `"daily"` | `15m`, `hourly`, `daily` | Change Picture. How often a shuffled background turns to its next picture. |
 | `appearance.paneBackgrounds` | string | `"shared"` | `shared`, `perPane` | Pane Backgrounds. One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way. |
+| `ui.reducedBackgrounds` | boolean | `false` |  | Plain Backgrounds. Draws windows in the plain theme color, without paintings, wallpapers or glass. Your background choices stay as they are and come back when you turn it off. |
 | `appearance.experimentalControls` | boolean | `false` |  | Experimental Appearance Controls. Applies Hue and Saturation to the window's tint. Off, they have no effect. |
 | `appearance.backgroundOpacity` | real |  | 0 to 1 | Opacity. How much of the theme color covers the material behind the window. |
 | `appearance.backgroundBlur` | string |  | `frosted`, `glass`, `glass-clear`, `none` | Material. Unset, the window follows Ghostty's background-opacity and background-blur. |
@@ -153,7 +157,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.paneBorder` | string | `"subtle"` | `subtle`, `none` | Border |
 | `layout.paneBorderColor` | string |  |  | Border Color |
 | `layout.paneBorderWidth` | real |  | 0.5 to 4 | Border Width |
-| `focusRing.enabled` | boolean | `true` |  | Show Focus Ring |
+| `focusRing.enabled` | boolean | `false` |  | Show Focus Ring |
 | `focusRing.style` | string | `"ring"` | `ring`, `glow`, `none` | Style |
 | `focusRing.contrast` | string | `"subtle"` | `subtle`, `standard`, `strong` | Contrast |
 | `focusRing.color` | string |  |  | Color |
@@ -209,7 +213,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.statusIndicator.honorStatusStyle` | boolean | `true` |  | Let Statuses Choose Their Style. A status that asks for a style (cmux status set --style) uses it. |
 | `status.inferCommandBusy` | boolean | `false` |  | Show Running Commands. A shell command that runs a while shows as busy. |
 | `status.inferCommandBusyAfter` | real | `3` | 0 to 600 | Show After |
-| `diff.layout` | string | `"unified"` | `split`, `unified` | Layout |
+| `diff.layout` | string | `"auto"` | `auto`, `split`, `unified` | Layout |
 | `diff.diffIndicators` | string | `"bars"` | `bars`, `classic`, `none` | Change Markers |
 | `diff.colors` | string | `"theme"` | `theme`, `muted`, `standard` | Diff Colors |
 | `diff.wordWrap` | boolean | `false` |  | Wrap Lines |
@@ -218,6 +222,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.showBackgrounds` | boolean | `true` |  | Change Backgrounds |
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
 | `diff.groupByKind` | boolean | `false` |  | Group Files by Kind |
+| `diff.hideWhitespace` | boolean | `false` |  | Hide White Space |
+| `diff.showBulkActions` | boolean | `true` |  | Stage All and Revert All Bar |
 | `markdown.remoteImages` | boolean | `false` |  | Load Web Images Automatically. Web image sites can see your address and when you open a document. When off, each document asks before loading its web images. |
 | `markdown.layout.width` | real | `72` | 30 to 1000 | Text Width. The widest a line of text gets, in characters (30 to 1000). On a wider window the text stays centered with margins. Wide tables and code scroll sideways in their own box. |
 | `markdown.layout.fullWidth` | boolean | `false` |  | Full Width. Text fills the whole pane instead of the text width. |
@@ -318,6 +324,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
 | `sidebar.spacesPosition` | string | `"bottom"` | `top`, `bottom` | Spaces Position. Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row. |
 | `sidebar.spacesVisibility` | string | `"hover"` | `hover`, `always` | Show Spaces. On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons. |
+| `tabs.commandDigits` | string | `"workspaces"` | `workspaces`, `tabs` | Command-1 to 9 Select. Workspaces: Command-1 to 9 go to sidebar items and Control-1 to 9 to tabs. Tabs: Command-1 to 9 go to the focused pane's tabs and Control-1 to 9 to workspaces. |
 | `sidebar.numbering` | string | `"allItems"` | `allItems`, `workspacesOnly` | Command-Number Shortcuts. Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1. |
 | `sidebar.cmd9` | string | `"last"` | `last`, `ninth` | Command-9. Goes to the last item, as in browsers, or to the ninth. |
 | `sidebar.stepping` | string | `"allItems"` | `allItems`, `workspacesOnly` | Next and Previous Item. What Command-Control-] and Command-Control-[ step through. |
@@ -344,11 +351,19 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.nowPlaying.enabled` | boolean | `false` |  | Show Now Playing. A player for what is playing, at the bottom of the sidebar. |
 | `sidebar.nowPlaying.otherApps` | boolean | `false` |  | Include Other Apps in Now Playing. Also show what plays in other apps, such as Spotify, Music or another browser. Off: only what plays in cmux. |
 | `tabs.newTabNowPlaying` | boolean | `false` |  | Show Now Playing on New Tab. A player for what is playing, on the New Tab page. |
+| `media.pictureInPicture.enabled` | boolean | `true` |  | Picture in Picture. Offer Picture in Picture for a web page's video in menus, the command palette and the media controls. A site's own video controls are not affected. |
 | `tabs.newTabWidgets.greeting` | boolean | `false` |  | Ask What to Work On on New Tab. A headline over the composer that asks what to work on, with the project as a picker. |
 | `tabs.newTabWidgets.projects` | boolean | `false` |  | Show Projects on New Tab. A card of this Mac and its recent projects over the composer. |
 | `tabs.newTabWidgets.actions` | boolean | `false` |  | Show Quick Actions on New Tab. Chats that need you, and New Terminal, New Browser Tab and New Chat. |
 | `tabs.newTabWidgets.chats` | boolean | `false` |  | Show Recent Chats on New Tab. Your recent chats under the composer. The palette finds any chat. |
 | `tabs.newTabWidgets.styleDots` | boolean | `false` |  | Show Template Dots on New Tab. Dots under the page that switch its template. |
+| `tabs.newTabWidgets.weather` | boolean | `false` |  | Show Weather on New Tab. The current weather and today's high and low, for the city below or your time zone's city. |
+| `tabs.newTabWidgets.weatherCity` | string | `""` |  | Weather City. A city for the weather widget. Empty uses your time zone's city. |
+| `tabs.newTabWidgets.machines` | boolean | `false` |  | Show Machines on New Tab. Your machines and whether each is online. |
+| `tabs.newTabWidgets.clock` | boolean | `false` |  | Show Clock on New Tab. A quiet local time display beside the composer. |
+| `tabs.newTabWidgets.timer` | boolean | `false` |  | Show Stopwatch on New Tab. A small elapsed-time stopwatch beside the composer. |
+| `tabs.newTabWidgets.warmGreeting` | boolean | `false` |  | Show Warm Greeting on New Tab. A time-of-day greeting such as Good afternoon. |
+| `tabs.newTabWidgets.quote` | boolean | `false` |  | Show Quote of the Day on New Tab. A bundled public-domain quote, changing daily. |
 | `tabs.newTabWidgets.order` | array | `["projects","actions","chats"]` | `projects`, `actions`, `chats` | New Tab Widget Order. The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them. |
 | `appearance.colorTransition.enabled` | boolean | `true` |  | Animate Color Changes. Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once. |
 | `appearance.colorTransition.duration` | real | `200` | 0 to 2000 | Color Change Duration. How long a color change takes. 0 changes colors at once. |
@@ -529,9 +544,13 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.editedFiles.scope` | string | `"turn"` | `turn`, `session` | Edited Files Card Covers |
 | `agentPane.showContextUsage` | boolean | `true` |  | Show Context Usage. The ring beside the model that fills as the chat uses its context window. |
 | `agentPane.showDictation` | boolean | `true` |  | Show Dictation Button. The microphone beside Send in every composer, including the New Tab page. |
+| `agentPane.spellChecking` | boolean | `false` |  | Check Spelling While Typing. Underlines misspellings and offers system suggestions in the composer. |
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again. |
 | `diagnostics.hangReports` | boolean | `false` |  | Send Hang Reports. Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent. |
+| `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility. |
+| `macScreen.debug.relayOnly` | boolean | `false` |  | Relay Only. Mac Screen tabs connect through the TURN relay only, never directly, to check the relay path. Tabs that are connected reconnect. |
+| `deviceHub.url` | string | `""` |  | Device Hub Address. Overrides the device hub this build signs its devices in to, for Mac Screen sharing between your devices. Leave it empty to use the built-in hub. |
 | `EnrollmentToken` | string |  |  | Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership. |
 | `ManagedTeam` | string |  |  | Team id (team_...) that manages this device. |
 | `RestrictToManagedTeam` | boolean |  |  | Refuse sign-in to any team other than ManagedTeam on this device. |

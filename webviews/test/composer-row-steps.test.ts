@@ -11,10 +11,10 @@
 // Two looks, two tables:
 //   - The quiet row (the default plain footer, #22285; Leo 2026-10-19, as Claude Code's): +, the
 //     mic and Send in the box, the mode and the model button in a row of their own under it. That
-//     row takes no composer-width step (composerRowFit.ts paneWidth): it holds the harness, the mode,
-//     the model button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
-//     2026-10-21 read "Opus Med" with about 250 px of the row free), and shortens the effort, then the
-//     harness's name, only when they do not.
+//     row takes no composer-width step (composerRowFit.ts paneWidth): it holds the mode, the model
+//     button and the ring, so it keeps "Opus 5.5  Medium" and "Auto" while they fit (live-qa
+//     2026-10-21 read "Opus Med" with about 250 px of the row free), and shortens the effort only
+//     when they do not.
 //   - The in-box row (Debug Settings' plain footer off): every control in the box's one row, where
 //     the width steps still apply. First the button's effort shows the level's short name ("Med"),
 //     then the model its family ("Opus"), the access label goes, then the model its harness mark

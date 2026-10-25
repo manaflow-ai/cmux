@@ -23,19 +23,30 @@
 #                   vdisplay, refresh_ms, line}. refresh_ms is the virtual display's measured interval, or after a
 #                   fallback the real main display's (`VDisplay probe`; null only when that does not tick either).
 #                   Not yet confirmed on cmux20-bench by a perf cron run (2026-10-23).
+#   --config=bench  build the app in the bench configuration (reload.sh --config bench: Release optimization with
+#                   the debug.* control commands kept), so the bench measures an optimized app; cached apart.
 #   --vdisplay-hold=SECONDS  the helper's own lifetime (default 1200): it ends by itself even when this script
 #                   is killed with SIGKILL. The perf cron passes the part's run time.
+#   --vdisplay-size=WxH  the virtual display's pixels (default 1920x1200: under the Dock a 1920x1080 display left
+#                   about 965 pt, and AppKit clamped the 1600 x 1000 STRESS window, 2026-10-24). The helper's ready
+#                   line reports the visible frame (visible=WxH), which the report's display.line keeps.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
+# The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
+# commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
+# the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
+SPLIT_SPRING_MEASURE_VERSION=4  # 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
-build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 args=()
+build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
   case "$arg" in
     --build-only) build_only=1 app_cache=1 ;;
     --app-cache) app_cache=1 ;;
     --vdisplay=*) vdisplay_hz="${arg#--vdisplay=}" ;;
     --vdisplay-hold=*) vdisplay_hold="${arg#--vdisplay-hold=}" ;;
+    --vdisplay-size=*) vdisplay_size="${arg#--vdisplay-size=}" ;;
+    --config=*) reload_config=(--config "${arg#--config=}") ;;
     *) args+=("$arg") ;;
   esac
 done
@@ -43,16 +54,19 @@ tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
 sha="$(git rev-parse HEAD)"
+# A bench build (--config=bench) is cached apart from the default Debug build of the same commit.
+key="$sha"
+[[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$sha-${reload_config[1]}"
 cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"
 fi
 build_start=$SECONDS
 app="" cached=false
-if [[ -n "$cache" && -f "$cache/$sha/ok" ]]; then
+if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
   mkdir -p "$out/app"
-  ditto "$cache/$sha/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
-  touch "$cache/$sha/ok"
+  ditto "$cache/$key/cmux DEV $tag.app" "$out/app/cmux DEV $tag.app"
+  touch "$cache/$key/ok"
   app="$out/app/cmux DEV $tag.app" cached=true
   echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
 fi
@@ -67,27 +81,32 @@ if [[ -z "$app" ]]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
-  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" 2>&1 | tee "$out/reload.log" | tail -n 40
+  CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log" | tail -n 40
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
     grep -E "error:|BUILD FAILED" "$out/reload.log" | head -n 60 >&2 || true
+    # reload.sh keeps xcodebuild's output in its own log (`==> log: PATH`): the compiler's errors are there.
+    build_log="$(sed -n 's/^==> log: //p' "$out/reload.log" | tail -n 1)"
+    if [[ -n "$build_log" && -f "$build_log" ]]; then
+      grep -E "\.swift:[0-9]+:[0-9]+: error|error: |Stack dump|signal" "$build_log" | head -n 40 >&2 || true
+    fi
     exit 1
   fi
   if [[ -n "$cache" ]]; then
     mkdir -p "$cache"
-    rm -rf "${cache:?}/$sha.tmp"
-    mkdir -p "$cache/$sha.tmp"
-    if ditto "$app" "$cache/$sha.tmp/cmux DEV $tag.app"; then
-      rm -rf "${cache:?}/$sha"
-      mv "$cache/$sha.tmp" "$cache/$sha"
-      touch "$cache/$sha/ok"
+    rm -rf "${cache:?}/$key.tmp"
+    mkdir -p "$cache/$key.tmp"
+    if ditto "$app" "$cache/$key.tmp/cmux DEV $tag.app"; then
+      rm -rf "${cache:?}/$key"
+      mv "$cache/$key.tmp" "$cache/$key"
+      touch "$cache/$key/ok"
       echo "split-spring: kept the app of $sha in the app cache"
     fi
   fi
 fi
-if [[ -n "$cache" && -d "$cache/$sha" ]]; then
-  [[ "$build_only" == 1 ]] && touch "$cache/$sha/pin"
+if [[ -n "$cache" && -d "$cache/$key" ]]; then
+  [[ "$build_only" == 1 ]] && touch "$cache/$key/pin"
   # Keep the 3 newest unpinned apps; a pin younger than 13 h (780 min) keeps its app whatever its age.
   # shellcheck disable=SC2012 # the directory names are 40-hex commit ids
   ls -1t "$cache"/*/ok 2>/dev/null | while read -r ok; do
@@ -99,8 +118,11 @@ if [[ -n "$cache" && -d "$cache/$sha" ]]; then
   done | tail -n +4 | while read -r old; do rm -rf "$old"; done
 fi
 build_seconds=$((SECONDS - build_start))
+# The host's macOS version: every report carries it (the perf cron shows each host's macOS; rows of one host only
+# are compared).
+macos="$(sw_vers -productVersion 2>/dev/null | tr -cd '0-9.' | head -c 16 || true)"
 if [[ "$build_only" == 1 ]]; then
-  printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}}\n' "$sha" "$build_seconds" "$cached" > "$out/report.json"
+  printf '{"build": {"sha": "%s", "seconds": %d, "cached": %s}, "macos": "%s"}\n' "$sha" "$build_seconds" "$cached" "$macos" > "$out/report.json"
   cat "$out/report.json"
   exit 0
 fi
@@ -144,7 +166,7 @@ if [[ -n "$vdisplay_hz" ]]; then
       scripts/ci/frame-pacing/vdisplay.m -o "$vd/VDisplay.app/Contents/MacOS/VDisplay" 2> "$vd/clang.err"; then
     cp scripts/ci/frame-pacing/VDisplay-Info.plist "$vd/VDisplay.app/Contents/Info.plist"
     codesign -s - --force "$vd/VDisplay.app" 2>/dev/null || true
-    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" "$vdisplay_hold" main > "$vd/out" 2> "$vd/err" &
+    "$vd/VDisplay.app/Contents/MacOS/VDisplay" "$vdisplay_hz" "$vdisplay_hold" main "$vdisplay_size" > "$vd/out" 2> "$vd/err" &
     vdisplay_pid=$!
     for _ in $(seq 20); do
       grep -q '^ready\|^error' "$vd/out" 2>/dev/null && break
@@ -200,16 +222,18 @@ python3 scripts/cmux-next/split-spring-terminal.py --tag "$tag" --app "$app" --o
 bench_pid=$!
 wait "$bench_pid" || status=$?
 bench_pid=""
-# Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`).
+# Every report the step returns says which display it measured on (the perf cron reads `display.refresh_ms`) and the
+# host's macOS version.
 for report in "$out/report.json" "$out/perf-gate.json"; do
   [[ -f "$report" ]] || continue
-  python3 - "$report" "$display_json" <<'PY' || echo "split-spring: could not add the display to $report" >&2
+  python3 - "$report" "$display_json" "$macos" <<'PY' || echo "split-spring: could not add the display to $report" >&2
 import json, sys
 path, display = sys.argv[1], json.loads(sys.argv[2])
 with open(path) as f:
     report = json.load(f)
 if isinstance(report, dict):
     report["display"] = display
+    report["macos"] = sys.argv[3] or None
     with open(path, "w") as f:
         json.dump(report, f, indent=1)
 PY

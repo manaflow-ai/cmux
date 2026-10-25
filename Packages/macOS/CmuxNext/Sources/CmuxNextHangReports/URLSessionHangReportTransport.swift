@@ -1,13 +1,17 @@
 public import Foundation
 
-/// Posts report bodies with an ephemeral session: no cookies, no cache, no credentials, a fixed
-/// user agent, 30 s timeout, and no redirects (a 3xx answer is kept for a later try; the body is
+/// Posts report bodies with an ephemeral session: no cookies, no cache, no credentials, fixed
+/// headers (``fixedHeaders``: the user agent, and `Accept-Language: en` instead of the person's
+/// language list, which URLSession would add by itself), 30 s timeout, and no redirects (a 3xx answer is kept for a later try; the body is
 /// never posted to another address).
 public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
     /// The production endpoint.
     public static let defaultEndpoint = "https://cmux.com/api/hang-reports"
     /// The fixed user agent of every request.
     public static let userAgent = "cmux-hang-reports/1"
+    /// The headers every request carries besides `Content-Type`, set on the request itself so
+    /// none of URLSession's own defaults (the preferred languages) is sent in their place.
+    public static let fixedHeaders = ["User-Agent": userAgent, "Accept-Language": "en", "Accept": "*/*"]
 
     /// Where reports go; nil (an address that does not parse) sends nothing.
     public let endpoint: URL?
@@ -28,7 +32,7 @@ public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
         configuration.urlCache = nil
         configuration.urlCredentialStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        configuration.httpAdditionalHeaders = ["User-Agent": Self.userAgent]
+        configuration.httpAdditionalHeaders = Self.fixedHeaders
         if !protocolClasses.isEmpty { configuration.protocolClasses = protocolClasses + (configuration.protocolClasses ?? []) }
         session = URLSession(configuration: configuration)
     }
@@ -38,6 +42,7 @@ public nonisolated struct URLSessionHangReportTransport: HangReportTransport {
         guard let endpoint else { return .refused(status: 0) }
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
+        for (name, value) in Self.fixedHeaders { request.setValue(value, forHTTPHeaderField: name) }
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = body
         guard let (_, response) = try? await session.data(for: request, delegate: NoRedirects()),

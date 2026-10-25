@@ -4,9 +4,10 @@
    toggle is: the header's tools, its own toggle among them, stay above it. It is as tall as its sections,
    never a column to the pane's foot (Leo, 2026-10-22: "THIS BECAME A SIDEBAR FOR NO REASON, ALL THIS DEAD
    SPACE"); past a ceiling (560px, and 80% of the room under the header) its body scrolls. Overlay (the
-   default, when the pane's right gutter has room): it floats in the gutter beside the transcript's column,
-   never over its text, and the chat does not move. Push (when the gutter has no room, and with Settings
-   Push always): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
+   default, in every pane): it floats outside the chat's layout and never takes a column (Leo, 2026-10-24:
+   "it was never supposed to be a sidebar; y'all kept doing sidebars"); the chat's column moves left only
+   when the two then fit side by side, and otherwise the panel floats over the chat. Push (Settings Push
+   always only): an item of the shell's flex row, so it reserves its width and the chat reflows narrower
    beside it, but top-aligned at its own height, so the column below it is the chat's own page, not an
    empty slab. Its width comes from the viewer's drag (inline style); it slides in from the right and back
    out, and the width never animates. No section is a card (Leo, 2026-10-22: "tmi and too many boxes"):
@@ -54,9 +55,62 @@
   right: var(--acpmux-inspector-side, 0px);
   margin-right: var(--acpmux-inspector-inset);
 }
+/* The composer's glass (composerStates.css, cmux #24566; Leo, 2026-10-24: "the composer itself also
+   being a little bit glassy and stuff, as well as the session rail"): on an opaque window the composer
+   surface at 70% under a 24px blur, over art or a see-through window 50% under the shared blur. Lens and
+   Spectrum keep the liquid glass's own tint and Reduce Transparency the solid surface (glass.css). It
+   blurs its own box only, the same cost as the composer's card over the scrolling transcript. */
+:root:not([data-cmux-see-through]) .acpmux-chat-inspector.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 70%, transparent);
+  --glass-backdrop: blur(24px) saturate(1.25);
+}
+:root[data-cmux-see-through]:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-chat-inspector.ui-glass {
+  --glass-tint: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) 50%, transparent);
+  --glass-backdrop: var(--surface-blur);
+}
+.acpmux-chat-inspector.ui-glass {
+  /* glass-opaque-allow: the Reduce Transparency fill only, the composer's (glass.css applies it under that setting) */
+  --glass-opaque: var(--acpmux-composer-solid, var(--glass-surface));
+}
 .acpmux-chat-inspector[data-placement] .acpmux-chat-inspector__body {
   /* The card is as tall as its sections; past its max-height, the body scrolls. */
   flex: 0 1 auto;
+}
+/* When the chat and the floating card both fit with the chat moved left (ChatInspector.tsx
+   inspectorChatShift), the conversation and the composer's stack under it move left together, so the
+   card lies over neither. The header stays outside that shift: its top-right controls stay anchored in
+   the pane. */
+.acpmux-main > .acpmux-stage > .acpmux-scroll,
+.acpmux-main > .acpmux-stage .acpmux-handoff-review,
+.acpmux-main > .acpmux-dock > * {
+  translate: calc(-1 * var(--acpmux-chat-shift, 0px)) 0;
+}
+/* A part that joins the stack while the chat is moved rises from below its moved place
+   (bottomStack.css ui-enter), not from the unmoved one. Only the dock's own animated parts (the same
+   list as bottomStack.css): the parts nested in them enter inside a part already moved. */
+.acpmux-main > .acpmux-dock > :not(.acpmux-composer, .acpmux-home-area, .acpmux-asks-stack) {
+  --ui-enter-x: calc(-1 * var(--acpmux-chat-shift, 0px));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+  .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
+    transition: translate var(--agent-motion-move, var(--cmux-motion-quick, 80ms))
+      var(--acpmux-motion-ease, ease-out);
+  }
+}
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+:root[data-cmux-motion="reduced"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage > .acpmux-scroll,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-dock > *,
+:root[data-cmux-motion="off"] .acpmux-shell:not([data-inspector-chat-placement="push"]) .acpmux-main > .acpmux-stage .acpmux-handoff-review {
+  transition: none;
+}
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage > .acpmux-scroll,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-dock > *,
+.acpmux-shell[data-inspector-chat-placement="push"] .acpmux-main > .acpmux-stage .acpmux-handoff-review {
+  transition: none;
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence). Over the chat
    it travels the panel's few points. Pushing, the room it takes travels with it: entering, its right
@@ -118,6 +172,15 @@
   gap: 6px;
   height: 28px;
   padding: 6px 10px 0 14px;
+}
+.acpmux-chat-inspector[data-chrome="close"] .acpmux-chat-inspector__body {
+  padding-top: 34px;
+}
+.acpmux-chat-inspector__close--floating {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 8px;
+  right: 10px;
 }
 .acpmux-chat-inspector__title {
   flex: 1 1 auto;
@@ -379,7 +442,7 @@ button.acpmux-chat-inspector-port:hover,
   font-variant-numeric: tabular-nums;
 }
 .acpmux-chat-inspector-row__end[data-state="failed"] {
-  color: var(--agent-danger, var(--agent-muted));
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-row .acpmux-diff-counts {
   opacity: 0.8;
@@ -443,7 +506,7 @@ button.acpmux-chat-inspector-port:hover,
 }
 .acpmux-chat-inspector-stop[data-state="failed"],
 .acpmux-chat-inspector-stop[data-state="failed"]:hover:not(:disabled) {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-sr-only {
   position: absolute;
@@ -488,17 +551,17 @@ button.acpmux-chat-inspector-port:hover,
   color: var(--agent-muted);
 }
 .acpmux-chat-inspector-pr[data-state="open"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-success, var(--acpmux-add));
+  color: var(--agent-status-success);
 }
 .acpmux-chat-inspector-pr[data-state="merged"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-ansi-5, var(--agent-accent));
+  color: var(--agent-status-merged);
 }
 .acpmux-chat-inspector-pr[data-state="draft"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-warning, var(--agent-muted));
+  color: var(--agent-status-warning);
 }
 .acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon,
 .acpmux-chat-inspector-pr[data-state="conflicting"] .acpmux-chat-inspector-pr__icon {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-pr__text {
   flex: 1 1 auto;
@@ -555,7 +618,7 @@ button.acpmux-chat-inspector-port:hover,
   margin-left: auto;
 }
 .acpmux-chat-inspector-pr__checks[data-checks="failing"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-pr__base {
   color: var(--agent-muted);
@@ -568,10 +631,10 @@ button.acpmux-chat-inspector-port:hover,
   height: 7px;
   margin-right: 2px;
   border-radius: 50%;
-  background: var(--agent-success, var(--acpmux-add));
+  background: var(--agent-status-success);
 }
 .acpmux-chat-inspector-pr__checks[data-checks="pending"] {
-  background: var(--agent-warning, var(--agent-muted));
+  background: var(--agent-status-warning);
 }
 .acpmux-chat-inspector-pr__owner {
   flex: none;
@@ -653,7 +716,7 @@ button.acpmux-chat-inspector-port:hover,
   height: 7px;
   margin: 6px 2px 0;
   border-radius: 50%;
-  background: var(--agent-success, var(--acpmux-add));
+  background: var(--agent-status-success);
 }
 .acpmux-chat-inspector-server__text {
   flex: 1 1 auto;
@@ -705,7 +768,7 @@ button.acpmux-chat-inspector-port:focus-visible {
 }
 .acpmux-chat-inspector-task[data-state="failed"] .acpmux-chat-inspector-task__state,
 .acpmux-chat-inspector-task[data-state="lost"] .acpmux-chat-inspector-task__state {
-  color: var(--agent-danger, var(--agent-muted));
+  color: var(--agent-status-failure);
 }
 .acpmux-chat-inspector-fold {
   display: flex;
