@@ -9,12 +9,8 @@
 //! - `gh [--write] ARGS…`: runs `gh` with `GH_TOKEN` set for that one
 //!   process, for the repo named by `-R/--repo`, else `GH_REPO`, else the
 //!   current checkout's `origin`.
-//!
-//! Nothing is wired by default. To opt in, a user sets
-//! `credential.https://github.com.helper` to `!cmux github credential`
-//! (after an empty value, so no other helper answers for github.com) and
-//! `credential.https://github.com.useHttpPath` to `true`, so git names
-//! the repo.
+//! - `setup [--unset]`: opt-in wiring of the user's git config (the helper
+//!   for https://github.com, with `useHttpPath` so git names the repo).
 //!
 //! The token lives only in this process and the git or gh process it
 //! answers. Nothing here writes it to disk or prints it anywhere but the
@@ -31,7 +27,7 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -40,7 +36,9 @@ use crate::cloud::github::{TokenAsk, valid_repo};
 use crate::cloud::wire::AGENT_SOCKET;
 use crate::json::JsonField;
 
-const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS...";
+const USAGE: &str =
+    "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | setup [--unset]";
+const HOST_KEY: &str = "credential.https://github.com.helper";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
 /// The agent answers within this: an ask that waited 60 s in its queue is
 /// answered `busy` (`github_minter::MAX_QUEUE_WAIT`), and one mint is at
@@ -331,7 +329,10 @@ pub fn credential_get(
     }
     let path = field("path");
     if path.is_empty() {
-        return (String::new(), Some(format!("git sent no repo path; set {PATH_KEY} true")));
+        return (
+            String::new(),
+            Some(format!("git sent no repo path; run `cmux github setup` (it sets {PATH_KEY})")),
+        );
     }
     let Some(repo) = repo_from(path) else {
         return (String::new(), Some("git's path is not an owner/name GitHub repo".to_owned()));
@@ -473,6 +474,87 @@ fn origin_url() -> Option<String> {
     out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
+/// The helper value `setup` writes: this binary by absolute path (the name
+/// `cmux` selects the verb, so a symlink is kept, not resolved).
+pub fn helper_value(program: &Path) -> String {
+    let quoted = program.display().to_string().replace('\'', r"'\''");
+    format!("!'{quoted}' github credential")
+}
+
+/// How to run this binary again as `cmux`: argv[0] made absolute, or found
+/// on PATH.
+fn self_program() -> Option<PathBuf> {
+    let argv0 = PathBuf::from(std::env::args_os().next()?);
+    if argv0.components().count() > 1 {
+        return Some(if argv0.is_absolute() {
+            argv0
+        } else {
+            std::env::current_dir().ok()?.join(argv0)
+        });
+    }
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join(&argv0))
+        .find(|p| p.is_file())
+}
+
+/// The `git config --global` argument lists `setup` (or `--unset`) runs.
+pub fn setup_commands(helper: &str, unset: bool) -> Vec<Vec<String>> {
+    let cmd = |args: &[&str]| {
+        let mut out = vec!["config".to_owned(), "--global".to_owned()];
+        out.extend(args.iter().map(|a| (*a).to_owned()));
+        out
+    };
+    if unset {
+        return vec![cmd(&["--unset-all", HOST_KEY]), cmd(&["--unset", PATH_KEY])];
+    }
+    vec![
+        // An empty value resets the helper list for github.com (a gh login's
+        // `gh auth git-credential` or a store), so only this helper answers.
+        cmd(&["--replace-all", HOST_KEY, ""]),
+        cmd(&["--add", HOST_KEY, helper]),
+        cmd(&[PATH_KEY, "true"]),
+    ]
+}
+
+fn setup(args: &[String]) -> u8 {
+    let unset = match args {
+        [] => false,
+        [flag] if flag == "--unset" => true,
+        _ => return usage("setup takes --unset only"),
+    };
+    let helper = match self_program() {
+        Some(program) => helper_value(&program),
+        None => {
+            eprintln!("cmux github setup: cannot find this binary's path");
+            return 1;
+        }
+    };
+    for args in setup_commands(&helper, unset) {
+        let status = std::process::Command::new("git").args(&args).status();
+        match status {
+            Ok(s) if s.success() => {}
+            // `--unset` of a key that is not set exits 5.
+            Ok(s) if unset && s.code() == Some(5) => {}
+            Ok(s) => {
+                eprintln!("cmux github setup: git {} failed ({s})", args.join(" "));
+                return 1;
+            }
+            Err(e) => {
+                eprintln!("cmux github setup: git: {e}");
+                return 1;
+            }
+        }
+    }
+    if unset {
+        println!("git no longer asks cmux for GitHub credentials");
+    } else {
+        println!(
+            "git now asks cmux for a short-lived token per GitHub repo; for gh, run `cmux github gh [--write] ARGS...`"
+        );
+    }
+    0
+}
+
 fn credential(args: &[String]) -> u8 {
     match args {
         [op] if op == "get" => {}
@@ -539,6 +621,7 @@ pub fn run(args: &[String]) -> u8 {
     match verb.as_str() {
         "credential" => credential(rest),
         "gh" => gh(rest),
+        "setup" => setup(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             0
@@ -682,7 +765,7 @@ mod tests {
         let (out, note) =
             credential_get("protocol=https\nhost=github.com\n", GitOp::Unknown, false, &mut never);
         assert_eq!(out, "");
-        assert!(note.unwrap().contains(PATH_KEY));
+        assert!(note.unwrap().contains("cmux github setup"));
     }
 
     #[test]
@@ -757,6 +840,25 @@ mod tests {
         assert_eq!(write.permissions["pull_requests"], "write");
         assert_eq!(write.permissions["checks"], "read");
         assert!(!write.permissions.contains_key("workflows"));
+    }
+
+    #[test]
+    fn setup_writes_only_the_github_helper_and_use_http_path() {
+        let helper = helper_value(Path::new("/opt/cmux/current/bin/cmux"));
+        assert_eq!(helper, "!'/opt/cmux/current/bin/cmux' github credential");
+        assert_eq!(helper_value(Path::new("/a'b/cmux")), r"!'/a'\''b/cmux' github credential");
+        let on = setup_commands(&helper, false);
+        assert_eq!(on[0], strings(&["config", "--global", "--replace-all", HOST_KEY, ""]));
+        assert_eq!(on[1], strings(&["config", "--global", "--add", HOST_KEY, &helper]));
+        assert_eq!(on[2], strings(&["config", "--global", PATH_KEY, "true"]));
+        let off = setup_commands(&helper, true);
+        assert_eq!(
+            off,
+            vec![
+                strings(&["config", "--global", "--unset-all", HOST_KEY]),
+                strings(&["config", "--global", "--unset", PATH_KEY])
+            ]
+        );
     }
 
     #[test]
@@ -838,7 +940,7 @@ mod tests {
     /// A fake Cloud agent: reads one line, answers `reply`, returns the line.
     fn fake_agent(
         reply: &'static str,
-    ) -> (tempfile::TempDir, std::path::PathBuf, std::thread::JoinHandle<String>) {
+    ) -> (tempfile::TempDir, PathBuf, std::thread::JoinHandle<String>) {
         let dir = tempfile::tempdir().unwrap();
         let socket = dir.path().join("agent.sock");
         let listener = UnixListener::bind(&socket).unwrap();
