@@ -79,6 +79,11 @@ public final class ServiceObservation<Value> {
         apply(value)
     }
 
+    // Nothing to clean up here: the frame client holds this observer weakly, so an active client
+    // ticks once more, finds it gone and goes idle; a generic main-actor class needs a
+    // nonisolated deinit (the Release optimizer crashes on its isolated one, #23050).
+    nonisolated deinit {}
+
     /// Stops the observation: no later evaluation or apply. Idempotent.
     public func cancel() {
         guard !cancelled else { return }
@@ -95,8 +100,8 @@ public final class ServiceObservation<Value> {
     private func track() -> Value {
         withObservationTracking {
             read()
-        } onChange: { [weak self] in
-            MainDelivery().run { [weak self] in self?.trackedValueWillChange() }
+        } onChange: { @Sendable [weak self] in
+            MainDelivery().run { self?.trackedValueWillChange() }
         }
     }
 
@@ -111,17 +116,17 @@ public final class ServiceObservation<Value> {
         guard !cancelled, dirty else { return false }
         dirty = false
         let value = track()
-        if let isEqual, let last, isEqual(last, value) { return dirty }
+        if let isEqual, let last, isEqual(last, value) { return dirty && !cancelled }
         if isEqual != nil { last = value }
         apply(value)
         return dirty && !cancelled
     }
 
     private func makeClient() -> FrameClient {
-        let workClass = workClass.workClass, taskOwner = taskOwner
+        let mainClass = self.workClass.workClass, taskOwner = self.taskOwner
         return FrameClient(owner: owner, budgeted: self.workClass, on: work) { [weak self] _, budget in
             guard let self else { return false }
-            return budget.run(workClass, owner: taskOwner) { self.flush() }
+            return budget.run(mainClass, owner: taskOwner) { self.flush() }
         }
     }
 
