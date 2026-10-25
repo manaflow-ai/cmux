@@ -104,8 +104,14 @@ def job_block(name: str) -> str:
     return match.group(1)
 
 
+def job_containing(text: str) -> str:
+    at = WORKFLOW.index(text)
+    name = re.findall(r"\n  ([a-z0-9-]+):\n", WORKFLOW[:at])[-1]
+    return job_block(name)
+
+
 def job_env(block: str, name: str) -> str:
-    match = re.search(rf"\n      {name}: (\S+)\n", block)
+    match = re.search(rf"\n      {name}: ([^\n]+)\n", block)
     assert match, f"no job env {name}"
     return match.group(1)
 
@@ -125,13 +131,23 @@ def test_each_app_reads_the_feed_its_publisher_writes():
     upload = WORKFLOW[WORKFLOW.index("- name: Upload nightly-next appcasts to R2"):]
     upload = upload[:upload.index("\n      - name:", 10)]
     assert 'for appcast in $NIGHTLY_FEEDS; do' in upload and 'key="${NIGHTLY_NEXT_R2_PREFIX}${appcast}"' in upload
+    # ...and NIGHTLY_FEEDS in that job is decide's feed list, the one checked above.
+    publisher = job_containing("- name: Upload nightly-next appcasts to R2")
+    assert job_env(publisher, "NIGHTLY_FEEDS") == "${{ needs.decide.outputs.feeds }}"
+    assert "\n      feeds: ${{ steps.decide.outputs.feeds }}\n" in job_block("decide")
+    assert "core.setOutput('feeds', feeds.join(' '));" in WORKFLOW
     assert next_base == host + env_value("NIGHTLY_NEXT_R2_PREFIX").rstrip("/")
     # cmux NIGHTLY: the legacy sign job bakes LEGACY_BASE/LEGACY_APPCAST, and the
     # legacy publish job uploads that same key.
     sign = job_block("sign-nightly-identity-legacy")
     publish = job_block("publish-nightly-identity-legacy")
     assert job_env(sign, "LEGACY_APPCAST") == job_env(publish, "LEGACY_APPCAST") == "appcast-arm64.xml"
+    assert sign.count("LEGACY_FEED_URL=") == 2, "one assignment, one pass to the script"
     assert 'LEGACY_FEED_URL="${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"' in sign
+    # The script is handed that variable (no other value), and writes it into SUFeedURL.
+    assert re.search(r'LEGACY_FEED_URL="\$LEGACY_FEED_URL" \\\n(?:\s+[A-Z_]+="[^"\n]*" \\\n)*\s+\./scripts/ci/nightly-next-legacy-identity\.sh ', sign)
+    script = (ROOT / "scripts/ci/nightly-next-legacy-identity.sh").read_text()
+    assert 'pb "Set :SUFeedURL $LEGACY_FEED_URL"' in script and script.count(":SUFeedURL") == 1
     assert f'prefix="${{NIGHTLY_NEXT_LEGACY_FEED_BASE#{host}}}"' in publish
     assert 'upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST"' in publish
     assert legacy_base.startswith(host) and legacy_base != next_base
