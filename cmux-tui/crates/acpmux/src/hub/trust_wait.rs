@@ -3,7 +3,9 @@
 //!
 //! `start_session` (`subsessions.rs`) asks [`Hub::ensure_folder_trusted`] before it starts
 //! anything. A folder that reads as trusted (an answer, an agent's own level, or one of the
-//! person's own folders, `trust_auto.rs`) passes at once. Any other folder raises a card on the
+//! person's own folders, `trust_auto.rs`) passes at once, and so does a folder at or under the
+//! starting session's own folder when that session runs in full access and a decision trusts its
+//! folder ([`Hub::inherits_parent_trust`]). Any other folder raises a card on the
 //! session that wants the sub-session: a choice question, **Trust** or **Not now**, through the
 //! permission path every agent question uses, so the chat shows its card and the sidebar row its
 //! "Needs your input" mark, and only the person answers it (never a policy, never a remote
@@ -215,6 +217,11 @@ impl Hub {
         let asked = cwd.to_string_lossy().into_owned();
         let key = match self.trust_level_of(&paths, &asked, &family).await {
             Ok(read) if passes(&read, web) => return Ok(!read.by_rule_only()),
+            // No decision of its own, so nothing is recorded and a worktree made from it is not
+            // recorded as trusted either.
+            Ok(read) if self.inherits_parent_trust(&paths, parent, cwd, &read, web).await => {
+                return Ok(false);
+            }
             Ok(read) => read.cwd,
             Err(crate::trust::Failure::Invalid(message)) => {
                 return Err(RpcError::invalid_params(message));
@@ -296,6 +303,46 @@ impl Hub {
         self.trust_card_answered(&paths, &key, &outcome).await?;
         // Trust wrote the person's decision.
         Ok(true)
+    }
+
+    /// Whether a start in `cwd` (resolved) takes the trust of `parent`'s own folder instead of a
+    /// card (Leo, 2026-10-24, on a card a chat in full access raised: "why did this even happen in
+    /// the first place? I thought we bypassed this"). Only all of these: `parent` runs in full
+    /// access by cmux's own doing ([`full_access_by_cmux`]: a mode cmux set, never one the
+    /// harness claimed), outside a Web turn, and is no chat a Web client started
+    /// (`remote_origin`); `cwd` is the parent's own folder or under it, a folder recorded as it
+    /// resolves (no link on the way); a decision trusts that folder for the parent's agent (a
+    /// person's answer, the agent's own level, or a folder cmux made: never an auto-trust rule
+    /// alone); and nobody marked `cwd` untrusted. Any other start keeps its card, and the folder
+    /// walk after it (`subsession_folder_check`) still refuses a folder marked untrusted anywhere
+    /// up to `/`.
+    async fn inherits_parent_trust(
+        &self,
+        paths: &crate::trust::Paths,
+        parent: &Session,
+        cwd: &Path,
+        read: &crate::trust::SessionTrust,
+        web: bool,
+    ) -> bool {
+        if web || read.level == Level::Untrusted {
+            return false;
+        }
+        let pm = parent.meta();
+        // A Web client's chat stays one after a local turn: only the person's own chats lend trust.
+        if pm.remote_origin || !full_access_by_cmux(&pm) {
+            return false;
+        }
+        // Only a folder recorded as it resolves: through a link the agent could point elsewhere
+        // after it started, the folder it runs in is not the one the link names now.
+        let Ok(own) = std::fs::canonicalize(&pm.cwd) else { return false };
+        if own != pm.cwd || !cwd.starts_with(&own) {
+            return false;
+        }
+        let family = self.trust_family(&pm.harness).await;
+        let own = own.to_string_lossy();
+        self.trust_level_of(paths, &own, &family)
+            .await
+            .is_ok_and(|read| read.decided == Level::Trusted)
     }
 
     /// Whether the folder reads as trusted for `family` now (`web`: a Web turn, where an auto-trust
@@ -401,6 +448,16 @@ impl Hub {
             self.settle_permission(session, &id, outcome, None, pending.prev_status);
         }
     }
+}
+
+/// Whether chat `m` runs in full access by cmux's own doing: its mode is a full-access mode cmux set
+/// itself (`SessionMeta::mode_set_by_cmux`). A mode the harness reported on its own
+/// (`current_mode_update`) is not enough, since the agent controls that, and neither is a launch
+/// command that skips the checks, which a fallback to another profile leaves behind in the record.
+pub(super) fn full_access_by_cmux(m: &SessionMeta) -> bool {
+    let set = m.mode_set_by_cmux.as_deref();
+    set.is_some_and(|mode| super::start_mode::FULL_ACCESS_MODES.contains(&mode))
+        && crate::web_modes::mode_of(m).as_deref() == set
 }
 
 /// Whether `read` lets a start go on: with the auto-trust rules, or in a Web turn (`web`)
