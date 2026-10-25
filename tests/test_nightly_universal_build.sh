@@ -124,21 +124,51 @@ if ! awk '
   in_download && /app_ok=/ { saw_app_output=1 }
   in_download && /daemon_ok=/ { saw_daemon_output=1 }
   in_download && /helper_ok=/ { saw_helper_output=1 }
-  END { exit !(saw_id && downloads == 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
+  END { exit !(saw_id && downloads >= 3 && saw_app_download && saw_app_connections && saw_app_output && saw_daemon_output && saw_helper_output) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly signers must fetch all inputs concurrently and give the large app artifact 64 ranged connections"
   exit 1
 fi
 
 for fallback in \
-  "if: steps.signing-inputs-parallel.outputs.app_ok != 'true'" \
-  "if: steps.signing-inputs-parallel.outputs.daemon_ok != 'true'" \
-  "if: steps.signing-inputs-parallel.outputs.helper_ok != 'true'"; do
+  "steps.signing-inputs-parallel.outputs.app_ok != 'true'" \
+  "steps.signing-inputs-parallel.outputs.daemon_ok != 'true'" \
+  "steps.signing-inputs-parallel.outputs.helper_ok != 'true'"; do
   if ! grep -Fq "$fallback" "$WORKFLOW_FILE"; then
     echo "FAIL: nightly signing input fallback is missing: $fallback"
     exit 1
   fi
 done
+
+if ! awk '
+  /^  prepare-nightly-variant-primary:/ { in_prepare=1; next }
+  in_prepare && /^  [a-zA-Z0-9_-]+:/ { in_prepare=0 }
+  in_prepare && /runs-on: \$\{\{ github\.repository_owner/ { saw_matrix_runner=1 }
+  in_prepare && /strategy:/ { saw_serial_fallback=1 }
+  in_prepare && /PREPARE_FALLBACK/ { saw_runner_matrix=1; saw_primary_tolerated=1 }
+  in_prepare && /blacksmith-12vcpu-macos-26/ { saw_blacksmith=1 }
+  in_prepare && /env\.PREPARE_FALLBACK == '\''true'\''/ { saw_fallback=1 }
+  in_prepare && /actions\/runs\/\$GITHUB_RUN_ID\/artifacts\?name=/ { saw_artifact_probe=1 }
+  in_prepare && /steps\.reuse\.outputs\.exists != '\''true'\''/ { saw_reuse_gate=1 }
+  END { exit !(saw_matrix_runner && saw_runner_matrix && saw_serial_fallback && saw_blacksmith && saw_fallback && saw_primary_tolerated && saw_artifact_probe && saw_reuse_gate) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly preparation must keep the disk floor, route through an owned Mac with a Blacksmith fallback, and reuse a successful artifact"
+  exit 1
+fi
+if ! awk '
+  /^  prepare-nightly-variant-fallback:/ { in_fallback=1 }
+  in_fallback && /needs: .*prepare-nightly-variant-primary/ { saw_dependency=1 }
+  in_fallback && /result == '\''failure'\''/ { saw_failure_gate=1 }
+  END { exit !(saw_dependency && saw_failure_gate) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly Blacksmith preparation must depend on a failed owned-Mac preparation"
+  exit 1
+fi
+
+if ! grep -Fq '30 GiB required' "$WORKFLOW_FILE" && ! grep -Fq '30 GiB' "$WORKFLOW_FILE"; then
+  echo "FAIL: the nightly disk floor contract must remain explicit; do not lower it to make a host pass"
+  exit 1
+fi
 
 if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   echo "FAIL: queued Nightly runs must not replace their triggering revision with a newer main HEAD"
@@ -237,7 +267,7 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
        '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
-  /^  prepare-nightly-variant:/ { job="publish"; next }
+  /^  prepare-nightly-variant-primary:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   # Every nightly helper build takes the hosted macOS 15 image (its SDK 15
@@ -277,7 +307,7 @@ fi
 
 if ! awk '
   /^  build-nightly-app:/ { job="build"; next }
-  /^  prepare-nightly-variant:/ { job="publish"; next }
+  /^  prepare-nightly-variant-primary:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "build" && /^      - name: Derive Sparkle public key from private key/ { derived_in_build=1 }
@@ -290,14 +320,14 @@ if ! awk '
 fi
 
 if ! awk '
-  /^  prepare-nightly-variant:/ { job="publish"; next }
+  /^  prepare-nightly-variant-primary:/ { job="publish"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "publish" && /variant: \$\{\{ fromJSON\(needs\.decide\.outputs\.variants\) \}\}/ { saw_matrix=1 }
   job == "publish" && /NIGHTLY_VARIANT: \$\{\{ matrix\.variant \}\}/ { saw_variant_env=1 }
   job == "publish" && /^      - name: Thin bundle to the variant architecture/ { in_thin=1; next }
   in_thin && /^      - name:/ { in_thin=0 }
-  in_thin && /if: matrix\.variant != '\''universal'\''/ { saw_thin_gate=1 }
+  in_thin && /matrix\.variant != '\''universal'\''/ { saw_thin_gate=1 }
   in_thin && /thin-app-bundle\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { saw_thin=1 }
   job == "publish" && /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
@@ -564,14 +594,15 @@ done
 # build-nightly-app, and every sign variant installs that one commit before
 # thinning.
 if ! awk '
+  /^  prepare-nightly-variant-primary:/ { job="prepare-nightly-variant-primary:" }
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
   job == "build-nightly-app:" && /resolve-cmux-tui-client-commit\.sh/ { in_app=1 }
   job == "resolve-nightly-cmux-tui-client:" && /^    needs: decide$/ { resolver_needs=1 }
   job == "resolve-nightly-cmux-tui-client:" && /scripts\/cmux-next\/pin-cmux-tui\.sh resolve-newest-published/ { resolver=1 }
-  job == "prepare-nightly-variant:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
-  job == "prepare-nightly-variant:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
-  job == "prepare-nightly-variant:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
-  job == "prepare-nightly-variant:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
+  job == "prepare-nightly-variant-primary:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { sign_needs=1 }
+  job == "prepare-nightly-variant-primary:" && /^      - name: Bundle the cmux-tui client$/ { install_line=NR }
+  job == "prepare-nightly-variant-primary:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "prepare-nightly-variant-primary:" && /CMUX_TUI_CLIENT_COMMIT: \$\{\{ needs\.resolve-nightly-cmux-tui-client\.outputs\.commit \}\}/ { sign_commit=1 }
   job == "report-nightly-failure:" && /^    needs: .*resolve-nightly-cmux-tui-client/ { reported=1 }
   END { exit !(!in_app && resolver_needs && resolver && sign_needs && sign_commit && install_line && thin_line && install_line < thin_line && reported) }
 ' "$WORKFLOW_FILE"; then
@@ -589,10 +620,11 @@ done
 # The sign job installs the cmux-tui client and its SSH payloads after the build
 # job's strip, so it must run strip-release-bundle.sh again after that install.
 if ! awk '
+  /^  prepare-nightly-variant-primary:/ { job="prepare-nightly-variant-primary:" }
   /^  [a-zA-Z0-9_-]+:$/ { job=$1 }
-  job == "prepare-nightly-variant:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
-  job == "prepare-nightly-variant:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
-  job == "prepare-nightly-variant:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
+  job == "prepare-nightly-variant-primary:" && /\.\/scripts\/install-cmux-tui-client\.sh/ && !install_line { install_line=NR }
+  job == "prepare-nightly-variant-primary:" && /\.\/scripts\/strip-release-bundle\.sh "\$app"/ { strip_line=NR }
+  job == "prepare-nightly-variant-primary:" && /^      - name: Thin bundle to the variant architecture$/ { thin_line=NR }
   END { exit !(install_line && strip_line && thin_line && install_line < strip_line && strip_line < thin_line) }
 ' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly sign job must run strip-release-bundle.sh after installing the cmux-tui client and before thinning"
@@ -846,7 +878,7 @@ done
 # matches build-nightly-app; its resolve step skips build_only.
 job_if() {
   awk -v job="$1" '
-    $0 == "  " job ":" { in_job=1; next }
+    $0 ~ "^  " job ":( |$)" { in_job=1; next }
     in_job && /^  [a-zA-Z0-9_-]+:$/ { in_job=0 }
     in_job && /^    if: / { print; exit }
   ' "$WORKFLOW_FILE"
@@ -861,7 +893,7 @@ NOT_SUPERSEDED="needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'tru
 if [ "$(job_if build-nightly-app)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true' && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" ] \
-  || [ "$(job_if prepare-nightly-variant)" != "$(job_if build-sign-notarize-nightly)" ] \
+  || [ "$(job_if prepare-nightly-variant-primary)" != "$(job_if build-sign-notarize-nightly)" ] \
   || [ "$(job_if resolve-nightly-cmux-tui-client) && $NOT_PUBLISHED && $NOT_SUPERSEDED && $NOT_CONTINUE" != "$(job_if build-nightly-app)" ] \
   || [ "$(job_if publish-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && $PUBLISH_SCHEDULE && $NOT_PUBLISHED && needs.decide.outputs.no_publish != 'true' && ((needs.build-sign-notarize-nightly.result == 'success' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true' && needs.verify-signed-nightly.result == 'success' && needs.verify-final-dmg-nightly.result == 'success') || (needs.recover-nightly-next-notarization.outputs.accepted == 'true' && needs.verify-recovered-nightly-next.result == 'success'))\"" ]; then
   echo "FAIL: build_only must be a conjunctive exclusion on the helper, signing, and publication jobs, and must not gate the unsigned app build"

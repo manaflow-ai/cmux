@@ -2343,6 +2343,15 @@ button.cv-received__name:focus-visible {
 .cv-received__toggle > .cv-rotor {
   flex: none;
 }
+/* Minimal Mode's closed message (IncomingMessageCard.tsx): the message's first line after the
+   chip, cut with an ellipsis, the chevron after it. model.ts estimates the line alone. */
+.cv-received__preview {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 26px;
+}
 .cv-received__toggle:hover,
 .cv-received__toggle:focus-visible {
   color: var(--cv-text);

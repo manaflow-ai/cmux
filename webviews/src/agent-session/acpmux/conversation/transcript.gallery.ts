@@ -1685,7 +1685,7 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
-      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M tokens, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      note: "A live Claude turn says its generated output after its time, as Claude desktop does, on its one live line at the bottom: Thinking 5m 54s · 2.1M out, with no blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
           user(prompt, 5.9),
@@ -2213,7 +2213,13 @@ export default agentPaneEntry({
         if (ctx.document.querySelector(".cv-tools > .cv-tool.is-toggle")) await openFoldedRun(ctx);
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
         await ctx.waitFor(() => ctx.document.querySelectorAll(closed).length === ENVELOPE_TOOLS.length);
-        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++) await ctx.click({ selector: closed });
+        // Each row centered first: the runner scrolls a target only as far as needed, which parks a row
+        // at the transcript's foot, under Jump to latest (shown while a run is working), and the click
+        // lands on the pill.
+        for (let opened = 0; opened < ENVELOPE_TOOLS.length; opened++) {
+          ctx.find({ selector: closed }).scrollIntoView({ block: "center" });
+          await ctx.click({ selector: closed });
+        }
         await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-output-card").length === ENVELOPE_TOOLS.length);
         if (!ctx.document.querySelector(".cv-tool-output__markdown h2"))
           throw new Error("the MCP text list did not render as Markdown");

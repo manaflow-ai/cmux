@@ -90,8 +90,8 @@ mod daemon_spawn {
         assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
         // SAFETY: two new descriptors the test owns.
         let ends = unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
-        let frame =
-            wire::encode_flagged(Kind::Spawned, wire::FLAG_RING, chan, &1234i32.to_le_bytes());
+        let payload = 1234i32.to_le_bytes();
+        let frame = wire::encode_with_fds(Kind::Spawned, wire::FLAG_RING, chan, &payload, 2);
         wire::send_all(link.as_raw_fd(), &frame, &[ends.0.as_raw_fd(), ends.1.as_raw_fd()])
             .unwrap();
         ends

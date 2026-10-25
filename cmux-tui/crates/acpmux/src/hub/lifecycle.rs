@@ -509,6 +509,8 @@ impl Hub {
             }
             session.rehydrate.store(true, Ordering::SeqCst);
         }
+        // The --permission-mode acpmux started a Claude process in.
+        let mut started_mode = None;
         let child = if is_claude {
             // Claude carries its own session in the process: resume by id, or
             // fork from a parent id into a fresh session.
@@ -557,6 +559,9 @@ impl Hub {
                 }
                 None => mode,
             };
+            if !super::start_mode::profile_sets_mode(profile) {
+                started_mode = Some(mode.clone());
+            }
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -719,6 +724,9 @@ impl Hub {
                     session,
                     [ModeWrite::Modes(modes), ModeWrite::ConfigOptions(opts)],
                 );
+                if let Some(mode) = started_mode.as_deref() {
+                    self.restore_mode_mark(session, mode);
+                }
                 if fork_from.is_some() {
                     session.fork_from.lock().unwrap().take();
                 }
@@ -802,6 +810,16 @@ impl Hub {
         Ok(child)
     }
 
+    /// Marks `mode` as set by cmux again when it is the mode cmux had put the
+    /// last agent in and this agent now reports it (`fresh_agent`).
+    fn restore_mode_mark(&self, session: &Session, mode: &str) {
+        let last = session.applied.lock().unwrap_or_else(|e| e.into_inner()).replay_mark.clone();
+        let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        if last.as_deref() == Some(mode) && crate::web_modes::mode_of(&m).as_deref() == Some(mode) {
+            m.mode_set_by_cmux = last;
+        }
+    }
+
     /// Re-assert the saved mode, then model, then every config option on a
     /// respawned ACP session, in that order. The model is sent even when
     /// unchanged: its acknowledgement reconciles sibling options such as
@@ -830,6 +848,7 @@ impl Hub {
                 tracing::warn!(session = %session.id, "replay mode {mode}: {}", e.message);
             } else {
                 self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
+                self.restore_mode_mark(session, mode);
             }
         }
         let opts: Vec<(String, Value)> = saved

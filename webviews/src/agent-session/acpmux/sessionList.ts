@@ -59,6 +59,9 @@ export type AcpmuxSessionEntry = {
   lane?: SessionLane;
   /** Prompts waiting behind its running turn, when any. */
   queued?: number;
+  /** Its parent already runs as many sub-sessions as `maxRunning` allows: its first prompt waits
+   *  for a run slot (acpmux `waitsForSlot`), so it has not started. */
+  waitsForSlot?: true;
   /** One line of what its running turn does now: its plan step and latest tool, as acpmux says it
    *  to the parent's agent (`doing`). */
   doing?: string;
@@ -217,6 +220,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     shortName: text(session.shortName),
     lane: LANES.includes(session.lane?.state) ? session.lane.state : undefined,
     queued: Number(session.queued) > 0 ? Number(session.queued) : undefined,
+    ...(session.waitsForSlot === true && { waitsForSlot: true as const }),
     doing: doingLine(session),
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,

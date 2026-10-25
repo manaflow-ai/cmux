@@ -134,6 +134,12 @@
       "title" : "Show Dictation Button",
       "type" : "boolean"
     },
+    "agentPane.spellChecking" : {
+      "default" : false,
+      "description" : "Underlines misspellings and offers system suggestions in the composer.",
+      "title" : "Check Spelling While Typing",
+      "type" : "boolean"
+    },
     "agentPane.zoom" : {
       "default" : 1,
       "description" : "The display size for agent chat. Cmd-0 resets it.",
@@ -892,6 +898,20 @@
       "maximum" : 24,
       "minimum" : 0,
       "title" : "Column Gap",
+      "type" : "number"
+    },
+    "appearance.metrics.dividerHitWidth" : {
+      "description" : "appearance.metrics.dividerHitWidth",
+      "maximum" : 24,
+      "minimum" : 1,
+      "title" : "Divider Drag Width",
+      "type" : "number"
+    },
+    "appearance.metrics.dividerThickness" : {
+      "description" : "appearance.metrics.dividerThickness",
+      "maximum" : 6,
+      "minimum" : 0,
+      "title" : "Divider Thickness",
       "type" : "number"
     },
     "appearance.metrics.sidebarWidth" : {
@@ -1708,9 +1728,9 @@
       "default" : "auto",
       "description" : "diff.layout",
       "enum" : [
+        "auto",
         "split",
-        "unified",
-        "auto"
+        "unified"
       ],
       "title" : "Layout",
       "type" : "string"
@@ -1725,6 +1745,12 @@
       "default" : true,
       "description" : "diff.showBackgrounds",
       "title" : "Change Backgrounds",
+      "type" : "boolean"
+    },
+    "diff.showBulkActions" : {
+      "default" : true,
+      "description" : "diff.showBulkActions",
+      "title" : "Stage All and Revert All Bar",
       "type" : "boolean"
     },
     "diff.wordDiffs" : {
@@ -2528,6 +2554,16 @@
       "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
       "title" : "Scroll Areas",
       "type" : "boolean"
+    },
+    "layout.scrollModifier" : {
+      "default" : "command",
+      "description" : "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them.",
+      "enum" : [
+        "command",
+        "none"
+      ],
+      "title" : "Scroll Columns and Rows With",
+      "type" : "string"
     },
     "layout.splitSizing" : {
       "default" : "even",

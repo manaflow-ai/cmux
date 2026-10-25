@@ -17,6 +17,18 @@ Steps (each one ok/FAIL in result.json, with a screenshot shot-<step>.png):
              ready with no unavailable reason and no WebKit fallback; debug.layers shows a
              cef page
   webkit     a WebKit tab loads the same page; debug.layers shows a webkit page
+  WebKit's gesture-free scripts (WebKitGestureFreeEvaluation: on macOS 14 the async-function
+  SPI, on 15+ the content-world SPI), on a second WebKit tab of its own origin (port 8738):
+  favicon    the tab's favicon URL, which FaviconScript reads in an isolated world, reaches the
+             store (debug.sidebar_rows open_tab_favicons for the page's origin)
+  type_waits browser.page.insert_text answers only after the page handled the text (its
+             gesture-free round trip): the page's input handler holds the page for 1.2 s, so the
+             call takes 0.9 s or more, and the field holds the text
+  design_on  with Debug Settings' UI pointer picker on (browserPage.uiPointer, off by default),
+             Ctrl-Opt-Cmd-D (VNC keys, the person's) turns design mode on: its overlay host is in
+             the page (enableDesignMode runs in an isolated world without a gesture)
+  design_off the same keys turn it off: the overlay host is gone
+  page_info  View Site Information (browser.pageInfo) opens its panel (debug.window_list)
   settings   Settings opens and paints (debug.page cmux.settings)
   alive      the app still answers a ping, within 10 s, after the steps
   quit       quitEndEverything ends the process within 30 s with exit status 0 (the guest shell
@@ -37,6 +49,7 @@ Usage (vm.sh does this): smoke.py --ssh admin@IP --vnc HOST:PORT:PW --app APP --
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import shlex
@@ -58,7 +71,16 @@ EXIT_FILE = "/tmp/cmux-matrix-app-exit"
 REPORT_DEADLINE = 30  # s: ReportCrash writes a report up to ~20 s after a death; it sends no signal over SSH
 REPORT_MINIMUM = 15  # s: after a clean quit too, a helper (Chromium, cmux-tui) can have crashed at teardown
 # Every step a PASS needs: a run that stopped early (a death, a refused call) is never a PASS.
-REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit", "settings", "alive", "quit")
+SCRIPTS_PORT = 8738
+SCRIPTS_TITLE = "cmux-matrix-scripts"
+ICON_PATH = "/cmux-matrix-icon.png"
+TYPED = "cmux42"
+# The page's input handler holds the page this long. Well under the control router's 2 s request
+# deadline (ControlRouter requestDeadline): a 2000 ms hold raced it, and on macOS 26 a 2081 ms call
+# answered "timeout" (exit 1) after the text was typed (run of 2026-10-24, build 419d8048).
+HOLD_MS = 1200
+REQUIRED_STEPS = ("launch", "window", "terminal", "echo", "split", "chromium", "webkit",
+                  "favicon", "type_waits", "design_on", "design_off", "page_info", "settings", "alive", "quit")
 
 
 class Smoke:
@@ -198,6 +220,8 @@ class Smoke:
         self.step("webkit", bool(state) and "webkit" in engines and "error" not in opened,
                   {"run": opened, "state": state or self.call("browser.page.state"), "engines": engines})
 
+        self.webkit_scripts()
+
         opened = self.call("settings.open", {"focus": True})
         painted = self.wait(lambda: self.call("debug.page", {"page": "cmux.settings"}).get("painted"), STEP_DEADLINE)
         self.step("settings", opened.get("opened") is True and bool(painted), {"run": opened, "painted": bool(painted)})
@@ -211,6 +235,74 @@ class Smoke:
         ms = g.ping_ms(10)
         # ping_ms gives its timeout for a hung app: only an answer before it counts.
         self.step("alive", ms is not None and ms < 10000, {"pid": g.pid(), "ping_answered": ms is not None and ms < 10000})
+
+    def page_eval(self, script: str):
+        """The value of `script` in the shown page (browser.page.eval), None on an error."""
+        reply = self.call("browser.page.eval", {"script": script})
+        return None if "error" in reply else reply.get("value")
+
+    def webkit_scripts(self) -> None:
+        """WebKit's gesture-free scripts on this macOS (see the module doc: favicon .. page_info)."""
+        g = self.g
+        page = (f"<!doctype html><title>{SCRIPTS_TITLE}</title><link rel=icon href={ICON_PATH}>"
+                f"<input id=f oninput='var t = Date.now(); while (Date.now() - t < {HOLD_MS});'>"
+                "<script>document.getElementById('f').focus()</script>")
+        # base64: the page reaches the guest without shell quoting.
+        g.sh(f"mkdir -p /tmp/cmux-matrix-www2 && echo {base64.b64encode(page.encode()).decode()} | base64 -D "
+             "> /tmp/cmux-matrix-www2/index.html && cd /tmp/cmux-matrix-www2 && "
+             f"( trap '' HUP; exec /usr/bin/perl -MIO::Socket::INET -e '{PERL_HTTP}' {SCRIPTS_PORT} "
+             ">/tmp/cmux-matrix-www2.log 2>&1 </dev/null ) & echo $! >/tmp/cmux-matrix-www2.pid; disown; true")
+        origin = f"http://127.0.0.1:{SCRIPTS_PORT}"
+        opened = self.call("action.run", {"action": "openBrowser", "args": {"url": origin + "/?scripts", "engine": "webkit"},
+                                          "focus": True})
+        state = self.wait(lambda: (lambda s: s if s.get("title") == SCRIPTS_TITLE else None)(self.call("browser.page.state")),
+                          STEP_DEADLINE)
+        if not state:
+            for name in ("favicon", "type_waits", "design_on", "design_off", "page_info"):
+                self.step(name, False, {"detail": "the scripts page did not load", "run": opened,
+                                        "state": self.call("browser.page.state")})
+            return
+
+        def favicon():
+            icons = self.call("debug.sidebar_rows").get("open_tab_favicons") or {}
+            return icons.get(origin)
+        icon = self.wait(favicon, 30)
+        self.step("favicon", bool(icon) and str(icon).endswith(ICON_PATH), {"favicon": icon})
+
+        # Timed in the guest: the call's own time, without the SSH round trip.
+        # The first output line is "ms=N rc=N", then the reply.
+        timed = ("use Time::HiRes qw(time); my $t = time; open(STDERR, '>&', STDOUT);"
+                 " open(my $fh, '-|', @ARGV) or die; my $out = do { local $/; <$fh> }; close $fh;"
+                 " printf \"ms=%d rc=%d\\n\", (time - $t) * 1000, $? >> 8; print $out")
+        r = g.sh(f"/usr/bin/perl -e {shlex.quote(timed)} -- "
+                 + g._cli(["app", "call", "browser.page.insert_text", json.dumps({"text": TYPED})]), timeout=60)
+        lines = (r.stdout or "").splitlines()
+        fields = dict(part.split("=", 1) for part in (lines[0] if lines else "").split() if "=" in part)
+        ms = int(fields["ms"]) if fields.get("ms", "").isdigit() else None
+        value = self.page_eval("document.getElementById('f').value")
+        self.step("type_waits", ms is not None and ms >= HOLD_MS * 0.75 and fields.get("rc") == "0" and value == TYPED,
+                  {"call_ms_vm": ms, "rc": fields.get("rc"), "field": value, "hold_ms": HOLD_MS,
+                   "reply": "\n".join(lines[1:]).strip()[-400:]})
+
+        overlay = "!!document.querySelector('[data-cmux-design-mode=\"overlay\"]')"
+        # Design mode is behind a Debug Settings toggle (off by default): on for these two steps.
+        picker = self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": True})
+        self.vnc.chord("ctrl+opt+cmd+d")
+        on = self.wait(lambda: self.page_eval(overlay) is True, 15)
+        self.step("design_on", bool(on), {"overlay": self.page_eval(overlay)})
+        self.vnc.chord("ctrl+opt+cmd+d")
+        off = self.wait(lambda: self.page_eval(overlay) is False, 15)
+        self.step("design_off", bool(on) and bool(off), {"overlay": self.page_eval(overlay), "picker": picker})
+        self.call("debug.tunables", {"action": "set", "key": "browserPage.uiPointer", "value": None})
+
+        def info_panel():
+            return [w for w in self.call("debug.window_list").get("windows") or []
+                    if w.get("visible") and ("pageinfo" in str(w.get("kind", "")).lower()
+                                             or w.get("class") == "PageInfoPanel")]
+        shown = self.call("action.run", {"action": "browser.pageInfo", "focus": True})
+        panel = self.wait(info_panel, 15)
+        self.step("page_info", bool(panel) and "error" not in shown, {"run": shown, "panel": (panel or [None])[0]})
+        self.vnc.chord("esc")
 
     def exit_status(self) -> int | None:
         r = self.g.sh(f"cat {EXIT_FILE} 2>/dev/null")
@@ -235,7 +327,7 @@ class Smoke:
                        "detail": None if gone else f"still running {QUIT_DEADLINE} s after quit; sampled, killed"})
         elif "launch" in self.result["steps"]:
             self.step("quit", False, {"detail": "the app was gone before the quit", "exit_status": self.exit_status()})
-        g.sh("kill $(cat /tmp/cmux-matrix-www.pid 2>/dev/null) 2>/dev/null; true")
+        g.sh("kill $(cat /tmp/cmux-matrix-www.pid /tmp/cmux-matrix-www2.pid 2>/dev/null) 2>/dev/null; true")
         # ReportCrash writes a report up to ~20 s after a death and sends no signal over SSH: after a
         # death (exit status not 0) look until a report appears or the deadline passes.
         reports: list[dict] = []

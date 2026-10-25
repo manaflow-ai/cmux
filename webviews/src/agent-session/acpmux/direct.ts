@@ -198,12 +198,17 @@ const QUEUE_WITHDRAWN_KEPT = 16;
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
 /// A `usage_update` acpmux marked as one model call's own (claude_stdio/inbound.rs, Claude Code's
-/// streamed message_delta): its input, cache reads and writes, and output, which is how Claude
-/// desktop reads a turn's tokens. A turn's marked calls add up to its tokens, subagents' calls
-/// included. Every other usage record is the context a harness holds (Claude Code's result
-/// repeats its last call's for the context ring; other harnesses, whatever their family, report
-/// only that), which does not add up.
+/// streamed message_delta) carries the prompt-side counts plus `outputTokens`. A turn's marked
+/// calls add their output tokens, subagents' calls included. Every other usage record is the
+/// context a harness holds (Claude Code's result repeats its last call's for the context ring;
+/// other harnesses, whatever their family, report only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+/// The generated side of one model call. Older daemons only sent `used`, which is a context
+/// snapshot and must never be mistaken for output; those calls therefore do not contribute.
+const callOutputTokens = (update: any): number | undefined => {
+  const value = Number(update?.outputTokens ?? update?.output_tokens);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+};
 /// acpmux's `contextBreakdown` (a Claude Code chat's /context), or unset when it sent none.
 const contextBreakdownOf = (value: any): AcpmuxContextBreakdown | undefined =>
   value && typeof value === "object" && Array.isArray(value.categories) ? value : undefined;
@@ -456,7 +461,10 @@ function recordImages(msg: any): QueuedPromptImage[] {
     (block: any) => block?.type === "image" && typeof block.data === "string",
   );
   if (blocks.length !== named.length) return named;
-  return named.map((image, index) => ({ ...image, src: `data:${image.mimeType};base64,${blocks[index].data}` }));
+  return named.map((image, index) => ({
+    ...image,
+    src: `data:${image.mimeType};base64,${blocks[index].data}`,
+  }));
 }
 
 /// The images of a prompt this pane sends, from the composer's attachments: its queue row shows
@@ -662,7 +670,12 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (plans/cmux-next/composer-delivery-DESIGN.md). Tests shorten them.
 export const deliveryTiming = { slowMs: 10_000, failMs: 60_000 };
 
-const DELIVERY_RANK: Record<PromptDelivery["state"], number> = { sending: 0, delivered: 1, read: 2, failed: 3 };
+const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
+  sending: 0,
+  delivered: 1,
+  read: 2,
+  failed: 3,
+};
 
 /// The hop a refused or failed send stopped at: a transport error is the pane's connection to
 /// acpmux (a missing gesture is the host's refusal, so acpmux's hop), a failure after acpmux took
@@ -802,7 +815,11 @@ const CREATED_RESULT = /^\s*File created successfully at\b/;
 export function inputDiffs(rawInput: any, result?: string, canonical?: string): AcpmuxFileDiff[] | undefined {
   const path = rawInput?.file_path;
   if (typeof path !== "string" || !path) return undefined;
-  const mark = { fragment: true as const, fromInput: true as const, ...(canonical ? { canonical } : {}) };
+  const mark = {
+    fragment: true as const,
+    fromInput: true as const,
+    ...(canonical ? { canonical } : {}),
+  };
   if (typeof rawInput.content === "string")
     return result !== undefined && CREATED_RESULT.test(result)
       ? [{ path, newText: rawInput.content, ...mark }]
@@ -810,7 +827,12 @@ export function inputDiffs(rawInput: any, result?: string, canonical?: string): 
   const edits: any[] = Array.isArray(rawInput.edits) ? rawInput.edits : [rawInput];
   const diffs = edits
     .filter((edit) => typeof edit?.old_string === "string" && typeof edit.new_string === "string")
-    .map((edit): AcpmuxFileDiff => ({ path, oldText: edit.old_string, newText: edit.new_string, ...mark }));
+    .map((edit): AcpmuxFileDiff => ({
+      path,
+      oldText: edit.old_string,
+      newText: edit.new_string,
+      ...mark,
+    }));
   return diffs.length ? diffs : undefined;
 }
 
@@ -1266,9 +1288,9 @@ export class AcpmuxDirectClient {
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number; setup?: number } | undefined;
-  /// The running turn's tokens: its model calls' usage added up from its `turn_started`, the
-  /// running line's count (conversation/WorkingFor.tsx). Unset outside a turn, and for a turn
-  /// whose start this client did not see (it missed calls before it attached).
+  /// The running turn's output tokens: its model calls' generated usage added up from
+  /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
+  /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
   private turnTokens: number | undefined;
   /// The first seq whose usage this client holds: the attach page's first record when acpmux has
   /// older ones (older pages carry no usage), else 0. A turn that started before it has calls this
@@ -1323,6 +1345,8 @@ export class AcpmuxDirectClient {
   private readonly sentPrompts = new Set<string>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// Prompts sent from this page that acpmux has not taken yet: they live only here until then.
+  private untakenSends = 0;
   /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
   private retriedPrompts = new Set<string>();
   /// Where each prompt this pane sent is on its way, by prompt id, and the row that shows it.
@@ -1551,7 +1575,12 @@ export class AcpmuxDirectClient {
         detail: async () => {
           // Events is already allowed on the pane bridge; its sequence watermark avoids exposing
           // the daemon's broader, native-only session detail surface to page code.
-          const page = await this.typed("_acpmux/events", { sessionId, afterSeq: 0, limit: 1, kinds: ["transcript"] });
+          const page = await this.typed("_acpmux/events", {
+            sessionId,
+            afterSeq: 0,
+            limit: 1,
+            kinds: ["transcript"],
+          });
           return { lastSeq: page.lastSeq };
         },
         page: async (params) => {
@@ -2880,6 +2909,12 @@ export class AcpmuxDirectClient {
   /// when an older acpmux recorded that thread as one of its own subagents, a parent or an owner (a Codex child reporting its parent thread), they are
   /// folded again by lineage, so the chat's own rows come back and its subagents stop nesting.
   private learnChatThread(): void {
+    // A shell call that started another family's agent before the chat's harness was known draws
+    // as that agent now (subagentFold.ts ``deferredRun``).
+    if (this.summary?.harness && !this.subagents.harness && this.subagents.deferredRun) {
+      this.rebuildKeepingLiveState();
+      return;
+    }
     const thread = this.chatThread();
     if (!thread || this.subagents.chat === thread || !this.subagents.names(thread)) return;
     this.rebuildKeepingLiveState();
@@ -3159,6 +3194,26 @@ export class AcpmuxDirectClient {
     this.streamingActivity = undefined;
   }
 
+  /// Takes tool call `callId` out of the row that drew it, and the row with it when it held only that.
+  private dropToolItem(callId: string): void {
+    const id = this.toolRows.get(callId);
+    if (id === undefined) return;
+    this.toolRows.delete(callId);
+    const row = this.rows.get(id);
+    if (!row?.items) return;
+    const items = row.items.filter((item) => item.tool?.id !== callId);
+    if (items.length === 0) {
+      this.rows.delete(id);
+      if (this.streamingActivity === id) this.streamingActivity = undefined;
+    } else
+      this.rows.set(id, {
+        ...row,
+        version: row.version + 1,
+        items,
+        toolCount: items.filter((entry) => entry.kind === "tool").length,
+      });
+  }
+
   /// The subagent group rows that changed, into the transcript.
   private takeSubagentRows(): void {
     for (const row of this.subagents.takeRows()) {
@@ -3187,9 +3242,11 @@ export class AcpmuxDirectClient {
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
-      // Counted before the window: Claude Code reports a size of 0 until its first result.
-      if (this.turnTokens !== undefined && isCallUsage(update) && Number.isFinite(used) && used > 0)
-        this.turnTokens += used;
+      // `used` is the last call's prompt/context size. Only an explicitly reported generated
+      // count belongs on the running line; adding `used` here counted the whole context again on
+      // every tool step (for example, 5 × 100K input became 500K instead of 5K output).
+      const output = callOutputTokens(update);
+      if (this.turnTokens !== undefined && isCallUsage(update) && output !== undefined) this.turnTokens += output;
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
@@ -3297,9 +3354,19 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "policyUnenforced",
-            policyUnenforced: { policy: msg.policy, why: opencode ? "ownSettings" : "noAskingMode" },
+            policyUnenforced: {
+              policy: msg.policy,
+              why: opencode ? "ownSettings" : "noAskingMode",
+            },
           });
         }
+      } else if (event.kind === "subsession") {
+        // A child an `acpmux run --parent` call of this chat started (acpmux #25019): that call's
+        // run, whose card stands for the call's row from now on.
+        this.subagents.harness = this.summary?.harness;
+        const call = this.subagents.reduceChild(event, msg);
+        if (call) this.dropToolItem(call);
+        this.takeSubagentRows();
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
@@ -3529,7 +3596,12 @@ export class AcpmuxDirectClient {
     if (!update) return;
     this.subagents.cause = this.turnStopCause(event);
     this.subagents.chat = this.chatThread();
+    this.subagents.harness = this.summary?.harness;
     if (this.subagents.reduce(event, update)) {
+      // A shell call known to start another agent only once its command came (a later update)
+      // drew a row before: the agent's card stands for it now.
+      if (typeof update.toolCallId === "string" && this.subagents.isRun(update.toolCallId))
+        this.dropToolItem(update.toolCallId);
       this.takeSubagentRows();
       return;
     }
@@ -4057,6 +4129,36 @@ export class AcpmuxDirectClient {
     ticket?: string,
     steer = false,
   ): Promise<string | undefined> {
+    this.untakenSends += 1;
+    let untaken = true;
+    const settle = () => {
+      if (untaken) this.untakenSends -= 1;
+      untaken = false;
+    };
+    try {
+      return await this.sendNow(input, attachments, promptId, accepted, ticket, steer, settle);
+    } finally {
+      settle();
+    }
+  }
+
+  /// WEB-SWAP: why a web update's reload would lose a prompt this page holds: one acpmux has not
+  /// taken yet, or a failed one whose Retry lives only in this page (pages/shared/webSwap.ts).
+  swapHold(): string | null {
+    if (this.untakenSends > 0) return "composer.send-untaken";
+    return this.failedPrompts.size ? "composer.send-failed" : null;
+  }
+
+  private async sendNow(
+    input: string,
+    attachments: ComposerAttachment[],
+    promptId: string,
+    accepted: (() => void) | undefined,
+    ticket: string | undefined,
+    steer: boolean,
+    /// acpmux took it: the page no longer holds the only copy.
+    tookIt: () => void,
+  ): Promise<string | undefined> {
     // A `data:` image written into the prompt goes as an image, never as text: the bubble, the
     // agent and the chat's compaction never see base64 (inlineImages.ts, Leo 2026-10-20).
     ({ text: input, attachments } = liftInlineImages(input, attachments));
@@ -4167,6 +4269,7 @@ export class AcpmuxDirectClient {
       this.promptAccepts.delete(promptId);
       if (taken) return;
       taken = true;
+      tookIt();
       if (context) this.host = { ...this.host, workspaceContext: undefined };
       if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
       release();
@@ -6032,7 +6135,9 @@ function offerResult(msg: any): AcpmuxOfferResult | undefined {
 }
 
 /// A background shell's update: running in the background, or how it ended.
-type BackgroundUpdate = Omit<AcpmuxBackgroundTask, "state"> & { state: AcpmuxBackgroundState["state"] };
+type BackgroundUpdate = Omit<AcpmuxBackgroundTask, "state"> & {
+  state: AcpmuxBackgroundState["state"];
+};
 
 function backgroundTask(update: any): BackgroundUpdate | undefined {
   const state = update.state;

@@ -2,7 +2,7 @@ public import Foundation
 
 extension Data {
     /// Reads a file, like `Data(contentsOf:options:)`, as a checked blocking call: in Debug and
-    /// bench builds (Nightly to come) the main-thread blocking detector reports it on the main thread
+    /// bench and Nightly builds the main-thread blocking detector reports it on the main thread
     /// (``assertBlockingAllowed(_:fileID:line:)``). Read files off the main thread.
     ///
     /// - Parameters:

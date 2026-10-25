@@ -103,6 +103,7 @@ export interface AcpmuxRequests {
   "_acpmux/report": { params: unknown; result: unknown };
   "_acpmux/task_new": { params: unknown; result: unknown };
   "_acpmux/tasks": { params: unknown; result: unknown };
+  "_acpmux/resolve": { params: unknown; result: unknown };
   "_acpmux/media_open": { params: unknown; result: unknown };
   "_acpmux/media_range": { params: unknown; result: unknown };
   "_acpmux/permission_respond": { params: PermissionRespondParams; result: PermissionRespondResult };
@@ -190,6 +191,7 @@ export interface AcpmuxRequests {
   "_acpmux/pair_list": { params: unknown; result: unknown };
   "_acpmux/pair_revoke": { params: unknown; result: unknown };
   "_acpmux/pair_issue": { params: unknown; result: unknown };
+  "_acpmux/pair_set": { params: unknown; result: unknown };
   "_acpmux/pair_redeem": { params: unknown; result: unknown };
 }
 
@@ -335,6 +337,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/report", kind: "request", acp: false, typed: false },
   { name: "_acpmux/task_new", kind: "request", acp: false, typed: false },
   { name: "_acpmux/tasks", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/resolve", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_open", kind: "request", acp: false, typed: false },
   { name: "_acpmux/media_range", kind: "request", acp: false, typed: false },
   { name: "_acpmux/permission_respond", kind: "request", acp: false, typed: true },
@@ -424,6 +427,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/pair_list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_revoke", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_issue", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/pair_set", kind: "request", acp: false, typed: false },
   { name: "_acpmux/pair_redeem", kind: "request", acp: false, typed: false },
   { name: "_acpmux/event", kind: "notification", acp: false, typed: true },
   { name: "_acpmux/session_changed", kind: "notification", acp: false, typed: true },

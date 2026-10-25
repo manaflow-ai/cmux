@@ -133,6 +133,7 @@
         "CmuxNextDesign",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
+        "CmuxNextIcons",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
@@ -241,6 +242,7 @@
         "CmuxNextAgentPermissions",
         "CmuxNextAgentQuestion",
         "CmuxNextAgentUpdates",
+        "CmuxNextAppCore",
         "CmuxNextApps",
         "CmuxNextBookmarks",
         "CmuxNextBridge",
@@ -340,6 +342,19 @@
         "CmuxHomeRender"
       ]
     },
+    "CmuxNextAppCore": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppCore",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextBridge",
+        "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextSidebar"
+      ],
+      "packages": []
+    },
     "CmuxNextAppPermissions": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions",
@@ -392,6 +407,7 @@
         "CmuxNextImportSuggestions",
         "CmuxNextLayout",
         "CmuxNextMacScreen",
+        "CmuxNextMobile",
         "CmuxNextNowPlaying",
         "CmuxNextPalette",
         "CmuxNextProcessEnvironment",
@@ -670,7 +686,9 @@
         "CmuxNextChromiumRuntime"
       ],
       "packages": [],
-      "reads": []
+      "reads": [
+        "scripts/cmux-next/malloc-zone-race/run.sh"
+      ]
     },
     "CmuxNextChromiumWarmup": {
       "kind": "regular",
@@ -1852,6 +1870,7 @@
       "targets": [
         "CmuxNextAgentPane",
         "CmuxNextControl",
+        "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings",
         "CmuxNextUpdater",

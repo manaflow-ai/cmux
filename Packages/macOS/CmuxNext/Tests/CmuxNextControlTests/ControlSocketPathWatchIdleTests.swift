@@ -164,6 +164,35 @@ import Testing
     }
 }
 
+/// A FIFO at the path: the watch opened whatever was there with a blocking open(2), so a FIFO held the
+/// server's accept queue until some process opened it for writing (review of item 6). The open no longer
+/// waits, and the queue goes on.
+@Suite(.serialized, .timeLimit(.minutes(1))) struct ControlSocketPathWatchFIFOTests {
+    @Test func aFIFOAtThePathDoesNotHoldTheQueue() async throws {
+        let directory = NSTemporaryDirectory() + "cspw-\(UUID().uuidString.prefix(8).lowercased())"
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        let path = directory + "/cmux.sock"
+        try #require(mkfifo(path, 0o600) == 0)
+        defer {
+            // A blocked open (the bug) ends when a writer opens the FIFO; then the files can go.
+            let writer = open(path, O_WRONLY | O_NONBLOCK)
+            if writer >= 0 { close(writer) }
+            try? FileManager.default.removeItem(atPath: directory)
+        }
+        let queue = DispatchQueue(label: "test.path-watch")
+        let watch = ControlSocketPathWatch(path: path, queue: queue) { false }
+        watch.start()
+        defer { watch.stop() }
+        let ran = RestoreCount()
+        queue.async { ran.value.store(1, ordering: .relaxed) }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ran.value.load(ordering: .relaxed) == 0, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))  // a test waiting for another queue, not product code
+        }
+        #expect(ran.value.load(ordering: .relaxed) == 1, "the watch's open of a FIFO held its queue")
+    }
+}
+
 /// Restores the watch asked for (a class: an `Atomic` cannot be captured).
 final class RestoreCount: Sendable {
     let value = Atomic<Int>(0)

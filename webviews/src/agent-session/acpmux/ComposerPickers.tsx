@@ -17,9 +17,6 @@ import { type SpeedTiers } from "./FastToggle";
 import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
-import { ComposerHarness } from "./ComposerHarness";
-import { knownMark } from "../shared/AgentMark";
-import { agentName } from "./agents";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
@@ -367,11 +364,17 @@ export function ComposerPickers({
     ownRow?.defaultEffort ?? releaseRows.find((row) => row.defaultEffort !== undefined)?.defaultEffort;
   // A direct profile can declare an alias with `efforts: []` before the joined catalog has retained
   // its `own` marker. Keep that explicit no-level declaration attached to the running release row.
-  const profileDeclaresNoEffort = snapshot.catalog
-    .find((entry) => entry.id === summary?.harness)
-    ?.models.some(
-      (model) => Object.hasOwn(model, "efforts") && Array.isArray(model.efforts) && model.efforts.length === 0,
-    );
+  const profileDeclaresNoEffort =
+    (ownRow?.own?.efforts === true && ownRow.efforts.length === 0) ||
+    snapshot.catalog
+      .find((entry) => entry.id === summary?.harness)
+      ?.models.some(
+        (model) =>
+          model.id === runningModel &&
+          Object.hasOwn(model, "efforts") &&
+          Array.isArray(model.efforts) &&
+          model.efforts.length === 0,
+      );
   const efforts: Choice[] = reasoningChoices(
     effort?.options ?? [],
     {
@@ -892,44 +895,12 @@ export function ComposerPickers({
       ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
       : undefined;
 
-  // The quiet row starts with the harness (ComposerHarness.tsx): the one a switch is starting, else
-  // the chat's, else the one the chips draw while acpmux lists it as installed, marked and named as
-  // the model button's rail names it. The chips' fallback is the picker's first installed harness;
-  // with none (none installed, or acpmux has not listed them yet) it is the catalog's first, a
-  // bundled harness acpmux may not have: then the row names none. With none installed the model
-  // button's place says Add harness instead (picksModel below), and no mode chip shows.
-  const switchTarget = snapshot.switching?.phase === "failed" ? undefined : snapshot.switching;
-  const footHarness =
-    switchTarget?.harness ??
-    harness ??
-    (chipHarness && snapshot.catalog.some((entry) => entry.id === chipHarness) ? chipHarness : undefined);
-  const footEntry = footHarness ? snapshot.catalog.find((entry) => entry.id === footHarness) : undefined;
-  const footPicker =
-    footHarness === chipHarness
-      ? chipEntry
-      : pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === footHarness);
-  const harnessMark = footHarness
-    ? knownMark(footEntry?.icon, footEntry?.family, footPicker?.brand ?? undefined, footHarness)
-    : undefined;
-  const harnessName = footHarness
-    ? (switchTarget?.name ?? footPicker?.name ?? agentName(footHarness, footEntry?.name))
-    : undefined;
-  // The model button's menu, which the harness item opens while the chat can still switch.
-  const switcher = useRef<(() => void) | undefined>(undefined);
   const picksModel =
     snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
   const chips = (
     <div className="acpmux-chips">
-      {picksModel && harnessMark && harnessName && (
-        <ComposerHarness
-          mark={harnessMark}
-          name={harnessName}
-          {...(switchHarness && picksModel ? { openSwitcher: () => switcher.current?.() } : {})}
-        />
-      )}
       {picksModel ? (
         <ModelPicker
-          opener={switcher}
           catalog={pickerEntries}
           harness={harness}
           model={shown}

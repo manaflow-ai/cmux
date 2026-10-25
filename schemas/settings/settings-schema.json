@@ -51,6 +51,10 @@
               "tabs.newTabWidgets.weather",
               "tabs.newTabWidgets.weatherCity",
               "tabs.newTabWidgets.machines",
+              "tabs.newTabWidgets.clock",
+              "tabs.newTabWidgets.timer",
+              "tabs.newTabWidgets.warmGreeting",
+              "tabs.newTabWidgets.quote",
               "tabs.newTabWidgets.order",
               "sidebar.showChats"
             ],
@@ -74,6 +78,7 @@
               "layout.rows",
               "layout.focusFollowsMouse",
               "layout.scrollAreas",
+              "layout.scrollModifier",
               "layout.minimumPaneWidth",
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
@@ -142,7 +147,8 @@
               "diff.showBackgrounds",
               "diff.expandUnchanged",
               "diff.groupByKind",
-              "diff.hideWhitespace"
+              "diff.hideWhitespace",
+              "diff.showBulkActions"
             ],
             "title" : {
               "key" : "settings.group.diffViewer",
@@ -343,6 +349,8 @@
               "appearance.metrics.chromeFontSize",
               "appearance.metrics.sidebarWidth",
               "appearance.metrics.columnGap",
+              "appearance.metrics.dividerThickness",
+              "appearance.metrics.dividerHitWidth",
               "appearance.metrics.titlebarHeight",
               "appearance.borders",
               "appearance.focusIndicator",
@@ -794,6 +802,7 @@
               "agentPane.editedFiles.scope",
               "agentPane.showContextUsage",
               "agentPane.showDictation",
+              "agentPane.spellChecking",
               "agentPane.zoom",
               "agents.defaultPermissionMode",
               "app.warnBeforeClosingAgentSession"
@@ -1447,6 +1456,29 @@
         },
         "trail" : [
           "mobile"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "server",
+        "lead" : [
+          "server"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.server",
+          "text" : "Server"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -3177,7 +3209,7 @@
       "range" : {
         "max" : 120,
         "min" : 24,
-        "placeholder" : 64,
+        "placeholder" : 36,
         "step" : 1,
         "unit" : "points"
       },
@@ -6373,6 +6405,78 @@
       "title" : {
         "key" : "settings.layout.scrollAreas",
         "text" : "Scroll Areas"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "command",
+        "none"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.scrollModifierCommand",
+            "text" : "Command + Scroll"
+          },
+          "value" : "command"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.scrollModifierNone",
+            "text" : "Scroll Without a Modifier"
+          },
+          "value" : "none"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "command",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.scrollModifier.help",
+        "text" : "Command + Scroll moves columns and rows from anywhere, and a plain scroll always scrolls the pane under the pointer. Without a modifier, a sideways scroll moves columns unless the pane scrolls sideways itself, and rows scroll only over the gaps between them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.scrollModifier",
+      "keywords" : [
+        "scroll",
+        "command",
+        "modifier",
+        "wheel",
+        "trackpad",
+        "columns",
+        "rows",
+        "strip",
+        "pan",
+        "horizontal"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "scrollModifier"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.layout.scrollModifier.summary",
+        "text" : "Command + Scroll moves columns and rows"
+      },
+      "title" : {
+        "key" : "settings.layout.scrollModifier",
+        "text" : "Scroll Columns and Rows With"
       },
       "validation" : "portable"
     },
@@ -12361,6 +12465,123 @@
     },
     {
       "accepts" : [
+        0,
+        6,
+        3
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.dividerThickness",
+      "keywords" : [
+        "divider",
+        "split",
+        "pane",
+        "line",
+        "thickness",
+        "dividerThickness"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "dividerThickness"
+      ],
+      "range" : {
+        "max" : 6,
+        "min" : 0,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -6,
+        12,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.dividerThickness",
+        "text" : "Divider Thickness"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        24,
+        12.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.default.density",
+        "text" : "Density default"
+      },
+      "group" : {
+        "key" : "settings.group.densityMotion",
+        "text" : "Density and Motion"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "appearance.metrics.dividerHitWidth",
+      "keywords" : [
+        "divider",
+        "split",
+        "pane",
+        "drag",
+        "hit",
+        "width",
+        "dividerHitWidth"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "metrics",
+        "dividerHitWidth"
+      ],
+      "range" : {
+        "max" : 24,
+        "min" : 1,
+        "placeholder" : 7,
+        "step" : 1,
+        "unit" : "points"
+      },
+      "refuses" : [
+        -22,
+        47,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.dividerHitWidth",
+        "text" : "Divider Drag Width"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         24,
         56,
         40
@@ -16489,12 +16710,20 @@
     },
     {
       "accepts" : [
+        "auto",
         "split",
         "unified"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.diffAutoLayout",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
         {
           "title" : {
             "key" : "settings.choice.diffSplit",
@@ -16513,7 +16742,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "unified",
+      "default" : "auto",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.diffViewer",
@@ -16526,7 +16755,9 @@
         "diff",
         "split",
         "unified",
-        "side by side"
+        "side by side",
+        "auto",
+        "automatic"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -16991,6 +17222,54 @@
       "title" : {
         "key" : "settings.diff.hideWhitespace",
         "text" : "Hide White Space"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.diffViewer",
+        "text" : "Diff Viewer"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "diff.showBulkActions",
+      "keywords" : [
+        "diff",
+        "stage",
+        "revert",
+        "all",
+        "floating",
+        "bar",
+        "bulk",
+        "actions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "diff",
+        "showBulkActions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.diff.showBulkActions",
+        "text" : "Stage All and Revert All Bar"
       },
       "validation" : "portable"
     },
@@ -24886,6 +25165,198 @@
       "title" : {
         "key" : "settings.tabs.newTabWidgets.machines",
         "text" : "Show Machines on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.clock.help",
+        "text" : "A quiet local time display beside the composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.clock",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "clock",
+        "time"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "clock"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.clock",
+        "text" : "Show Clock on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.timer.help",
+        "text" : "A small elapsed-time stopwatch beside the composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.timer",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "timer",
+        "stopwatch"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "timer"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.timer",
+        "text" : "Show Stopwatch on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.warmGreeting.help",
+        "text" : "A time-of-day greeting such as Good afternoon."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.warmGreeting",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "greeting",
+        "time of day"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "warmGreeting"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.warmGreeting",
+        "text" : "Show Warm Greeting on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.newTabWidgets.quote.help",
+        "text" : "A bundled public-domain quote, changing daily."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.newTabWidgets.quote",
+      "keywords" : [
+        "new tab",
+        "widget",
+        "quote",
+        "daily"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "newTabWidgets",
+        "quote"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.newTabWidgets.quote",
+        "text" : "Show Quote of the Day on New Tab"
       },
       "validation" : "portable"
     },
@@ -35410,6 +35881,56 @@
       "title" : {
         "key" : "settings.agentPane.showDictation",
         "text" : "Show Dictation Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.spellChecking.help",
+        "text" : "Underlines misspellings and offers system suggestions in the composer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.spellChecking",
+      "keywords" : [
+        "spell",
+        "spelling",
+        "grammar",
+        "misspelling",
+        "composer",
+        "suggestions",
+        "typing"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "spellChecking"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.spellChecking",
+        "text" : "Check Spelling While Typing"
       },
       "validation" : "portable"
     },
