@@ -1196,6 +1196,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peer_add",
       "params": true,
       "result": true

@@ -53,6 +53,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peers",
     "_acpmux/peer_status",
     "_acpmux/host_health",
+    "_acpmux/place",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,

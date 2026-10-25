@@ -218,3 +218,15 @@ async fn peer_status_rides_on_the_peer_row_read_after_connect() {
     let b = b.unwrap_or_else(|| panic!("peer b in the web's status: {status}"));
     assert!(b.get("health").is_none() && b.get("healthAt").is_none(), "{status}");
 }
+
+/// `_acpmux/place` names every machine and its numbers: never to a Web caller.
+#[tokio::test]
+async fn place_answers_only_on_the_unix_socket() {
+    let a = hub().await;
+    let mut local = client(a.clone()).await;
+    let v = local.call("_acpmux/place", json!({})).await.unwrap();
+    assert!(v["hosts"].is_array(), "{v}");
+    let mut web = client_as(a, Some(acpmux::server::Origin::Web)).await;
+    let refused = web.call("_acpmux/place", json!({})).await;
+    assert!(refused.is_err_and(|e| e.contains("unix socket")), "the web gets no placement");
+}
