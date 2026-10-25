@@ -923,7 +923,9 @@ export default agentPaneEntry({
         );
         const files = [
           new view.File([png], "Screenshot.png", { type: "image/png" }),
-          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", { type: "application/zip" }),
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
         ];
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
@@ -941,7 +943,9 @@ export default agentPaneEntry({
         const files = [
           // Not a picture after all: it goes as a file, and the app refuses it.
           new view.File([new Uint8Array(64).fill(7)], "Screenshot.png", { type: "image/png" }),
-          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", { type: "application/zip" }),
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
         ];
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });

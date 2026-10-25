@@ -474,33 +474,44 @@ export function Composer({
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
-  const { attachments, setAttachments, pending, loading, cancel, retry, attachError, setAttachError, drop, dropLanded, attach } =
-    useAttachmentIntake({
-      allowImages,
-      dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
-      // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
-      pasteTarget: (target) =>
-        shellField.current?.contains(target)
-          ? { uploads: false }
-          : field.current?.element()?.contains(target)
-            ? { uploads: true }
-            : undefined,
-      ...(upload ? { upload } : {}),
-      ...(localPaths ? { localPaths } : {}),
-      // A screenshot still being read when the composer moves to another chat stays the chat's it was
-      // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
-      // the prompt to its new session.
-      scope: sessionId,
-      elsewhere: (chat, chips) => {
-        if (!keptAttachments) return;
-        void keptAttachments
-          .read(chat)
-          .catch(() => [])
-          .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
-          .catch(() => {});
-      },
-      carries: () => carryPrompt.current || Boolean(switching),
-    });
+  const {
+    attachments,
+    setAttachments,
+    pending,
+    loading,
+    cancel,
+    retry,
+    attachError,
+    setAttachError,
+    drop,
+    dropLanded,
+    attach,
+  } = useAttachmentIntake({
+    allowImages,
+    dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
+    // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
+    pasteTarget: (target) =>
+      shellField.current?.contains(target)
+        ? { uploads: false }
+        : field.current?.element()?.contains(target)
+          ? { uploads: true }
+          : undefined,
+    ...(upload ? { upload } : {}),
+    ...(localPaths ? { localPaths } : {}),
+    // A screenshot still being read when the composer moves to another chat stays the chat's it was
+    // pasted in: its chip joins that chat's kept chips (keptAttachments.ts), unless a switch carries
+    // the prompt to its new session.
+    scope: sessionId,
+    elsewhere: (chat, chips) => {
+      if (!keptAttachments) return;
+      void keptAttachments
+        .read(chat)
+        .catch(() => [])
+        .then((kept) => keptAttachments.write(chat, appendAttachments(kept, chips)))
+        .catch(() => {});
+    },
+    carries: () => carryPrompt.current || Boolean(switching),
+  });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
