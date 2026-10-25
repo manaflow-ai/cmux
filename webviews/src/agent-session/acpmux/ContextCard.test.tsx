@@ -110,9 +110,7 @@ test("keyboard focus opens the compact tooltip at once", async () => {
   expect(line).toContain("475K");
   expect(line).toContain("23%");
   expect(shown!.querySelector(".acpmux-context-card-bar")).not.toBeNull();
-  expect(shown!.querySelector<HTMLElement>(".acpmux-context-card-bar > span")!.style.width).toBe(
-    "23%",
-  );
+  expect(shown!.querySelector<HTMLProgressElement>(".acpmux-context-card-bar")!.value).toBe(23);
 });
 
 test("the compact card does not expose an inferred setup split", async () => {
@@ -226,12 +224,8 @@ test("the card's padding counts as inside the card", async () => {
   const outer = card()!;
   // The pointer leaves the ring for the card's padding (its outer element, not its content).
   await act(async () => {
-    ring.dispatchEvent(
-      new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: outer }),
-    );
-    outer.dispatchEvent(
-      new window.MouseEvent("pointerover", { bubbles: true, relatedTarget: ring }),
-    );
+    ring.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: outer }));
+    outer.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true, relatedTarget: ring }));
   });
   // fixed-wait: proving the card stays means outwaiting the close grace (200 ms) once.
   await wait(400);
@@ -244,9 +238,7 @@ test("the card's padding counts as inside the card", async () => {
   await wait();
   expect(card()).not.toBeNull();
   await act(async () => {
-    outer.dispatchEvent(
-      new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }),
-    );
+    outer.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
     document.body.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
   });
   await until(() => card() === null);
@@ -303,9 +295,7 @@ test("Tab from the ring reaches Details ›, and Tab past it leaves the card", a
 
 test("before the first usage report the ring is inert and shows no card", async () => {
   const ring = await mount({});
-  await act(async () =>
-    ring.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })),
-  );
+  await act(async () => ring.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
   // fixed-wait: proving no card shows means outwaiting the hover delay (450 ms) once.
   await wait(600);
   expect(card()).toBeNull();
@@ -327,8 +317,7 @@ test("the ring takes no hover or open pill in any stylesheet", () => {
   for (const match of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
     const selectors = match[1].split(",").map((selector) => selector.trim());
     const ringStates = selectors.filter(
-      (selector) =>
-        /\.acpmux-context-ring(?![\w-])/.test(selector) && /:hover|\[aria-expanded/.test(selector),
+      (selector) => /\.acpmux-context-ring(?![\w-])/.test(selector) && /:hover|\[aria-expanded/.test(selector),
     );
     if (ringStates.length === 0) continue;
     const fill = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/.exec(match[2]);

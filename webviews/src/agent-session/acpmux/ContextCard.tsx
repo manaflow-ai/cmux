@@ -100,26 +100,18 @@ export function ContextCardBody({
           {t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
         </span>
       </div>
-      <div
+      <progress
         className="acpmux-context-card-bar"
-        role="progressbar"
         aria-label={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
         aria-valuetext={t("context.cardLine", { percent, used: tokens.format(used), size: tokens.format(size) })}
-      >
-        <span style={{ width: `${percent}%` }} />
-      </div>
+        value={percent}
+        max={100}
+      />
       {compactRows.length > 0 && (
         <ul className="acpmux-context-card-parts">
           {compactRows.map((row) => (
             <li className="acpmux-context-card-part" key={row.name}>
-              <span
-                className="acpmux-context-card-swatch"
-                data-tone={row.tone}
-                aria-hidden="true"
-              />
+              <span className="acpmux-context-card-swatch" data-tone={row.tone} aria-hidden="true" />
               <span>
                 {row.name === "Tools"
                   ? t("chatInspector.context.mcpTools")
@@ -135,12 +127,7 @@ export function ContextCardBody({
       {(onCompact || onOpenDetails) && (
         <div className="acpmux-context-card-foot">
           {onCompact && (
-            <button
-              type="button"
-              className="acpmux-context-card-compact"
-              disabled={working}
-              onClick={onCompact}
-            >
+            <button type="button" className="acpmux-context-card-compact" disabled={working} onClick={onCompact}>
               {t("context.compact")}
             </button>
           )}

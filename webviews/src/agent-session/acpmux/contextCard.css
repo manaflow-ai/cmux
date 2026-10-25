@@ -56,21 +56,20 @@
 }
 
 .acpmux-context-card-bar {
-  display: flex;
+  appearance: none;
+  display: block;
+  width: 100%;
   height: var(--cmux-hairline);
   margin-top: var(--ds-space-1);
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
   overflow: hidden;
 }
 
-.acpmux-context-card-bar > span {
-  flex: none;
-  height: 100%;
-  min-width: 0;
-  border-radius: inherit;
-  background: var(--agent-accent);
-}
+.acpmux-context-card-bar::-webkit-progress-bar { background: color-mix(in srgb, var(--agent-text) 14%, transparent); }
+.acpmux-context-card-bar::-webkit-progress-value { border-radius: inherit; background: var(--agent-accent); }
+.acpmux-context-card-bar::-moz-progress-bar { border-radius: inherit; background: var(--agent-accent); }
 
 .acpmux-context-card [data-segment="used"],
 .acpmux-context-card [data-segment="conversation"] {
@@ -81,7 +80,6 @@
   --acpmux-context-segment: color-mix(in srgb, var(--agent-accent) 50%, transparent);
 }
 
-.acpmux-context-card-bar > span,
 .acpmux-context-card-swatch {
   background: var(--acpmux-context-segment, var(--agent-accent));
 }

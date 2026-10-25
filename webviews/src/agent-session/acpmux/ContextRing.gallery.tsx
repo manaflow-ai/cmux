@@ -47,9 +47,7 @@ function GalleryContextRing(props: Props) {
 
 const openByAutomation: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Open by automation" });
-  await ctx.waitFor(
-    () => ctx.document.querySelector('[data-context-automation="requested"]') !== null,
-  );
+  await ctx.waitFor(() => ctx.document.querySelector('[data-context-automation="requested"]') !== null);
 };
 
 const openKnownByAutomation: Play = async (ctx) => {
@@ -76,11 +74,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/ContextCard.tsx#ContextCardBody",
   ],
   styles: () =>
-    Promise.all([
-      import("./styles.css"),
-      import("./composerControls.css"),
-      import("./ContextRing.gallery.css"),
-    ]),
+    Promise.all([import("./styles.css"), import("./composerControls.css"), import("./ContextRing.gallery.css")]),
   checks: {
     anchorMovePx: {
       value: 0,
