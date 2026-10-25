@@ -80,6 +80,7 @@ import { isAgentHome, projectLabel, recentLocalFolders, sessionTitle, type Acpmu
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import type { RowsChange } from "./threadMinimap/model";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
+import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -222,6 +223,7 @@ import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
+import { heightFoldInFlight } from "./conversation/fold";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -1446,10 +1448,57 @@ function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, Dr
 /// (`contentType` and the rest), so comparing every other prop is enough. The callbacks are stable
 /// across snapshots (VirtualTranscript and the pane hold them), so a streaming snapshot that changes
 /// only the latest row leaves every other mounted row alone.
+function sameReferenceScope(previous: ReferenceScope | undefined, next: ReferenceScope | undefined): boolean {
+  if (previous === next) return true;
+  if (!previous || !next || previous.at !== next.at) return false;
+  if (previous.evidence.linked.length !== next.evidence.linked.length) return false;
+  if (!previous.evidence.linked.every((repo, index) => repo === next.evidence.linked[index])) return false;
+  const sameMap = <K, V>(a: ReadonlyMap<K, V>, b: ReadonlyMap<K, V>, valueEqual: (left: V, right: V) => boolean) => {
+    if (a.size !== b.size) return false;
+    for (const [key, value] of a) {
+      const other = b.get(key);
+      if (other === undefined || !valueEqual(value, other)) return false;
+    }
+    return true;
+  };
+  const sameMentions = (
+    left: readonly { at: number; repo: string }[],
+    right: readonly { at: number; repo: string }[],
+  ) =>
+    left.length === right.length &&
+    left.every((mention, index) => mention.at === right[index]?.at && mention.repo === right[index]?.repo);
+  return (
+    sameMap(previous.evidence.mentions, next.evidence.mentions, sameMentions) &&
+    sameMap(previous.turn, next.turn, (left, right) => left === right)
+  );
+}
+
 function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
-  return keys.every((key) => key === "children" || Object.is(previous[key], next[key]));
+  return keys.every((key) => {
+    if (key === "children") return true;
+    if (key === "row") {
+      // Snapshot rebuilding can clone unchanged rows when a prompt is sent. Row renderers already
+      // use id/version as their draw identity; comparing the object here made every mounted frame
+      // repaint on that send even though its content had not changed. Keep the frame's own flags in
+      // the comparison because they are read outside the child renderer.
+      const before = previous.row as AcpmuxRow;
+      const after = next.row as AcpmuxRow;
+      return (
+        before.id === after.id &&
+        before.version === after.version &&
+        before.below === after.below &&
+        before.ended === after.ended
+      );
+    }
+    if (key === "referenceScope")
+      return sameReferenceScope(
+        previous.referenceScope as ReferenceScope | undefined,
+        next.referenceScope as ReferenceScope | undefined,
+      );
+    return Object.is(previous[key], next[key]);
+  });
 }
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
@@ -2341,12 +2390,14 @@ export function VirtualTranscript({
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
-            // The observer reports a target at the same depth once a frame, so the new size can
-            // arrive a frame late. Queue the changed drawn heights through React's normal batch;
-            // the layout effect after that render measures again before the next paint. A forced
-            // sync commit here made every streaming resize block the main thread.
-            if (changesDrawn(drawnRef.current, pendingDrawn.current)) flushDrawn();
-            else pendingDrawn.current = new Map();
+            // A disclosure's height animation already changed this frame's layout. Place the
+            // rows below that one before paint too, or their old tops overlap its growing body.
+            // Only a row whose disclosure is moving gets this synchronous path; token
+            // resizes keep React's normal batch instead of forcing a commit for every chunk.
+            if (changesDrawn(drawnRef.current, pendingDrawn.current)) {
+              if (targets.some(heightFoldInFlight)) flushSync(flushDrawn);
+              else flushDrawn();
+            } else pendingDrawn.current = new Map();
           }),
     [reportDrawn, flushDrawn],
   );
@@ -2989,7 +3040,6 @@ export function VirtualTranscript({
       // An offset that has not moved since it was recorded was at the latest row if it was
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
-      const top = clamped ? scrolledTo.current.top : live;
       // The reader scrolled up and its scroll event has not come yet: WebKit moves the offset with
       // the wheel and reports it a frame later, and a snapshot that lands between them put the view
       // back at the latest row. A move up past a stray's (or past the deadband, right after the
@@ -3000,12 +3050,20 @@ export function VirtualTranscript({
         scrolledTo.current.top - live >
           (performance.now() - readerAt.current <= READER_SCROLL_MS ? FOLLOW_BOTTOM_DEADBAND_PX : STRAY_SCROLL_PX);
       if (readerLeft) follow(false);
-      const atLatest = followingRef.current
-        ? true
-        : clamped || unmoved
-          ? scrolledTo.current.atLatest
-          : top >= old.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX ||
-            (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
+      // A real wheel can move the live offset before its scroll event reaches React. Keep that
+      // movement for this pass and mark the view away from the latest row; otherwise the stored
+      // bottom offset would immediately snap the reader back. Once the event is acknowledged,
+      // layout-only corrections use the stored offset because WebKit may already include a resize
+      // adjustment in `live`.
+      const top = scrollAnchorBase(live, scrolledTo.current.top, readerLeft);
+      const atLatest = readerLeft
+        ? false
+        : followingRef.current
+          ? true
+          : clamped || unmoved
+            ? scrolledTo.current.atLatest
+            : top >= old.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX ||
+              (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
       // At the latest row also at offset 0: a new chat's first pass can overshoot on estimated
       // heights and settle back to fit, and its reply must still be followed once it overflows
       // (cx-ubd1y). Away from it, at the first row nothing above can move it.
@@ -3030,15 +3088,15 @@ export function VirtualTranscript({
         // so the row is found again by its id; at offset 0 too, when older history arrived above.
         // A row older history completed (a turn cut at the page's edge) has a new id: the next row
         // that kept its own anchors instead.
-        const first = visibleLayoutRange(old, top, 0, 0).first;
-        for (let anchor = first; anchor < Math.min(oldRows.length, first + 32); anchor++) {
-          const id = oldRows[anchor].id;
-          const now = rows[anchor]?.id === id ? anchor : rows.findIndex((row) => row.id === id);
-          if (now < 0) continue;
-          const delta = layout.tops[now] - old.tops[anchor];
-          if (clamped || Math.abs(delta) > 0.5) node.scrollTop = top + delta;
-          break;
-        }
+        const nextTop = preserveScrollAnchorTop({
+          oldLayout: old,
+          newLayout: layout,
+          oldRows,
+          newRows: rows,
+          liveTop: top,
+          anchorTop: top,
+        });
+        if (nextTop !== undefined && (clamped || Math.abs(nextTop - top) > 0.5)) node.scrollTop = nextTop;
       }
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
@@ -3491,7 +3549,11 @@ export function VirtualTranscript({
       return;
     }
     const was = scrolledTo.current;
-    scrolledTo.current = scrollPosition(node, layout.totalHeight);
+    const measured = scrollPosition(node, layout.totalHeight);
+    // A recent upward input is authoritative even when it moved only a pixel or two. The
+    // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
+    const recentUp = performance.now() - readerAt.current <= READER_SCROLL_MS && next < was.top - 0.5;
+    scrolledTo.current = recentUp ? { ...measured, atLatest: false } : measured;
     const latest = Math.max(0, layout.totalHeight - node.clientHeight);
     if (was.atLatest && !scrolledTo.current.atLatest && strayFrom(next, latest)) {
       // Not the reader's scroll: the view keeps following the reply.
@@ -3550,15 +3612,23 @@ export function VirtualTranscript({
   };
   useEffect(() => {
     const node = ref.current;
-    const reader = () => {
+    const reader = (event?: Event) => {
       readerAt.current = performance.now();
       followTrace.input();
+      // Release the follow intent synchronously when a reader starts moving up. The browser can
+      // deliver the wheel before its scroll event; a streamed snapshot in that gap must not pin
+      // the view back to the bottom. Capture the event so nested rows cannot commit first.
+      const movingUp =
+        event !== undefined &&
+        ((event.type === "wheel" && (event as WheelEvent).deltaY < 0) ||
+          (event.type === "keydown" && ["ArrowUp", "PageUp", "Home"].includes((event as KeyboardEvent).key)));
+      if (movingUp) follow(false);
       clearTimeout(settle.current);
       settle.current = undefined;
       jumpTarget.current = undefined;
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
-    for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
+    for (const name of inputs) node?.addEventListener(name, reader, { capture: true, passive: true });
     // A click on a disclosure line holds it where it is (foldAnchor.ts), before the row's own handler
     // opens it.
     // A turn fold still sliding rows lands first, and the offset takes up however far that moved the
@@ -3625,7 +3695,7 @@ export function VirtualTranscript({
     gutterRelease.current = gutter?.release;
     return () => {
       clearTimeout(settle.current);
-      for (const name of inputs) node?.removeEventListener(name, reader);
+      for (const name of inputs) node?.removeEventListener(name, reader, { capture: true });
       node?.removeEventListener("click", holdClicked, { capture: true });
       node?.removeEventListener(ANCHORED_COLLAPSE_EVENT, holdAsked);
       for (const name of releases) node?.removeEventListener(name, release);
@@ -5785,7 +5855,7 @@ function AcpmuxPane() {
     () => (subagentTray ? finishedTrayItems(trayAgents, childSessions) : []),
     [subagentTray, trayAgents, childSessions],
   );
-  // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
+  // The turn's generated output tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({
     summary: snapshot.summary,

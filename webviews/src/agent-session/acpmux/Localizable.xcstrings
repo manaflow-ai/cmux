@@ -32437,6 +32437,7 @@
         }
       }
     },
+    "permission.alwaysDeny": {"comment":"Agent pane: short button label on a permission card for an agent's option that denies this call and its kind from now on (ACP reject_always), when the agent's own name for it is too long for a button","extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Always deny"}},"ar":{"stringUnit":{"state":"needs_review","value":"رفض دائمًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Uvijek odbij"}},"da":{"stringUnit":{"state":"needs_review","value":"Afvis altid"}},"de":{"stringUnit":{"state":"needs_review","value":"Immer ablehnen"}},"es":{"stringUnit":{"state":"needs_review","value":"Denegar siempre"}},"fr":{"stringUnit":{"state":"needs_review","value":"Toujours refuser"}},"it":{"stringUnit":{"state":"needs_review","value":"Rifiuta sempre"}},"ja":{"stringUnit":{"state":"needs_review","value":"常に拒否"}},"km":{"stringUnit":{"state":"needs_review","value":"បដិសេធជានិច្ច"}},"ko":{"stringUnit":{"state":"needs_review","value":"항상 거부"}},"nb":{"stringUnit":{"state":"needs_review","value":"Avslå alltid"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zawsze odmawiaj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Sempre negar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Всегда запрещать"}},"th":{"stringUnit":{"state":"needs_review","value":"ปฏิเสธเสมอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Her zaman reddet"}},"uk":{"stringUnit":{"state":"needs_review","value":"Завжди забороняти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Luôn từ chối"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"始终拒绝"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"一律拒絕"}}}},
     "permission.deny": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -178884,6 +178885,11 @@
           }
         }
       }
+    },
+    "turn.working.outputTokens": {
+      "comment": "Agent pane: generated output tokens for the running turn, after its time (Thinking 5m 54s · 2.1M out).",
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"bs":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"da":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"de":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"en":{"stringUnit":{"state":"translated","value":"{tokens} out"}},"es":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"fr":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"it":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"ja":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"km":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"ko":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"nb":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"pl":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"ru":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"th":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"tr":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"uk":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"vi":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}}}
     },
     "turn.working.tokens": {
       "comment": "Agent pane: the running turn's line, the tokens its model calls used so far, after its time (Working for 5m 54s · 2.1M tokens). {tokens} is the count in compact form (2.1M, 840K).",
