@@ -21,6 +21,23 @@
 //! before it sends a byte, and the listener accepts a ticket or a device
 //! credential only from a loopback address (the end of a TLS terminator or
 //! an ssh tunnel on this machine), as it does the peer token.
+//!
+//! Full access, per machine, off by default (Leo: "#2 seems
+//! reasonable i think... it's a gate that you can enable for your phone,
+//! which is an attack vector you opt in to"). A chat a remote connection
+//! starts has the policy `ask` (`server/remote_guard.rs`), which holds it in
+//! a mode that asks (`hub/policy_mode.rs`). The person may let one `client`
+//! machine move such a chat out of it (not one held by deny-all, and not a
+//! chat started on this machine): `_acpmux/pair_set {id, fullAccess}`,
+//! on the unix socket only, and turning it on needs the person
+//! (`hub/person.rs`), so an agent on this machine cannot grant it to a
+//! machine it paired itself. The setting is on the device's record, so
+//! revoking the machine ends it; it is read again on every request
+//! ([`Pairing::full_access`]), and turning it off (or revoking the
+//! machine) puts every chat out of its policy's mode back at once
+//! (`Hub::hold_policies_again`). It covers only a connection that
+//! presented that machine's own credential (`ConnAuth::Device`): the
+//! shared dashboard token, a peer token and a read-only machine never.
 
 mod read_only;
 mod store;
@@ -83,6 +100,13 @@ impl Role {
 pub struct DeviceAuth {
     pub id: String,
     pub role: Role,
+}
+
+/// What the Full-access setting lets a machine do, shown where it is turned on.
+pub fn full_access_allows(name: &str) -> String {
+    format!(
+        "lets {name} run chats in Full access: the agent edits files and runs commands on this Mac without asking"
+    )
 }
 
 /// Whether a ticket or a device credential may arrive over `url`: `wss://`,
@@ -234,6 +258,18 @@ impl Pairing {
     /// The device a presented credential proves, if any (never a revoked one).
     pub fn device_for(&self, token: &str) -> Option<DeviceAuth> {
         self.lock().store.device_for(token).map(|d| DeviceAuth { id: d.id.clone(), role: d.role })
+    }
+
+    /// Whether device `id`'s Full-access setting covers a request now: read
+    /// from the store on every call, so turning it off or revoking the
+    /// machine counts for its very next request.
+    pub fn full_access(&self, id: &str) -> bool {
+        self.lock().store.devices.iter().any(|d| d.id == id && d.grants_full_access())
+    }
+
+    /// Turn the Full-access setting of a live device (by id or name) on or off.
+    pub fn set_full_access(&self, key: &str, on: bool) -> Result<Device, RpcError> {
+        self.change(|s| s.set_full_access(key, on))
     }
 
     /// Revoke a ticket or a device by id (or a device by name). Returns the
