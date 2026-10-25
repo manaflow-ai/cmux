@@ -94,6 +94,8 @@ has the exit code, stdout, stderr, the runner commit (`runner_ref`) and the sour
   links. `test_probe_names.sh` checks each refusal (run it on a fleet host).
 - `CMUX_MATRIX_APP` holds the build's app path in the guest, for a later probe that needs the app.
 - Probes: `url-root-parent` (issue #4529): `"/.."` on 14.8.7 and 15.7.7, `"/"` on 26.6.2 (2026-10-24).
+- `key-change-cost` (issue #24913): ms of one key-window change between a window and its child window, with
+  0-120 hidden workspace-like view trees in the window and out of it (does a hidden tree cost a key change?).
 
 ### cmux-unit and xctrace in the guest
 
