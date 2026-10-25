@@ -1055,7 +1055,8 @@ mod tests {
             ("migrate", migrate(false)),
         ] {
             for shell in ["sh", "dash", "bash"] {
-                let Ok(out) = std::process::Command::new(shell).args(["-n", "-c", &script]).output()
+                let Ok(out) =
+                    std::process::Command::new(shell).args(["-n", "-c", &script]).output()
                 else {
                     continue;
                 };
