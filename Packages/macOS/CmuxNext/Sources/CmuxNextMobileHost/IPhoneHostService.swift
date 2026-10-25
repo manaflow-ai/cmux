@@ -175,7 +175,7 @@ public final class IPhoneHostService {
         guard allowed, account != nil, let dependencies else {
             knownPhones = []
             phonesError = nil
-            return
+            return pushListedPhones()
         }
         let directory = MobileHostDeviceDirectory(baseURL: dependencies.baseURL)
         // task-owner: stored in `listing`; a newer read cancels it
@@ -185,6 +185,7 @@ public final class IPhoneHostService {
                 guard !Task.isCancelled else { return }
                 self?.knownPhones = phones
                 self?.phonesError = nil
+                self?.pushListedPhones()
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.phonesError = IPhoneHostStrings.listFailed
@@ -196,14 +197,15 @@ public final class IPhoneHostService {
     /// hostd, and re-reads the list. A phone still signed in to the account registers again
     /// when it next connects.
     public func removePhone(id: String) async {
-        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id }) else { return }
+        guard let dependencies, let phone = knownPhones.first(where: { $0.id == id || $0.owns(id) }) else { return }
         do {
             try await MobileHostDeviceDirectory(baseURL: dependencies.baseURL).remove(phone, token: dependencies.accessToken(false))
             await supervisor.drop(phoneDeviceIDs: phone.deviceIDs)
             // Its pairing goes too: its links and Face ID approvals stop at once.
             for deviceID in phone.deviceIDs { revokePhone(id: deviceID) }
-            knownPhones.removeAll { $0.id == id }
+            knownPhones.removeAll { $0.id == phone.id }
             phonesError = nil
+            pushListedPhones()
         } catch {
             logger.error("iPhone removal failed: \(String(describing: error), privacy: .public)")
             phonesError = IPhoneHostStrings.removeFailed
@@ -252,7 +254,7 @@ public final class IPhoneHostService {
             }) {
                 guard let self else { return }
                 if approverSync == nil, !folders.isEmpty, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
+                    approverSync = makeApproverSync(environment)
                 }
                 approverSync?.updateWorkspaceRoots(folders)
             }
@@ -277,7 +279,7 @@ public final class IPhoneHostService {
                     continue
                 }
                 if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-                    approverSync = MobileHostApproverSync(environment: environment)
+                    approverSync = makeApproverSync(environment)
                 }
                 approverSync?.updateNewChatPicks(picks.params)
             }
