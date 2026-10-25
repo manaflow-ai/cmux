@@ -1,12 +1,14 @@
+import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextWakeups
 public import Foundation
 
 /// What each agent chat's page held that acpmux does not (``AgentPaneWakeState``: the composer's
 /// attachments, shell mode with its unrun command, where the transcript rested), by tab, in a JSON
 /// file in the tag's state directory. The quit's window step saves it (`QuitCoordinator`), so every
 /// relaunch that goes through the quit (Restart to Update, SIGTERM's Quit and keep sessions,
-/// Cmd-Q) keeps it; the next launch hands it to each tab's first page with its handshake, as a
-/// woken hibernated page gets it. The draft's text is acpmux's and a new chat's is
+/// Cmd-Q) keeps it; the next launch reads it off the main thread and hands it to each tab's first page
+/// with its handshake, as a woken hibernated page gets it. The draft's text is acpmux's and a new chat's is
 /// ``AgentUnsentDrafts``'.
 ///
 /// An attachment's contents (a pasted screenshot, a PDF, a recording) are copied into
@@ -18,8 +20,7 @@ public final class AgentPaneRelaunchWake {
     public static let fileName = "agent-pane-wake-states.json"
     public static let attachmentsDirectoryName = "agent-pane-wake-attachments"
     /// The JSON (shell commands, text files' text, file names): a tab holding more is not kept, and
-    /// the file stops growing past ``maximumBytes`` (the launch reads it on the main actor; a larger
-    /// file is not read).
+    /// the file stops growing past ``maximumBytes`` (a larger file is not read).
     nonisolated static let maximumTabBytes = 4 * 1024 * 1024
     nonisolated static let maximumBytes = 8 * 1024 * 1024
     let file: URL?
@@ -58,21 +59,28 @@ public final class AgentPaneRelaunchWake {
     }
 
     /// The last quit's states, by tab, once: the file and the attachments' files go, so a crash
-    /// later in this run never brings back chips already sent.
-    public func take() -> [String: AgentPaneWakeState] {
+    /// later in this run never brings back chips already sent. The reads (the JSON up to
+    /// ``maximumBytes``, the attachments' files up to ``maximumAttachmentBytes``), the decode and the
+    /// removal run on `work`'s files lane, never on the main thread.
+    public func take(on work: BackgroundWork) async -> [String: AgentPaneWakeState] {
         guard let file else { return [:] }
-        let folder = attachmentsDirectory
+        let (folder, budget, reader) = (attachmentsDirectory, maximumAttachmentBytes, reader)
+        // The tabs' first pages wait for it with their handshake.
+        return (try? await work.run(.userVisible, mayBlock: .files, { Self.readAndRemove(file, attachments: folder, budget: budget, reader: reader) })) ?? [:]
+    }
+
+    private nonisolated static func readAndRemove(_ file: URL, attachments folder: URL?, budget: Int, reader: LaunchFileReader) -> [String: AgentPaneWakeState] {
         defer {
-            try? FileManager.default.removeItem(at: file)
-            if let folder { try? FileManager.default.removeItem(at: folder) }
+            try? FileManager.checked.removeItem(at: file)
+            if let folder { try? FileManager.checked.removeItem(at: folder) }
         }
-        guard let data = reader.data(at: file, maximumBytes: Self.maximumBytes) else { return [:] }
+        guard let data = reader.data(at: file, maximumBytes: maximumBytes) else { return [:] }
         let decoder = JSONDecoder()
         let saved = (try? decoder.decode([String: Saved].self, from: data))
             // A file the last build wrote, contents inline.
             ?? (try? decoder.decode([String: AgentPaneWakeState].self, from: data))?.mapValues { Saved(state: $0) }
             ?? [:]
-        var budget = maximumAttachmentBytes
+        var budget = budget
         return saved.compactMapValues { saved in
             var state = saved.state
             if let files = saved.files, let folder, let attachments = state.attachments {
