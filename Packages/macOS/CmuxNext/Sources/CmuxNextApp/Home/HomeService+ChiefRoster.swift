@@ -89,6 +89,14 @@ extension HomeService {
         }
     }
 
+    /// The cloud Chiefs' conversations the Engine row excludes. With this Mac's Chief the default,
+    /// Home never opens one of these, not even as the page's fallback while this Mac's conversation
+    /// is not listed yet: the choice is about where the person's Chief messages go.
+    var excludedChiefConversations: Set<String> {
+        guard prefersLocalChief else { return [] }
+        return Set([cloudChiefs.hosted?.mainConversation, cloudChiefs.placed?.mainConversation].compactMap { $0 })
+    }
+
     /// This Mac's brain host started or died (``ChiefBrainKeeper``): Auto follows it, so the Chief
     /// tab check runs again. Without this, Home opening starts the brain after the check settled on
     /// the Hosted Chief, and Auto would keep opening Hosted for the rest of the launch.
@@ -96,8 +104,11 @@ extension HomeService {
         chiefHostChange?.cancel()
         // task-owner: one lock read and tab check per brain start or death
         chiefHostChange = Task { [weak self] in
-            await self?.refreshLocalChiefRunning()
-            guard let self, !Task.isCancelled else { return }
+            guard let self else { return }
+            let running = await Self.localChiefRuns(chief.home)
+            // A newer start or death is already reading: its answer is the current one, never this.
+            guard !Task.isCancelled else { return }
+            if localChiefRunning != running { localChiefRunning = running }
             refreshChiefTab()
         }
     }

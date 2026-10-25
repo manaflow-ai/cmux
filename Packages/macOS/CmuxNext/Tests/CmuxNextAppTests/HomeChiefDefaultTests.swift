@@ -73,6 +73,26 @@ struct HomeChiefDefaultTests {
         #expect(home.cloudChief == nil, "this Mac's optchat-chief runs: this Mac's Chief")
     }
 
+    /// With This Mac chosen and its conversation not listed yet, the page's fallback skips the
+    /// cloud Chiefs instead of opening one (review of #23984): the choice is about where the
+    /// person's Chief messages go, so no fallback may send them to the cloud.
+    @Test func thisMacsChoiceExcludesEveryCloudChiefFromThePagesFallback() async throws {
+        let services = Self.services()
+        let home = services.home
+        home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted, placed: Self.placed))
+        home.localChiefRunning = false
+        #expect(home.excludedChiefConversations.isEmpty, "Auto with no local brain: the cloud Chief is the default")
+
+        let (settings, url) = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#)
+        services.settings = settings
+        #expect(home.excludedChiefConversations == ["conv_hosted", "conv_placed"])
+        #expect(home.defaultChiefConversation == nil, "this Mac's conversation is not listed: the tab waits")
+
+        try Data(#"{"home":{"chiefEngine":"hosted"}}"#.utf8).write(to: url)
+        await settings.reload()
+        #expect(home.excludedChiefConversations.isEmpty, "Hosted: the cloud Chief is the point")
+    }
+
     @Test func theEngineSettingForcesEitherChief() async throws {
         let services = Self.services()
         let home = services.home

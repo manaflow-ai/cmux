@@ -43,8 +43,9 @@ import Testing
         while seen.count < 2, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        watch.stop()
+        // Asserted before `stop()`, which reports nil itself: the nil here is the exit's.
         #expect(seen == [brain.processIdentifier, nil], "the host died: no host runs")
+        watch.stop()
     }
 
     /// Watches a stand-in brain, ends it and counts the watch's restarts.

@@ -267,10 +267,12 @@ final class TopHomePageView: NSView {
     }
 
     /// The Chief's conversation (the chief placed on a server takes over a
-    /// local one without history: `HomeChiefSource`), else the first listed conversation.
+    /// local one without history: `HomeChiefSource`), else the first listed conversation that the
+    /// Engine row does not exclude (with This Mac chosen, never a cloud Chief's: ``HomeService/excludedChiefConversations``).
     private func defaultConversation(rows: [InboxRow], home: HomeService) -> ConversationID? {
         if let chief = Self.chief(home) { return ConversationID(chief) }
-        return rows.homeLines.lazy.compactMap(\.conversation).first
+        let excluded = home.excludedChiefConversations
+        return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
     }
 
     static func chief(_ home: HomeService) -> String? { home.defaultChiefConversation }
