@@ -340,6 +340,7 @@ import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
+import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -966,6 +967,8 @@ const ThinkingRow = memo(
         doing={row.doing}
         doingAt={row.doingAt}
         doingShell={row.doingShell}
+        sendTo={row.doingSendTo}
+        sendSession={row.doingSendSession}
         draft={row.doingDraft}
         untimed={row.untimed}
         quietKey={row.quietKey}
@@ -989,6 +992,8 @@ const ThinkingRow = memo(
     a.row.doing === b.row.doing &&
     a.row.doingAt === b.row.doingAt &&
     a.row.doingShell === b.row.doingShell &&
+    a.row.doingSendTo === b.row.doingSendTo &&
+    a.row.doingSendSession === b.row.doingSendSession &&
     a.row.doingDraft === b.row.doingDraft &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
@@ -6251,6 +6256,7 @@ function AcpmuxPane() {
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
         configureToolRunLook(theme.toolRunLook);
+        configureSentLook(theme.sentLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);

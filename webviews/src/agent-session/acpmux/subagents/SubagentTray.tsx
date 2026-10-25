@@ -34,7 +34,7 @@ import { memo, useId, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { arrivalKey, type BackgroundCommand, commandLabel } from "../inspector/processes";
+import { arrivalKey, type BackgroundCommand, commandLabel, sendLabel } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import { STATUS_LABEL, type SubagentStatus, subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { AgentLine } from "./AgentLine";
@@ -196,7 +196,7 @@ export const SubagentTray = memo(function SubagentTray({
       return (
         <>
           <AgentLine
-            name={commandLabel(item.command)}
+            name={sendLabel(t, item.command) ?? commandLabel(item.command)}
             title={item.command.command}
             kind={t("tray.kind.command")}
             chevron

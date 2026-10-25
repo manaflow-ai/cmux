@@ -59,3 +59,7 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* A sent message's first line after the row's words (SentMessageLine.tsx). */
+.cv-sent__preview {
+  margin-inline-start: 8px;
+}
