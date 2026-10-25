@@ -728,8 +728,9 @@ fieldset.acpmux-question[hidden]{display:none}
 
 /* A permission ask (PermissionCard.tsx), after Claude Code desktop's prompt: a compact glass card
    (.ui-glass, src/ui/glass/glass.css) with the tool's glyph and what the call does, the command in
-   mono clamped to two lines (Show full command opens it in a scrolling block), and a row of buttons:
-   Allow once filled with the accent, Always allow and Deny quiet. */
+   mono clamped to two lines (Show full command opens it in a scrolling block), and one row of short
+   buttons of one size: Allow once filled with the accent, Always allow, Deny and any other option
+   quiet. What they cover is one muted line under them, cut with an ellipsis (its title has it whole). */
 .acpmux-permission-card.acpmux-permission-ask{border:0;border-radius:12px;padding:12px;background:var(--glass-tint);--glass-elevation:var(--elevation-1)}
 .acpmux-permission-request{display:flex;flex-direction:column;gap:6px;min-width:0}
 .acpmux-permission-request-head{display:flex;align-items:center;gap:8px;min-width:0}
@@ -744,20 +745,18 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-command-toggle{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
 .acpmux-permission-command-toggle:hover{color:var(--agent-text)}
 .acpmux-permission-command-toggle:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
-.acpmux-permission-ask .acpmux-permission-buttons{flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
-.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;gap:6px;min-height:26px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25}
+.acpmux-permission-ask .acpmux-permission-buttons{display:inline-grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);max-width:100%;align-items:center;gap:6px;margin-top:10px}
+.acpmux-permission-ask .acpmux-permission-buttons button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:26px;box-sizing:border-box;border:0;border-radius:6px;padding:4px 10px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25}
 .acpmux-permission-ask .acpmux-permission-buttons button:hover{background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base));font-weight:500}
 .acpmux-permission-ask .acpmux-permission-buttons button.acpmux-permission-primary:hover{background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
 .acpmux-permission-ask .acpmux-permission-buttons button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
-.acpmux-permission-ask .acpmux-permission-action-shortcut{margin:0;opacity:1}
-.acpmux-permission-always-scope{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;overflow-wrap:anywhere}
-/* Options beyond the three answers (a second grant, Codex's "No, continue without running it"), by their own names. */
-.acpmux-permission-others{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px}
-.acpmux-permission-others button{all:unset;color:var(--agent-muted);font-size:var(--text-caption);line-height:1.3;cursor:default}
-.acpmux-permission-others button:hover{color:var(--agent-text)}
-.acpmux-permission-others button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px;border-radius:3px}
-.acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-description{color:color-mix(in srgb,currentColor 72%,transparent);font-size:var(--text-caption);line-height:1.3}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity var(--cmux-motion-micro)}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
+.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0;opacity:1}
+.acpmux-permission-ask .acpmux-permission-action-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* An option beyond the three answers keeps a short label: a long agent name is cut, so one option never widens them all. */
+.acpmux-permission-ask .acpmux-permission-other .acpmux-permission-action-label{max-width:14ch}
+.acpmux-permission-ask .acpmux-permission-scope{margin:6px 0 0;font-size:var(--text-caption);line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.acpmux-permission-action-label{font:inherit;line-height:1.25}.acpmux-permission-action-shortcut{align-self:flex-end;display:inline-block;margin-top:2px;padding:0 3px;border:0;border-radius:3px;color:color-mix(in srgb,currentColor 60%,transparent);font:var(--text-caption)/1.2 var(--font-mono);opacity:0;transition:opacity var(--cmux-motion-micro)}.acpmux-permission-ask .acpmux-permission-buttons button:hover .acpmux-permission-action-shortcut,.acpmux-permission-ask .acpmux-permission-buttons button:focus-visible .acpmux-permission-action-shortcut{opacity:1}
 .acpmux-permission-panel .acpmux-permission-action-shortcut{opacity:1}
 /* Deny with what to do instead (PermissionCard.tsx): Deny opens a field in the card. */
 .acpmux-permission-feedback{display:flex;flex-direction:column;gap:6px;margin-top:8px}
