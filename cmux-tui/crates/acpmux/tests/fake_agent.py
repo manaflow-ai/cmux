@@ -881,12 +881,12 @@ def handle_prompt(rid, params):
                      "kind": "execute", "status": "in_progress"})
         time.sleep(3600)
         return
-    # "tool-done-hang": a tool call that ends half a second later, then nothing more: the turn's
+    # "tool-done-hang": a tool call that ends 1.5 s later, then nothing more: the turn's
     # deadline comes back to one period once no tool call is open (`hub/stalled_turn.rs`).
     if text == "tool-done-hang":
         update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tdh-1", "title": "Run a check",
                      "kind": "execute", "status": "in_progress"})
-        time.sleep(0.5)
+        time.sleep(1.5)
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
         time.sleep(3600)
         return

@@ -223,10 +223,11 @@ async fn a_tool_call_that_ends_brings_the_stalled_deadline_back() {
     })
     .await;
     c.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
-    // The reaper now sleeps until four periods from here.
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    clock.advance(Duration::from_secs(30));
-    // The tool call ends (in real time): one period from now.
+    // Past one period inside the open tool call: the reaper looks, and sleeps until four.
+    clock.advance(Duration::from_secs(61));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(results(&hub, &id).is_empty(), "ended inside its open tool call");
+    // The tool call ends (1.5 s after it began, real time): one period from now, not four.
     until_event(&hub, &id, |e| e.msg.pointer("/params/update/status") == Some(&json!("completed")))
         .await;
     clock.advance(Duration::from_secs(61));
@@ -263,6 +264,9 @@ async fn a_turn_counts_from_its_prompt_being_written() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     other.request(method::MUX_DETACH, json!({"sessionId": id})).await.unwrap();
+    // Past a period while the agent still starts (1.5 s): the reaper looks now.
+    clock.advance(Duration::from_secs(61));
+    tokio::time::sleep(Duration::from_millis(200)).await;
     until_event(&hub, &id, |e| {
         e.msg.pointer("/params/update/content/text") == Some(&json!("working"))
     })
