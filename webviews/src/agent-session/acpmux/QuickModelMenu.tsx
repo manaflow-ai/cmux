@@ -616,7 +616,7 @@ export function QuickModelMenu({
         side={newTab ? "bottom" : "top"}
         align="start"
         label={t("picker.model")}
-        className={families ? "acpmux-quick-menu acpmux-quick-railed" : "acpmux-quick-menu"}
+        className={`acpmux-quick-menu${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
         boundary={CHAT_COLUMN}
         // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
         onKeyDown={keyDown}

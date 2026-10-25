@@ -194,6 +194,12 @@
 .acpmux-quick-railed { max-width: min(360px, var(--available-width, calc(100vw - 24px))); padding: 0; overflow: hidden; }
 /* A rail or list taller than the room scrolls on its own; the other stays put. */
 .acpmux-quick-layout { display: flex; align-items: stretch; max-height: var(--available-height, none); }
+/* New Tab's menu opens down from the middle of the page: it stops well short of the window's bottom
+   edge and scrolls inside past 360 px. */
+.acpmux-quick-newtab,
+.acpmux-quick-newtab .acpmux-quick-layout {
+  max-height: min(360px, calc(var(--available-height, 100vh) - 24px));
+}
 .acpmux-quick-rail,
 .acpmux-quick-body { overflow-y: auto; }
 .acpmux-quick-rail {
