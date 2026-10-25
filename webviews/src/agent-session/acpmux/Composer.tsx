@@ -11,6 +11,7 @@ import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellR
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
+import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
 import { ComposerQueue } from "./ComposerQueue";
 import type { Subsessions } from "./subagents/subsessions";
 import {
@@ -89,8 +90,8 @@ import { stopTurnFromAction } from "./stopTurnAction";
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
-/// How long typing pauses before a new chat's text goes to the host (`onUnsentDraft`).
-const UNSENT_DRAFT_SETTLE_MS = 300;
+/// How often at most a new chat's text goes to the host while the person types (`onUnsentDraft`).
+const UNSENT_DRAFT_INTERVAL_MS = 300;
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 
@@ -699,12 +700,30 @@ export function Composer({
     if (hydratedSession.current !== sessionId) return;
     writePersistedDraft(sessionId, text);
   }, [sessionId, text]);
+  // A new chat's text goes to the host at most every 300 ms while typing, and at once when the page is
+  // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts).
+  const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
   useEffect(() => {
-    // Once the typing settles, so the host writes its file once per pause, not per keystroke.
     if (sessionId || !onUnsentDraft) return;
-    const settled = setTimeout(() => onUnsentDraft(text), UNSENT_DRAFT_SETTLE_MS);
-    return () => clearTimeout(settled);
-  }, [sessionId, text, onUnsentDraft]);
+    const throttle = createUnsentDraftThrottle({ send: onUnsentDraft, intervalMs: UNSENT_DRAFT_INTERVAL_MS });
+    unsentDraft.current = throttle;
+    const flush = () => throttle.flush();
+    const hidden = () => {
+      if (document.visibilityState === "hidden") throttle.flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", hidden);
+      throttle.flush();
+      throttle.dispose();
+      if (unsentDraft.current === throttle) unsentDraft.current = undefined;
+    };
+  }, [sessionId, onUnsentDraft]);
+  useEffect(() => {
+    unsentDraft.current?.push(text);
+  }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -884,6 +903,7 @@ export function Composer({
       return true;
     }
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    unsentDraft.current?.flush();
     const sent = attachments;
     const taken = onSend(prompt, sent, steer);
     if (taken === false) return false;
@@ -1341,6 +1361,7 @@ export function Composer({
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    unsentDraft.current?.flush();
     const original = unwrapped();
     plusDraft.current = undefined;
     if (original !== text) edit(original, original.length);
