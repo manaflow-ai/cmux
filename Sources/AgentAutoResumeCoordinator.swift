@@ -193,7 +193,7 @@ final class AgentAutoResumeCoordinator {
     }
 
     @MainActor
-    private func screenState(for surface: TerminalSurface) -> ScreenState {
+    func screenState(for surface: TerminalSurface) -> ScreenState {
         guard let frame = surface.mobileRenderGridFrame(
             stateSeq: 0,
             includeTheme: false,

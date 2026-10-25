@@ -672936,6 +672936,360 @@
           }
         }
       }
+    },
+    "cli.claudeAccount.list.exhaustedUntil": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "exhausted until %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مستنفد حتى %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erschöpft bis %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agotada hasta %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "épuisé jusqu’à %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ まで上限到達"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@까지 한도 소진"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "额度已用尽，至 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "額度已用盡，至 %@"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.confirmTrust": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hit its usage limit (resets %2$@). Confirm folder trust in %3$@, then continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %1$@ حد الاستخدام (يُعاد التعيين %2$@). أكّد الثقة بالمجلد في %3$@، ثم تابع."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat das Nutzungslimit erreicht (Zurücksetzung %2$@). Bestätige in %3$@, dass du dem Ordner vertraust, und setze dann fort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ alcanzó su límite de uso (se restablece: %2$@). Confirma la confianza en la carpeta en %3$@ y luego continúa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a atteint sa limite d’utilisation (réinitialisation : %2$@). Confirmez la confiance dans le dossier sur %3$@, puis continuez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が使用量の上限に達しました（リセット: %2$@）。%3$@ でフォルダーの信頼を確認してから続行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 계정이 사용량 한도에 도달했습니다(초기화: %2$@). %3$@ 계정에서 폴더 신뢰를 확인한 뒤 계속하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已达到用量上限（%2$@ 重置）。请在 %3$@ 中确认信任该文件夹，然后继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已達到用量上限（%2$@ 重設）。請在 %3$@ 中確認信任此資料夾，然後繼續。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.confirmTrustNoReset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hit its usage limit. Confirm folder trust in %2$@, then continue."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %1$@ حد الاستخدام. أكّد الثقة بالمجلد في %2$@، ثم تابع."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat das Nutzungslimit erreicht. Bestätige in %2$@, dass du dem Ordner vertraust, und setze dann fort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ alcanzó su límite de uso. Confirma la confianza en la carpeta en %2$@ y luego continúa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a atteint sa limite d’utilisation. Confirmez la confiance dans le dossier sur %2$@, puis continuez."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が使用量の上限に達しました。%2$@ でフォルダーの信頼を確認してから続行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 계정이 사용량 한도에 도달했습니다. %2$@ 계정에서 폴더 신뢰를 확인한 뒤 계속하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已达到用量上限。请在 %2$@ 中确认信任该文件夹，然后继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已達到用量上限。請在 %2$@ 中確認信任此資料夾，然後繼續。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.continuing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hit its usage limit (resets %2$@). Continuing on %3$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %1$@ حد الاستخدام (يُعاد التعيين %2$@). جارٍ المتابعة على %3$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat das Nutzungslimit erreicht (Zurücksetzung %2$@). Weiter mit %3$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ alcanzó su límite de uso (se restablece: %2$@). Se continúa en %3$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a atteint sa limite d’utilisation (réinitialisation : %2$@). Suite sur %3$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が使用量の上限に達しました（リセット: %2$@）。%3$@ で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 계정이 사용량 한도에 도달했습니다(초기화: %2$@). %3$@ 계정에서 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已达到用量上限（%2$@ 重置）。正在 %3$@ 上继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已達到用量上限（%2$@ 重設）。正在 %3$@ 上繼續。"
+          }
+        }
+      }
+    },
+    "notification.claudeAccountAutoSwitch.continuingNoReset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hit its usage limit. Continuing on %2$@."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بلغ %1$@ حد الاستخدام. جارٍ المتابعة على %2$@."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat das Nutzungslimit erreicht. Weiter mit %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ alcanzó su límite de uso. Se continúa en %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ a atteint sa limite d’utilisation. Suite sur %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が使用量の上限に達しました。%2$@ で続行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 계정이 사용량 한도에 도달했습니다. %2$@ 계정에서 계속합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已达到用量上限。正在 %2$@ 上继续。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 已達到用量上限。正在 %2$@ 上繼續。"
+          }
+        }
+      }
+    },
+    "sidebar.claudeAccountAutoSwitch.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude account: %1$@ → %2$@ (auto)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حساب Claude: %1$@ ← %2$@ (تلقائي)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Konto: %1$@ → %2$@ (automatisch)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuenta de Claude: %1$@ → %2$@ (automático)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compte Claude : %1$@ → %2$@ (automatique)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude アカウント: %1$@ → %2$@（自動）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 계정: %1$@ → %2$@ (자동)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 账号：%1$@ → %2$@（自动）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude 帳號：%1$@ → %2$@（自動）"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

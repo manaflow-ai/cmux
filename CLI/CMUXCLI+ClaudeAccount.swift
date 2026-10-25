@@ -29,7 +29,9 @@ extension CMUXCLI {
     }
 
     /// `cmux claude-account [list]`: the accounts from the user `cmux.json` and the nearest
-    /// project `.cmux/cmux.json` above the current directory, default account first.
+    /// project `.cmux/cmux.json` above the current directory, default account first. An account
+    /// that hit its usage limit also shows until when the automatic switch skips it, read from
+    /// the app's exhaustion file; the CLI never writes that file.
     func runClaudeAccountList(commandArgs: [String], jsonOutput: Bool) throws {
         guard commandArgs.count <= 1, commandArgs.first.map({ $0.lowercased() == "list" }) ?? true else {
             throw CLIError(message: Self.claudeAccountUsage)
@@ -40,23 +42,42 @@ extension CMUXCLI {
             workingDirectory: FileManager.default.currentDirectoryPath,
             sanitize: { try JSONCParser.preprocess(data: $0) }
         )
+        let exhaustedUntil = ClaudeAccountExhaustionStore(
+            fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home)
+        ).exhaustedUntil(now: Date())
+        let timestampFormatter = ISO8601DateFormatter()
+        timestampFormatter.timeZone = .current
+        let exhaustedTimestamps: [String?] = registry.accounts.map { account in
+            exhaustedUntil[account.exhaustionKey(homeDirectory: home)].map(timestampFormatter.string(from:))
+        }
         if jsonOutput {
-            let accounts: [[String: Any]] = registry.accounts.map { account in
-                [
+            let accounts: [[String: Any]] = zip(registry.accounts, exhaustedTimestamps).map { account, exhausted in
+                var entry: [String: Any] = [
                     "name": account.name,
                     "config_dir": account.exhaustionKey(homeDirectory: home),
                     "default": account.isDefault,
                 ]
+                if let exhausted { entry["exhausted_until"] = exhausted }
+                return entry
             }
             print(jsonString(["accounts": accounts]))
             return
         }
         let nameWidth = registry.accounts.map(\.name.count).max() ?? 0
         let defaultMarker = String(localized: "cli.claudeAccount.list.defaultMarker", defaultValue: "(default)")
-        for account in registry.accounts {
-            let name = account.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-            let directory = Self.claudeAccountDisplayPath(account.exhaustionKey(homeDirectory: home), home: home)
-            print(account.isDefault ? "\(name)  \(directory)  \(defaultMarker)" : "\(name)  \(directory)")
+        for (account, exhausted) in zip(registry.accounts, exhaustedTimestamps) {
+            var columns = [
+                account.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0),
+                Self.claudeAccountDisplayPath(account.exhaustionKey(homeDirectory: home), home: home),
+            ]
+            if account.isDefault { columns.append(defaultMarker) }
+            if let exhausted {
+                columns.append(String(
+                    format: String(localized: "cli.claudeAccount.list.exhaustedUntil", defaultValue: "exhausted until %@"),
+                    exhausted
+                ))
+            }
+            print(columns.joined(separator: "  "))
         }
     }
 

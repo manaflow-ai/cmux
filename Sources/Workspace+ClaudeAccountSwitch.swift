@@ -35,6 +35,20 @@ extension Workspace {
             .account(forEnvironment: snapshot.launchCommand?.environment)
     }
 
+    /// What an automatic account switch needs to know about the pane. A pane on another machine
+    /// is settled first, so its registry is never loaded and nothing local is marked for it.
+    @MainActor
+    func claudeAccountAutoSwitchPane(panelId: UUID) -> ClaudeAccountAutoSwitchRequest.Pane {
+        guard !terminalRunsOnAnotherMachine(panelId) else { return .onAnotherMachine }
+        guard let snapshot = cachedClaudeAgentSnapshot(panelId: panelId) else { return .missing }
+        let registry = claudeAccountRegistry(forPanelId: panelId)
+        return .local(
+            current: registry.account(forEnvironment: snapshot.launchCommand?.environment),
+            registry: registry,
+            workingDirectory: snapshot.workingDirectory ?? snapshot.launchCommand?.workingDirectory
+        )
+    }
+
     /// The agent lifecycle key Claude Code reports its running state under.
     static let claudeAgentLifecycleKey = "claude_code"
 

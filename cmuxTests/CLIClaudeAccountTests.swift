@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import XCTest
 import Darwin
 import Foundation
@@ -146,6 +147,62 @@ extension CLINotifyProcessIntegrationRegressionTests {
         // Absolute in JSON, unlike the `~/` text form.
         let workDirectory = try XCTUnwrap(accounts.last?["config_dir"] as? String)
         XCTAssertTrue(workDirectory.hasPrefix("/") && workDirectory.hasSuffix("/.claude-work"), workDirectory)
+    }
+
+    /// An account that hit its usage limit shows until when the automatic switch skips it; an
+    /// entry whose reset has passed shows nothing.
+    func testClaudeAccountListShowsWhenAnExhaustedAccountResets() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-account-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: home) }
+        let configDirectory = home.appendingPathComponent(".config/cmux")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Data("""
+        { "agents": { "claudeAccounts": [{ "name": "work", "configDir": "~/.claude-work" }] } }
+        """.utf8).write(to: configDirectory.appendingPathComponent("cmux.json"))
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = home.path
+        environment["CFFIXED_USER_HOME"] = home.path
+        environment["CMUX_SOCKET_PATH"] = makeSocketPath("claude-account-exhausted")
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let cliPath = try bundledCLIPath()
+
+        let before = runProcess(executablePath: cliPath, arguments: ["claude-account", "list", "--json"], environment: environment, timeout: 5)
+        XCTAssertEqual(before.status, 0, before.stderr)
+        let keys = try XCTUnwrap(jsonObject(before.stdout)?["accounts"] as? [[String: Any]], before.stdout)
+            .compactMap { $0["config_dir"] as? String }
+        XCTAssertEqual(keys.count, 2, before.stdout)
+
+        // The app's store format: the work account resets in two hours, the default one already did.
+        let resetsAt = Date(timeIntervalSince1970: (Date().timeIntervalSince1970 + 7_200).rounded(.down))
+        let store = ClaudeAccountExhaustionStore(
+            fileURL: ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
+        )
+        try store.markExhausted(accountKey: keys[1], until: resetsAt)
+        let storeFile = ClaudeAccountExhaustionStore.defaultFileURL(homeDirectory: home.path)
+        var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeFile)) as? [String: Any])
+        var entries = try XCTUnwrap(stored["exhaustedUntil"] as? [String: Any])
+        entries[keys[0]] = Date().timeIntervalSince1970 - 60
+        stored["exhaustedUntil"] = entries
+        try JSONSerialization.data(withJSONObject: stored).write(to: storeFile)
+        let storedBytes = try Data(contentsOf: storeFile)
+
+        let json = runProcess(executablePath: cliPath, arguments: ["claude-account", "list", "--json"], environment: environment, timeout: 5)
+        XCTAssertEqual(json.status, 0, json.stderr)
+        let accounts = try XCTUnwrap(jsonObject(json.stdout)?["accounts"] as? [[String: Any]], json.stdout)
+        XCTAssertNil(accounts.first?["exhausted_until"], json.stdout)
+        let exhaustedUntil = try XCTUnwrap(accounts.last?["exhausted_until"] as? String, json.stdout)
+        XCTAssertEqual(ISO8601DateFormatter().date(from: exhaustedUntil), resetsAt, exhaustedUntil)
+
+        let text = runProcess(executablePath: cliPath, arguments: ["claude-account", "list"], environment: environment, timeout: 5)
+        XCTAssertEqual(text.status, 0, text.stderr)
+        let lines = text.stdout.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, 2, text.stdout)
+        XCTAssertFalse(lines[0].contains(exhaustedUntil), text.stdout)
+        XCTAssertTrue(lines[1].hasPrefix("work") && lines[1].contains(exhaustedUntil), text.stdout)
+        // The CLI only reads the app's file.
+        XCTAssertEqual(try Data(contentsOf: storeFile), storedBytes)
     }
 
     private func runClaudeAccountCLI(

@@ -460,7 +460,8 @@ Default: `false`. Toggle it from **Settings > Automation > Switch Claude Account
 Behavior notes:
 
 - Accounts are tried in `agents.claudeAccounts` order, starting after the current one; the default `~/.claude` account comes first. An account that has already trusted the terminal's folder is preferred.
-- The account that hit its limit is skipped until it resets, at the time its limit message gives when there is one.
+- The account that hit its limit is skipped until it resets: at the time its limit message gives, or for five hours when the message gives none. `cmux claude-account list` shows until when.
+- Each switch shows a **Claude account: <from> → <to> (auto)** row in the sidebar and posts a notification.
 - cmux types `continue` only when the resumed session waits at an empty prompt. If the new account has not trusted the folder yet, cmux types nothing and notifies you to confirm folder trust first.
 - When every other account is at its limit, nothing changes and the terminal keeps its usage-limit status.
 - Remote, SSH, and cloud terminals are never switched.
