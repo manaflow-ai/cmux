@@ -40,9 +40,12 @@ struct MobileHostPhoneCredentialsTests {
         #expect(next.map(\.kind) == [.revoke(record: "dv_gone"), .issue(phone: "P1")],
                 "only a live phone record no listed phone owns; the listed phone's record stays")
         #expect(next[1].params["name"] as? String == "phone-p1" && next[1].params["role"] as? String == "phone")
-        #expect(credentials.reply(id: next[0].id, Self.revoked, ids: &ids) == [])
+        let confirm = try #require(credentials.reply(id: next[0].id, Self.revoked, ids: &ids)?.first)
+        #expect(confirm.kind == .list, "a list confirms the unlisted record is gone")
         #expect(credentials.reply(id: next[1].id, Self.issued("dv_p1b"), ids: &ids) == [])
+        #expect(credentials.reply(id: confirm.id, Self.listing([Self.device("dv_p1b", name: "phone-p1")]), ids: &ids) == [])
         #expect(credentials.tokens == ["P1": "tok-dv_p1b"])
+        #expect(credentials.ending.isEmpty)
         #expect(!credentials.refused)
     }
 
@@ -67,7 +70,7 @@ struct MobileHostPhoneCredentialsTests {
         #expect(relist.kind == .list, "a list confirms the record is gone")
         let issueAgain = try #require(credentials.reply(id: relist.id, Self.listing([]), ids: &ids))
         #expect(issueAgain.map(\.kind) == [.issue(phone: "P1")])
-        #expect(credentials.removed.isEmpty)
+        #expect(credentials.ending.isEmpty)
     }
 
     /// A phone removed while its credential was being issued, and the connection lost before the
@@ -86,18 +89,20 @@ struct MobileHostPhoneCredentialsTests {
         #expect(revoke.map(\.kind) == [.revoke(record: "dv_new")])
         let relist = try #require(credentials.reply(id: revoke[0].id, Self.revoked, ids: &ids)?.first)
         #expect(credentials.reply(id: relist.id, Self.listing([]), ids: &ids) == [])
-        #expect(credentials.removed.isEmpty)
+        #expect(credentials.ending.isEmpty)
         #expect(!credentials.needsConnection)
     }
 
-    /// A refused revocation on a healthy connection is marked for a retry on a new connection
-    /// (the sync reconnects after its backoff); "already gone" counts as done.
+    /// iPhone connections turned off (the phone still paired, none listed) end its record. A
+    /// refused revocation on a healthy connection is marked for a retry on a new connection (the
+    /// sync reconnects after its backoff); "already gone" counts as done.
     @Test func aRefusedRevocationIsRetriedOnANewConnection() throws {
         var credentials = MobileHostPhoneCredentials()
         var ids = 10
         let issue = try #require(try Self.connected(&credentials, &ids, listed: ["P1"]).first)
         #expect(credentials.reply(id: issue.id, Self.issued("dv_p1"), ids: &ids) == [])
-        let revoke = try #require(credentials.update(paired: [], listed: [], ids: &ids).first)
+        let revoke = try #require(credentials.update(paired: ["P1"], listed: [], ids: &ids).first)
+        #expect(revoke.kind == .revoke(record: "dv_p1"))
         _ = credentials.reply(id: revoke.id, ["error": ["message": "store write failed"]], ids: &ids)
         #expect(credentials.refused, "the sync drops the connection and retries after its backoff")
         #expect(credentials.needsConnection)
@@ -112,6 +117,39 @@ struct MobileHostPhoneCredentialsTests {
         #expect(!credentials.refused)
         #expect(credentials.reply(id: relist.id, Self.listing([]), ids: &ids) == [])
         #expect(!credentials.needsConnection)
+    }
+
+    /// Signing out before the account's list was read, on a connection whose first list already
+    /// answered: the next list finds the phone's record and ends it.
+    @Test func aRemovalWithNothingUnderWayIsFoundByANewList() throws {
+        var credentials = MobileHostPhoneCredentials()
+        var ids = 10
+        _ = credentials.update(paired: ["P1"], listed: nil, ids: &ids)
+        let first = try #require(credentials.connected(ids: &ids).first)
+        let live = Self.listing([Self.device("dv_p1", name: "phone-p1")])
+        #expect(credentials.reply(id: first.id, live, ids: &ids) == [])
+        let list = try #require(credentials.update(paired: [], listed: nil, ids: &ids).first)
+        #expect(list.kind == .list)
+        let revoke = try #require(credentials.reply(id: list.id, live, ids: &ids))
+        #expect(revoke.map(\.kind) == [.revoke(record: "dv_p1")])
+        let relist = try #require(credentials.reply(id: revoke[0].id, Self.revoked, ids: &ids)?.first)
+        #expect(credentials.reply(id: relist.id, Self.listing([]), ids: &ids) == [])
+        #expect(credentials.ending.isEmpty)
+    }
+
+    /// An unlisted record being revoked when its phone shows up in the account's list again: the
+    /// phone gets a credential only once a list shows the old record gone, so it starts off.
+    @Test func aPhoneListedAgainWaitsForItsUnlistedRecordToEnd() throws {
+        var credentials = MobileHostPhoneCredentials()
+        var ids = 10
+        _ = credentials.update(paired: ["P1"], listed: [], ids: &ids)
+        let first = try #require(credentials.connected(ids: &ids).first)
+        let revoke = try #require(credentials.reply(id: first.id, Self.listing([Self.device("dv_old", name: "phone-p1")]), ids: &ids))
+        #expect(revoke.map(\.kind) == [.revoke(record: "dv_old")], "unlisted: its record ends")
+        #expect(credentials.update(paired: ["P1"], listed: ["P1"], ids: &ids).isEmpty, "no issue while it ends")
+        let relist = try #require(credentials.reply(id: revoke[0].id, Self.revoked, ids: &ids)?.first)
+        #expect(relist.kind == .list)
+        #expect(credentials.reply(id: relist.id, Self.listing([]), ids: &ids)?.map(\.kind) == [.issue(phone: "P1")])
     }
 
     /// A phone removed while its credential was being issued never gets it: the new record is revoked.
