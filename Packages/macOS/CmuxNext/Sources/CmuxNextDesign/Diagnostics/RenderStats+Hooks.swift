@@ -14,10 +14,27 @@ private typealias AlphaIMP = @convention(c) (NSWindow, Selector, CGFloat) -> Voi
 
 extension RenderStats {
     /// One replaced method: armed it runs `replacement`, disarmed `original`.
-    struct Hook {
+    // crash-allow: three immutable runtime handles; a Method and an IMP stay valid for the process's life.
+    nonisolated struct Hook: @unchecked Sendable {
         let method: Method
         let original: IMP
         let replacement: IMP
+    }
+
+    /// Sets each method to its replacement (`in`), or back to its original
+    /// where it still runs the replacement (a swizzler that chained onto a hook
+    /// keeps it, and its generation check stops the counting). Off the main
+    /// thread: each set flushes method caches.
+    @concurrent
+    nonisolated static func swap(_ hooks: [Hook], in installing: Bool) async {
+        for (index, hook) in hooks.enumerated() {
+            if index % 256 == 255 { await Task.yield() }
+            if installing {
+                method_setImplementation(hook.method, hook.replacement)
+            } else if method_getImplementation(hook.method) == hook.replacement {
+                method_setImplementation(hook.method, hook.original)
+            }
+        }
     }
 
     /// The installed hooks and the generation their blocks count for.

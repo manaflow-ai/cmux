@@ -53,6 +53,13 @@ import Testing
         return stats
     }
 
+    /// Ends every arm of `stats` and waits until its IMPs are back, so the next test's instance never
+    /// captures its hooks as originals.
+    private func release(_ stats: RenderStats) async {
+        while stats.isArmed { stats.disarm() }
+        _ = await stats.ready()
+    }
+
     /// The IMPs of every method hooked on its root, and of the test classes' own hooked methods.
     private func hookedIMPs() -> [IMP?] {
         let roots = RenderStats.hookedMethods().filter(\.onRoot).map { class_getInstanceMethod($0.root, $0.selector) }
@@ -86,11 +93,12 @@ import Testing
         stats.disarm()
         #expect(!stats.isArmed)
         #expect(!stats.isCounting)
+        await release(stats)
         #expect(hookedIMPs() == original)
         // A second arm reuses the same hooks.
         _ = await armed(stats)
         #expect(hookedIMPs() == armedIMPs)
-        stats.disarm()
+        await release(stats)
         #expect(hookedIMPs() == original)
     }
 
@@ -111,29 +119,50 @@ import Testing
             order[1].disarm()
             #expect(!stats.isCounting)
             #expect(!stats.isArmed)
+            await release(stats)
             #expect(hookedIMPs() == original)
         }
     }
 
-    /// The class scan runs off the caller's turn, once: a later arm with no class loaded since reuses it.
-    @Test func aSecondArmReusesTheClassScan() async {
+    /// The class scan and the IMP swaps run off the main thread: the main actor stays free while the hooks
+    /// go in and out, and a later arm with no class loaded since reuses the scan.
+    @Test func armAndDisarmLeaveTheMainActorFreeAndASecondArmReusesTheScan() async {
         let stats = RenderStats()
         let clock = ContinuousClock()
         let armCall = clock.measure { _ = stats.arm() }
         #expect(armCall < .milliseconds(50))
-        #expect(await stats.ready())
+        #expect(await Self.longestMainActorGap { #expect(await stats.ready()) } < .milliseconds(250))
         #expect(stats.fullScans == 1)
-        stats.disarm()
-        let start = clock.now
+        let disarmCall = clock.measure { stats.disarm() }
+        #expect(disarmCall < .milliseconds(50))
         #expect(stats.arm())
-        #expect(await stats.ready())
-        let second = start.duration(to: clock.now)
+        #expect(await Self.longestMainActorGap { #expect(await stats.ready()) } < .milliseconds(250))
         stats.disarm()
         #expect(stats.fullScans == 1)
-        #expect(second < .milliseconds(500))
         stats.forgetScan()
         #expect(await armed(stats).fullScans == 2)
         stats.disarm()
+        #expect(await Self.longestMainActorGap { _ = await stats.ready() } < .milliseconds(250))
+        await release(stats)
+    }
+
+    /// The longest the main actor went without running a job while `work` ran.
+    private static func longestMainActorGap(_ work: () async -> Void) async -> Duration {
+        let clock = ContinuousClock()
+        let watcher = Task { @MainActor in
+            var longest: Duration = .zero
+            var last = clock.now
+            while !Task.isCancelled {
+                await Task.yield()
+                let now = clock.now
+                longest = max(longest, last.duration(to: now))
+                last = now
+            }
+            return longest
+        }
+        await work()
+        watcher.cancel()
+        return await watcher.value
     }
 
     @Test func threeFrameSetsCountThreeAndAnEqualSetCountsZero() async {
@@ -150,29 +179,30 @@ import Testing
         stats.disarm()
         view.setFrameSize(NSSize(width: 40, height: 40))
         #expect(count(stats, .frameSets, owner: PlainView.self) == 3)
+        await release(stats)
     }
 
     /// An override that calls `super` is one set, counted at the override's class.
     @Test func anOverrideCallingSuperCountsOnce() async {
         let view: NSView = SuperCallingView(frame: .zero)
         let stats = await armed()
-        defer { stats.disarm() }
         for side in [10.0, 20.0, 30.0] { view.setFrameSize(NSSize(width: side, height: side)) }
         #expect(count(stats, .frameSets, owner: SuperCallingView.self) == 3)
         #expect(stats.totals[.frameSets] == 3)
+        await release(stats)
     }
 
     /// A rect from bad layout math (NaN, infinite) counts as a rect with no area and does not trap.
     @Test func updateLayerAndDrawCountDamageRectsAndArea() async {
         let view: NSView = DrawingView(frame: NSRect(x: 0, y: 0, width: 10, height: 20))
         let stats = await armed()
-        defer { stats.disarm() }
         view.updateLayer()
         view.draw(NSRect(x: 0, y: 0, width: 5, height: 4))
         view.draw(NSRect(x: 0, y: 0, width: CGFloat.nan, height: 4))
         view.draw(NSRect(x: 0, y: 0, width: CGFloat.infinity, height: 4))
         #expect(count(stats, .damageRects, owner: DrawingView.self) == 4)
         #expect(count(stats, .damageArea, owner: DrawingView.self) == 200 + 20)
+        await release(stats)
     }
 
     @Test func damageAreaIsZeroForBadSizesAndClampsHugeOnes() {
@@ -180,7 +210,8 @@ import Testing
         #expect(RenderStats.damageArea(width: .nan, height: 4) == 0)
         #expect(RenderStats.damageArea(width: .infinity, height: 4) == 0)
         #expect(RenderStats.damageArea(width: -5, height: 4) == 0)
-        #expect(RenderStats.damageArea(width: 1e300, height: 1e300) == Int.max)
+        #expect(RenderStats.damageArea(width: 1e300, height: 1e300) == 0) // infinite
+        #expect(RenderStats.damageArea(width: 1e10, height: 1e10) == Int.max)
     }
 
     /// A view that does not draw keeps NSView's `drawRect:` while armed, so AppKit treats it as disarmed:
@@ -188,10 +219,10 @@ import Testing
     @Test func aViewThatDoesNotDrawDisplaysAsWhenDisarmed() async {
         let disarmed = Self.hasContentsAfterDisplay(DisarmedBackedView(frame: NSRect(x: 0, y: 0, width: 40, height: 40)))
         let stats = await armed()
-        defer { stats.disarm() }
         #expect(class_getMethodImplementation(ArmedBackedView.self, #selector(NSView.draw(_:)))
             == class_getMethodImplementation(NSView.self, #selector(NSView.draw(_:))))
         #expect(Self.hasContentsAfterDisplay(ArmedBackedView(frame: NSRect(x: 0, y: 0, width: 40, height: 40))) == disarmed)
+        await release(stats)
     }
 
     private static func hasContentsAfterDisplay(_ view: NSView) -> Bool {
@@ -209,9 +240,9 @@ import Testing
     @Test func trackingAreaAddsCount() async {
         let view: NSView = PlainView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         let stats = await armed()
-        defer { stats.disarm() }
         view.addTrackingArea(NSTrackingArea(rect: view.bounds, options: [.mouseEnteredAndExited, .activeAlways], owner: view))
         #expect(count(stats, .trackingAreaAdds, owner: PlainView.self) == 1)
+        await release(stats)
     }
 
     @Test func windowCallsCountOnlyChanges() async {
@@ -219,23 +250,23 @@ import Testing
                                  backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         let stats = await armed()
-        defer { stats.disarm() }
         window.setFrame(NSRect(x: 10, y: 10, width: 300, height: 120), display: false)
         window.setFrame(window.frame, display: false)
         window.alphaValue = 0.5
         window.alphaValue = 0.5
         #expect(count(stats, .windowCalls, owner: ProbeWindow.self) == 2)
+        await release(stats)
     }
 
     /// Renderer threads set layer contents: every change counts, a repeat of the same object does not, and the
     /// counters take it without a data race (run under TSan: `swift test --sanitize=thread`).
     @Test func contentsSetsFromBackgroundThreadsCountWithoutARace() async {
         let stats = await armed()
-        defer { stats.disarm() }
         let (offMain, sets) = await Self.setContentsOffMain(threads: 8, setsPerThread: 50)
         #expect(offMain == 8)
         #expect(sets == 8 * 50)
         #expect(count(stats, .contentsSets, owner: ProbeLayer.self) == sets)
+        await release(stats)
     }
 
     /// Each thread sets two images in turn on its own layer, then the last one again (no change).
@@ -285,13 +316,13 @@ import Testing
         #expect(count(stats, .contentsSets, owner: AddedWhileDisarmedLayer.self) == 2)
         #expect(count(stats, .contentsSets, owner: AddedWhileArmedLayer.self) == 2)
         #expect(stats.owners().filter { $0.name.contains("AddedWhile") }.count == 2)
-        stats.disarm()
+        await release(stats)
         #expect(class_getMethodImplementation(CALayer.self, Self.setContents) == rootIMP)
 
         let again = await armed()
-        defer { again.disarm() }
         late.contents = Self.image(gray: 0)
         #expect(count(again, .contentsSets, owner: AddedWhileArmedLayer.self) == 1)
+        await release(again)
     }
 
     /// Adds `setContents:` to `type` as TypingFrameProbe does: it calls its superclass's IMP as it is at the call.
@@ -316,12 +347,12 @@ import Testing
         #expect(guardian.renderStats == nil)
         stats.recordLayout(of: PlainView.self)
         #expect(count(stats, .layouts, owner: PlainView.self) == 1)
+        await release(stats)
     }
 
     /// Owners past the table's capacity still count, in the overflow cell, and the totals stay whole.
     @Test func ownersPastCapacityGoToTheOverflowCell() async {
         let stats = await armed(RenderStats(ownerCapacity: 1))
-        defer { stats.disarm() }
         stats.recordLayout(of: PlainView.self)
         stats.recordLayout(of: DrawingView.self)
         stats.recordLayout(of: DrawingView.self)
@@ -330,6 +361,7 @@ import Testing
         stats.reset()
         #expect(stats.totals == RenderStats.Totals())
         #expect(stats.owners().isEmpty)
+        await release(stats)
     }
 
     /// Per recorded frame, the counts since the previous tick (the first tick only marks); the owner counts
@@ -369,6 +401,7 @@ import Testing
         #expect(Self.layoutsByOwner(stopped) == owners)
         log.clear()
         #expect(Array(log.report(raw: false).keys) == ["render_armed"])
+        await release(stats)
     }
 
     private static func layoutsByOwner(_ report: [String: Any]) -> [String: Int] {

@@ -20,11 +20,13 @@ import QuartzCore
 /// root (AppControl) makes it and passes it to every probe (`debug.frames`,
 /// `debug.damage`), whose arms nest on it.
 ///
-/// The first ``arm()`` scans the loaded classes off the main thread and then
-/// installs the hooks on it (``ready()`` waits for that); a later arm scans
-/// again only when the runtime's class count changed. Each method is hooked on
-/// its root class (`NSView`, `CALayer`, `NSWindow`) and on every subclass that
-/// defines its own, except `drawRect:` and `updateLayer`, which are hooked on
+/// The hooks go in and out off the main thread: ``arm()`` starts the class
+/// scan (kept while the runtime's class count stays the same) and the IMP
+/// swaps (each flushes method caches: about 0.8 s for all, on the fleet in
+/// Debug), and ``ready()`` waits for them; ``disarm()`` stops the counting at
+/// once and queues the swaps back. Each method is hooked on its root class
+/// (`NSView`, `CALayer`, `NSWindow`) and on every subclass that defines its
+/// own, except `drawRect:` and `updateLayer`, which are hooked on
 /// subclasses only: a view that does not override them keeps NSView's own IMP,
 /// which AppKit reads to decide whether the view gets a backing store.
 ///
@@ -102,7 +104,8 @@ public final class RenderStats {
     private let layoutGuard: LayoutPassGuard?
     #if DEBUG || CMUX_BENCH_HOOKS
     var hooks = HookSet()
-    private var installing: Task<Void, Never>?
+    /// The last install or restore queued; each waits for the one before it.
+    private var hookWork: Task<Void, Never>?
     /// The last class scan, kept while the runtime's class count stays the same.
     private var lastScan: ClassScan?
     /// How many full class scans ran (a scan the class count let pass is not one).
@@ -116,60 +119,65 @@ public final class RenderStats {
     }
 
     /// Holds one arm; arms nest (`debug.frames` and `debug.damage` can both
-    /// hold one). The first starts the install, which clears the counts;
+    /// hold one). The first queues the install, which clears the counts;
     /// ``ready()`` waits for it. Returns false, and holds nothing, in a build
     /// without hooks.
     @discardableResult
     public func arm() -> Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
         armers += 1
-        if armers == 1, !isCounting, installing == nil {
-            installing = Task { await self.install() }
-        }
+        if armers == 1 { queueHookWork { await $0.install() } }
         return true
         #else
         return false
         #endif
     }
 
-    /// Waits for the install that ``arm()`` started; true when this instance counts.
+    /// Waits for the hook work queued so far; true when this instance counts.
     public func ready() async -> Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
-        await installing?.value
+        await hookWork?.value
         #endif
         return isCounting
     }
 
-    /// Ends one ``arm()``; the last one puts every original IMP back.
+    /// Ends one ``arm()``; the last one stops the counting and queues every original IMP back.
     public func disarm() {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard armers > 0 else { return }
         armers -= 1
         guard armers == 0, isCounting else { return }
         ledger.disarm()
-        // A hook another swizzler chained onto stays and forwards (its generation check fails from now on).
-        for hook in hooks.hooks where method_getImplementation(hook.method) == hook.replacement {
-            method_setImplementation(hook.method, hook.original)
-        }
         isCounting = false
         if layoutGuard?.renderStats === self { layoutGuard?.renderStats = nil }
+        let installed = hooks.hooks
+        queueHookWork { _ in await Self.swap(installed, in: false) }
         #endif
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The class scan (off the main thread, and only when the class count
-    /// changed), then the hooks, unless every arm ended meanwhile.
+    private func queueHookWork(_ work: @escaping @MainActor (RenderStats) async -> Void) {
+        let previous = hookWork
+        hookWork = Task {
+            await previous?.value
+            await work(self)
+        }
+    }
+
+    /// The class scan (only when the class count changed), then the hooks,
+    /// unless every arm ended meanwhile; both off the main thread.
     private func install() async {
         if let fresh = await Self.scanClasses(unlessCountIs: lastScan?.classCount) {
             lastScan = fresh
             fullScans += 1
         }
-        installing = nil
         guard armers > 0, !isCounting, let scan = lastScan else { return }
         ledger.reset()
         hooks = makeHooks(for: scan)
+        let wanted = hooks.hooks
+        await Self.swap(wanted, in: true)
+        guard armers > 0 else { return await Self.swap(wanted, in: false) }
         ledger.arm(generation: hooks.generation)
-        for hook in hooks.hooks { method_setImplementation(hook.method, hook.replacement) }
         isCounting = true
         layoutGuard?.renderStats = self
     }
