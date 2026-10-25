@@ -3,6 +3,7 @@ public import CmuxNextAgentPane
 import CmuxNextCompat
 public import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 public import CmuxNextSidebar
 import Foundation
 public import Observation
@@ -78,46 +79,37 @@ public final class RemoteMachinesSidebar {
     @ObservationIgnored private var host: Host?
     @ObservationIgnored private var peers: [AcpmuxPeerList.Peer]?
     @ObservationIgnored private var laneWatch: Task<Void, Never>?
-    @ObservationIgnored private var peerWatch: Task<Void, Never>?
+    /// The next rebuild after a lane change: one per `refreshInterval` however many changes come.
+    @ObservationIgnored private let refresh = DemandTimer(owner: "sidebar.remoteMachines")
+    /// When the peer list was last asked for, and the read in flight.
+    @ObservationIgnored private var peersAskedAt: ContinuousClock.Instant?
+    @ObservationIgnored private var peerRead: Task<Void, Never>?
 
     public init(lanes: AgentLaneStore = .shared) {
         self.lanes = lanes
     }
 
-    /// Starts following the lanes and the peers. Both tasks live as long as the instance (the
-    /// app-lifetime `shared`) and end with `stop()`.
+    /// Starts following the lanes. Nothing runs while no lane changes: a change schedules one
+    /// rebuild `refreshInterval` later, and a rebuild asks for the peer list when it is older than
+    /// `peerInterval`. It ends with `stop()`.
     public func bind(host: Host) {
         self.host = host
         guard laneWatch == nil else { return }
-        let lanes = lanes
-        // task-owner: this instance; event-driven (Observation), at most one rebuild per refreshInterval
+        let lanes = lanes, refresh = refresh
+        // task-owner: this instance; event-driven (Observation); each change only arms the one-shot `refresh`
         laneWatch = Task { [weak self] in
             for await _ in ObservationStream({ _ = lanes.lanes; _ = SidebarTunables.laneFixture.value }) {
-                guard let self else { return }
-                rebuild()
-                try? await Task.sleep(for: Self.refreshInterval)
-                if Task.isCancelled { return }
+                refresh.scheduleIfIdle(after: Self.refreshInterval) { @MainActor [weak self] in self?.rebuild() }
             }
         }
-        // task-owner: this instance; one bounded `_acpmux/peers` per peerInterval, ends on cancel
-        peerWatch = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let read = self?.host?.peers else { return }
-                let next = await read()
-                guard let self else { return }
-                if next != peers {
-                    peers = next
-                    rebuild()
-                }
-                try? await Task.sleep(for: Self.peerInterval)
-            }
-        }
+        rebuild()
     }
 
     public func stop() {
         laneWatch?.cancel()
-        peerWatch?.cancel()
-        (laneWatch, peerWatch) = (nil, nil)
+        refresh.cancel()
+        peerRead?.cancel()
+        (laneWatch, peerRead) = (nil, nil)
     }
 
     /// The rows now, every group in order. Read inside an observation scope, so a group, fold or
@@ -146,6 +138,7 @@ public final class RemoteMachinesSidebar {
     }
 
     private func rebuild() {
+        askForPeersIfStale()
         // Captures run no peers: the sample machines stand in (`sidebar.laneFixture`, Debug, off).
         let next = SidebarTunables.laneFixture.value ? Self.machines(lanes: Self.fixtureLanes, peers: Self.fixturePeers)
             : Self.machines(lanes: lanes.lanes.values, peers: peers)
@@ -165,6 +158,25 @@ public final class RemoteMachinesSidebar {
             AgentActivityLane(id: "fixture-remote:\(chat.0)/\(chat.1)", name: "\(chat.0)/\(chat.1)", title: chat.3, peer: chat.0, parent: nil,
                               state: chat.2, since: Date(timeIntervalSince1970: TimeInterval(1_000 - i)), error: nil,
                               harness: i.isMultiple(of: 2) ? "claude" : "codex")
+        }
+    }
+
+    /// One bounded `_acpmux/peers` (the daemon answers from memory, never asking a peer) when the
+    /// list is older than `peerInterval` and no read is in flight; its answer rebuilds once.
+    private func askForPeersIfStale() {
+        guard peerRead == nil, let read = host?.peers else { return }
+        let now = ContinuousClock.now
+        if let asked = peersAskedAt, now - asked < Self.peerInterval { return }
+        peersAskedAt = now
+        // task-owner: this instance; one read, bounded by its 2 s deadline, cancelled by `stop()`
+        peerRead = Task { [weak self] in
+            let next = await read()
+            guard let self, !Task.isCancelled else { return }
+            peerRead = nil
+            if next != peers {
+                peers = next
+                rebuild()
+            }
         }
     }
 
