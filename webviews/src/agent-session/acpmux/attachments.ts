@@ -115,6 +115,28 @@ export function orderedByMarks<T extends { id: string }>(attachments: readonly T
   return next;
 }
 
+/// A prompt coming back to the composer (Edit, a failed send, a queued prompt taken back to edit)
+/// in the shape it went (`placeInline`): bare marks, its placed attachments `inline` in the text's
+/// order. Each bare mark becomes its attachment's token again, by id, and the attachments lose
+/// `inline` (the composer's own say nothing; `placeInline` sets it when the prompt goes). Marks that
+/// do not match its inline attachments one for one are the person's text and stay as they are.
+export function bindMarks(
+  text: string,
+  attachments: readonly ComposerAttachment[],
+): { text: string; attachments: ComposerAttachment[] } {
+  const own = attachments.map(({ inline: _, ...attachment }) => attachment);
+  if (!hasInlineMarks(text, attachments)) return { text, attachments: own };
+  const placed = attachments.filter((attachment) => attachment.inline);
+  let next = 0;
+  return { text: text.replaceAll(INLINE_ATTACHMENT_MARK, () => inlineToken(placed[next++]!.id)), attachments: own };
+}
+
+/// `text` without its attachments' places: for a host that keeps a draft's text and not its
+/// attachments (a new chat's `chat.unsentDraft`), where no mark could find its attachment again.
+export function withoutInlineTokens(text: string): string {
+  return text.includes(INLINE_ATTACHMENT_MARK) ? text.replace(INLINE_TOKEN, "") : text;
+}
+
 export type OrderedDraftPart = { type: "text"; text: string } | { type: "attachment"; attachment: ComposerAttachment };
 
 /** Anthropic's per-image limit; a preview past it is scaled down further (composer/imageWork.ts). */

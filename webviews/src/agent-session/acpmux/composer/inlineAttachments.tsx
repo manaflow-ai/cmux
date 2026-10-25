@@ -1,5 +1,5 @@
 // The composer's side of attachments placed in the prompt's text (composer/inlineNode.ts): a
-// pasted or dropped image goes in at the caret and in the strip above the prompt (Leo, 2026-10-25:
+// pasted or dropped image or file goes in at the caret and in the strip above the prompt (Leo, 2026-10-25:
 // "ALSO show the top displayed attachments alongside the inline attachments... just so you can see
 // it all and close aka delete"), and the two stay one list. Everything is by id: a node taken out of
 // the text (Backspace, a cut, a selection typed over) takes its attachment out of the strip, a × in
@@ -32,7 +32,7 @@ type Options = {
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
   retry(id: string): void;
-  /// Whether a paste or drop now places its images in the text (inlinePlacement.ts, and not in shell mode).
+  /// Whether a paste or drop now places what it brings in the text (not in shell mode).
   placing(): boolean;
 };
 
@@ -71,10 +71,11 @@ export function useInlineAttachments(options: Options) {
   }, [options.pending, options.attachments]);
 
   const [api] = useState(() => ({
-    /// The person's paste or drop made `chips`: its images go in at the caret (attachmentIntake.tsx `place`).
+    /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
+    /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`).
     place(chips: readonly PendingAttachment[], _kind: DroppedKind) {
       const { placing, field } = live.current;
-      const ids = chips.filter((chip) => chip.image).map((chip) => chip.id);
+      const ids = chips.map((chip) => chip.id);
       if (!ids.length || !placing()) return;
       for (const id of ids) placed.current.add(id);
       if (!field.current?.insertInline(ids)) for (const id of ids) placed.current.delete(id);
@@ -215,6 +216,19 @@ function InlineChip({
         ) : (
           <Spinner loading size={14} className="acpmux-md-inline-spinner" />
         )}
+        {remove}
+      </span>
+    );
+  // A file (a link to it on the session's machine): its name, as the strip's link chip shows it.
+  if (attachment.kind !== "image")
+    return (
+      <span
+        className="acpmux-md-inline-chip"
+        data-state="ready"
+        data-kind="file"
+        /* tooltip-allow: a long name is cut to the chip */ title={attachment.path ?? attachment.name}
+      >
+        <span className="acpmux-md-inline-file-name">{attachment.name}</span>
         {remove}
       </span>
     );

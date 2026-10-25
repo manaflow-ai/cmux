@@ -299,6 +299,28 @@
   color: var(--agent-muted);
   overflow: hidden;
 }
+/* Settings' strip view (ComposerBox attachmentView): the strip alone shows the attachments; each keeps
+   its place in the text, so the inline view shows it there again and the prompt goes the same. */
+.acpmux-composer-box[data-attachment-view="strip"] .acpmux-md .acpmux-md-inline {
+  display: none;
+}
+/* A file placed in the text: its name on the chip, as the strip's link chip has it. */
+.acpmux-md-inline-chip[data-kind="file"] {
+  gap: 4px;
+  max-width: 180px;
+  height: 28px;
+  padding: 0 22px 0 8px;
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+}
+.acpmux-md-inline-file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-md-inline-chip[data-kind="file"] .acpmux-md-inline-remove {
+  top: 6px;
+}
 .acpmux-md-inline-chip[data-state="loading"],
 .acpmux-md-inline-chip[data-state="failed"] {
   width: 64px;

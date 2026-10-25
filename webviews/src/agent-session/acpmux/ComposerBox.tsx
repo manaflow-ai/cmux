@@ -4,7 +4,7 @@ import { AttachmentStrip, backspacedAttachment, type PendingAttachment } from ".
 import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
-import { useComposerSettings } from "./composerSettings";
+import { type AttachmentView, useComposerSettings } from "./composerSettings";
 import { useQuietRow } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
@@ -42,6 +42,9 @@ export type ComposerBoxProps = {
   attachError?: string;
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
+  /// Settings' attachment view (agentPane.attachmentView): "inline" also shows each attachment placed
+  /// in the text where it is; "strip" shows the strip alone, the places kept (markdownField.css).
+  attachmentView?: AttachmentView;
   onRemoveAttachment(id: string): void;
   /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
   onCancelAttachment?(id: string): void;
@@ -94,6 +97,7 @@ export function ComposerBox({
   attachmentsRef,
   attachError,
   codex = false,
+  attachmentView = "inline",
   onRemoveAttachment,
   onCancelAttachment,
   onRetryAttachment,
@@ -161,7 +165,12 @@ export function ComposerBox({
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div ref={boxRef} className="ui-glass ui-glass-floats acpmux-composer-box" onMouseDown={focusFromCard}>
+      <div
+        ref={boxRef}
+        className="ui-glass ui-glass-floats acpmux-composer-box"
+        data-attachment-view={attachmentView}
+        onMouseDown={focusFromCard}
+      >
         {top}
         <AttachmentStrip
           attachments={attachments}

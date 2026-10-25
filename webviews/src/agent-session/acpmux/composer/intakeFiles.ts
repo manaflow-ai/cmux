@@ -22,8 +22,8 @@ export type IntakeOptions = {
   upload?(files: File[]): Promise<UploadResult>;
   /// Whether the person cancelled file `index` (its tile's ×): it is left out of the upload.
   cancelled?(index: number): boolean;
-  /// The id each file's image chip takes: its placeholder's, so a place made for it in the prompt's
-  /// text (composer/inlineNode.ts) is the chip's.
+  /// The id each file's chip takes (an image's or a link's): its placeholder's, so a place made for
+  /// it in the prompt's text (composer/inlineNode.ts) is the chip's.
   ids?: readonly string[];
 };
 
@@ -81,7 +81,9 @@ export async function intakeFiles(
     error ??= reason;
     events.failed?.(index, reason);
   };
-  const link = (index: number, chip: ComposerAttachment) => {
+  const link = (index: number, made: ComposerAttachment) => {
+    const id = options.ids?.[index];
+    const chip = id ? { ...made, id } : made;
     links[index] = chip;
     events.ready?.(index, chip);
   };

@@ -10,7 +10,9 @@ import {
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
+  bindMarks,
   placeInline,
+  withoutInlineTokens,
 } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
@@ -85,7 +87,6 @@ import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachm
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import { setInlinePlacement, useInlinePlacement } from "./composer/inlinePlacement";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -140,8 +141,6 @@ export const COMPOSER_LABELS = {
   selectAll: "composer.menu.selectAll",
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
-  inlineAttachmentsOff: "composer.menu.inlineAttachmentsOff",
-  inlineAttachmentsOn: "composer.menu.inlineAttachmentsOn",
 } as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
@@ -459,7 +458,7 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, escapeDoublePress } = useComposerSettings();
+  const { showContextUsage, escapeDoublePress, attachmentView } = useComposerSettings();
   // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
   // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
   const look = useComposerLook();
@@ -523,8 +522,8 @@ export function Composer({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
-  // Images pasted or dropped go into the prompt's text too, by default (composer/inlineAttachments.tsx).
-  const inlinePlacement = useInlinePlacement();
+  // What is pasted or dropped goes into the prompt's text too, at the caret (composer/inlineAttachments.tsx),
+  // in either attachment view: Settings' strip view only hides it there (ComposerBox attachmentView).
   const inline = useInlineAttachments({
     field,
     text,
@@ -534,7 +533,7 @@ export function Composer({
     pending,
     cancel,
     retry,
-    placing: () => inlinePlacement && !shell,
+    placing: () => !shellRef.current.shell,
   });
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading, sessionId);
@@ -575,7 +574,16 @@ export function Composer({
   useImperativeHandle(
     handle,
     () => ({
-      restore(restoredText, restoredAttachments) {
+      restore(sentText, sentAttachments) {
+        // It comes back as it went: its bare marks become its placed attachments' own again, by id
+        // (attachments.ts bindMarks), the attachments here before the text that names them.
+        const { text: restoredText, attachments: restoredAttachments } = bindMarks(sentText, sentAttachments);
+        const returning = new Set(restoredAttachments.map((back) => back.id));
+        if (returning.size)
+          attachmentsRef.current = [
+            ...restoredAttachments,
+            ...attachmentsRef.current.filter((attachment) => !returning.has(attachment.id)),
+          ];
         // What comes back goes first; what was typed or attached since stays after it.
         const typed = field.current?.value() ?? "";
         const next = typed.trim() ? `${restoredText}\n\n${typed}` : restoredText;
@@ -708,7 +716,8 @@ export function Composer({
   useEffect(() => {
     // Once the typing settles, so the host writes its file once per pause, not per keystroke.
     if (sessionId || !onUnsentDraft) return;
-    const settled = setTimeout(() => onUnsentDraft(text), UNSENT_DRAFT_SETTLE_MS);
+    // Without its attachments' places: the host keeps a new chat's text, not its attachments.
+    const settled = setTimeout(() => onUnsentDraft(withoutInlineTokens(text)), UNSENT_DRAFT_SETTLE_MS);
     return () => clearTimeout(settled);
   }, [sessionId, text, onUnsentDraft]);
   const commands = snapshot.commands;
@@ -1435,11 +1444,6 @@ export function Composer({
       disabled: shell,
       onSelect: () => mention(),
     },
-    {
-      id: "inlineAttachments",
-      label: t(inlinePlacement ? COMPOSER_LABELS.inlineAttachmentsOff : COMPOSER_LABELS.inlineAttachmentsOn),
-      onSelect: () => setInlinePlacement(!inlinePlacement),
-    },
   ];
 
   // The location strip: a tab on the card's top edge, its fill and edge the card's (hq#1957
@@ -1622,6 +1626,7 @@ export function Composer({
         attachmentsRef={attachmentsRef}
         attachError={attachError}
         codex={snapshot.summary?.family === "codex" || snapshot.summary?.harness === "codex"}
+        attachmentView={attachmentView}
         onRemoveAttachment={(id) => {
           inline.remove(id);
           field.current?.focus();
