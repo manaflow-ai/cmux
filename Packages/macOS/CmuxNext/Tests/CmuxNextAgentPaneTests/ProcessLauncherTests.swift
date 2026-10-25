@@ -20,7 +20,7 @@ import Testing
     }
 
     /// The arguments reach the child one by one and as given (no shell, no splitting), also ones
-    /// that start with `-`: a reply's text after `--` is what acpmux gets. The stub records its argv,
+    /// that start with `-` (a reply's own text goes on stdin). The stub records its argv,
     /// NUL-separated, in the file its environment names.
     @Test func theArgumentsReachTheChildAsGiven() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("launcher-argv-\(UUID().uuidString)", isDirectory: true)
@@ -34,13 +34,23 @@ import Testing
         for a in "$@"; do printf '%s\0' "$a" >> "$ARGV_OUT"; done
         """#.utf8).write(to: stub)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
-        let arguments = AcpmuxReplySender.arguments(session: "s-1", text: "- fix the test first", promptID: "p-1")
+        let arguments = AcpmuxReplySender.arguments(session: "s-1", promptID: "p-1")
             + ["a b", "--quiet", "-", "*"]
         let status = await ProcessLauncher().run(stub, arguments: arguments, environment: ["ARGV_OUT": out.path])
         #expect(status == 0)
         let recorded = try Data(contentsOf: out).split(separator: 0, omittingEmptySubsequences: false).dropLast()
             .map { String(decoding: $0, as: UTF8.self) }
         #expect(recorded == arguments)
+    }
+
+    /// A reply's text reaches the child's stdin whole, also past the pipe buffer (a long pasted
+    /// reply): the child counts the bytes it read.
+    @Test func aLongInputReachesTheChildWhole() async {
+        let input = Data(repeating: UInt8(ascii: "x"), count: 300_000)
+        let status = await ProcessLauncher().run(URL(fileURLWithPath: "/bin/sh"),
+                                                 arguments: ["-c", "n=$(wc -c | tr -d ' '); test \"$n\" = 300000"],
+                                                 environment: [:], input: input)
+        #expect(status == 0, "the child did not read the 300 000 input bytes")
     }
 
     @Test func aMissingExecutableIsNotStarted() async {

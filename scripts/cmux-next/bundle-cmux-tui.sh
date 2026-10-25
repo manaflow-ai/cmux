@@ -69,7 +69,7 @@ set -euo pipefail
 
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/cmux"
-stamp="${TARGET_TEMP_DIR:?}/bundle-cmux-tui.stamp"
+stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-cmux-tui.stamp"
 on_exit() {
   status=$?
   if (( status == 0 )); then

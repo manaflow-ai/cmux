@@ -175,6 +175,13 @@ CRASH_ALLOWLIST = SCRIPTS + "/crash-allowlist.json"
 CRASH_BASELINE = SCRIPTS + "/crash-safety-baseline.json"
 CRASH_OK = re.compile(r"^Crash-allow-OK:[ \t]*(\S.*)$", re.MULTILINE)
 CRASH_ALLOW_CHECK = "Crash allowlist review (Crash-allow-OK trailer)"
+FREEZE_CHECK = "Coordinator path freeze (WINDOW FREEZE lines)"
+# The coordinator's WINDOW (`FREEZE: <path prefix> token=<token>` lines; a `# LIFTED ...` line is not one). It
+# exists on the coordinator's Mac only; elsewhere the check finds no file and checks nothing.
+WINDOW_FILE = Path(os.environ.get("CMUX_WINDOW_FILE") or
+                   Path.home() / "fun/cmuxterm-hq/.cmux-scratch/nx-coordinator/WINDOW")
+FREEZE_LINE = re.compile(r"(?m)^FREEZE:[ \t]*(\S+)[ \t]+token=(\S+)")
+FREEZE_TRAILER = re.compile(r"(?mi)^Freeze-Token:[ \t]*(\S+)[ \t]*$")
 
 # Reviewed escapes the CI scanners honor, per ast-grep rule (same line or the comment block above).
 ESCAPES = {
@@ -661,6 +668,35 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def window_freezes(repo: Path, base: str, head: str, window: Path | None = None) -> list[str]:
+    """Each pushed commit that changes a path a WINDOW FREEZE line holds without that line's token.
+
+    2026-10-25 (Lawrence): "freeze for all" on cmux.xcodeproj/project.pbxproj; landq honored the FREEZE lines,
+    a direct push did not. A commit passes with a `Freeze-Token: <token>` trailer equal to the line's token
+    (a slot grant replaces `none` with a token; `none` never matches). No WINDOW file: nothing is checked.
+    """
+    try:
+        text = (window or WINDOW_FILE).read_text()
+    except OSError:
+        return []
+    freezes = FREEZE_LINE.findall(text)
+    if not freezes:
+        return []
+    found: list[str] = []
+    out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
+              f"{base}..{head}", "--", check=False).decode(errors="replace")
+    for record in out.split("\x1e")[1:]:
+        sha, message, names = (record.split("\x1f") + ["", ""])[:3]
+        files = [f for f in names.split("\n") if f]
+        tokens = set(FREEZE_TRAILER.findall(message))
+        for prefix, token in freezes:
+            hit = sorted(f for f in files if f == prefix or f.startswith(prefix.rstrip("/") + "/"))
+            if hit and (token.startswith("none") or token not in tokens):
+                found.append(f"{sha[:11]} changes {hit[0]}, frozen in WINDOW (`FREEZE: {prefix} token={token}`). "
+                             f"Ask the coordinator for a slot grant, then add `Freeze-Token: <its token>` to the commit.")
+    return found
+
+
 def sidebar_owner(repo: Path, base: str, head: str, ack_rev: str | None = None) -> list[str]:
     """Each pushed commit that changes the sidebar's drawing code without the owner's record.
 
@@ -714,6 +750,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
+    if only is None or "freeze" in only:
+        frozen = window_freezes(repo, base, head)
+        if frozen:
+            reserved.append((FREEZE_CHECK, frozen))
     if only is None or "crash-allow" in only:
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
@@ -1106,7 +1146,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="the pushed remote's name (the hook's first argument; a URL for a push to a URL)")
     parser.add_argument("--commits", help="CI: check each non-merge commit of RANGE against its first parent")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,conflicts,"
-                                       "sidebar,crash-allow")
+                                       "sidebar,crash-allow,freeze")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)

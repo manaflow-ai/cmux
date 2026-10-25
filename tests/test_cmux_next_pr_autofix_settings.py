@@ -143,5 +143,97 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
                 self.assertIn("--docs-shortcuts", args)
 
 
+class FleetBundleHandsBackEveryExport(unittest.TestCase):
+    """2026-10-25: a lane ran regenerate-settings-exports.sh as a fleet step for #24923. A step returns one
+    --artifact file, so each run handed back one docs/mdm file, and nothing wrote the docs settings reference
+    or the defaults snapshot. An OUT ending in .patch (the controller takes one relative OUT) gets them after
+    the stamp check and packs every regenerated file into that one patch; a folder OUT gets what the bots
+    expect and nothing more."""
+
+    EXPORTS = (
+        "docs/mdm/com.manaflow.cmux.json", "docs/mdm/com.manaflow.cmux.plist", "docs/mdm/com.manaflow.cmux.intune.plist",
+        "docs/mdm/cmux-example.mobileconfig", "docs/mdm/managed-preferences.md",
+        "schemas/settings/settings-schema.json", "schemas/settings-export/settings-schema.sources.sha256",
+    )
+    FOLLOWERS = ("web/data/next-docs/settings-reference.generated.json", "schemas/defaults/cmux-next.json")
+
+    def repo(self, stamp_ok: bool = True) -> tuple[Path, dict[str, str]]:
+        work = Path(tempfile.mkdtemp())
+        repo, bin_dir = work / "repo", work / "bin"
+        for rel in ("scripts/cmux-next/regenerate-settings-exports.sh", "scripts/cmux-next/lib/fleet-only.sh"):
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_bytes((ROOT / rel).read_bytes())
+            (repo / rel).chmod(0o755)
+        stubs = {
+            "scripts/cmux-next/compile-string-catalogs.sh": "#!/usr/bin/env bash\nexit 0\n",
+            "scripts/ci/defaults_guard.py": (
+                "import sys\nfrom pathlib import Path\n"
+                "if sys.argv[1] == 'snapshot': Path('schemas/defaults/cmux-next.json').write_text('new\\n')\n"
+                f"if sys.argv[1] == 'check-stamp': sys.exit({0 if stamp_ok else 1})\n"),
+            "web/scripts/export-next-docs.ts": "",
+            "Packages/macOS/CmuxNext/Package.swift": "",
+        }
+        for rel, text in stubs.items():
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text(text)
+            (repo / rel).chmod(0o755)
+        for rel in self.EXPORTS + self.FOLLOWERS:
+            (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+            (repo / rel).write_text("old\n")
+        bin_dir.mkdir()
+        # swift test writes the exports from the package directory, as the export tests do.
+        (bin_dir / "swift").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [[ " $* " == *" --show-bin-path "* ]]; then echo /nonexistent; exit 0; fi\n'
+            '[[ "$1" == test ]] || exit 0\n'
+            "for f in " + " ".join(self.EXPORTS) + '; do echo new > "../../../$f"; done\n')
+        (bin_dir / "bun").write_text(
+            '#!/usr/bin/env bash\necho "$*" > "$(git rev-parse --show-toplevel)/../bun-args"\n'
+            "echo new > web/data/next-docs/settings-reference.generated.json\n")
+        for tool in ("swift", "bun"):
+            (bin_dir / tool).chmod(0o755)
+        git = ["git", "-C", str(repo)]
+        subprocess.run(git + ["init", "-q"], check=True)
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"], check=True)
+        env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "CMUX_CI_STEP_KEY": "test"}
+        return repo, env
+
+    def run_script(self, repo: Path, env: dict[str, str], *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", "scripts/cmux-next/regenerate-settings-exports.sh", *args], cwd=repo,
+                              env={**os.environ, **env}, capture_output=True, text=True)
+
+    def test_the_bundle_holds_every_export_and_the_files_that_follow_them(self):
+        repo, env = self.repo()
+        result = self.run_script(repo, env, "settings-exports.patch")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((repo.parent / "bun-args").read_text().split(), ["web/scripts/export-next-docs.ts", "--settings"])
+        patch = repo / "settings-exports.patch"
+        touched = subprocess.run(["git", "-C", str(repo), "apply", "--numstat", str(patch)], capture_output=True,
+                                 text=True, check=True).stdout.split()[2::3]
+        self.assertEqual(sorted(touched), sorted(self.EXPORTS + self.FOLLOWERS))
+        # It applies on the step's commit.
+        subprocess.run(["git", "-C", str(repo), "checkout", "-q", "--", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "apply", "--index", str(patch)], check=True)
+        for rel in self.EXPORTS + self.FOLLOWERS:
+            self.assertEqual((repo / rel).read_text(), "new\n", rel)
+
+    def test_without_the_bundle_the_bots_get_only_the_exports(self):
+        repo, env = self.repo()
+        result = self.run_script(repo, env, ".out")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((repo.parent / "bun-args").exists())
+        for rel in self.FOLLOWERS:
+            self.assertEqual((repo / rel).read_text(), "old\n", rel)
+        self.assertEqual(sorted(str(p.relative_to(repo / ".out")) for p in (repo / ".out").rglob("*") if p.is_file()),
+                         sorted(self.EXPORTS))
+
+    def test_a_stale_stamp_writes_no_bundle(self):
+        repo, env = self.repo(stamp_ok=False)
+        result = self.run_script(repo, env, "settings-exports.patch")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((repo / "settings-exports.patch").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

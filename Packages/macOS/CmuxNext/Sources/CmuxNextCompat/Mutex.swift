@@ -21,7 +21,7 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
     /// Do not call `withLock` on the same mutex from inside `body`: the lock
     /// is not recursive.
     ///
-    /// In Debug and bench builds (Nightly to come) a main-thread wait for the lock longer than
+    /// In Debug and bench builds (and cmux NEXT Nightly) a main-thread wait for the lock longer than
     /// ``BlockingKind/lockWaitLimitNanos`` is recorded by the main-thread blocking detector at the
     /// caller's `fileID`:`line` (never a trap: the wait includes scheduling time).
     ///
@@ -36,7 +36,7 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
         _ body: (inout sending Value) throws(E) -> sending Result
     ) throws(E) -> sending Result {
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        // A long main-thread wait is recorded after the unlock (Debug and bench builds; Nightly to come).
+        // A long main-thread wait is recorded after the unlock (Debug, bench and Nightly builds).
         let longWait = storage.lockNotingMainThreadWait()
         defer {
             storage.unlock()

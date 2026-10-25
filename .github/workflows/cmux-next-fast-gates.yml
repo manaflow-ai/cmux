@@ -145,7 +145,7 @@ jobs:
         if: ${{ steps.prepare.outputs.web == 'true' || steps.prepare.outputs.checks == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       # A dispatch runs on feat-cmux-next's ref, so a cache it saved would sit in
       # the base branch's scope after pull request code (bun install scripts)

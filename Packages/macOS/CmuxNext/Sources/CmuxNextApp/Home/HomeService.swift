@@ -25,7 +25,7 @@ final class HomeService {
     /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
     /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
     @ObservationIgnored var pendingChiefSettings: ConversationID?
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// DEBUG: the Chiefs of `debug.home.sidebar_fixture`'s rows, which wear their own characters too.
     var debugChiefs: Set<String> = []
     #endif

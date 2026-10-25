@@ -315,14 +315,13 @@ public final class LayoutRootView: NSView {
                 || $0.activeScreen != snapshot.activeScreen
         } ?? true
 
-        // Screens.
+        // Screens. A screen that goes leaves after the new ones took their panes (below): a pane
+        // that moves to a new screen (the screen that replaces it) moves inside the window, never
+        // out of it and back. A Chromium page's view that leaves its window orders its page window
+        // out, and AppKit asks the window server synchronously (`-[NSWindow _doOrderWindow:]`,
+        // ~100 ms on a busy host).
         let ids = Set(snapshot.screens.map(\.id))
-        for (id, view) in screenViews where !ids.contains(id) {
-            view.tearDown()
-            view.removeFromSuperview()
-            screenViews[id] = nil
-            screenFrames[id] = nil
-        }
+        let leaving = screenViews.filter { !ids.contains($0.key) }
         for screen in snapshot.screens {
             let isActive = screen.id == snapshot.activeScreen
             let view: ScreenContentView
@@ -397,6 +396,13 @@ public final class LayoutRootView: NSView {
             }
         }
 
+        for (id, view) in leaving {
+            view.tearDown()
+            view.removeFromSuperview()
+            screenViews[id] = nil
+            screenFrames[id] = nil
+        }
+
         // Screen switch.
         if previous?.activeScreen != snapshot.activeScreen {
             if switchScreens(from: previous?.activeScreen, to: snapshot.activeScreen, order: snapshot.screens.map(\.id), animated: animated) {
@@ -430,8 +436,10 @@ public final class LayoutRootView: NSView {
         }
         // One motion policy per frame (it reads the animation settings), not one per spring.
         let policy = Motion.panes.policy
-        var moving = false
+        var moving = false, panning = false
         for view in screenViews.values where !view.isHidden {
+            // Pan events that waited in the last frame show first, then the springs step.
+            if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
             if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
@@ -442,13 +450,16 @@ public final class LayoutRootView: NSView {
         applyScreenFrames()
         if highlight.step(dt) { moving = true }
         updateVisibility()
+        // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
+        // is not its landing, so what waits for the landing (page windows, catcher panels) waits on.
+        let gesturing = screenViews.values.contains(where: \.userMotionActive)
         // The frame that lands still syncs as part of the motion; observers hear it ended after it.
-        if moving { setLayoutInMotion(true) }
+        if moving || gesturing { setLayoutInMotion(true) }
         flushOverlaySync()
-        if !moving { setLayoutInMotion(false) }
-        // A gesture requests frames on each pointer change; an active
-        // gesture with a still pointer needs none.
-        return moving
+        if !moving && !gesturing { setLayoutInMotion(false) }
+        // A strip pan keeps the ticks a little after each event (`ScreenContentView.panTickTail`);
+        // a gesture with a still pointer needs none after that.
+        return moving || panning
     }
 
     /// Tells the layout motion observers when the first spring starts and when the last one lands.

@@ -384,7 +384,9 @@ export default agentPaneEntry({
           const x = box.left + box.width / 2;
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
-        await ctx.hover({ text: "More models" });
+        // The row itself, by role: the menu's hidden width probe (QuickMenuSpacer) repeats its text
+        // later in the document, and a text target takes the last match.
+        await ctx.hover({ role: "menuitem", name: "More models" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-more"));
         const rows = ctx.document.querySelectorAll(".acpmux-quick-more [role^=menuitem]");
         if (!rows[rows.length - 1]?.textContent?.includes("Add harness"))
@@ -635,6 +637,20 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-cards[data-variant=list] .nt-card").length === 5);
         if ([...ctx.document.querySelectorAll(".nt-row")].some((row) => row.textContent?.includes("Release")))
           throw new Error("the visual-only composer fixture unexpectedly contains the Release journey");
+      },
+    },
+    "attachment-menu": {
+      note: "The New Tab composer keeps the chat composer's leading + attachment control: opening it exposes the same Attach option without moving the field.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button") !== null,
+        );
+        await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
+        const input = ctx.document.querySelector<HTMLInputElement>(".nt-pickers .acpmux-attach-input");
+        if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
       },
     },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
