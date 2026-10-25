@@ -57,6 +57,48 @@ struct ClaudeAccountPaneEnvironmentTests {
         #expect(decoded.workingDirectory == "/tmp")
     }
 
+    /// Only the two account keys are ever kept or replayed. A snapshot naming anything else (by
+    /// tampering, or a future writer) decodes and restores without it.
+    @Test
+    func decodingKeepsOnlyTheAccountKeys() throws {
+        let json = #"""
+            {"overrides":{"CLAUDE_CONFIG_DIR":"/Users/t/.claude-work","PROMPT_COMMAND":"touch /tmp/pwned"},
+             "removedKeys":["BASH_ENV","CLAUDE_SECURESTORAGE_CONFIG_DIR"]}
+            """#
+        let account = try JSONDecoder().decode(ClaudeAccountPaneEnvironment.self, from: Data(json.utf8))
+
+        #expect(account.overrides == [configKey: "/Users/t/.claude-work"])
+        #expect(account.removedKeys == [secureStorageKey])
+        #expect(account.clearedKeys == [secureStorageKey])
+        // Older and partial records still decode.
+        let empty = try JSONDecoder().decode(ClaudeAccountPaneEnvironment.self, from: Data("{}".utf8))
+        #expect(empty.overrides.isEmpty && empty.removedKeys.isEmpty)
+    }
+
+    @Test
+    func restoreNeverReplaysAKeyOtherThanTheAccountKeys() throws {
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let index = try #require(snapshot.panels.firstIndex { $0.id == sourcePanelID })
+        snapshot.panels[index].terminal?.claudeAccountEnvironment = ClaudeAccountPaneEnvironment(
+            overrides: [configKey: "/Users/t/.claude-work", "PROMPT_COMMAND": "touch /tmp/pwned"],
+            removedKeys: ["BASH_ENV"]
+        )
+        snapshot = try JSONDecoder().decode(SessionWorkspaceSnapshot.self, from: JSONEncoder().encode(snapshot))
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        let restoredPanelID = try #require(restored.restoreSessionSnapshot(snapshot)[sourcePanelID])
+        let panel = try #require(restored.terminalPanel(for: restoredPanelID))
+
+        #expect(panel.surface.startupEnvironmentValue("PROMPT_COMMAND") == nil)
+        #expect(panel.surface.startupEnvironmentValue(configKey) == "/Users/t/.claude-work")
+        #expect(panel.claudeAccountEnvironment?.overrides.keys.sorted() == [configKey])
+        #expect(panel.claudeAccountEnvironment?.removedKeys.isEmpty == true)
+    }
+
     // MARK: Restored shell environment
 
     @Test
