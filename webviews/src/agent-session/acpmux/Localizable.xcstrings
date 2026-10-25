@@ -178880,6 +178880,11 @@
         }
       }
     },
+    "turn.working.outputTokens": {
+      "comment": "Agent pane: generated output tokens for the running turn, after its time (Thinking 5m 54s · 2.1M out).",
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"bs":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"da":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"de":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"en":{"stringUnit":{"state":"translated","value":"{tokens} out"}},"es":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"fr":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"it":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"ja":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"km":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"ko":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"nb":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"pl":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"ru":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"th":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"tr":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"uk":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"vi":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"{tokens} out"}}}
+    },
     "turn.working.tokens": {
       "comment": "Agent pane: the running turn's line, the tokens its model calls used so far, after its time (Working for 5m 54s · 2.1M tokens). {tokens} is the count in compact form (2.1M, 840K).",
       "extractionState": "manual",

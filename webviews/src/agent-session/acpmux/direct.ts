@@ -186,12 +186,17 @@ const QUEUE_WITHDRAWN_KEPT = 16;
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
 /// A `usage_update` acpmux marked as one model call's own (claude_stdio/inbound.rs, Claude Code's
-/// streamed message_delta): its input, cache reads and writes, and output, which is how Claude
-/// desktop reads a turn's tokens. A turn's marked calls add up to its tokens, subagents' calls
-/// included. Every other usage record is the context a harness holds (Claude Code's result
-/// repeats its last call's for the context ring; other harnesses, whatever their family, report
-/// only that), which does not add up.
+/// streamed message_delta) carries the prompt-side counts plus `outputTokens`. A turn's marked
+/// calls add their output tokens, subagents' calls included. Every other usage record is the
+/// context a harness holds (Claude Code's result repeats its last call's for the context ring;
+/// other harnesses, whatever their family, report only that), which does not add up.
 const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
+/// The generated side of one model call. Older daemons only sent `used`, which is a context
+/// snapshot and must never be mistaken for output; those calls therefore do not contribute.
+const callOutputTokens = (update: any): number | undefined => {
+  const value = Number(update?.outputTokens ?? update?.output_tokens);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+};
 /// acpmux's `contextBreakdown` (a Claude Code chat's /context), or unset when it sent none.
 const contextBreakdownOf = (value: any): AcpmuxContextBreakdown | undefined =>
   value && typeof value === "object" && Array.isArray(value.categories) ? value : undefined;
@@ -1076,9 +1081,9 @@ export class AcpmuxDirectClient {
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number; setup?: number } | undefined;
-  /// The running turn's tokens: its model calls' usage added up from its `turn_started`, the
-  /// running line's count (conversation/WorkingFor.tsx). Unset outside a turn, and for a turn
-  /// whose start this client did not see (it missed calls before it attached).
+  /// The running turn's output tokens: its model calls' generated usage added up from
+  /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
+  /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
   private turnTokens: number | undefined;
   /// The first seq whose usage this client holds: the attach page's first record when acpmux has
   /// older ones (older pages carry no usage), else 0. A turn that started before it has calls this
@@ -2982,9 +2987,12 @@ export class AcpmuxDirectClient {
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
-      // Counted before the window: Claude Code reports a size of 0 until its first result.
-      if (this.turnTokens !== undefined && isCallUsage(update) && Number.isFinite(used) && used > 0)
-        this.turnTokens += used;
+      // `used` is the last call's prompt/context size. Only an explicitly reported generated
+      // count belongs on the running line; adding `used` here counted the whole context again on
+      // every tool step (for example, 5 × 100K input became 500K instead of 5K output).
+      const output = callOutputTokens(update);
+      if (this.turnTokens !== undefined && isCallUsage(update) && output !== undefined)
+        this.turnTokens += output;
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
