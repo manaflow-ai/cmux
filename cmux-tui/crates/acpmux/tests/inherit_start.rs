@@ -39,6 +39,8 @@ fn hub() -> Arc<Hub> {
             "bare": {"argv": ["python3", FAKE], "family": "bare", "env": {"FAKE_NO_MODES": "1"}},
             // A family whose default policy is wider than an asking starter's.
             "lax": {"argv": ["python3", FAKE], "family": "lax", "env": {"FAKE_FULL_ACCESS": "1"}},
+            // The starter's family, with a session/new that takes a while.
+            "slow": {"argv": ["python3", FAKE], "family": "fake", "env": {"FAKE_FULL_ACCESS": "1", "FAKE_NEW_DELAY_MS": "1500"}},
         },
         "defaults": {"lax": {"policy": "approve-all"}},
         "defaultHarness": "fake",
@@ -338,4 +340,25 @@ async fn a_start_that_names_one_field_inherits_the_other() {
         .ok("session/new", new_params(json!({"harness": "fake", "mode": "normal"})))
         .await);
     assert_eq!(app.level(&named_mode).await, ("normal".to_owned(), json!("approve-edits")));
+}
+
+/// A starter that narrows while its child starts: the child ends at the starter's policy and
+/// mode as they are then, not at the ones read when the start began.
+#[tokio::test]
+async fn a_starter_that_narrows_while_its_child_starts_holds_the_child_to_it() {
+    let hub = hub();
+    let mut app = Client::new(&hub);
+    let parent = starter(&mut app, Some("approve-all"), Some("full-access")).await;
+    let mut agent = Client::as_session(&hub, &parent).await;
+    let start = tokio::spawn(async move {
+        agent.ok("session/new", new_params(json!({"harness": "slow"}))).await
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    app.ok("_acpmux/set_policy", json!({"sessionId": parent, "policy": "ask"})).await;
+    let (parent_mode, _) = app.level(&parent).await;
+    assert_ne!(parent_mode, "full-access", "the starter left full access");
+    let child = id(&start.await.unwrap());
+    let (mode, policy) = app.level(&child).await;
+    assert_eq!(policy, json!("ask"), "the starter's policy now");
+    assert_ne!(mode, "full-access", "not the starter's earlier full access");
 }
