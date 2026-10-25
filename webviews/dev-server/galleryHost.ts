@@ -6,8 +6,8 @@
 //   virtual:cmux-gallery/themes            every theme the app ships (Resources/ghostty/themes, Resources/cmux-themes)
 //   virtual:cmux-gallery/web-theme         WebTheme.bootstrapScript, the script the app injects at
 //                                          document start in every cmux web view (WebTheme.swift)
-//   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet, the files and the
-//                                          order scripts/cmux-next/build-agent-pane-web.sh inlines
+//   virtual:cmux-gallery/agent-pane.css    the agent pane's shipped stylesheet: the sheets dev.tsx
+//                                          reaches, in the order build-agent-pane-web.sh inlines them
 //   virtual:cmux-gallery/metrics           the chrome metrics (MetricTunables.swift: sidebar width,
 //                                          tab strip height, ...) per density, for window mode
 //   virtual:cmux-gallery/fixtures          every shared fixture JSON (schemas/gallery/fixtures.json
@@ -19,6 +19,7 @@
 //                                          ones (galleryLive.ts)
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite-plus";
@@ -32,6 +33,7 @@ export const CMUX_THEMES_DIR = path.join(repoRoot, "Resources/cmux-themes");
 const WEB_THEME_SWIFT = path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift");
 const PANE_BUILD_SCRIPT = path.join(repoRoot, "scripts/cmux-next/build-agent-pane-web.sh");
 const SESSION = path.join(webviewsRoot, "src/agent-session");
+const PANE_TAILWIND = path.join(SESSION, "acpmux/tailwind.css");
 const galleryDir = path.join(webviewsRoot, "src/gallery");
 
 const FIXTURE_INDEX = path.join(repoRoot, "schemas/gallery/fixtures.json");
@@ -117,21 +119,59 @@ export function readWebThemeBootstrap(file = WEB_THEME_SWIFT): string {
 }
 
 /**
- * The pane's stylesheets in shipped order: desktop.css, the shared stylesheet without its Tailwind
- * @import lines, then every `$SRC/...css` file the build script concatenates. (KaTeX's stylesheet
- * loads beside it; the shipped copy only inlines its fonts.)
+ * The pane's stylesheets in shipped order, derived as build-agent-pane-web.sh derives them: every
+ * sheet dev.tsx (the dev server's entry) reaches, in the order its modules run (bundle.mjs
+ * --css-inputs-only, cssInImportOrder), with Tailwind's entry last, where the script compiles it.
+ * No list to parse here: a sheet a component imports lands in the gallery pane as in the app.
+ * (KaTeX's stylesheet loads beside it; the shipped copy only inlines its fonts.)
  */
-export function agentPaneStylesheets(script = PANE_BUILD_SCRIPT): string[] {
-  const text = fs.readFileSync(script, "utf8");
-  // `$SRC/...` (the session sources) and `$ROOT/webviews/src/...` (shared ui/ files such as
-  // ui/popupSurface.css), in the script's order, so the gallery pane matches the shipped one.
-  const files = [...text.matchAll(/"\$(SRC|ROOT\/webviews\/src)\/([^"$]+\.css)"/g)].map((match) =>
-    match[1] === "SRC" ? path.join(SESSION, match[2]!) : path.join(webviewsRoot, "src", match[2]!),
-  );
-  if (!files.some((file) => file.endsWith("shared/styles.css")))
-    throw new Error("gallery: build-agent-pane-web.sh no longer names shared/styles.css; update agentPaneStylesheets");
-  const desktop = path.join(webviewsRoot, "src/pages/shared/desktop.css");
-  return [desktop, ...files.filter((file) => file !== desktop)];
+export function agentPaneStylesheets(): string[] {
+  return (paneSheets ??= derivePaneSheets());
+}
+
+let paneSheets: string[] | undefined;
+
+function derivePaneSheets(): string[] {
+  const work = fs.mkdtempSync(path.join(os.tmpdir(), "cmux-gallery-pane-sheets-"));
+  try {
+    const list = path.join(work, "page-sheets");
+    // The script's own command (process.execPath: bun or node, whichever runs the gallery).
+    execFileSync(
+      process.execPath,
+      [
+        "scripts/agent-pane/bundle.mjs",
+        path.join(SESSION, "acpmux/dev.tsx"),
+        path.join(SESSION, "acpmux/shiki"),
+        path.join(work, "order/dev.js"),
+        "--split",
+        "--css-inputs",
+        list,
+        "--css-inputs-only",
+      ],
+      { cwd: webviewsRoot, stdio: ["ignore", "ignore", "inherit"] },
+    );
+    const sheets = fs
+      .readFileSync(list, "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((sheet) => path.join(webviewsRoot, sheet))
+      .filter((file) => file !== PANE_TAILWIND);
+    if (!sheets.some((file) => file.endsWith("shared/styles.css")))
+      throw new Error("gallery: dev.tsx's sheets leave out shared/styles.css; the pane would render unstyled");
+    return [...sheets, PANE_TAILWIND];
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
+  }
+}
+
+/** Whether a saved source may change the pane's sheets: it imports a stylesheet. */
+function importsStylesheet(file: string): boolean {
+  if (!/\.(tsx?|mjs)$/.test(file) || !file.startsWith(`${webviewsRoot}/src/`)) return false;
+  try {
+    return /\bimport\s+["'][^"']+\.css["']/.test(fs.readFileSync(file, "utf8"));
+  } catch {
+    return false;
+  }
 }
 
 export type Revision = { sha: string; subject: string; committedAt: number; branch: string };
@@ -160,24 +200,12 @@ export function readRevision(root = repoRoot): Revision {
 }
 
 function agentPaneCSS(): string {
-  const inlineRelativeImports = (file: string, css: string, seen = new Set<string>()): string =>
-    css.replace(/^@import\s+["']([^"']+)["'];\s*$/gm, (statement, specifier: string) => {
-      if (!specifier.startsWith(".")) return statement;
-      const imported = path.resolve(path.dirname(file), specifier);
-      if (seen.has(imported)) return "";
-      seen.add(imported);
-      if (!fs.existsSync(imported)) return statement;
-      return inlineRelativeImports(imported, fs.readFileSync(imported, "utf8"), seen);
-    });
-
+  // As the script: a sheet's own @import never loads in the page (the walk already lists an imported
+  // local sheet before its importer); Tailwind's entry keeps its import and gets the pane's sources.
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
-      const body = file.endsWith("shared/styles.css")
-        ? css.replace(/^@import .*$/gm, "")
-        : file.endsWith("acpmux/tailwind.css")
-          ? `${css}\n${tailwindSources()}`
-          : inlineRelativeImports(file, css);
+      const body = file === PANE_TAILWIND ? `${css}\n${tailwindSources()}` : css.replace(/^@import .*$/gm, "");
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");
@@ -261,8 +289,13 @@ export function galleryModules(): Plugin {
       });
     },
     handleHotUpdate({ file, server, modules }) {
-      // A save of any pane stylesheet updates the combined sheet in place.
-      if (!agentPaneStylesheets().includes(file)) return undefined;
+      // A save of any pane stylesheet updates the combined sheet in place; a saved source that
+      // imports a stylesheet derives the list again, and updates it when the list changed.
+      if (importsStylesheet(file)) {
+        const before = agentPaneStylesheets().join("\n");
+        paneSheets = undefined;
+        if (agentPaneStylesheets().join("\n") === before) return undefined;
+      } else if (!agentPaneStylesheets().includes(file)) return undefined;
       const combined = server.moduleGraph.getModuleById(PANE_CSS_PATH);
       if (!combined) return undefined;
       server.moduleGraph.invalidateModule(combined);

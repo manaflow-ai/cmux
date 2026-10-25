@@ -29,6 +29,8 @@ const EVERYTHING = [
   /^webviews\/scripts\/gallery\//,
   /^webviews\/dev-server\/galleryHost\.ts$/,
   /^scripts\/cmux-next\/build-agent-pane-web\.sh$/,
+  // The pane's sheets and their order (build-agent-pane-web.sh derives the page's <style> from it).
+  /^webviews\/src\/agent-session\/acpmux\/dev\.tsx$/,
   /^webviews\/vite\.config(\.gallery)?\.ts$/,
   /^webviews\/package\.json$/,
   /^bun\.lock$/,
