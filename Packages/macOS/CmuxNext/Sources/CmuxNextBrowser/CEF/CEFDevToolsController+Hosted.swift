@@ -63,6 +63,11 @@ extension CEFDevToolsController {
         // pane's. Its input method ops go to the host for the DevTools browser, as the pane's do.
         let page = ChromiumHostPageView(frame: .zero, inputTarget: .pageWindow)
         page.wireToken = tab.runtime.mintPageViewToken()
+        // DevTools' page window takes the view's display, as the pane's page does (task 221).
+        page.onScreenInfo = { [weak self, weak page, weak runtime = tab.runtime] _ in
+            guard let self, let page, let runtime, let browser = devToolsBrowserID else { return false }
+            return runtime.placeHostedPage(page, browser: browser)
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
         #endif
@@ -141,6 +146,7 @@ extension CEFDevToolsController {
             return runtime.logger.error("Chromium Host fork API \(forkAPI) cannot layer-host DevTools")
         }
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(devTools, 1) }
+        runtime.placeHostedPage(page, browser: devTools)
         runtime.whenAnswered(sent, label: "DevTools context") { [weak self, weak page, weak runtime] id in
             guard let self, let page, hostedPage === page, devToolsBrowserID == devTools else { return }
             if let id, id != 0, page.show(contextID: id) { return }
