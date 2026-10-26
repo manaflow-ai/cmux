@@ -101,7 +101,7 @@ import Testing
     }
 
     @Test func debugTunablesChangedKeepsTheNewest() async throws {
-        let page = DebugSettingsPageProvider(model: DebugSettingsModel(store: TunableStore(), descriptors: []), hangs: nil)
+        let page = DebugSettingsPageProvider(model: DebugSettingsModel(store: TunableStore(), descriptors: []), hangs: nil, on: linklessMainWork())
         let changed = try await Self.subscribe(page, "cmux.debug.tunables.changed")
         defer { changed.cancel() }
         #expect(changed.frozenDelivery == .latest)
