@@ -505,6 +505,30 @@ Each hit (or each file/module group shown) is one task; the generator splits gro
 - **Q25 state-writes:** `git grep -n 'fs::write(' -- 'cmux-tui/crates/*/src'` (production files) and `git grep -n -E
   'fn write_atomic'`.
 
+### Q01 MessagesLab per-folder queue (task 038)
+
+`stability-settings.json` asks the lander to add `.enableUpcomingFeature("StrictConcurrency")` to the 4 CmuxMessagesLab
+targets, which stay in `.v5`: complete checking, every finding a warning. A Swift 6.2.4 probe package with the same
+settings (`.v5`, `APPKIT_NATIVE`, the feature) builds with exit 0 and reports a mutable global and a sending closure as
+warnings (`[#MutableGlobalVariable]`); without the feature it reports nothing. The queue is the warning count per folder
+from the fleet run at the lander's commit (`cmux-ci run --class isolated --ref SHA --script
+scripts/cmux-next/swift-diagnostics.sh -- --package Packages/Shared/CmuxMessagesLab --summary`), counted from
+`diagnostics.jsonl` by the `file` of each warning or error row. Source sizes at perf/chrome-parity f50dd944398:
+
+| Folder (under CmuxMessagesLab/) | Task | Files | Lines | Diagnostics |
+| --- | --- | ---: | ---: | ---: |
+| Sources/MessagesLabHome/Vendor/catalyst/[A-L]* | 040 | 13 | 5,776 | fleet run |
+| Sources/MessagesLabHome/Vendor/catalyst/[M-Z]* | 041 | 22 | 13,072 | fleet run |
+| Sources/MessagesLabHome/Vendor/appkit-native | 042 | 11 | 5,163 | fleet run |
+| Sources/MessagesLabHome/Vendor/appkit-port | 042 | 3 | 892 | fleet run |
+| Sources/MessagesLabHome/Cmux/[A-L]* | 043 | 72 | 8,606 | fleet run |
+| Sources/MessagesLabHome/Cmux/[M-Z]* | 044 | 30 | 3,920 | fleet run |
+| Sources/MessagesLabSidebar | 039 | 12 | 4,657 | fleet run |
+| Tests/MessagesLabHomeTests | 045 | 81 | 10,834 | fleet run |
+| Tests/MessagesLabSidebarTests | 039 | 3 | 412 | fleet run |
+
+A folder over about 400 diagnostics is split again (risk 6) before its task starts.
+
 ## 7. Risks
 
 1. **Per-merge coverage (decided).** Tip coverage + bisect, proved by `stability-lab.py coverage`. Building every merge

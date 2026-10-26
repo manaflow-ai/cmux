@@ -1,0 +1,41 @@
+{
+  "_doc": [
+    "Swift settings the p10 stability program requests for Package.swift targets (plans/cmux-next/stability-DESIGN.md, section C.5).",
+    "Implementers add rows here and never edit a manifest by hand; the settings lander (p10-stability-198,",
+    "scripts/cmux-next/apply-stability-settings.py) appends each row's setting to the named target's swiftSettings",
+    "in one commit, skips a setting the target already has, and compile-checks the result on the fleet.",
+    "Row: package (folder of the Package.swift, repository-relative), target (literal target name), setting (one",
+    "SwiftSetting expression, exactly as it goes into the manifest), task (the p10 task that requested it), why."
+  ],
+  "version": 1,
+  "rows": [
+    {
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabHome",
+      "setting": ".enableUpcomingFeature(\"StrictConcurrency\")",
+      "task": "p10-stability-038",
+      "why": "Complete concurrency checking as warnings while the target stays in .v5; its diagnostics are the queue for 040-044."
+    },
+    {
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabSidebar",
+      "setting": ".enableUpcomingFeature(\"StrictConcurrency\")",
+      "task": "p10-stability-038",
+      "why": "Complete concurrency checking as warnings while the target stays in .v5; its diagnostics are the queue for 039."
+    },
+    {
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabHomeTests",
+      "setting": ".enableUpcomingFeature(\"StrictConcurrency\")",
+      "task": "p10-stability-038",
+      "why": "Complete concurrency checking as warnings while the target stays in .v5; its diagnostics are the queue for 045."
+    },
+    {
+      "package": "Packages/Shared/CmuxMessagesLab",
+      "target": "MessagesLabSidebarTests",
+      "setting": ".enableUpcomingFeature(\"StrictConcurrency\")",
+      "task": "p10-stability-038",
+      "why": "Complete concurrency checking as warnings while the target stays in .v5; its diagnostics are the queue for 039."
+    }
+  ]
+}
