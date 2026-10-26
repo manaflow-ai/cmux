@@ -28,11 +28,12 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     private let writeSource: any DispatchSourceWrite
     private let input: PendingInput
     private let closed = Atomic<Bool>(false)
-    /// Watches each read drain on the read queue (`localpty.read`), never the wait for readiness; nil watches nothing.
+    /// Watches each read chunk on the read queue (`localpty.read`), never the wait for readiness; nil watches nothing.
     private let readWatched: HangWatchedLane?
 
-    /// One read drain's budget (read until EAGAIN, a jank past it, a hang dump 2 s later): the descriptor
-    /// is nonblocking, so a drain that runs this long means the read queue is stuck.
+    /// One read chunk's budget (one `read(2)` of at most ``readChunkCapacity`` and its yield; a jank past it,
+    /// a hang dump 2 s later): the descriptor is nonblocking, so a chunk that takes this long means the read
+    /// queue is stuck.
     static let readHangDeadline: Duration = .seconds(1)
     /// One flush's budget (write until EAGAIN): the descriptor is nonblocking, so the same holds for writes.
     static let writeHangDeadline: Duration = .seconds(2)
@@ -40,7 +41,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     /// Spawns `shell` as a login shell in `workingDirectory`. `installedTerminfo` is the caller's lane read of
     /// ``GhosttyLaunchProbe/terminfoInstalled``: true makes the shell's `TERM`
     /// `xterm-ghostty`, false `xterm-256color` (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``),
-    /// unless `environment` sets it. The init reads no file for it. `hangs` watches each read drain
+    /// unless `environment` sets it. The init reads no file for it. `hangs` watches each read chunk
     /// (`localpty.read`) and each input flush (`localpty.write`); nil watches nothing.
     public init(
         shell: String = LocalPTYTerminalIO.defaultShell,
@@ -213,37 +214,6 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         writeQueue.async { [input, writeSource] in input.cancel(writeSource) }
         continuation.yield(.exited)
         continuation.finish()
-    }
-
-    enum DrainResult { case drained, hangup }
-
-    /// One drain, inside one ``readHangDeadline`` scope of `watched` when there is a watcher: the drain
-    /// never waits (the descriptor is nonblocking), so the scope holds no wait for readiness.
-    @discardableResult
-    private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation,
-                              watched: HangWatchedLane?) -> DrainResult {
-        guard let watched else { return readUntilBlocked(fd, into: continuation) }
-        return watched.run { readUntilBlocked(fd, into: continuation) }
-    }
-
-    /// Reads until EAGAIN (drained: wait for readiness) or until the slave
-    /// side closed (0, EIO or another error: terminal). EINTR retries.
-    private static func readUntilBlocked(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) -> DrainResult {
-        var buffer = [UInt8](repeating: 0, count: 65_536)
-        let capacity = buffer.count
-        // wakeup-allow: bounded: reads until EAGAIN (wait for readiness) or hangup/EOF (terminal); EINTR retries
-        while true {
-            // concurrency-allow: the PTY descriptor is O_NONBLOCK; read returns EAGAIN instead of waiting.
-            // SAFETY: read writes at most `capacity` bytes, the array's count, into its storage,
-            // alive for the call.
-            let count = unsafe Darwin.read(fd, &buffer, capacity)
-            if count > 0 {
-                continuation.yield(.output(Data(buffer[0..<count])))
-                continue
-            }
-            if count < 0, errno == EINTR { continue }
-            return count < 0 && errno == EAGAIN ? .drained : .hangup
-        }
     }
 
     public static var defaultShell: String {
