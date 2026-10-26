@@ -81,7 +81,7 @@ const painted = { rects: 0 };
 const none = () => {};
 // prettier-ignore
 dom.window.HTMLCanvasElement.prototype.getContext = (() => ({
-  ...{ setTransform: none, clearRect: none, beginPath: none, fill: none, fillStyle: "", globalAlpha: 1 },
+  setTransform: none, clearRect: none, beginPath: none, fill: none, fillStyle: "", globalAlpha: 1,
   rect: () => void (painted.rects += 1),
 })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
@@ -125,11 +125,12 @@ function content(scroller: HTMLElement, height: number) {
   Object.defineProperty(scroller, "scrollHeight", { configurable: true, get: () => state.height });
   return state;
 }
-/// One scroll event at `top`, as the browser sends it.
+/// One scroll event at `top`, as the browser sends it, and the frame after it (the view box moves there).
 const scrollTo = (scroller: HTMLElement, top: number) =>
   act(async () => {
     scroller.scrollTop = top;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
+    runFrames();
   });
 
 async function mount(after: AcpmuxRow[] = []) {
@@ -139,12 +140,7 @@ async function mount(after: AcpmuxRow[] = []) {
   const base = chat("Streaming");
   const render = (reply: string, streaming = false) => {
     const rows = base.slice();
-    rows[rows.length - 1] = {
-      ...base.at(-1)!,
-      text: reply,
-      version: reply.length,
-      streaming,
-    };
+    rows[rows.length - 1] = { ...base.at(-1)!, text: reply, version: reply.length, streaming }; // prettier-ignore
     rows.push(...after);
     return act(async () =>
       root.render(
@@ -165,20 +161,6 @@ async function mount(after: AcpmuxRow[] = []) {
   return { host, render, draws, done };
 }
 
-test("off by default: no chat minimap", async () => {
-  setChatDisplay({});
-  const pane = await mount();
-  try {
-    await pane.render("Streaming");
-    await act(async () => flushFrames());
-    expect(pane.host.querySelector(".acpmux-chat-minimap")).toBeNull();
-    // The thread rail at the left is still there.
-    expect(pane.host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
-  } finally {
-    await pane.done();
-  }
-});
-
 test("on: one canvas, no node per row; frozen while a reply streams; a scroll moves only the view box", async () => {
   setChatDisplay({ "agentPane.display.vscodeMinimap": true });
   const pane = await mount();
@@ -197,6 +179,12 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     const control = minimap.querySelector<HTMLElement>("[role=scrollbar]")!;
     expect(control.getAttribute("aria-label")).toBe("Chat minimap");
     expect(control.tabIndex).toBe(0);
+    // A scrollbar names what it scrolls (the transcript) and its value; the canvas is decoration.
+    const transcript = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
+    expect(transcript.id).not.toBe("");
+    expect(control.getAttribute("aria-controls")).toBe(transcript.id);
+    expect(control.getAttribute("aria-valuenow")).toBe("0");
+    expect(minimap.querySelector("canvas")!.getAttribute("aria-hidden")).toBe("true");
     const scroller = pane.host.querySelector<HTMLElement>(".acpmux-scroll")!;
     const box = minimap.querySelector<HTMLElement>(".acpmux-chat-minimap__view")!;
 
@@ -246,33 +234,33 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
     // A scroll at rest moves the view box and draws nothing.
     const before = pane.draws();
     const was = box.style.transform;
-    for (const top of [2000, 8000])
-      await act(async () => {
+    // Several scroll events in one frame: the box is not written in the events, and the frame
+    // writes it once.
+    const writes = { box: 0 };
+    const style = box.style;
+    const setTransform = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(style), "transform")!;
+    Object.defineProperty(style, "transform", {
+      configurable: true,
+      get() { return setTransform.get!.call(this); }, // prettier-ignore
+      set(value: string) { writes.box += 1; setTransform.set!.call(this, value); }, // prettier-ignore
+    });
+    await act(async () => {
+      for (const top of [2000, 4000, 8000]) {
         scroller.scrollTop = top;
         scroller.dispatchEvent(new dom.window.Event("scroll"));
-      });
+      }
+    });
+    expect(writes.box).toBe(0);
     await act(async () => flushFrames());
+    expect(writes.box).toBe(1);
     expect(box.style.transform).not.toBe(was);
     expect(pane.draws()).toBe(before);
+    delete (style as { transform?: string }).transform;
 
     // A click on the map jumps there: the view's middle comes to the clicked point.
     scroller.scrollTop = 0;
-    await act(async () => {
-      control.dispatchEvent(
-        new dom.window.MouseEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          clientY: 300,
-        }),
-      );
-      control.dispatchEvent(
-        new dom.window.MouseEvent("pointerup", {
-          bubbles: true,
-          button: 0,
-          clientY: 300,
-        }),
-      );
-    });
+    const press = (type: string) => new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientY: 300 }); // prettier-ignore
+    await act(async () => void (control.dispatchEvent(press("pointerdown")), control.dispatchEvent(press("pointerup")))); // prettier-ignore
     expect(scroller.scrollTop).toBeGreaterThan(10_000);
   } finally {
     await pane.done();
@@ -306,10 +294,16 @@ test("a streaming reply with many rows after it (queued prompts, notes) still fr
   }
 });
 
-test("Full Width or a column too wide for the right gutter: no minimap over the text", async () => {
+test("off by default; on, but not with Full Width or a column too wide for the right gutter", async () => {
   const pane = await mount();
   try {
-    setChatDisplay({ "agentPane.display.vscodeMinimap": true });
+    setChatDisplay({});
+    await pane.render("Done.");
+    await act(async () => flushFrames());
+    expect(pane.host.querySelector(".acpmux-chat-minimap")).toBeNull();
+    // The thread rail at the left is there either way.
+    expect(pane.host.querySelectorAll("[data-tick]").length).toBe(PROMPTS);
+    await act(async () => setChatDisplay({ "agentPane.display.vscodeMinimap": true }));
     await pane.render("Done.");
     await act(async () => flushFrames());
     expect(pane.host.querySelector(".acpmux-chat-minimap")).not.toBeNull();
