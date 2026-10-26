@@ -273,3 +273,56 @@ async fn full_access_picked_through_the_mode_option_and_its_drift() {
     .unwrap();
     assert!(c.response(rid).await.0.is_ok());
 }
+
+/// A chat whose mode is only its `mode` option, picked Full access through it.
+async fn option_chat(c: &mut TestClient) -> String {
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": id, "configId": "mode", "value": "full-access"}),
+    )
+    .await
+    .unwrap();
+    id
+}
+
+async fn option_hub() -> (Arc<Hub>, TestClient) {
+    hub_with(&[("FAKE_MODE_OPTION", "1"), ("FAKE_NO_MODES", "1")]).await
+}
+
+/// The harness leaves Full access through its option and comes straight back within one turn:
+/// the mark went with the first write, so the guard asks.
+#[tokio::test]
+async fn a_mode_option_that_bounces_out_of_full_access_asks() {
+    let (hub, mut c) = option_hub().await;
+    let id = option_chat(&mut c).await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "bounce-guard: normal", None)).await;
+    asks_the_person(&mut c, &hub, &id, rid).await;
+}
+
+/// A restarted agent whose mode is only its option gets Full access back by the replay, and with
+/// it the approval, with no new pick.
+#[tokio::test]
+async fn a_restarted_mode_option_chat_keeps_approving() {
+    let (hub, mut c) = option_hub().await;
+    let id = option_chat(&mut c).await;
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+    assert_eq!(autos(&hub, &id)[0]["fullAccess"], "full-access");
+}
+
+#[tokio::test]
+async fn a_fork_of_a_mode_option_chat_keeps_approving() {
+    let (hub, mut c) = option_hub().await;
+    let id = option_chat(&mut c).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "hi", None)).await.unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_PROMPT, guard(&fid)).await.unwrap();
+    let fork = hub.resolve(&fid).unwrap();
+    assert_eq!(hub.session_summary(&fork)["preview"], "chose once");
+    assert_eq!(autos(&hub, &fid)[0]["fullAccess"], "full-access");
+}

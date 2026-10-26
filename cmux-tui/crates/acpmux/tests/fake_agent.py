@@ -653,6 +653,15 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "bounce-guard: X" (FAKE_MODE_OPTION=1): the harness moves its mode option to X and straight
+    # back to what it was, then asks as "guard:" does.
+    if text.startswith("bounce-guard:"):
+        was = MODE_OPTION.get(sid, "normal")
+        MODE_OPTION[sid] = text[13:].strip()
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        MODE_OPTION[sid] = was
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        return handle_prompt(rid, dict(params, prompt=[{"type": "text", "text": "guard: rm -rf \"$TARGET\""}]))
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -1279,8 +1288,9 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
-            if os.environ.get("FAKE_MODE_OPTION") == "1" and params.get("configId") == "mode":
-                MODE_OPTION[params.get("sessionId")] = v
+            if os.environ.get("FAKE_MODE_OPTION") == "1":
+                if params.get("configId") == "mode":
+                    MODE_OPTION[params.get("sessionId")] = v
                 send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
