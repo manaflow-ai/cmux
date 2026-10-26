@@ -3,69 +3,111 @@
 
 Starts an isolated headless daemon (durable state on the local disk), grows a
 scenario, and measures the client-side round trip (send to reply) of control
-requests on JSON-lines connections. Every latency row comes from the raw
-samples: n, p50, p95, p99, max (nearest rank), the mean as an extra, and the
-samples themselves. No row is a mean alone.
+requests on JSON-lines connections. Every latency row (LATENCY below) comes
+from the raw samples: n, p50_ms, p95_ms, p99_ms, max_ms (nearest rank),
+mean_ms as an extra, and samples_ms (left out of the automation rows, which
+are too many). No row is a mean alone. A row the daemon does not serve has
+`skipped` (a note why) and n 0; a row or section that failed has `error`,
+fails the run (exit 1) and keeps every row measured before it.
 
 Scenarios (--scenario, repeatable or comma list):
   small   1 workspace, 1 terminal
   scale   50 workspaces, 200 terminals, 5% of them printing steadily
 
-Sections per scenario (keys of result["scenarios"][NAME]):
-  ops          one row per op of --ops: base (ping, identify, list-workspaces,
-               send, new-tab), create (every creation: v12 and v2 creates,
-               split, browser tab, tab groups), all (every op of OPS, which
-               covers ipc5_ops of plans/cmux-next/ipc-targets.json), or a
-               comma list of op names. Row keys: n, p50_ms, p95_ms, p99_ms,
-               max_ms, mean_ms, samples_ms, wire (v12|v2), kind (read|write|
-               create). A row the daemon does not serve has `skipped`
-               (capability not advertised, or command unknown); a row that
-               failed has `error`. Setup and cleanup of each sample run
-               outside the timed window on the same connection.
-  concurrent   c10-ping, c10-identify, c10-list-workspaces: 10 clients at once
-  cli          cli-ping, cli-workspace-list, cli-terminal-write (process start
-               to exit through CMUX_TUI_SOCKET), cli-version-no-socket
-  syscalls     daemon syscalls and context switches per message for ping,
-               send and list-workspaces: (delta over a burst - idle rate x
-               burst time) / messages. `method` names the counter: macOS
-               proc_pidinfo(PROC_PIDTASKINFO) unix + mach syscalls; Linux
-               context switches only (its /proc syscall counters miss
-               sendmsg, recvmsg and poll; Linux rows are not perf evidence). Keys per
-               op: messages, burst_s, syscalls_per_msg, ctx_per_msg,
-               syscalls_idle_per_s, ctx_idle_per_s, and server_stats_ipc_per_msg
-               (each numeric counter of `server-stats include=[ipc]`, such as
-               write syscalls and wakeups, per message) once the daemon serves
-               that section (p05-ipc-082); before, `server_stats_ipc` says so.
-  bulk_interference  (--bulk-interference [KiB,...], default 16,32,64) per
-               chunk size K: a terminal writes --flood-mib MiB in K-byte
-               writes while it is attached on connection A. bulkK-ping-same:
-               ping on A while A carries the flood (head of line, IPC-8);
-               bulkK-ping-other: ping from another process on its own
-               connection; idle-ping-same: A before the flood. Also
-               flood_mib_per_s, output_events, ended (marker|detached|timeout).
-  streams      (--streams N) N printing terminals attached and a ping on the
-               control connection meanwhile. views_per_connection: today's
-               shape, one attach connection per view (always runs);
-               streams_one_connection: N client-minted streams on the control
-               connection (attach-streams-v1; skipped when not advertised).
-               Keys: attach-ms, ping-ms, daemon_threads_before/after,
-               connections_active.
-  automation_storm  (--automation-storm N) the app's key echo (raw `cat`
-               behind the attach connection) and split on its control
-               connection, idle and while N automation processes loop
-               list-workspaces / send / rename-workspace / identify on their
-               own connections. Keys: idle.echo, idle.split, alone (automation
-               throughput without the app), storm.echo, storm.split,
-               storm.automation, ipc16 (echo p95 <= idle + 1 ms, split p95 <
-               2 ms, automation >= 50% of alone).
+Keys of result["scenarios"][SCENARIO]:
+  ops.OP       LATENCY + wire (v12|v2), kind (read|write|create), per op of
+               --ops: base (ping, identify, list-workspaces, send, new-tab),
+               create (the ops of kind create: v12 and v2 creates, split,
+               browser tab, create-tab-group), all (every op, which covers
+               ipc5_ops of plans/cmux-next/ipc-targets.json), or a comma list.
+               `skipped`: capability not advertised, or the daemon does not
+               know the command (v12 `unknown variant `OP``) or operation (v2,
+               once the bench's envelope parses on a served operation). Setup
+               and cleanup run untimed on the same connection.
+  concurrent   c10-ping, c10-identify, c10-list-workspaces: LATENCY of 10
+               clients at once; errors (when any).
+  cli          cli-ping, cli-workspace-list, cli-terminal-write: LATENCY + argv
+               (process start to exit through CMUX_TUI_SOCKET);
+               cli-version-no-socket: LATENCY.
+  syscalls     method (the counter: macOS proc_pidinfo PROC_PIDTASKINFO unix +
+               mach syscalls and csw; Linux context switches only, its /proc
+               syscall counters miss sendmsg, recvmsg and poll, so Linux rows
+               are not perf evidence), server_stats_ipc (a skip note until the
+               daemon serves `server-stats include=[ipc]`, p05-ipc-082), and per
+               op ping, send, list-workspaces: messages, burst_s,
+               syscalls_per_msg, ctx_per_msg, syscalls_idle_per_s,
+               ctx_idle_per_s, server_stats_ipc_per_msg (each numeric ipc
+               counter per message, when served), os_counter (a read failure).
+               X_per_msg = (delta over the burst - idle rate x burst_s) /
+               messages. `send` runs on its own shell with a view attached; its
+               idle sample starts and its burst ends when a marker command's
+               output reaches the view (window_end), so the daemon's PTY read,
+               parse and broadcast of the sends are inside the burst; messages
+               counts the marker send.
+  bulk_interference  (--bulk-interference [KIB,...], default 16,32,64)
+               pty_write_kib (the flood's PTY write size, --flood-write-kib,
+               fixed: it does not set the daemon's framing). When identify
+               reports `bulk_frame_max` (bytes), frame_max_default_bytes and one
+               row set per KIB on a daemon started with
+               CMUX_IPC_BULK_FRAME_MAX=KIB*1024 and the same scenario (L = KIBk,
+               e.g. 16k). Otherwise frame_max_sweep.skipped and one row set at
+               the daemon's own framing (L = default). Row set per L:
+                 bulk-L-idle-ping-same  LATENCY: ping on connection A, attached
+                                        to the flood terminal, before the flood
+                 bulk-L-ping-same       LATENCY: ping on A while A carries the
+                                        flood (head of line, IPC-8)
+                 bulk-L-ping-other      LATENCY (+ error): ping from another
+                                        process on its own connection meanwhile
+                 bulk-L-flood           flood_mib, seconds, received_mib,
+                                        flood_mib_per_s, output_events,
+                                        other_events (count per event name),
+                                        ended (marker|detached|timeout),
+                                        frame_max_kib (null: daemon default),
+                                        pty_write_kib
+  streams      (--streams N) N printing terminals and pings on a control
+               connection while every view keeps reading. views_per_connection:
+               today's shape, one attach connection per view (always runs);
+               streams_one_connection: N client-minted streams on one connection
+               (attach-streams-v1; `skipped` when not advertised). Keys of
+               each: views, attach-ms (LATENCY), ping-ms (LATENCY),
+               daemon_threads_before, daemon_threads_after, connections_active.
+  automation_storm  (--automation-storm N) the app's key echo (raw `cat` behind
+               an attach connection) and split (on its control connection),
+               idle, then while N automation processes loop new-tab (closed
+               again untimed), rename-workspace, list-workspaces, send and
+               identify on their own connections. Both app connections use the
+               app's handshake (identify, client-hello role main when
+               origin-claim-v1 is advertised, set-client-info kind frontend).
+               Keys: clients, seconds (--storm-seconds), mix, app_role
+               {control, echo_view} (the hello role, or why none), idle.echo,
+               idle.split (LATENCY), alone (automation without the app),
+               storm.echo, storm.split (LATENCY), storm.automation. An
+               automation row is LATENCY without samples_ms + window_s,
+               requests_per_s (requests completed inside the window /
+               window_s), clients_cover_window (every client ran for all of
+               it), errors. The storm window is the app's work, which repeats
+               (5 echoes, 1 split) until at least --storm-seconds and the
+               sample counts; the automation clients start with it and stop
+               when it ends. ipc16: echo_p95_delta_ms,
+               echo_p95_within_idle_plus_1ms, split_p95_under_2ms,
+               automation_throughput_ratio, automation_keeps_half (>= 50% of
+               alone), windows_match (both automation rows cover their window);
+               or error when echo or split samples are missing.
 
-Top level: host (hostname, os, os_version, macos, cpu, cores, load, python),
-source (sha, dirty), daemon (version, protocol, build_commit, capabilities),
-args, scenarios, q16.
+Top level: host (hostname, os, os_version, macos, arch, cpu, cores, load,
+python), source (sha, dirty: the script checkout), daemon (version, protocol,
+build_commit, pid, capabilities, bin, binary {path, sha256, mtime}), args,
+scenarios, q16 (the scale scenario's ops with p95 > 2 ms), error (the run
+stopped), q16_write_error.
 
---write-q16 writes runtime.Q16 of ipc-targets.json (p05-ipc queue Q16: ops
-with p95 > 2 ms in --ops all --scenario scale; scripts/cmux-next/ipc-census.py
-reads it). It needs a macOS host: VM timing is not perf evidence.
+--write-q16 writes runtime.Q16 of ipc-targets.json (p05-ipc queue Q16: items
+{file, line, key, p95_ms, wire} for ops with p95 > 2 ms in --ops all --scenario
+scale; scripts/cmux-next/ipc-census.py reads it) and runtime.Q16_run (command,
+scenario, threshold_ms, sha, sha_source, host, daemon_version, skipped,
+failed, and binary when sha_source is `script checkout`). sha is the daemon's
+build_commit; a daemon without one is named by the script checkout's HEAD and
+the binary's hash; a build_commit other than HEAD is refused. It needs a passed
+run on a macOS host: VM timing is not perf evidence.
 
 Usage:
   bench-daemon-latency.py --bin target/release/cmux-tui --out result.json
@@ -76,6 +118,7 @@ Usage:
 import argparse
 import binascii
 import ctypes
+import hashlib
 import itertools
 import json
 import math
@@ -100,6 +143,7 @@ TARGETS = os.path.join(REPO_ROOT, "plans", "cmux-next", "ipc-targets.json")
 SCRIPT_REL = "cmux-tui/scripts/bench-daemon-latency.py"
 Q16_THRESHOLD_MS = 2.0
 V2_PROTOCOL = "cmux.protocol/2"
+V2_PROBE_OPERATION = "machine.list"  # a read every v2 daemon serves
 SCENARIOS = {"small": (1, 1, 0.0), "scale": (50, 200, 0.05)}
 
 
@@ -115,6 +159,7 @@ class DaemonError(RuntimeError):
         code = msg.get("error_code") or (err.get("code") if isinstance(err, dict) else None)
         text = err.get("message") if isinstance(err, dict) else err
         super().__init__(f"{what}: {code or ''} {text!r}".strip())
+        self.what = what
         self.code = code
         self.text = str(text or "")
 
@@ -231,8 +276,12 @@ class Conn:
         return (time.perf_counter() - t) * 1000, msg
 
     def pump(self, seconds):
-        """Handles every line that arrives within `seconds`; replies are kept by id."""
+        """Handles every line that arrives within `seconds`; replies are kept by id.
+
+        Once the deadline passes it reads the socket one more time without waiting, so
+        pump(0) takes what is readable now instead of only what is already buffered."""
         deadline = time.perf_counter() + seconds
+        final = False
         while True:
             line = self._buffered_line()
             if line is not None:
@@ -240,9 +289,11 @@ class Conn:
                 if msg is not None and "id" in msg:
                     self.replies[msg["id"]] = msg
                 continue
-            left = deadline - time.perf_counter()
-            if left <= 0:
-                return
+            left = max(0.0, deadline - time.perf_counter())
+            if left == 0.0:
+                if final:
+                    return
+                final = True
             readable, _, _ = select.select([self.sock], [], [], left)
             if readable:
                 self._fill()
@@ -335,6 +386,25 @@ def source_info():
     return {"sha": sha or None, "dirty": bool(dirty)}
 
 
+def binary_info(path):
+    """The measured binary's mtime and sha256: what names it when the daemon has no build_commit."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    mtime = os.stat(path).st_mtime
+    return {"path": os.path.abspath(path), "sha256": digest.hexdigest(),
+            "mtime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime))}
+
+
+def measured_commit(result):
+    """(sha, sha_source) of the measured daemon: its stamped build_commit, else the script checkout's HEAD."""
+    build_commit = (result.get("daemon") or {}).get("build_commit")
+    if build_commit:
+        return build_commit, "daemon build_commit"
+    return (result.get("source") or {}).get("sha"), "script checkout"
+
+
 # ---------------------------------------------------------------------------------------------
 # Daemon process counters (syscalls, context switches, threads)
 
@@ -362,7 +432,8 @@ class ProcCounters:
         elif os.path.exists(f"/proc/{pid}/io"):
             self.method = ("linux: context switches summed over live threads (/proc/PID/task/TID/status); no "
                            "syscall count: /proc io syscr/syscw see only read/write-class calls, not sendmsg, "
-                           "recvmsg or poll")
+                           "recvmsg or poll; a thread that exits takes its switches with it, so a rate "
+                           "can come out negative")
 
     def sample(self):
         if self.method is None:
@@ -453,6 +524,8 @@ class OpsFixture:
         self.c = conn
         self.keys = itertools.count(1)
         self.closer = "close-tabs" if bench.has("batch-close-v1") else "close-surface"
+        self.ws_id = None
+        self.v2_envelope_ok = False
 
     def key(self):
         return f"bench-{os.getpid()}-{next(self.keys)}"
@@ -471,18 +544,28 @@ class OpsFixture:
         if self.b.has("tab-groups-v1"):
             self.group = must(c.call("create-tab-group", surfaces=[self.tabs[1]], name="bench-g"),
                               "create-tab-group")["group"]["id"]
+        self.v2_envelope_ok = self.probe_v2_envelope()
+
+    def probe_v2_envelope(self):
+        """True when the daemon parses this bench's v2 envelope (with and without an idempotency key)
+        on a served operation. Only then does `invalid request envelope` on an op mean that its
+        `operation` is unknown to the daemon (the envelope's params are untyped JSON)."""
+        for key in (None, self.key()):
+            msg = self.c.v2(V2_PROBE_OPERATION, {}, key)
+            if not msg.get("ok") and is_envelope_error(DaemonError(V2_PROBE_OPERATION, msg)):
+                return False
+        return True
 
     def teardown(self):
+        if self.ws_id is None:
+            return
         try:
             self.c.call("close-workspace", workspace=self.ws_id, end_terminals=True)
         except (OSError, ConnectionError):
             pass
 
     def close(self, surface):
-        if self.closer == "close-tabs":
-            must(self.c.call("close-tabs", surfaces=[surface], end_terminals=True), "close-tabs")
-        else:
-            must(self.c.call("close-surface", surface=surface), "close-surface")
+        must(self.c.call(self.closer, **close_params(self.closer, surface)), self.closer)
 
     def timed(self, cmd, **params):
         ms, msg = self.c.timed(cmd, **params)
@@ -610,7 +693,7 @@ def _op_ungroup_tab_group(f, i):
     return f.timed("ungroup-tab-group", group=data["group"]["id"])[0]
 
 
-@op("close-tab-group", kind="create", capability="tab-groups-v1")
+@op("close-tab-group", kind="write", capability="tab-groups-v1")
 def _op_close_tab_group(f, i):
     tabs = [f.new_tab(), f.new_tab()]
     data = must(f.c.call("create-tab-group", surfaces=tabs, name="bench-close"), "create-tab-group")
@@ -652,12 +735,23 @@ def _op_workspace_ensure_home(f, i):
     return f.timed_v2("workspace.ensure_home", {}, mutation=True)[0]
 
 
-def unserved_reason(err):
-    """Why an op is not served, or None when the error is a real failure."""
-    text = err.text.lower()
-    if text.startswith("bad request: unknown variant"):
-        return "not served by this daemon (unknown command)"
-    if err.code == "validation.invalid" and "invalid request envelope" in text:
+def is_envelope_error(err):
+    return err.code == "validation.invalid" and "invalid request envelope" in err.text.lower()
+
+
+def unserved_reason(err, name, wire, v2_envelope_ok):
+    """Why op `name` is not served, or None when `err` is a real failure.
+
+    Only the op's own request counts (`err.what`, set by must()). v12: serde names the unknown
+    `cmd` tag (`unknown variant `<cmd>``); the same text about a param's enum value names that
+    value, so it stays a failure. v2: the daemon drops serde's detail, so an envelope error means
+    an unknown `operation` only when the bench's envelope parses on a served operation
+    (OpsFixture.probe_v2_envelope)."""
+    if err.what != name:
+        return None
+    if wire == "v12":
+        return "not served by this daemon (unknown command)" if f"unknown variant `{name}`" in err.text else None
+    if v2_envelope_ok and is_envelope_error(err):
         return "not served by this daemon (unknown v2 operation)"
     return None
 
@@ -684,30 +778,80 @@ def pinger_main(sock_path, start_at, stop_at, stop, interval, queue):
         queue.put({"samples": vals, "error": repr(e)})
 
 
-AUTOMATION_MIX = ("list-workspaces", "send", "rename-workspace", "identify")
+# One agent's loop: a create (registry writer and worker permits, what person-first admission must
+# beat; closed again untimed), a rename (a registry write) and the reads an agent polls with.
+AUTOMATION_MIX = ("new-tab", "rename-workspace", "list-workspaces", "send", "identify")
 
 
-def automation_main(sock_path, workspace, surface, start_at, stop_at, queue):
+def close_params(closer, surface):
+    if closer == "close-tabs":
+        return {"surfaces": [surface], "end_terminals": True}
+    return {"surface": surface}
+
+
+def automation_main(sock_path, agent, closer, start_at, deadline, stop, queue):
+    """Loops AUTOMATION_MIX on its own connection from start_at until `stop` is set (or the
+    deadline passes); reports [completion wall time, ms] per timed request."""
     vals = []
     try:
         c = Conn(sock_path)
-        c.call("set-client-info", name="bench-automation", kind="agent")
+        must(c.call("set-client-info", name="bench-automation", kind="agent"), "set-client-info")
         while time.time() < start_at:
             time.sleep(0.002)
         for i in itertools.count():
-            if time.time() >= stop_at:
+            if stop.is_set() or time.time() >= deadline:
                 break
             cmd = AUTOMATION_MIX[i % len(AUTOMATION_MIX)]
-            params = {"send": {"surface": surface, "text": ":\r"},
-                      "rename-workspace": {"workspace": workspace, "name": f"bench-agent-{i % 2}"}}.get(cmd, {})
+            params = {"new-tab": {"pane": agent["pane"], "cols": 80, "rows": 24},
+                      "send": {"surface": agent["surface"], "text": ":\r"},
+                      "rename-workspace": {"workspace": agent["workspace"], "name": f"bench-agent-{i % 2}"}
+                      }.get(cmd, {})
             ms, msg = c.timed(cmd, **params)
-            if not msg.get("ok"):
-                raise DaemonError(cmd, msg)
-            vals.append(ms)
+            vals.append([time.time(), ms])
+            data = must(msg, cmd)
+            if cmd == "new-tab":
+                must(c.call(closer, **close_params(closer, data["surface"])), closer)
         c.close()
-        queue.put({"samples": vals, "seconds": stop_at - start_at})
+        queue.put({"samples": vals, "ended": time.time()})
     except Exception as e:  # noqa: BLE001
-        queue.put({"samples": vals, "seconds": stop_at - start_at, "error": repr(e)})
+        queue.put({"samples": vals, "ended": time.time(), "error": repr(e)})
+
+
+def storm_window(results, t0, t1):
+    """The automation row of one window [t0, t1] (wall seconds): only requests that completed inside
+    it count, and `clients_cover_window` says whether every client ran for all of it."""
+    window = t1 - t0
+    samples = [ms for r in results for end, ms in r["samples"] if t0 <= end <= t1]
+    row = {**stats(samples, keep_samples=False), "window_s": round(window, 3),
+           "requests_per_s": round(len(samples) / window, 1) if window > 0 else None,
+           "clients_cover_window": bool(results) and all(r.get("ended", 0) >= t1 for r in results)}
+    errors = [r["error"] for r in results if "error" in r]
+    if errors:
+        row["errors"] = errors[:5]
+    return row
+
+
+STORM_ECHO_BATCH = 5  # echoes per split in the storm's interleaved app work
+
+
+def ipc16_verdict(idle_echo, storm, alone):
+    """IPC-16 (p05-ipc.md): echo p95 <= idle + 1 ms, split p95 < 2 ms, automation keeps >= 50% of
+    its throughput alone, all over one window (`windows_match`: every automation client ran for
+    all of the app's storm work)."""
+    storm_echo, storm_split, automation = storm["echo"], storm["split"], storm["automation"]
+    alone_rps = alone.get("requests_per_s") or 0
+    storm_rps = automation.get("requests_per_s") or 0
+    measured = bool(idle_echo.get("n") and storm_echo.get("n") and storm_split.get("n"))
+    if not measured:
+        return {"error": "missing echo or split samples", "windows_match": automation.get("clients_cover_window", False)}
+    return {
+        "echo_p95_delta_ms": round(storm_echo["p95_ms"] - idle_echo["p95_ms"], 3),
+        "echo_p95_within_idle_plus_1ms": storm_echo["p95_ms"] <= idle_echo["p95_ms"] + 1.0,
+        "split_p95_under_2ms": storm_split["p95_ms"] < 2.0,
+        "automation_throughput_ratio": round(storm_rps / alone_rps, 3) if alone_rps else None,
+        "automation_keeps_half": bool(alone_rps) and storm_rps >= 0.5 * alone_rps,
+        "windows_match": bool(automation.get("clients_cover_window") and alone.get("clients_cover_window")),
+    }
 
 
 SPAWN = multiprocessing.get_context("spawn")
@@ -742,6 +886,10 @@ def collect(procs, queue, timeout):
 # Bench
 
 
+# The daemon's bulk frame cut (p05-ipc.md 3.2), once p05-ipc-072 makes it a knob: identify reports
+# it in bytes and the daemon takes it from this environment variable at start.
+BULK_FRAME_MAX_FIELD = "bulk_frame_max"
+BULK_FRAME_MAX_ENV = "CMUX_IPC_BULK_FRAME_MAX"
 FLOOD_PERL = (
     '$|=1; my ($k, $n, $m) = @ARGV; my $line = ("x" x 79) . "\\n"; '
     'my $chunk = substr($line x (int($k / 80) + 1), 0, $k); my $go = <STDIN>; '
@@ -753,11 +901,15 @@ ECHO_ARGV = ["/bin/sh", "-c", "stty raw -echo; exec cat"]
 
 
 class Bench:
-    def __init__(self, args):
+    _serial = itertools.count()
+
+    def __init__(self, args, env_extra=None):
+        """`env_extra`: daemon environment on top of the isolated one (a bulk sweep's frame cut)."""
         self.args = args
+        self.env_extra = dict(env_extra or {})
         self.root = tempfile.mkdtemp(prefix="pd.", dir="/private/tmp" if sys.platform == "darwin" else None)
         self.sock_path = os.path.join(self.root, "s.sock")
-        self.session = f"perfd{os.getpid()}"
+        self.session = f"perfd{os.getpid()}n{next(Bench._serial)}"
         self.daemon = None
         self.env = None
         self.caps = set()
@@ -782,6 +934,7 @@ class Bench:
             CMUX_TUI_CONFIG=os.path.join(self.root, "config.json"),
             SHELL="/bin/sh",
         )
+        env.update(self.env_extra)
         self.env = env
         argv = [self.args.bin, "--headless", "--session", self.session, "--socket", self.sock_path,
                 "--state", os.path.join(self.root, "state")]
@@ -820,8 +973,13 @@ class Bench:
             return ""
 
     def stop(self):
-        if not self.daemon:
-            return
+        try:
+            if self.daemon:
+                self._shutdown()
+        finally:
+            shutil.rmtree(self.root, ignore_errors=True)
+
+    def _shutdown(self):
         try:
             c = Conn(self.sock_path, timeout=300)
             ident = must(c.call("identify"), "identify")
@@ -835,7 +993,7 @@ class Bench:
             self.daemon.wait(timeout=180)
         except subprocess.TimeoutExpired:
             self.daemon.kill()
-        shutil.rmtree(self.root, ignore_errors=True)
+        self.daemon_log.close()
 
     # -- topology
 
@@ -917,6 +1075,19 @@ class Bench:
         except (OSError, ConnectionError):
             pass
 
+    def identify_as_app(self, c, name):
+        """The app's connection handshake (CmuxNextDaemon HandshakeLines.swift): identify, then
+        client-hello role main when origin-claim-v1 is advertised (the daemon accepts the hello only
+        as the first line or right after one identify), then set-client-info kind frontend.
+        Returns the hello role, so a person-first verdict (p05-ipc-143) names the class it measured."""
+        must(c.call("identify"), "identify")
+        role = "none (origin-claim-v1 not advertised)"
+        if self.has("origin-claim-v1"):
+            must(c.call("client-hello", role="main"), "client-hello")
+            role = "main"
+        must(c.call("set-client-info", name=name, kind="frontend"), "set-client-info")
+        return role
+
     def attach(self, c, surface, **extra):
         params = {"surface": surface, **extra}
         if self.has("attach-initial-size"):
@@ -927,13 +1098,13 @@ class Bench:
 
     # -- ops
 
-    def ops(self, names, n, create_n):
-        out = {}
+    def ops(self, names, n, create_n, out):
+        """Fills `out` row by row, so the rows measured before an exception stay in the result."""
         c = Conn(self.sock_path)
         fixture = OpsFixture(self, c)
-        fixture.setup()
         caps_of = schema_capabilities()
         try:
+            fixture.setup()
             for name in names:
                 plan = OPS[name]
                 row = {"wire": plan["wire"], "kind": plan["kind"]}
@@ -949,7 +1120,7 @@ class Bench:
                         if i >= 0:
                             vals.append(ms)
                 except DaemonError as e:
-                    reason = unserved_reason(e)
+                    reason = unserved_reason(e, name, plan["wire"], fixture.v2_envelope_ok)
                     if reason and not vals:
                         out[name] = {**row, "n": 0, "skipped": reason}
                     else:
@@ -960,7 +1131,6 @@ class Bench:
         finally:
             fixture.teardown()
             c.close()
-        return out
 
     def concurrent(self, clients, n):
         vals = {"ping": [], "identify": [], "list-workspaces": []}
@@ -1062,67 +1232,113 @@ class Bench:
         return flat
 
     def syscalls(self, n):
-        """Daemon syscalls, context switches and (when served) server-stats ipc counters per message."""
+        """Daemon syscalls, context switches and (when served) server-stats ipc counters per message.
+
+        `send` runs on a shell of its own with a view attached (as the app has), and both its idle
+        sample and its burst end only when the shell's output up to a marker has reached the view:
+        the daemon's PTY read, parse and broadcast of every send lies inside the burst window, and
+        none of the warm-up's lies inside the idle window."""
         c = Conn(self.sock_path)
-        surface = self.first_surface(c)
+        ws_id, (surface,) = self.new_terminals(c, f"bench-syscalls-{os.getpid()}", [["/bin/sh"]])
+        view = OutputView(self, surface)
         os_counter = self.counters.method is not None
         out = {"method": self.counters.method if os_counter else f"no per-process syscall counter on {sys.platform}"}
-        if self.ipc_stats(c) is None:
-            out["server_stats_ipc"] = "skipped: server-stats has no ipc section (p05-ipc-082)"
-        plans = {"ping": {}, "send": {"surface": surface, "text": ":\r"}, "list-workspaces": {}}
-        for name, params in plans.items():
-            for _ in range(10):
-                c.call(name, **params)
-            idle_s = 0.5
-            a = self.counters.sample()
-            time.sleep(idle_s)
-            b = self.counters.sample()
-            ipc_before = self.ipc_stats(c)
-            t = time.perf_counter()
-            for _ in range(n):
-                c.call(name, **params)
-            burst_s = time.perf_counter() - t
-            d = self.counters.sample()
-            ipc_after = self.ipc_stats(c)
-            row = {"messages": n, "burst_s": round(burst_s, 4)}
-            if os_counter and None not in (a, b, d):
-                for key in ("syscalls", "ctx"):
-                    if d[key] is None:
-                        continue
-                    idle_rate = (b[key] - a[key]) / idle_s
-                    row[f"{key}_per_msg"] = round(((d[key] - b[key]) - idle_rate * burst_s) / n, 3)
-                    row[f"{key}_idle_per_s"] = round(idle_rate, 1)
-            elif os_counter:
-                row["os_counter"] = "skipped: counter read failed"
-            if ipc_before is not None and ipc_after is not None:
-                # One server-stats request lies inside the window (ipc_after's own); counters are cumulative.
-                row["server_stats_ipc_per_msg"] = {
-                    key: round((ipc_after[key] - ipc_before[key]) / n, 4)
-                    for key in sorted(ipc_after) if key in ipc_before}
-            out[name] = row
-        c.close()
+        try:
+            if self.ipc_stats(c) is None:
+                out["server_stats_ipc"] = "skipped: server-stats has no ipc section (p05-ipc-082)"
+            plans = {"ping": {}, "send": {"surface": surface, "text": ":\r"}, "list-workspaces": {}}
+            for name, params in plans.items():
+                drained = name == "send"
+                for _ in range(10):
+                    c.call(name, **params)
+                if drained:
+                    view.drain(c, "idle")
+                idle_s = 0.5
+                a = self.counters.sample()
+                time.sleep(idle_s)
+                b = self.counters.sample()
+                ipc_before = self.ipc_stats(c)
+                t = time.perf_counter()
+                for _ in range(n):
+                    c.call(name, **params)
+                if drained:
+                    view.drain(c, "burst")
+                burst_s = time.perf_counter() - t
+                d = self.counters.sample()
+                ipc_after = self.ipc_stats(c)
+                messages = n + 1 if drained else n  # the marker is a send too
+                row = {"messages": messages, "burst_s": round(burst_s, 4)}
+                if drained:
+                    row["window_end"] = "marker output seen on the attached view"
+                if os_counter and None not in (a, b, d):
+                    for key in ("syscalls", "ctx"):
+                        if d[key] is None:
+                            continue
+                        idle_rate = (b[key] - a[key]) / idle_s
+                        row[f"{key}_per_msg"] = round(((d[key] - b[key]) - idle_rate * burst_s) / messages, 3)
+                        row[f"{key}_idle_per_s"] = round(idle_rate, 1)
+                elif os_counter:
+                    row["os_counter"] = "skipped: counter read failed"
+                if ipc_before is not None and ipc_after is not None:
+                    # One server-stats request lies inside the window (ipc_after's own); counters are cumulative.
+                    row["server_stats_ipc_per_msg"] = {
+                        key: round((ipc_after[key] - ipc_before[key]) / messages, 4)
+                        for key in sorted(ipc_after) if key in ipc_before}
+                out[name] = row
+        finally:
+            view.close()
+            self.close_workspace(c, ws_id)
+            c.close()
         return out
 
     # -- bulk interference (IPC-8)
 
-    def bulk_interference(self, sizes_kib, flood_mib, timeout):
-        out = {}
-        control = Conn(self.sock_path)
-        argvs = []
-        markers = {}
+    def bulk_interference(self, sizes_kib, shape):
+        """One flood row per BULK_FRAME_MAX in `sizes_kib`, each on a daemon started with that frame
+        cut (p05-ipc.md 3.2: the bulk preemption boundary), when the daemon advertises the cut;
+        otherwise one row at the daemon's own framing and the sweep skipped. The PTY write size is
+        fixed (--flood-write-kib): it does not set the daemon's framing."""
+        a = self.args
+        out = {"pty_write_kib": a.flood_write_kib}
+        advertised = self.ident.get(BULK_FRAME_MAX_FIELD)
+        if not isinstance(advertised, int):
+            out["frame_max_sweep"] = {"skipped": f"BULK_FRAME_MAX not advertised (identify `{BULK_FRAME_MAX_FIELD}`)"}
+            out.update(self._bulk_row("default", None))
+            return out
+        out["frame_max_default_bytes"] = advertised
         for k in sizes_kib:
-            markers[k] = f"BENCH-FLOOD-DONE-{os.getpid()}-{k}"
-            argvs.append(["perl", "-e", FLOOD_PERL, str(k * 1024), str(flood_mib * 1024 // k), markers[k]])
-        ws_id, surfaces = self.new_terminals(control, f"bench-bulk-{os.getpid()}", argvs)
+            sub = Bench(a, env_extra={BULK_FRAME_MAX_ENV: str(k * 1024)})
+            try:
+                sub.start()
+                got = sub.ident.get(BULK_FRAME_MAX_FIELD)
+                if got != k * 1024:
+                    error = f"started with {BULK_FRAME_MAX_ENV}={k * 1024}, identify {BULK_FRAME_MAX_FIELD}={got}"
+                    out[f"bulk-{k}k-flood"] = {"n": 0, "error": error}
+                    self.failed = True
+                    continue
+                sub.grow(*shape)
+                out.update(sub._bulk_row(f"{k}k", k))
+                self.failed = self.failed or sub.failed
+            finally:
+                sub.stop()
+        return out
+
+    def _bulk_row(self, label, frame_max_kib):
+        a = self.args
+        control = Conn(self.sock_path)
+        marker = f"BENCH-FLOOD-DONE-{os.getpid()}-{label}"
+        write = a.flood_write_kib * 1024
+        argv = ["perl", "-e", FLOOD_PERL, str(write), str(a.flood_mib * 1024 * 1024 // write), marker]
+        ws_id, (surface,) = self.new_terminals(control, f"bench-bulk-{os.getpid()}-{label}", [argv])
         try:
-            for k, surface in zip(sizes_kib, surfaces):
-                out.update(self._flood(k, surface, markers[k], flood_mib, timeout))
+            row = self._flood(label, surface, marker, a.flood_timeout)
+            row[f"bulk-{label}-flood"].update(frame_max_kib=frame_max_kib, pty_write_kib=a.flood_write_kib)
+            return row
         finally:
             self.close_workspace(control, ws_id)
             control.close()
-        return out
 
-    def _flood(self, k, surface, marker, flood_mib, timeout):
+    def _flood(self, label, surface, marker, timeout):
         state = {"bytes": 0, "events": 0, "other_events": {}, "tail": b"", "ended": None}
         marker_b = marker.encode()
 
@@ -1169,11 +1385,12 @@ class Bench:
         if "error" in other:
             self.failed = True
         row = {
-            f"idle-ping-same-{k}k": stats(idle),
-            f"bulk{k}k-ping-same": stats(same),
-            f"bulk{k}k-ping-other": {**stats(other["samples"]), **({"error": other["error"]} if "error" in other else {})},
-            f"bulk{k}k-flood": {
-                "chunk_kib": k, "flood_mib": flood_mib, "seconds": round(flood_s, 3),
+            f"bulk-{label}-idle-ping-same": stats(idle),
+            f"bulk-{label}-ping-same": stats(same),
+            f"bulk-{label}-ping-other": {**stats(other["samples"]),
+                                         **({"error": other["error"]} if "error" in other else {})},
+            f"bulk-{label}-flood": {
+                "flood_mib": self.args.flood_mib, "seconds": round(flood_s, 3),
                 "received_mib": round(state["bytes"] / (1 << 20), 2),
                 "flood_mib_per_s": round(state["bytes"] / (1 << 20) / flood_s, 1) if flood_s else None,
                 "output_events": state["events"], "other_events": state["other_events"],
@@ -1211,19 +1428,28 @@ class Bench:
     def _ping_while_draining(self, c, views, n):
         """n pings on `c` while every view connection keeps reading its stream, as the app does."""
         vals = []
+        by_sock = {v.sock: v for v in views}
+        socks = [c.sock, *by_sock]
         for _ in range(n):
             rid = c.send("ping")
             t = time.perf_counter()
-            while rid not in c.replies:
+            while True:
+                c.pump(0)
+                if rid in c.replies:
+                    break
                 if time.perf_counter() - t > 10:
                     raise RuntimeError("ping got no reply in 10 s")
-                for v in views:
-                    v.pump(0)
-                c.pump(0.0005)
+                readable, _, _ = select.select(socks, [], [], 0.05)
+                for sock in readable:
+                    if sock in by_sock:
+                        by_sock[sock].pump(0)
             c.replies.pop(rid)
             vals.append((time.perf_counter() - t) * 1000)
-            for v in views:
-                v.pump(0.002 / max(1, len(views)))
+            gap_end = time.perf_counter() + 0.002
+            while views and (left := gap_end - time.perf_counter()) > 0:
+                readable, _, _ = select.select(list(by_sock), [], [], left)
+                for sock in readable:
+                    by_sock[sock].pump(0)
         return vals
 
     def _streams_per_connection(self, control, surfaces, n):
@@ -1261,41 +1487,37 @@ class Bench:
 
     def automation_storm(self, clients, seconds, echo_n, split_n):
         control = Conn(self.sock_path)
-        if self.has("origin-claim-v1"):
-            must(control.call("client-hello", role="main"), "client-hello")
-        control.call("set-client-info", name="bench-app", kind="app")
+        app_role = self.identify_as_app(control, "bench-app")
         app_ws, (echo_surface,) = self.new_terminals(control, f"bench-app-{os.getpid()}", [ECHO_ARGV])
         _, pane = self.locate(control, echo_surface)
-        agent_ws = []
-        for i in range(clients):
-            agent_ws.append(self.new_terminals(control, f"bench-agent-{os.getpid()}-{i}", [["/bin/sh"]]))
-        echo = EchoProbe(self, echo_surface)
+        agents = []
+        echo = None
         try:
-            out = {"clients": clients, "seconds": seconds}
+            for i in range(clients):
+                ws_id, (surface,) = self.new_terminals(control, f"bench-agent-{os.getpid()}-{i}", [["/bin/sh"]])
+                agents.append({"workspace": ws_id, "pane": self.locate(control, surface)[1]["id"], "surface": surface})
+            echo = EchoProbe(self, echo_surface)
+            out = {"clients": clients, "seconds": seconds, "mix": list(AUTOMATION_MIX),
+                   "app_role": {"control": app_role, "echo_view": echo.role}}
             out["idle"] = {"echo": stats(echo.measure(echo_n)), "split": stats(self._splits(control, pane["id"], split_n))}
-            out["alone"] = self._automation(agent_ws, seconds, lambda: None)
-            app = {}
+            out["alone"] = self._automation(agents, seconds, lambda until: time.sleep(max(0.0, until - time.time())))
+            app = {"echo": [], "split": []}
 
-            def app_work():
-                app["echo"] = echo.measure(echo_n)
-                app["split"] = self._splits(control, pane["id"], split_n)
+            def app_work(until):
+                # Interleaved and repeated until the storm window ends, so every app sample lies inside it.
+                while len(app["echo"]) < echo_n or len(app["split"]) < split_n or time.time() < until:
+                    app["echo"] += echo.measure(STORM_ECHO_BATCH)
+                    app["split"] += self._splits(control, pane["id"], 1)
 
-            storm = self._automation(agent_ws, seconds, app_work)
+            storm = self._automation(agents, seconds, app_work)
             out["storm"] = {"echo": stats(app["echo"]), "split": stats(app["split"]), "automation": storm}
-            idle_echo, storm_echo = out["idle"]["echo"], out["storm"]["echo"]
-            alone_rps = out["alone"].get("requests_per_s") or 0
-            out["ipc16"] = {
-                "echo_p95_delta_ms": round(storm_echo["p95_ms"] - idle_echo["p95_ms"], 3),
-                "echo_p95_within_idle_plus_1ms": storm_echo["p95_ms"] <= idle_echo["p95_ms"] + 1.0,
-                "split_p95_under_2ms": out["storm"]["split"]["p95_ms"] < 2.0,
-                "automation_throughput_ratio": round(storm["requests_per_s"] / alone_rps, 3) if alone_rps else None,
-                "automation_keeps_half": bool(alone_rps) and storm["requests_per_s"] >= 0.5 * alone_rps,
-            }
+            out["ipc16"] = ipc16_verdict(out["idle"]["echo"], out["storm"], out["alone"])
             return out
         finally:
-            echo.close()
-            for ws_id, _ in agent_ws:
-                self.close_workspace(control, ws_id)
+            if echo is not None:
+                echo.close()
+            for agent in agents:
+                self.close_workspace(control, agent["workspace"])
             self.close_workspace(control, app_ws)
             control.close()
 
@@ -1308,60 +1530,112 @@ class Bench:
             must(control.call("close-surface", surface=surface), "close-surface")
         return vals
 
-    def _automation(self, agent_ws, seconds, app_work):
+    def _automation(self, agents, seconds, app_work):
+        """Runs the automation clients for exactly the app's work: `app_work(until)` starts when they
+        do and they stop when it returns. The row counts only requests that completed in that window
+        (`window_s`, the app work's own time); `clients_cover_window` false (a client ended early, or
+        the app work outran the clients' hard deadline) fails the run."""
         start_at = time.time() + 1.0
-        stop_at = start_at + seconds
-        procs, queue = run_processes([(automation_main, (self.sock_path, ws, surfaces[0], start_at, stop_at))
-                                      for ws, surfaces in agent_ws])
+        deadline = start_at + seconds + max(30.0, 3 * seconds)
+        stop = SPAWN.Event()
+        closer = "close-tabs" if self.has("batch-close-v1") else "close-surface"
+        procs, queue = run_processes([(automation_main, (self.sock_path, agent, closer, start_at, deadline, stop))
+                                      for agent in agents])
         while time.time() < start_at:
             time.sleep(0.005)
-        app_work()
-        results = collect(procs, queue, seconds + 30)
-        samples = [v for r in results for v in r["samples"]]
-        row = {**stats(samples, keep_samples=False), "requests_per_s": round(len(samples) / seconds, 1)}
-        errors = [r["error"] for r in results if "error" in r]
-        if errors:
-            row["errors"] = errors[:5]
+        t0 = time.time()
+        try:
+            app_work(t0 + seconds)
+        finally:
+            t1 = time.time()
+            stop.set()
+        row = storm_window(collect(procs, queue, 30), t0, t1)
+        if "errors" in row or not row["clients_cover_window"]:
             self.failed = True
         return row
 
     # -- scenario
 
+    def section(self, res, key, fn):
+        """Runs one section into res[key]; an exception records {'error': ...} there and fails the run
+        instead of losing the scenario's other rows."""
+        try:
+            value = fn()
+            if value is not None:
+                res[key] = value
+        except Exception as e:  # noqa: BLE001
+            log("section failed", key, traceback.format_exc())
+            res[key] = {**(res.get(key) or {}), "error": repr(e)}
+            self.failed = True
+
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
+        res = self.result["scenarios"][name] = {}
         self.grow(workspaces, terminals, busy)
         time.sleep(self.args.settle)
         a = self.args
-        res = {}
-        res["ops"] = self.ops(select_ops(a.ops), a.n, a.create_n or max(10, a.n // 10))
-        res["concurrent"] = self.concurrent(10, max(20, a.n // 5))
-        res["cli"] = self.cli(a.cli_n)
-        res["syscalls"] = self.syscalls(max(100, a.n))
+        create_n = a.create_n or max(10, a.n // 10)
+        res["ops"] = {}
+        self.section(res, "ops", lambda: self.ops(select_ops(a.ops), a.n, create_n, res["ops"]))
+        self.section(res, "concurrent", lambda: self.concurrent(10, max(20, a.n // 5)))
+        self.section(res, "cli", lambda: self.cli(a.cli_n))
+        self.section(res, "syscalls", lambda: self.syscalls(max(100, a.n)))
         if a.bulk_interference:
-            res["bulk_interference"] = self.bulk_interference(a.bulk_interference, a.flood_mib, a.flood_timeout)
+            self.section(res, "bulk_interference",
+                         lambda: self.bulk_interference(a.bulk_interference, (workspaces, terminals, busy)))
         if a.streams:
-            res["streams"] = self.streams(a.streams, a.n)
+            self.section(res, "streams", lambda: self.streams(a.streams, a.n))
         if a.automation_storm:
-            res["automation_storm"] = self.automation_storm(a.automation_storm, a.storm_seconds, a.n // 3 or 1,
-                                                            a.create_n or max(10, a.n // 10))
-        self.result["scenarios"][name] = res
+            self.section(res, "automation_storm",
+                         lambda: self.automation_storm(a.automation_storm, a.storm_seconds, a.n // 3 or 1, create_n))
         report(name, res)
 
 
-class EchoProbe:
-    """The app's typing path: a key sent on the attach connection, timed to its echo."""
+class OutputView:
+    """A view of one terminal on its own attach connection, with the app's handshake
+    (Bench.identify_as_app), collecting the terminal's output bytes."""
 
-    def __init__(self, bench, surface):
+    def __init__(self, bench, surface, name="bench-view"):
         self.surface = surface
         self.seen = bytearray()
+        self.markers = itertools.count(1)
         self.conn = Conn(bench.sock_path, on_event=self._on_event)
+        self.role = bench.identify_as_app(self.conn, name)
         bench.attach(self.conn, surface)
         self.conn.pump(0.3)
-        self.measure(20)
 
     def _on_event(self, line, msg):
         if msg is None:
             self.seen += output_bytes(line)
+
+    def wait_for(self, needle, since, what):
+        while needle not in self.seen:
+            if time.perf_counter() - since > 10:
+                raise RuntimeError(f"no {what} in 10 s")
+            self.conn.pump(0.0005)
+
+    def drain(self, control, tag):
+        """Returns once the shell has run a marker command sent after everything before it, and its
+        output has reached this view: the daemon has read and broadcast all earlier output."""
+        suffix = f"{tag}-{next(self.markers)}"
+        word = f"BENCH-{suffix}"
+        self.seen.clear()
+        t = time.perf_counter()
+        # The typed line echoes `BENCH-%s`; only the shell's output holds `BENCH-<tag>-<n>`.
+        must(control.call("send", surface=self.surface, text=f"printf 'BENCH-%s\\n' {suffix}\r"), "send")
+        self.wait_for(word.encode(), t, f"marker {word}")
+        self.seen.clear()
+
+    def close(self):
+        self.conn.close()
+
+
+class EchoProbe(OutputView):
+    """The app's typing path: a key sent on the attach connection, timed to its echo."""
+
+    def __init__(self, bench, surface):
+        super().__init__(bench, surface, name="bench-app-view")
+        self.measure(20)
 
     def measure(self, n):
         vals = []
@@ -1370,16 +1644,10 @@ class EchoProbe:
             self.seen.clear()
             t = time.perf_counter()
             self.conn.send("send", surface=self.surface, text=ch)
-            while ch.encode() not in self.seen:
-                if time.perf_counter() - t > 10:
-                    raise RuntimeError(f"no echo of {ch!r} in 10 s")
-                self.conn.pump(0.0005)
+            self.wait_for(ch.encode(), t, f"echo of {ch!r}")
             vals.append((time.perf_counter() - t) * 1000)
             self.conn.pump(0.01)
         return vals
-
-    def close(self):
-        self.conn.close()
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1401,15 +1669,18 @@ def rows(res, prefix=""):
 
 
 def report(name, res):
+    for section, value in res.items():
+        if isinstance(value, dict) and isinstance(value.get("error"), str):
+            print(f"PERF-DAEMON-ERROR {name} {section} {value['error']}", flush=True)
     for metric, s in rows(res):
-        if s.get("n"):
+        if "error" in s:
+            print(f"PERF-DAEMON-ERROR {name} {metric} n={s.get('n', 0)} {s['error']}", flush=True)
+        elif s.get("n"):
             print(f"PERF-DAEMON {name} {metric} n={s['n']} p50={s.get('p50_ms')} p95={s.get('p95_ms')} "
                   f"p99={s.get('p99_ms')} max={s.get('max_ms')}" + (f" argv=\"{s['argv']}\"" if "argv" in s else ""),
                   flush=True)
         elif "skipped" in s:
             print(f"PERF-DAEMON-SKIP {name} {metric} {s['skipped']}", flush=True)
-        elif "error" in s:
-            print(f"PERF-DAEMON-ERROR {name} {metric} {s['error']}", flush=True)
     for metric, s in (res.get("syscalls") or {}).items():
         if isinstance(s, dict) and "ctx_per_msg" in s:
             print(f"PERF-DAEMON-SYSCALLS {name} {metric} syscalls/msg={s.get('syscalls_per_msg', 'n/a')} "
@@ -1426,33 +1697,50 @@ def slow_ops(result, scenario="scale", threshold_ms=Q16_THRESHOLD_MS):
     ops = ((result.get("scenarios") or {}).get(scenario) or {}).get("ops") or {}
     items = []
     for name, row in sorted(ops.items()):
-        if row.get("n") and row.get("p95_ms", 0) > threshold_ms:
+        if isinstance(row, dict) and row.get("n") and row.get("p95_ms", 0) > threshold_ms:
             items.append({"file": SCRIPT_REL, "line": OPS[name]["line"] if name in OPS else 0, "key": name,
                           "p95_ms": row["p95_ms"], "wire": row.get("wire")})
     return items
 
 
+def same_commit(a, b):
+    """True when two (possibly abbreviated) commit ids name the same commit."""
+    return bool(a and b) and (a.startswith(b) or b.startswith(a))
+
+
 def write_q16(targets_path, result, scenario="scale", threshold_ms=Q16_THRESHOLD_MS):
-    """Writes runtime.Q16 (and its run record) into ipc-targets.json; returns the items."""
+    """Writes runtime.Q16 (and its run record) into ipc-targets.json; returns the items.
+
+    The record's sha is the measured daemon's build_commit. A daemon with none is named by the
+    script checkout's HEAD (`sha_source: script checkout`) plus the binary's sha256 and mtime; a
+    build_commit that is not HEAD is refused, since Q16 would credit HEAD with another commit's timings."""
     if scenario not in (result.get("scenarios") or {}):
         raise ValueError(f"Q16 needs the {scenario} scenario in the result")
     ops = result["scenarios"][scenario].get("ops") or {}
-    missing = [name for name in OPS if name not in ops]
+    missing = [name for name in OPS if not isinstance(ops.get(name), dict)]
     if missing:
         raise ValueError(f"Q16 needs --ops all; not measured: {', '.join(missing)}")
+    sha, sha_source = measured_commit(result)
+    head = (result.get("source") or {}).get("sha")
+    if sha_source == "daemon build_commit" and not same_commit(sha, head):
+        raise ValueError(f"the measured daemon is build_commit {sha}, not this checkout's HEAD {head}: "
+                         "Q16 would credit the wrong commit; run from a checkout of the binary's commit")
     items = slow_ops(result, scenario, threshold_ms)
     with open(targets_path, encoding="utf-8") as f:
         targets = json.load(f)
     runtime = targets.setdefault("runtime", {})
     runtime["Q16"] = items
-    runtime["Q16_run"] = {
+    run = {
         "command": "bench-daemon-latency.py --ops all --scenario scale --write-q16",
         "scenario": scenario, "threshold_ms": threshold_ms,
-        "sha": (result.get("source") or {}).get("sha"), "host": result.get("host"),
+        "sha": sha, "sha_source": sha_source, "host": result.get("host"),
         "daemon_version": (result.get("daemon") or {}).get("version"),
-        "skipped": sorted(name for name, row in ops.items() if "skipped" in row),
-        "failed": sorted(name for name, row in ops.items() if "error" in row),
+        "skipped": sorted(name for name, row in ops.items() if isinstance(row, dict) and "skipped" in row),
+        "failed": sorted(name for name, row in ops.items() if isinstance(row, dict) and "error" in row),
     }
+    if sha_source == "script checkout":
+        run["binary"] = (result.get("daemon") or {}).get("binary")
+    runtime["Q16_run"] = run
     with open(targets_path, "w", encoding="utf-8") as f:
         f.write(json.dumps(targets, indent=2, ensure_ascii=False) + "\n")
     return items
@@ -1478,8 +1766,10 @@ def parse_args(argv=None):
     ap.add_argument("--scenario", "--scenarios", dest="scenarios", action="append",
                     help="small, scale (repeatable or comma list; default small,scale)")
     ap.add_argument("--bulk-interference", nargs="?", const=[16, 32, 64], type=parse_kib, default=None,
-                    metavar="KIB,...", help="flood chunk sizes in KiB (default 16,32,64)")
+                    metavar="KIB,...", help="BULK_FRAME_MAX values in KiB to sweep when the daemon advertises "
+                                            "the frame cut (default 16,32,64)")
     ap.add_argument("--flood-mib", type=int, default=256)
+    ap.add_argument("--flood-write-kib", type=int, default=64, help="bytes per PTY write of the flood, in KiB")
     ap.add_argument("--flood-timeout", type=float, default=180.0)
     ap.add_argument("--streams", type=int, default=0, metavar="N", help="attach N printing terminals")
     ap.add_argument("--automation-storm", type=int, default=0, metavar="N", help="N automation clients")
@@ -1492,6 +1782,8 @@ def parse_args(argv=None):
     if unknown:
         ap.error(f"unknown scenario(s) {', '.join(unknown)}; known: {', '.join(SCENARIOS)}")
     args.scenarios = wanted
+    if args.flood_write_kib <= 0:
+        ap.error("--flood-write-kib must be positive")
     select_ops(args.ops)
     unmeasured = [name for name in ipc5_ops() if name not in OPS]
     if unmeasured:
@@ -1504,32 +1796,51 @@ def parse_args(argv=None):
     return args
 
 
+def write_out(path, result):
+    with open(path, "w") as f:
+        json.dump(result, f, indent=1)
+
+
 def main(argv=None):
+    """Writes --out whatever happens (a failed section, a failed start, Ctrl-C), then --write-q16
+    only when the whole run passed."""
     args = parse_args(argv)
     b = Bench(args)
     b.result.update(host=host_info(), source=source_info(),
                     args={k: v for k, v in vars(args).items() if k not in ("bin", "out")})
-    status = 0
+    status = 1
     try:
         b.start()
+        b.result["daemon"]["binary"] = binary_info(args.bin)
         for name in args.scenarios:
             b.scenario(name, *SCENARIOS[name])
+        status = 0
     except Exception as e:  # noqa: BLE001
         log("FAILED", traceback.format_exc(), b.tail()[-1500:])
         b.result["error"] = repr(e)
-        status = 1
+    except KeyboardInterrupt:
+        b.result["error"] = "interrupted"
+        raise
     finally:
-        b.stop()
+        try:
+            b.stop()
+        finally:
+            if "scale" in b.result["scenarios"]:
+                b.result["q16"] = slow_ops(b.result)
+                print("PERF-DAEMON-Q16 scale " + json.dumps([f"{i['key']}={i['p95_ms']}" for i in b.result["q16"]]),
+                      flush=True)
+            write_out(args.out, b.result)
     if b.failed:
         status = 1
-    if "scale" in b.result["scenarios"]:
-        b.result["q16"] = slow_ops(b.result)
-        print("PERF-DAEMON-Q16 scale " + json.dumps([f"{i['key']}={i['p95_ms']}" for i in b.result["q16"]]), flush=True)
     if args.write_q16 and status == 0:
-        write_q16(args.write_q16, b.result)
-        log("wrote runtime.Q16 to", args.write_q16)
-    with open(args.out, "w") as f:
-        json.dump(b.result, f, indent=1)
+        try:
+            write_q16(args.write_q16, b.result)
+            log("wrote runtime.Q16 to", args.write_q16)
+        except (OSError, ValueError) as e:
+            log("--write-q16 failed:", e)
+            b.result["q16_write_error"] = str(e)
+            write_out(args.out, b.result)
+            status = 1
     return status
 
 

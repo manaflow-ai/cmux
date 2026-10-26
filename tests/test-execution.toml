@@ -1893,3 +1893,8 @@ reason = "Lawrence 2026-10-23: no new CI tests. p06_queue.py is a local planning
 path = "tests/test_ipc_census.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. ipc-census.py is the p05-ipc queue report, not a gate; run python3 -I tests/test_ipc_census.py yourself after changing ipc-census.py or plans/cmux-next/ipc-targets.json (about 10 s, git only, no build)."
+
+[[test]]
+path = "tests/test_bench_daemon_latency.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench-daemon-latency.py is a fleet bench, not a gate; run python3 -I tests/test_bench_daemon_latency.py yourself after changing the bench or its runtime.Q16 record (about 1 s, no daemon, no build)."
