@@ -203,7 +203,7 @@ extension EnergyReport {
         }
 
         public var saver: Saver
-        /// Pump passes followed within 2 ms by a delayed request under 2 ms; nil while the pump does not
+        /// Delayed pump passes CEF re-asked for under 2 ms during the pass; nil while the pump does not
         /// count them (p14-energy-018).
         public var earlyPasses: Int?
 

@@ -217,8 +217,10 @@ final class ScreenContentView: NSView {
     }
 
     /// A window resize: frames snap (or, `keepsMotion`, a running spring retargets), and the scroll keeps the
-    /// focused column in place on screen, then fits it (L7).
+    /// focused column in place on screen, then fits it (L7). A render-server camera move comes back first (its
+    /// zoom pivots on the old viewport center); the turn's end hands it over again at the new size.
     fileprivate func reconcileAndScroll(keepsMotion: Bool = false) {
+        takeCanvasCameraBack()
         motionTurn {
             reconcile(animated: keepsMotion)
             return syncScroll(focused: lastFocused, source: .programmatic, mode: context.model.centerFocusedColumn, animated: keepsMotion)
