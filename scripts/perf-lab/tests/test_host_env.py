@@ -84,6 +84,7 @@ PS_OK = f"""    1 /sbin/launchd
  4200 /tmp/work/app/cmux DEV perf-lab.app/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper
 """
 PS_OTHER = PS_OK + " 900 /Applications/cmux.app/Contents/MacOS/cmux\n"
+PS_SAMPLER = PS_OK + " 950 /usr/bin/powermetrics\n"
 NETTOP_HEADER = "time,,interface,state,bytes_in,bytes_out,\n"
 NETTOP_LOCAL = NETTOP_HEADER + f"""12:00:00.000001,cmux DEV.{APP_PID},,,100,100,
 12:00:00.000002,tcp4 127.0.0.1:50211<->127.0.0.1:41000,lo0,Established,100,100,
@@ -187,6 +188,7 @@ class EachFailingCheckHasItsOwnReason(unittest.TestCase):
         "spotlight-on": dict(mdutil=MDUTIL_ON),
         "no-gui-session": dict(scutil=SCUTIL_LOGINWINDOW),
         "other-cmux-app": dict(ps=PS_OTHER),
+        "powermetrics-running": dict(ps=PS_SAMPLER),
         "network-egress": dict(nettop=NETTOP_EGRESS),
     }
 
@@ -207,6 +209,7 @@ class EachFailingCheckHasItsOwnReason(unittest.TestCase):
     def test_all_failures_are_reported_together(self):
         skipped = ("system-sleep", "low-power-mode", "network-egress-no-pids")
         overrides = {k: v for case in self.CASES.values() for k, v in case.items() if k not in ("pmset", "pids")}
+        overrides["ps"] = PS_OTHER + PS_SAMPLER.removeprefix(PS_OK)
         report, _, _ = run(**overrides)
         self.assertEqual(sorted(report["reasons"]), sorted(code for code in self.CASES if code not in skipped))
 
@@ -411,6 +414,14 @@ class Parsers(unittest.TestCase):
         text = NETTOP_LOCAL + "12:00:02.0,tcp6 2001:db8::5.50300<->2606:4700::1.443,en0,Established,0,0,\n"
         self.assertEqual(len(host_env.parse_egress(text, {DAEMON_PID})), 1)
         self.assertEqual(host_env.parse_egress(text, {APP_PID}), [])
+
+    def test_powermetrics_is_found_by_its_executable_only(self):
+        text = PS_SAMPLER + " 951 powermetrics\n 952 /tmp/powermetrics-notes/less\n 953 /usr/bin/powermetrics2\n"
+        self.assertEqual(host_env.parse_powermetrics(text), [950, 951])
+
+    def test_the_jobs_own_powermetrics_is_not_refused(self):
+        report, _, _ = run(ps=PS_SAMPLER, pids=(APP_PID, DAEMON_PID, 950))
+        self.assertNotIn("powermetrics-running", report["reasons"])
 
     def test_cmux_apps_skip_nested_helpers_and_daemons(self):
         self.assertEqual([pid for pid, _ in host_env.parse_cmux_apps(PS_OTHER)], [APP_PID, 900])
