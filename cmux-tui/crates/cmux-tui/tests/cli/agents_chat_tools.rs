@@ -280,6 +280,10 @@ fn an_agent_prompts_another_chat_and_reads_its_reply_over_mcp() {
     assert_eq!(tool("agents_chat_send")["annotations"]["destructiveHint"], true);
     assert_eq!(tool("agents_chat_send")["inputSchema"]["additionalProperties"], false);
     assert_eq!(tool("agents_chat_read")["annotations"]["readOnlyHint"], true);
+    assert_eq!(
+        tool("agents_chat_read")["inputSchema"]["properties"]["last_code_block"]["type"],
+        "boolean"
+    );
 
     assert_eq!(results[0]["isError"], false, "{}", results[0]);
     let receipt = &results[0]["structuredContent"];
