@@ -1454,9 +1454,13 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_arm64_only.py
 
-      - name: Validate the nightly web bundles build before Rust
+      - name: Validate the nightly web bundles build before the Release build
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_web_bundles_order.py
+
+      - name: Validate nightly helper builds beside the Release build
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_helpers_beside_release_build.py
 
       - name: Validate the nightly-next release notes fetch (published span only)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
