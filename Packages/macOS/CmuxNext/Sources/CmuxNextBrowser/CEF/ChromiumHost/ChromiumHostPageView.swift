@@ -52,6 +52,20 @@ public final class ChromiumHostPageView: NSView {
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }
     }
+    /// Places the page on the display the view shows on (task 221, ChromiumHostPageView+Screen.swift);
+    /// true when the placement went out. Called when that display differs from the last one placed,
+    /// and again on a later change until a placement went out.
+    var onScreenInfo: ((ChromiumHostScreenInfo) -> Bool)? {
+        didSet { observeScreen() }
+    }
+    /// Reads a window's display; tests pass a stand-in.
+    var screenInfoSource: @MainActor (NSWindow) -> ChromiumHostScreenInfo? = { ChromiumHostScreenInfo.of($0) }
+    /// The display the view shows on, as last read; nil while the view is in no window or nobody takes it.
+    var screenInfo: ChromiumHostScreenInfo?
+    /// The display the page was last placed on; nil before a placement went out in this window.
+    var placedScreenInfo: ChromiumHostScreenInfo?
+    /// The window's screen and color profile notices, while someone takes the display.
+    var screenEvents: [EventSubscription] = []
     /// The view left its window (its pane closed, or it moved out of every window).
     var onLeftWindow: (() -> Void)?
     /// The view entered a window (true) or left its window (false): a hosted page is live only
@@ -142,8 +156,8 @@ public final class ChromiumHostPageView: NSView {
     /// resized or changed screen; the in-process `CEFHostView` re-places its
     /// page on the same request.
     private var pageUpdates: MainActorObservation?
-    /// Where the window's page update requests arrive.
-    private let pageUpdateCenter: NotificationCenter
+    /// Where the window's page update requests and its screen notices arrive.
+    let pageUpdateCenter: NotificationCenter
 
     /// - Parameters:
     ///   - inputTarget: who takes the page's input.
@@ -255,6 +269,10 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeWindow()
+        observeScreen()
+        // Another window: the page is placed again, at the view's origin in that window.
+        screenInfo = nil
+        placedScreenInfo = nil
         // The host made the page's element for the old window's token.
         resetRemoteAccessibility()
         onWindowChange?(window != nil)
@@ -264,6 +282,7 @@ public final class ChromiumHostPageView: NSView {
             onLeftWindow?()
         } else {
             presentedRectDidChange()
+            screenMayHaveChanged()
         }
     }
 
@@ -272,6 +291,8 @@ public final class ChromiumHostPageView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         presentedRectDidChange()
+        // A view below 1 x 1 point has no page display: its placement goes out once it has a size.
+        placeIfNeeded()
     }
 
     public override func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -282,17 +303,23 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         presentedRectDidChange()
+        screenMayHaveChanged()
     }
 
     /// Reports the page's screen rect when it differs from the last one
     /// reported; an unchanged rect costs one comparison.
     private func presentedRectDidChange() {
-        guard let onGeometry, let window, bounds.width >= 1, bounds.height >= 1 else { return }
-        let screen = window.convertToScreen(convert(bounds, to: nil))
+        guard let onGeometry, let window, let screen = presentedScreenRect else { return }
         let geometry = ChromiumHostGeometry(screenRect: screen, scale: window.backingScaleFactor)
         guard geometry != lastGeometry else { return }
         lastGeometry = geometry
         onGeometry(geometry)
+    }
+
+    /// The view's rect in screen points; nil in no window or below 1 x 1 point.
+    var presentedScreenRect: CGRect? {
+        guard let window, bounds.width >= 1, bounds.height >= 1 else { return nil }
+        return window.convertToScreen(convert(bounds, to: nil))
     }
 
     /// Follows the window's page update request only while someone takes the geometry.

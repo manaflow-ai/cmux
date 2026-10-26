@@ -2,7 +2,7 @@ import CmuxNextCompat
 public import Foundation
 
 /// The hang report files in one folder (the app's `Application Support/<build>/HangReports`):
-/// the watchdog aggregate and the main-thread part saved for the next launch, the outbox of reports
+/// the watchdog aggregate, the main-thread part and the black box saved for the next launch, the outbox of reports
 /// not yet accepted, the copy of the last report sent (View Hang Report), and the send log the daily
 /// cap reads.
 ///
@@ -47,6 +47,8 @@ public actor HangReportStore {
     private var pendingURL: URL { directory.appending(path: "pending.json") }
     /// The main-thread part (``MainThreadReportLedger/Saved``) a quit saved for the next launch.
     public nonisolated var pendingMainThreadURL: URL { directory.appending(path: "pending-main-thread.json") }
+    /// The black box a quit saved (``HangReportSavedBlackBox``).
+    nonisolated var pendingBlackBoxURL: URL { directory.appending(path: "pending-blackbox.json") }
     private var sendLogURL: URL { directory.appending(path: "send-log.json") }
     private var outboxURL: URL { directory.appending(path: "outbox", directoryHint: .isDirectory) }
 
@@ -66,6 +68,11 @@ public actor HangReportStore {
     /// The main-thread part a quit saved, removed from disk (it joins the ledger's).
     public func takePendingMainThread() -> MainThreadReportLedger.Saved? {
         take(MainThreadReportLedger.Saved.self, from: pendingMainThreadURL)
+    }
+
+    /// The black box a quit saved, removed from disk (the collector holds it for the next report).
+    func takePendingBlackBox() -> HangReportSavedBlackBox? {
+        take(HangReportSavedBlackBox.self, from: pendingBlackBoxURL)
     }
 
     /// The value saved at `url`, removed from disk; nil when missing or unreadable.
@@ -133,6 +140,7 @@ public actor HangReportStore {
     public func clearQueued() {
         removePending()
         try? FileManager.checked.removeItem(at: pendingMainThreadURL)
+        try? FileManager.checked.removeItem(at: pendingBlackBoxURL)
         try? manager.removeItem(at: outboxURL)
         try? manager.removeItem(at: previewURL)
     }

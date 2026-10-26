@@ -935,12 +935,13 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // footprint emitter's one-shot DemandTimer), and only the App imports it.
         .target(
             name: "CmuxNextMemory",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextMemoryTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextMemory", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
+            dependencies: ["CmuxNextCompat", "CmuxNextInputCore", "CmuxNextInputCoreTestSupport", "CmuxNextMemory", "CmuxNextWakeups",
+                           "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code

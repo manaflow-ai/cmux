@@ -85,6 +85,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "cmux-threads",
  "libc",
  "openh264",
  "serde",
@@ -98,6 +99,13 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-threads"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

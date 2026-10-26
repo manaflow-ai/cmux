@@ -1164,6 +1164,50 @@ CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
 // cmux shows both). 0 (the default): Chromium shows them over its page
 // window. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
+// Fork API 37 (cmux_tab_set_visibility; cmux p06-scheduler-212): the app
+// gives browser_id's WebContents the visibility of its tab in cmux's
+// visibility tree (window, workspace, pane, selected tab), as Chrome's tab
+// strip hides a background tab (WebContentsImpl::UpdateWebContentsVisibility,
+// content/public/browser/visibility.h). The value caps what the page window
+// and its view ask for (the lower of the two applies), so Blink's hidden-page
+// throttling and document.visibilityState follow the tab in the call's turn.
+typedef enum {
+  // No cap: the page window and its view decide (the default).
+  CMUX_SHIM_TAB_VISIBILITY_VIEW = 0,
+  CMUX_SHIM_TAB_VISIBILITY_VISIBLE = 1,
+  // Occluded: the page draws no frames (Chrome's covered window).
+  CMUX_SHIM_TAB_VISIBILITY_OCCLUDED = 2,
+  // Hidden: the page is hidden (document.visibilityState 'hidden').
+  CMUX_SHIM_TAB_VISIBILITY_HIDDEN = 3,
+} cmux_shim_tab_visibility_t;
+// A capture of the tab while cmux shows it nowhere, as
+// WebContents::IncrementCapturerCount(stay_hidden): a screenshot, a
+// screencast, the phone's browser host, screen share.
+typedef enum {
+  CMUX_SHIM_TAB_CAPTURE_NONE = 0,
+  // The page keeps painting and stays hidden to script (kHiddenButPainting).
+  CMUX_SHIM_TAB_CAPTURE_HIDDEN = 1,
+  // The page paints and reads visible (a capturer that does not stay hidden).
+  CMUX_SHIM_TAB_CAPTURE_VISIBLE = 2,
+} cmux_shim_tab_capture_t;
+// visibility is a cmux_shim_tab_visibility_t, capture a
+// cmux_shim_tab_capture_t; the fork holds one capture per browser and
+// replaces it on each call. Returns 1, or 0 for an unknown value or browser
+// or a fork without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_tab_set_visibility(int browser_id, int visibility, int capture);
+// 1 when the fork loads built-in extensions at a profile's first tab
+// (cmux_ext_load_command_line_async, p13-webui-055); ask before
+// cmux_shim_initialize decides --load-extension.
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
+// Loads the unpacked extension at `path` into the persistent profile of
+// profile_cache_path as --load-extension does (command-line location, not
+// loaded again at the next start), with the folder read off the UI thread;
+// creates the context when no tab opened it yet. Replies once with
+// CMUX_SHIM_REPLY (`reply`, a = 1: installed, its background page through its
+// first load; 0: failed), never inside this call. Main thread, after
+// cmux_shim_initialize. Returns 1 when the load started, 0 for an
+// off-the-record key, an empty path or a fork without the call (no reply).
+CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

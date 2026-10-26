@@ -822,9 +822,12 @@ impl CloudConversations {
         if start {
             let inner = self.inner.clone();
             let driver_target = target.clone();
-            let spawned = std::thread::Builder::new()
-                .name("mux-cloud-stream".into())
-                .spawn(move || run_driver(&inner, driver_target));
+            // A subscribed client shows this stream's events as they arrive.
+            let spawned = cmux_threads::spawn(
+                "mux-cloud-stream",
+                cmux_threads::ThreadQos::UserInitiated,
+                move || run_driver(&inner, driver_target),
+            );
             if let Err(error) = spawned {
                 self.inner
                     .subscriptions

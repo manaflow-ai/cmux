@@ -11,7 +11,7 @@ use std::io;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// What to run: the browser binary, its arguments and its environment additions.
@@ -114,9 +114,11 @@ impl BrowserSupervisor {
         });
         let first = spawn(&cmd, &shared)?;
         let s = Arc::clone(&shared);
-        let thread = thread::Builder::new()
-            .name("cmux-rd-browser".into())
-            .spawn(move || supervise(cmd, backoff, first, &s))?;
+        // A supervisor waits on the browser's exit and restarts it: Utility.
+        let thread =
+            cmux_threads::spawn("cmux-rd-browser", cmux_threads::ThreadQos::Utility, move || {
+                supervise(cmd, backoff, first, &s)
+            })?;
         Ok(Self { shared, thread: Some(thread) })
     }
 
@@ -227,7 +229,7 @@ mod tests {
         while !f() {
             assert!(t0.elapsed() < Duration::from_secs(30), "timed out waiting for {what}");
             // Test-only wait for real child processes; the code under test uses no polling.
-            thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 
