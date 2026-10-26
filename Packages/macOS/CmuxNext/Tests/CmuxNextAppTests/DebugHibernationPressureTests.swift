@@ -47,6 +47,40 @@ struct DebugHibernationPressureTests {
         #expect(app.hibernation.pressure == .warning)
     }
 
+    /// A held override survives kernel events in both the coordinator and hibernation, and after
+    /// `none` both follow the kernel again: hibernation takes its level through the coordinator.
+    @Test func kernelEventsDoNotMoveEitherWhileTheOverrideHolds() {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let kernel = ManualMemoryPressureSource()
+        let pressure = MemoryPressureEvents(source: kernel)
+        let coordinator = MemoryCoordinator(pressure: pressure, slicer: HeldSlices())
+        let hibernation = BrowserHibernation(cache: services.cache, memoryPressure: pressure, lowPower: LowPowerMode(enabled: false))
+        AppServices.follow(coordinator, in: hibernation)
+        hibernation.start()
+
+        _ = DebugHibernationControl.applyOverride(.critical, coordinator: coordinator, hibernation: hibernation)
+        for level in [MemoryPressureLevel.warning, .normal] {
+            kernel.send(level)
+            #expect(coordinator.level == .critical, "the kernel's \(level) replaced the coordinator's override")
+            #expect(hibernation.pressure == .critical, "the kernel's \(level) replaced hibernation's override")
+        }
+
+        let reply = DebugHibernationControl.applyOverride(nil, coordinator: coordinator, hibernation: hibernation)
+        #expect(reply == .object(["level": .string("normal"), "override": .null, "pressure": .string("normal")]))
+        kernel.send(.warning)
+        #expect(coordinator.level == .warning)
+        #expect(hibernation.pressure == .warning)
+        hibernation.stop()
+        withExtendedLifetime((services, pressure)) {}
+    }
+
+    /// Keeps release slices and never runs them: no consumer registers here.
+    final class HeldSlices: MemoryReleaseSlicer {
+        var slices: [@MainActor () -> Void] = []
+        func scheduleSlice(_ slice: @escaping @MainActor () -> Void) { slices.append(slice) }
+    }
+
     struct App {
         let services: AppServices
         let hibernation: BrowserHibernation
@@ -63,6 +97,7 @@ struct DebugHibernationPressureTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
                                              lowPower: LowPowerMode(enabled: false))
+        AppServices.follow(services.memoryCoordinator, in: hibernation)
         services.cache.hibernation = hibernation
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
