@@ -122,6 +122,9 @@ def kind_of(cmd: str, bundle: str) -> str:
             if flag in rel:
                 return name
         return "cef-helper"
+    # The Chromium Host is a second executable of the app (embed-cef.sh), not the app.
+    if re.match(r"/Contents/MacOS/[^/]* Chromium Host( |$)", rel):
+        return "cef-host"
     if rel.startswith("/Contents/MacOS/"):
         return "app"
     if "/bin/cmux-tui" in rel or "/bin/cmux " in rel or rel.endswith("/bin/cmux"):
