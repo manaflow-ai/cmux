@@ -28,9 +28,11 @@ export type MinimapColors = Record<MinimapKind, string>;
 
 const TOOL_KINDS = new Set(["activity", "worked", "editedFiles", "plan", "backgroundTask", "render", "preview"]);
 
+/// A row's kind on the map, or none. A streaming reply is never painted: its height changes with every
+/// token, and the minimap shows its place as a placeholder instead (ChatMinimap.tsx).
 export function minimapKind(row: AcpmuxRow): MinimapKind | undefined {
   if (row.kind === "user") return "prompt";
-  if (row.kind === "assistant") return row.text ? "reply" : undefined;
+  if (row.kind === "assistant") return row.text && !row.streaming ? "reply" : undefined;
   return TOOL_KINDS.has(row.kind) ? "tool" : undefined;
 }
 
@@ -59,8 +61,9 @@ export type MinimapContext = Pick<
   "setTransform" | "clearRect" | "beginPath" | "rect" | "fill" | "fillStyle" | "globalAlpha"
 >;
 
-/// The first row whose place, height or kind differs between two drawn states (one pass of number
-/// compares): a draw whose rows all match the last one's is skipped.
+/// The first row whose place, height, identity or kind on the map differs between two drawn states:
+/// a draw whose rows all match the last one's is skipped. A new object for the same row (a token)
+/// is no change.
 export function firstChangedRow(
   rows: readonly AcpmuxRow[],
   layout: ConversationLayout,
@@ -73,7 +76,7 @@ export function firstChangedRow(
       return index;
     const row = rows[index]!;
     const was = before.rows[index]!;
-    if (row !== was && (row.kind !== was.kind || !row.text !== !was.text)) return index;
+    if (row !== was && (row.id !== was.id || minimapKind(row) !== minimapKind(was))) return index;
   }
   return kept;
 }
@@ -86,9 +89,15 @@ const SHAPES: Record<MinimapKind, { left: number; width: number; alpha: number }
 };
 const KINDS: readonly MinimapKind[] = ["tool", "reply", "prompt"];
 
+/// A row's seed for its lines' lengths, from its id: rows inserted or removed before it leave it alone.
+function seedOf(id: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index += 1) hash = Math.imul(hash ^ id.charCodeAt(index), 16777619);
+  return (hash >>> 0) % 41;
+}
 /// A line's length as a share of its block's width: a fixed jitter by row and line, so the map reads
 /// as text and never shimmers between draws.
-const jitter = (row: number, line: number) => 0.55 + (((row * 31 + line * 17) % 41) / 41) * 0.45;
+const jitter = (seed: number, line: number) => 0.55 + (((seed + line * 17) % 41) / 41) * 0.45;
 
 /// Draws the map at `scale` into a `width` x `height` CSS px canvas with `dpr` device px per CSS px.
 /// Returns the number of rectangles drawn (tests, perf).
@@ -148,10 +157,11 @@ export function paintMinimap(
         continue;
       }
       const lines = Math.floor(rowHeight / LINE_PITCH);
+      const seed = seedOf(rows[index]!.id);
       for (let at = 0; at < lines; at += 1) {
         const y = top + at * LINE_PITCH;
         if (y >= height) break;
-        ctx.rect(left, y, full * jitter(index, at), LINE_HEIGHT);
+        ctx.rect(left, y, full * jitter(seed, at), LINE_HEIGHT);
         drawn += 1;
       }
       lastLine = Math.ceil((top + rowHeight) * dpr) - 1;
@@ -162,4 +172,22 @@ export function paintMinimap(
   }
   ctx.globalAlpha = 1;
   return drawn;
+}
+
+/// The streaming reply's row, or -1, kept from render to render: the rows before `change.from` are the
+/// last render's objects, so the reply found then is still there and still streaming unless its own
+/// object changed; only the changed rows are read for a new one. With no change to go on (a first
+/// render, another chat), every row is read once.
+export function streamingRow(
+  rows: readonly AcpmuxRow[],
+  last: { rows: readonly AcpmuxRow[]; index: number } | undefined,
+  change: { base: readonly AcpmuxRow[]; rows: readonly AcpmuxRow[]; from: number } | undefined,
+): number {
+  // The same rows (a scroll frame's render): the same answer.
+  if (last?.rows === rows) return last.index;
+  const from = change && last && change.base === last.rows && change.rows === rows ? change.from : 0;
+  if (last && last.index >= 0 && last.index < from) return last.index;
+  for (let index = from; index < rows.length; index += 1)
+    if (rows[index]!.streaming && rows[index]!.kind === "assistant") return index;
+  return -1;
 }
