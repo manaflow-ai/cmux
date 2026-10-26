@@ -7,8 +7,8 @@ use crate::panic_free::JsonFields;
 use anyhow::Context;
 
 use super::PROTOCOL_VERSION;
+use super::capabilities::identify_capabilities_for;
 use super::daemon_build::{stamped_build_commit, stamped_ghostty_commit};
-use super::identify_capabilities;
 use crate::platform;
 
 use super::ClientIdentityWire;
@@ -50,6 +50,7 @@ pub(super) fn trace_control(
 
 pub(super) fn identify(
     mux: &Arc<Mux>,
+    client: u64,
     machine_metadata: bool,
     revisions: bool,
 ) -> anyhow::Result<Value> {
@@ -64,7 +65,7 @@ pub(super) fn identify(
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
-        "capabilities": identify_capabilities(mux),
+        "capabilities": identify_capabilities_for(mux, client),
         "session": mux.session,
         "pid": std::process::id(),
         "session_id": registry_id,
