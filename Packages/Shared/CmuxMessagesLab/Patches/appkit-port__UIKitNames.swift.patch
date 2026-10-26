@@ -9,3 +9,25 @@
          set { stored = newValue }
      }
      private static var stored: CGFloat = 2
+@@ -103,7 +103,11 @@
+     var scale: CGFloat = 2
+     var opaque = false
+     var preferredRange: Range = .automatic
+-    init() { scale = DisplayScale.current }
++    /// cmux: the space the bitmap is drawn in. A render job off main sets the space its request read on main (as a
++    /// raster task carries its target color space, Chromium cc/raster/raster_source.h PlaybackSettings) instead of
++    /// reading the process-wide `DisplayScale.colorSpace` while main may replace it.
++    var colorSpace: CGColorSpace
++    init() { scale = DisplayScale.current; colorSpace = DisplayScale.colorSpace }
+ }
+ 
+ final class UIGraphicsImageRendererContext {
+@@ -125,7 +129,7 @@
+         let pw = max(1, CrashGuard.int((size.width * s).rounded(.up))), ph = max(1, CrashGuard.int((size.height * s).rounded(.up))) // no trap on NaN
+         let info = CGBitmapInfo.byteOrder32Little.rawValue | (format.opaque ? CGImageAlphaInfo.noneSkipFirst.rawValue : CGImageAlphaInfo.premultipliedFirst.rawValue)
+         guard let ctx = CGContext(data: nil, width: pw, height: ph, bitsPerComponent: 8, bytesPerRow: 0,
+-                                  space: DisplayScale.colorSpace, bitmapInfo: info) else { return UIImage() }
++                                  space: format.colorSpace, bitmapInfo: info) else { return UIImage() }  // cmux: the format's
+         ctx.translateBy(x: 0, y: CGFloat(ph))
+         ctx.scaleBy(x: s, y: -s)
+         ContextScope.run(ctx) { actions(UIGraphicsImageRendererContext(ctx)) }

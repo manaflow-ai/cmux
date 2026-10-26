@@ -246,6 +246,22 @@ class FinderLimitsTests(unittest.TestCase):
         self.assertIn(f"maxfiles {self.launchd} (caller {self.raised})", bench.limits)
         self.assertEqual(resource.getrlimit(resource.RLIMIT_NOFILE)[0], self.raised)
 
+    def test_launch_arguments_reach_the_app_and_only_its_process(self):
+        """BenchApp(args=...) appends to the app's argv (NSArgumentDomain), no defaults domain is written."""
+        app = os.path.join(os.path.realpath(self.folder), f"cmux DEV bl-args-{os.getpid()}.app")
+        os.makedirs(os.path.join(app, "Contents/MacOS"))
+        seen = os.path.join(self.folder, "argv")
+        main = os.path.join(app, "Contents/MacOS/cmux DEV")
+        with open(main, "w") as f:
+            f.write(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{seen}'\n")  # records its argv, then exits
+        os.chmod(main, 0o755)
+        bench = bl.BenchApp(app, out=os.path.join(self.folder, "out"), teardown=False, session=lambda: OK_SESSION,
+                            args=["-AppleShowScrollBars", "Always"])
+        with self.assertRaises(bl.LaunchError):
+            bench.launch(timeout=5)
+        with open(seen) as f:
+            self.assertEqual(f.read().splitlines(), ["-AppleShowScrollBars", "Always"])
+
     def test_inherit_and_a_silent_launchctl_apply_nothing_and_say_so(self):
         with bl.finder_limits("") as changed:
             inside = subprocess.run(["/bin/sh", "-c", "ulimit -Sn"], capture_output=True, text=True).stdout.strip()

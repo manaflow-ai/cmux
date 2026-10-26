@@ -151,7 +151,7 @@ nonisolated enum AcpmuxStatusClient {
         var initialized = false
         var buffer = Data()
         // Notifications never satisfy the handshake or the operation.
-        while true {  // wakeup-allow: each pass awaits socket data; EOF, error or the deadline ends it
+        while true {  // wakeup-allow: bounded each pass awaits socket data; EOF, an error or the call's deadline ends it
             guard let chunk = try await transport.receive() else { throw Failure.closed }
             buffer += chunk
             while let newline = buffer.firstIndex(of: 0x0A) {

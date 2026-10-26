@@ -1,10 +1,11 @@
 public import AppKit
+import CmuxNextCompat
 public import Foundation
 
 /// The installed web browsers for a preview card's "Open in" menu (decision D6). The page gets
 /// only an opaque id, a name and an icon for each; it sends back `{url, browserId}`, and the host
 /// opens only an app from the list it made, only for a validated http(s) URL
-/// (``AgentPaneReplyRequest/webURL(_:)``), with `NSWorkspace.open(_:withApplicationAt:)`: no
+/// (``AgentPaneReplyRequest/webURL(_:)``), with `NSWorkspace.openInBackground(_:withApplicationAt:)`: no
 /// shell, no `open(1)`, never an app path or name from the page (unlike
 /// `LinkMenu.application(named:)`, which takes any name).
 @MainActor public protocol AgentPaneBrowserApps: AnyObject {
@@ -50,7 +51,7 @@ public import Foundation
     }
 
     public func open(_ url: URL, withApplicationAt app: URL) {
-        workspace.open([url], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+        workspace.openInBackground([url], withApplicationAt: app)
     }
 }
 

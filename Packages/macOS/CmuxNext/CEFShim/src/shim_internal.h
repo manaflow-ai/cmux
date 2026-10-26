@@ -17,6 +17,7 @@
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_unresponsive_process_callback.h"
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
+#include "embedder_ui_args.h"
 
 namespace cmux_shim {
 
@@ -67,6 +68,8 @@ struct ForkApi {
   int (*tab_set_transparent_background)(int, int) = nullptr;
   uint32_t (*browser_set_layer_hosting)(int, int) = nullptr;
   int (*browser_set_resize_sync)(int, int) = nullptr;
+  // API version 32: the resize fence in display frames.
+  int (*browser_set_resize_fence)(int, uint32_t, uint32_t) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
@@ -117,14 +120,38 @@ struct ForkApi {
   void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
   int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
+  // API version 31: the app's own UI for choosers, screen share and locks,
+  // a detached page's display, page state per entry (shim_helper_host.mm).
+  // The handler structs are embedder_ui_args.h's copies.
+  int (*set_color_chooser_handler)(const ForkColorChooserHandler*) = nullptr;
+  int (*color_chooser_choose)(int64_t, uint32_t) = nullptr;
+  int (*color_chooser_end)(int64_t) = nullptr;
+  int (*set_device_chooser_handler)(const ForkDeviceChooserHandler*) = nullptr;
+  int (*device_chooser_answer)(int64_t, int, const int*, int) = nullptr;
+  int (*set_desktop_media_handler)(const ForkDesktopMediaHandler*) = nullptr;
+  int (*desktop_media_answer)(int64_t, int, int64_t, int) = nullptr;
+  int (*set_lock_handler)(const ForkLockHandler*) = nullptr;
+  int (*browser_pointer_lock_answer)(int, int) = nullptr;
+  int (*browser_keyboard_lock_answer)(int, int) = nullptr;
+  int (*browser_exit_pointer_lock)(int, int) = nullptr;
+  int (*browser_exit_keyboard_lock)(int) = nullptr;
+  int (*browser_send_locked_mouse_move)(int, double, double, int) = nullptr;
+  int (*browser_set_page_display)(int, uint32_t, double, double) = nullptr;
+  char* (*tab_entry_page_state)(int, int) = nullptr;
+  int (*tab_page_state_watch)(int, void (*)(void*, int, int), void*) = nullptr;
+  int (*tab_restore_entries)(int, const ForkRestoreEntry*, int, int) = nullptr;
   // No API number yet (p13-webui-017; the fork train numbers it): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
+  // No API number yet (p14-energy-046; the fork bundle p14-energy-136 numbers
+  // it): delayed pump work as absolute run times with Chromium's leeway.
+  void (*set_on_schedule_delayed)(void (*)(void*, int64_t, int64_t, int), void*) = nullptr;
 };
 
 struct Host {
   void* ctx = nullptr;
   cmux_shim_schedule_fn schedule = nullptr;
+  cmux_shim_schedule_delayed_fn schedule_delayed = nullptr;
   cmux_shim_event_fn event = nullptr;
   cmux_shim_key_fn key = nullptr;
   cmux_shim_key_fn devtools_key = nullptr;

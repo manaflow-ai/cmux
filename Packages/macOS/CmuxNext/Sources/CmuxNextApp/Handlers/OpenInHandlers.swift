@@ -20,7 +20,7 @@ enum OpenInHandlers {
             let file = try focusedFile(context, invocation)
             let name = invocation["app"]?.stringValue ?? ""
             guard let app = LinkMenu.application(named: name) else { throw ActionFailure(message: MiscHandlerStrings.appNotFound(name)) }
-            NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+            NSWorkspace.shared.openInBackground([file], withApplicationAt: app)
         })
     }
 

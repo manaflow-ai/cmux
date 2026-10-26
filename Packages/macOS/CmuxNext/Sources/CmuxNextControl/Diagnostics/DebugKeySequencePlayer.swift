@@ -38,7 +38,7 @@ public import CoreGraphics
         let start = clock.now
         let task = Task { @MainActor [weak self] in
             for step in sequence.steps {
-                // wakeup-allow: each sleep is the next step's own deadline in the sequence (bounded by its gaps, cancelled by the next sequence), not a poll
+                // wakeup-allow: debug: each sleep is the next step's own deadline in the sequence (bounded by its gaps, cancelled by the next sequence), not a poll
                 // Zero tolerance: each event carries its intended time, so timer leeway would count as the app's input age.
                 do { try await clock.sleep(until: start.advanced(by: step.offset), tolerance: .zero) } catch { return }
                 // A clock whose sleep ignores cancellation must not let a replaced sequence post on.

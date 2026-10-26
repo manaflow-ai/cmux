@@ -22,10 +22,15 @@
 //!
 //! Blocking work runs on [`work`] lanes by kind, priority and shutdown
 //! behavior (Chrome's base/task/thread_pool).
+//!
+//! Child processes never run at an echo thread's QoS: a user child starts
+//! at Default and a helper runs at [`HELPER_CHILD`] (Utility) at most, see
+//! [`process`].
 
 pub mod blocking;
 pub mod checked;
 pub mod lock_wait;
+pub mod process;
 pub mod qos;
 pub mod registry;
 pub mod spawn;
@@ -43,6 +48,7 @@ pub use blocking::{
 pub use lock_wait::{
     LOCK_WAIT_BUDGET, LockHolder, LockWait, LockWaitSnapshot, lock_waits, set_holder_tracking,
 };
+pub use process::HELPER_CHILD;
 pub use qos::{
     LiveQos, QosChange, QosScope, ThreadQos, current, refused_changes, reversible, set_current,
     with_qos,

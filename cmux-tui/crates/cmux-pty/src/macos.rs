@@ -211,6 +211,9 @@ pub(crate) fn spawn(
     if let Some(soft) = crate::open_files::original_open_file_limit() {
         process.open_file_limit(soft);
     }
+    // A posix_spawn child starts at Default whatever the class of the echo
+    // or request thread that spawns it (tests: a_pty_child_of_a_user_
+    // interactive_thread_runs_at_default).
     let child = process.spawn().context("failed to spawn PTY command")?;
     Ok(Box::new(NativePtyChild(child)))
 }
@@ -261,6 +264,7 @@ impl ChildKiller for NativePtyChild {
         }
         PtySignaller { pid: self.0.id() }.kill()?;
         // A failed wait is no proof the child ended: SIGKILL it too.
+        // wakeup-allow: deadline the one hangup grace after SIGHUP; the child's exit ends the wait first
         match self.0.wait_timeout(HANGUP_GRACE) {
             Ok(Some(_)) => Ok(()),
             Ok(None) | Err(_) => self.0.kill(),

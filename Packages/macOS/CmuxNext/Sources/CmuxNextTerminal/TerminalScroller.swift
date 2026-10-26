@@ -14,7 +14,7 @@ import CmuxNextDesign
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
 /// knob tracks the scrollback as any scroll view's does.
 @MainActor
-final class TerminalScroller: NSScrollView {
+final class TerminalScroller: NSScrollView, ScrollGeometryClient {
     private let document = TerminalScrollerDocument()
     private var applying = false
     private(set) var shown: TerminalScrollbar?
@@ -34,8 +34,9 @@ final class TerminalScroller: NSScrollView {
         verticalScrollElasticity = .none
         horizontalScrollElasticity = .none
         automaticallyAdjustsContentInsets = false
+        // A scroller drag moves the clip; it pushes each move here, in order (`scrollGeometryDidChange`).
+        ScrollGeometryClipView.install(in: self).addClient(self)
         contentView.drawsBackground = false
-        contentView.postsBoundsChangedNotifications = true
         documentView = document
         let thin = ThinScroller()
         thin.showsOnScroll = false // only a move through the scrollback shows it (`update`)
@@ -47,27 +48,11 @@ final class TerminalScroller: NSScrollView {
             self?.apply(SystemScrollers.nativeStyle)
             self?.onStyleChange?()
         }
-        // queue: .main runs inline for the clip view's post on main (a drag scrolls in order).
-        clipObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clipMoved() } // main-proof: observer on queue: .main
-        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
-    }
-
-    private var clipObserver: (any NSObjectProtocol)?
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
-        }
     }
 
     /// Pinned to ``SystemScrollers/nativeStyle``, AppKit's own reset on a setting change included.
@@ -122,8 +107,8 @@ final class TerminalScroller: NSScrollView {
         }
     }
 
-    private func clipMoved() {
-        guard !applying, let shown else { return }
+    func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
+        guard change.contains(.scrolled), !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)
         guard row != shown.offsetRows else { return }

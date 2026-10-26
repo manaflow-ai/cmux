@@ -39,15 +39,24 @@ public enum StartupDestination: Sendable, Equatable, CustomStringConvertible {
         public let blockingLane: BlockingLane
         /// How much a person waits for it (its QoS).
         public let priority: WorkPriority
+        /// The sequence it runs in, after what was posted to it before; nil runs it beside the lane's other work.
+        public let sequence: WorkSequence?
 
-        private init(blockingLane: BlockingLane, priority: WorkPriority) {
+        private init(blockingLane: BlockingLane, priority: WorkPriority, sequence: WorkSequence? = nil) {
             self.blockingLane = blockingLane
             self.priority = priority
+            self.sequence = sequence
         }
 
         /// `lane` at `priority`.
         public static func lane(_ lane: BlockingLane, _ priority: WorkPriority) -> Lane {
             Lane(blockingLane: lane, priority: priority)
+        }
+
+        /// `sequence`'s lane at `priority`, in `sequence`: writes to one file that must land in post order (the
+        /// lane runs several items of a priority at once).
+        public static func sequence(_ sequence: WorkSequence, _ priority: WorkPriority) -> Lane {
+            Lane(blockingLane: sequence.lane, priority: priority, sequence: sequence)
         }
 
         /// The destination as a record names it.

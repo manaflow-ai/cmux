@@ -18,14 +18,16 @@ import CmuxNextSignposts
 /// tracker (``trackerDidRead()``, proof that the tracker is attached) retries
 /// once; another refusal waits for the next show.
 ///
-/// While hosted (fork API 27), a resize of the page window may hold the
+/// While hosted (fork API 27 to 31), a resize of the page window may hold the
 /// process's commit for Chromium's frame at the new size, up to
 /// ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped at
 /// half the shortest frame of all displays. During the window's live resize
 /// every page over the view, hosted or not, gets `browserResize.liveResizeDeadline`
 /// under the same cap. A change (a tunable edit, a display added or changed)
 /// reaches the fork at the next show or display change, only when the deadline
-/// changed, and counts as applied only when the fork took it.
+/// changed, and counts as applied only when the fork took it. From fork API 32
+/// a page window never holds the commit and no deadline is sent (the resize
+/// fence, task p03-rendering-043, replaces it).
 ///
 /// `browser` must name a live browser of the page window: a show records the
 /// shown one, and ``windowBrowsersChanged(_:)`` moves it off a closed one.
@@ -42,7 +44,8 @@ final class CEFLayerHosting {
         /// resize of the page window may hold the commit for Chromium's frame
         /// at the new size, in ms; 0 never holds it. True when the fork took it
         /// (false for a closed browser's id). Nil below API 27, where Chromium
-        /// holds it up to 500 ms on every resize.
+        /// holds it up to 500 ms on every resize, and from API 32, where the
+        /// fork never holds it (``hasResizeSync(apiVersion:)``).
         let setResizeSync: ((_ browser: Int32, _ timeoutMs: Int32) -> Bool)?
 
         init(setLayerHosting: @escaping (_ browser: Int32, _ enabled: Bool) -> UInt32,
@@ -56,7 +59,7 @@ final class CEFLayerHosting {
         init?(shim: CEFShimLibrary?, apiVersion: Int32) {
             guard let shim, apiVersion >= CEFLayerHosting.forkAPI else { return nil }
             setLayerHosting = { browser, enabled in shim.browserSetLayerHosting(browser, enabled ? 1 : 0) }
-            setResizeSync = apiVersion >= CEFLayerHosting.resizeSyncForkAPI
+            setResizeSync = CEFLayerHosting.hasResizeSync(apiVersion: apiVersion)
                 ? { browser, timeout in shim.browserSetResizeSync(browser, timeout) == 1 } : nil
         }
     }
@@ -74,6 +77,14 @@ final class CEFLayerHosting {
     static let forkAPI: Int32 = 26
     /// The first fork API with `cmux_browser_set_resize_sync`.
     static let resizeSyncForkAPI: Int32 = 27
+    /// The first fork API where a page window never holds the commit
+    /// (`cmux_browser_set_resize_fence`): the resize deadline has no effect.
+    static let resizeFenceForkAPI: Int32 = 32
+
+    /// Whether the fork's resize deadline holds the commit: fork API 27 to 31.
+    static func hasResizeSync(apiVersion: Int32) -> Bool {
+        (resizeSyncForkAPI..<resizeFenceForkAPI).contains(apiVersion)
+    }
 
     weak var view: NSView?
     /// The page's pixels in this window's layer tree; nil while the page
@@ -87,6 +98,9 @@ final class CEFLayerHosting {
     /// A browser of the page window (any tab of it names the same window).
     private(set) var browser: Int32?
     private var fork: Fork?
+    /// The fork hosts this view's page window (in process, fork API 26). False in host mode, where
+    /// the pane's ``ChromiumHostPageView`` shows the context the Chromium Host gives (task 023).
+    var isForkBacked: Bool { fork != nil }
     private var pending = Pending.none
     private let isEnabled: () -> Bool
     private let schedule: Scheduler
@@ -199,7 +213,7 @@ final class CEFLayerHosting {
         self.browser = browsers.first
     }
 
-    /// The window starts or ends a live resize (`CEFHostView.viewWillStartLiveResize`). Fork API 27 never lets a page
+    /// The window starts or ends a live resize (`CEFHostView.viewWillStartLiveResize`). Fork API 27 to 31 never lets a page
     /// window hold the window's commit unless asked, so for the live resize every page over the view, hosted or not,
     /// waits up to `liveResizeDeadlineMs` (capped like every deadline, ``CEFResizeSyncDeadline``) for its frame at the
     /// new size (Chromium waited up to 500 ms there); after it a hosted page goes back to its pane deadline and a page

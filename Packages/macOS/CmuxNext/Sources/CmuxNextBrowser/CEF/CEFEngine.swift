@@ -73,16 +73,21 @@ public final class CEFEngine: BrowserEngine {
     ///     process-wide runtime hears the tap of the engine made last.
     ///   - crashKeys: The app's crash keys: the process-wide runtime names Chromium's state there
     ///     (``CmuxNextWakeups/CrashKeySlots/Key/cefState``); nil (tests) leaves it as it is.
+    ///   - launchMarks: Where Chromium's start goes as launch marks (``CEFLaunchMarkHooks``): every preload,
+    ///     start, spare and paint goes through an engine, so it is given here, before the first mark; nil
+    ///     (tests) leaves the process-wide runtime's as they are.
     ///   - pumpInput: What the in-process pump's input policy reads (feature `cefPumpInputPolicy`); nil:
     ///     the pump never holds for input. Read when Chromium starts, with `input`'s dispatch ends.
     ///   - pointerFrames: The windows' frame-aligned pointer input (feature `pointerFrameDrags`): the
     ///     DevTools divider's drag moves at most twice per frame. Nil: each drag event moves it.
+    ///   - chromiumFeatures: The Chromium `base::Feature`s on (features of process `chromium`), read at start.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
-                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: PointerFrameCoalescers? = nil) {
+                launchMarks: CEFLaunchMarkHooks? = nil,
+                pumpInput: CEFPumpInputSeams? = nil, pointerFrames: FrameInputCoalescers? = nil, chromiumFeatures: [String] = []) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -91,8 +96,10 @@ public final class CEFEngine: BrowserEngine {
         self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         CEFRuntime.shared.attachInput(input)
         if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
+        if let launchMarks { CEFRuntime.shared.adoptLaunchMarks(launchMarks) }
         CEFRuntime.shared.pumpInput = pumpInput
         CEFRuntime.shared.pointerFrames = pointerFrames
+        CEFRuntime.shared.chromiumFeatures = chromiumFeatures
     }
 
     public var availability: BrowserEngineAvailability {

@@ -1,0 +1,37 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
+@@ -221,23 +221,19 @@
+     }
+     /// Key state, appearance or scale changed: the correction shows only where it was measured.
+     func updateKeyFix() { keyFix.update(window: window) }
+-    private var keyFixObservers: [NSObjectProtocol] = []
++    private var keyFixObservers: [MainQueueObservation] = []  // cmux: main-actor handlers; each removes itself
+     override func viewDidMoveToWindow() {
+         super.viewDidMoveToWindow()
+-        for o in keyFixObservers { NotificationCenter.default.removeObserver(o) }
+         keyFixObservers = []
+         guard let w = window else { return }
+-        for n in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didChangeBackingPropertiesNotification] {
+-            keyFixObservers.append(NotificationCenter.default.addObserver(forName: n, object: w, queue: .main) { [weak self] _ in
+-                self?.updateKeyFix()
+-            })
++        keyFixObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.didChangeBackingPropertiesNotification].map {
++            MainQueueObservation($0, object: w) { [weak self] _ in self?.updateKeyFix() }  // cmux
+         }
+         updateKeyFix()
+     }
+     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateKeyFix() }
+     /// Snapped at the new scale's device pixels.
+     override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); placeKeyFix(); updateKeyFix() }
+-    deinit { for o in keyFixObservers { NotificationCenter.default.removeObserver(o) } }
+     /// AppKit's own animators (`--field-anim appkit|swiftui`, A/B only) move the glass on the main thread: the
+     /// correction is hidden until their completion, then placed at the glass's frame.
+     func keyFixHidden(_ hidden: Bool) {
+@@ -354,6 +350,7 @@
+         return a.firstIndex(of: "--field-anim").flatMap { a.dropFirst($0 + 1).first }.flatMap { FieldAnimation(rawValue: $0) } ?? .`internal`
+     }()
+ 
++    @MainActor  // cmux: it moves the field's glass view
+     func run(_ chrome: FieldChrome, from start: CGRect, to target: CGRect, _ el: SpringElement, begin: CFTimeInterval) {
+         let field = chrome.field
+         guard let c = el.components.first else { chrome.setFrameNow(target); return }

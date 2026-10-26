@@ -457,6 +457,12 @@ def condition_is_debug(cond: str) -> bool:
 # Batching for --tasks
 
 
+def unknown_trace_names(trace: object, catalog: set) -> List[str]:
+    """The names in a perf-hot id's `trace` that are no SignpostName rawValue (a misspelling or a removed name)."""
+    names = trace if isinstance(trace, list) else []
+    return [str(name) for name in names if name not in catalog]
+
+
 def chunk(items: List, size: int) -> List[List]:
     return [items[i : i + size] for i in range(0, len(items), size)] if items else []
 
@@ -656,6 +662,7 @@ class Audit:
             if mm:
                 marked.setdefault(mm.group(1), []).append(m)
         trace = re.compile(Q.MQ5_TRACE)
+        catalog = {wire for _, wire, _ in self.catalog_names()}
         hits: List[Hit] = []
         for pid in sorted(ids):
             entry = ids[pid] if isinstance(ids[pid], dict) else {}
@@ -679,6 +686,8 @@ class Audit:
                         {"reasons": reasons, "marked_files": files},
                     )
                 )
+            for name in unknown_trace_names(entry.get("trace"), catalog):
+                hits.append(Hit(PERF_HOT_BENCHES, 0, pid, {"reasons": ["unknown trace name"], "name": name}))
         q = Queue("MQ5", "perf-hot id with a trace point and a trace field", hits, "per hit", "perf_hot_ids_without_trace")
         q.batches = per_hit(hits)
         q.notes = {"ids": len(ids)}
@@ -1406,6 +1415,8 @@ def self_test() -> int:
     expect("debug regions", debug_only_lines(file_lines), [True, True, False, False, False, False, False, False])
     expect("MQ5 marker", re.search(Q.MQ5_MARKER, "    // perf-hot: 2ms frame-tick").group(1), "frame-tick")
     expect("MQ5 trace", len(lines_of(Q.MQ5_TRACE, "Signposter.event(.x)\nKeyFrameSignpost.begin()\nTrace.scope(a)\nfoo()\n")), 3)
+    expect("MQ5 unknown trace name", unknown_trace_names(["key.flow", "key.flwo"], {"key.flow"}), ["key.flwo"])
+    expect("MQ5 no trace field", unknown_trace_names(None, {"key.flow"}), [])
     expect("MQ6", len(lines_of(Q.MQ6, "let t = CFAbsoluteTimeGetCurrent()\nDate().timeIntervalSince(a)\nDate()\n")), 2)
     expect("MQ6 escape", marked(["let t = CFAbsoluteTimeGetCurrent() // wall-clock: shown to the person"], 1,
                                 WALL_CLOCK_ESCAPE, WALL_CLOCK_ESCAPE), True)

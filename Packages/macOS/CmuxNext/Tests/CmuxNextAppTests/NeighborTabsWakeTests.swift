@@ -6,7 +6,9 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextEnergy
 import CmuxNextHibernation
+import CmuxNextInput
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -133,6 +135,41 @@ import Testing
         #expect(rig.hibernation.awakeNeighbors.isEmpty)
     }
 
+    /// Intent prewarm (`intentPrewarmHover`, p04-input-043) with the hibernation as its warmer: a frozen hidden
+    /// page is cold, a strip hover reaches the service through `noteHover`, its dwell thaws the page, and the
+    /// switch that shows it is the commit (used, not cancelled). Neighbors are off, so only the dwell thaws.
+    @Test func theHoverDwellPrewarmThawsAFrozenTabAndTheSwitchUsesIt() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        var setting = rig.hibernation.setting
+        setting.neighborRadius = 0
+        rig.hibernation.apply(setting)
+        let keys = try await rig.pages(["a", "b", "c"])
+        try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
+        rig.show(keys[0], order: keys)
+        #expect(!rig.hibernation.isCold(keys[0]), "the shown page has nothing to prewarm")
+        #expect(rig.hibernation.isCold(keys[2]))
+        #expect(!rig.hibernation.isCold("not-a-page"))
+
+        let deadlines = MainDeadlineRig()
+        let service = IntentPrewarmService<String>(
+            warmer: rig.hibernation, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+            dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: deadlines.deadlines))
+        rig.hibernation.intentPrewarm = (service, rig.services.energyMonitor.follow { _ in })
+
+        rig.hibernation.noteHover(keys[2])
+        #expect(service.isDwelling)
+        #expect(rig.hibernation.frozen.contains(keys[2]), "nothing thaws before the dwell")
+        deadlines.fireAndRun()
+        #expect(!rig.hibernation.frozen.contains(keys[2]))
+        #expect(service.queue.held == [keys[2]])
+        #expect(service.counters.started[.hoverDwell] == 1)
+
+        rig.show(keys[2], order: keys)
+        #expect(service.queue.held.isEmpty)
+        #expect(service.counters.used == 1)
+    }
+
     // MARK: Rig
 
     /// Records `setFrozen` calls for one page.
@@ -156,7 +193,7 @@ import Testing
         init(freezes: Bool = true, audible: AudibleHistory? = nil) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), lowPower: lowPower, audible: audible)
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines, lowPower: lowPower, audible: audible)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
             hibernation.start()

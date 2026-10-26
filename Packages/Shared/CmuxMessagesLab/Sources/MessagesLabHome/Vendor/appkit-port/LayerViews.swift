@@ -238,15 +238,13 @@ final class UIImageView: UIView {
 /// The header's live material: a real NSVisualEffectView that the window
 /// places at this view's frame, above the transcript (Host.swift). It has no
 /// pixels in the layer tree, so captures use the fitted blur instead.
+/// cmux: Home has no Host.swift window to place one, so this view keeps only the material (no
+/// AppKit view made off the main actor, no process-wide list of these views).
 final class UIVisualEffectView: UIView {
-    let effectView = NSVisualEffectView()
-    static var all = NSHashTable<UIVisualEffectView>.weakObjects()
+    let material: NSVisualEffectView.Material
     init(effect: UIBlurEffect) {
+        material = effect.material
         super.init(frame: .zero)
-        effectView.material = effect.material
-        effectView.blendingMode = .withinWindow
-        effectView.state = .active
-        UIVisualEffectView.all.add(self)
     }
     required init?(coder: NSCoder) { fatalError() }
 }

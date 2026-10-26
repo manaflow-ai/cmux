@@ -6,31 +6,22 @@ import CmuxNextDesign
 import CmuxNextFocusUI
 import CmuxNextSettings
 import CmuxNextSignposts
-import os
 
 /// `debug.tab_switch`: the app's own time per tab switch (`SwitchFrameTimer`), apart from the socket
 /// reply, which also waits for the daemon's confirm: intent (`PaneController.select`) to shown
 /// selection (`applySelection`) to the Core Animation commit (cx-8w027.25, scripts/cmux-next/perf-gate.py).
-/// Every switch is also an `OSSignposter` interval (subsystem `com.cmuxterm.app.next`, category
-/// `tab-switch`, name `switch`) with one event per stage, for Instruments, recording or not, and in every
-/// build one `switch.tab` trace pair (`AppServices.tabSwitch`): from the intent, with the destination's
-/// kind, to the app's commit of the destination's content (`TabSwitchSignpost`).
+/// Every switch is also, in every build and recording or not, the catalog's `switch.tab` interval
+/// (`AppServices.tabSwitch`, `TabSwitchSignpost`): one os_signpost interval and one trace ring pair from the
+/// intent, with the destination's kind, to the app's commit of the destination's content. The stages are
+/// the timer's only; the trace ring holds catalog names, never a stage's text.
 @MainActor
 enum DebugTabSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
-    private static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-    private static var intervals: [ObjectIdentifier: (id: OSSignpostID, state: OSSignpostIntervalState)] = [:]
     static var isRecording: Bool { timer.isRecording }
 
     /// `pane` begins a switch to `tab` that it will show (the caller checked the run allows it and the pane draws);
     /// `keyInput` is the key whose binding runs now (``KeyInputScope``), if any.
     static func began(_ pane: PaneController, to tab: StripTabID, keyInput: KeyInputScope?) {
-        let key = ObjectIdentifier(pane)
-        if signposter.isEnabled {
-            if let open = intervals.removeValue(forKey: key) { signposter.endInterval("switch", open.state, "superseded") }
-            let id = signposter.makeSignpostID()
-            intervals[key] = (id, signposter.beginInterval("switch", id: id))
-        }
         // A key binding or click being handled now: its age is the input stage.
         let event = NSApp.currentEvent
         let click = event.flatMap { [.leftMouseDown, .leftMouseUp].contains($0.type) ? $0.timestamp : nil }
@@ -39,14 +30,11 @@ enum DebugTabSwitch {
         let age = inputTimestamp.flatMap { now - $0 >= 0 && now - $0 < 1 ? (now - $0) * 1_000 : nil } ?? -1
         pane.services.tabSwitch.began(pane, to: tab.rawValue, kind: pane.tabSwitchKind(to: tab.rawValue), inputAgeMilliseconds: age)
         guard timer.isRecording else { return }
-        timer.began(key, at: now, inputTimestamp: inputTimestamp)
+        timer.began(ObjectIdentifier(pane), at: now, inputTimestamp: inputTimestamp)
     }
 
     /// The switch of `owner` reached `stage`.
     static func mark(_ owner: AnyObject, _ stage: StaticString) {
-        if let open = intervals[ObjectIdentifier(owner)] {
-            signposter.emitEvent(stage, id: open.id)
-        }
         if timer.isRecording { timer.mark(ObjectIdentifier(owner), "\(stage)") }
     }
 
@@ -68,13 +56,11 @@ enum DebugTabSwitch {
     }
 
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
-        if let open = intervals.removeValue(forKey: ObjectIdentifier(owner)) { signposter.endInterval("switch", open.state) }
         timer.shown(ObjectIdentifier(owner), in: window)
     }
 
     /// `pane` goes away or stops drawing (`suspend`): a switch it began and never showed ends here, as missed.
     static func forget(_ pane: PaneController) {
-        if let open = intervals.removeValue(forKey: ObjectIdentifier(pane)) { signposter.endInterval("switch", open.state, "gone") }
         pane.services.tabSwitch.forget(pane)
     }
 

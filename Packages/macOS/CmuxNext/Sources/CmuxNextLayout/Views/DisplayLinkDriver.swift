@@ -15,6 +15,9 @@ final class DisplayLinkDriver: MotionAnimating {
     var isManual = false
     /// Every `start` call, manual or not: the display frames the layout asked for (tests).
     private(set) var startRequests = 0
+    /// The display-link time of the frame `onFrame` steps (`FrameTick.timestamp`); nil outside a
+    /// display-link step (a test steps `advanceFrame` by hand).
+    private(set) var frameTime: CFTimeInterval?
 
     private weak var view: NSView?
     private weak var clock: MotionClock?
@@ -45,6 +48,8 @@ final class DisplayLinkDriver: MotionAnimating {
     }
 
     func motionStep(_ tick: FrameTick) -> Bool {
-        onFrame?(tick.elapsed) ?? false
+        frameTime = tick.timestamp
+        defer { frameTime = nil }
+        return onFrame?(tick.elapsed) ?? false
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
@@ -15,15 +16,17 @@ final class InputVerificationService {
     private var geometryObservers: [any NSObjectProtocol] = []
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [any NSObjectProtocol] = []
+    var keyboardGuardObservers: [MainActorObservation] = []
     /// The journal's and the monitor's subscription to the input tap (before the key router).
     private var journalSubscription: InputSubscription?
     /// No-activate mode only: the keyboard guard's subscription to the person's key and mouse presses.
     var keyboardGuardSubscription: InputSubscription?
     private weak var services: AppServices?
 
-    /// Configures the journal, subscribes it to the input tap, installs the
-    /// monitor's triggers, then the no-activate keyboard guard.
+    /// Configures the journal, subscribes it to the input tap and installs the
+    /// monitor's triggers (the `InputVerification.start` launch post, p08-startup-031).
+    /// The no-activate keyboard guard is an NSApp input hook: `AppServices.init`
+    /// installs it (`startNoActivateGuard(tap:)`), before the app activates.
     func start(services: AppServices) {
         self.services = services
         let journal = InputJournal.shared
@@ -39,7 +42,6 @@ final class InputVerificationService {
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
         services.cache.presentationChanges.subscribe("input-monitor") { [weak monitor] in monitor?.noteChange() }
-        startNoActivateGuard(tap: services.inputTap)
     }
 
     /// Records each key, flags, button, drag and scroll event from `tap` into `journal` before the key

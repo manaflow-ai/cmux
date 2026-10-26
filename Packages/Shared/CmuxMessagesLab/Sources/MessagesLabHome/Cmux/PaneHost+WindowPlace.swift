@@ -27,14 +27,12 @@ extension HostView {
     }
 
     /// Follows this host's window (viewDidMoveToWindow): after each update of that window, the place is
-    /// read again. Block form on queue .main (the crash program's objc_observer rule).
+    /// read again. Block form on queue .main (the crash program's objc_observer rule; MainQueueObservation).
     func observeWindowPlace() {
-        windowPlaceObserver.map(NotificationCenter.default.removeObserver)
-        windowPlaceObserver = nil
+        windowPlaceObservation = nil
         lastWindowPlace = nil
         guard let window else { return }
-        windowPlaceObserver = NotificationCenter.default.addObserver(forName: NSWindow.didUpdateNotification, object: window,
-                                                                     queue: .main) { [weak self] _ in
+        windowPlaceObservation = MainQueueObservation(NSWindow.didUpdateNotification, object: window) { [weak self] _ in
             self?.refreshWindowPlaceIfMoved()
         }
         refreshWindowPlace(placeVideo: false)

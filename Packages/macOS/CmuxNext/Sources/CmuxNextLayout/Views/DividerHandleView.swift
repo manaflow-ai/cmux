@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 import QuartzCore
 
 /// Draggable handle for a split divider, a column's trailing edge or the gap
@@ -48,7 +49,7 @@ final class DividerHandleView: NSView {
     /// with every point between for the velocity, as Chromium delivers rAF-aligned moves
     /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). Nil: every
     /// drag event moves it at once.
-    var pointerFrames: () -> PointerFrameCoalescers? = { nil }
+    var pointerFrames: () -> FrameInputCoalescers? = { nil }
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed

@@ -58,7 +58,7 @@ final class BrowserNoticeView: NSView {
             stack.edgeInsets = NSEdgeInsets(top: 0, left: BrowserMetrics.overlayPadding, bottom: 0, right: BrowserMetrics.buttonSpacing)
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
         }
-        density.start()
+        density.start(in: self)
     }
 
     @available(*, unavailable)

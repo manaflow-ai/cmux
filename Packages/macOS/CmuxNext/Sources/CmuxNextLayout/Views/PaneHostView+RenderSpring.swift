@@ -53,7 +53,7 @@ extension PaneHostView {
             return
         }
         var moves = renderSpringMoves(from: move.from, velocity: move.velocity)
-        if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, "opacity", from: move.fromAlpha, to: move.toAlpha)) }
+        if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, .opacity, from: move.fromAlpha, to: move.toAlpha)) }
         // The chrome is off this rest only when the plane placed nothing (a root that is not live, a hidden host).
         if let superview, let rest = inPlane(bounds, self), Self.gap(rest, chrome.frame) < 0.01,
            let start = Self.converted(move.from, velocity: move.velocity, from: superview, by: inPlane) {
@@ -78,6 +78,37 @@ extension PaneHostView {
     /// The largest gap between two rects' edges and sizes.
     private static func gap(_ a: CGRect, _ b: CGRect) -> CGFloat {
         max(abs(a.minX - b.minX), abs(a.minY - b.minY), abs(a.width - b.width), abs(a.height - b.height))
+    }
+
+    /// On a render-server spring the frame is at rest and Core Animation draws the host elsewhere
+    /// (``isOnRenderSpring``): a press takes the host where it is drawn, at the same place of its content
+    /// (``restPoint(ofDrawn:)``). At rest no presentation layer is read.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        // A hidden view takes no press (NSView's rule), on a spring or not.
+        guard !isHidden else { return nil }
+        var point = point
+        let springing = isOnRenderSpring
+        if springing {
+            guard let rest = restPoint(ofDrawn: point) else { return nil }
+            point = rest
+        }
+        if let areaHitClip, !areaHitClip.contains(convert(point, from: superview)) { return nil }
+        // Drawn larger than its rest, the host's own fill takes what its content does not reach, while it shows.
+        return super.hitTest(point) ?? (springing && alphaValue > 0 ? self as NSView : nil)
+    }
+
+    /// `point` (superview coordinates) where the render server draws the host now, moved to the same place
+    /// of the host at rest; nil outside what it draws (its layer clips to its bounds). The content rides the
+    /// host's origin corner, its top left: the smaller y, since its superview (the screen or the strip
+    /// container, ``ScreenContentView/hostParent(for:)``) is flipped. Chromium routes input by the transforms of the frames viz drew the
+    /// same way (`components/viz/host/hit_test/hit_test_query.cc`, `HitTestQuery::FindTargetForLocation`).
+    func restPoint(ofDrawn point: CGPoint) -> CGPoint? {
+        guard let layer, let superview else { return point }
+        presentedHitReads += 1
+        guard let drawn = layer.presentation() else { return point }
+        let shown = superview.convertFromLayer(drawn.frame), rest = superview.convertFromLayer(layer.frame)
+        guard shown.contains(point) else { return nil }
+        return CGPoint(x: point.x + rest.minX - shown.minX, y: point.y + rest.minY - shown.minY)
     }
 
     /// The host's position and size springs end, its chrome's with them (a fade runs on): its CPU frame

@@ -407,7 +407,21 @@
          y += headerHeight
          threadViews = rows.map { spec in
              let top = y + spec.gap - RowDraw.margin
-@@ -2142,7 +2283,22 @@
+@@ -2130,11 +2271,10 @@
+             y += spec.total
+             // Drawn at this view's scale (weak: the canvas is this view's subview).
+             let v = CanvasView(frame: CGRect(x: 0, y: top, width: bounds.width, height: spec.height + 2 * RowDraw.margin)) { [weak self] ctx, _ in
+-                Fixture.withRenderScale(self?.renderScale ?? 0) {
+-                    Fixture.elevated = true
++                // cmux: elevated is this draw's own (p10-stability-040), not a process flag.
++                Fixture.withRenderScale(self?.renderScale ?? 0, elevated: true) {
+                     // A just-sent reply is crisp in its copy too, until it is delivered (RowCell.crispEdge).
+                     SoftBalloon.withCrispCopy(self?.crispSends[spec.key] != nil) { RowDraw.drawStatic(spec, ctx, windowY: top) }
+-                    Fixture.elevated = false
+                 }
+             }
+             v.layer.contentsScale = renderScale
+@@ -2142,7 +2282,22 @@
          threadSources = [:]
          for (v, spec) in zip(threadViews, threadSpecs) {
              if let src = sources[spec.key] { threadSources[spec.key] = src }
@@ -430,7 +444,7 @@
              guard !wasOpen else { continue }
              if let src = threadSources[spec.key] {
                  ThreadBackdrop.fly(v.layer, fromY: src.midY, toY: v.frame.midY, tau: MessagesWindowView.threadOpenTau, delay: ThreadBackdrop.openDelay)
-@@ -2150,12 +2306,14 @@
+@@ -2150,12 +2305,14 @@
                  ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.28, delay: ThreadBackdrop.openDelay)
              }
          }
@@ -446,7 +460,7 @@
          CATransaction.begin()
          CATransaction.setCompletionBlock { [weak self] in
              guard let self, self.threadClosing == token else { return }
-@@ -2168,10 +2326,12 @@
+@@ -2168,10 +2325,12 @@
          }
          if let hv = threadHeaderView {
              hv.layer.opacity = 0
@@ -461,7 +475,7 @@
                  let from = v.frame.midY
                  v.frame.origin.y += src.midY - from
                  ThreadBackdrop.fly(v.layer, fromY: from, toY: v.frame.midY, tau: MessagesWindowView.threadCloseTau)
-@@ -2180,11 +2340,13 @@
+@@ -2180,11 +2339,13 @@
                  ThreadBackdrop.fade(v.layer, from: 1, to: 0, duration: 0.25)
              }
          }
@@ -476,7 +490,7 @@
  
      // MARK: Hit testing
  
-@@ -2236,6 +2398,15 @@
+@@ -2236,6 +2397,15 @@
  
      /// The layer the hit row's soft mask masks (the cell's fill container), for a copy of that mask elsewhere in the
      /// window to draw its image the same way up (MenuHighlight); nil in the thread view or without a visible cell.
@@ -492,7 +506,7 @@
      func softMaskOwner(_ h: Hit) -> CALayer? {
          guard !threadOpen else { return nil }
          for case let cell as RowCell in collection.visibleCells where cell.spec?.key == h.key { return cell.fillContainer }
-@@ -2317,6 +2488,9 @@
+@@ -2317,6 +2487,9 @@
  
      /// The host's thread header changed (title, status, owner): the open thread view asks
      /// `HostHooks.threadHeader` again.
@@ -502,7 +516,19 @@
      func threadHeaderDidChange() {
          guard store.state.ui.threadMode == .tree, store.state.ui.openThread != nil, threadClosing == 0 else { return }
          threadForceRebuild = true
-@@ -2515,12 +2689,21 @@
+@@ -2336,10 +2509,8 @@
+         let layout = ThreadHeaderDraw.layout(header, width: bounds.width)
+         threadHeaderHits = layout.hits.map { ($0.0.offsetBy(dx: frame.minX, dy: frame.minY), $0.1) }
+         let v = CanvasView(frame: frame) { [weak self] ctx, _ in
+-            Fixture.withRenderScale(self?.renderScale ?? 0) {
+-                Fixture.elevated = true
++            Fixture.withRenderScale(self?.renderScale ?? 0, elevated: true) { // cmux: the draw's own
+                 ThreadHeaderDraw.draw(header, layout: layout, in: ctx)
+-                Fixture.elevated = false
+             }
+         }
+         v.layer.contentsScale = renderScale
+@@ -2515,12 +2686,21 @@
          return l
      }
  
@@ -525,7 +551,7 @@
          let delay = open ? ThreadBackdrop.openDelay : 0
          let t = CABasicAnimation(keyPath: "opacity"); t.fromValue = a0; t.toValue = a1; t.duration = d; t.timingFunction = fn
          // Without a wait, start at the commit as the row flights do (`fly`, `fade`): a begin
-@@ -2529,7 +2712,6 @@
+@@ -2529,7 +2709,6 @@
          if delay > 0 { t.beginTime = CACurrentMediaTime() + delay; t.fillMode = .backwards }
          tint.add(t, forKey: "thread")
          if let blur {
@@ -533,7 +559,7 @@
              let b = CABasicAnimation(keyPath: "filters.gaussianBlur.inputRadius"); b.fromValue = r0; b.toValue = r1; b.duration = d; b.timingFunction = fn
              if delay > 0 { b.beginTime = CACurrentMediaTime() + delay; b.fillMode = .backwards }
              blur.add(b, forKey: "thread")
-@@ -2727,7 +2909,7 @@
+@@ -2727,7 +2906,7 @@
          let textTop = Fixture.bubblePadY
          if case let .part(p) = spec0.kind, case let .text(t, _) = p.part, p.text == nil {
              let l = LongTextStore.shared.layout(t, width: spec0.width, message: p.ref.messageId, markdown: p.markdownFormat)
@@ -542,7 +568,7 @@
              inner = (l, l.anchor(atTextY: y), y)
          }
          apply()
-@@ -2836,3 +3018,153 @@
+@@ -2836,3 +3015,153 @@
          TextDraw.line(l.owner, font: ownerFont, color: Fixture.secondaryText, x: l.ownerX, baseline: l.chip.minY + 12, in: ctx, kern: RowDraw.captionKern)
      }
  }

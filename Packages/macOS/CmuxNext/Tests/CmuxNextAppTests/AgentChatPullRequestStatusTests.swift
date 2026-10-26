@@ -1,5 +1,6 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -50,7 +51,7 @@ struct AgentChatPullRequestStatusTests {
     /// with its own state and an https link (a link that is not https is dropped).
     @Test func readsTheTitleReviewAndEachCheck() async throws {
         let rig = try Self.rig()
-        let read = try #require(await AgentChatPullRequestReader(gh: rig.gh).read(in: rig.folder))
+        let read = try #require(await AgentChatPullRequestReader(gh: rig.gh, processes: AsyncProcess()).read(in: rig.folder))
         #expect(read.title == "Stage single hunks")
         #expect(read.review == "changes_requested")
         #expect(read.mergeable == "mergeable")
@@ -69,7 +70,7 @@ struct AgentChatPullRequestStatusTests {
     /// cycle time runs between the two, and both come from the same gh call (hq#1920).
     @Test func readsWhenItWasOpenedAndMerged() async throws {
         let rig = try Self.rig()
-        let open = try #require(await AgentChatPullRequestReader(gh: rig.gh).read(in: rig.folder))
+        let open = try #require(await AgentChatPullRequestReader(gh: rig.gh, processes: AsyncProcess()).read(in: rig.folder))
         let openJSON = AgentPaneHeaderState.with(open).json.compactText
         #expect(openJSON.contains(#""createdAt":"2026-10-01T09:30:00Z""#))
         #expect(openJSON.contains("\"mergedAt\":\"\""))
@@ -88,7 +89,7 @@ struct AgentChatPullRequestStatusTests {
         let reader = AgentChatPullRequestReader(gh: rig.gh, environment: [
             "GH_TOKEN": "t0k", "GH_HOST": "ghe.example", "GH_CONFIG_DIR": "/cfg", "HTTPS_PROXY": "http://proxy:3128",
             "UNRELATED_SECRET": "no", "HOME": NSHomeDirectory(),
-        ])
+        ], processes: AsyncProcess())
         _ = await reader.read(in: rig.folder)
         let env = try String(contentsOfFile: rig.gh + ".env", encoding: .utf8)
         #expect(env == "token=t0k host=ghe.example config=/cfg proxy=http://proxy:3128 other=\n")
@@ -98,7 +99,7 @@ struct AgentChatPullRequestStatusTests {
     /// fresh, so a PR the agent just created or pushed to shows at once.
     @Test func aTurnEndAsksAgain() async throws {
         let rig = try Self.rig()
-        let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh))
+        let pullRequests = AgentChatPullRequest(reader: AgentChatPullRequestReader(gh: rig.gh, processes: AsyncProcess()))
         let model = AgentPaneModel(host: NoHost())
         var hooks = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState.with(pullRequests.badge(cwd: rig.folder)) })
         hooks.refreshPullRequest = { pullRequests.askAgain() }

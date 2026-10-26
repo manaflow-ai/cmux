@@ -1,5 +1,7 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
+import CmuxNextWakeups
 
 extension ShellWindow {
     /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
@@ -63,4 +65,10 @@ extension ShellWindow {
         cursorRectHold?.windowKeyStateWillChange(self)
         super.resignKey()
     }
+}
+
+/// Its overlay host, thin scrollers, hover reveals and hover cards hover once per frame on the app's
+/// coalescers (feature `pointerFrameHover`), read when they join the window.
+extension ShellWindow: HoverFrameInputHosting {
+    var hoverFrameInput: FrameInputCoalescers? { (windowController as? WindowController)?.services.hoverFrameInput }
 }

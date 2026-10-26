@@ -167,7 +167,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     @discardableResult
     private static func drain(_ fd: Int32, into continuation: AsyncStream<TerminalIOEvent>.Continuation) -> DrainResult {
         var buffer = [UInt8](repeating: 0, count: 65_536)
-        // wakeup-allow: reads until EAGAIN (wait for readiness) or hangup/EOF (terminal); EINTR retries
+        // wakeup-allow: bounded: reads until EAGAIN (wait for readiness) or hangup/EOF (terminal); EINTR retries
         while true {
             // concurrency-allow: the PTY descriptor is O_NONBLOCK; read returns EAGAIN instead of waiting.
             let count = buffer.withUnsafeMutableBytes { Darwin.read(fd, $0.baseAddress, $0.count) }
@@ -202,11 +202,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
         if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
-        let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
-                     "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
-        if roots.contains(where: { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }) {
-            result["TERM"] = "xterm-ghostty"
-        }
+        if GhosttyLaunchProbe.hasInstalledTerminfo(home: home, fileExists: fileExists) { result["TERM"] = "xterm-ghostty" }
         return result
     }
 }

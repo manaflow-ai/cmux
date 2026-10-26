@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHibernation
+import CmuxNextSignposts
 import CmuxNextIcons
 import CmuxNextSettingsWindow
 import CmuxNextTabs
@@ -48,6 +49,8 @@ final class InternalPageTabStore {
     /// lifecycle, and what each discarded tab keeps by provider key (InternalPageTabStore+Show).
     @ObservationIgnored var discards: ContentDiscardScheduler?
     @ObservationIgnored weak var cache: TabContentCache?
+    /// New tabs' `create.tab` waits (the content cache's): a page tab's close or rekey here is its close or move there.
+    @ObservationIgnored weak var createTabs: CreateTabTimings?
     @ObservationIgnored let discardRecords = ContentDiscardRecords()
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
@@ -130,42 +133,58 @@ final class InternalPageTabStore {
         return provider.icon.map(TabIcon.icon) ?? .symbol(provider.symbol)
     }
 
-    /// The tab's view, made on first show.
+    /// The tab's view with its content, made on first show (the pane asks when it shows the tab).
     func view(for key: String) -> InternalPageView? {
+        guard let view = tabView(for: key) else { return nil }
+        view.build()
+        return view
+    }
+
+    /// The tab's view, whose content waits for the tab's first show: an open or a show that does not
+    /// show the tab (automation, a parked workspace) makes no page.
+    func tabView(for key: String) -> InternalPageView? {
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
-        return makeView(key, tab: key, page: page, provider: provider, window: windows[key])
+        return makeView(key, tab: key, page: page, provider: provider)
     }
 
-    /// Makes and keeps tab `tab`'s view under provider key `key`. A tab whose view was discarded
-    /// gets its route back before the view is made, and its view state once the view can take it,
-    /// under its last picture until then.
-    private func makeView(_ key: String, tab: String, page: InternalPageID, provider: any InternalPageProvider,
-                          window: WindowController?) -> InternalPageView {
-        let gone = discardRecords.discarded.removeValue(forKey: key)
-        if let route = gone?.route { provider.restore(route, for: key) }
-        if let gone { provider.willRemakeView(for: key, with: gone.state) }
-        let content = provider.makeView(for: key, in: window)
-        let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
-        view.navigate = navigate
-        views[key] = view
-        if let state = gone?.state {
-            view.rebuilt(under: discardedPicture(of: tab)) { [weak provider] content in
-                await provider?.restoreViewState(state, for: key, content: content)
+    /// Keeps tab `tab`'s view under provider key `key`; its provider makes the content at the
+    /// view's first ``InternalPageView/build()`` (its first show). A tab whose view was discarded
+    /// gets its route back before the content is made, and its view state once the content can
+    /// take it, under its last picture until then.
+    private func makeView(_ key: String, tab: String, page: InternalPageID, provider: any InternalPageProvider) -> InternalPageView {
+        let view = InternalPageView(key: key, page: page) { [weak self] in
+            let gone = self?.discardRecords.discarded.removeValue(forKey: key)
+            if let route = gone?.route { provider.restore(route, for: key) }
+            if let gone { provider.willRemakeView(for: key, with: gone.state) }
+            // The window the tab is in now: it may have moved since it opened.
+            let content = provider.makeView(for: key, in: self?.windows[key])
+            let picture = gone == nil ? nil : self?.discardedPicture(of: tab)
+            return InternalPageView.Parts(content: content, topBar: provider.makeTopBar(for: key)) { [weak provider] view in
+                guard let state = gone?.state else { return }
+                view.rebuilt(under: picture) { [weak provider] content in
+                    await provider?.restoreViewState(state, for: key, content: content)
+                }
             }
         }
+        view.navigate = navigate
+        views[key] = view
         return view
     }
 
     /// Takes the view kept under provider key `key` out of the store (a discard, InternalPageTabStore+Show).
     func takeView(_ key: String) -> InternalPageView? { views.removeValue(forKey: key) }
 
-    /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
     /// The provider key of store page tab `id`, nil for any other tab.
     func storeKey(of id: String) -> String? { storeKeys[id] }
 
-    func existingView(_ key: String) -> InternalPageView? { views[key] ?? storeKeys[key].flatMap { views[$0] } }
+    /// `key`'s view with its content made: an app-only page tab's, or a store page tab's by its id.
+    /// Nil for a tab that has not shown yet (its content waits, ``tabView(for:)``).
+    func existingView(_ key: String) -> InternalPageView? {
+        guard let view = views[key] ?? storeKeys[key].flatMap({ views[$0] }), view.isBuilt else { return nil }
+        return view
+    }
 
     /// The page an app-only or store page tab shows.
     func page(ofTab tab: String) -> InternalPageID? {
@@ -192,6 +211,14 @@ final class InternalPageTabStore {
     /// machine's daemon never names a file or folder for this Mac to read.
     func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
               window: WindowController?) -> InternalPageView? {
+        guard let view = tabView(forStoreTab: tab, page: page, in: store, local: local, window: window) else { return nil }
+        view.build()
+        return view
+    }
+
+    /// ``view(forStoreTab:page:in:local:window:)`` whose content waits for the tab's first show.
+    func tabView(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
+                 window: WindowController?) -> InternalPageView? {
         if let key = storeKeys[tab.id], let view = views[key] {
             // The tab moved to another window: the same view shows there, and its window follows.
             if let window { windows[key] = window }
@@ -204,7 +231,7 @@ final class InternalPageTabStore {
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
-        return makeView(key, tab: tab.id, page: page, provider: provider, window: windows[key])
+        return makeView(key, tab: tab.id, page: page, provider: provider)
     }
 
     /// Opens `page` as a store tab after `pane`'s selected tab. The tab and
@@ -233,6 +260,8 @@ final class InternalPageTabStore {
         let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
               case .connected = store.connectionState else { return nil }
+        // create.tab: a page tab this window shows, from this turn to its page's first paint.
+        let timing = services.cache.createTabs.begin(.page, shows: focus && pane?.showsNewTabs == true)
         let provisional = ProvisionalTab()
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
@@ -241,13 +270,14 @@ final class InternalPageTabStore {
         let route = daemon.supports(DaemonCapability.pageTabRoute.rawValue) ? provider.route(for: key) : nil
         snapshot.conversation = ConversationTabRef(page: page.rawValue, route: route)
         track(provisional.id, key: key, in: store, window: window)
-        let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: window), topBar: provider.makeTopBar(for: key))
-        views[key] = view
+        // Its content waits for the tab's first show: a pane selecting it, or a caller reading it.
+        let view = makeView(key, tab: provisional.id, page: page, provider: provider)
         store.onPageTabCreated = { [weak self] provisional, tab in
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
         }
         let transaction = ClientTransactionID.generate()
         store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
+        if let timing { services.cache.createTabs.expect(timing, tab: provisional.id, standIn: true) }
         if let pane {
             if focus {
                 pane.selectWhenReported(surface: provisional.surface)
@@ -283,6 +313,7 @@ final class InternalPageTabStore {
     /// and the selection move to it.
     func storeTabCreated(_ provisional: String, as real: String, surface: SurfaceID) {
         guard provisional != real, let key = storeKeys[provisional] else { return }
+        createTabs?.rekey(provisional, to: real) // the store's tab waits for the provisional one's first paint
         storeKeys[real] = key
         storeTabStores[real] = storeTabStores[provisional]
         // The provisional id resolves until the tree drops it.
@@ -321,6 +352,7 @@ final class InternalPageTabStore {
                 seenLive.insert(id)
             } else if seenLive.contains(id) {
                 seenLive.remove(id)
+                createTabs?.released(id) // closed before its first paint: create.tab ends as closed
                 storeTabStores[id] = nil
                 if let key = storeKeys.removeValue(forKey: id), !storeKeys.values.contains(key) { forget(key) }
             }
@@ -360,6 +392,7 @@ final class InternalPageTabStore {
     }
 
     private func forget(_ key: String) {
+        createTabs?.released(key) // a local page tab's id is its key
         views.removeValue(forKey: key)?.removeFromSuperview()
         discardRecords.forget(key)
         windows[key] = nil

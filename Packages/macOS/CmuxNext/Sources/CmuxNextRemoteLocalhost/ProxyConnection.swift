@@ -72,7 +72,7 @@ final class ProxyConnection: Sendable {
     /// Reads until a full head; nil when the client left or sent garbage.
     private func readHead() async -> (ProxyRequestHead, Data)? {
         var buffer = Data()
-        // wakeup-allow: each iteration awaits the next received chunk; EOF, errors and the head deadline end it
+        // wakeup-allow: bounded: each iteration awaits the next received chunk; EOF, errors and the head deadline end it
         while true {
             guard let (chunk, complete) = try? await client.receiveChunk(max: Self.chunkBytes) else { return nil }
             if let chunk { buffer.append(chunk) }
@@ -126,7 +126,7 @@ final class ProxyConnection: Sendable {
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 // Browser to machine; EOF half-closes.
-                // wakeup-allow: each iteration awaits the next received chunk; EOF and errors end it
+                // wakeup-allow: bounded: each iteration awaits the next received chunk; EOF and errors end it
                 while true {
                     guard let (chunk, complete) = try? await client.receiveChunk(max: Self.chunkBytes) else {
                         tunnel.close()
@@ -227,7 +227,7 @@ final class ProxyConnection: Sendable {
     /// Copies until EOF (then half-closes `destination`) or an error (then
     /// cancels both).
     private static func pipe(from source: NWConnection, to destination: NWConnection) async {
-        // wakeup-allow: each iteration awaits the next received chunk; EOF and errors end it
+        // wakeup-allow: bounded: each iteration awaits the next received chunk; EOF and errors end it
         while true {
             guard let (chunk, complete) = try? await source.receiveChunk(max: chunkBytes) else {
                 destination.cancel()

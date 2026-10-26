@@ -34,9 +34,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// How near the layout reports this pane to the viewport.
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
+    var showsNewTabs: Bool { view.window != nil && !isSuspended && ActionRunScope.viewChangeAllowed() } // a tab created now shows: create.tab begins (p09-observability 030)
     var pendingDock: Set<String> = [] // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
-    var pendingSelectSurface: SurfaceID?  // set by selectWhenReported* (AgentBesidePlacement)
+    var pendingSelectSurface: SurfaceID? { didSet { if let oldValue, oldValue != pendingSelectSurface { services.cache.createTabs.dropped(surface: oldValue.rawValue) } } } // set by selectWhenReported* (AgentBesidePlacement); one replaced before it is listed ends its create.tab wait unsampled
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
     private var observation: Task<Void, Never>?
@@ -97,6 +98,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
+        view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.resourceSource = services.resources
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator) // p07-memory-005
@@ -169,6 +171,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func suspend() {
         guard !isSuspended else { return }
         isSuspended = true
+        if let currentTabKey { services.cache.createTabs.hidden(currentTabKey) } // create.tab: hidden before its frame, no sample
         observation?.cancel(); observation = nil
         tabItems.cancelAll() // a title or busy-dot change in a parked workspace maps no tab item
         services.presentation.cancel(self)
@@ -320,6 +323,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if !snapshot.items.isEmpty { services.launchReveal.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = snapshot.tabs.first(where: { $0.surface == pending }) { // once listed (OutboundTab)
+            if !isSuspended { services.cache.createTabs.listed(surface: pending.rawValue, tab: tab.id) } // create.tab waits for its frame
             state?.selection.select(tab.id, in: paneKey)
             pendingSelectSurface = nil
             selectNew = true
@@ -407,7 +411,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// action run without view-change permission (a CLI, script or agent
     /// run without `focus: true`) creates the tab in the background.
     func selectWhenReported(surface: SurfaceID) {
-        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
+        guard ActionRunScope.viewChangeAllowed() else { services.cache.createTabs.dropped(surface: surface.rawValue); return apply(snapshot()) } // a background create: no create.tab sample
         pendingSelectSurface = surface
         apply(snapshot())
     }
@@ -434,7 +438,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func showSelected() {
         guard !isSuspended else { return } // `resume`'s apply shows the selection then
-        let key = stripModel.selectedID?.rawValue
+        let key = stripModel.selectedID?.rawValue, previous = currentTabKey
         if key != currentTabKey {
             InputJournal.shared.append(window: state?.id, .content(tab: key ?? "-", event: "show pane=\(paneKey) from=\(currentTabKey ?? "-")"))
             // Another tab's last page from the launch must not stay under this one.
@@ -456,6 +460,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.contentShown(self, key: key)
+        if services.cache.createTabs.isWaiting { services.cache.createTabs.switched(from: previous, to: key, firstFrame: content?.createTabFirstFrame) } // create.tab: one hidden first ends unsampled
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
         if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { services.launchReveal.markReady(.pane) }

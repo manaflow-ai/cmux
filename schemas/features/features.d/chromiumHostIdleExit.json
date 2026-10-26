@@ -1,0 +1,18 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostIdleExit",
+  "owner": "PL-memory",
+  "description": "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "benchOnly": true,
+  "params": [
+    { "name": "idleExitAfter", "type": "duration", "default": 300, "min": 10, "max": 3600,
+      "description": "How long the host runs with its page in no window before it quits." }
+  ],
+  "stories": ["memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false
+}

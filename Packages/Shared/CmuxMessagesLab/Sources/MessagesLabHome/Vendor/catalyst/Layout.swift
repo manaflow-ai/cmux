@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os // cmux: OSAllocatedUnfairLock
 
 /// The render scale of the view whose work runs now on this thread (cx-3cb view-scale). Two window views can show at
 /// two backing scales at the same time (cmux Home: windows on a 2x and a 1x display), so the scale is the view's own
@@ -12,21 +13,36 @@ import AppKit
 /// `Fixture.withRenderScale(_:_:)` and the process fallback outside one. Work sent to another queue takes the scale
 /// with it (a task local does not follow DispatchQueue blocks): RowBitmaps, Pager, TiledBody, MorphBubble.prepare.
 enum RenderScaleScope {
-    /// The scope's scale for work inside a Swift task or off the main thread.
-    @TaskLocal static var scoped: CGFloat? = nil
+    /// cmux: what a scope binds (p10-stability-040): the view's scale (nil: the process fallback),
+    /// whether it draws the thread view's elevated rows (`Fixture.elevated`), and off the main thread
+    /// the palette its draw started with (`Fixture.palette`; main is where the palette changes).
+    struct Scope: Sendable {
+        var scale: CGFloat?
+        var elevated = false
+        var palette: Fixture.Palette?
+        func same(as other: Scope) -> Bool { scale == other.scale && elevated == other.elevated && palette === other.palette }
+    }
+    /// The scope for work inside a Swift task or off the main thread.
+    @TaskLocal static var scoped: Scope? = nil
     /// cmux: the scope's scale on the main thread outside any task (a layer's draw, a window
     /// move, a layout pass). A task local bound there lives in the thread's fallback storage, and an
     /// isolated deinit run inline under it (every main-actor class of a main-actor-default target
     /// has one) makes the macOS 15.4 to 15.x runtime free() a marker its task allocator made: cmux
     /// trapped under Chromium's allocator when Cmd-1 left Home (CMUXTERM-MACOS-44XN, macOS 15.8.1).
     // crash-allow: read and written only on the main thread (`with` and `current` check it).
-    nonisolated(unsafe) static var mainThreadScoped: CGFloat? = nil
+    nonisolated(unsafe) static var mainThreadScoped: Scope? = nil
 
+    /// The scope that runs now, nil outside any scope.
+    static var scope: Scope? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
     /// The scale of the scope that runs now, nil outside any scope.
-    static var current: CGFloat? { scoped ?? (Thread.isMainThread ? mainThreadScoped : nil) }
+    static var current: CGFloat? { scope?.scale }
+    /// The scope draws the thread view's elevated rows.
+    static var elevated: Bool { scope?.elevated ?? false }
+    /// The palette an off-main scope's draw started with.
+    static var palette: Fixture.Palette? { scope?.palette }
 
-    /// Runs `body` in a scope of scale `s`, binding no task local where no task runs.
-    static func with<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
+    /// Runs `body` in scope `s`, binding no task local where no task runs.
+    static func with<T>(_ s: Scope, _ body: () throws -> T) rethrows -> T {
         if Thread.isMainThread, !withUnsafeCurrentTask(body: { $0 != nil }) {
             let outer = mainThreadScoped
             mainThreadScoped = s
@@ -40,9 +56,16 @@ enum RenderScaleScope {
 
 extension Fixture {
     /// Runs `body` with `Fixture.renderScale` = `s` on this thread (a scale of 0 or less: the current value).
-    static func withRenderScale<T>(_ s: CGFloat, _ body: () throws -> T) rethrows -> T {
-        guard s > 0, RenderScaleScope.current != s else { return try body() }
-        return try RenderScaleScope.with(s, body)
+    /// cmux: `elevated`: `body` draws the thread view's rows (`Fixture.elevated`). Off the main thread the
+    /// scope also keeps the palette of its start, so one draw reads one palette (p10-stability-040).
+    static func withRenderScale<T>(_ s: CGFloat, elevated: Bool = false, _ body: () throws -> T) rethrows -> T {
+        let outer = RenderScaleScope.scope ?? RenderScaleScope.Scope()
+        var inner = outer
+        if s > 0 { inner.scale = s }
+        if elevated { inner.elevated = true }
+        if inner.palette == nil, !Thread.isMainThread { inner.palette = Fixture.currentPalette }
+        guard !inner.same(as: outer) else { return try body() }
+        return try RenderScaleScope.with(inner, body)
     }
 }
 
@@ -184,7 +207,11 @@ struct Metrics: Hashable {
     var width: CGFloat
     /// The window's current layout width (main thread only). Off-main work
     /// takes the width as a parameter captured on main.
-    static var current = Metrics(width: Fixture.windowWidth)
+    /// cmux: held with Fixture's process fallbacks (a default argument reads it on any thread; p10-stability-040).
+    static var current: Metrics {
+        get { Fixture.fallbackMetrics }
+        set { Fixture.fallbackMetrics = newValue }
+    }
 
     var dx: CGFloat { width - Fixture.windowWidth }
     var rightEdge: CGFloat { Fixture.rightEdge + dx }
@@ -353,7 +380,7 @@ struct ThreadPreview: Hashable {
     /// takes the full quote column; the column scales with the bubble column (`Metrics.maxTextWidth`). It
     /// replaces the outlined 10 pt copy of macOS Messages' preview, which did not look like the quoted bubble.
     var isText: Bool { if case .text = part { return true }; return false }
-    static let textFont = UIFont.systemFont(ofSize: 12)
+    static var textFont: UIFont { HomeFonts.system(ofSize: 12) } // cmux: held by HomeFonts (was a non-Sendable global)
     /// The text's lines as drawn (text roots only; one line when it fits).
     var textLines: [String] = []
     /// cmux: bubble edge to text plus text to bubble edge: a bubble's padding (`Fixture.bubblePadX`) on each side.
@@ -423,8 +450,9 @@ struct ThreadPreview: Hashable {
         while head.last == " " { head.removeLast() }
         return head + "…"
     }
-    static let titleFont = UIFont.systemFont(ofSize: 12, weight: .semibold)
-    static let subFont = UIFont.systemFont(ofSize: 12)
+    // cmux: held by HomeFonts (were non-Sendable globals).
+    static var titleFont: UIFont { HomeFonts.system(ofSize: 12, weight: .semibold) }
+    static var subFont: UIFont { HomeFonts.system(ofSize: 12) }
     /// Title and second line of the card.
     var lines: (String, String) {
         switch part {
@@ -587,7 +615,7 @@ enum Sizing {
         let w = min(maxWidth, px / 2)
         return (w, w * py / px)
     }
-    static let linkTitleFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+    static var linkTitleFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) } // cmux: held by HomeFonts
     static func linkTitleLines(_ title: String, width: CGFloat) -> [String] {
         let tl = TextLayout.make(title, runs: [], maxWidth: width - 20, font: linkTitleFont)
         let ns = title as NSString
@@ -1237,15 +1265,14 @@ enum Format {
         f.dateFormat = "h:mm\u{202F}a"
         return f
     }()
-    private static var timeMemo: [Date: String] = [:]
-    private static let timeLock = NSLock()
+    // cmux: the memo behind a checked lock (it was a global under an NSLock; p10-stability-040).
+    // Lock carve-out: rows derive on the loader queue and on main; one dictionary read or write.
+    private static let timeMemo = OSAllocatedUnfairLock(initialState: [Date: String]())
     /// Memoized (receipt rows format the same times on every derive; ICU costs 0.1-0.3 ms per call).
     static func time(_ d: Date) -> String {
-        timeLock.lock()
-        if let s = timeMemo[d] { timeLock.unlock(); return s }
-        timeLock.unlock()
+        if let s = timeMemo.withLock({ $0.value(for: d) }) { return s }
         let s = timeFormatter.string(from: d)
-        timeLock.lock(); if timeMemo.count > 4096 { timeMemo.removeAll() }; timeMemo[d] = s; timeLock.unlock()
+        timeMemo.withLock { memo in if memo.count > 4096 { memo.removeAll() }; _ = memo.updateValue(s, forKey: d) } // dictionary write
         return s
     }
     private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
@@ -1261,23 +1288,29 @@ enum Format {
     private static let monthDayYear = formatter("MMM d, yyyy")
     /// `day` per date for the day `now` is in: a width change derives every separator row
     /// again (Calendar work was about 1 % of main in a divider drag). Thread safe.
-    private static let dayLock = NSLock()
-    private static var dayMemo: [Date: String] = [:]
-    private static var dayMemoToday: DateInterval?
-    private static var dayMemoBundle: ObjectIdentifier?
+    // cmux: one checked lock for the memo and its day and bundle (they were globals under an NSLock).
+    // Lock carve-out: as `timeMemo`.
+    private struct DayMemo: Sendable {
+        var labels: [Date: String] = [:]
+        var today: DateInterval?
+        var bundle: ObjectIdentifier?
+    }
+    private static let dayMemo = OSAllocatedUnfairLock(initialState: DayMemo())
     /// The calendar day of `now` (day labels depend on `now` only through it).
     static func dayInterval(_ now: Date) -> DateInterval? { calendar.dateInterval(of: .day, for: now) }
     static func day(_ d: Date, now: Date) -> String {
         let bundle = ObjectIdentifier(MessagesLabLocalization.bundle)
-        dayLock.lock()
-        if dayMemoBundle == bundle, let today = dayMemoToday, now >= today.start, now < today.end, let s = dayMemo[d] { dayLock.unlock(); return s }
-        dayLock.unlock()
+        let hit = dayMemo.withLock { m -> String? in
+            guard m.bundle == bundle, let today = m.today, now >= today.start, now < today.end else { return nil }
+            return m.labels.value(for: d)
+        }
+        if let hit { return hit }
         let s = dayUncached(d, now: now)
         let today = calendar.dateInterval(of: .day, for: now)
-        dayLock.lock()
-        if dayMemoToday != today || dayMemoBundle != bundle { dayMemo.removeAll(); dayMemoToday = today; dayMemoBundle = bundle }
-        if dayMemo.count < 4096 { dayMemo[d] = s }
-        dayLock.unlock()
+        dayMemo.withLock { m in
+            if m.today != today || m.bundle != bundle { m.labels.removeAll(); m.today = today; m.bundle = bundle }
+            if m.labels.count < 4096 { _ = m.labels.updateValue(s, forKey: d) } // dictionary write
+        }
         return s
     }
     private static func dayUncached(_ d: Date, now: Date) -> String {
@@ -1300,12 +1333,12 @@ enum Format {
 /// `String(localized:)` without a bundle reads Bundle.main, so the code never uses it.
 enum MessagesLabLocalization {
     private final class Token {}
-    private static let lock = NSLock()
-    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's).
-    private static var current = Bundle.module
+    // cmux: the package's bundle (Bundle(for:) of a class in a linked package is the app's), behind a
+    // checked lock (it was a global under an NSLock). Lock carve-out: one Bundle, read off main by the rows.
+    private static let current = OSAllocatedUnfairLock(initialState: Bundle.module)
     static var bundle: Bundle {
-        get { lock.lock(); defer { lock.unlock() }; return current }
-        set { lock.lock(); current = newValue; lock.unlock() }
+        get { current.withLock { $0 } }
+        set { current.withLock { $0 = newValue } }
     }
     /// The string for `key` in the user's preferred language (of `bundle`); `english` when the
     /// catalog has no entry. `table`: nil is `Localizable`.

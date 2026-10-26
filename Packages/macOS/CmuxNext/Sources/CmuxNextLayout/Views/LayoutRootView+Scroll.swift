@@ -95,7 +95,8 @@ extension LayoutRootView: ScrollGestureOwning {
             // The strip scrollbar takes its own clicks.
             if let scrollbar = view.scrollbar, !scrollbar.isHidden,
                scrollbar.hitTest(view.convert(event.locationInWindow, from: nil)) != nil { return event }
-            if let pane = view.pane(at: view.convert(event.locationInWindow, from: nil)) {
+            // Mid render-server spring, the pane drawn under the press (p03-rendering-098), as AppKit's hit test.
+            if let pane = view.pressedPane(at: view.convert(event.locationInWindow, from: nil)) {
                 model.focus(pane, source: .pointer)
             }
             return event
@@ -357,7 +358,7 @@ extension LayoutRootView: ScrollGestureOwning {
             }
             if dx > dy, let view = targets.columns {
                 scrollLock = .horizontal(view, verticalDeltas: false)
-                view.beginUserScroll()
+                view.beginUserScroll(trackpad: true)
                 view.userScroll(deltaX: event.scrollingDeltaX, timestamp: event.timestamp)
                 return nil
             }
@@ -369,7 +370,7 @@ extension LayoutRootView: ScrollGestureOwning {
             }
             if dy >= dx, targets.columnsTakeEitherAxis, let view = targets.columns {
                 scrollLock = .horizontal(view, verticalDeltas: true)
-                view.beginUserScroll()
+                view.beginUserScroll(trackpad: true)
                 view.userScroll(deltaX: event.scrollingDeltaY, timestamp: event.timestamp)
                 return nil
             }

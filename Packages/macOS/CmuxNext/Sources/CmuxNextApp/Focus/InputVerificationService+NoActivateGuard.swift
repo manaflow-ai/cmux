@@ -1,4 +1,5 @@
-@preconcurrency import AppKit
+import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
 import os
@@ -7,7 +8,7 @@ private enum NoActivateApplicationResolver {
     /// Resolves the PID off the main actor. AppKit's `processIdentifier`
     /// property can synchronously ask LaunchServices for dynamic properties.
     static func resolve(_ application: NSRunningApplication,
-                        completion: @escaping @MainActor (NSRunningApplication, pid_t) -> Void) {
+                        completion: @escaping @MainActor @Sendable (NSRunningApplication, pid_t) -> Void) {
         let reference = NoActivateApplicationReference(application)
         DispatchQueue.global(qos: .utility).async {
             let pid = reference.application.processIdentifier
@@ -17,7 +18,7 @@ private enum NoActivateApplicationResolver {
         }
     }
 
-    static func resolveFrontmost(completion: @escaping @MainActor (NSRunningApplication?, pid_t?) -> Void) {
+    static func resolveFrontmost(completion: @escaping @MainActor @Sendable (NSRunningApplication?, pid_t?) -> Void) {
         DispatchQueue.global(qos: .utility).async {
             let application = NSWorkspace.shared.frontmostApplication
             let reference = application.map(NoActivateApplicationReference.init)
@@ -33,8 +34,10 @@ private enum NoActivateApplicationResolver {
 // key-window and other-app changes in, key and mouse presses from the input tap,
 // each give-back into the input journal and `debug.focus`.
 extension InputVerificationService {
+    /// Installs the guard in the launch turn (`AppServices.init`), before the app activates and its first
+    /// window becomes key, so it sees both and resolves the app the person had in front. Once.
     func startNoActivateGuard(tap: InputEventTap) {
-        guard WindowPlacement.noActivate else { return }
+        guard WindowPlacement.noActivate, keyboardGuard == nil else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
         let guardian = NoActivateKeyboardGuard(host: AppKitKeyboardGuardHost(), frontmost: nil,
@@ -44,11 +47,10 @@ extension InputVerificationService {
                                                                         restoredTo: giveBack.restoredTo))
         })
         keyboardGuard = guardian
-        let center = NotificationCenter.default
-        keyboardGuardObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak guardian] note in
-            guard let guardian else { return }
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        keyboardGuardObservers.append(MainActorObservation(
+            NSWorkspace.didActivateApplicationNotification, center: NSWorkspace.shared.notificationCenter,
+            read: { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }) { [weak guardian] app in
+            guard let guardian, let app else { return }
             let sequence = guardian.beginOtherAppActivation()
             NoActivateApplicationResolver.resolve(app) { [weak self, weak guardian] app, pid in
                 guard let self, let guardian, let current = self.keyboardGuard, current === guardian else { return }
@@ -57,15 +59,9 @@ extension InputVerificationService {
                 guardian.appDidBecomeActive()
             }
         })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidBecomeActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidResignActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
-        })
+        keyboardGuardObservers.append(MainActorObservation(NSApplication.didBecomeActiveNotification) { guardian.appDidBecomeActive() })
+        keyboardGuardObservers.append(MainActorObservation(NSApplication.didResignActiveNotification) { guardian.appDidResignActive() })
+        keyboardGuardObservers.append(MainActorObservation(NSWindow.didBecomeKeyNotification) { guardian.windowDidBecomeKey() })
         let application = NSApp as? CmuxApplication
         // A person's key or mouse press; the app's own synthetic input is not one.
         keyboardGuardSubscription = tap.subscribePresses([.keyDown, .mouseDown],

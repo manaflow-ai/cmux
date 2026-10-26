@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextPages
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -67,6 +68,20 @@ enum TabContent {
         case .placeholder: "placeholder"
         case .notice: "notice"
         case .conversation: "conversation"
+        }
+    }
+
+    /// How this content reports its first themed frame for a new tab's `create.tab` (``CreateTabTimings``).
+    @MainActor var createTabFirstFrame: CreateTabTimings.FirstFrame {
+        let identity: AnyObject = view
+        switch self {
+        case .terminal(let entry): return entry.session.createTabFirstFrame(content: identity)
+        case .browser(let entry):
+            guard let page = entry.tab as? any BrowserFirstContentFrameReporting else { return .atCommit(identity) }
+            return page.createTabFirstFrame(content: identity)
+        case .agent(let view): return view.createTabFirstFrame(content: identity)
+        case .page(let view): return view.createTabFirstFrame(content: identity)
+        case .placeholder, .notice, .conversation: return .atCommit(identity)
         }
     }
 
@@ -157,9 +172,11 @@ final class BrowserEntry {
     /// Owns the chrome's (weak) Extensions menu handler.
     var extensionMenuHandler: (any ExtensionMenuHandling)?
 
-    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
+    /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
+    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
+         mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.tab = tab
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine)
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node)
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false

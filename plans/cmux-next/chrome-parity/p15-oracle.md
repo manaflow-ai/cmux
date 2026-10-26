@@ -571,6 +571,9 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 026 | 20 seeded mutants as patch files | M | 18-30 | 050, 024 | |
 | 060 | gen_daemon_ops.py | L | 12-20 | 023, 200 | MQ-daemon-ops |
 | 061-070 | Daemon-op families | M | 18-48 | 060 | MQ-daemon-ops |
+| 237 | Driver user connection (install-key hello) | M | 20-36 | 023, 200, 070 | MQ-daemon-ops |
+| 238 | Driver loopback pairing step | S | 20-36 | 023, 200, 070 | MQ-daemon-ops |
+| 239 | Chromium daemon-op cases on the app product | M | 20-40 | 047, 061 | MQ-daemon-ops |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -875,6 +878,31 @@ The 10 app and 10 daemon faults of the draft as patches applied in the job workt
 coverage.json; regeneration stable. **061-070** family tuning as in the draft (browser 17, sidebar 22, session 11 + graceful restart, workspace 26,
 terminal 9 on both holder arms, layout 25, tab 21, git/project/stash 18 on generated repo, chief/agents 24 with mock, misc 28). Each: success + error
 case, both arms where listed, green twice on the VM.
+
+The 17 success cases a family tuning cannot run on the plain case connection are excluded with a gap that names one
+of these three follow-ups; gen_daemon_ops.py refuses a gap that names no WORK.tsv task or only the family task and its
+dependencies (done before the family task, so they close nothing).
+
+**237 Driver user connection.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `gen_daemon_ops.py`,
+`misc/_tuning.json`. The case daemon gets a per-case DEV install key on `--owner-install-key-fd` (`cmuxik1 <install_id>
+<hex key>`, never argv or env; `local_owner/install_key.rs`). A step with `connection: user` runs on a second connection that
+sends `client-hello {role: main, install_id}` and answers the nonce with the install-key proof (step 2,
+`server/client_hello.rs` prove), so it derives origin user; the default connection stays agent. The success cases of
+credential.rotate, history.backups.purge, history.trail.record, history.visit.import (a History.sqlite visit log under
+`$CASE_ROOT` first), history.visit.record, history.visit.title and history.restore (record a visit, remove it, restore the
+removal's restore_id) lose their gaps. Acceptance: the 7 cases pass; a wrong proof leaves the connection agent (selftest).
+Test: VM, the 7 cases green twice; `gen_daemon_ops.py --check`.
+
+**238 Driver loopback pairing.** Files: `driver_daemon.py`, `hermetic_env.py`, `case-v1.schema.json`, `misc/_tuning.json`.
+The case daemon's WebSocket listener binds 127.0.0.1:0 (still offline); a `pairing.open` step connects as an unpaired peer
+(`server/websocket_listener.rs` begin_pairing) and waits until the facet lists the pairing request; the
+pairing_request.resolve success case rejects it by a `$step:` reference. Test: VM, the case green twice, no pairing left.
+
+**239 Chromium daemon-op cases on the app product.** Files: `driver_app.py`, `browser/_tuning.json`. driver_app.py runs a
+`requires: chromium` case's resource.call steps on the app's own daemon, whose browser host is the cmux-browser provider,
+in place of handing them to driver_daemon.py (a daemon with no provider answers engine_unavailable). The 9 engine success
+cases (browser.activate/back/forward/reload/navigate, browser.input.key/text/mouse/wheel) lose their gaps; mouse and wheel
+also need a presented frame token from a stream step (204). Test: fleet, the 9 cases green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 

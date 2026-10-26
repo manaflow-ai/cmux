@@ -25,7 +25,7 @@ nonisolated struct CrashLogOpener: Sendable {
     static let system = CrashLogOpener(
         textEditURL: { NSWorkspace.shared.urlForApplication(withBundleIdentifier: textEditBundleID) },
         openWith: { file, app in
-            NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
+            NSWorkspace.shared.openInBackground([file], withApplicationAt: app)
         },
         reveal: { url in
             if url.hasDirectoryPath {

@@ -1147,6 +1147,16 @@ repositories.
 - Test phase: fork build through 136; `swift test --filter CEFPump`; split-spring --suite=cef-idle: earlyPasses 0 and
   pump wakes/s down in tabs-static (numbers in the commit).
 - Size M. Depends: 016. Queue fork.
+- Fork ref: manaflow-ai/cef `cp/p14-energy-046` (18f4828a, on 037's `cp/p14-energy-037`), with no API number (136
+  numbers it). cmux finds `cmux_set_on_schedule_delayed` by symbol (`cmux_shim_set_schedule_delayed` returns 1), so a
+  fork without it keeps the ms path.
+- TimerSlackMac is not tied to this API (046 review): with the handler set, the fork's MessagePumpExternal overrides
+  ScheduleDelayedWork and AdjustDelayedRunTime, so the UI thread arms no base timer and the flag changes only renderer,
+  GPU and utility processes and the browser's non-UI threads (page `setTimeout` may fire up to its leeway late). It is
+  the default-off feature `cefTimerSlack` (process `chromium`) until a run measures those wakes and page timer latency.
+- earlyPasses on the absolute path: a delayed pass is early when it began before the run time it serves, or when
+  Chromium reports that run time or an earlier one during the pass. A later run time is the next task, however close.
+  The 2 ms re-ask rule stays for the ms path only.
 
 #### p14-energy-132 Contingency: explicit onMain DemandTimer migration
 - Files: the Q14 hit files under `Packages/macOS/CmuxNext/Sources/**`, `Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/DemandTimer.swift`.

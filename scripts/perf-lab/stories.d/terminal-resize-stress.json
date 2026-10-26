@@ -1,0 +1,23 @@
+{
+  "id": "terminal-resize-stress",
+  "tier": "T2",
+  "description": "Terminal live resize in the STRESS session (bench-terminal-resize.py on perf-stress-session.py: 60 workspaces, 4x3 panes and nested splits, 10 busy terminals): the divider between the first two columns dragged one debug.mouse move per display frame, so every terminal of those columns resizes each frame (frame intervals, main-thread busy ms, Ghostty display-pass ms, missed vsyncs, unsettled grids), and Cmd-D, Cmd-W, Cmd-Shift-D, Cmd-W over less (key to the final grid sent, at the owner and drawn).",
+  "command": ["scripts/cmux-next/bench-terminal-resize.py", "--layouts", "stress,split-resize-stress",
+              "--story", "terminal-resize-stress"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "terminal_resize\\.stress\\.(frame_interval|main_busy|display_main)", "unit": "ms", "better": "lower"},
+    {"name": "terminal_resize\\.stress\\.(missed|unsettled|failed)", "unit": "count", "better": "lower"},
+    {"name": "terminal_split_resize\\.stress\\.key_to_[a-z_]+", "unit": "ms", "better": "lower"},
+    {"name": "terminal_split_resize\\.stress\\.problems", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["debug:debug.focus", "debug:debug.layers", "debug:debug.mouse", "debug:debug.frames",
+            "debug:debug.surfaces", "debug:debug.terminal_display", "debug:debug.terminal_final_grid",
+            "debug:debug.cef", "debug:debug.screens", "debug:debug.window_frame"],
+  "owner": "PL-ghostty",
+  "component": "Terminal>Resize"
+}

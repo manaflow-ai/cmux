@@ -23,6 +23,8 @@ enum DebugWebInspector {
             observers.removeAll()
             counts.removeAll()
             started = ProcessInfo.processInfo.systemUptime
+            // AppKit-only: WebKit owns these views and their layout (no hook of ours to push from), and this
+            // counter is the probe itself, in DEBUG and bench builds only (allowed in render-done-checks.py).
             for view in views.flatMap({ [$0.page] + ($0.page.superview?.subviews ?? []) }) {
                 view.postsFrameChangedNotifications = true
                 let id = ObjectIdentifier(view)

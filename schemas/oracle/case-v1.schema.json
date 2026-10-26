@@ -127,7 +127,7 @@
     "allow_crashes": {
       "type": "array",
       "items": {"$ref": "#/$defs/allowCrash"},
-      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. The exit a step causes on purpose (a kill, or a Chromium debug URL such as chrome://crash) must be listed too, inside the entry's steps, as CrashTab needs ScopedAllowRendererCrashes.",
+      "description": "Child exits invariant I17 accepts (content/public/test/browser_test_base.h ScopedAllowRendererCrashes). Any other exit fails the case. The exit a step causes on purpose (a kill, or a Chromium debug URL such as chrome://crash) must be listed too, inside the entry's steps, as CrashTab needs ScopedAllowRendererCrashes. I17 counts an exit in the step whose turn or settled checkpoint first shows the rise of crashes.counts (one first shown at a step's before checkpoint belongs to the step before it); when the checkpoints before that one are missing or not comparable, the exit belongs to every step it could have happened in, and an entry for any of them covers it. An exit during the teardown needs an entry without steps. Each exit takes one of the first matching entry's max.",
       "x-oracle-crash-scope": {
         "error": "{pointer}: step \"{step}\" ends a {kind} process, but no allow_crashes entry of kind {kind} lists it in its steps",
         "countError": "{pointer}: {count} steps end a {kind} process, but the allow_crashes entries of kind {kind} allow at most {max}"
@@ -303,11 +303,16 @@
           "pattern": "^[a-z][A-Za-z0-9]*([._][a-z][A-Za-z0-9]*)*$",
           "description": "Typed receipt kind the step must produce (I1): for action.run and key the ActionEffect kind the registry reports (action.done, action.applied, action.waiting), for resource.call the reply kind of resource-operations-v2 (mutation_result)."
         },
-        "noReceiptReason": {"type": "string", "minLength": 10, "description": "Why the step has no receipt."}
+        "noReceiptReason": {"type": "string", "minLength": 10, "description": "Why the step has no receipt."},
+        "errorDetails": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "A subset of the typed error's details the step must give: each key is present with an equal value, an object compared the same way key by key, any other value exactly. $step: references resolve first. A driver that cannot read the error's details fails the step as a Crash; it never skips the check."
+        }
       },
       "if": {"properties": {"outcome": {"const": "error"}}},
       "then": {"required": ["error"]},
-      "else": {"not": {"required": ["error"]}}
+      "else": {"not": {"anyOf": [{"required": ["error"]}, {"required": ["errorDetails"]}]}}
     },
     "expectMutation": {
       "description": "I1: a mutation gives exactly one receipt or one typed error. An ok outcome names its receipt or says why none exists; an error outcome has its typed error and no receipt.",
