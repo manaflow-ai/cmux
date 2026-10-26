@@ -18,11 +18,13 @@ extension UpdaterService: UpdateActionDelegate {
         willRelaunch?()
     }
 
-    /// An install nobody clicked, in an app the user is not in, relaunches behind the app they are
-    /// in (``UpdateRelaunchFocus``); every other relaunch clears the record and activates as before.
+    /// An install nobody clicked, in an app the user was not in when it started (and is not in now),
+    /// relaunches behind the app they are in (``UpdateRelaunchFocus``); every other relaunch clears
+    /// the record and activates as before.
     func recordRelaunchFocus() {
         let front = frontmost()
-        guard UpdateRelaunchFocus.staysBehind(automatic: automaticInstallInFlight, appIsFrontmost: front.isThisApp) else {
+        let wasFrontmost = (automaticInstallFrontmost?.isThisApp ?? false) || front.isThisApp
+        guard UpdateRelaunchFocus.staysBehind(automatic: automaticInstallInFlight, appIsFrontmost: wasFrontmost) else {
             UpdateRelaunchFocus.write(nil, defaults: defaults)
             return
         }

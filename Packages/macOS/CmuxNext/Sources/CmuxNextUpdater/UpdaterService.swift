@@ -185,6 +185,8 @@ public final class UpdaterService {
     @ObservationIgnored var automaticInstallInFlight = false
     /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
     @ObservationIgnored var installingBuild: String?
+    /// The frontmost app when the automatic install in flight started (``UpdateRelaunchFocus``).
+    @ObservationIgnored var automaticInstallFrontmost: UpdateFrontmostApp?
     /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
     /// the app, a fake in tests.
     @ObservationIgnored public var frontmost: () -> UpdateFrontmostApp = { UpdateFrontmostApp.current() }

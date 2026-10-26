@@ -13,6 +13,7 @@ extension UpdaterService {
         recordForAutomaticInstall()
         keepRunningBuildForRollback()
         automaticInstallInFlight = true
+        automaticInstallFrontmost = frontmost()
         return true
     }
 }

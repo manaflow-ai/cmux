@@ -29,8 +29,10 @@ public nonisolated struct UpdateRelaunchFocus: Codable, Equatable, Sendable {
 
     /// The defaults key of the record (the app's own domain, so each build channel keeps its own).
     public static let key = "cmux.next.updates.relaunchFocus"
-    /// A record older than this is stale: the relaunch it was written for never came.
-    public static let maxAge: TimeInterval = 5 * 60
+    /// A record older than this is stale: the relaunch it was written for never came. Sparkle
+    /// relaunches as soon as the installer has swapped the bundle (seconds); a short limit keeps a
+    /// record whose relaunch failed from holding a later launch the user started behind.
+    public static let maxAge: TimeInterval = 90
 
     /// Whether the relaunch about to happen must stay behind: an install nobody clicked, in an app
     /// that is not the frontmost one. A click, or the user being in the app, keeps the activation.

@@ -25,6 +25,9 @@ public struct WindowPlacement {
     public static var testScreen: TestScreen?
     /// `CMUX_NEXT_NO_ACTIVATE=1`: windows never take key or activate the app.
     public static var noActivate = false
+    /// The startup of an update relaunch nobody clicked (`UpdateRelaunchFocus`): windows that open
+    /// or come forward are ordered in without taking key, so the app the user is in keeps the keyboard.
+    public static var startsBehind = false
     /// Offset between windows that would otherwise open on the same spot.
     public nonisolated static let cascadeStep: CGFloat = 24
 

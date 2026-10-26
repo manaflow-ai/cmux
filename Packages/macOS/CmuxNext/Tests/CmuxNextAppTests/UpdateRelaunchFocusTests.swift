@@ -88,4 +88,14 @@ import Testing
         updater.recordRelaunchFocus()
         #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "a click relaunches to the front")
     }
+
+    @Test func anAutomaticInstallThatStartedWhileTheUserWasInTheAppActivatesAsBefore() {
+        let defaults = Self.defaults()
+        let updater = Self.updater(defaults: defaults, front: Self.nightly)
+        updater.automaticInstallInFlight = true
+        updater.automaticInstallFrontmost = UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self")
+        updater.installingBuild = "200"
+        updater.recordRelaunchFocus()
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "frontmost when the install started")
+    }
 }

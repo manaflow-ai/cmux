@@ -44,9 +44,12 @@ public struct WindowActivation {
     /// activates: a presented window goes behind the others (or in front
     /// on an agent's test screen), a focused one is ordered front without
     /// the keys.
-    public nonisolated static func plan(_ intent: Intent, noActivate: Bool, testScreen: Bool) -> Plan {
+    /// `startsBehind` (an update relaunch's startup): a window that appears or is raised goes in
+    /// front of the app's windows without the keys; a user's focus keeps its plan.
+    public nonisolated static func plan(_ intent: Intent, noActivate: Bool, testScreen: Bool, startsBehind: Bool = false) -> Plan {
         // In front of the app's windows, never key, in any launch.
         if intent == .bringForward { return Plan(order: .orderFront, activatesApp: false) }
+        if startsBehind, !noActivate, intent == .present || intent == .raise { return Plan(order: .orderFront, activatesApp: false) }
         if intent == .presentBehind {
             return Plan(order: noActivate && testScreen ? .orderFrontRegardless : .orderBack, activatesApp: false)
         }
@@ -65,7 +68,8 @@ public struct WindowActivation {
 
     /// Orders `window` in for `intent` by the rule.
     public static func show(_ window: NSWindow, _ intent: Intent) {
-        let plan = plan(intent, noActivate: WindowPlacement.noActivate, testScreen: WindowPlacement.testScreen != nil)
+        let plan = plan(intent, noActivate: WindowPlacement.noActivate, testScreen: WindowPlacement.testScreen != nil,
+                        startsBehind: WindowPlacement.startsBehind)
         if window.isMiniaturized, intent != .present { window.deminiaturize(nil) }
         switch plan.order {
         case .makeKeyAndOrderFront: window.makeKeyAndOrderFront(nil)

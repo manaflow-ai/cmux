@@ -139,6 +139,7 @@ extension InputVerificationService {
         }
         keyboardGuardObservers.removeAll()
         (NSApp as? CmuxApplication)?.refusesActivation = false
+        WindowPlacement.startsBehind = false
         Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
             .notice("update relaunch: activation allowed again (\(reason, privacy: .public))")
         if activating { NSApp.activate() }
