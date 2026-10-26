@@ -73,7 +73,8 @@ extension WindowOverlayHost {
             }
             return true
         }
-        guard let area = event.trackingArea, !areas.contains(where: { $0.area === area }) else { return false }
+        // An area of the top layer gets its own enter and cursor update; any other (a cursor rect has none) is below.
+        if let area = event.trackingArea, areas.contains(where: { $0.area === area }) { return false }
         if event.type == .cursorUpdate { (topLayer.hitTest(topLayer.convert(point, to: topLayer.superview)) ?? topLayer).cursorUpdate(with: event) }
         return true
     }
