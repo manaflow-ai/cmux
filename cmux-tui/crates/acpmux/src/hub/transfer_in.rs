@@ -44,6 +44,21 @@ fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
     false
 }
 
+/// A test's hook right after a sweep read a durable marker, to run another writer there.
+#[cfg(test)]
+pub(super) static SWEEP_PAUSE: std::sync::Mutex<Option<Arc<dyn Fn(&str) + Send + Sync>>> =
+    std::sync::Mutex::new(None);
+
+fn sweep_pause(_agent_id: &str) {
+    #[cfg(test)]
+    {
+        let hook = SWEEP_PAUSE.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(hook) = hook {
+            hook(_agent_id);
+        }
+    }
+}
+
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
@@ -198,6 +213,7 @@ impl Hub {
     pub(super) fn recover_durable_marker(&self, root: &Path, path: &Path, agent_id: &str) {
         let Ok(marker) = std::fs::read(path) else { return };
         let Ok(value) = serde_json::from_slice::<Value>(&marker) else { return };
+        sweep_pause(agent_id);
         let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
         if phase == "prepared" {
             let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");

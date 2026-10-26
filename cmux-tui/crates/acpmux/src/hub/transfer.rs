@@ -902,6 +902,53 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Review 105 of #25676: a sweep on this daemon (another import's failed finalize) that read a
+    /// failed import's marker finishes with it before that import's own rollback and its retry
+    /// run, so it never removes the store and marker the retry made.
+    #[tokio::test]
+    async fn a_sweep_never_removes_a_retry_made_after_it_read_the_old_marker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let hub = harness_hub(&dir);
+        let root = dir.join("sessions");
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: SessionMeta = serde_json::from_value(harness_meta(&id, "agent-0009")).unwrap();
+        // The failed import: its store and its prepared marker.
+        hub.store.save(&meta).unwrap();
+        hub.prepare_harness_state(&meta, false).unwrap();
+        let (h, m) = (hub.clone(), meta.clone());
+        let retry = std::sync::Mutex::new(Some(move || {
+            h.drop_failed_import(&m);
+            h.store.save(&m).unwrap();
+            h.prepare_harness_state(&m, false).unwrap();
+        }));
+        let writer = Arc::new(std::sync::Mutex::new(None::<std::thread::JoinHandle<()>>));
+        let spawned = writer.clone();
+        let hook: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent| {
+            if agent != "agent-0009" {
+                return;
+            }
+            let Some(retry) = retry.lock().unwrap().take() else { return };
+            let (done, finished) = std::sync::mpsc::channel();
+            *spawned.lock().unwrap() = Some(std::thread::spawn(move || {
+                retry();
+                let _ = done.send(());
+            }));
+            let _ = finished.recv_timeout(std::time::Duration::from_millis(300));
+        });
+        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = Some(hook);
+        hub.recover_staged_replacements();
+        let handle = writer.lock().unwrap().take();
+        handle.expect("the sweep never read the marker").join().unwrap();
+        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = None;
+        assert!(
+            root.join(&id).join("session.json").exists(),
+            "the sweep removed the retry's store"
+        );
+        let marker = root.join(".agent-0009.durable-transfer-state");
+        assert!(marker.exists(), "the sweep removed the retry's marker");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Review 104 of #25676: a failed staged import whose store stays for recovery keeps no open
     /// log writer, so after a recovery on this daemon removes that store, a retry's events land
     /// in the new log on disk, not in the removed one.
