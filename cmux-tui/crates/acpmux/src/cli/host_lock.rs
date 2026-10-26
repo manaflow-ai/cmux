@@ -279,7 +279,10 @@ impl Lease {
         options
             .open(&part)
             .and_then(|mut f| {
-                std::io::Write::write_all(&mut f, format!("{token} {}\n", std::process::id()).as_bytes())
+                std::io::Write::write_all(
+                    &mut f,
+                    format!("{token} {}\n", std::process::id()).as_bytes(),
+                )
             })
             .with_context(|| format!("writing {}", part.display()))?;
         std::fs::rename(&part, &owner).with_context(|| format!("writing {}", owner.display()))?;
