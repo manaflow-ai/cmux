@@ -495,6 +495,18 @@ export default componentEntry<Props>({
   ],
   load: async () => GalleryInspector,
   variants: {
+    "subagents-done": {
+      note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
+      props: {
+        ...full,
+        agents: agents.slice(3, 34).map((agent, index) => ({
+          ...agent,
+          state: "completed",
+          harness: index % 2 ? "codex" : "claude",
+        })),
+        sessions: [],
+      },
+    },
     full: {
       note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
       props: full,

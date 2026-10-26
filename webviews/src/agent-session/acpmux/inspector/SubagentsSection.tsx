@@ -17,10 +17,12 @@ import { Icon } from "../icons/Icon";
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { nestAgents } from "../subagents/AgentsPill";
-import { elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
 import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
+import "./SubagentsSection.css";
 
 /// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
 export const SUBAGENTS_SHOWN = 5;
@@ -64,6 +66,8 @@ function endedCounts(t: Translate, lines: readonly Line[]): string {
 /// One line of the list: a subagent or a started chat, as AgentLine draws it.
 type Line = {
   key: string;
+  identity: string;
+  agent?: Subagent;
   name: string;
   detail?: string;
   status: SubagentStatus;
@@ -105,6 +109,8 @@ export function SubagentsSection({
     const status = subagentStatus(agent, waiting);
     return {
       key: `agent:${agent.id}`,
+      identity: agent.id,
+      agent,
       name: agent.name,
       detail: live(status) ? (agent.action ?? agent.kind) : agent.kind,
       status,
@@ -119,6 +125,7 @@ export function SubagentsSection({
   };
   const sessionLine = (child: StartedSession): Line => ({
     key: `session:${child.sessionId}`,
+    identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
     state: t(sessionStateLabel(child)),
@@ -202,8 +209,18 @@ export function SubagentsSection({
             aria-expanded={endedOpen}
             onClick={() => setEndedOpen(!endedOpen)}
           >
-            <span className="acpmux-lineage__icon" data-state={endedLines[0]!.status}>
-              <Icon name={endedLines[0]!.icon} size={14} />
+            <span className="acpmux-chat-inspector-subagents__avatars" aria-hidden="true">
+              {endedLines.slice(0, 4).map((item) => (
+                <span key={item.key} data-agent-tone={agentTone(item.identity)}>
+                  {item.agent ? (
+                    <Avatar agent={item.agent} />
+                  ) : (
+                    <span className="cv-subagent-avatar" data-state={item.status}>
+                      <Icon name={item.icon} size={14} />
+                    </span>
+                  )}
+                </span>
+              ))}
             </span>
             <span className="acpmux-summary-text">{endedCounts(t, endedLines)}</span>
             <Icon name={endedOpen ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
