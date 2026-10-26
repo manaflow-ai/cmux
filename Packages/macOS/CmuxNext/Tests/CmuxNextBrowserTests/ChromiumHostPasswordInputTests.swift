@@ -37,6 +37,7 @@ import Testing
     struct Rig {
         let calls = SwitchCalls()
         let key = KeyState()
+        let center = NotificationCenter()
         let window: NSWindow
         let view: ChromiumHostPageView
 
@@ -47,6 +48,7 @@ import Testing
             window.isReleasedWhenClosed = false
             view = ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
             view.passwordInput.system = calls.system
+            view.passwordInput.windowCenter = center
             let key = key
             view.passwordInput.isKey = { _ in key.isKey }
             window.contentView?.addSubview(view)
@@ -127,10 +129,10 @@ import Testing
         rig.view.applyTextInputState(Self.password)
         #expect(rig.calls.isOn)
         rig.key.isKey = false
-        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: rig.window)
+        rig.center.post(name: NSWindow.didResignKeyNotification, object: rig.window)
         #expect(!rig.calls.isOn)
         rig.key.isKey = true
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: rig.window)
+        rig.center.post(name: NSWindow.didBecomeKeyNotification, object: rig.window)
         #expect(rig.calls.isOn)
     }
 

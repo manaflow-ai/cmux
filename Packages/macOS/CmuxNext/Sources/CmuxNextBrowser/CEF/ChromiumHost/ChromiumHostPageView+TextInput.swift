@@ -99,7 +99,7 @@ extension ChromiumHostPageView: NSTextInputClient {
             return
         }
         if passwordInput.keyWatch.isEmpty {
-            let events = WindowEvents.of(window)
+            let events = WindowEvents.of(window, center: passwordInput.windowCenter)
             passwordInput.keyWatch = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
                 events.subscribe(name, owner: "ChromiumHostPageView.passwordInput") { [weak self] in
                     self?.updatePasswordInput()
@@ -277,6 +277,8 @@ struct ChromiumHostPasswordInput {
     }
 
     var system: Switch = .carbon
+    /// Where windows post their key changes (``WindowEvents/of(_:center:)``); tests pass their own.
+    var windowCenter: NotificationCenter = .default
     /// Whether a window is the key window; tests pass their own (a test window never becomes key).
     var isKey: @MainActor (NSWindow) -> Bool = { $0.isKeyWindow }
     /// The view is its window's first responder.
