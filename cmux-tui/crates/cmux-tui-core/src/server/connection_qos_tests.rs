@@ -63,41 +63,44 @@ fn assert_some_thread_desires(name: &str, qos: ThreadQos) {
 fn the_class_follows_the_derived_origin_and_remote_lanes() {
     use ClientTransport::{Remote, Unix, WebSocket};
     let cases = [
-        (Unix, false, RequestOrigin::User, ConnectionClass::Person),
-        (WebSocket, false, RequestOrigin::User, ConnectionClass::Person),
-        (Unix, false, RequestOrigin::Agent, ConnectionClass::Automation),
-        (Unix, false, RequestOrigin::App, ConnectionClass::Automation),
-        (WebSocket, false, RequestOrigin::Page, ConnectionClass::Automation),
+        (Unix, false, RequestOrigin::User, false, ConnectionClass::Person),
+        (WebSocket, false, RequestOrigin::User, false, ConnectionClass::Person),
+        (Unix, false, RequestOrigin::Agent, false, ConnectionClass::Automation),
+        (Unix, false, RequestOrigin::App, false, ConnectionClass::Automation),
+        (WebSocket, false, RequestOrigin::Page, false, ConnectionClass::Automation),
+        // The app's own connections without a hello (terminal_attach,
+        // journal_read, ...) are the person's; its page relays are not.
+        (Unix, false, RequestOrigin::Agent, true, ConnectionClass::Person),
+        (Unix, false, RequestOrigin::Page, true, ConnectionClass::Automation),
         // A remote device's lane and a link peer are automation even when
         // the connection's origin is the person's.
-        (Unix, true, RequestOrigin::User, ConnectionClass::Automation),
-        (Remote, false, RequestOrigin::User, ConnectionClass::Automation),
+        (Unix, true, RequestOrigin::User, false, ConnectionClass::Automation),
+        (Unix, true, RequestOrigin::Agent, true, ConnectionClass::Automation),
+        (Remote, false, RequestOrigin::User, false, ConnectionClass::Automation),
     ];
-    for (transport, remote_device, origin, expected) in cases {
+    for (transport, remote_device, origin, app_process, expected) in cases {
         assert_eq!(
-            ConnectionClass::of(transport, remote_device, origin),
+            ConnectionClass::of(transport, remote_device, origin, app_process),
             expected,
-            "{} remote_device={remote_device} origin={origin:?}",
+            "{} remote_device={remote_device} origin={origin:?} app_process={app_process}",
             transport.as_str()
         );
     }
 }
 
+/// p02-threads.md task 224: the person's reader rests at the echo class
+/// and its dispatcher at user-initiated; automation rests at utility; a
+/// connection not classed yet at user-initiated.
 #[test]
-fn the_person_keeps_user_initiated_and_automation_rests_at_utility() {
+fn the_person_reads_at_the_echo_class_and_automation_rests_at_utility() {
     use ConnectionThread::{Reader, Request};
+    assert_eq!(ConnectionClass::Person.qos(Reader), ThreadQos::UserInteractive);
+    assert_eq!(ConnectionClass::Person.qos(Reader), crate::echo_thread::ECHO_PATH_QOS);
+    assert_eq!(ConnectionClass::Person.qos(Request), ThreadQos::UserInitiated);
     for role in [Reader, Request] {
-        assert_eq!(ConnectionClass::Person.qos(role), ThreadQos::UserInitiated);
         assert_eq!(ConnectionClass::Automation.qos(role), ThreadQos::Utility);
+        assert_eq!(ConnectionClass::Unclassified.qos(role), ThreadQos::UserInitiated);
     }
-    assert_eq!(
-        ConnectionClass::Unclassified.qos(Reader),
-        crate::server::line_connection::CONNECTION_READER_QOS
-    );
-    assert_eq!(
-        ConnectionClass::Unclassified.qos(Request),
-        crate::server::connection_scheduler::REQUEST_THREAD_QOS
-    );
 }
 
 #[test]
@@ -123,7 +126,7 @@ fn a_resting_thread_follows_its_connection_class() {
             resting.follow();
             let unclassified = resting.applied();
             let slot = cmux_threads::current_slot().expect("a registered thread");
-            assert_eq!(slot.desired(), ThreadQos::UserInitiated, "unclassified keeps its class");
+            assert_eq!(slot.desired(), ThreadQos::UserInitiated, "unclassified: user-initiated");
             cell.set(ConnectionClass::Automation);
             resting.follow();
             ((unclassified, resting.applied()), slot.desired(), cmux_tui_platform::qos::work_qos())
@@ -131,7 +134,7 @@ fn a_resting_thread_follows_its_connection_class() {
         .expect("start the thread")
         .join()
         .expect("the thread returns");
-    assert_eq!(applied, (ConnectionClass::Unclassified, ConnectionClass::Automation));
+    assert_eq!(applied, (Some(ConnectionClass::Unclassified), Some(ConnectionClass::Automation)));
     assert_eq!(desired, ThreadQos::Utility);
     let expected = cmux_threads::reversible(ThreadQos::Utility).then_some(ThreadQos::Utility);
     assert_eq!(work, expected, "the resting class is the thread's work class");
@@ -151,7 +154,7 @@ fn with_the_feature_off_a_thread_keeps_its_class() {
         .expect("start the thread")
         .join()
         .expect("the thread returns");
-    assert_eq!(applied, ConnectionClass::Unclassified);
+    assert_eq!(applied, None);
     assert_eq!(desired, ThreadQos::UserInitiated);
     assert_eq!(work, None);
 }
@@ -212,6 +215,84 @@ fn set_client_info_classes_by_origin_and_remote_lane() {
     mux.shutdown();
 }
 
+/// The kernel peer key of this test process, as the daemon reads it at
+/// accept for a socket this process connected.
+fn own_peer_key() -> String {
+    use crate::platform::transport::Stream;
+    let (ours, _theirs) = UnixStream::pair().unwrap();
+    ours.peer_process_key().expect("a peer key for a local socket")
+}
+
+fn connect_peer(mux: &Arc<crate::Mux>, key: Option<&str>) -> u64 {
+    let (_, writer) = writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer);
+    if let Some(key) = key {
+        crate::server::origin_gate::set_peer_key_for_test(mux, client, key);
+    }
+    client
+}
+
+/// A connection without a hello whose peer is a verified app's process is
+/// the person's: classed so after the app proved itself, and reclassed when
+/// the app proves itself later (the install-key prover here). A page relay
+/// of that process and a connection of another process stay automation.
+#[test]
+fn the_app_processs_other_connections_are_the_persons() {
+    use crate::server::origin_gate::{set_hello, set_install_proved};
+    let mux =
+        crate::Mux::new_for_test("connection-qos-app-process", crate::SurfaceOptions::default());
+    let app_key = "token:4242.7";
+    // Classed before the app proved itself: automation until it does.
+    let early = connect_peer(&mux, Some(app_key));
+    mux.control_clients.set_info(early, None, Some("frontend".into()), None).unwrap();
+    let early_class = mux.control_clients.connection_class(early);
+    assert_eq!(early_class.get(), ConnectionClass::Automation);
+    let other = connect_peer(&mux, Some("token:9999.1"));
+    mux.control_clients.classify_connection(other);
+    let relay = connect_peer(&mux, None);
+    assert!(set_hello(&mux, relay, HelloRole::PageRelay, Some(app_key.into()), false, None));
+    mux.control_clients.classify_connection(relay);
+
+    let app = connect_peer(&mux, None);
+    assert!(set_hello(&mux, app, HelloRole::Main, Some(app_key.into()), false, None));
+    assert_eq!(early_class.get(), ConnectionClass::Automation, "not proved yet");
+    assert!(set_install_proved(&mux, app, "install_1"));
+    assert_eq!(early_class.get(), ConnectionClass::Person, "reclassed by the proof");
+
+    // Classed after the proof: the person's from the start.
+    let late = connect_peer(&mux, Some(app_key));
+    mux.control_clients.classify_connection(late);
+    assert_eq!(mux.control_clients.connection_class(late).get(), ConnectionClass::Person);
+    let relay_class = mux.control_clients.connection_class(relay).get();
+    assert_eq!(relay_class, ConnectionClass::Automation, "a page relay of the app's process");
+    let other_class = mux.control_clients.connection_class(other).get();
+    assert_eq!(other_class, ConnectionClass::Automation, "another process");
+    mux.shutdown();
+}
+
+/// The code-signature prover reclasses the app's other connections too.
+#[test]
+fn a_signed_app_hello_reclasses_its_processs_connections() {
+    let mux =
+        crate::Mux::new_for_test("connection-qos-app-signed", crate::SurfaceOptions::default());
+    let app_key = "token:4243.7";
+    let early = connect_peer(&mux, Some(app_key));
+    mux.control_clients.classify_connection(early);
+    let early_class = mux.control_clients.connection_class(early);
+    assert_eq!(early_class.get(), ConnectionClass::Automation);
+    let app = connect_peer(&mux, None);
+    assert!(crate::server::origin_gate::set_hello(
+        &mux,
+        app,
+        HelloRole::Main,
+        Some(app_key.into()),
+        true,
+        None
+    ));
+    assert_eq!(early_class.get(), ConnectionClass::Person);
+    mux.shutdown();
+}
+
 /// A connection's dispatcher and its clear-history worker rest at
 /// Utility once the connection is automation.
 #[test]
@@ -248,9 +329,15 @@ fn an_automation_connection_runs_its_requests_at_utility() {
 
 fn exchange(stream: &mut UnixStream, reader: &mut BufReader<UnixStream>, line: Value) -> Value {
     stream.write_all(format!("{line}\n").as_bytes()).unwrap();
-    let mut reply = String::new();
-    reader.read_line(&mut reply).unwrap();
-    serde_json::from_str(&reply).unwrap()
+    // Event lines (an attach's output) may come before the reply.
+    loop {
+        let mut reply = String::new();
+        reader.read_line(&mut reply).unwrap();
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        if reply.get("id") == line.get("id") {
+            return reply;
+        }
+    }
 }
 
 /// A connection without a hello is classed when its hello window closes:
@@ -307,5 +394,64 @@ fn a_reader_classes_its_connection_once() {
     class.set(ConnectionClass::Person);
     reader.before_line(&mux, client, true);
     assert_eq!(class.get(), ConnectionClass::Person);
+    mux.shutdown();
+}
+
+/// The app's terminal attachment (TerminalAttachment.swift) sends no hello:
+/// `identify`, `set-client-info {kind: frontend}`, then `attach-surface`, and
+/// it carries the person's keys. From the process of a verified app
+/// connection its reader rests at the echo class, never at utility.
+#[test]
+fn the_apps_terminal_attachment_reader_rests_at_the_echo_class() {
+    let mux = crate::Mux::new_for_test("connection-qos-attach", crate::SurfaceOptions::default());
+    mux.set_request_qos_for_test(true);
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    // The app's control connection, verified, from this process.
+    let app = connect_peer(&mux, None);
+    assert!(crate::server::origin_gate::set_hello(
+        &mux,
+        app,
+        HelloRole::Main,
+        Some(own_peer_key()),
+        true,
+        None
+    ));
+
+    let (server, mut client) = UnixStream::pair().unwrap();
+    client.set_read_timeout(Some(WAIT)).unwrap();
+    let handler = {
+        let mux = mux.clone();
+        cmux_threads::spawn(
+            "mux-test-qos-attach",
+            crate::server::line_connection::CONNECTION_READER_QOS,
+            move || handle_connection(mux, Box::new(server)),
+        )
+        .unwrap()
+    };
+    let mut reader = BufReader::new(client.try_clone().unwrap());
+    let reply = exchange(&mut client, &mut reader, json!({"id": 1, "cmd": "identify"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(desired("mux-test-qos-attach"), [ThreadQos::UserInitiated], "not classed yet");
+    let info = json!({
+        "id": 2, "cmd": "set-client-info", "name": "cmux-next-terminal", "kind": "frontend",
+    });
+    let reply = exchange(&mut client, &mut reader, info);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let attach = json!({"id": 3, "cmd": "attach-surface", "surface": surface.id});
+    let reply = exchange(&mut client, &mut reader, attach);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let attachment = mux
+        .control_clients
+        .client_ids()
+        .into_iter()
+        .find(|id| *id != app)
+        .expect("the attachment's client");
+    let class = mux.control_clients.connection_class(attachment).get();
+    assert_eq!(class, ConnectionClass::Person);
+    assert_eq!(desired("mux-test-qos-attach"), [ThreadQos::UserInteractive], "the echo class");
+
+    client.shutdown(Shutdown::Both).unwrap();
+    handler.join().unwrap();
+    mux.close_surface(surface.id).unwrap();
     mux.shutdown();
 }

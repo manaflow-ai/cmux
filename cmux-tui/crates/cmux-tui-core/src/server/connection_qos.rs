@@ -14,12 +14,18 @@
 //! - after every `set-client-info` and `client.metadata.update`, because
 //!   `remote: true` makes it a remote device's lane.
 //!
-//! The verified app's connection ([`ConnectionClass::Person`]) keeps its
-//! reader and request threads at user-initiated. The CLI, MCP, hooks,
-//! agents, scripts, page relays and remote devices
-//! ([`ConnectionClass::Automation`]) rest at utility. The class follows the
-//! derived origin, as the request cause does (`RequestOrigin::event_cause`):
-//! a `set-client-info` `kind` is a label and never raises a connection.
+//! The person's connections ([`ConnectionClass::Person`]) rest at the echo
+//! class on the reader (it reads the person's keys) and at user-initiated on
+//! the dispatcher. They are the verified app's connection and the app's
+//! other connections without a hello (`terminal_attach`, `journal_read`,
+//! `agent_session_attach`, ...): the same process, by the kernel's peer
+//! fact fixed at accept (`ConnectionOrigin::peer_key`), as a verified app
+//! connection, as `origin.confirmation.issue` pairs a page relay with its
+//! app. The CLI, MCP, hooks, agents, scripts, page relays and remote devices
+//! ([`ConnectionClass::Automation`]) rest at utility. A connection not
+//! classed yet rests at user-initiated. A `set-client-info` `kind` is a
+//! label and never raises a connection. The class is for scheduling only:
+//! authorization reads the request origin (server/origin_gate.rs).
 //!
 //! A connection thread reads its class at one point of its loop
 //! ([`RestingClass::follow`]): the reader before each line it routes, the
@@ -50,10 +56,10 @@ use crate::thread_qos::ThreadType;
 #[repr(u8)]
 pub(in crate::server) enum ConnectionClass {
     /// Not known yet: its hello window is open and no `set-client-info`
-    /// came. Its threads keep the class they started at.
+    /// came. Its threads rest at user-initiated.
     #[default]
     Unclassified = 0,
-    /// The verified app's connection: the person waits on it.
+    /// The verified app's connections: the person waits on them.
     Person = 1,
     /// The CLI, MCP, hooks, agents, scripts, page relays and remote devices.
     Automation = 2,
@@ -61,29 +67,32 @@ pub(in crate::server) enum ConnectionClass {
 
 impl ConnectionClass {
     /// The class of a connection over `transport` whose origin derives to
-    /// `origin`; `remote_device` is `set-client-info remote: true`.
+    /// `origin`; `remote_device` is `set-client-info remote: true`, and
+    /// `app_process` says its peer is the process of a verified app
+    /// connection (`ClientRegistryState::classify`).
     pub(in crate::server) fn of(
         transport: ClientTransport,
         remote_device: bool,
         origin: RequestOrigin,
+        app_process: bool,
     ) -> Self {
         if remote_device || matches!(transport, ClientTransport::Remote) {
             return Self::Automation;
         }
         match origin {
             RequestOrigin::User => Self::Person,
+            RequestOrigin::Agent if app_process => Self::Person,
             RequestOrigin::Page | RequestOrigin::Agent | RequestOrigin::App => Self::Automation,
         }
     }
 
-    /// The class a connection thread in `role` rests at.
+    /// The class a connection thread in `role` rests at. A request's own
+    /// class nests inside it: the person's reader runs a request at
+    /// user-initiated and goes back to the echo class for its next read.
     pub(in crate::server) const fn qos(self, role: ConnectionThread) -> ThreadQos {
         match (self, role) {
-            (Self::Unclassified, ConnectionThread::Reader) => {
-                crate::server::line_connection::CONNECTION_READER_QOS
-            }
-            (Self::Unclassified, ConnectionThread::Request) => super::REQUEST_THREAD_QOS,
-            (Self::Person, _) => ThreadType::Interactive.qos(),
+            (Self::Person, ConnectionThread::Reader) => crate::echo_thread::ECHO_PATH_QOS,
+            (Self::Unclassified | Self::Person, _) => ThreadType::Interactive.qos(),
             (Self::Automation, _) => ThreadType::Utility.qos(),
         }
     }
@@ -128,7 +137,8 @@ pub(in crate::server) struct RestingClass {
     cell: Arc<ConnectionClassCell>,
     role: ConnectionThread,
     enabled: bool,
-    applied: ConnectionClass,
+    /// `None` before the first follow.
+    applied: Option<ConnectionClass>,
     /// Dropped before the next class is entered: scopes nest.
     scope: Option<WorkQos>,
 }
@@ -139,13 +149,7 @@ impl RestingClass {
         role: ConnectionThread,
         gate: RequestQos,
     ) -> Self {
-        Self {
-            cell,
-            role,
-            enabled: gate.enabled(),
-            applied: ConnectionClass::Unclassified,
-            scope: None,
-        }
+        Self { cell, role, enabled: gate.enabled(), applied: None, scope: None }
     }
 
     /// Runs this thread at its connection's class when that changed since
@@ -158,14 +162,11 @@ impl RestingClass {
             return;
         }
         let class = self.cell.get();
-        if class == self.applied {
+        if self.applied == Some(class) {
             return;
         }
-        self.applied = class;
+        self.applied = Some(class);
         self.scope = None;
-        if class == ConnectionClass::Unclassified {
-            return;
-        }
         let qos = class.qos(self.role);
         if let Some(slot) = cmux_threads::current_slot() {
             slot.request(qos);
@@ -173,9 +174,9 @@ impl RestingClass {
         self.scope = Some(WorkQos::enter(qos));
     }
 
-    /// The class this thread last followed.
+    /// The class this thread last followed; `None` with the feature off.
     #[cfg(test)]
-    pub(in crate::server) fn applied(&self) -> ConnectionClass {
+    pub(in crate::server) fn applied(&self) -> Option<ConnectionClass> {
         self.applied
     }
 }
@@ -188,11 +189,12 @@ pub(in crate::server) struct ReaderClass {
 }
 
 impl ReaderClass {
+    /// Made on the reader thread before its first read, which it then waits
+    /// for at the class of a connection not classed yet.
     pub(in crate::server) fn new(cell: Arc<ConnectionClassCell>, gate: RequestQos) -> Self {
-        Self {
-            resting: RestingClass::new(cell, ConnectionThread::Reader, gate),
-            classified_at_hello: false,
-        }
+        let mut resting = RestingClass::new(cell, ConnectionThread::Reader, gate);
+        resting.follow();
+        Self { resting, classified_at_hello: false }
     }
 
     /// Before routing a line: classifies `client` the first time this is

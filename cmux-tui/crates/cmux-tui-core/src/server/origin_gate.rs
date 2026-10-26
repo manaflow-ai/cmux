@@ -374,6 +374,10 @@ pub(super) fn set_hello(
     record.origin.page = page;
     record.origin.verified_app = role == HelloRole::Main && signature_proved;
     sync_lock_caller(record);
+    let verified_process = record.origin.verified_app.then(|| record.origin.peer_key.clone());
+    if let Some(Some(peer_key)) = verified_process {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 
@@ -567,6 +571,9 @@ pub(super) fn set_install_proved(mux: &Mux, client: u64, install_id: &str) -> bo
     record.origin.verified_app = true;
     record.origin.install_id = Some(install_id.to_string());
     sync_lock_caller(record);
+    if let Some(peer_key) = record.origin.peer_key.clone() {
+        state.reclassify_process(&peer_key);
+    }
     true
 }
 

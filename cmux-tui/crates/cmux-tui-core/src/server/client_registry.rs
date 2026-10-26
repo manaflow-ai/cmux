@@ -692,8 +692,9 @@ impl ClientRegistry {
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
-        record.classify();
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     /// The client's declared API revision (server/api_revision_wire.rs).
@@ -731,7 +732,7 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if let Some(record) = state.clients.get_mut(&client) {
             record.remote_device = true;
-            record.classify();
+            state.classify(client);
         }
     }
 
@@ -746,10 +747,7 @@ impl ClientRegistry {
     /// Classes `client`'s connection now: its hello window has closed, so
     /// its origin is final (connection_qos.rs).
     pub(super) fn classify_connection(&self, client: u64) {
-        let state = self.state.lock().recover_poison();
-        if let Some(record) = state.clients.get(&client) {
-            record.classify();
-        }
+        self.state.lock().recover_poison().classify(client);
     }
 
     /// The connection's identity for shared sizing. Without explicit
@@ -886,8 +884,9 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = kind;
         }
-        record.classify();
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     pub(super) fn resource_records(&self) -> Vec<ResourceClientRecord> {

@@ -21,6 +21,35 @@ use std::cell::Cell;
 /// before, so strict decoders of the event schema never see the field.
 pub(crate) const CAPABILITY: &str = "event-cause-v1";
 
+/// Advertised by `identify`: a `cmux.protocol/2` request may carry
+/// `priority` ([`RequestPriority`], spec/resource-api-v2.md "Request
+/// priority").
+pub(crate) const REQUEST_PRIORITY_CAPABILITY: &str = "request-priority-v1";
+
+/// A request envelope's optional `priority` (p02-threads task 224): the
+/// caller's own word on whom the request serves. Like an `origin` claim it
+/// only narrows the cause the daemon derives from the connection, so a
+/// client can run one request as automation and never raise one above its
+/// connection. Scheduling only: authorization never reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestPriority {
+    /// The person waits on it: the derived cause stands.
+    User,
+    /// Automation: it runs at the automation class (UTILITY).
+    Automation,
+}
+
+impl RequestPriority {
+    /// The cause this priority narrows a request's derived cause by.
+    pub(crate) const fn event_cause(self) -> EventCause {
+        match self {
+            Self::User => EventCause::Frontend,
+            Self::Automation => EventCause::Automation,
+        }
+    }
+}
+
 /// Who set off an event, ordered by scheduling priority, lowest first. When
 /// a subscriber coalesces two events into one it keeps the higher cause.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
