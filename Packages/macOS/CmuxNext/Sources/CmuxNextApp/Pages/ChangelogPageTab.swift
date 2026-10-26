@@ -121,7 +121,7 @@ extension PageFactory {
     func changelogNotes(media: ReleaseMediaStore? = nil) -> ChangelogPageProvider {
         ChangelogPageProvider(
             source: services.updater.changelogNotes, currentBuild: services.updater.changelogReadsDevelopmentNotes ? "" : services.updater.identity.build,
-            media: media,
+            media: media, links: ChangelogPageProvider.cardLinks(services.pullRequests.replies),
             // `browser.openIn` with cmux's id, as the agent page's card opens a link: LinkOpener.openWeb,
             // from the pane that shows the page.
             openLink: { [weak services] url, view in

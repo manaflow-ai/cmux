@@ -62,6 +62,15 @@ import Testing
         let request = try #require(processes.requests.first)
         #expect(request.arguments == ["memory", "export", "--text", "/out", "--mux-home", "/m"])
         #expect(request.priority == .userVisible)
+        // An export writes only its scratch folder: a cancel may stop it.
+        #expect(request.onCancel == .stop)
+
+        // An import fills the Chief home's memory: a cancel never stops it half way.
+        try await tool.importText(muxHome: URL(fileURLWithPath: "/m"), from: URL(fileURLWithPath: "/in"))
+        let imported = try #require(processes.requests.last)
+        #expect(imported.arguments == ["memory", "import", "--mux-home", "/m", "/in"])
+        #expect(imported.onCancel == .finish)
+        #expect(imported.timeout == nil)
 
         let failing = BundledChiefMemoryTool(executable: URL(fileURLWithPath: "/opt/optchat-chief"), processes: RecordingProcessRunner { _ in
             ProcessOutcome(status: 1, exited: true, output: Data(), errorOutput: Data("store busy".utf8))
@@ -126,6 +135,68 @@ import Testing
         #expect(await failed.read(in: "/repo") == nil)
         let late = AgentChatPullRequestReader(gh: "/opt/gh", processes: RecordingProcessRunner { _ in throw ProcessFailure.timedOut })
         #expect(await late.read(in: "/repo") == nil)
+    }
+
+    /// cx-mb1e0: the bound is the App's, not a reader's. Two readers made apart (each chat header makes its own)
+    /// on the App's one runner never have more than two gh running together; the rest start as slots free.
+    @Test func separateReadersShareTheAppsTwoGitHubRuns() async throws {
+        let view = #"{"url":"https://github.com/o/r/pull/7","number":7,"title":"Retry","state":"OPEN","isDraft":false,"author":{"login":"octocat"},"statusCheckRollup":[]}"#
+        let release = FirstOutcome<Void>()
+        let (startStream, started) = AsyncStream.makeStream(of: Void.self)
+        let (askStream, asked) = AsyncStream.makeStream(of: Void.self)
+        let running = RunningCounts()
+        let gh = RecordingProcessRunner { _ in
+            await running.start()
+            started.yield()
+            await release.value()
+            await running.end()
+            return ProcessOutcome(status: 0, exited: true, output: Data(view.utf8))
+        }
+        let bounded = BoundedProcessRunner(gh, atOnce: 2)
+        let app = RecordingProcessRunner { request in
+            asked.yield()
+            return try await bounded.outcome(of: request)
+        }
+        let readers = [AgentChatPullRequestReader(gh: "/opt/gh", processes: app), AgentChatPullRequestReader(gh: "/opt/gh", processes: app)]
+        let reads = (0..<6).map { index in Task { await readers[index % 2].read(in: "/repo\(index)")?.number } }
+        var asks = 0
+        for await _ in askStream {
+            asks += 1
+            if asks == 6 { break }
+        }
+        var starts = 0
+        for await _ in startStream {
+            starts += 1
+            if starts == 2 { break }
+        }
+        // All six asked and two run. Without a shared bound the other four would start now (at once, with no slot
+        // to wait for); with it they wait, whichever reader asked, so this holds however long the yields take.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(await running.started == 2)
+        release.resolve(())
+        for read in reads { #expect(await read.value == 7) }
+        #expect(await running.most <= 2)
+        #expect(await running.started == 6)
+        // The App's reads default to that bound.
+        #expect(AgentPullRequestReads().reader.processes is BoundedProcessRunner)
+    }
+
+    /// A real child through ``AsyncProcess``, from the main actor: the spawn and the wait make no blocking call on
+    /// main, and the child runs at its request's QoS (`ps` reports a background child below a user-initiated one).
+    @Test func aRealChildRunsAtItsRequestsPriorityAndNeverBlocksMain() async throws {
+        func schedulingPriority(_ stated: WorkPriority) async throws -> Int? {
+            let request = ProcessRequest(URL(fileURLWithPath: "/bin/sh"), ["-c", "/bin/ps -o pri= -p $$"], priority: stated)
+            let outcome = try await AsyncProcess().run(request)
+            return Int(outcome.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        var low: Int?, high: Int?
+        let sites = await mainThreadSites {
+            low = try? await schedulingPriority(.idle)
+            high = try? await schedulingPriority(.userBlocking)
+        }
+        #expect(sites.isEmpty, "\(sites)")
+        let background = try #require(low), userInitiated = try #require(high)
+        #expect(background < userInitiated, "idle child at \(background), userBlocking child at \(userInitiated)")
     }
 
     @Test func aChatMoveRunsAtUserBlockingAndIsNeverStoppedEarly() async throws {
@@ -211,5 +282,64 @@ import Testing
             _ = try await DiffSidecarProcess.run(executable: URL(fileURLWithPath: "/nonexistent/cmux-diff-sidecar"), arguments: [],
                                                  request: Data("{}".utf8), launcher: launcher)
         }
+    }
+
+    /// A stand-in rg: it prints one `--json` match and exits. The search spawns it through the launcher it is
+    /// given, off the main thread, and parses its match.
+    @Test func findInDirectorySpawnsRgOffTheMainThreadAndReadsItsMatch() async throws {
+        let folder = try folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let rg = folder.appendingPathComponent("rg")
+        let match = #"{"type":"match","data":{"path":{"text":"\#(folder.path)/a.txt"},"lines":{"text":"hello\n"},"line_number":3,"submatches":[{"start":0}]}}"#
+        try "#!/bin/sh\nprintf '%s\\n' '\(match)'\n".write(to: rg, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: rg.path)
+        let launcher = CmuxNextWakeups.ProcessLauncher(label: "test.find-in-directory", priority: .userBlocking)
+        var outcome: RipgrepSearch.Outcome?
+        let sites = await mainThreadSites {
+            outcome = await RipgrepSearch.run(rg, query: "hello", root: folder.path, launcher: launcher)
+        }
+        #expect(sites.isEmpty, "\(sites)")
+        guard case .matches(let matches, let limited) = outcome else {
+            Issue.record("rg's match was not read: \(String(describing: outcome))")
+            return
+        }
+        #expect(!limited)
+        #expect(matches.map(\.relativePath) == ["a.txt"])
+        #expect(matches.first?.line == 3)
+    }
+
+    /// A Compress that fails (or is stopped) part way leaves no partial archive behind.
+    @Test func aFailedCompressRemovesItsPartialArchive() async throws {
+        let folder = try folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("a.txt")
+        try Data("a".utf8).write(to: file)
+        // ditto writes part of the archive, then fails.
+        let processes = RecordingProcessRunner { request in
+            if let archive = request.arguments.last { try Data("PK".utf8).write(to: URL(fileURLWithPath: archive)) }
+            return ProcessOutcome(status: 1, exited: false, output: Data(), errorOutput: Data())
+        }
+        await #expect(throws: FileBrowserError.self) {
+            _ = try await FileOperator(processes: processes).compress([file], archiveName: "Archive")
+        }
+        #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("a.txt.zip").path))
+        #expect(processes.requests.first?.onCancel == .stop)
+    }
+}
+
+/// How many fake gh runs run now, the most that ran at once, and how many started.
+private actor RunningCounts {
+    private var now = 0
+    private(set) var most = 0
+    private(set) var started = 0
+
+    func start() {
+        now += 1
+        started += 1
+        most = max(most, now)
+    }
+
+    func end() {
+        now -= 1
     }
 }

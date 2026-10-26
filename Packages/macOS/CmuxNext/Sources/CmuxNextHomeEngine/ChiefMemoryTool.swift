@@ -25,17 +25,19 @@ public nonisolated struct BundledChiefMemoryTool: ChiefMemoryTool {
     }
 
     public func exportText(muxHome: URL, to directory: URL) async throws {
-        try await run(["memory", "export", "--text", directory.path, "--mux-home", muxHome.path])
+        try await run(["memory", "export", "--text", directory.path, "--mux-home", muxHome.path], onCancel: .stop)
     }
 
     public func importText(muxHome: URL, from directory: URL) async throws {
-        try await run(["memory", "import", "--mux-home", muxHome.path, directory.path])
+        try await run(["memory", "import", "--mux-home", muxHome.path, directory.path], onCancel: .finish)
     }
 
     /// Runs the tool to its exit without blocking a thread: the spawn runs off the caller's actor
     /// and the exit resumes the caller. Home waits for the migration, so it runs at userVisible.
-    @concurrent private func run(_ arguments: [String]) async throws {
-        let request = ProcessRequest(executable, arguments, errorOutput: .separate, priority: .userVisible)
+    /// `onCancel`: an export only writes its scratch folder, so a cancel may stop it; an import writes
+    /// the Chief home's memory, which must not be left half filled, so it always runs to its exit.
+    @concurrent private func run(_ arguments: [String], onCancel: ProcessRequest.CancelBehavior) async throws {
+        let request = ProcessRequest(executable, arguments, errorOutput: .separate, onCancel: onCancel, priority: .userVisible)
         let outcome = try await processes.outcome(of: request)
         guard outcome.succeeded else {
             let text = String(decoding: outcome.errorOutput, as: UTF8.self)

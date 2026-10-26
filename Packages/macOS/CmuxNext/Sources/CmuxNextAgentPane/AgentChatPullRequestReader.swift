@@ -12,15 +12,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     var timeout: Duration = .seconds(30)
     /// The App's environment, from which gh gets the user's GitHub settings (``githubVariables``).
     var environment: [String: String] = ProcessInfo.processInfo.environment
-    /// Runs gh to its end (``AsyncProcess``; tests pass a fake).
-    var processes: any ProcessRunning = AsyncProcess()
-    /// At most two gh runs of this reader at once (its copies share them), the rest in arrival
-    /// order: each may wait up to `timeout`, and restoring many chats offline must not start one gh
-    /// per chat (cx-mb1e0).
-    private let slots = GitHubCLISlots(count: 2)
+    /// Runs gh to its end: in the App its one gh runner, a ``BoundedProcessRunner`` that every reader
+    /// shares (two gh at once, the rest in arrival order: each may wait up to `timeout`, and
+    /// restoring many chats offline must not start one gh per chat, cx-mb1e0); tests pass a fake.
+    var processes: any ProcessRunning
 
     public init(gh: String? = nil, timeout: Duration = .seconds(30), environment: [String: String] = ProcessInfo.processInfo.environment,
-                processes: any ProcessRunning = AsyncProcess()) {
+                processes: any ProcessRunning) {
         self.gh = gh
         self.timeout = timeout
         self.environment = environment
@@ -191,9 +189,7 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
         let request = ProcessRequest(URL(fileURLWithPath: gh), arguments, environment: Self.environment(environment),
                                      directory: folder.map { URL(fileURLWithPath: $0) }, timeout: timeout, priority: .bestEffort)
-        await slots.acquire()
         let outcome = try? await processes.outcome(of: request)
-        await slots.release()
         // A deadline kill is never an answer.
         guard let outcome, outcome.succeeded || (anyExit && outcome.exited) else { return nil }
         return outcome.output
@@ -212,30 +208,6 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     public static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
         let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + installFolders
         return folders.filter { $0.hasPrefix("/") }.map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
-}
-
-/// A fixed number of slots, handed out in arrival order.
-private actor GitHubCLISlots {
-    private var free: Int
-    private var waiting: [CheckedContinuation<Void, Never>] = []
-
-    init(count: Int) {
-        free = count
-    }
-
-    func acquire() async {
-        guard free == 0 else {
-            free -= 1
-            return
-        }
-        await withCheckedContinuation { waiting.append($0) }
-    }
-
-    /// The slot passes to the first waiter, or back to the free ones.
-    func release() {
-        guard waiting.isEmpty else { return waiting.removeFirst().resume() }
-        free += 1
     }
 }
 
@@ -262,8 +234,6 @@ public final class AgentReplyPullRequests {
         var touched: ContinuousClock.Instant
     }
 
-    /// The App's one cache: every chat's cards read through it.
-    public static let shared = AgentReplyPullRequests()
     /// The most links kept; the stalest goes first.
     static let maximumKept = 200
     /// The most links one ``register(_:)`` prefetches, so a transcript full of pull requests cannot
@@ -284,8 +254,9 @@ public final class AgentReplyPullRequests {
     private var entries: [URL: Entry] = [:]
     private var inflight: [URL: Task<Void, Never>] = [:]
 
-    public init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(),
-                freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
+    /// The App makes one (`AppServices.replyPullRequests`): every chat's cards and the changelog's
+    /// read through it, with the App's one gh reader.
+    public init(reader: AgentChatPullRequestReader, freshness: Duration = .seconds(60), retry: Duration = .seconds(300)) {
         self.reader = reader
         self.freshness = freshness
         self.retry = retry

@@ -94,6 +94,35 @@ import Testing
         release.resolve(())
     }
 
+    /// One slot: the second request starts only once the first has ended, and a run that threw still frees
+    /// its slot.
+    @Test func aBoundedRunnerWaitsForAFreeSlotAndAThrowFreesIt() async throws {
+        let release = FirstOutcome<Void>()
+        let (startStream, started) = AsyncStream.makeStream(of: String.self)
+        let base = RecordingProcessRunner { request in
+            started.yield(request.executable.lastPathComponent)
+            if request.executable.lastPathComponent == "first" {
+                await release.value()
+                throw ProcessFailure.launch("no such file")
+            }
+            return ProcessOutcome(status: 0, exited: true, output: Data())
+        }
+        let bounded = BoundedProcessRunner(base, atOnce: 1)
+        let first = Task { try await bounded.outcome(of: ProcessRequest(URL(fileURLWithPath: "/t/first"))) }
+        var starts = startStream.makeAsyncIterator()
+        let firstStart = await starts.next()
+        #expect(firstStart == "first")
+        let second = Task { try await bounded.outcome(of: ProcessRequest(URL(fileURLWithPath: "/t/second"))) }
+        for _ in 0..<20 { await Task.yield() }
+        // The slot is the first run's: the second has not reached the base runner.
+        #expect(base.requests.count == 1)
+        release.resolve(())
+        await #expect(throws: ProcessFailure.launch("no such file")) { _ = try await first.value }
+        let secondStart = await starts.next()
+        #expect(secondStart == "second")
+        #expect(try await second.value.status == 0)
+    }
+
     @Test func aLaunchFailureWithinTheLimitThrows() async {
         let processes = RecordingProcessRunner { _ in throw ProcessFailure.launch("no such file") }
         await #expect(throws: ProcessFailure.launch("no such file")) {

@@ -210,6 +210,7 @@ final class AppServices {
     var closedTabs: ClosedTabsFeed?
     /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
     lazy var findWorkGitHub: any GitHubFeedAPI = GitHubCLIClient(executable: AgentChatPullRequestReader.findGitHubCLI() ?? "/usr/bin/env")
+    private(set) lazy var pullRequests = AgentPullRequestReads()  // every gh pull request read: two at once, app-wide (cx-mb1e0)
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The terminals and agent chats focused last: what new ones copy (``WorkContextTrail``).

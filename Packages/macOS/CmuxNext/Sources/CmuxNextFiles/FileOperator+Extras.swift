@@ -49,7 +49,7 @@ extension FileOperator {
             // --keepParent names the archive's top folder after a folder source;
             // for a file it would wrap the file in its containing folder.
             let keepParent = first.hasDirectoryPath || (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-            try await ditto(["-c", "-k", "--sequesterRsrc"] + (keepParent ? ["--keepParent"] : []) + [first.path, target.path])
+            try await ditto(["-c", "-k", "--sequesterRsrc"] + (keepParent ? ["--keepParent"] : []) + [first.path], archive: target)
             return target
         }
         // ditto archives one source: clone the items (metadata-only on APFS)
@@ -59,7 +59,7 @@ extension FileOperator {
         for url in urls {
             try Self.copy(url, to: staging.appendingPathComponent(url.lastPathComponent), progress: { _ in true })
         }
-        try await ditto(["-c", "-k", "--sequesterRsrc", staging.path, target.path])
+        try await ditto(["-c", "-k", "--sequesterRsrc", staging.path], archive: target)
         return target
     }
 
@@ -103,10 +103,24 @@ extension FileOperator {
         }
     }
 
+    /// ditto with `archive`, a name nothing had, as its last argument: a run that failed or was stopped
+    /// leaves no partial archive there.
+    private func ditto(_ arguments: [String], archive: URL) async throws {
+        do {
+            try await ditto(arguments + [archive.path])
+        } catch {
+            try? FileManager.default.removeItem(at: archive)
+            throw error
+        }
+    }
+
     /// Runs `/usr/bin/ditto` (the tool Finder's Compress uses) to its exit; no thread waits for it.
-    /// The person watches the archive appear, so it runs at userVisible.
+    /// The person watches the archive appear, so it runs at userVisible. A cancel stops it (the person
+    /// gave up on the archive); ``compress(_:archiveName:)`` then removes the partial archive, and
+    /// ``expand(_:)`` its staging folder.
     func ditto(_ arguments: [String]) async throws {
-        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/ditto"), arguments, errorOutput: .separate, priority: .userVisible)
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/ditto"), arguments, errorOutput: .separate, onCancel: .stop,
+                                     priority: .userVisible)
         let outcome: ProcessOutcome
         do {
             outcome = try await processes.outcome(of: request)
