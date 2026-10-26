@@ -37,10 +37,16 @@
 //! transparent wrappers) and [`Command::exec`] keep std's inheritance instead.
 
 mod child;
+#[cfg(all(unix, not(target_vendor = "apple")))]
+mod child_setup;
 mod command;
+#[cfg(unix)]
+mod fd;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
 mod stdio;
+#[cfg(all(test, unix))]
+mod tests;
 
 pub use child::Child;
 pub use command::Command;

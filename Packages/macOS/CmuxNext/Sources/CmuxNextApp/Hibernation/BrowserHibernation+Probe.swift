@@ -1,6 +1,8 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextHibernation
+import CmuxNextWakeups
 import Foundation
 
 // The page probe of browser hibernation and the facts it adds to (moved from BrowserHibernation.swift).
@@ -22,7 +24,8 @@ extension BrowserHibernation {
             return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
-                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
+                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame,
+                             audible: object["sound"] == true || busy.audio)
         } catch {
             return unanswered(tab)
         }
@@ -77,7 +80,28 @@ extension BrowserHibernation {
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
         candidate.hasBackgroundActivity = activity.contains(key)
+        if let audible {
+            // The tab's own media report keeps it with no probe; the end of its sound starts the minute.
+            candidate.isAudible = (tab as? any BrowserAudibleReporting)?.isAudible == true
+            candidate.secondsSinceAudible = audible.secondsSinceAudible(key)
+        }
         return candidate
+    }
+
+    /// Page `page` became tab `key`'s page (`TabContentCache.mount`: a new tab, a swap, a restore,
+    /// a stand-in's move): with `recentlyAudibleProtection` its sound is followed from now on, shown
+    /// or hidden, through its one audible bit (`BrowserAudibleReporting`), as Chrome's page node
+    /// follows its audio from creation. A page that plays nothing (a hibernated placeholder, an app
+    /// page) drops the old page's watch.
+    func pageDidMount(_ key: String, _ page: any BrowserTab) {
+        guard let audible else { return }
+        guard let speaker = page as? any BrowserAudibleReporting else { return audible.unwatch(key) }
+        audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
+    }
+
+    /// A page's sound ended: a hidden page is planned again, so its minute's end joins the deadline.
+    func soundDidEnd(_ key: String) {
+        if cache?.lifecycle.phase(key) == .mountedHidden { replan() }
     }
 
     /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
@@ -89,5 +113,93 @@ extension BrowserHibernation {
         }) ?? true
         if asks { askedBeforeUnload.insert(key) }
         return asks
+    }
+}
+
+// The hidden pages' memory readings: the pressure sample that ranks discards, and the frozen pages'
+// growth that discards them with their opener group (`FrozenGrowthRule`, p07-memory.md task 020).
+extension BrowserHibernation {
+    /// Under memory pressure, samples the tabs' memory when the last sample is stale, then
+    /// replans with it (the heaviest of equally idle pages goes first).
+    func refreshMemoryIfNeeded() {
+        guard pressure != .normal, !memoryReadings.isFresh(at: .now) else { return }
+        sampleMemory()
+    }
+
+    /// Samples the tabs' memory once, then takes the reading for the frozen pages' growth and
+    /// replans. A sample already running gives its reading when it lands.
+    private func sampleMemory() {
+        guard let measureMemory, memoryReadings.begin() else { return }
+        Task { @MainActor [weak self] in
+            let sample = await measureMemory()
+            guard let self else { return }
+            self.memoryReadings.land(sample, at: .now)
+            self.noteFrozenMemory(sample)
+            self.replan()
+        }
+    }
+
+    /// Notes the browser tabs' memory another sampler measured (the Task Manager's samples, the same
+    /// estimate as `measureMemory`), so a page discarded while it was open has its number. Only live
+    /// pages with a reading count: a closed or sleeping page, or one with nothing measured, keeps
+    /// what it had. In Chrome the resource monitor's samples land on the page node, where the
+    /// discarder reads them (`PageNodeImpl::EstimatePrivateFootprintSize`).
+    func noteMemory(_ readings: [String: PageMemoryReading]) {
+        guard let cache else { return }
+        memoryReadings.note(readings, at: .now) { cache.browsers[$0] != nil && !cache.dormantTabs.contains($0) }
+        noteFrozenMemory(readings)
+    }
+
+    // MARK: Frozen growth
+
+    /// Starts the memory readings of page `key`, frozen now. A fresh reading of it
+    /// (`PageMemoryReadings.maxAge`) is its baseline; without one, the freeze takes a sample
+    /// (once, an event, not a period) and its first reading after the freeze is.
+    func trackGrowth(_ key: String) {
+        guard discardsGrowingFrozenPages, setting.isEnabled, measureMemory != nil else { return }
+        let now = ContinuousClock.now
+        let reading = memoryReadings.isFresh(at: now) ? memoryReadings.reading(key) : nil
+        frozenGrowth.froze(key, at: now, reading: reading)
+        if reading == nil { sampleMemory() }
+        armGrowthWakeup()
+    }
+
+    /// `browser.hibernation` turned off: no frozen page is read again.
+    func stopGrowthReadings() {
+        frozenGrowth.removeAll()
+        growthDeadline.cancel()
+    }
+
+    /// Page `key` thawed (or closed): its readings end, and with them its one-shot wakeups.
+    func untrackGrowth(_ key: String) {
+        guard frozenGrowth.pages[key] != nil else { return }
+        frozenGrowth.thawed(key)
+        armGrowthWakeup()
+    }
+
+    /// Arms the one deadline of the frozen pages' next one-shot reading, or drops it when none is left.
+    private func armGrowthWakeup() {
+        guard let next = frozenGrowth.nextWakeup else {
+            growthDeadline.cancel()
+            return
+        }
+        let delay = max(next - ContinuousClock.now, .zero) + .milliseconds(50)
+        growthDeadline.schedule(after: delay) { @MainActor [weak self] in self?.readFrozenGrowth() }
+    }
+
+    /// The one-shot reading due at `now` (its deadline's): one sample of every page's memory serves
+    /// each frozen page due by then.
+    func readFrozenGrowth(at now: ContinuousClock.Instant = .now) {
+        frozenGrowth.wake(at: now)
+        armGrowthWakeup()
+        sampleMemory()
+    }
+
+    /// A reading of the pages' memory: each frozen page that grew past its threshold goes with the
+    /// frozen hidden pages of its opener group (`discardGrowing`).
+    private func noteFrozenMemory(_ readings: [String: PageMemoryReading]) {
+        guard discardsGrowingFrozenPages, setting.isEnabled, !frozenGrowth.pages.isEmpty else { return }
+        let growing = frozenGrowth.record(readings)
+        if !growing.isEmpty { discardGrowing(growing) }
     }
 }

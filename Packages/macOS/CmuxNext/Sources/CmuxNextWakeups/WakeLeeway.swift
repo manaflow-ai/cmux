@@ -82,7 +82,13 @@ public struct WakeLeeway: Sendable, Hashable {
     /// at or after ``earliest(deadline:)``, but never after ``latest(deadline:)`` (Chromium's
     /// `std::min(aligned, latest_time)`). Exact wakes fire at `deadline`.
     public func fireTime(deadline: UInt64) -> UInt64 {
-        let step = self.grid.nanosecondCount
+        fireTime(deadline: deadline, grid: grid)
+    }
+
+    /// ``fireTime(deadline:)`` on `grid` instead of the window's own: the alignment in force at wake
+    /// time, which `MessagePump::AdjustDelayedRunTime` reads then, not when the task was posted.
+    public func fireTime(deadline: UInt64, grid: Duration) -> UInt64 {
+        let step = grid.nanosecondCount
         let start = self.earliest(deadline: deadline)
         guard step > 0 else { return start }
         let remainder = start % step

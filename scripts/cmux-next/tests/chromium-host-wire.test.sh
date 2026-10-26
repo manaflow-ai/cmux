@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Compiles the Chromium host wire (ChromiumHost/src/chromium_host_wire.h, no
-# CEF needed) and checks it against the golden frame that the Swift side
-# (ChromiumHostFrameTests) checks too. Small: one clang++ call.
+# Compiles the Chromium host wire (ChromiumHost/src/chromium_host_wire.h) and
+# control channel (chromium_host_control.{h,cc}), no CEF needed, and checks
+# each against the golden frame that the Swift side (ChromiumHostFrameTests,
+# ChromiumHostControlChannelTests) checks too. Small: two clang++ calls.
 #
 # The host is a Debug-only prototype, not part of the CEF shim, so this is not
 # one of the shim's scripts/cmux-next/test-*-cpp.sh that cmux-next-shim-cpp.yml
@@ -16,3 +17,7 @@ source "$root/scripts/cmux-next/lib/cxx.sh"
 "${cxx[@]}" -std=c++17 -Wall -Werror -O1 \
   -o "$work/test" "$root/Packages/macOS/CmuxNext/ChromiumHost/tests/chromium_host_wire_test.cpp"
 "$work/test"
+host="$root/Packages/macOS/CmuxNext/ChromiumHost"
+"${cxx[@]}" -std=c++17 -Wall -Wextra -Werror -O1 -pthread \
+  -o "$work/control-test" "$host/tests/chromium_host_control_test.cpp" "$host/src/chromium_host_control.cc"
+"$work/control-test"

@@ -270,6 +270,8 @@ class IpcMetaValidator:
             self.wire_id(node["method_id"], f"{path}.method_id", kind="command", owner=name)
         if "priority" not in node:
             self.issue(path, "IPC attributes need priority")
+        if "durability" not in node:
+            self.issue(path, "IPC attributes need durability")
         self._priority(node, path)
         self._enum(node, "ordering", path, ORDERINGS)
         self._enum(node, "durability", path, DURABILITIES)

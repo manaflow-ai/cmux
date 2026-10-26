@@ -11,7 +11,7 @@ struct PaneSwapDragTests {
     final class Panes: LayoutPaneContentProvider {
         var strips: [PaneID: TabStripView] = [:]
         func makeContentView(for pane: PaneID) -> NSView {
-            let strip = TabStripView(model: TabStripModel(tabs: [TabItem(id: TabID("\(pane.rawValue)-tab"), title: "zsh")]))
+            let strip = TabStripView.testing(model: TabStripModel(tabs: [TabItem(id: TabID("\(pane.rawValue)-tab"), title: "zsh")]))
             // The test window has no title bar row; empty space must not move it either way.
             strip.dragsWindowFromEmptySpace = false
             strips[pane] = strip
@@ -116,7 +116,7 @@ struct PaneSwapDragTests {
     @Test func aPressOnATabSelectsItBeforeTheRelease() throws {
         let model = TabStripModel(tabs: [TabItem(id: TabID("a"), title: "a"), TabItem(id: TabID("b"), title: "b")],
                                   selectedID: TabID("a"))
-        let strip = TabStripView(model: model)
+        let strip = TabStripView.testing(model: model)
         strip.dragsWindowFromEmptySpace = false
         var intents: [TabStripIntent] = []
         model.intentHandler = { intents.append($0) }

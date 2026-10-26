@@ -44,8 +44,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub use decode::{DecodeError, Decoded, DecodedRecord, Header, NameEntry, ThreadEntry, decode};
 pub use identity::{ProcessIdentity, ThreadIdentity, build_uuid, build_version};
 pub use layout::{
-    CHUNK_BYTES, CatalogName, FLAG_ESTIMATE, FLAG_ID, HEADER_BYTES, NameKind, PAGE_BYTES, Phase,
-    RECORDS_PER_CHUNK, RingKind, RingLayout, RingSizes, THREAD_NONE,
+    CHUNK_BYTES, CatalogName, FLAG_ESTIMATE, FLAG_ID, HEADER_BYTES, NAME_TEXT_BYTES, NameKind,
+    PAGE_BYTES, Phase, RECORDS_PER_CHUNK, RingKind, RingLayout, RingSizes, THREAD_NONE,
 };
 #[doc(hidden)]
 pub use macros::categories as __categories;
@@ -144,6 +144,7 @@ pub mod category {
     pub const GHOSTTY: u64 = 1 << 18;
     pub const RESIZE: u64 = 1 << 19;
     pub const WEBUI: u64 = 1 << 20;
+    pub const LOG: u64 = 1 << 21;
 
     /// What the black box records while no recording runs.
     pub const BLACKBOX: u64 = ACTION | KEY | SWITCH | CREATE | CEF | LAUNCH | DAEMON | HANG | CRASH;
@@ -159,7 +160,8 @@ pub mod category {
         | CONTROL
         | GHOSTTY
         | RESIZE
-        | WEBUI;
+        | WEBUI
+        | LOG;
     pub const ALL: u64 = BLACKBOX | RECORDING;
 
     /// Each category's name, indexed by its bit: the text before the first dot of its trace names.
@@ -352,6 +354,12 @@ pub(crate) fn write_process(
 /// `trace.start` in this process ([`Tracer::start_recording`]).
 pub fn start_recording(categories: u64) -> Result<Status, TraceError> {
     PROCESS.get().ok_or(TraceError::NotInitialized)?.start_recording(categories)
+}
+
+/// Maps this process's recording ring ahead of its first `trace.start`
+/// ([`Tracer::prepare_recording`]): the ring's bytes. Blocking: call it off the main thread.
+pub fn prepare_recording() -> Result<u64, TraceError> {
+    Ok(PROCESS.get().ok_or(TraceError::NotInitialized)?.prepare_recording())
 }
 
 /// `trace.stop` in this process ([`Tracer::stop`]).

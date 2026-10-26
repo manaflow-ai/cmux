@@ -580,8 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path` and `slow_requests`; unknown
-names are ignored.
+sections: `resource_projection`, `write_path`, `slow_requests` and `requests`;
+unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -625,7 +625,13 @@ object{
     spawn_failures:uint64, watchdog_wakeups:uint64,
     recent:array<object{method:string,client:uint64,started_ms:uint64,busy_ms:uint64,
       duration_ms:uint64|null}>
-  }
+  },
+  request_latency_us?:object{
+    topology:histogram, terminal_io:histogram, create:histogram,
+    query:histogram, browser:histogram, agent:histogram, cloud:histogram,
+    other:histogram
+  },
+  dispatch_queue_us?:histogram
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
@@ -689,6 +695,32 @@ still while the daemon is idle, and it wakes only on a 250 ms grid, so the
 count grows by at most four a second (plus one) under any request pattern.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
+`requests` adds `request_latency_us` and `dispatch_queue_us`, over every
+control connection's request lines (Chrome's per-task queue and run timing):
+`cmd` commands, `cmux.protocol/2` resource requests, the feature routes
+(`agent-*`, `apps-*`, `script-*`, `fs.*`, loopback and browser-runtime
+lines) and lines answered with a refusal or a bad-request error.
+`request_latency_us.<class>` is the time from a request line's arrival at its
+connection's reader (when its read returns) to its reply entering the
+connection's outbound queue, by the request's method class (the daemon's
+`MethodClass`; a resource operation's class follows its namespace, and its
+creates and splits are `create`). A request a worker answers later
+(`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
+reply is queued. The time a reply then waits for the writer thread's socket
+write is not counted. `dispatch_queue_us` is the time from a request's parse
+to its handler's start: the wait in the connection's request queue (0 for a
+line answered inline).
+
+In a trace, each request is the slice `daemon.request`: arg0 is the method
+id (a command's row in the command table, `0x4000` plus a resource
+operation's index, or `0x8000` plus the class of a feature-route line) and
+arg1 the FNV-1a hash of the request id's compact JSON. The slice has the
+instants `daemon.request.parsed`, `daemon.request.dispatched`,
+`daemon.request.handled` (the reply is built) and
+`daemon.request.reply.queued`; a resource or feature-route line, which sends
+its own reply, has no `handled`. A worker's reply is the async slice
+`daemon.request.async` (arg0 the method id), with the instants
+`daemon.request.async.handled` and `daemon.request.async.reply.queued`.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
@@ -704,6 +736,59 @@ CLI mapping: `cmux daemon stats [--session <name>] [--socket <path>]`; plain
 stdout renders the object as nested `key: value` lines; `--json` prints the
 exact result object. Against a server without `server-stats-v1` the CLI exits
 1 with `server.stats_unsupported`.
+
+### oracle-state
+
+| Field | Value |
+| --- | --- |
+| name | `oracle-state` |
+| status | implemented in debug builds and `--features oracle` builds only |
+| since | protocol 12, no capability |
+
+The correctness oracle's daemon facet
+(`plans/cmux-next/chrome-parity/p15-oracle.md`, task 021). A release daemon
+has no such command and answers `bad request: unknown variant`, which the
+oracle reads as a build without it. Trusted local connections only.
+
+The facet is `session.snapshot`, `settings.snapshot` and the journal head of
+the snapshot's cut. This command returns that cut from the same snapshot
+builder as `session.snapshot` and adds only what the public reads lack.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  journal_head:uint64,
+  session:ResourceSnapshot,
+  switches:map<string,string>,
+  terminalAttach:object{attached:uint64,detached:uint64,dead:uint64},
+  liveObjects:map<string,uint64>,
+  panicLog:object{path:string|null,bytes:uint64}
+}
+```
+
+`journal_head` is the session journal head read under the same registry and
+state lock as `session`: every journal record at or below it is in `session`,
+and no later one is. `session` is the asking connection's `session.snapshot`
+result, `clients` included (the connections are read just after the cut).
+`terminalAttach` and `liveObjects`, except `subscriptions`, are counted from
+the same locked state as `session`; `subscriptions` is read just after it.
+`switches` maps each daemon refactor switch to the arm this daemon runs,
+`old` or `new`, frozen at the first read. The one switch so far is
+`terminal-holder` (`new` when `CMUX_TUI_TERMINAL_HOST_MODEL=holder`); the
+`CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
+`terminalAttach` counts the terminal catalog: `dead`
+terminals have no process, `attached` ones are shown in at least one pane
+tab, `detached` ones are live with no placement. `liveObjects` counts runtime
+objects: `browsers`, `panes`, `screens`, `subscriptions` (live event
+subscriptions), `terminals` (the terminal catalog), `views` (pane tab
+placements) and `workspaces`. `panicLog` is the owner's panic log
+(`owner-panics-<session>.jsonl` at the state root) and its length in bytes;
+`path` is null when there is no state root. Every map has sorted keys.
+
+Errors: `oracle state requires a trusted local connection`, `bad request: ...`.
 
 ### browser-host-provider
 
