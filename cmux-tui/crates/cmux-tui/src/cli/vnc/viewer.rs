@@ -34,6 +34,8 @@ use super::{Config, ResizeMode, kitty, printable};
 const CURSOR_ID: u32 = 0x5643_0003;
 /// A pane resize settles this long before the remote desktop follows it.
 const RESIZE_SETTLE: Duration = Duration::from_millis(300);
+/// Longest wait on quit or reconnect for queued key and button releases to reach the server.
+const RELEASE_FLUSH: Duration = Duration::from_millis(500);
 /// Most characters a paste types into the remote screen.
 const MAX_PASTE_CHARS: usize = 64 * 1024;
 
@@ -137,7 +139,7 @@ pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
     let result = viewer.run(&rx);
     viewer.release_input();
     if let State::Connected { input, .. } = &viewer.state {
-        input.close();
+        input.close_after_pending(RELEASE_FLUSH);
     }
     // The guard deletes the images and restores every terminal mode,
     // here and on any error or panic.
@@ -423,7 +425,7 @@ impl Viewer {
                     Command::Reconnect => {
                         self.release_input();
                         if let State::Connected { input, .. } = &self.state {
-                            input.close();
+                            input.close_after_pending(RELEASE_FLUSH);
                         }
                         self.backoff.reset();
                         self.connect();

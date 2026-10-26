@@ -506,3 +506,31 @@ fn close_unblocks_the_reader() {
     assert!(reader.join().unwrap());
     server.join().unwrap();
 }
+
+#[test]
+fn a_graceful_close_sends_queued_input_first() {
+    let (listener, port) = listen();
+    let (rest_tx, rest_rx) = std::sync::mpsc::channel();
+    let server = serve(listener, move |server| {
+        server.send(b"RFB 003.008\n");
+        server.read(12);
+        server.send(&[1, 1]);
+        server.read(1);
+        server.send(&0u32.to_be_bytes());
+        server.read(1);
+        server.server_init(2, 2, "idle");
+        server.client_setup();
+        let mut rest = Vec::new();
+        let _ = server.stream.read_to_end(&mut rest);
+        rest_tx.send(rest).unwrap();
+    });
+    let session = connect(port, Credentials::default()).unwrap();
+    let input = session.input();
+    input.keys(&[(0xFFE3, true), (0xFFE3, false)]).unwrap();
+    input.close_after_pending(Duration::from_secs(5));
+    server.join().unwrap();
+    let expected =
+        [cmux_vnc::message::key_event(0xFFE3, true), cmux_vnc::message::key_event(0xFFE3, false)]
+            .concat();
+    assert_eq!(rest_rx.recv().unwrap(), expected);
+}

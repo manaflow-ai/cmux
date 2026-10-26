@@ -5,8 +5,10 @@
 
 use std::io::{self, BufReader, Read, Write};
 use std::sync::Arc;
-use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
+use std::sync::{Mutex, PoisonError};
 use std::thread;
+use std::time::Duration;
 
 use crate::auth::Credentials;
 use crate::decode::{self, Cursor, Decoders, encoding};
@@ -260,34 +262,43 @@ pub struct Input {
 }
 
 struct InputInner {
-    queue: SyncSender<Vec<u8>>,
+    /// `None` asks the writer to send what is queued, then close.
+    queue: SyncSender<Option<Vec<u8>>>,
     closer: Closer,
+    /// Signalled when the writer thread ends.
+    done: Mutex<Receiver<()>>,
 }
 
 impl Input {
     /// Starts the writer thread. It ends when every `Input` is dropped or a
     /// write fails; a failed write closes the transport, so the reader sees it.
     fn spawn(mut writer: Box<dyn Write + Send>, closer: Closer) -> Result<Self> {
-        let (queue, pending) = mpsc::sync_channel::<Vec<u8>>(WRITE_QUEUE);
+        let (queue, pending) = mpsc::sync_channel::<Option<Vec<u8>>>(WRITE_QUEUE);
+        let (done_tx, done) = mpsc::channel();
         let writer_closer = closer.clone();
         let spawned = thread::Builder::new().name("vnc-writer".into()).spawn(move || {
-            for bytes in pending {
+            for message in pending {
+                let Some(bytes) = message else {
+                    writer_closer.close();
+                    break;
+                };
                 if writer.write_all(&bytes).and_then(|()| writer.flush()).is_err() {
                     writer_closer.close();
-                    return;
+                    break;
                 }
             }
+            let _ = done_tx.send(());
         });
         if let Err(error) = spawned {
             closer.close();
             return Err(error.into());
         }
-        Ok(Self { inner: Arc::new(InputInner { queue, closer }) })
+        Ok(Self { inner: Arc::new(InputInner { queue, closer, done: Mutex::new(done) }) })
     }
 
     /// Queues one message without waiting for the network.
     fn send(&self, bytes: &[u8]) -> Result<()> {
-        match self.inner.queue.try_send(bytes.to_vec()) {
+        match self.inner.queue.try_send(Some(bytes.to_vec())) {
             Ok(()) => Ok(()),
             Err(TrySendError::Full(_)) => {
                 self.inner.closer.close();
@@ -338,8 +349,24 @@ impl Input {
         self.send(&message::update_request(false, &Rect::new(0, 0, width, height)))
     }
 
-    /// Ends the session; the reading thread's `next_event` then fails.
+    /// Ends the session now; the reading thread's `next_event` then fails.
+    /// Queued input may be dropped: use [`Input::close_after_pending`] when
+    /// it matters (key releases on quit).
     pub fn close(&self) {
         self.inner.closer.close();
+    }
+
+    /// Sends what is queued (key and button releases), then ends the
+    /// session. Waits at most `limit` for the writer; past it, or when
+    /// the queue is full, closes at once.
+    pub fn close_after_pending(&self, limit: Duration) {
+        if self.inner.queue.try_send(None).is_err() {
+            self.close();
+            return;
+        }
+        let done = self.inner.done.lock().unwrap_or_else(PoisonError::into_inner);
+        if done.recv_timeout(limit).is_err() {
+            self.close();
+        }
     }
 }
