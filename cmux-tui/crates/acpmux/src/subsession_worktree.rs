@@ -531,18 +531,28 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         // Held while it is added and filled, as `ensure_worktree` holds it.
         let lock = name_lock(&root);
         let _held = lock.lock().unwrap_or_else(|e| e.into_inner());
+        // The worktree's folder is made here, empty, and its identity read before git fills it
+        // (git adds into an empty folder): the folder at its path afterwards must be this one,
+        // whatever took the path while git ran.
+        match std::fs::create_dir(&root) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("{}: {e}", root.display())),
+        }
+        let root_pin = crate::cwd_pin::CwdPin::of(&root);
         let branch = format!("cmux/{chosen}");
         let add =
             ["worktree", "add", "--no-checkout", "-b", &branch, &root.to_string_lossy(), &commit];
-        match git(folder, &add) {
-            Ok(_) => {}
-            Err(e) if taken(&e) => continue,
-            Err(e) => return Err(e),
+        if let Err(e) = git(folder, &add) {
+            // Only an empty folder goes: never one something else filled.
+            let _ = std::fs::remove_dir(&root);
+            if taken(&e) {
+                continue;
+            }
+            return Err(e);
         }
         #[cfg(test)]
         after_add(&root);
-        // The folder git just made, by identity, before anything else can take its place.
-        let root_pin = crate::cwd_pin::CwdPin::of(&root);
         let made = Worktree { root: root.clone(), branch, base: base.clone(), cwd: root, root_pin };
         return fill(folder, &layout, made, &commit, false);
     }
