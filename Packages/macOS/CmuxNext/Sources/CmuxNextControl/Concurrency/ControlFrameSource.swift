@@ -65,6 +65,13 @@ public struct MainQueueFrameSource: ControlFrameSource {
 /// main-queue callout; GCD does not drain the main queue (nor main-actor
 /// jobs) again there, but the run loop still runs these blocks. So control
 /// requests and frame batches keep moving while a menu is open.
+///
+/// It is the scheduler's own hop: the work it carries is a batch that runs its tasks through
+/// ``MainFrameBudget/run(_:owner:posted:_:)`` itself (a control batch, a frame queue's first drain), so
+/// the hop is not a task of a class (p06-scheduler.md, "Posting API": the scheduler's own wakeups
+/// are never queued behind the classes they measure). Other main-thread work names its class:
+/// ``MainDelivery/init(class:owner:on:)``, or ``MainRunLoopBlock/init(class:owner:on:file:line:_:)``
+/// where it must run in a run-loop callout.
 public struct MainRunLoopHop: Sendable {
     public init() {}
 
