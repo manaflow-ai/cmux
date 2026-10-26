@@ -9281,7 +9281,7 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "الوكيل: %@"}},
         "bs": {"stringUnit": {"state": "needs_review", "value": "Agent: %@"}},
         "da": {"stringUnit": {"state": "needs_review", "value": "Agent: %@"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Agent: %@"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "KI-Agent: %@"}},
         "es": {"stringUnit": {"state": "needs_review", "value": "Agente: %@"}},
         "fr": {"stringUnit": {"state": "needs_review", "value": "Agent : %@"}},
         "it": {"stringUnit": {"state": "needs_review", "value": "Agente: %@"}},
