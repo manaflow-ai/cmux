@@ -22,6 +22,7 @@ import Observation
 /// plus an LRU of recently hidden ones (`WarmSetBudget`); older hidden surfaces are destroyed and re-attach
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in an image LRU sized by
 /// ``ImageCacheShares`` from the Mac's memory.
+// memory: fixed an owner, not a cache: its maps hold the live surfaces and pages of open tabs (bounded by the warm set, `ledger`, and hibernation); each picture store is its own memory consumer (`previews`, `internalPagePictures`, `pageThumbnails`: PreviewImageCache; `lastFrames`: TerminalLastFrames)
 final class TabContentCache {
     private let daemon: DaemonService
     /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
