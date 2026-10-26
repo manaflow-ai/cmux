@@ -315,6 +315,21 @@ Renderers get one third of RAM, not Chrome's half, because terminals and daemons
   GPU-released surface stops its renderer thread.
 - The warm set grows only in the commit that turns GPU release on.
 - App-side scrollback paging is PL-ghostty's (F11); p07 depends on it.
+- Fork state (task 036): ghostty-next branch `cp/p07-memory-036`, commit `bcc291d1e` on `723c4ab93`
+  (the current pin). The API is as above, with these rules for 037: the layer is empty from the
+  release call on (cover the view with the app's last frame), the renderer thread parks (no timers,
+  output does not wake it) instead of exiting, and `ghostty_surface_render_counters` gains
+  `gpu_releases` and `gpu_restores` at its end. The `ghostty-next` gitlink and the GhosttyNextKit
+  pin stay at `723c4ab93` until the branch lands on ghostty-next `main` through its pull request
+  and a release is published; then one pin bump moves both. 037 checks for the symbol and keeps the
+  old warm-set formula without it.
+- Conflict surface for later ghostty-next work: `include/ghostty.h` (render counters struct, the
+  new export), `src/apprt/embedded.zig`, `src/Surface.zig`, `src/renderer.zig`,
+  `src/renderer/{Residency,Thread,generic,Metal,message,mailbox}.zig`,
+  `src/renderer/metal/IOSurfaceLayer.zig`, `next/ios-smoke/main.swift`,
+  `next/ios-render-smoke.sh`, `NEXT.md`. Keep: draws, display passes and the display link check the
+  residency before the draw lock; a release never waits for the GPU under the draw lock; the main
+  thread clears the layer in the call and the main-queue present drops frames after a release.
 
 ### E. Chromium and WebKit processes
 
