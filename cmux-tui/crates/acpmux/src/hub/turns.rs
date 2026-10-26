@@ -692,6 +692,11 @@ impl Hub {
                 Some(_) => {}
             }
         }
+        // A failure acpmux knows the remedy for says it (`recovery.rs`): a full disk, an agent
+        // that exited, a harness that cannot start.
+        if let Err(e) = &mut result {
+            crate::recovery::annotate(e, Some(&session.meta().cwd));
+        }
         let git = super::turn_git::turn_git(session).await;
         match &result {
             Ok(v) => {
@@ -721,12 +726,11 @@ impl Hub {
                 }
             }
             Err(e) => {
-                self.append(
-                    session,
-                    "mux",
-                    "turn_error",
-                    json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
-                );
+                let mut record = json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq});
+                if let Some(o) = record.as_object_mut() {
+                    o.extend(crate::recovery::fields(e));
+                }
+                self.append(session, "mux", "turn_error", record);
                 self.note_model_refusal(session, &e.message);
                 if !detached {
                     self.pause_queue(session, turn_id);
@@ -739,6 +743,7 @@ impl Hub {
                     if let Some(Value::Object(info)) = &route_info {
                         o.extend(info.clone());
                     }
+                    o.extend(crate::recovery::fields(e));
                     // Ended by acpmux, not the agent (`stalled_turn.rs`).
                     if let Some(data) = e.data.as_ref().filter(|d| d["detail"] == "stalled") {
                         o.insert("detail".into(), data["detail"].clone());
@@ -818,16 +823,22 @@ impl Hub {
         e: &RpcError,
     ) {
         *session.turn.lock().unwrap() = None;
-        self.append(
-            session,
-            "mux",
-            "turn_error",
-            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
-        );
+        let mut e = e.clone();
+        crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
+        let typed = crate::recovery::fields(&e);
+        let mut record =
+            json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0});
+        if let Some(o) = record.as_object_mut() {
+            o.extend(typed.clone());
+        }
+        self.append(session, "mux", "turn_error", record);
         self.pause_queue(session, turn_id);
         // `errorText` as a started turn's failure has it: its `lastTurn` and its parent's
         // `turn_ended` say why.
-        let msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        let mut msg = json!({"status": "failed", "error": e.message, "errorText": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
+        if let Some(o) = msg.as_object_mut() {
+            o.extend(typed);
+        }
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
         self.reset_stream(session);
