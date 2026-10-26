@@ -1199,6 +1199,15 @@ class SameTreeIsAnEvent(unittest.TestCase):
         self.assertIn("pin ref", summary["run"])
         marker = next(step for step in route["steps"] if step.get("id") == "marker")
         self.assertIn("github.event_name != 'pull_request'", marker["if"])
+        with tempfile.NamedTemporaryFile(mode="r+") as receipt:
+            result = subprocess.run(["bash", "-c", summary["run"]], text=True, capture_output=True,
+                                    env={**os.environ, "EVENT_NAME": "pull_request", "STATE": "failed",
+                                         "KEY": "a" * 40, "REASON": "HTTP 422: tree unavailable",
+                                         "GITHUB_STEP_SUMMARY": receipt.name}, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("::notice title=same-tree cmux-tui skipped::", result.stdout)
+            self.assertNotIn("::error", result.stdout)
+            self.assertIn(": skipped", receipt.read())
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = yaml.safe_load(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
