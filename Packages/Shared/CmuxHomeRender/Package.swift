@@ -26,11 +26,16 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxFuzzSupport"),
+        // Invariant (p10-stability-099): CrashGuard's faults report through notFatalUntil.
+        .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [
         .target(
             name: "CmuxHomeRender",
-            dependencies: [.product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+            dependencies: [
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+            ],
             resources: [.process("Resources/Localizable.xcstrings")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
