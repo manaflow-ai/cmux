@@ -232,7 +232,9 @@ struct PageLifecycleTests {
         #expect(hiding.reasonReads == 1)
     }
 
-    @Test func criticalPressureLooksAgainAtOnceAndDiscardsSooner() throws {
+    /// The critical event's discard is the app's one urgent pass over tabs, chats and pages
+    /// (p13-webui-092): the lifecycle's own pass waits one urgent pace interval, then discards sooner.
+    @Test func criticalPressureLeavesTheEventToTheUrgentPassThenDiscardsSooner() throws {
         let history = page("history"), cloud = page("cloud")
         lifecycle.hide("h", page: Target(page: history))
         rig.advance(to: .seconds(5))
@@ -240,12 +242,12 @@ struct PageLifecycleTests {
         try fireDuePass()
         rig.advance(to: .seconds(30))
         lifecycle.setConditions(.init(pressure: .critical))
-        #expect(lifecycle.nextPassAt == .seconds(30))
+        #expect(lifecycle.nextPassAt == .seconds(35), "the lifecycle discarded in the critical event's own pass")
         try fireDuePass()
         // Chrome's urgent pace: one discard per pass, the longest hidden first, the next 5 s later.
         #expect(lifecycle.state(of: "h") == .discarded)
         #expect(lifecycle.state(of: "c") == .hidden)
-        #expect(near(lifecycle.nextPassAt, .seconds(35)))
+        #expect(near(lifecycle.nextPassAt, .seconds(40)))
         try fireDuePass()
         #expect(lifecycle.state(of: "c") == .discarded)
         #expect(log.lines == ["freeze history", "discard history", "discard cloud"])

@@ -252,11 +252,38 @@ package final class PageLifecycle {
     }
 
     /// The memory pressure, Low Power Mode, or `browser.hibernation` and its companions changed (the
-    /// app's browser hibernation passes on what it follows): a pass looks again.
+    /// app's browser hibernation passes on what it follows): a pass looks again. When pressure turns
+    /// critical, the event's discard is the app's one urgent pass over tabs, chats and pages
+    /// (``urgentCandidates()``, ``discardNow(_:)``), so this pass waits one urgent pace interval and
+    /// then discards at that pace.
     package func setConditions(_ conditions: PageLifecyclePlanner.Conditions) {
         guard conditions != self.conditions else { return }
+        let turnsCritical = conditions.pressure == .critical && self.conditions.pressure != .critical
         self.conditions = conditions
-        if !hiddenKeys.isEmpty { arm(at: uptime()) }
+        guard !hiddenKeys.isEmpty else { return }
+        let wait: Duration = turnsCritical ? .seconds(planner.timing.urgentPace.interval) : .zero
+        arm(at: uptime() + wait)
+    }
+
+    // MARK: Urgent pass (the app's critical memory event, O(hidden pages))
+
+    /// The hidden pages the app's one urgent pass may discard (``PageLifecyclePlanner/urgentCandidates(_:conditions:)``),
+    /// ranked there with the browser tabs (``UrgentDiscardRanker``).
+    package func urgentCandidates() -> [UrgentDiscardRanker.Candidate] {
+        planner.urgentCandidates(hiddenPages(at: uptime()), conditions: conditions)
+    }
+
+    /// The urgent pass chose hidden page `key`: it is discarded now, from the hide-time picture and
+    /// state, with no call into the page. Returns false for a page that is shown, already discarded or
+    /// unknown.
+    @discardableResult
+    package func discardNow(_ key: String) -> Bool {
+        guard var entry = entries[key], hiddenKeys.contains(key), entry.target.object != nil,
+              entry.state == .hidden || entry.state == .frozen else { return false }
+        entry.target.discard()
+        entry.state = .discarded
+        entries[key] = entry
+        return true
     }
 
     // MARK: Pass (at a deadline, O(hidden pages))
@@ -267,21 +294,7 @@ package final class PageLifecycle {
         nextPassAt = nil
         deadline.cancel()
         let now = uptime()
-        var pages: [PageLifecyclePlanner.Page] = []
-        pages.reserveCapacity(hiddenKeys.count)
-        var gone: [String] = []
-        for key in hiddenKeys {
-            guard let entry = entries[key], entry.target.object != nil, let hiddenAt = entry.hiddenAt else {
-                gone.append(key)
-                continue
-            }
-            pages.append(PageLifecyclePlanner.Page(
-                key: key, group: entry.target.lifecycleGroup, hiddenFor: Self.seconds(now - hiddenAt),
-                keepReasons: entry.reasons.union(entry.target.lifecycleKeepReasons),
-                isDiscarded: entry.state == .discarded))
-        }
-        for key in gone { remove(key) }
-        let plan = planner.plan(pages, conditions: conditions)
+        let plan = planner.plan(hiddenPages(at: now), conditions: conditions)
         mostRecentlyHidden = nil
         for decision in plan.decisions.values {
             perform(decision)
@@ -315,6 +328,26 @@ package final class PageLifecycle {
     // MARK: Helpers
 
     private func uptime() -> Duration { deadlines.uptime }
+
+    /// The hidden pages, discarded ones included, as the planner takes them at `now`; pages whose view
+    /// went away are forgotten.
+    private func hiddenPages(at now: Duration) -> [PageLifecyclePlanner.Page] {
+        var pages: [PageLifecyclePlanner.Page] = []
+        pages.reserveCapacity(hiddenKeys.count)
+        var gone: [String] = []
+        for key in hiddenKeys {
+            guard let entry = entries[key], entry.target.object != nil, let hiddenAt = entry.hiddenAt else {
+                gone.append(key)
+                continue
+            }
+            pages.append(PageLifecyclePlanner.Page(
+                key: key, group: entry.target.lifecycleGroup, hiddenFor: Self.seconds(now - hiddenAt),
+                keepReasons: entry.reasons.union(entry.target.lifecycleKeepReasons),
+                isDiscarded: entry.state == .discarded))
+        }
+        for key in gone { remove(key) }
+        return pages
+    }
 
     /// `key`'s entry with `page` as its target; a new page object starts a fresh entry and reports
     /// its reason changes from now on.

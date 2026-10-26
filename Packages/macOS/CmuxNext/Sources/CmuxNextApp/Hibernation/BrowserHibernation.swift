@@ -97,6 +97,10 @@ final class BrowserHibernation {
     var memoryLimit = MemoryLimit.default
     /// Urgent passes the coordinator's critical release slices ran (`debug.surfaces`).
     var urgentPasses = 0
+    /// Ranks the urgent pass over tabs, chats and pages (``urgentPass()``).
+    let urgentRanker = UrgentDiscardRanker()
+    /// What the last urgent pass chose (`debug.surfaces` and tests).
+    private(set) var lastUrgentPass = UrgentDiscardRanker.Pass()
     /// Pinned state of a tab (the daemon record); injected by the App.
     var isPinned: (String) -> Bool = { _ in false }
     private(set) var exemptions: [String: HibernationPlanner.Exemption] = [:]
@@ -471,12 +475,12 @@ final class BrowserHibernation {
 
     // MARK: Planning
 
-    /// Hibernates every due page and arms one deadline for the next.
-    func replan() {
-        guard let cache else { return }
+    /// Hibernates every due page and arms one deadline for the next. With `discardsDue` false (right
+    /// after the urgent pass, ``urgentPass()``) the due pages wait for that deadline: the plan's pace.
+    func replan(discardsDue: Bool = true) {
+        guard cache != nil else { return }
         let now = ContinuousClock.now
-        let shownOffScreen = offScreenShown.filter { cache.lifecycle.phase($0) == .mountedVisible }
-        let hidden = (cache.lifecycle.keys(in: .mountedHidden) + shownOffScreen).compactMap { hiddenCandidate($0, now: now) }
+        let hidden = hiddenCandidates(now: now)
         let candidates = hidden.map { $0.facts }
         let graceEnds = hidden.compactMap { $0.graceEnds }.min()
         let plan = HibernationPlanner.plan(setting, pressure: pressure, candidates: candidates)
@@ -484,8 +488,10 @@ final class BrowserHibernation {
             exemptions[key] = nil
         }
         exemptions.merge(plan.exemptions) { $1 }
-        if !plan.due.isEmpty { refreshMemoryIfNeeded() }
-        for key in plan.due { prepare(key, for: HibernationPlanner.discardReason(at: pressure)) }
+        if discardsDue, !plan.due.isEmpty {
+            refreshMemoryIfNeeded()
+            for key in plan.due { prepare(key, for: HibernationPlanner.discardReason(at: pressure)) }
+        }
         nextCheck = [plan.nextCheck, graceEnds].compactMap(\.self).min()
         if let next = nextCheck {
             deadline.schedule(after: .milliseconds(Int64(next * 1000) + 50)) { @MainActor [weak self] in self?.replan() }
@@ -493,6 +499,34 @@ final class BrowserHibernation {
             deadline.cancel()
         }
         replanFreeze(candidates.filter { !$0.isNeighbor && !$0.isAgentDriving && !$0.isActiveTab })
+    }
+
+    /// The critical memory event's one urgent pass (Chrome's `UrgentPageDiscardingPolicy`): the
+    /// browser tabs and the cmux pages (agent chats join them with p13-webui-038) are ranked together
+    /// (``UrgentDiscardRanker``), and the first goes: a browser tab through its probe, a page at once.
+    /// The pass discards nothing more; each owner's paced passes follow it.
+    func urgentPass() {
+        guard let cache else { return }
+        let tabs = HibernationPlanner.urgentCandidates(setting, candidates: hiddenCandidates(now: .now).map { $0.facts })
+        let pages = cache.pageLifecycle?.urgentCandidates() ?? []
+        let tabKeys = Set(tabs.map(\.key))
+        lastUrgentPass = urgentRanker.pass(tabs + pages, reclaimTarget: nil)
+        for candidate in lastUrgentPass.discards {
+            cache.trace(candidate.key, "discard (\(DiscardReason.urgent.rawValue), ranked \(candidate.kind.rawValue))")
+            if tabKeys.contains(candidate.key) {
+                prepare(candidate.key, for: .urgent)
+            } else {
+                cache.pageLifecycle?.discardNow(candidate.key)
+            }
+        }
+        replan(discardsDue: false)
+    }
+
+    /// Every hidden page, and every page shown in an off-screen window, that could go now.
+    private func hiddenCandidates(now: ContinuousClock.Instant) -> [(facts: HibernationPlanner.Candidate, graceEnds: Double?)] {
+        guard let cache else { return [] }
+        let shownOffScreen = offScreenShown.filter { cache.lifecycle.phase($0) == .mountedVisible }
+        return (cache.lifecycle.keys(in: .mountedHidden) + shownOffScreen).compactMap { hiddenCandidate($0, now: now) }
     }
 
     /// The planner's facts of hidden page `key` (or of a page shown in an off-screen window, kept as
