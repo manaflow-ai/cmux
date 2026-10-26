@@ -23,7 +23,9 @@ name: cmux-next
 # scheme), which need full-ci again (2026-10-21: the Mac queue was ~350 jobs
 # deep); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
 # native tier compiles the PR's head on the build fleet instead
-# (app-compile-fleet; the Mac Release compile only when it gives no verdict). A fork pull
+# (app-compile-fleet; the Mac Release compile only when it gives no verdict, and only for a PR
+# that changes what the Linux Release check cannot see: path_route's mac_release, from
+# cmux_next_route.MAC_RELEASE_INPUTS, or a Swift file added or removed outside Packages/). A fork pull
 # request runs the fast tier and,
 # for a CmuxNext .swift change, the Release compile, and the other Mac tiers
 # only with the full-ci label, on its hosted fallback. full-ci also makes the router
@@ -664,6 +666,10 @@ jobs:
       native: ${{ steps.route.outputs.native }}
       swift_canary: ${{ steps.route.outputs.swift_canary }}
       cmuxnext_swift: ${{ steps.route.outputs.cmuxnext_swift }}
+      # A same-repository pull request runs the Mac Release compile only when this is true: it
+      # changes an input the Linux Release check cannot see (cmux_next_route.MAC_RELEASE_INPUTS)
+      # or adds or removes a Swift file outside Packages/.
+      mac_release: ${{ steps.route.outputs.mac_release }}
       swift_canary_targets: ${{ steps.route.outputs.swift_canary_targets }}
       macos: ${{ steps.route.outputs.macos }}
       scheme: ${{ steps.route.outputs.scheme }}
@@ -704,9 +710,11 @@ jobs:
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
+          added_removed="$RUNNER_TEMP/added-removed-files.txt"
           labels=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
+            git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$added_removed"
             if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
               labels="$EVENT_LABELS"
             else
@@ -717,6 +725,7 @@ jobs:
             fi
           else
             : > "$changed"
+            : > "$added_removed"
           fi
           echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
           if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
@@ -808,6 +817,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           else
             python3 scripts/ci/cmux_next_route.py --event "$EVENT_NAME" --changed-files "$changed" \
+              --added-removed "$added_removed" \
               --labels "$labels" --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
           fi
           # Whether this pull request changes the cmux-tui it would test against:
@@ -1154,7 +1164,7 @@ jobs:
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && 'app-compile-fleet' || '',
             needs.path_route.outputs.swift_canary == 'true' && 'swift-canary-fleet' || '',
             github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.native == 'true' && 'release-compile-fast' || '') }}
-          GATEWAY_CASCADE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && 'release-compile' || '' }}
+          GATEWAY_CASCADE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && needs.path_route.outputs.mac_release == 'true' && 'release-compile' || '' }}
           JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
           # A feat-cmux-next push's Release compile gates the nightly-next request, so the cascade
           # places it ahead of the run's other jobs (next_macos_cascade.FIRST_JOBS).
@@ -3895,7 +3905,7 @@ jobs:
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
     needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast]
-    if: ${{ always() && !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail') }}
+    if: ${{ always() && !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail') }}
     name: cmux-next Release compile (Xcode 26)
     # The base's compile check: a current feat-cmux-next push compiles once its
     # preflight sees it is still the tip. Superseded pushes skip before queueing,
