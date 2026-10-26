@@ -111,6 +111,21 @@ class HelperNoteTests(unittest.TestCase):
         (record,) = gh_call_log.parse(lines)
         self.assertEqual(record["request"], "GET /repos/o/r/actions/artifacts")
 
+    def test_a_refused_listing_is_noted_and_still_a_miss(self):
+        import urllib.error
+
+        def opener(request, timeout=None):
+            opener.calls += 1
+            raise urllib.error.HTTPError(request.full_url, 403, "no", HEADERS, io.BytesIO(b"forbidden"))
+        opener.calls = 0
+        with mock.patch.object(job_reuse.urllib.request, "urlopen", opener):
+            def call():
+                with self.assertRaises(job_reuse.Miss):
+                    job_reuse.listing("key", None)
+            _, lines = run_logged(ENV, call)
+        self.assertEqual(opener.calls, 1)
+        self.assertEqual(len(list(gh_call_log.parse(lines))), 1)
+
     def test_missing_or_broken_headers_never_fail_the_call(self):
         class Broken:
             def get(self, name):
@@ -128,6 +143,7 @@ class RankTests(unittest.TestCase):
         text = gh_call_log.line(HEADERS, "post", "/a?token=secret", env=ENV,
                                 now=dt.datetime(2026, 10, 26, 22, 47, 50, tzinfo=dt.timezone.utc))
         self.assertNotIn("secret", text)
+        self.assertNotIn("SECRET", gh_call_log.line({}, "GET", "/a?token=SECRET\nextra", env=ENV))
         (record,) = gh_call_log.parse([f"2026-10-26T22:47:50.1Z {text}"])
         self.assertEqual(record["request"], "POST /a")
         self.assertEqual(record["time"], "2026-10-26T22:47:50Z")

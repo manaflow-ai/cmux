@@ -26,6 +26,7 @@ import os
 import re
 import sys
 import urllib.parse
+import urllib.error
 import urllib.request
 
 KEY = re.compile(r"^job-pass-[a-z0-9-]+-[0-9a-f]{40}$")
@@ -85,6 +86,8 @@ def listing(key: str, path: str | None) -> list[dict]:
                 note_call(response.headers, "GET", f"/repos/{repo}/actions/artifacts")
                 text = response.read().decode()
         except OSError as error:
+            if isinstance(error, urllib.error.HTTPError):
+                note_call(error.headers, "GET", f"/repos/{repo}/actions/artifacts")
             raise Miss(f"listing artifacts failed: {error}") from error
     try:
         data = json.loads(text)

@@ -35,8 +35,6 @@ FIELDS = ("time", "workflow", "job", "resource", "used", "remaining", "reset", "
 # A log line may carry the runner's own timestamp (and the `job<TAB>step<TAB>` columns
 # `gh run view --log` adds) before what the helper printed.
 LINE = re.compile(rf"(?:^|\t| ){PREFIX}\t(?P<rest>.*)$")
-# Query strings may carry tokens in other APIs; the path is enough to attribute a call.
-QUERY = re.compile(r"\?.*$")
 
 
 def header(headers: Mapping[str, str] | None, name: str) -> str:
@@ -54,13 +52,14 @@ def clean(value: str) -> str:
     return re.sub(r"[\t\r\n]+", " ", value or "").strip() or "-"
 
 
+# Query strings may carry tokens in other APIs; the path before the first `?` is enough to attribute a call.
 def line(headers: Mapping[str, str] | None, method: str, path: str, *,
          env: Mapping[str, str] = os.environ, now: dt.datetime | None = None) -> str:
     stamp = (now or dt.datetime.now(dt.timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
     values = (stamp, env.get("GITHUB_WORKFLOW", ""), env.get("GITHUB_JOB", ""),
               header(headers, "X-RateLimit-Resource"), header(headers, "X-RateLimit-Used"),
               header(headers, "X-RateLimit-Remaining"), header(headers, "X-RateLimit-Reset"),
-              f"{method.upper()} {QUERY.sub('', path)}")
+              f"{method.upper()} {path.split('?', 1)[0]}")
     return "\t".join([PREFIX, *(clean(value) for value in values)])
 
 
