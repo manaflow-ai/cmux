@@ -21,6 +21,7 @@ use super::{MessageWriter, Mux};
 use crate::request_origin::page_router_table::{self, Routed};
 use crate::request_origin::{HelloRole, OriginClaim, RequestOrigin, forbidden};
 use crate::resource::{PROTOCOL, RequestId, ResourceError, ResponseEnvelope};
+use cmux_threads::work::{Lane, Priority, Shutdown};
 use std::sync::Arc;
 
 /// A routed request's envelope: the catalog envelope's members (no launch
@@ -64,12 +65,54 @@ pub(super) fn try_handle(
         let response = crate::resource_router::malformed_resource_response(message, error);
         return Some(writer.send_control(&response).is_ok());
     };
-    let response = match run(mux, client, envelope, route) {
+    let operation = envelope.operation.clone();
+    let job = match run(mux, client, envelope, route) {
+        Ok(Answer::Now(result)) => return Some(respond(writer, id, Ok(result))),
+        Ok(Answer::Later(job)) => job,
+        Err(error) => return Some(respond(writer, id, Err(error))),
+    };
+    // The owner waits on another process: a work item asks it and answers,
+    // so this request thread answers the next line at once (Chrome posts
+    // such a wait to a MayBlock task runner, base/task/task_traits.h). A
+    // half-done ask is harmless and its connection closes at shutdown, so
+    // shutdown never waits for it.
+    let (worker_writer, worker_id) = (writer.clone(), id.clone());
+    let posted = mux.work.post(
+        Priority::UserBlocking,
+        Lane::System,
+        Shutdown::ContinueOnShutdown,
+        move || {
+            respond(&worker_writer, worker_id, job());
+        },
+    );
+    Some(match posted {
+        Ok(()) => true,
+        Err(_) => respond(
+            writer,
+            id,
+            Err(ResourceError::operation_failed(
+                &operation,
+                "the daemon is shutting down",
+                json!({"code": "unavailable"}),
+            )),
+        ),
+    })
+}
+
+/// A routed owner's answer: computed on the request thread, or a work item
+/// for an owner that waits on another process.
+enum Answer {
+    Now(Value),
+    Later(Box<dyn FnOnce() -> Result<Value, ResourceError> + Send>),
+}
+
+fn respond(writer: &MessageWriter, id: RequestId, result: Result<Value, ResourceError>) -> bool {
+    let response = match result {
         Ok(result) => ResponseEnvelope::success(id, result),
         Err(error) => ResponseEnvelope::failure(id, error),
     };
     let response = serde_json::to_value(response).unwrap_or_else(|_| json!({}));
-    Some(writer.send_control(&response).is_ok())
+    writer.send_control(&response).is_ok()
 }
 
 fn run(
@@ -77,7 +120,7 @@ fn run(
     client: u64,
     envelope: Envelope,
     route: Routed,
-) -> Result<Value, ResourceError> {
+) -> Result<Answer, ResourceError> {
     let operation = envelope.operation.as_str();
     if envelope.protocol != PROTOCOL {
         return Err(ResourceError::validation_invalid(Some("protocol"), "unsupported protocol"));
@@ -171,10 +214,13 @@ fn run(
         params.insert("idempotency_key".to_owned(), Value::String(key));
     }
     match route.owner {
-        "apps.store" => apps_store(mux, client, operation, Value::Object(params), origin),
+        "apps.store" => {
+            apps_store(mux, client, operation, Value::Object(params), origin).map(Answer::Now)
+        }
         #[cfg(unix)]
         "agent_session.trust" => {
             super::agent_session_attach::routed_trust(mux, client, operation, params)
+                .map(Answer::Later)
         }
         owner => Err(ResourceError::operation_failed(
             operation,

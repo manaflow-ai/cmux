@@ -1,43 +1,44 @@
 import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
-import Observation
 
 /// JavaScript dialogs of driven tabs as driver events. WebKitTab turns
 /// alert, confirm and prompt into `pendingPrompts`; the broker watches that
-/// list with Observation (no polling), sends `dialog.opened` for each new
+/// list with one automation-class ``ServiceObservation`` per tab (no polling;
+/// p06-scheduler-036: the person's input goes first), sends `dialog.opened` for each new
 /// dialog, and answers it on `dialog.respond`. A dialog stays open until it
 /// is answered, as #15570's driver keeps it (the snapshot shows it).
 @MainActor
 final class DialogBroker {
     private var dialogs: [String: BrowserPrompt] = [:]
     private var seen: Set<ObjectIdentifier> = []
-    private var watched: Set<BrowserTabID> = []
+    /// Each watched tab's prompt observation; removing one stops it.
+    private var watched: [BrowserTabID: ServiceObservation<[BrowserPrompt]>] = [:]
+    private let work: MainWorkScheduler
     private let emit: (String, [String: DriverJSON]) -> Void
 
-    init(emit: @escaping (String, [String: DriverJSON]) -> Void) {
+    init(work: MainWorkScheduler, emit: @escaping (String, [String: DriverJSON]) -> Void) {
+        self.work = work
         self.emit = emit
     }
 
     /// Starts watching a tab's prompts; idempotent.
     func watch(_ tab: WebKitTab) {
-        guard watched.insert(tab.id).inserted else { return }
-        observe(tab)
+        guard watched[tab.id] == nil else { return }
+        watched[tab.id] = ServiceObservation(.automation, owner: "browser-automation.dialogs", on: work) { [weak tab] in
+            tab?.pendingPrompts ?? []
+        } apply: { [weak self, weak tab] prompts in
+            guard let self, let tab else { return }
+            self.opened(prompts, in: tab)
+        }
     }
 
     func stopWatching(_ id: BrowserTabID) {
-        watched.remove(id)
+        watched.removeValue(forKey: id)?.cancel()
     }
 
-    private func observe(_ tab: WebKitTab) {
-        guard watched.contains(tab.id) else { return }
-        let prompts = withObservationTracking {
-            tab.pendingPrompts
-        } onChange: { [weak self, weak tab] in
-            Task { @MainActor in
-                guard let self, let tab else { return }
-                self.observe(tab)
-            }
-        }
+    /// Sends `dialog.opened` for each prompt not seen before.
+    private func opened(_ prompts: [BrowserPrompt], in tab: WebKitTab) {
         for prompt in prompts where seen.insert(ObjectIdentifier(prompt)).inserted {
             guard let (type, message, defaultValue) = Self.describe(prompt.kind) else { continue }
             let id = prompt.id.uuidString

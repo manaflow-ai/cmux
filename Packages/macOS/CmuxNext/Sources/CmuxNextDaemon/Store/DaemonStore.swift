@@ -42,6 +42,8 @@ public final class DaemonStore: StateResourceQueries {
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
     @ObservationIgnored public internal(set) var connectionEpoch = 0
+    /// Names ``connectionEpoch`` in a crash record (``CrashKeySlots/Key/daemonEpoch``); nil names none.
+    @ObservationIgnored let crashKeys: CrashKeySlots?
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
     /// be a different generation or build with different capabilities.
@@ -212,8 +214,10 @@ public final class DaemonStore: StateResourceQueries {
     ///     nil (tests, fixtures): a queue of the store's own.
     ///   - causes: The app's ``ObservationCauses`` (`MainWorkScheduler.causes`): the drain applies each
     ///     event with its cause, and an action run's intent with its origin's. nil (tests, fixtures): none.
-    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil) {
+    ///   - crashKeys: The app's crash keys; ``CrashKeySlots/Key/daemonEpoch`` follows ``connectionEpoch``.
+    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil, crashKeys: CrashKeySlots? = nil) {
         self.causes = StoreCauses(causes)
+        self.crashKeys = crashKeys
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger())
         index.unread.onChange = { [weak self] totals in self?.publish(unread: totals) }
