@@ -338,11 +338,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// Whether ``paste(_:)`` has text, files or pictures for the message box.
     public var canPasteIntoPrimaryInput: Bool { transcript.canPasteIntoPrimaryInput }
 
-    /// The live interface scale applies to the native first-run chrome. The
+    /// The live interface scale applies to the native first-run chrome, times the Chief chat's zoom
+    /// (`followZoom`), so the empty chat's panel grows with the header and field around it. The
     /// MessagesLab transcript owns its own text and field metrics.
     private func followTextSize() {
         withObservationTracking {
-            applyTextScale(Typography.userScale)
+            applyTextScale(Typography.userScale * DesignSettings.shared.agentPaneZoom)
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in self?.followTextSize() }
         }
