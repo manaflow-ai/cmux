@@ -404,7 +404,8 @@ def handle_prompt(rid, params):
         return
     # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
     # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
-    # (as "gate:") and ends.
+    # (as "gate:") and ends: "worked" and end_turn, or cancelled when a
+    # session/cancel came while it was blocked.
     if text.startswith("work-gate:"):
         path, _, title = text[len("work-gate:"):].partition(" | ")
         update(sid, {"sessionUpdate": "plan", "entries": [
@@ -414,6 +415,14 @@ def handle_prompt(rid, params):
                      "kind": "execute", "status": "in_progress"})
         with open(path.strip()) as gate:
             gate.read()
+        # A session/cancel that came while the tool ran ends the turn cancelled, never "worked".
+        with lock:
+            was_cancelled = sid in cancelled
+            cancelled.discard(sid)
+        if was_cancelled:
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "failed"})
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
         update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "completed"})
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

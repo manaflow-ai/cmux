@@ -37,7 +37,7 @@ impl Hub {
         let deliver = deliver.unwrap_or(Delivery::NextStep);
         if deliver == Delivery::Interrupt && to_parent {
             return Err(RpcError::invalid_params(
-                "a sub-session never interrupts its parent: send without interrupt, and the message goes into the parent's running turn at its next tool step",
+                "a sub-session never interrupts its parent: send without interrupt. A working parent reads the message at its next tool step (or when its turn ends, if its agent takes no message mid-turn); an idle one starts a turn with it",
             ));
         }
         // An interrupt stops the running turn only once the message is accepted, so a message the
