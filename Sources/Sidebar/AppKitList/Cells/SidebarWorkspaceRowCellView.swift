@@ -11,10 +11,13 @@ import SwiftUI
 /// cell so its lifetime cleanup is explicit and testable.
 @MainActor
 final class SidebarWorkspaceRowSelectionChromeObserverStore {
-    private let notificationCenter: NotificationCenter
-    private let workspaceNotificationCenter: NotificationCenter
-    private var observers: [NSObjectProtocol] = []
-    private var workspaceObserver: NSObjectProtocol?
+    // Swift 6 deinitialization is nonisolated. These values are only touched
+    // by main-actor install/invalidate calls, then synchronously drained from
+    // deinit after the owner has no remaining main-thread users.
+    private nonisolated let notificationCenter: NotificationCenter
+    private nonisolated let workspaceNotificationCenter: NotificationCenter
+    private nonisolated(unsafe) var observers: [NSObjectProtocol] = []
+    private nonisolated(unsafe) var workspaceObserver: NSObjectProtocol?
 
     init(
         notificationCenter: NotificationCenter = .default,
@@ -64,7 +67,7 @@ final class SidebarWorkspaceRowSelectionChromeObserverStore {
         )
     }
 
-    func invalidate() {
+    nonisolated func invalidate() {
         observers.forEach(notificationCenter.removeObserver)
         observers.removeAll()
         if let workspaceObserver {
