@@ -98,15 +98,16 @@
     "queues": {
       "Q1": {
         "title": "hand-written Swift commands",
-        "count": 235,
-        "found": 235,
-        "raw": "git grep -n -E 'static (let|var) command(: String)? = \"' -- 'Packages/macOS/CmuxNext/Sources' ':!*.generated.swift' | wc -l",
-        "raw_count": 235,
+        "count": 237,
+        "found": 237,
+        "raw": "git grep -n -E 'static (let|var) command(Name)?(: (String|DaemonCommandName))? = \"' -- 'Packages/macOS/CmuxNext/Sources' ':!*.generated.swift' | wc -l",
+        "raw_count": 237,
         "groups": {
           "CmuxNextApp/Handlers": 1,
+          "CmuxNextBrowserTabs": 1,
           "CmuxNextDaemon/Chief": 1,
           "CmuxNextDaemon/CloudConversations": 20,
-          "CmuxNextDaemon/Connection": 7,
+          "CmuxNextDaemon/Connection": 8,
           "CmuxNextDaemon/Conversations": 21,
           "CmuxNextDaemon/Loopback": 4,
           "CmuxNextDaemon/Requests": 1,
@@ -129,7 +130,8 @@
           "CmuxNextDaemon/Requests/Workspace": 7,
           "CmuxNextDaemon/Tree": 1,
           "CmuxNextTasks/Views": 1
-        }
+        },
+        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
       },
       "Q2": {
         "title": "daemon sniffers",
@@ -165,16 +167,13 @@
       },
       "Q5": {
         "title": "schema gaps (Swift wire names not in sdk-schema)",
-        "count": 27,
-        "found": 27,
+        "count": 4,
+        "found": 4,
         "groups": {
-          "CmuxNextDaemon/Connection": 5,
-          "CmuxNextDaemon/Loopback": 4,
-          "CmuxNextDaemon/Requests/Agents": 4,
-          "CmuxNextDaemon/Requests/Apps": 12,
-          "CmuxNextDaemon/Requests/Machines": 1,
-          "CmuxNextDaemon/Requests/Session": 1
-        }
+          "CmuxNextBrowserTabs": 1,
+          "CmuxNextDaemon/Requests/Agents": 3
+        },
+        "sha": "b23d066f60534e7080657e069eac7c46d7cfc911"
       },
       "Q6": {
         "title": "schema attributes missing",

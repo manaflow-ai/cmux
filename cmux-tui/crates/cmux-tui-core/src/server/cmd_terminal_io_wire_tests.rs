@@ -84,22 +84,6 @@ fn a_full_send_line_fills_every_param() {
     assert!(params.terminal_id.is_none() && params.expect_agent.is_none() && !params.submit);
 }
 
-/// The one TerminalIO field whose bytes the migration changes on purpose: the generated
-/// `SetSizeCountsRequest.counts` is a `FieldUpdate`, whose clear sends `null` where the
-/// hand-written request leaves the key out. The daemon reads both as the clear.
-#[test]
-fn set_size_counts_reads_an_absent_and_a_null_count_as_the_clear() {
-    for line in [
-        json!({"id": 1, "cmd": "set-size-counts", "surface": 7, "lease": "l-1"}),
-        json!({"id": 1, "cmd": "set-size-counts", "surface": 7, "lease": "l-1", "counts": null}),
-    ] {
-        let Command::SetSizeCounts { counts, lease, .. } = parse(&line).unwrap().cmd else {
-            panic!("not set-size-counts: {line}")
-        };
-        assert_eq!((counts, lease.as_deref()), (None, Some("l-1")), "{line}");
-    }
-}
-
 struct PtyRecorder(mpsc::Sender<Vec<u8>>);
 
 impl Write for PtyRecorder {

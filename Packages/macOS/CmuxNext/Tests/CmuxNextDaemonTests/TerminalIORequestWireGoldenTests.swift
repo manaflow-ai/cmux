@@ -11,17 +11,17 @@ import Testing
 /// bytes the app encodes are the bytes that reach the PTY.
 ///
 /// No TerminalIO field holds caller-authored keys (WireKeyInventory.dictionaryFields): the snake-case
-/// strategy and the generated CodingKeys write the same names. One field changes on purpose: the
-/// generated `set-size-counts.counts` is a `FieldUpdate` whose clear sends `null` where the hand-written
-/// `nil` leaves the key out; the daemon reads both as the clear (`set_size_counts_reads_an_absent_and_a_null_count_as_the_clear`).
+/// strategy and the generated CodingKeys write the same names, so every golden stays byte for byte. A
+/// hand-written `nil` becomes the generated `FieldUpdate.unchanged`, which also leaves the key out.
 struct TerminalIORequestWireGoldenTests {
     /// A request of the directory, encoded the way `DaemonConnection` sends it.
     struct Encoded: Sendable {
-        let command: String
+        /// The request's Swift type: two types can share one wire command (`send`).
+        let type: String
         let encode: @Sendable () throws -> Data
 
         init<R: DaemonRequest>(_ request: R) {
-            command = R.command
+            type = String(describing: R.self)
             encode = { try WireCoding.encodeRequest(request, id: 1) }
         }
     }
@@ -109,18 +109,28 @@ struct TerminalIORequestWireGoldenTests {
         }
     }
 
-    /// Every request type of the directory has a golden.
-    @Test func everyTerminalIOCommandHasAGolden() {
-        let covered = Set(Self.requests.values.map(\.command))
-        let commands: Set = [
-            SendInputRequest.command, SendTerminalInputRequest.command, SendKeyRequest.command,
-            AttachSurfaceRequest.command, ClearHistoryRequest.command, TerminalClipboardSubscribeRequest.command,
-            TerminalClipboardReplyRequest.command, ReleaseAttachedViewSizeRequest.command, SetSizeCountsRequest.command,
-            DetachAttachedViewRequest.command, SetClientSizingRequest.command, SetSizePolicyRequest.command,
-            ReadScreenRequest.command, ReadScrollbackRequest.command, ResizeSurfaceRequest.command,
-            ResizeAttachedViewRequest.command, SnapshotRequestRequest.command,
-        ]
-        #expect(commands.subtracting(covered).isEmpty)
+    /// Every request type declared in Sources/CmuxNextDaemon/Requests/TerminalIO has a golden. The list
+    /// is read from the source, so a type added there, or a second type of one wire command, needs one.
+    @Test func everyTerminalIORequestTypeHasAGolden() throws {
+        let directory = try Self.repositoryRoot()
+            .appendingPathComponent("Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/TerminalIO")
+        let declaration = try NSRegularExpression(
+            pattern: #"\bstruct\s+(\w+)\s*:[^{]*\b(?:DaemonRequest|TerminalSpawningRequest)\b"#
+        )
+        var declared: Set<String> = []
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+        for file in files where file.pathExtension == "swift" {
+            let source = try String(contentsOf: file, encoding: .utf8)
+            for match in declaration.matches(in: source, range: NSRange(source.startIndex..., in: source)) {
+                if let name = Range(match.range(at: 1), in: source) { declared.insert(String(source[name])) }
+            }
+        }
+        // When the migration deletes these structs, this set must come from the generated TerminalIO
+        // types instead: an empty directory does not pass as "every type has a golden".
+        try #require(!declared.isEmpty, "no DaemonRequest type in \(directory.path)")
+        let covered = Set(Self.requests.values.map(\.type))
+        #expect(declared.subtracting(covered).isEmpty, "no golden: \(declared.subtracting(covered).sorted())")
+        #expect(covered.subtracting(declared).isEmpty, "not in the directory: \(covered.subtracting(declared).sorted())")
     }
 
     /// Every key a golden sends is a request field of its command in cmux-tui/spec/sdk-schema.json, and the
