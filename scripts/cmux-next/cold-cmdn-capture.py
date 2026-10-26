@@ -47,10 +47,16 @@ def rpc(method, params=None, timeout=60):
                 if not chunk:
                     break
                 buf += chunk
-        reply = json.loads(buf or b"{}")
-        return reply.get("result") if reply.get("ok", "result" in reply) else {"error": reply.get("error")}
+        if not buf:
+            raise RuntimeError(f"{method}: empty response")
+        reply = json.loads(buf)
+        if not isinstance(reply, dict) or reply.get("id") != 1:
+            raise RuntimeError(f"{method}: invalid response envelope")
+        if reply.get("ok") is not True or "error" in reply or "result" not in reply:
+            raise RuntimeError(f"{method}: unsuccessful response: {reply!r}")
+        return reply["result"]
     except (OSError, ValueError) as error:
-        return {"error": str(error)}
+        raise RuntimeError(f"{method}: {error}") from error
 
 
 def require_result(method, params=None, timeout=60, allow_null=False):
