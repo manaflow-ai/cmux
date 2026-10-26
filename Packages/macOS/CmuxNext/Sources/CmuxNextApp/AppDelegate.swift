@@ -347,7 +347,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
             for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
-                services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
+                services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
             }
         }
         // macOS posts no notification when an MDM profile changes; activation
@@ -502,8 +502,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
-        services.startCloudNow()  // a callback before the launch's Cloud post: the sign-in needs Cloud now
-        Task { _ = await auth.handleCallback(url) }
+        Task { _ = await auth.handleCallback(url) }  // it starts Cloud first (`CloudAuth.onSignIn`)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -91,16 +91,14 @@ final class AppServices {
     /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
     let machineAsks = SidebarAsks()
     /// The account's sign-in, apart from ``cloud`` so its launch readers (the managed team, Home, a sign-in callback) build no
-    /// CloudService. Its session restores at the Cloud start (``startCloudNow()``), which also builds ``feed`` and follows the host replica.
+    /// CloudService. Its first token or restore reader starts the session restore (`CloudAuth.start`); a sign-in starts Cloud.
     private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild))
-    private(set) lazy var cloud: CloudService = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork)
-    /// The feed mirror (`FeedDO`), started once the cmux account is signed in. Its first reader starts the session
-    /// restore (idempotent), so the mirror's account follow waits for it whoever builds the feed first.
-    private(set) lazy var feed: FeedService = {
-        cloudAuth.start()
-        return FeedService(auth: cloudAuth, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
-    }()
+    /// ``cloud`` and ``feed`` (AppServices+Cloud.swift), built at their first read: nil until then (no IUO).
+    var cloudIfBuilt: CloudService?, feedIfBuilt: FeedService?
+    /// The Cloud policy and the `feed.github` setting, applied when ``cloud`` and ``feed`` are built.
+    var cloudPolicyDisabled = false, feedGitHub: (enabled: Bool, pollIntervalSeconds: Double)?
     var cloudContext: Task<Void, Never>?  // the Cloud start's registry context follow; nil until Cloud starts
+    var cloudStart: CloudStartPost?  // the launch's Cloud start (`postCloudStart`); nil in tests
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)

@@ -26,6 +26,7 @@ extension AppControl {
             },
             .mainActor("cloud.machines") { _ in
                 if let refusal = Self.policyRefusal("cloud.machines", disabled: services.registry.disabledFeatures) { throw refusal }
+                services.startCloudNow()  // a read before the launch's Cloud post: the list loads now (a second call does nothing)
                 let rows: [JSONValue] = services.machines.cloud.map { .object(Self.cloudMachineRow($0, services.machines)) }
                 return .value(.object(["machines": .array(rows), "loaded": .bool(services.cloud.hasLoadedCurrentMachines),
                                        "creations": .array(services.cloud.creations.controlRows),
