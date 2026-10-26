@@ -128,28 +128,50 @@ import Testing
         #expect(watch.sampleCount == 2 && watch.generation == 2)
     }
 
-    /// A slow sample of a picture the desktop has already left never lands over the newer one.
+    /// A slow sample of a picture the desktop has already left never lands over the newer one, and
+    /// the newer picture waits for it (one decode at a time) instead of starting a second.
     @Test func aStaleSampleNeverWins() async throws {
         let folder = try Self.folder()
         let slow = folder.appendingPathComponent("slow.png"), fast = folder.appendingPathComponent("fast.png")
-        // The slow sample returns only once the newer one is under way, and ignores its cancellation.
-        let (newerStarted, starting) = AsyncStream<Void>.makeStream()
+        let (release, releasing) = AsyncStream<Void>.makeStream()
+        let running = OSAllocatedUnfairLock(initialState: 0)
         var shown = slow
         let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: { reading in
-            guard reading.picture.reportedURL == slow else {
-                starting.finish()
-                return Self.blue
-            }
-            await Task.detached { for await _ in newerStarted {} }.value
+            running.withLock { $0 += 1 }
+            defer { running.withLock { $0 -= 1 } }
+            guard reading.picture.reportedURL == slow else { return Self.blue }
+            await Task.detached { for await _ in release {} }.value
             return Self.red
         })
         watch.tintEnabled = true
         watch.refresh()
         shown = fast
         watch.refresh()
+        #expect(watch.sampleCount == 1, "the newer picture waits for the decode under way")
+        releasing.finish()
         await watch.settled()
         #expect(watch.sampleCount == 2)
+        #expect(running.withLock { $0 } == 0)
         #expect(watch.tint == Self.blue, "the left picture's sample returned and did not land")
+    }
+
+    /// Turning the tint off while a sample runs: the sample ends, but its color is not shown.
+    @Test func aSampleEndingAfterTheTintWentOffShowsNothing() async throws {
+        let folder = try Self.folder()
+        let (release, releasing) = AsyncStream<Void>.makeStream()
+        let watch = DesktopWallpaperWatch(read: { Self.reading(folder.appendingPathComponent("blue.png"), folder: folder) }, sample: { _ in
+            await Task.detached { for await _ in release {} }.value
+            return Self.blue
+        })
+        watch.tintEnabled = true
+        watch.refresh()
+        watch.tintEnabled = false
+        releasing.finish()
+        await watch.settled()
+        #expect(watch.tint == nil)
+        watch.tintEnabled = true
+        #expect(watch.tint == Self.blue, "its color was kept: turning the tint on again shows it at once")
+        #expect(watch.sampleCount == 1)
     }
 
     /// A picture overwritten at the same path is a new picture: it is sampled again, and the

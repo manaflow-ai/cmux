@@ -36,6 +36,9 @@ public final class BackdropImageStore {
     private var warming: [Task<Void, Never>] = []
     /// The desktop's ``DesktopWallpaperWatch/generation`` the cached Desktop Wallpaper shows.
     private var desktopGeneration = 0
+    /// Desktop Wallpaper decodes the desktop moved on from. A decode can't be stopped once it
+    /// runs, so the next one waits for these: one desktop decode at a time, however fast it changes.
+    private var retiredDesktopLoads: [Task<Decoded?, Never>] = []
 
     private struct Key: Hashable {
         let id: String
@@ -109,7 +112,7 @@ public final class BackdropImageStore {
         guard generation > desktopGeneration else { return }
         desktopGeneration = generation
         images = images.filter { $0.key.id != BackdropSelection.desktopID }
-        for (key, load) in loads where key.id == BackdropSelection.desktopID { load.cancel() }
+        for (key, load) in loads where key.id == BackdropSelection.desktopID { retiredDesktopLoads.append(load) }
         loads = loads.filter { $0.key.id != BackdropSelection.desktopID }
     }
 
@@ -135,6 +138,13 @@ public final class BackdropImageStore {
         if case .art(let art) = selection, art.imageURL == nil {
             // Not bundled and not downloaded yet: fetch it once, then decode as usual.
             guard await downloads.file(for: art) != nil else { return nil }
+            if let image = images[key] { return image }
+        }
+        if key.id == BackdropSelection.desktopID, loads[key] == nil, !retiredDesktopLoads.isEmpty {
+            let retired = retiredDesktopLoads
+            retiredDesktopLoads = []
+            for load in retired { _ = await load.value }
+            guard !Task.isCancelled else { return nil }
             if let image = images[key] { return image }
         }
         let load: Task<Decoded?, Never>

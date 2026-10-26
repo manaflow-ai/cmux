@@ -16,8 +16,9 @@ import Foundation
 /// matches the last one costs nothing more; a new picture is decoded small and averaged off the
 /// main actor, once per picture (switching back to a Space reuses its color), and only while
 /// ``tintEnabled``. Registered material views re-apply at once (the Desktop Wallpaper art) and
-/// again when the color lands. While the app is hidden it does nothing: the first event after
-/// it shows again (or the unhide itself) reads once. It reads the main screen (the one with the key window); every
+/// again when the color lands. One decode runs at a time. While nothing of the app shows (hidden,
+/// or no visible window) it does nothing: the first event after it shows again (the unhide, a
+/// window becoming key) reads once. It reads the main screen (the one with the key window); every
 /// window takes that screen's color. Inert until ``start()``, so tests and windows built before
 /// launch see no tint. The app's watch belongs to ``BackdropImageStore/shared``.
 ///
@@ -29,7 +30,7 @@ import Foundation
 public final class DesktopWallpaperWatch {
     /// A watch over the main screen's desktop picture that keeps its last color in `defaults`.
     public static func live(defaults: UserDefaults? = .standard) -> DesktopWallpaperWatch {
-        DesktopWallpaperWatch(read: readMainScreen, sample: sample, defaults: defaults, isHidden: { NSApp?.isHidden == true })
+        DesktopWallpaperWatch(read: readMainScreen, sample: sample, defaults: defaults, isHidden: showsNoWindow)
     }
 
     /// Where the last color is kept, so the next launch's first window has it before a sample.
@@ -82,6 +83,7 @@ public final class DesktopWallpaperWatch {
     public var tintEnabled = false {
         didSet {
             guard tintEnabled != oldValue else { return }
+            // Off: a sample under way finishes into the cache but publishes nothing.
             if !tintEnabled || !sampleIfNeeded() { refreshViews() }
         }
     }
@@ -91,15 +93,13 @@ public final class DesktopWallpaperWatch {
     private let defaults: UserDefaults?
     private let isHidden: @MainActor () -> Bool
     private var current: Reading?
-    /// The reading whose color ``tint`` is, and the one a sample is under way for.
+    /// The reading whose color ``tint`` is.
     private var published: Reading?
-    private var sampling: Reading?
     /// Colors already sampled, by reading: a Space switch back never decodes again.
     private var colors: [Reading: WallpaperTint?] = [:]
-    /// Samples under way, by start order: the newest one is the current reading's; older ones are
-    /// cancelled and drop out when they return, so `settled()` can wait for them too.
-    private var samples: [Int: Task<Void, Never>] = [:]
-    private var samplesStarted = 0
+    /// The one sample under way. A decode can't be stopped once it runs, so a newer reading never
+    /// starts a second one: it waits, and this one's end samples the reading shown then.
+    private var sampling: (reading: Reading, task: Task<Void, Never>)?
     private let storeSettle = DemandTimer(owner: "desktop-wallpaper-store")
     private var observers: [MainActorObservation] = []
     private var storeSource: WallpaperStoreSource?
@@ -109,7 +109,7 @@ public final class DesktopWallpaperWatch {
     ///   - read: What the desktop shows now; nil without a screen.
     ///   - sample: The color of a reading, off the main actor.
     ///   - defaults: Where the last color is kept between launches; nil keeps none.
-    ///   - isHidden: Whether the app is hidden: no reading then.
+    ///   - isHidden: Whether nothing of the app shows (hidden, or no visible window): no reading then.
     init(read: @escaping @MainActor () -> Reading?, sample: @escaping @Sendable (Reading) async -> WallpaperTint?,
          defaults: UserDefaults? = nil, isHidden: @escaping @MainActor () -> Bool = { false }) {
         self.read = read
@@ -164,45 +164,48 @@ public final class DesktopWallpaperWatch {
     /// Reads the desktop (not while the app is hidden); a new reading re-applies the views at once
     /// and, while ``tintEnabled``, takes its color (sampled once).
     func refresh() {
+        // A store that could not be watched again (macOS had not made it yet) is tried on each event.
+        if storeSource == nil, !observers.isEmpty { watchStore() }
         guard !isHidden(), let reading = read(), reading != current else { return }
         if current != nil { generation += 1 }
         current = reading
-        for task in samples.values { task.cancel() }
-        sampling = nil
         // The Desktop Wallpaper art reloads now, not only once the color lands.
         if !sampleIfNeeded() { refreshViews() }
     }
 
     /// Takes the current reading's color while the tint is on: a known one at once (returns
-    /// true: the views re-applied), else one sample off the main actor.
+    /// true: the views re-applied), else one sample off the main actor, when none is under way.
     @discardableResult
     private func sampleIfNeeded() -> Bool {
-        guard tintEnabled, let reading = current, published != reading, sampling != reading else { return false }
+        guard tintEnabled, let reading = current, published != reading else { return false }
         if let known = colors[reading] {
             publish(known, for: reading)
             return true
         }
+        guard sampling == nil else { return false }
         sampleCount += 1
-        sampling = reading
-        let sample = self.sample, id = samplesStarted
-        samplesStarted += 1
-        // task-owner: one sample per new reading; a newer reading cancels it (refresh above)
-        samples[id] = Task { [weak self] in
+        let sample = self.sample
+        // task-owner: the one sample under way (`sampling`); its end starts the next one if needed
+        let task = Task { [weak self] in
             let color = await sample(reading)
-            guard let self else { return }
-            self.samples[id] = nil
-            guard !Task.isCancelled, self.current == reading else { return }
-            self.sampling = nil
-            if self.colors.count >= 32 { self.colors.removeAll() }
-            self.colors[reading] = color
-            self.publish(color, for: reading)
+            self?.sampled(color, for: reading)
         }
+        sampling = (reading, task)
         return false
     }
 
-    /// Waits for every sample under way, cancelled ones too (tests).
+    /// A sample ended: its color is kept for its reading, and shown only when that reading is
+    /// still the desktop and the tint is on; otherwise the reading shown now is sampled.
+    private func sampled(_ color: WallpaperTint?, for reading: Reading) {
+        sampling = nil
+        if colors.count >= 32 { colors.removeAll() }
+        colors[reading] = color
+        sampleIfNeeded()
+    }
+
+    /// Waits until no sample is under way (tests).
     func settled() async {
-        while let task = samples.values.first { await task.value }
+        while let task = sampling?.task { await task.value }
     }
 
     private func publish(_ color: WallpaperTint?, for reading: Reading) {
@@ -222,10 +225,18 @@ public final class DesktopWallpaperWatch {
     }
 
     private func storeDidChange(replaced: Bool) {
+        // The source that saw the folder go is spent: drop it now, so the settled refresh (or any
+        // later event, if macOS makes the folder later) watches the new one.
+        if replaced { storeSource = nil }
         storeSettle.schedule(after: .milliseconds(300)) { @MainActor [weak self] in
-            if replaced { self?.watchStore() }
             self?.refresh()
         }
+    }
+
+    /// Nothing of the app shows: it is hidden, or has no visible window.
+    private static func showsNoWindow() -> Bool {
+        guard let app = NSApp else { return true }
+        return app.isHidden || !app.windows.contains { $0.isVisible }
     }
 
     /// The main screen's desktop picture (the screen with the key window) in the app's appearance.
@@ -235,15 +246,12 @@ public final class DesktopWallpaperWatch {
         return Reading(picture: DesktopPicture(screen: screen), dark: dark)
     }
 
-    /// The reading's picture resolved to a file, decoded small and averaged, off the main actor.
-    /// Cancelling the caller cancels the decode: it stops before decoding, and drops its result.
+    /// The reading's picture resolved to a file, decoded small (64 px) and averaged, off the main actor.
     nonisolated static func sample(_ reading: Reading) async -> WallpaperTint? {
-        // task-owner: the caller's sample task; its cancellation reaches this one (onCancel below)
-        let work = Task.detached(priority: .utility) { () -> WallpaperTint? in
-            guard !Task.isCancelled, let url = reading.picture.resolvedURL(dark: reading.dark),
-                  let image = BackdropImageStore.decode(url, maxPixelSize: 64, dark: reading.dark), !Task.isCancelled else { return nil }
+        await Task.detached(priority: .utility) { () -> WallpaperTint? in
+            guard let url = reading.picture.resolvedURL(dark: reading.dark),
+                  let image = BackdropImageStore.decode(url, maxPixelSize: 64, dark: reading.dark) else { return nil }
             return WallpaperTint.average(of: image)
-        }
-        return await withTaskCancellationHandler { await work.value } onCancel: { work.cancel() }
+        }.value
     }
 }
