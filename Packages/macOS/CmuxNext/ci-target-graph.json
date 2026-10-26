@@ -909,7 +909,8 @@
       "reads": [
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
-        "schemas/theme/orange-accent-allowlist.json"
+        "schemas/theme/orange-accent-allowlist.json",
+        "schemas/theme/theme-ink-vectors.json"
       ]
     },
     "CmuxNextDesignTokens": {
