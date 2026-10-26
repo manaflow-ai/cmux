@@ -35,21 +35,22 @@ public extension PageProvider {
 /// What ``PageRouter`` keeps of one stream's events while the page's delivery is held (hidden or
 /// frozen, webui-DESIGN.md "Lifecycle"). It replaces the backpressure Chrome's WebUI handlers get
 /// from Mojo: a frozen page runs no script, so the router must not queue without bound for it.
-/// Release sends what was kept in arrival order with fresh `seq` numbers, so the page never sees a
-/// seq skip; a stream that lost events gets `gap: true` on its first released event and resyncs
-/// (pane-protocol.md decision 15). Each dropped event calls the provider's
-/// ``PageProvider/eventDeliveryDropped(stream:data:publicationID:)`` once.
+/// Release sends what was kept in arrival order, in one batch, with fresh `seq` numbers; a stream
+/// that lost events gets `gap: true` on its first released event (pane-protocol-decisions.md
+/// decisions 15 and 32), which the page reads as `PageEventMeta.gap` (webviews pageClient.ts). Each dropped
+/// event calls the provider's ``PageProvider/eventDeliveryDropped(stream:data:publicationID:)`` once.
 public nonisolated enum PageFrozenDelivery: Hashable, Sendable {
     /// A state stream: each event replaces the last. Keeps the newest; no gap.
     case latest
     /// A delta stream the page can rebuild with a fresh read: keeps the newest, and marks a gap
-    /// when it dropped any, so the page re-reads.
+    /// when it dropped any. Only for a stream whose page re-reads on `meta.gap`.
     case resync
-    /// Keeps the newest `limit` events (at least 1); older ones drop and mark a gap.
+    /// Keeps the newest `limit` events (at least 1); older ones drop and mark a gap, as `.resync`.
     case queue(Int)
-    /// Never drops. When one stream holds ``orderedHalfFull`` events the router tells
-    /// ``PageDeliveryLifecycle/orderedDeliveryHalfFull()`` once per hold: the page leaves Frozen and
-    /// stays hidden.
+    /// Never drops. When one stream holds ``orderedHalfFull`` events, the router tells
+    /// ``PageDeliveryLifecycle/orderedDeliveryHalfFull()`` (the page leaves Frozen and stays hidden)
+    /// and sends everything held in one batch; the hold goes on. So no stream keeps more than
+    /// ``orderedHalfFull``, and the provider's own buffer never overflows because of the hold.
     case ordered
 
     /// Half of the largest provider buffer (AgentPageProvider keeps 8,192 events).
@@ -81,6 +82,8 @@ public protocol PageDeliveryLifecycle: AnyObject {
     /// it before a built-in command or a host call reaches the page, so a page call never waits out
     /// a deadline because the page was frozen.
     func thawForDelivery()
-    /// An `.ordered` stream holds ``PageFrozenDelivery/orderedHalfFull`` events.
+    /// An `.ordered` stream holds ``PageFrozenDelivery/orderedHalfFull`` events: thaw the page now
+    /// (it may stay hidden); the router sends what it held right after. Called each time a stream
+    /// fills again while held.
     func orderedDeliveryHalfFull()
 }

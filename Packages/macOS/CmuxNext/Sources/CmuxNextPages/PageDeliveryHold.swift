@@ -19,65 +19,78 @@ struct PageReleasedEvent {
 /// to keep, what dropped and what to send.
 struct PageDeliveryHold {
     private(set) var isHeld = false
+    /// The events kept now, across streams.
+    private(set) var count = 0
     private var streams: [UInt64: Stream] = [:]
     private var nextArrival: UInt64 = 0
-    private var reportedHalfFull = false
 
+    /// One stream's kept events. A drop advances `head` (O(1)); the dropped prefix is compacted
+    /// once it is half the buffer, so a full `.queue(limit)` costs amortized O(1) per event.
     private struct Stream {
-        var events: [PageHeldEvent] = []
-        var gap = false
+        private var storage: [PageHeldEvent] = []
+        private var head = 0
+        private(set) var gap = false
+
+        var count: Int { storage.count - head }
+        var events: ArraySlice<PageHeldEvent> { storage[head...] }
+
+        mutating func append(_ event: PageHeldEvent) {
+            storage.append(event)
+        }
 
         /// Trims to what `policy` keeps (oldest first out) and returns what it dropped.
         mutating func apply(_ policy: PageFrozenDelivery) -> [PageHeldEvent] {
-            guard let keeps = policy.keeps, events.count > keeps else { return [] }
-            let dropped = Array(events.prefix(events.count - keeps))
-            events.removeFirst(events.count - keeps)
+            guard let keeps = policy.keeps, count > keeps else { return [] }
+            let end = storage.count - keeps
+            // A copy, not a slice: a slice would share `storage` and make the next append copy it.
+            let dropped = Array(storage[head..<end])
+            head = end
             if policy.dropMarksGap { gap = true }
+            if head * 2 >= storage.count {
+                storage.removeFirst(head)
+                head = 0
+            }
             return dropped
         }
     }
-
-    /// The events kept now, across streams.
-    var count: Int { streams.values.reduce(0) { $0 + $1.events.count } }
 
     mutating func hold() {
         isHeld = true
     }
 
     /// Keeps one event of `sub`. A nil policy (the stream's `subscribe` still runs) keeps
-    /// everything until ``apply(_:to:)``. Returns the events the policy dropped, and true the first
-    /// time in this hold that an `.ordered` stream reaches ``PageFrozenDelivery/orderedHalfFull``.
+    /// everything until ``apply(_:to:)``. Returns the events the policy dropped, and whether the
+    /// stream is `.ordered` and now keeps ``PageFrozenDelivery/orderedHalfFull`` events (the router
+    /// then sends the hold, ``flush()``).
     mutating func keep(sub: UInt64, _ data: JSONValue, publicationID: UInt64?,
                        policy: PageFrozenDelivery?) -> (dropped: [PageHeldEvent], halfFull: Bool) {
         // In place: a copy of the stream would copy its events on every append.
-        streams[sub, default: Stream()].events.append(PageHeldEvent(arrival: nextArrival, data: data, publicationID: publicationID))
+        streams[sub, default: Stream()].append(PageHeldEvent(arrival: nextArrival, data: data, publicationID: publicationID))
         nextArrival &+= 1
-        var dropped: [PageHeldEvent] = []
-        if let policy { dropped = streams[sub, default: Stream()].apply(policy) }
-        let kept = streams[sub]?.events.count ?? 0
-        guard policy == .ordered, !reportedHalfFull, kept >= PageFrozenDelivery.orderedHalfFull else {
-            return (dropped, false)
-        }
-        reportedHalfFull = true
-        return (dropped, true)
+        count += 1
+        guard let policy else { return ([], false) }
+        let dropped = streams[sub, default: Stream()].apply(policy)
+        count -= dropped.count
+        let halfFull = policy == .ordered && (streams[sub]?.count ?? 0) >= PageFrozenDelivery.orderedHalfFull
+        return (dropped, halfFull)
     }
 
     /// Applies the policy a stream named once its `subscribe` answered; returns what it dropped.
     mutating func apply(_ policy: PageFrozenDelivery, to sub: UInt64) -> [PageHeldEvent] {
         guard streams[sub] != nil else { return [] }
-        return streams[sub, default: Stream()].apply(policy)
+        let dropped = streams[sub, default: Stream()].apply(policy)
+        count -= dropped.count
+        return dropped
     }
 
     /// Forgets `sub`'s events (the page ended the stream).
     mutating func remove(_ sub: UInt64) {
-        streams.removeValue(forKey: sub)
+        count -= streams.removeValue(forKey: sub)?.count ?? 0
     }
 
-    /// Ends the hold and returns what it kept in arrival order; the first event of a stream that
-    /// dropped any carries the gap.
-    mutating func release() -> [PageReleasedEvent] {
-        isHeld = false
-        reportedHalfFull = false
+    /// Returns what the hold kept in arrival order and keeps holding; the first event of a stream
+    /// that dropped any carries the gap.
+    mutating func flush() -> [PageReleasedEvent] {
         var released: [PageReleasedEvent] = []
         released.reserveCapacity(count)
         for (sub, stream) in streams {
@@ -86,14 +99,22 @@ struct PageDeliveryHold {
             }
         }
         streams.removeAll()
+        count = 0
         released.sort { $0.event.arrival < $1.event.arrival }
         return released
     }
 
+    /// Ends the hold and returns what it kept, as ``flush()``.
+    mutating func release() -> [PageReleasedEvent] {
+        isHeld = false
+        return flush()
+    }
+
     /// Empties the hold without ending it (the page's document went away), by subscription.
     mutating func drain() -> [(sub: UInt64, events: [PageHeldEvent])] {
-        let drained = streams.sorted { $0.key < $1.key }.map { (sub: $0.key, events: $0.value.events) }
+        let drained = streams.sorted { $0.key < $1.key }.map { (sub: $0.key, events: Array($0.value.events)) }
         streams.removeAll()
+        count = 0
         return drained
     }
 }

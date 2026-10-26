@@ -17,7 +17,16 @@ struct PageRouterFrozenDeliveryTests {
         var entries: [String] = []
         var sent: [JSONValue] = []
 
-        var events: [JSONValue] { sent.filter { $0["t"]?.stringValue == "ev" } }
+        /// Every event that reached the page, a release batch (`evs`) unpacked in its order.
+        var events: [JSONValue] {
+            sent.flatMap { envelope -> [JSONValue] in
+                switch envelope["t"]?.stringValue {
+                case "ev": [envelope]
+                case "evs": envelope["events"]?.arrayValue ?? []
+                default: []
+                }
+            }
+        }
     }
 
     final class Lifecycle: PageDeliveryLifecycle {
@@ -161,7 +170,10 @@ struct PageRouterFrozenDeliveryTests {
         #expect(seqs(events) == [1, 1, 2, 2, 3, 3])
     }
 
-    @Test func orderedNeverDropsAndReportsHalfFullOncePerHold() async {
+    /// A busy `.ordered` stream on a hidden page: at half full the lifecycle hears it (the page
+    /// leaves Frozen) and the router sends what it held in one batch, then holds again. Three
+    /// half-fulls in one hold report three times and the hold never keeps more than half full.
+    @Test func orderedNeverDropsAndStaysBoundedWhileHeld() async {
         let provider = StreamProvider(["cmux.held.turns": .ordered])
         let (router, lifecycle) = makeRouter(provider)
         _ = await subscribe(router, "cmux.held.turns")
@@ -169,16 +181,51 @@ struct PageRouterFrozenDeliveryTests {
         router.holdDelivery()
         provider.emit("cmux.held.turns", 0..<(half - 1))
         #expect(lifecycle.halfFull == 0)
-        provider.emit("cmux.held.turns", (half - 1)..<(half + 10))
-        #expect(lifecycle.halfFull == 1)
-        #expect(provider.dropped.isEmpty)
         #expect(lifecycle.log.sent.isEmpty)
+        var most = 0
+        for n in (half - 1)..<(3 * half + 10) {
+            provider.emit("cmux.held.turns", n..<(n + 1))
+            most = max(most, router.heldEventCount)
+        }
+        #expect(most < half, "the hold stays bounded")
+        #expect(lifecycle.halfFull == 3, "each fill is reported")
+        #expect(lifecycle.log.entries == ["halfFull", "send:evs", "halfFull", "send:evs", "halfFull", "send:evs"])
+        #expect(router.deliveryHeld, "the page is still hidden")
+        #expect(router.heldEventCount == 10)
         router.releaseDelivery()
-        #expect(lifecycle.log.events.count == half + 10)
-        #expect(seqs(lifecycle.log.events) == (1...(half + 10)).map { Double($0) })
+        #expect(provider.dropped.isEmpty)
+        #expect(lifecycle.log.events.count == 3 * half + 10)
+        #expect(seqs(lifecycle.log.events) == (1...(3 * half + 10)).map { Double($0) })
+        #expect(numbers(lifecycle.log.events) == (0..<(3 * half + 10)).map { Double($0) })
+    }
+
+    /// A release is one batch: one send for any number of held events, so the show turn does not
+    /// evaluate a script per event.
+    @Test func releaseIsOneSend() async {
+        let provider = StreamProvider(["cmux.held.a": .ordered, "cmux.held.b": .queue(100)])
+        let (router, lifecycle) = makeRouter(provider)
+        _ = await subscribe(router, "cmux.held.a")
+        _ = await subscribe(router, "cmux.held.b")
         router.holdDelivery()
-        provider.emit("cmux.held.turns", 0..<half)
-        #expect(lifecycle.halfFull == 2, "a new hold reports again")
+        provider.emit("cmux.held.a", 0..<500)
+        provider.emit("cmux.held.b", 0..<500)
+        router.releaseDelivery()
+        #expect(lifecycle.log.entries == ["send:evs"])
+        #expect(lifecycle.log.events.count == 600)
+    }
+
+    /// A full `.queue(limit)` drops one event per event (oldest first) and keeps exactly `limit`.
+    @Test func aFullQueueKeepsItsLimit() async {
+        let provider = StreamProvider(["cmux.held.feed": .queue(64)])
+        let (router, lifecycle) = makeRouter(provider)
+        _ = await subscribe(router, "cmux.held.feed")
+        router.holdDelivery()
+        provider.emit("cmux.held.feed", 0..<1_000)
+        #expect(router.heldEventCount == 64)
+        #expect(numbers(provider.dropped) == (0..<936).map { Double($0) })
+        router.releaseDelivery()
+        #expect(numbers(lifecycle.log.events) == (936..<1_000).map { Double($0) })
+        #expect(gaps(lifecycle.log.events) == [true] + Array(repeating: false, count: 63))
     }
 
     /// Cmd-F on a frozen page: the command thaws it in the same turn, then reaches the page past
@@ -242,5 +289,21 @@ struct PageRouterFrozenDeliveryTests {
         router.releaseDelivery()
         #expect(lifecycle.log.sent.isEmpty)
         #expect(numbers(provider.dropped) == [0, 1, 2])
+    }
+
+    /// A pooled router handed to a new claim does not keep the old claim's hold: the new document's
+    /// events reach it (its own lifecycle holds again if its page is hidden).
+    @Test func rebindDropsTheOldClaimsHold() async {
+        let provider = StreamProvider(["cmux.held.log": .ordered])
+        let (router, lifecycle) = makeRouter(provider)
+        _ = await subscribe(router, "cmux.held.log")
+        router.holdDelivery()
+        provider.emit("cmux.held.log", 0..<2)
+        router.rebind(descriptor: Self.descriptor, routes: [PageRoute(prefix: "cmux.held.", provider: provider)])
+        #expect(numbers(provider.dropped) == [0, 1])
+        #expect(!router.deliveryHeld)
+        _ = await subscribe(router, "cmux.held.log")
+        provider.emit("cmux.held.log", 2..<3)
+        #expect(numbers(lifecycle.log.events) == [2])
     }
 }

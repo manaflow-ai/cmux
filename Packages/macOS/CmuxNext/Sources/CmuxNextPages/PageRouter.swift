@@ -22,10 +22,11 @@ public final class PageRouter {
     /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
     /// has not delivered yet, which belong to the subscriptions that just ended.
     public var didClose: (() -> Void)?
-    private var subscriptions: [UInt64: PageSubscription] = [:]
+    // Not private: PageRouter+Hold.swift reads the streams and writes `sequences` and `held`.
+    private(set) var subscriptions: [UInt64: PageSubscription] = [:]
     private var activeStreams: Set<UInt64> = []
-    private var streamProviders: [UInt64: (name: String, provider: any PageProvider)] = [:]
-    private var sequences: [UInt64: UInt64] = [:]
+    private(set) var streamProviders: [UInt64: (name: String, provider: any PageProvider)] = [:]
+    var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
     private var nextCall: UInt64 = 1
     private var pendingCalls: [UInt64: CheckedContinuation<JSONValue, any Error>] = [:]
@@ -35,13 +36,13 @@ public final class PageRouter {
     private var closed = false
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
-    private var builtIn: [UInt64: String] = [:]
+    private(set) var builtIn: [UInt64: String] = [:]
     /// The owner link state the connection stream reports.
     public private(set) var connected = true
     /// The page's lifecycle: thaws before a command or host call, hears an `.ordered` stream fill.
     public weak var lifecycle: (any PageDeliveryLifecycle)?
     /// Events kept while delivery is held, per subscription, by the stream's ``PageFrozenDelivery``.
-    private var held = PageDeliveryHold()
+    var held = PageDeliveryHold()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Whether the page's view is hidden, as its ``PageWebView`` tells the engine (`debug.webui`).
     public internal(set) var debugPageHidden = false
@@ -57,6 +58,8 @@ public final class PageRouter {
     /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
     func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
         reset()
+        // The hold followed the old claim's visibility; the new owner's lifecycle holds it again.
+        held = PageDeliveryHold()
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
     }
@@ -249,42 +252,11 @@ public final class PageRouter {
         guard held.isHeld else { return emit(sub: sub, data, publicationID: publicationID) }
         let kept = held.keep(sub: sub, data, publicationID: publicationID, policy: frozenDelivery(of: sub))
         reportDropped(kept.dropped, sub: sub)
-        if kept.halfFull { lifecycle?.orderedDeliveryHalfFull() }
-    }
-
-    /// The stream's hold policy; nil while its `subscribe` still runs (everything is kept until it
-    /// answers with its subscription).
-    private func frozenDelivery(of sub: UInt64) -> PageFrozenDelivery? {
-        if let subscription = subscriptions[sub] { return subscription.frozenDelivery }
-        guard let name = builtIn[sub] else { return nil }
-        // The connection is state; popup events answer a popup the page opened, so none may drop.
-        // Commands never wait in the hold (``publishCommand(_:arguments:)``).
-        return name == PageNativeOp.pageConnection ? .latest : .ordered
-    }
-
-    private func reportDropped(_ dropped: [PageHeldEvent], sub: UInt64) {
-        guard !dropped.isEmpty, let stream = streamProviders[sub] else { return }
-        for event in dropped {
-            stream.provider.eventDeliveryDropped(stream: stream.name, data: event.data, publicationID: event.publicationID)
-        }
-    }
-
-    /// Sends one event envelope with the subscription's next `seq`.
-    private func emit(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil, gap: Bool = false) {
-        let seq = (sequences[sub] ?? 0) + 1
-        sequences[sub] = seq
-        #if DEBUG || CMUX_BENCH_HOOKS
-        if debugPageHidden { debugDeliveriesWhileHidden &+= 1 }
-        #endif
-        var fields: [String: JSONValue] = ["t": "ev", "sub": .number(Double(sub)), "seq": .number(Double(seq)), "data": data]
-        if gap { fields["gap"] = .bool(true) }
-        let envelope = JSONValue.object(fields)
-        let stream = streamProviders[sub]
-        let dropped = { @MainActor in
-            guard let stream else { return }
-            stream.provider.eventDeliveryDropped(stream: stream.name, data: data, publicationID: publicationID)
-        }
-        if let sendWithDrop { sendWithDrop(envelope, dropped) } else { send?(envelope) }
+        guard kept.halfFull else { return }
+        // The page leaves Frozen (it stays hidden) and takes what was held; the hold goes on, so no
+        // `.ordered` stream keeps more than half of its provider's buffer.
+        lifecycle?.orderedDeliveryHalfFull()
+        emit(held.flush())
     }
 
     private func unsubscribe(_ sub: UInt64) {
@@ -296,33 +268,6 @@ public final class PageRouter {
         // The page ended the stream: what it held is not wanted, so it is not a delivery drop.
         held.remove(sub)
     }
-
-    // MARK: Hold
-
-    /// Keeps every later event in the router, by its stream's ``PageFrozenDelivery``, until
-    /// ``releaseDelivery()``: the page is hidden or frozen (PageLifecycle). Built-in commands and
-    /// host calls still go through, after ``PageDeliveryLifecycle/thawForDelivery()``. Like Blink's
-    /// freezable task queues (third_party/blink/renderer/platform/scheduler/main_thread/
-    /// main_thread_task_queue.h, `can_be_frozen`), held work waits and runs in order on resume.
-    public func holdDelivery() {
-        held.hold()
-    }
-
-    /// Sends what the hold kept, in arrival order across streams and in `seq` order within each, in
-    /// this turn, then lets events through again. A stream that dropped events gets `gap: true` on
-    /// its first released event.
-    public func releaseDelivery() {
-        guard held.isHeld else { return }
-        for item in held.release() {
-            emit(sub: item.sub, item.event.data, publicationID: item.event.publicationID, gap: item.gap)
-        }
-    }
-
-    /// Whether events wait in the router instead of reaching the page (``holdDelivery()``).
-    public var deliveryHeld: Bool { held.isHeld }
-
-    /// The events the hold keeps now, across streams.
-    public var heldEventCount: Int { held.count }
 
     // MARK: Built-in streams
 
