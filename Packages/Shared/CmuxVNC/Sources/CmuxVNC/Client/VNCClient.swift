@@ -122,7 +122,9 @@ public actor VNCClient {
     /// up (wheel up), positive `dx` scrolls left.
     public func scroll(dx: Int, dy: Int) async {
         var bytes: [UInt8] = []
-        let steps: [(VNCButtons, Int)] = [(dy > 0 ? .wheelUp : .wheelDown, abs(dy)), (dx > 0 ? .wheelLeft : .wheelRight, abs(dx))]
+        // Not abs(_:): abs(Int.min) traps, and a viewer's scroll message carries any Int.
+        let steps: [(VNCButtons, Int)] = [(dy > 0 ? .wheelUp : .wheelDown, Int(clamping: dy.magnitude)),
+                                          (dx > 0 ? .wheelLeft : .wheelRight, Int(clamping: dx.magnitude))]
         for (wheel, count) in steps where count > 0 {
             for _ in 0 ..< min(count, 50) {
                 bytes += RFBClientMessage.pointerEvent(buttons: buttons.union(wheel).rawValue, x: pointer.x, y: pointer.y)
@@ -201,8 +203,14 @@ public actor VNCClient {
                 case 0:
                     try await update(reader: reader, decoder: decoder, framebuffer: framebuffer, publisher: publisher)
                 case 1:
-                    try await reader.skip(3)
+                    // SetColourMapEntries (RFC 6143 section 7.6.2). The client asked for true colour,
+                    // so the entries are skipped; a range past the 2^16-entry map breaks the protocol.
+                    try await reader.skip(1)
+                    let first = Int(try await reader.u16())
                     let count = Int(try await reader.u16())
+                    guard first + count <= 1 << 16 else {
+                        throw RFBError.protocolViolation("colour map entries \(first) to \(first + count) past the map")
+                    }
                     try await reader.skip(count * 6)
                 case 2:
                     eventSink.yield(.bell)
