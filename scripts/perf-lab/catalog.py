@@ -65,6 +65,7 @@ T0_SECONDS_MAX = 480  # p12-perf-process.md section 3.3: T0 sums at most 480 s o
 TIERS = ("T0", "T1", "T2", "linux", "builder")
 # Debug is never a lab config (done check 4); bench-checks only where a target row asks for it.
 STORY_CONFIGS = tuple(c for c in perf_result.CONFIGS if c != "debug")
+BROWSER_ENGINES = tuple(e for e in perf_result.ENGINES if e != "none")  # F12: a browser target has a row for each
 STATS = ("p50", "p95", "p99", "max", "min", "mean")
 OPS: dict[str, Callable[[float, float], bool]] = {
     "<=": lambda a, b: a <= b,
@@ -354,6 +355,29 @@ def _pattern(problems: list[str], where: str, value: Any) -> bool:
     return True
 
 
+def _arm_shape(row: Row) -> tuple:
+    """What a row judges with its engine's name taken out of the metric patterns (crash_survival.<engine>).
+    Noise floors are left out: each engine's series has its own."""
+    engine_name = re.compile(rf"(?<![A-Za-z]){re.escape(row.engine or '')}(?![A-Za-z])")
+    checks = sorted((engine_name.sub("<engine>", c.metric), c.stat, c.op, c.value, c.unit) for c in row.checks)
+    return (row.session or "", row.config or "", row.hz or 0, tuple(checks))
+
+
+def engine_row_problems(target_id: str, rows: Iterable[Row]) -> list[str]:
+    """F12: a browser target is judged per engine. Every row names chromium or webkit, both engines have rows,
+    and the webkit rows judge exactly what the chromium rows judge (same checks and limits), so neither engine's
+    arm can be dropped or loosened alone."""
+    rows = list(rows)
+    out = [f"row {r.id} of browser target {target_id} names no browser engine (chromium or webkit)"
+           for r in rows if r.engine not in BROWSER_ENGINES]
+    arms = {engine: sorted(_arm_shape(r) for r in rows if r.engine == engine) for engine in BROWSER_ENGINES}
+    if not all(arms.values()):
+        out.append(f"browser target {target_id} needs a chromium row and a webkit row (F12)")
+    elif arms["chromium"] != arms["webkit"]:
+        out.append(f"browser target {target_id}: its webkit rows do not judge the same checks as its chromium rows (F12)")
+    return out
+
+
 def _load_targets(root: Path, problems: list[str]) -> tuple[Target, ...]:
     doc = _read_json(root / TARGETS_PATH)
     where = TARGETS_PATH
@@ -407,8 +431,8 @@ def _load_targets(root: Path, problems: list[str]) -> tuple[Target, ...]:
                             r.get("hz")))
         if not rows:
             problems.append(f"{tw}: no rows")
-        if t["browser"] is True and {r.engine for r in rows} < {"chromium", "webkit"}:
-            problems.append(f"{tw}: browser target {t['id']} needs a chromium row and a webkit row (F12)")
+        if t["browser"] is True:
+            problems.extend(f"{tw}: {problem}" for problem in engine_row_problems(t["id"], rows))
         targets.append(Target(t["id"], t["text"], t["browser"] is True, tuple(rows)))
     if len(targets) != TARGET_COUNT:
         problems.append(f"{where}: {len(targets)} targets; the program has exactly {TARGET_COUNT} (R4)")

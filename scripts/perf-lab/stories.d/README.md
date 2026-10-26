@@ -58,6 +58,8 @@ is not a number, is a lint failure.
 
 `../targets.json` contains the 12 fixed targets of done check 3. The spec line of each target is copied
 word for word into its `text`. Each target has one or more rows, and each row has checks: a metric
-pattern, a statistic, an operator and the fixed value. Each browser target has a `chromium` row and a
-`webkit` row (F12). A row with `hz: 120` is judged only from series measured at 120 Hz (task 160). A
-target is mapped when a story claims every check of every one of its rows.
+pattern, a statistic, an operator and the fixed value. Each row of a browser target names its engine, the
+target has `chromium` rows and `webkit` rows, and the two engines' rows judge the same checks (F12): `targets
+--check` fails otherwise. A browser story such as tab switch or omnibar typing has a WebKit arm next to its
+Chromium arm (`tab-switch.json`, `omnibar.json`). A row with `hz: 120` is judged only from series measured
+at 120 Hz (task 160). A target is mapped when a story claims every check of every one of its rows.

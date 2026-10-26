@@ -155,6 +155,29 @@ class CheckoutCatalogTests(unittest.TestCase):
             if target.browser:
                 self.assertLessEqual({"chromium", "webkit"}, engines, target.id)
 
+    def test_omnibar_typing_and_tab_switch_have_webkit_arms(self) -> None:
+        # F12 (task 228): the Chromium arms are the typing story's omnibar surface and the switch story.
+        by_id = {s.id: s for s in self.catalog.stories}
+        self.assertEqual(by_id["switch"].engine, "chromium")
+        tab_switch, omnibar = by_id["tab-switch"], by_id["omnibar"]
+        self.assertEqual((tab_switch.engine, omnibar.engine), ("webkit", "webkit"))
+        self.assertEqual(tab_switch.command[0], "scripts/cmux-next/tab-switch-matrix.py")
+        self.assertEqual(dict(catalog._flag_values(list(tab_switch.command)))["--kinds"], "webkit")
+        self.assertEqual(omnibar.command[0], "scripts/cmux-next/typing-frame-bench.py")
+        omnibar_flags = dict(catalog._flag_values(list(omnibar.command)))
+        self.assertEqual((omnibar_flags["--surfaces"], omnibar_flags["--engine"]), ("omnibar", "webkit"))
+        self.assertTrue(catalog.story_for_row(self.catalog, "tab_switch.webkit.10.e2e"))
+        self.assertIn(omnibar, catalog.story_for_row(self.catalog, "omnibar.load.key_to_frame"))
+        self.assertIn("omnibar-key", omnibar.hot_paths)
+        self.assertIn("tab-switch", tab_switch.hot_paths)
+
+    def test_typing_bench_takes_the_omnibar_engine(self) -> None:
+        bench = REPO_ROOT / "scripts/cmux-next/typing-frame-bench.py"
+        text = bench.read_text()
+        self.assertIn('choices=("chromium", "webkit")', text)
+        self.assertIn('action(f"openBrowser.{opts.engine}"', text)
+        self.assertNotIn('action("openBrowser.chromium"', text)
+
     def test_every_perf_cron_part_has_a_story(self) -> None:
         parts = [p["name"] for p in perf_cron.PARTS]
         self.assertEqual(list(self.catalog.cron_parts), parts)
@@ -407,6 +430,46 @@ class TargetTests(FixtureTestCase):
         crash = next(t for t in targets["targets"] if t["id"] == "crash-survival")
         crash["rows"] = [r for r in crash["rows"] if r.get("engine") != "webkit"]
         self.assertProblem(self.problems(baseline_stories(), targets), "crash-survival needs a chromium row and a webkit row")
+
+    def test_check_fails_when_a_browser_target_lacks_an_engine_row(self) -> None:
+        for engine in catalog.BROWSER_ENGINES:
+            with self.subTest(dropped=engine):
+                targets = json.loads((REPO_ROOT / catalog.TARGETS_PATH).read_text())
+                memory = next(t for t in targets["targets"] if t["id"] == "memory-slope")
+                memory["rows"] = [r for r in memory["rows"] if r.get("engine") != engine]
+                code, out, err = self.tree(baseline_stories(), targets).run("targets", "--check")
+                self.assertNotEqual(code, 0)
+                self.assertEqual(out, "")
+                self.assertIn("memory-slope needs a chromium row and a webkit row (F12)", err)
+
+    def test_browser_target_row_without_an_engine_fails(self) -> None:
+        targets = json.loads((REPO_ROOT / catalog.TARGETS_PATH).read_text())
+        idle = next(t for t in targets["targets"] if t["id"] == "idle-wakeups")
+        idle["rows"].append({**copy.deepcopy(idle["rows"][0]), "id": "idle-wakeups.any"})
+        del idle["rows"][-1]["engine"]
+        self.assertProblem(self.problems(baseline_stories(), targets),
+                           "row idle-wakeups.any of browser target idle-wakeups names no browser engine")
+
+    def test_webkit_rows_must_judge_what_the_chromium_rows_judge(self) -> None:
+        def loosened(change):
+            targets = json.loads((REPO_ROOT / catalog.TARGETS_PATH).read_text())
+            idle = next(t for t in targets["targets"] if t["id"] == "idle-wakeups")
+            change(next(r for r in idle["rows"] if r["engine"] == "webkit"))
+            return targets
+        changes = {
+            "a looser limit": lambda row: row["checks"][0].update(value=2),
+            "a dropped check": lambda row: row["checks"].pop(),
+            "another session": lambda row: row.update(session="stress"),
+        }
+        for name, change in changes.items():
+            with self.subTest(name):
+                self.assertProblem(self.problems(baseline_stories(), loosened(change)),
+                                   "idle-wakeups: its webkit rows do not judge the same checks as its chromium rows")
+
+    def test_engine_named_in_a_metric_pattern_is_the_same_check(self) -> None:
+        rows = [catalog.Row(f"crash.{e}", "crash", (catalog.Check(f"crash_survival\\.{e}", "min", ">=", 1.0, "ratio"),),
+                            engine=e) for e in catalog.BROWSER_ENGINES]
+        self.assertEqual(catalog.engine_row_problems("crash", rows), [])
 
     def test_exactly_twelve_targets(self) -> None:
         targets = json.loads((REPO_ROOT / catalog.TARGETS_PATH).read_text())
