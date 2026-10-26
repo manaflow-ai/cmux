@@ -1,4 +1,4 @@
-import Observation
+package import CmuxNextWakeups
 
 /// When each piece of content last played sound, for ``DiscardRule/recentlyAudible`` (Chrome's
 /// `kTabAudioProtectionTime`).
@@ -6,14 +6,15 @@ import Observation
 /// Chrome's page node keeps its audible bit and the time of its last change
 /// (`PageNode::IsAudible`, `GetTimeSinceLastAudibleChange`,
 /// components/performance_manager/public/graph/page_node.h). Here each watched source (a browser
-/// page) is followed with Observation on what `isAudible` reads, re-armed after each change, so
-/// nothing polls. `isAudible` must read a value that changes only when the sound starts or stops
-/// (`BrowserAudibleReporting.isAudible`), as Chrome's `OnIsAudibleChanged` fires on the flip only:
-/// each change costs one main-actor hop. The change that ends the sound records the time and calls
-/// ``onEnded`` once, so its owner replans and the protection's end joins the planner's one deadline.
+/// page) is followed by a ``ServiceObservation`` of what `isAudible` reads, so nothing polls; a
+/// change applies as one `background` task on the scheduler (nobody waits for it, and it runs for
+/// hidden pages). `isAudible` must read a value that changes only when the sound starts or stops
+/// (`BrowserAudibleReporting.isAudible`), as Chrome's `OnIsAudibleChanged` fires on the flip only.
+/// The change that ends the sound records the time and calls ``onEnded`` once, so its owner
+/// replans and the protection's end joins the planner's one deadline.
 ///
 /// ```swift
-/// let history = AudibleHistory()
+/// let history = AudibleHistory(mainWork: mainWork)
 /// history.onEnded = { key in hibernation.replan() }
 /// history.watch(key, page) { [weak page] in page?.isAudible == true }
 /// candidate.secondsSinceAudible = history.secondsSinceAudible(key)
@@ -21,24 +22,28 @@ import Observation
 @MainActor
 package final class AudibleHistory {
     private struct Watch {
-        /// The source watched: another source under the same key (a restored page) is armed anew.
+        /// The source watched: another source under the same key (a restored page) is watched anew.
         weak var source: AnyObject?
-        var arming: Int
         var audible: Bool
+        /// Releasing it (a new source, unwatch, forget) stops its applies.
+        var observation: ServiceObservation<Bool>?
     }
 
     private var heardAt: [String: ContinuousClock.Instant] = [:]
     private var watches: [String: Watch] = [:]
-    private var armings = 0
     private let now: () -> ContinuousClock.Instant
+    private let work: MainWorkScheduler
     /// Content `key`'s sound ended (its owner replans).
     package var onEnded: (String) -> Void = { _ in }
 
     /// Makes an empty history.
     ///
-    /// - Parameter now: The clock reading (a seam for tests).
-    package init(now: @escaping () -> ContinuousClock.Instant = { .now }) {
+    /// - Parameters:
+    ///   - now: The clock reading (a seam for tests).
+    ///   - mainWork: The app's one main-thread scheduler: a source's change applies on it.
+    package init(now: @escaping () -> ContinuousClock.Instant = { .now }, mainWork: MainWorkScheduler) {
         self.now = now
+        work = mainWork
     }
 
     /// Follows content `key`'s sound in `source` from now on: what `isAudible` reads is observed.
@@ -82,28 +87,25 @@ package final class AudibleHistory {
     }
 
     private func arm(_ key: String, _ source: AnyObject, _ isAudible: @escaping @MainActor () -> Bool) {
-        armings += 1
-        let arming = armings
-        let audible = withObservationTracking { isAudible() } onChange: { [weak self] in
-            // task-owner: one hop per change of a watched source; it re-arms itself and ends with forget or unwatch
-            Task { @MainActor [weak self] in
-                guard let self, self.watches[key]?.arming == arming else { return }
-                self.changed(key, isAudible)
-            }
+        watches[key] = Watch(source: source, audible: false)
+        // The init applies the value it reads now, in this turn; later changes apply on the scheduler.
+        let observation = ServiceObservation(.background, owner: "hibernation.audible", on: work, read: isAudible) { [weak self] audible in
+            self?.changed(key, audible: audible)
         }
-        if audible { heardAt[key] = now() }
-        watches[key] = Watch(source: source, arming: arming, audible: audible)
+        watches[key]?.observation = observation
     }
 
-    private func changed(_ key: String, _ isAudible: @escaping @MainActor () -> Bool) {
-        guard let watch = watches[key], let source = watch.source else {
+    private func changed(_ key: String, audible: Bool) {
+        guard var watch = watches[key] else { return }
+        guard watch.source != nil else {
             watches[key] = nil
             return
         }
-        arm(key, source, isAudible)
-        guard watch.audible, watches[key]?.audible == false else { return }
-        heardAt[key] = now()
-        onEnded(key)
+        let wasAudible = watch.audible
+        watch.audible = audible
+        watches[key] = watch
+        if audible || wasAudible { heardAt[key] = now() }
+        if wasAudible, !audible { onEnded(key) }
     }
 }
 

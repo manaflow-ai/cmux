@@ -3,8 +3,8 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
-import CmuxNextWakeups
 import Testing
+import CmuxNextWakeups
 
 /// The out-of-process Chromium host stays off until a developer turns it on: Chromium tabs run in
 /// process (Japanese IME, find, drag and permission prompts do not work in the host yet).
@@ -36,7 +36,7 @@ import Testing
         let prototype = ChromiumHostPrototype(makeConfiguration: {
             asked += 1
             return ChromiumHostConfiguration(executable: URL(filePath: "/bin/true"), arguments: [])
-        }, tunables: Self.defaults(), work: MainWorkScheduler(budget: MainFrameBudget()))
+        }, tunables: Self.defaults(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let reply = prototype.open("https://example.com/", over: NSView(frame: .zero), focus: false)
         #expect(reply["error"] as? String == "browserHost.helper is off")
         #expect(asked == 0)
@@ -49,7 +49,7 @@ import Testing
     @Test func withTheToggleOnOpenGetsPastTheGate() {
         let store = Self.defaults()
         store.load(raw: TunableFile.decode(Data(#"{"version": 1, "values": {"browserHost.helper": true}}"#.utf8)))
-        let prototype = ChromiumHostPrototype(makeConfiguration: { nil }, tunables: store, work: MainWorkScheduler(budget: MainFrameBudget()))
+        let prototype = ChromiumHostPrototype(makeConfiguration: { nil }, tunables: store, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let reply = prototype.open("https://example.com/", over: NSView(frame: .zero), focus: false)
         #expect(reply["error"] as? String == "the pane is not in a window")
         #expect(prototype.report["tunable"] as? Bool == true)

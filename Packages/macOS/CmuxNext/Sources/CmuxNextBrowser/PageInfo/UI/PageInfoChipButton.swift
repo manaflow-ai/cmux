@@ -37,7 +37,7 @@ final class PageInfoChipButton: NSView, PointerHoverReporting {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         density.update { [weak self] in self?.apply() }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.refreshFill(animated: true) }
         hover?.isHoverable = { [weak self] in self?.indicator.isTriggerable ?? false }
     }

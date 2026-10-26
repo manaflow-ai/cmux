@@ -1,6 +1,7 @@
 import CmuxNextHibernation
 import Observation
 import Testing
+import CmuxNextWakeups
 
 /// ``AudibleHistory`` follows a source's audible bit as Chrome's page node does
 /// (`PageNode::GetTimeSinceLastAudibleChange`): the end of a sound is recorded when the source says
@@ -16,7 +17,7 @@ import Testing
 
     @Test func theEndOfASoundIsRecordedAndReportedOnce() async {
         let clock = FakeNow()
-        let history = AudibleHistory(now: { clock.now })
+        let history = AudibleHistory(now: { clock.now }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let (ends, ended) = AsyncStream<String>.makeStream()
         history.onEnded = { ended.yield($0) }
         let speaker = Speaker()
@@ -48,7 +49,7 @@ import Testing
     }
 
     @Test func aSourceThatNeverPlayedHasNoHistory() {
-        let history = AudibleHistory()
+        let history = AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         history.onEnded = { _ in Issue.record("a silent source has no end of sound") }
         let speaker = Speaker()
         history.watch("docs", speaker) { [weak speaker] in speaker?.playing == true }
@@ -58,7 +59,7 @@ import Testing
 
     @Test func aProbeHeardItAndForgetDropsIt() {
         let clock = FakeNow()
-        let history = AudibleHistory(now: { clock.now })
+        let history = AudibleHistory(now: { clock.now }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         history.heard("song")
         clock.now += .seconds(61)
         var candidate = ContentDiscardPlanner.Candidate(key: "song", hiddenFor: 3_600)
@@ -70,7 +71,7 @@ import Testing
 
     /// A source swapped under the same key (a restored page) is watched anew; the old one is ignored.
     @Test func aNewSourceUnderTheKeyIsWatchedAnew() async {
-        let history = AudibleHistory()
+        let history = AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let (ends, ended) = AsyncStream<String>.makeStream()
         history.onEnded = { ended.yield($0) }
         let old = Speaker()

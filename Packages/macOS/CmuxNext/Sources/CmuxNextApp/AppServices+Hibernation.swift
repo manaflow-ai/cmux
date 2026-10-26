@@ -20,7 +20,7 @@ extension AppServices {
     /// one workspace per frame. It runs before the restore mounts a page, so the cache hands it every hide,
     /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
-        let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory() : nil
+        let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, lowPower: energyMonitor.lowPowerMode, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
