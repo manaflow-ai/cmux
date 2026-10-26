@@ -11,7 +11,7 @@ extension PageDescriptor {
     /// The Chief view gallery (webviews/src/pages/chief-views): experimental views beside the Chief,
     /// over the agents the app already mirrors, the CI fleet dashboard and the repository's PRs.
     static let chiefViews = PageDescriptor(
-        id: "cmux.chief-views", resource: "chief-views", namespaces: [ChiefViewsPageProvider.prefix])
+        id: "cmux.chief-views", resource: "chief-views", processGroup: .viewer, namespaces: [ChiefViewsPageProvider.prefix])
 }
 
 /// What the gallery needs from the app: where the agents are and how to show one. The app passes
