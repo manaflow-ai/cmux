@@ -63,6 +63,11 @@ Claude Code's answer that arrives after the failover. FAKE_CLAUDE_MCP_DOWN=<name
 server, and every other reconnect succeeds. "env: NAME"
 replies with that environment variable. Any plain prompt
 replies with the process's argv (spawn flags such as `--disallowedTools`).
+"agent-503" starts a background agent (agent id A503) whose task fails on SR2's 503 after the
+turn; Claude Code then runs a turn of its own for the notification ("agent-503-held: PATH"
+holds that turn until PATH exists; "agent-400" fails on a bad request instead, "agent-reset" on
+a dropped connection). A prompt naming SendMessage to that agent resumes it: its task starts
+again under the SendMessage call (with FAKE_CLAUDE_RESUME_FAILS=1 it fails on the 503 again).
 "cost-probe" ends its turn the way Claude Code reports spend: the turn's own
 token usage, and `total_cost_usd` as the process's running total (0.25 more
 per cost-probe turn, from 0 at each start). "cost-restore X" first restores
@@ -152,6 +157,34 @@ def init():
         line["skills"] = ["demo-skill"]
     line.update(json.loads(os.environ.get("FAKE_CLAUDE_INIT") or "{}"))
     return line
+
+
+AGENT_503 = "a503a503a503a503"
+AGENT_ERRORS = {
+    "agent-503": "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, "
+                 "usually temporary (error type server_error, HTTP 503)",
+    "agent-400": "API Error: 400 invalid_request_error: prompt is too long",
+    "agent-reset": "API Error: Connection error.",
+}
+
+
+def agent_failure(tool, kind="agent-503"):
+    send({"type": "system", "subtype": "task_notification", "task_id": AGENT_503, "tool_use_id": tool,
+          "status": "failed", "output_file": "",
+          "summary": "Agent terminated early due to an API error: " + AGENT_ERRORS[kind]})
+
+
+def agent_failed(said):
+    """The end of "agent-503"'s agent, after its turn, and Claude Code's own turn for it."""
+    agent_failure("toolu_a503", next(k for k in AGENT_ERRORS if said.startswith(k)))
+    send(init())
+    if said.startswith("agent-503-held: "):
+        import time
+        path = said[len("agent-503-held: "):].split("<", 1)[0].split()[0]
+        while not os.path.exists(path):
+            time.sleep(0.02)
+    send({"type": "result", "subtype": "success", "result": "noted", "num_turns": 1, "duration_api_ms": 1,
+          "usage": {"input_tokens": 1, "output_tokens": 1}})
 
 
 def ask(rid, tool):
@@ -747,6 +780,22 @@ while True:
             send({"type": "user", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
                   {"type": "tool_result", "tool_use_id": "toolu_ag2", "content": "fn t() {}"}]}})
             send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
+        if said.strip().startswith(tuple(AGENT_ERRORS)):
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_a503", "name": "Agent",
+                  "input": {"description": "Push relay", "prompt": "Push the relay", "run_in_background": True}}]}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_a503",
+                  "content": "Async agent launched"}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": AGENT_503, "tool_use_id": "toolu_a503",
+                  "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
+        if 'SendMessage to "%s"' % AGENT_503 in said:
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_send", "name": "SendMessage",
+                  "input": {"to": AGENT_503, "message": "Continue where you stopped."}}]}})
+            send({"type": "system", "subtype": "task_started", "task_id": AGENT_503, "tool_use_id": "toolu_send",
+                  "description": "Push relay", "task_type": "local_agent", "is_backgrounded": True})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_send",
+                  "content": '{"success":true,"resumedAgentId":"%s"}' % AGENT_503}]}})
+            if os.environ.get("FAKE_CLAUDE_RESUME_FAILS") == "1":
+                agent_failure("toolu_send")
         # "late-agent-ask": a background subagent (Agent with run_in_background) that is still
         # running when the turn ends, and asks for permission after it (cx-jo8yo, below).
         if said.strip() == "late-agent-ask":
@@ -883,6 +932,8 @@ while True:
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}
         send(result)
+        if said.strip().startswith(tuple(AGENT_ERRORS)):
+            agent_failed(said.strip())
         if said.strip() == "late-agent-ask":
             send({"type": "control_request", "request_id": "late-1", "request": {"subtype": "can_use_tool",
                   "tool_name": "Write", "tool_use_id": "toolu_late_w", "input": {"file_path": "late.txt", "content": "x"}}})
