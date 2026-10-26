@@ -829,6 +829,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_report_counts_toward_the_cap_from_when_the_parent_took_it() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
+        // Taken a minute before the parent accepts it (its admission waited).
+        let taken = now_ms() - 60_000;
+        let due = hub.lane_take_due(&lane.id, taken).unwrap();
+        let before = now_ms();
+        hub.lane_hand_over(&lane.id, due, taken).await;
+        let sent = hub.lane_links(|l| l.get(&lane.id).map(|l| l.sent.clone())).unwrap();
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0] >= before, "counted from when it was taken, not accepted: {sent:?}");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
+    }
+
+    #[tokio::test]
     async fn a_parent_that_starts_closing_after_the_link_check_takes_no_report() {
         let hub = test_hub();
         let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
