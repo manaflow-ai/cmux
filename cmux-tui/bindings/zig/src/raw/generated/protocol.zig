@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617";
+pub const ir_sha256 = "818eaaf6dd4a902f628551b3ce5b1e546ece33935afc97110ae9e7abb1d0155a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -153,6 +153,160 @@ pub const AgentState = enum {
     }
 };
 
+pub const AppGrant = struct {
+    granted: bool,
+    scope: []const u8,
+};
+
+pub const AppHiddenAccess = struct {
+    automations: bool,
+    cli: bool,
+    mcp: bool,
+};
+
+pub const AppLogLine = struct {
+    level: []const u8,
+    message: []const u8,
+    ts_ms: u64,
+};
+
+pub const AppOrigin = enum {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "user")) return .user;
+        if (std.mem.eql(u8, value, "cli")) return .cli;
+        if (std.mem.eql(u8, value, "mcp")) return .mcp;
+        if (std.mem.eql(u8, value, "script")) return .script;
+        if (std.mem.eql(u8, value, "remote")) return .remote;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .user => "user",
+            .cli => "cli",
+            .mcp => "mcp",
+            .script => "script",
+            .remote => "remote",
+        };
+    }
+};
+
+pub const AppPaletteCommand = struct {
+    op: []const u8,
+    title: wire.Nullable(JsonValue),
+    when: wire.Field(JsonValue) = .absent,
+};
+
+pub const AppRecord = struct {
+    available: bool,
+    bundle_dir: wire.Nullable([]const u8),
+    commands: []const AppPaletteCommand,
+    enabled: bool,
+    grants: []const []const u8,
+    hidden: bool,
+    hidden_access: AppHiddenAccess,
+    hide_only: bool,
+    id: []const u8,
+    installed: bool,
+    manifest: wire.Nullable(JsonValue),
+    revision: ?u64 = null,
+    sandboxed: bool,
+    scope_classes: wire.Map(AppScopeClass),
+    source: AppSource,
+    tier: AppTier,
+    version: []const u8,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "revision",
+    };
+};
+
+pub const AppScopeClass = enum {
+    standard,
+    sensitive,
+    restricted,
+    elevated,
+    unknown,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "standard")) return .standard;
+        if (std.mem.eql(u8, value, "sensitive")) return .sensitive;
+        if (std.mem.eql(u8, value, "restricted")) return .restricted;
+        if (std.mem.eql(u8, value, "elevated")) return .elevated;
+        if (std.mem.eql(u8, value, "unknown")) return .unknown;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .standard => "standard",
+            .sensitive => "sensitive",
+            .restricted => "restricted",
+            .elevated => "elevated",
+            .unknown => "unknown",
+        };
+    }
+};
+
+pub const AppSource = enum {
+    default,
+    user,
+    bundled,
+    local,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "default")) return .default;
+        if (std.mem.eql(u8, value, "user")) return .user;
+        if (std.mem.eql(u8, value, "bundled")) return .bundled;
+        if (std.mem.eql(u8, value, "local")) return .local;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .default => "default",
+            .user => "user",
+            .bundled => "bundled",
+            .local => "local",
+        };
+    }
+};
+
+pub const AppTerminalLink = struct {
+    app: []const u8,
+    channel: []const u8,
+    id: []const u8,
+    socket: wire.Nullable([]const u8),
+    target: []const u8,
+};
+
+pub const AppTier = enum {
+    first_party,
+    verified,
+    unverified,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "first-party")) return .first_party;
+        if (std.mem.eql(u8, value, "verified")) return .verified;
+        if (std.mem.eql(u8, value, "unverified")) return .unverified;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .first_party => "first-party",
+            .verified => "verified",
+            .unverified => "unverified",
+        };
+    }
+};
+
 pub const AppliedPane = struct {
     pane: Id,
     surface: Id,
@@ -161,6 +315,41 @@ pub const AppliedPane = struct {
 pub const ApplyLayoutResult = struct {
     panes: []const AppliedPane,
     screen: Id,
+};
+
+pub const AppsInventoryDemand = struct {
+    enabled: bool,
+    sequence: u64,
+};
+
+pub const AppsLinkChangedResult = struct {
+    servers: u64,
+};
+
+pub const AppsListResult = struct {
+    apps: []const AppRecord,
+    revision: u64,
+};
+
+pub const AppsLogsResult = struct {
+    lines: []const AppLogLine,
+};
+
+pub const AppsProviderRegisterResult = struct {
+    families: []const []const u8,
+    inventory_demand: ?AppsInventoryDemand = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "inventory_demand",
+    };
+};
+
+pub const AppsRunResult = struct {
+    value: wire.Nullable(JsonValue),
+};
+
+pub const AppsTerminalLinksResult = struct {
+    links: []const AppTerminalLink,
 };
 
 pub const AttachedViewOutcomeResult = struct {
@@ -3328,6 +3517,325 @@ pub fn applyLayout(client: anytype, request: ApplyLayoutRequest) !wire.Decoded(A
     );
 }
 
+pub const AppsAgentInventoryChangedRequest = struct {
+    demand_sequence: u64,
+};
+
+pub const AppsAgentInventoryChangedResult = EmptyResult;
+
+pub fn appsAgentInventoryChanged(client: anytype, request: AppsAgentInventoryChangedRequest) !wire.Decoded(AppsAgentInventoryChangedResult) {
+    return client.callTyped(
+        AppsAgentInventoryChangedResult,
+        .{
+            .name = "apps-agent-inventory-changed",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "agent-cli-app-invalidation-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsDispatchRequest = struct {
+    event: []const u8,
+    mount_id: []const u8,
+    node: []const u8,
+    origin: ?AppOrigin = null,
+    payload: wire.Field(JsonValue) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub const AppsDispatchResult = EmptyResult;
+
+pub fn appsDispatch(client: anytype, request: AppsDispatchRequest) !wire.Decoded(AppsDispatchResult) {
+    return client.callTyped(
+        AppsDispatchResult,
+        .{
+            .name = "apps-dispatch",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsLinkChangedRequest = struct {
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub fn appsLinkChanged(client: anytype, request: AppsLinkChangedRequest) !wire.Decoded(AppsLinkChangedResult) {
+    return client.callTyped(
+        AppsLinkChangedResult,
+        .{
+            .name = "apps-link-changed",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsListRequest = struct {
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub fn appsList(client: anytype, request: AppsListRequest) !wire.Decoded(AppsListResult) {
+    return client.callTyped(
+        AppsListResult,
+        .{
+            .name = "apps-list",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsLogsRequest = struct {
+    app: []const u8,
+    follow: ?bool = null,
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "follow",
+        "origin",
+    };
+};
+
+pub fn appsLogs(client: anytype, request: AppsLogsRequest) !wire.Decoded(AppsLogsResult) {
+    return client.callTyped(
+        AppsLogsResult,
+        .{
+            .name = "apps-logs",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsMountRequest = struct {
+    app: []const u8,
+    context: wire.Field(JsonValue) = .absent,
+    interface: []const u8,
+    mount_id: []const u8,
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub const AppsMountResult = EmptyResult;
+
+pub fn appsMount(client: anytype, request: AppsMountRequest) !wire.Decoded(AppsMountResult) {
+    return client.callTyped(
+        AppsMountResult,
+        .{
+            .name = "apps-mount",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsProviderRegisterRequest = struct {
+    families: []const []const u8,
+    inventory_watch: ?bool = null,
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "inventory_watch",
+        "origin",
+    };
+};
+
+pub fn appsProviderRegister(client: anytype, request: AppsProviderRegisterRequest) !wire.Decoded(AppsProviderRegisterResult) {
+    return client.callTyped(
+        AppsProviderRegisterResult,
+        .{
+            .name = "apps-provider-register",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+            .fields = &.{
+                .{ .name = "inventory_watch", .since = null, .capability = "agent-cli-app-invalidation-v1" },
+            },
+        },
+        request,
+    );
+}
+
+pub const AppsProviderResultRequest = struct {
+    body: wire.Field(JsonValue) = .absent,
+    ok: bool,
+    origin: ?AppOrigin = null,
+    request_id: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub const AppsProviderResultResult = EmptyResult;
+
+pub fn appsProviderResult(client: anytype, request: AppsProviderResultRequest) !wire.Decoded(AppsProviderResultResult) {
+    return client.callTyped(
+        AppsProviderResultResult,
+        .{
+            .name = "apps-provider-result",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsRunRequest = struct {
+    app: []const u8,
+    args: wire.Field(JsonValue) = .absent,
+    gesture: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
+    op: []const u8,
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub fn appsRun(client: anytype, request: AppsRunRequest) !wire.Decoded(AppsRunResult) {
+    return client.callTyped(
+        AppsRunResult,
+        .{
+            .name = "apps-run",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsSetRequest = struct {
+    app: []const u8,
+    enabled: wire.Field(bool) = .absent,
+    grant: wire.Field(AppGrant) = .absent,
+    hidden: wire.Field(bool) = .absent,
+    hidden_access: wire.Field(AppHiddenAccess) = .absent,
+    idempotency_key: []const u8,
+    installed: wire.Field(bool) = .absent,
+    origin: ?AppOrigin = null,
+    sandboxed: wire.Field(bool) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub const AppsSetResult = AppRecord;
+
+pub fn appsSet(client: anytype, request: AppsSetRequest) !wire.Decoded(AppsSetResult) {
+    return client.callTyped(
+        AppsSetResult,
+        .{
+            .name = "apps-set",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsStoreRequest = struct {
+    args: wire.Field(JsonValue) = .absent,
+    op: []const u8,
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub const AppsStoreResult = JsonValue;
+
+pub fn appsStore(client: anytype, request: AppsStoreRequest) !wire.Decoded(AppsStoreResult) {
+    return client.callTyped(
+        AppsStoreResult,
+        .{
+            .name = "apps-store",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsTerminalLinksRequest = struct {
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub fn appsTerminalLinks(client: anytype, request: AppsTerminalLinksRequest) !wire.Decoded(AppsTerminalLinksResult) {
+    return client.callTyped(
+        AppsTerminalLinksResult,
+        .{
+            .name = "apps-terminal-links",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
+pub const AppsUnmountRequest = struct {
+    mount_id: []const u8,
+    origin: ?AppOrigin = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "origin",
+    };
+};
+
+pub const AppsUnmountResult = EmptyResult;
+
+pub fn appsUnmount(client: anytype, request: AppsUnmountRequest) !wire.Decoded(AppsUnmountResult) {
+    return client.callTyped(
+        AppsUnmountResult,
+        .{
+            .name = "apps-unmount",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "apps-v1",
+        },
+        request,
+    );
+}
+
 pub const AttachSurfaceRequestMode = enum {
     bytes,
     render,
@@ -3771,6 +4279,25 @@ pub fn browserWheelGuarded(client: anytype, request: BrowserWheelGuardedRequest)
             .authority = "frontend",
             .since = 10,
             .capability = "browser-pointer-frame-guard-v1",
+        },
+        request,
+    );
+}
+
+pub const CancelRequestRequest = struct {
+    target: wire.Nullable(JsonValue),
+};
+
+pub const CancelRequestResult = EmptyResult;
+
+pub fn cancelRequest(client: anytype, request: CancelRequestRequest) !wire.Decoded(CancelRequestResult) {
+    return client.callTyped(
+        CancelRequestResult,
+        .{
+            .name = "cancel-request",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "cancel-request-v1",
         },
         request,
     );
@@ -11661,12 +12188,25 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 288;
+pub const command_count: usize = 302;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
     .{ .name = "add-tabs-to-tab-group", .authority = "control", .since = 12, .capability = "tab-groups-v1", .stream = null },
     .{ .name = "apply-layout", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "apps-agent-inventory-changed", .authority = "local-admin", .since = 12, .capability = "agent-cli-app-invalidation-v1", .stream = null },
+    .{ .name = "apps-dispatch", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-link-changed", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-list", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-logs", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-mount", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-provider-register", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-provider-result", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-run", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-set", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-store", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-terminal-links", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
+    .{ .name = "apps-unmount", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "bind-conversation-tab-session", .authority = "control", .since = 12, .capability = "agent-session-tabs-v1", .stream = null },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
@@ -11683,6 +12223,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "browser-reload", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-wheel-guarded", .authority = "frontend", .since = 10, .capability = "browser-pointer-frame-guard-v1", .stream = null },
+    .{ .name = "cancel-request", .authority = "local-admin", .since = 12, .capability = "cancel-request-v1", .stream = null },
     .{ .name = "chief-inspect", .authority = "local-admin", .since = 12, .capability = "chief-inspect-v1", .stream = null },
     .{ .name = "clear-history", .authority = "control", .since = 9, .capability = "clear-history-v1", .stream = null },
     .{ .name = "clear-window-title", .authority = "control", .since = 6, .capability = null, .stream = null },
