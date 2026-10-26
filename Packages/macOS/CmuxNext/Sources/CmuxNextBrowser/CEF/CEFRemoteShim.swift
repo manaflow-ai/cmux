@@ -14,29 +14,30 @@ import Foundation
 ///   peer's version once the pipe is bound (mojo/public/cpp/bindings/remote.h, `QueryVersion`).
 /// - `void cmux_remote_shim_detach(void)`: the host is gone; a later attach serves the next host.
 ///
-/// Immutable C function pointers and the `dlopen` handle: safe to hand from the loading thread to main.
-// crash-allow: every stored property is a let: C function pointers and a dlsym closure over a handle never closed; nothing mutates after make.
-nonisolated struct CEFRemoteShim: @unchecked Sendable {
+/// Holds only a `@Sendable` symbol lookup (over the `dlopen` handle's address, never closed): safe to
+/// hand from the loading thread to main. Each entry point is looked up where it is called.
+nonisolated struct CEFRemoteShim: Sendable {
     typealias HelloFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafePointer<CChar>?) -> Void
     typealias AttachFn = @convention(c) (Int32, Int32, Int32, UnsafeMutableRawPointer?, HelloFn?) -> Int32
+    typealias DetachFn = @convention(c) () -> Void
 
     /// Resolves the remote dylib's symbols by name.
-    let symbol: (String) -> UnsafeMutableRawPointer?
-    let attachFn: AttachFn
-    /// For the supervisor's host restart (task 080).
-    let detach: @convention(c) () -> Void
+    let symbol: @Sendable (String) -> UnsafeMutableRawPointer?
 
-    /// Resolves the wire entry points and checks the dylib's ABI identity against `expected`, as
-    /// ``CEFShimLibrary/open(_:expected:)`` checks the in-process shim.
-    static func make(symbol: @escaping (String) -> UnsafeMutableRawPointer?, expected: String?) throws(CEFShimLibrary.LoadError) -> CEFRemoteShim {
-        func resolve<T>(_ name: String) throws(CEFShimLibrary.LoadError) -> T {
-            guard let pointer = symbol(name) else { throw .missingSymbol(name) }
-            return unsafeBitCast(pointer, to: T.self)
-        }
-        let abiID: @convention(c) () -> UnsafePointer<CChar>? = try resolve("cmux_shim_abi_id")
+    private init(symbol: @escaping @Sendable (String) -> UnsafeMutableRawPointer?) {
+        self.symbol = symbol
+    }
+
+    /// Checks that the wire entry points are there and that the dylib's ABI identity is `expected`,
+    /// as ``CEFShimLibrary/open(_:expected:)`` checks the in-process shim.
+    static func make(symbol: @escaping @Sendable (String) -> UnsafeMutableRawPointer?, expected: String?) throws(CEFShimLibrary.LoadError) -> CEFRemoteShim {
+        guard let abiPointer = symbol("cmux_shim_abi_id") else { throw .missingSymbol("cmux_shim_abi_id") }
+        let abiID = unsafeBitCast(abiPointer, to: (@convention(c) () -> UnsafePointer<CChar>?).self)
         try CEFShimLibrary.checkABI(expected: expected, found: abiID().map { String(cString: $0) })
-        return CEFRemoteShim(symbol: symbol, attachFn: try resolve("cmux_remote_shim_attach"),
-                             detach: try resolve("cmux_remote_shim_detach"))
+        for name in ["cmux_remote_shim_attach", "cmux_remote_shim_detach"] where symbol(name) == nil {
+            throw .missingSymbol(name)
+        }
+        return CEFRemoteShim(symbol: symbol)
     }
 
     /// Opens the remote dylib the attachment names (off the main thread: `dlopen` holds dyld's lock).
@@ -44,12 +45,19 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         guard let handle = dlopen(attachment.remoteShim.path, RTLD_NOW | RTLD_LOCAL) else {
             return .failure(.shim(.open(String(cString: dlerror()))))
         }
+        // The handle stays open for the life of the process: a shim is never closed.
+        let address = UInt(bitPattern: handle)
         do {
-            // The handle stays open for the life of the process: a shim is never closed.
-            return .success(try make(symbol: { dlsym(handle, $0) }, expected: CEFShimABI.bundledIdentity()))
+            return .success(try make(symbol: { dlsym(UnsafeMutableRawPointer(bitPattern: address), $0) },
+                                     expected: CEFShimABI.bundledIdentity()))
         } catch {
             return .failure(.shim(error))
         }
+    }
+
+    /// The host is gone (the supervisor's restart, task 080): a later attach serves the next host.
+    func detach() {
+        symbol("cmux_remote_shim_detach").map { unsafeBitCast($0, to: DetachFn.self) }?()
     }
 
     /// Hands the host's wire to the remote shim and returns, once the host's hello is in, the
@@ -57,9 +65,10 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// closed here) or the host ended first (the shim owns and closes them).
     @MainActor
     func attach(_ attachment: ChromiumHostAttachment) async -> Set<String>? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Set<String>?, Never>) in
+        let attachFn = symbol("cmux_remote_shim_attach").map { unsafeBitCast($0, to: AttachFn.self) }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Set<String>?, Never>) in
             let context = Unmanaged.passRetained(CEFRemoteHello(continuation)).toOpaque()
-            guard attachFn(attachment.controlFD, attachment.inputRingFD, attachment.outputRingFD, context, cefRemoteHelloCallback) == 1 else {
+            guard attachFn?(attachment.controlFD, attachment.inputRingFD, attachment.outputRingFD, context, cefRemoteHelloCallback) == 1 else {
                 Unmanaged<CEFRemoteHello>.fromOpaque(context).release()
                 attachment.closeDescriptors()
                 continuation.resume(returning: nil)
