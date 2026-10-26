@@ -13,6 +13,12 @@ public protocol ChromiumHostSupervising: AnyObject {
     /// connected. Never blocks the main thread. The caller owns the
     /// descriptors of the attachment it gets.
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment
+
+    /// Runs `ended` on the main thread each time a host this supervisor started ends (a crash, a
+    /// kill, a quit), before a restarted host attaches: what cmux showed of that host (its widgets)
+    /// goes with it, as Chrome's browser drops a dead GPU process's state when
+    /// `GpuProcessHost::OnProcessCrashed` runs (content/browser/gpu/gpu_process_host.cc).
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void)
 }
 
 /// One host's wire, as the supervisor hands it to the runtime.
