@@ -183,6 +183,17 @@ import Testing
         keyboard.post(NSWindow.didResignKeyNotification)
         #expect(family.isInactive)
         #expect(wash.animation(forKey: "opacity") != nil, "an unsettled key change should ease, not snap")
+
+        // Another window takes the keys on a later pass: the state does not flip, but the easing
+        // wash lands at once, with the settled change.
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
+                             backing: .buffered, defer: true)
+        other.isReleasedWhenClosed = false
+        keyboard.key = other
+        keyboard.post(NSWindow.didBecomeKeyNotification)
+        #expect(family.isInactive)
+        #expect(wash.animation(forKey: "opacity") == nil, "the settled change should land the wash")
+        #expect(wash.opacity == Float(view.inactiveTintAlpha))
     }
 
     /// A glass backdrop in a titled window on screen whose family holds the keys.
