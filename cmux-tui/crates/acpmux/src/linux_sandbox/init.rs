@@ -22,7 +22,7 @@ struct Options {
 
 fn fail(error: impl std::fmt::Display) -> ! {
     eprintln!("remote sandbox init: {error}");
-    std::process::exit(125)
+    std::process::exit(125) // crash-allow: pre-runtime sandbox init helper must exit, never return
 }
 
 /// The argument loop stops at --, exhausted input, or the first parse error.
@@ -211,7 +211,7 @@ fn exec_program(program: String, args: Vec<String>) -> ! {
         libc::execv(program.as_ptr(), pointers.as_ptr());
     }
     eprintln!("remote sandbox init: execv: {}", io::Error::last_os_error());
-    std::process::exit(127)
+    std::process::exit(127) // crash-allow: pre-runtime sandbox init helper must exit, never return
 }
 
 pub(crate) fn main(args: Vec<OsString>) -> ! {
