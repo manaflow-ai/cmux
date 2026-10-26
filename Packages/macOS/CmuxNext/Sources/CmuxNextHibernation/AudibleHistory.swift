@@ -7,13 +7,15 @@ import Observation
 /// (`PageNode::IsAudible`, `GetTimeSinceLastAudibleChange`,
 /// components/performance_manager/public/graph/page_node.h). Here each watched source (a browser
 /// page) is followed with Observation on what `isAudible` reads, re-armed after each change, so
-/// nothing polls. The change that ends the sound records the time and calls ``onEnded`` once, so its
-/// owner replans and the protection's end joins the planner's one deadline.
+/// nothing polls. `isAudible` must read a value that changes only when the sound starts or stops
+/// (`BrowserAudibleReporting.isAudible`), as Chrome's `OnIsAudibleChanged` fires on the flip only:
+/// each change costs one main-actor hop. The change that ends the sound records the time and calls
+/// ``onEnded`` once, so its owner replans and the protection's end joins the planner's one deadline.
 ///
 /// ```swift
 /// let history = AudibleHistory()
 /// history.onEnded = { key in hibernation.replan() }
-/// history.watch(key, tab) { [weak tab] in tab?.state.media?.isAudible == true }
+/// history.watch(key, page) { [weak page] in page?.isAudible == true }
 /// candidate.secondsSinceAudible = history.secondsSinceAudible(key)
 /// ```
 @MainActor
@@ -45,13 +47,14 @@ package final class AudibleHistory {
     /// - Parameters:
     ///   - key: The content's key.
     ///   - source: The object that plays, compared by identity and held weakly.
-    ///   - isAudible: Whether `source` plays sound now; it holds `source` weakly too.
+    ///   - isAudible: Whether `source` plays sound now, read from a value that changes only when the
+    ///     sound starts or stops; it holds `source` weakly too.
     package func watch(_ key: String, _ source: AnyObject, isAudible: @escaping @MainActor () -> Bool) {
         guard watches[key]?.source !== source else { return }
         arm(key, source, isAudible)
     }
 
-    /// Content `key` was heard now by other means (a probe found media that plays).
+    /// Content `key` was heard now by other means (a probe found sound: unmuted media or Web Audio).
     package func heard(_ key: String) {
         heardAt[key] = now()
     }

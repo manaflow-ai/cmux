@@ -21,3 +21,28 @@ nonisolated extension DiscardRule {
         return max(audioProtectionTime - max(since, 0), 0)
     }
 }
+
+nonisolated extension ContentDiscardPlanner.Plan {
+    /// The keys among `keys` whose sound reason (``CannotDiscardReason/recentlyAudible``, or
+    /// ``CannotDiscardReason/audio`` that no probe set) an owner still holds from an earlier plan
+    /// while this plan gives none: the minute after the sound ran out, or the sound ended. The owner
+    /// drops them, since merging each plan's reasons only adds. A due key keeps its reason until its
+    /// probe answers.
+    ///
+    /// - Parameters:
+    ///   - keys: The candidates of this plan.
+    ///   - held: The reasons the owner reports now (`debug.surfaces`).
+    ///   - probeKept: Whether a probe kept the key lately (its `.audio` is the probe's).
+    package func endedSoundReasons(of keys: [String], held: [String: CannotDiscardReason],
+                                   probeKept: (String) -> Bool) -> [String] {
+        let dueKeys = Set(due)
+        return keys.filter { key in
+            guard exemptions[key] == nil, !dueKeys.contains(key) else { return false }
+            switch held[key] {
+            case .recentlyAudible?: return true
+            case .audio?: return !probeKept(key)
+            default: return false
+            }
+        }
+    }
+}

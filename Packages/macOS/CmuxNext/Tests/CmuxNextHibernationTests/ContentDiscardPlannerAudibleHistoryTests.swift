@@ -36,6 +36,15 @@ import Testing
         var candidate = ContentDiscardPlanner.Candidate(key: "song", hiddenFor: 3_600)
         candidate.secondsSinceAudible = history.secondsSinceAudible("song")
         #expect(DiscardRule.audioProtectionLeft(candidate) == 30)
+
+        // A later change that ends no sound (the source written again, still silent) reports nothing.
+        speaker.playing = false
+        for _ in 0..<3 { await Task.yield() }
+        ended.finish()
+        var more = 0
+        while await iterator.next() != nil { more += 1 }
+        #expect(more == 0, "one end of a sound was reported \(more + 1) times")
+        #expect(history.secondsSinceAudible("song") == 30, "a silent change moved the last sound")
     }
 
     @Test func aSourceThatNeverPlayedHasNoHistory() {

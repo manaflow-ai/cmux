@@ -95,4 +95,19 @@ import Testing
             #expect(plan.nextCheck.map { abs($0 - 55) < 1e-9 } == true, "\(kind): \(String(describing: plan.nextCheck))")
         }
     }
+
+    /// The minute ran out and the page is not due: the plan gives no reason, so the one held from
+    /// the last plan goes. A due page keeps it until its probe answers; a probe's `.audio` stays.
+    @Test func anEndedSoundReasonIsDroppedOnceThePlanGivesNone() throws {
+        let plan = HibernationPlanner.plan(setting, pressure: .normal,
+                                           candidates: [page("ended", minutes: 1, heardSecondsAgo: 61), page("due", heardSecondsAgo: 61),
+                                                        page("probed", minutes: 1, heardSecondsAgo: nil), page("kept", heardSecondsAgo: 10)])
+        try #require(plan.due == ["due"])
+        let held: [String: CannotDiscardReason] = ["ended": .recentlyAudible, "due": .recentlyAudible, "probed": .audio, "kept": .recentlyAudible]
+        #expect(plan.endedSoundReasons(of: ["ended", "due", "probed", "kept"], held: held, probeKept: { $0 == "probed" }) == ["ended"])
+        #expect(plan.endedSoundReasons(of: ["probed"], held: held, probeKept: { _ in false }) == ["probed"],
+                "a plan-only `.audio` whose tab stopped playing stayed")
+        #expect(plan.endedSoundReasons(of: ["ended"], held: ["ended": .formInput], probeKept: { _ in false }).isEmpty,
+                "a probe's reason other than sound was dropped")
+    }
 }
