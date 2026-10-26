@@ -68,8 +68,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: key (PL-typing)
 
-    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (the app's
-    /// `KeyFrameSignpost`, from `CmuxApplication.sendEvent`). Message: `target=<view|terminal> age_ms=<age>`,
+    /// A key-down the app dispatches to the end of the Core Animation commit that ends that turn (begun with the
+    /// key's input latency slot in `CmuxApplication.sendEvent`, CmuxNextInput's `InputFrameSignposts`). Message: `target=<view|terminal> age_ms=<age>`,
     /// the key's age when its dispatch began (its wait in the event queue). For a text view the commit shows
     /// the typed character; for a terminal it is the key's main-thread share, and the echo comes later.
     /// Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the target (1 view, 2 terminal) in bits 0-7 and the
@@ -81,10 +81,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// request carries it) and `age_us` the key event's age at the hop, or -1.
     /// scripts/cmux-next/trace.py joins these with the daemon's, host's and holder's flow marks.
     case keyFlow = 7
-    /// A scroll event (a trackpad gesture's touch, began, change or end, its momentum, or a mouse-wheel notch)
-    /// the app dispatches to the end of the Core Animation commit that ends that turn (``ScrollFrameSignpost``,
-    /// from the app's one input dispatch context, as ``keyToFrame``). Begin message: `phase=<touch|began|changed|
-    /// ended|momentum|wheel> age_ms=<age>`, the event's wait in the queue. End message: `target=<layout|content>`,
+    /// A scroll event that opens an input latency slot (a trackpad gesture's began or change, its moving momentum,
+    /// or a mouse-wheel notch) from its dispatch to the end of the Core Animation commit that ends that turn (begun
+    /// with the slot, as ``keyToFrame``; ``ScrollFrameSignpost`` writes the same messages). Begin message:
+    /// `phase=<began|changed|momentum|wheel> age_ms=<age>` (older builds also wrote `touch` and `ended`), the
+    /// event's wait in the queue. End message: `target=<layout|content>`,
     /// who took it: `layout` when the layout scrolled the strip, rows, an area or a canvas (that commit shows the
     /// move), `content` when it went on to the view under the pointer (a terminal or page may show it in a later
     /// frame); `commit=missed` as for ``actionCommit``.

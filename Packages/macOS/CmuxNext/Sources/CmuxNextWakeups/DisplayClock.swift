@@ -487,7 +487,7 @@ public final class DisplayClock {
         guard !display.stall.isScheduled else { return }
         display.stallTimerArms += 1
         let id = display.id
-        display.stall.schedule(after: delay) { @MainActor [weak self] in self?.stallTimerFired(id) }
+        display.stall.scheduleOnMain(after: delay) { [weak self] in self?.stallTimerFired(id) }
     }
 
     /// Half a millisecond of slack: a timer that fires on its deadline is not early by float rounding.

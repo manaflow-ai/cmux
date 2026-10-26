@@ -42,6 +42,14 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         public var carriesInputLatency: Bool { self == .v3 }
         /// Whether a report in this schema has blocking samples.
         public var carriesBlocking: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``CoarseCounts/userBlockingWaitP99Ms`` (p02-threads-123; the
+        /// schema-3 decoder must list the key before a build sends schema 3).
+        public var carriesLaneWait: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``HangReport/activeSeconds`` and the main-thread
+        /// histograms (``HangReport/mainThreadCategory`` entries of ``HangReport/intervals``). The
+        /// server's schema 3 decode accepts them in the PL-telemetry web PR that lands before a build
+        /// writes schema 3.
+        public var carriesMainThread: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).
@@ -54,6 +62,15 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public static let maxIntervals = 64
     /// The largest body the server accepts (64 KiB).
     public static let maxBodyBytes = 64 * 1024
+    /// The ``intervals`` category of the watchdog's main-thread histograms (schema 3 only): not a
+    /// signpost category, so no MetricKit interval can use it (``HangReportSignposts/categories``).
+    public static let mainThreadCategory = "main"
+    /// The ``intervals`` name of the main-turn histogram: a run-loop wake to its next wait.
+    public static let mainTurnInterval = "main.turn"
+    /// The ``intervals`` name of the input-queueing histogram: an input's OS event time to its dispatch.
+    public static let inputQueueingInterval = "main.input_queueing"
+    /// The most active seconds one report names (31 days); a larger count is sent as this.
+    public static let maxActiveSeconds = 31 * 86_400
 
     /// The app that wrote the report.
     public struct App: Codable, Sendable, Equatable {
@@ -137,8 +154,13 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     public var stallHistogram: [HistogramBucket] = []
     /// MetricKit's aggregated metrics.
     public var metrics = Metrics()
-    /// Allowlisted signpost interval histograms.
+    /// Allowlisted signpost interval histograms, then (schema 3) the main-turn and input-queueing
+    /// histograms in category ``mainThreadCategory``.
     public var intervals: [IntervalHistogram] = []
+    /// Seconds a person used cmux since the last report, from the app's activation notices and input
+    /// (``ActiveTimeLedger``, Chrome's rule): the denominator of the hang and turn counts. Schema 3 only; nil, and
+    /// so absent from the JSON, in schema 2, in an older report and when the app passed none.
+    public var activeSeconds: Int?
     /// The launches since the last report (`launchFirstFrame`, `launchStartupComplete`,
     /// `launchLiveContent` by temperature, and `completionReasons`); schema 3 only. Nil, and so
     /// absent from the JSON, in schema 2 and when no launch was recorded.
@@ -164,11 +186,11 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         self.counts = counts
     }
 
-    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch
-    /// or input latency).
+    /// Whether the report says nothing about performance (no hang, stall, metric, interval, launch,
+    /// input latency or active second: active time without a hang is the rate's denominator).
     public var hasNoFindings: Bool {
         hangs.isEmpty && cpuExceptions.isEmpty && stallHistogram.allSatisfy { $0.count == 0 } && metrics.isEmpty
-            && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency
+            && intervals.isEmpty && (launches?.isEmpty ?? true) && !hasInputLatency && (activeSeconds ?? 0) == 0
     }
 
     /// Whether the report carries input latency rows or scroll jank counts.
@@ -177,13 +199,15 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
     }
 
     /// The wire names: camelCase for the schema 2 fields and `launches`; the input latency fields
-    /// use the snake_case names `debug.input` and the trace tools share (p04-input.md, DC12).
+    /// use the snake_case names `debug.input` and the trace tools share (p04-input.md, DC12), and
+    /// `active_seconds` follows them.
     private enum CodingKeys: String, CodingKey {
         case schema, reportId, installId, day, app, os, hardware, counts, hangs, cpuExceptions, stallHistogram
         case metrics, intervals, launches
         case inputLatencyBucketEdgesMs = "input_latency_bucket_edges_ms"
         case inputLatency = "input_latency"
         case scrollJank = "scroll_jank"
+        case activeSeconds = "active_seconds"
     }
 
     /// The wire encoder: sorted keys, so the same report always has the same bytes.

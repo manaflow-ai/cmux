@@ -116,7 +116,7 @@ public final class AgentPaneLaunchImages {
         }
         self.read = read
         // A deadline: the pages no pane took by then are dropped (decoded pages are large).
-        discard.schedule(after: keep) { @MainActor [weak self] in self?.dropRead() }
+        discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: ends with the read; only tests await it.
         return Task { _ = await read.finished() }
     }

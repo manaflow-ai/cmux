@@ -172,6 +172,7 @@ private final class RowCursorTracker: NSResponder {
     weak var row: ArrowCursorView?
 
     override func mouseEntered(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
+    // input-coalesce: native (only the cursor, which must follow every move as AppKit's own cursor rects do)
     override func mouseMoved(with event: NSEvent) { row?.setCursor(at: event.locationInWindow) }
     override func mouseExited(with event: NSEvent) {}
 }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 4f1a9d8a057f5d5775b6201fff51b6572bf8798df8c76e788ed37cfe866cb77a. */
+/* cmux-tui mux protocol 12, IR 74cc509ea3fb4e00dc98f2a155124e2984528b602bb54443ed2bfec9ab37bb8b. */
 
 
 import type * as T from "./types.js";
@@ -154,6 +154,33 @@ export interface AgentCliUpdateJobResolveRequest extends CmuxRequestBase {
   "idempotency_key": string;
 }
 export type AgentCliUpdateJobResolveResult = T.AgentCLIJobResolution;
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryRequest extends CmuxRequestBase {
+  cmd: "agent-inventory";
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id"?: string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryRefreshRequest extends CmuxRequestBase {
+  cmd: "agent-inventory-refresh";
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id": string;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface AgentInventoryWatchRequest extends CmuxRequestBase {
+  cmd: "agent-inventory-watch";
+  /** Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:"not_admitted"} when this connection holds no lease. */
+  "admission_receipt"?: boolean;
+  /** true opens (or acknowledges again) this connection's lease; false retires it without an ended event. */
+  "enabled": boolean;
+  /** Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector. */
+  "expected_machine_id": string;
+  /** Only with enabled:false: retire the lease only while it has this id. */
+  "expected_watch_id"?: string;
+}
 
 /** Protocol v12; authority: local-admin. */
 export interface AgentSessionAttachRequest extends CmuxRequestBase {
@@ -3624,6 +3651,9 @@ export type CmuxRequest =
   | AgentCliIntentsSettleRequest
   | AgentCliUpdateJobRequest
   | AgentCliUpdateJobResolveRequest
+  | AgentInventoryRequest
+  | AgentInventoryRefreshRequest
+  | AgentInventoryWatchRequest
   | AgentSessionAttachRequest
   | AgentSessionCancelRequest
   | AgentSessionChildrenRequest
@@ -4073,6 +4103,30 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "agent-cli-update-job-resolve-v1";
+    stream: null;
+  };
+  "agent-inventory": {
+    request: AgentInventoryRequest;
+    result: T.AgentInventoryResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-v1";
+    stream: null;
+  };
+  "agent-inventory-refresh": {
+    request: AgentInventoryRefreshRequest;
+    result: T.AgentInventoryRefreshResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-refresh-v1";
+    stream: null;
+  };
+  "agent-inventory-watch": {
+    request: AgentInventoryWatchRequest;
+    result: T.AgentInventoryWatchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "agent-inventory-watch-v1";
     stream: null;
   };
   "agent-session-attach": {

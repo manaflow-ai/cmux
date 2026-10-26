@@ -118,6 +118,9 @@ public final class MainFrameBudget {
     private var deadline: UInt64?
     private var sequence: UInt32 = 0
     private var open: [OpenTask] = []
+    /// Per nested run loop running now, innermost last: the sequence of the task that waits in it
+    /// (nil: none ran it).
+    private var parkedBy: [UInt32?] = []
     /// The input check's last answer and when (a frame asks several times; the answer is reused
     /// for a quarter millisecond).
     private var inputAnswer: (at: UInt64, pending: Bool) = (0, false)
@@ -180,6 +183,8 @@ public final class MainFrameBudget {
         self.signposts = signposts
         uptimeNanos = mainClock
         self.postClock = postClock
+        parkedBy.reserveCapacity(MainTurnMeter.maxDepth)
+        self.turns.nestedLoopRunning = { [weak self] running, now in self?.nestedLoop(running: running, at: now) }
     }
 
     /// Starts a display frame's budget window: the ``MainWorkScheduler``'s one link calls it at
@@ -361,7 +366,7 @@ public final class MainFrameBudget {
         // older than one frame is over. Never while the link runs (its ticks own the window) and
         // never while a task runs (a long batch would reset its own budget and keep the main
         // thread past the frame).
-        if open.isEmpty, !tickOwnsWindow, now &- windowStart >= windowLength { roll(at: now, offTick: true) }
+        if !taskRuns, !tickOwnsWindow, now &- windowStart >= windowLength { roll(at: now, offTick: true) }
         record(response.expire(at: now))
         let responseOpen = response.isOpen(at: now)
         let pending = inputPending(now)
@@ -469,9 +474,12 @@ public final class MainFrameBudget {
         let end = uptimeNanos()
         guard let task = open.popLast() else { return }
         let elapsed = end &- task.start
-        let own = elapsed > task.childNanos ? elapsed - task.childNanos : 0
+        let own = task.ownNanos(at: end)
+        // An exception unwound it past the exit of a nested loop it ran: the board names it for its end.
+        if task.parkedSince != nil { publish(task) }
         if !open.isEmpty {
-            open[open.count - 1].childNanos &+= elapsed
+            // A task run inside the outer task's nested loop is in that loop's time already.
+            if open[open.count - 1].parkedSince == nil { open[open.count - 1].childNanos &+= elapsed }
             if open[open.count - 1].workClass == task.workClass { open[open.count - 1].isBatch = true }
         }
         turns.endTask(at: end, ownNanos: own)
@@ -497,20 +505,55 @@ public final class MainFrameBudget {
         if !task.ranNothing {
             board.ledger.ended(task.workClass, owner: task.owner.index, post: task.post, startNanos: task.start, runNanos: own)
         }
-        // The outer task runs again: the watchdog names it.
-        if let outer = open.last {
-            board.begin(outer.workClass, owner: outer.owner.index, sequence: outer.sequence, startNanos: outer.start,
-                        budgetNanos: outer.budgetNanos, notify: false)
+        // The outer task runs again: the watchdog names it (not while it waits in a nested loop).
+        if let outer = open.last, outer.parkedSince == nil { publish(outer) }
+    }
+
+    /// Names `task` on the board again, as the running task.
+    private func publish(_ task: OpenTask) {
+        board.begin(task.workClass, owner: task.owner.index, sequence: task.sequence, startNanos: task.start,
+                    budgetNanos: task.budgetNanos, notify: false)
+    }
+
+    /// Whether a task runs now: one is open and not waiting in a nested run loop it ran.
+    private var taskRuns: Bool {
+        guard let task = open.last else { return false }
+        return task.parkedSince == nil
+    }
+
+    /// A nested run loop started or stopped running (``MainTurnMeter/nestedLoopRunning``). The task
+    /// that ran it (a pump pass that runs a context menu, a menu action that runs a modal panel) waits
+    /// while it runs: that time is not its own, the board names no task meanwhile, and the frame
+    /// window rolls on an idle app as when no task is open. Tasks run inside the loop are charged as
+    /// themselves; the task's work after the loop returns is its own again.
+    private func nestedLoop(running: Bool, at now: UInt64) {
+        if running {
+            guard let index = open.indices.last else {
+                parkedBy.append(nil)
+                return
+            }
+            parkedBy.append(open[index].sequence)
+            if open[index].parks == 0 {
+                open[index].parkedSince = now
+                board.endParked()
+            }
+            open[index].parks += 1
+            return
         }
+        // None ran the loop, or the task already ended (an exception unwound past the loop's exit).
+        guard let entry = parkedBy.popLast(), let sequence = entry,
+              let index = open.lastIndex(where: { $0.sequence == sequence }) else { return }
+        open[index].parks -= 1
+        guard open[index].parks == 0, let since = open[index].parkedSince else { return }
+        open[index].parkedNanos &+= now &- since
+        open[index].parkedSince = nil
+        if index == open.count - 1 { publish(open[index]) }
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.
     private func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
         var total = spent[index]
-        for task in open where task.workClass == workClass {
-            let elapsed = now &- task.start
-            total &+= elapsed > task.childNanos ? elapsed - task.childNanos : 0
-        }
+        for task in open where task.workClass == workClass { total &+= task.ownNanos(at: now) }
         return total
     }
 
@@ -518,10 +561,7 @@ public final class MainFrameBudget {
     /// plus the pending-input checks.
     private func frameSpentNow(_ now: UInt64) -> UInt64 {
         var total = spent.reduce(0, &+) &+ checkSpent
-        for task in open where task.workClass.isBudgeted {
-            let elapsed = now &- task.start
-            total &+= elapsed > task.childNanos ? elapsed - task.childNanos : 0
-        }
+        for task in open where task.workClass.isBudgeted { total &+= task.ownNanos(at: now) }
         return total
     }
 
@@ -540,7 +580,7 @@ public final class MainFrameBudget {
         stats.inputChecks += 1
         stats.maxInputCheckNanos = max(stats.maxInputCheckNanos, took)
         // A check inside a task is already in that task's time.
-        if open.isEmpty { checkSpent &+= took }
+        if !taskRuns { checkSpent &+= took }
         inputAnswer = (now, pending)
         return pending
     }

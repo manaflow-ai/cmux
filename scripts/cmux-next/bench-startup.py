@@ -151,6 +151,8 @@ MARKS = [
     ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
     ("dfl.settings_read", "dfl: settings read"),
     ("dfl.theme", "dfl: Ghostty runtime and theme"),
+    ("crash.sentry_start", "crash reporting: SentrySDK.start begins"),
+    ("crash.sentry_started", "crash reporting: SentrySDK.start returned (p08-startup-032)"),
     ("services.crash_reporting", "services: crash reporting"),
     ("services.cache", "services: cloud, feed, ssh, tab cache"),
     ("services.windows", "services: window manager"),

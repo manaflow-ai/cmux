@@ -16,7 +16,7 @@ final class AgentPageRetirer {
         view.topBar.discardUnsentChat()
         BenchSpans.measure("agentPane.detach") { view.removeFromSuperview() }
         retiring.append(view)
-        timer.schedule(after: Self.delay) { @MainActor [weak self] in self?.flush() }
+        timer.scheduleOnMain(after: Self.delay) { [weak self] in self?.flush() }
     }
 
     private func flush() {

@@ -54,6 +54,9 @@ public:
     [[nodiscard]] Result<AgentCliIntentsSettleResult> agent_cli_intents_settle(const AgentCliIntentsSettleRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentCliJobReceipt> agent_cli_update_job(const AgentCliUpdateJobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentCliJobResolution> agent_cli_update_job_resolve(const AgentCliUpdateJobResolveRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentInventoryResult> agent_inventory(const AgentInventoryRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<AgentInventoryRefreshResult> agent_inventory_refresh(const AgentInventoryRefreshRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentInventoryWatchResult> agent_inventory_watch(const AgentInventoryWatchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentSessionPage> agent_session_attach(const AgentSessionAttachRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentSessionCancelResult> agent_session_cancel(const AgentSessionCancelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentSessionChildrenResult> agent_session_children(const AgentSessionChildrenRequest& request, RequestOptions options = {});

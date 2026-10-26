@@ -679,7 +679,10 @@
       "loopback-close",
       "loopback-status",
       "client-hello",
-      "machine-catalog-publish"
+      "machine-catalog-publish",
+      "agent-inventory",
+      "agent-inventory-refresh",
+      "agent-inventory-watch"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
