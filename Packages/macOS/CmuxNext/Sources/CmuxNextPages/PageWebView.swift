@@ -31,6 +31,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let engineOptions: PageEngineOptions
     public let router: PageRouter
     let webView: PageWKWebView
+    /// The WebKit view, whether or not it shows the page. Code outside this module uses the
+    /// engine-neutral calls (``PageWebView/evaluate(_:)``, ``PageWebView/snapshot()``,
+    /// ``PageWebView/focusView``) or ``PageWebView/webKitEngine``, which is nil while Chromium shows the page.
     public var webKitView: WKWebView { webView }
     /// Whether the document can take typing yet (the dispatcher's type-ahead).
     public let inputReadiness: PageInputReadiness

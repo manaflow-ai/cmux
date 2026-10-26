@@ -103,20 +103,20 @@ nonisolated public struct WebUICensus: Sendable {
     /// - Parameters:
     ///   - pages: The live page views (``WebUIHost/registry``'s ``PageRegistry/pages(id:)``).
     ///   - registry: Their registry, for each page's instance number.
-    ///   - newTabSpare: The web view of the parked New Tab page, if one is parked.
+    ///   - newTabSpare: The page view of the parked New Tab page, if one is parked, in either engine.
     ///   - spareWindows: The Chromium spare windows, one per kind; empty without Chromium.
     ///   - browserTabs: The Chromium browser tabs, with their renderer clients.
     ///   - rendererProcess: A Chromium page's browser id and renderer client ids.
     ///   - webKitPID: A WebKit view's WebContent pid, nil when WebKit does not say.
     @MainActor
-    public init(pages: [PageWebView], registry: PageRegistry, newTabSpare: WKWebView?, spareWindows: [Host],
+    public init(pages: [PageWebView], registry: PageRegistry, newTabSpare: PageWebView?, spareWindows: [Host],
                 browserTabs: [Host], rendererProcess: @MainActor (any PageChromiumPage) -> (browserID: Int32?, clients: [Int32]),
                 webKitPID: @MainActor (WKWebView) -> Int32?) {
         var newTabSpareSeen = false
         self.pages = pages.map { view in
             let census = view.census
             let process = view.chromiumPage.map { rendererProcess($0) }
-            let isNewTabSpare = newTabSpare != nil && view.webKitView === newTabSpare
+            let isNewTabSpare = view === newTabSpare
             newTabSpareSeen = newTabSpareSeen || isNewTabSpare
             let spare: String? = isNewTabSpare ? "new_tab" : census.parked ? "page_host_pool" : nil
             var keepReasons: [String] = []
@@ -132,7 +132,9 @@ nonisolated public struct WebUICensus: Sendable {
                         webKitPID: census.engine == "webkit" ? webKitPID(view.webKitView) : nil)
         }
         var spares = spareWindows
-        if let newTabSpare, !newTabSpareSeen { spares.append(Host(name: "new_tab", webKitPID: webKitPID(newTabSpare))) }
+        if let newTabSpare, !newTabSpareSeen {
+            spares.append(Host(name: "new_tab", webKitPID: newTabSpare.webKitEngine.flatMap { webKitPID($0) }))
+        }
         self.spares = spares
         self.browserTabs = browserTabs
     }

@@ -15,6 +15,30 @@ extension PageWebView {
     /// while the page starts).
     public var showsChromium: Bool { chromiumSession != nil }
 
+    /// The WebKit engine while it shows the page, for the WebKit-only tools (Web Inspector, the render
+    /// rate, the WebContent process id); nil while Chromium shows it. Chrome's WebUI hosts reach the
+    /// renderer only through `content::WebContents`, never a platform view
+    /// (content/public/browser/web_contents.h): everything else here goes through the engine-neutral calls.
+    public var webKitEngine: WKWebView? { showsChromium ? nil : webView }
+
+    /// The color under the page where it has not drawn: before its first paint and past its edges on
+    /// a rubber-band scroll. WebKit draws it; a Chromium page is see-through there (``PageChromiumPage/setSeeThrough(_:)``),
+    /// so the view under the page shows.
+    public var underPageColor: NSColor {
+        get { webView.underPageBackgroundColor }
+        set { webView.underPageBackgroundColor = newValue }
+    }
+
+    /// Drops the document for good after ``close()``, so its sockets and timers end now and not when
+    /// the view is freed: a WebKit view that loaded stops and shows an empty document. A Chromium
+    /// page ended with ``close()``, and a WebKit view that never loaded has no process to end (an
+    /// empty load would start one).
+    public func endDocument() {
+        guard webView.url != nil else { return }
+        webView.stopLoading()
+        webView.loadHTMLString("", baseURL: nil)
+    }
+
     /// Runs `script` in the page's main frame, in whichever engine shows it, after the scripts sent
     /// before it. No result.
     public func evaluate(_ script: String) {

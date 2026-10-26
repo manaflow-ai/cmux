@@ -25,7 +25,7 @@ struct AgentPaneScopeGlassTests {
         // Outside any picture (the app's scope, background-opacity 1) the chat paints its theme color.
         try #require(ThemeScope.app.backdropSelection == nil, "the test's app scope has a picture")
         view.applyTheme(force: true)
-        try #require(view.webView.underPageBackgroundColor.alphaComponent == 1, "an opaque window's chat is not opaque")
+        try #require(view.page.underPageColor.alphaComponent == 1, "an opaque window's chat is not opaque")
 
         // The workspace's scope has a picture: the window is see-through there, and so is the chat.
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
@@ -34,7 +34,7 @@ struct AgentPaneScopeGlassTests {
         scope.setBackdropSelection(try #require(BackdropSelection(id: "van-gogh-starry-night")))
         workspace.addSubview(view)
         view.applyTheme(force: true)
-        #expect(view.webView.underPageBackgroundColor.alphaComponent == 0,
+        #expect(view.page.underPageColor.alphaComponent == 0,
                 "the chat painted its theme background over its workspace's picture")
         let page = view.performWithTheme { AgentPaneTheme.pageColor(view.themeTokens) }
         #expect(page.alpha == 0, "the chat's page background is opaque in a see-through window: \(page)")
