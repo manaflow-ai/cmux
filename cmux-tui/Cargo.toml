@@ -50,6 +50,7 @@ members = [
     "crates/cmux-lock-rank",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-memory",
     "crates/cmux-ipc",
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
@@ -126,6 +127,7 @@ default-members = [
     "crates/cmux-pty",
     "crates/cmux-blocking",
     "crates/cmux-lock-rank",
+    "crates/cmux-memory",
     "crates/cmux-process",
     "crates/cmux-threads",
     "crates/cmux-remote-protocol",
@@ -211,6 +213,7 @@ cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-holder = { path = "crates/cmux-holder" }
+cmux-memory = { path = "crates/cmux-memory" }
 cmux-ipc = { path = "crates/cmux-ipc" }
 cmux-process = { path = "crates/cmux-process" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }

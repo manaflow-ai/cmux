@@ -32,6 +32,8 @@ cmux-pty.workspace = true
 # The panic log and the process's hang watcher: request, journal writer and holder-link scopes.
 cmux-panic-log.workspace = true
 cmux-holder.workspace = true
+# DaemonBudget: the memory caps sized from installed RAM.
+cmux-memory.workspace = true
 cmux-process.workspace = true
 cmux-flow-trace.workspace = true
 cmux-threads.workspace = true

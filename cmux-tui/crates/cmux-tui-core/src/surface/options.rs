@@ -16,8 +16,13 @@ pub struct SurfaceOptions {
     pub cols: u16,
     pub rows: u16,
     /// Maximum retained scrollback storage in bytes, matching Ghostty's
-    /// `max_scrollback` API. This is not a line count.
+    /// `max_scrollback` API. This is not a line count. Defaults to the
+    /// budget's `scrollback_per_terminal`.
     pub scrollback: usize,
+    /// The daemon's memory caps for this machine, sized from installed RAM
+    /// ([`cmux_memory::DaemonBudget::for_host`]). Scrollback, kitty and holder
+    /// caps read it here instead of keeping their own constants.
+    pub memory_budget: cmux_memory::DaemonBudget,
     /// Extra environment for children (e.g. CMUX_TUI_SOCKET).
     pub extra_env: Vec<(String, String)>,
     /// The `claude` shim directory, kept first on every child's PATH.
@@ -82,6 +87,7 @@ pub(super) fn child_term_for(outer_term: Option<&str>) -> &'static str {
 
 impl Default for SurfaceOptions {
     fn default() -> Self {
+        let memory_budget = cmux_memory::DaemonBudget::for_host();
         SurfaceOptions {
             command: None,
             cwd: None,
@@ -90,7 +96,8 @@ impl Default for SurfaceOptions {
                 .unwrap_or_else(|_| default_child_term()),
             cols: 80,
             rows: 24,
-            scrollback: DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            scrollback: memory_budget.scrollback_per_terminal,
+            memory_budget,
             extra_env: Vec::new(),
             claude_shim_dir: None,
             bundled_cli: None,
@@ -221,5 +228,52 @@ pub(super) fn configure_agent_browser_session(options: &mut SurfaceOptions, term
         // session prevents a command from another workspace from silently
         // reusing the first workspace's page-scoped CDP connection.
         set_env(&mut options.extra_env, "AGENT_BROWSER_SESSION", &format!("cmux-{terminal_id}"));
+    }
+}
+
+#[cfg(test)]
+mod scrollback_budget_tests {
+    use super::*;
+
+    #[test]
+    fn scrollback_default_is_the_budget_per_terminal_cap() {
+        let options = SurfaceOptions::default();
+        assert_eq!(options.memory_budget, cmux_memory::DaemonBudget::for_host());
+        assert_eq!(options.scrollback, options.memory_budget.scrollback_per_terminal);
+        assert_eq!(DEFAULT_SCROLLBACK_LIMIT_BYTES, 10_000_000);
+        assert_eq!(options.scrollback, DEFAULT_SCROLLBACK_LIMIT_BYTES);
+        assert!(options.scrollback as u64 <= options.memory_budget.scrollback_total);
+    }
+
+    /// The caps outside cmux-tui-core equal the budget's until their own
+    /// crates read it (kitty: p07-memory-073, holder ring: p07-memory-094).
+    #[cfg(unix)]
+    #[test]
+    fn scrollback_neighbour_caps_derive_from_the_budget() {
+        assert_eq!(
+            ghostty_vt::MAX_KITTY_IMAGE_BYTES,
+            cmux_memory::budget::KITTY_IMAGE_BYTES_PER_TERMINAL
+        );
+        assert_eq!(cmux_holder::holder::RING_BYTES, cmux_memory::budget::HOLDER_RING_BYTES_MAX);
+    }
+
+    /// Reading scrollback under the total gives the bytes the fixed 10 MB cap
+    /// gave before the budget.
+    #[test]
+    fn scrollback_read_under_the_total_is_byte_identical() {
+        let output: Vec<u8> = (0..2_000)
+            .flat_map(|line| {
+                format!("\x1b[32m{line:05}\x1b[0m scrollback line {line}\r\n").into_bytes()
+            })
+            .collect();
+        let read = |limit: usize| {
+            let mut term = Terminal::new(80, 24, limit, Callbacks::default()).unwrap();
+            term.vt_write(&output);
+            term.plain_text().unwrap()
+        };
+        let budgeted = read(SurfaceOptions::default().scrollback);
+        assert_eq!(budgeted, read(10_000_000));
+        assert!(budgeted.starts_with("00000 scrollback line 0\n"), "{:?}", &budgeted[..40]);
+        assert!(budgeted.contains("01999 scrollback line 1999"));
     }
 }
