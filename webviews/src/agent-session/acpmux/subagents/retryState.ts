@@ -52,14 +52,29 @@ export function applyRetry(
   if (typeof change.error === "string" && change.error.trim()) agent.error = change.error.replace(/\s+/g, " ").trim();
   const retry = readRetry(change.retry);
   if (retry === undefined) return;
-  const before = agent.retry;
+  // A wait that clears may have fired or been used up: only acpmux's `subagent_retry` record says
+  // which (``applyRetryStep``).
   if (retry) {
     agent.retry = retry;
     delete agent.retriedOut;
-  } else {
-    delete agent.retry;
-    if (before && before.attempt >= before.of) agent.retriedOut = before;
+  } else delete agent.retry;
+}
+
+/// acpmux's `subagent_retry` record of one step of a subagent's automatic retry
+/// (`hub/subagent_retry.rs`): `exhausted` means it gave up after its last try; a scheduled or
+/// fired one is retrying again.
+export function applyRetryStep(agent: Pick<Subagent, "retriedOut">, step: Record<string, unknown>): boolean {
+  if (step.outcome === "exhausted") {
+    const tries = readRetry({ attempt: step.attempt ?? step.of, of: step.of, reason: step.reason });
+    if (!tries) return false;
+    agent.retriedOut = tries;
+    return true;
   }
+  if ((step.outcome === "scheduled" || step.outcome === "fired") && agent.retriedOut) {
+    delete agent.retriedOut;
+    return true;
+  }
+  return false;
 }
 
 /// A retry waits only on a failed or lost one: a running, finished or stopped one's stale retry
@@ -155,21 +170,18 @@ function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
   return "retry.failed";
 }
 
-/// Runs a row's Retry for `agent` of chat `chat`: acpmux's retry when it serves one, else the ask
-/// (`how` "ask", the menu's Ask parent to retry, asks at once). Settles with the note to show, or
-/// undefined when it went.
+/// Runs a row's Retry for `agent` of chat `chat`: the one the row offers (``retryActionOf``),
+/// acpmux's when it serves it, else the ask. Settles with the note to show, or undefined when it went.
 export async function runRetry(
   agent: RetryTarget,
   chat: string,
   deps: RetryDeps,
   t: Translate,
-  how?: RetryAction,
 ): Promise<RetryNote | undefined> {
+  // Only what the row offers runs: acpmux's retry where it names it and the subagent is
+  // retryable, the ask everywhere else; never both, never a probe.
   const offered = retryActionOf(agent, deps.capabilities);
-  if (!offered) return undefined;
-  // Only what the row offers goes to acpmux: a "daemon" the row cannot offer (acpmux named its
-  // capabilities and not this one, or the subagent is not retryable) asks instead, never probes.
-  return send(agent, chat, deps, t, offered === "daemon" ? (how ?? "daemon") : "ask");
+  return offered ? send(agent, chat, deps, t, offered) : undefined;
 }
 
 /// Retries in flight or just sent, by target (`chat`, then the sub-session or subagent), with when

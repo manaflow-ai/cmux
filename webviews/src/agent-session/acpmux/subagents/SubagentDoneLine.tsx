@@ -82,10 +82,10 @@ function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState
         ...(agent.state === "failed" && agent.error ? [agent.error] : []),
       ];
   const shown = note?.version === row.version ? note : undefined;
-  const run = (how: RetryAction) => {
+  const run = () => {
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
-    void retryAgent(live, how).then(
+    void retryAgent(live).then(
       (key) => setNote(key ? { version: row.version, key } : undefined),
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
@@ -95,7 +95,7 @@ function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState
       type="button"
       className={affordance === "link" ? "cv-subagent-retry-link" : "cv-subagent-retry"}
       disabled={shown?.busy}
-      onClick={() => run(action)}
+      onClick={run}
     >
       {affordance === "button" && <Retry size={12} />}
       {t(ACTION_LABEL[action])}
@@ -147,13 +147,9 @@ function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState
                 <Icon name="action.more" size={14} />
               </MenuButton>
               <MenuPopup side="bottom" align="end" className="acpmux-quick-menu" label={t("retry.menu")}>
-                {action === "daemon" && (
-                  <MenuItem className="acpmux-quick-item" onSelect={() => run("daemon")}>
-                    {t("retry.action")}
-                  </MenuItem>
-                )}
-                <MenuItem className="acpmux-quick-item" onSelect={() => run("ask")}>
-                  {t("retry.askParent")}
+                {/* The one Retry the row offers: acpmux's, or asking the chat's agent where acpmux can't. */}
+                <MenuItem className="acpmux-quick-item" onSelect={run}>
+                  {t(ACTION_LABEL[action])}
                 </MenuItem>
               </MenuPopup>
             </Menu>

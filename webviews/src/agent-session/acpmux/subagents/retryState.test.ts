@@ -102,7 +102,7 @@ describe("the fold keeps a subagent's retry", () => {
   const change = (fold: SubagentFold, fields: Record<string, unknown>) =>
     feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", ...fields }] });
 
-  test("waiting, then retried out once acpmux clears the last try while it still failed", () => {
+  test("waiting; a cleared wait is not a give-up until acpmux's exhausted step says so", () => {
     const fold = new SubagentFold();
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Push relay" }] });
     change(fold, {
@@ -122,10 +122,16 @@ describe("the fold keeps a subagent's retry", () => {
     change(fold, { action: "Read relay.ts" });
     expect(fold.all()[0]!.retry?.attempt).toBe(1);
     change(fold, { retry: { attempt: 2, of: 2, reason: "capacity" } });
+    // The last wait fires: its retry clears while the attempt runs, and nothing gave up.
     change(fold, { retry: null });
+    fold.reduceRetryStep({ subagentId: "a", outcome: "fired", attempt: 2, of: 2, reason: "capacity" });
     agent = fold.all()[0]!;
     expect(agent.retry).toBeUndefined();
-    expect(agent.retriedOut).toEqual({ attempt: 2, of: 2, reason: "capacity" });
+    expect(agent.retriedOut).toBeUndefined();
+    fold.reduceRetryStep({ subagentId: "a", outcome: "exhausted", attempt: 2, of: 2, reason: "capacity" });
+    expect(fold.all()[0]!.retriedOut).toEqual({ attempt: 2, of: 2, reason: "capacity" });
+    fold.reduceRetryStep({ subagentId: "a", outcome: "scheduled", attempt: 1, of: 2, reason: "capacity" });
+    expect(fold.all()[0]!.retriedOut).toBeUndefined();
   });
 
   test("a last try that succeeds is no give-up", () => {
@@ -267,14 +273,14 @@ describe("Retry reaches acpmux, else the parent", () => {
     expect(both.calls).toEqual([[RETRY_METHOD, { sessionId: CHAT, subagentId: "sub" }]]);
   });
 
-  test("a row offers acpmux's Retry only where acpmux names it; an explicit daemon Retry never overrides that", async () => {
+  test("a row offers acpmux's Retry only where acpmux names it, and Retry runs only that one action", async () => {
     const turnOnly = new Set(["turn-retry-v1"]);
     expect(retryActionOf({ ...failed, retryable: true }, turnOnly)).toBe("ask");
     expect(retryActionOf({ ...failed, child: "s" }, turnOnly)).toBe("daemon");
     expect(retryActionOf({ ...failed, child: "s" }, new Set())).toBe("ask");
     expect(retryActionOf({ ...failed, retryable: true }, undefined)).toBe("daemon");
     const d = { ...deps(), capabilities: turnOnly };
-    await runRetry({ ...failed, id: "forced" }, "forced", d, translate, "daemon");
+    await runRetry({ ...failed, id: "forced" }, "forced", d, translate);
     expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send"]);
   });
 
@@ -293,10 +299,10 @@ describe("Retry reaches acpmux, else the parent", () => {
     expect((old.calls[1] as unknown[])[0]).toBe("send");
   });
 
-  test("Ask parent to retry asks at once; a row with no Retry does nothing", async () => {
+  test("a row acpmux can't retry asks the parent; a row with no Retry does nothing", async () => {
     const CHAT = "c5";
     const d = deps();
-    await runRetry(failed, CHAT, d, translate, "ask");
+    await runRetry({ ...failed, retryable: false }, CHAT, d, translate);
     expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send"]);
     expect(await runRetry({ ...failed, state: "completed" }, CHAT, d, translate)).toBeUndefined();
     expect(d.calls).toHaveLength(1);
