@@ -31,43 +31,93 @@ final class UpdateSurfaceIslands: SidebarUpdateSurfaces {
 /// keeps its own key in the page lifecycle (p13-webui.md 3.B, pages without a pane), shown for as
 /// long as it lives: the card is on screen, and the parked highlights page runs to load and measure
 /// before the first hover.
+///
+/// With feature `memoryOverlayPagesOnFirstUse` the parked highlights page is an overlay page
+/// (``OverlayPageRelease``): it goes once it waited unused past the release time, or at memory
+/// pressure, and the next hover makes it again in the same view, at its last height.
 @MainActor
 final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     let view: NSView
-    /// The surface's page; nil without app services or when the bundle has no changelog page.
-    let page: PageWebView?
+    /// The surface's page; nil without app services, when the bundle has no changelog page, once
+    /// closed, or while released highlights wait for the next hover.
+    private(set) var page: PageWebView?
     /// The page's key in the page lifecycle; nil without a page.
-    let lifecycleKey: String?
+    private(set) var lifecycleKey: String?
     private(set) var contentHeight: CGFloat = 0
     var onHeightChange: (() -> Void)?
     var onAction: (() -> Void)?
     var onDismiss: (() -> Void)?
     let provider: UpdateSurfaceProvider
+    let kind: SidebarUpdateSurfaceKind
+    private weak var services: AppServices?
     /// The host that opened ``page``, which ends it.
     private weak var webUI: WebUIHost?
+    /// When the parked highlights page goes; nil keeps the page while the card shows.
+    private(set) var release: OverlayPageRelease?
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
         let provider = UpdateSurfaceProvider(kind: kind, services: services)
         self.provider = provider
-        let page = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) }
-        self.page = page
-        view = page ?? NSView()
+        self.kind = kind
+        self.services = services
         webUI = services?.webUI
-        lifecycleKey = page.map { "update-surface.\(kind.rawValue).\(ObjectIdentifier($0).hashValue)" }
+        let terms = kind == .ready ? services?.overlayPageRelease : nil
+        let page = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) }
+        // Under a release the page fills a view of its own: one made again shows in the view the card holds.
+        view = terms == nil ? (page ?? NSView()) : NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
         provider.onHeight = { [weak self] height in self?.setHeight(height) }
         provider.onAction = { [weak self] in self?.onAction?() }
         provider.onDismiss = { [weak self] in self?.onDismiss?() }
-        // The host has a lifecycle only with `pageLifecycle` on (AppMemoryConsumers.installPageLifecycle).
-        if let page, let services, let lifecycleKey, let lifecycle = services.webUI.lifecycle {
-            let encoder = PageSnapshotEncoder(work: services.work, mainWork: services.mainWork)
-            lifecycle.show(lifecycleKey, page: PageWebViewLifecycle(page, encoder: encoder))
+        release = terms?.release(owner: "updateHighlights") { [weak self] in self?.releasePage() ?? true }
+        if let page { adopt(page) }
+    }
+
+    /// Makes `page` the surface's page, in the page lifecycle under its own key.
+    private func adopt(_ page: PageWebView) {
+        self.page = page
+        let key = "update-surface.\(kind.rawValue).\(ObjectIdentifier(page).hashValue)"
+        lifecycleKey = key
+        if page !== view {
+            page.frame = view.bounds
+            page.autoresizingMask = [.width, .height]
+            view.addSubview(page)
         }
+        // The host has a lifecycle only with `pageLifecycle` on (AppMemoryConsumers.installPageLifecycle).
+        if let services, let lifecycle = services.webUI.lifecycle {
+            let encoder = PageSnapshotEncoder(work: services.work, mainWork: services.mainWork)
+            lifecycle.show(key, page: PageWebViewLifecycle(page, encoder: encoder))
+        }
+        release?.didMake()
+    }
+
+    /// The popover opens: released highlights are made again first.
+    func willShow() {
+        guard let release else { return }
+        if page == nil, let services, let made = PageFactory(services: services).updateSurfacePage(kind: kind, provider: provider) {
+            adopt(made)
+        }
+        release.didShow()
+    }
+
+    func didPark() { release?.didHide() }
+
+    /// The release's call: ends the parked page; the surface keeps its last height for the next hover.
+    private func releasePage() -> Bool {
+        endPage()
+        return true
     }
 
     /// Ends the page through the host that opened it: its routes, bridge and engine page, and its
     /// place in the host's lists and the page lifecycle. Safe to call twice.
     func close() {
+        release?.cancel()
+        endPage()
+    }
+
+    private func endPage() {
         guard let page else { return }
+        self.page = nil
+        lifecycleKey = nil
         if let webUI { webUI.close(page) } else { page.close() }
     }
 

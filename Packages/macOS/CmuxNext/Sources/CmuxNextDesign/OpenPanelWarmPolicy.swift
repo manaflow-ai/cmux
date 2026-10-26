@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextWakeups
 
 /// When the app's file picker (``MadeAheadOpenPanel``) is made, and how long it is kept.
@@ -13,8 +14,9 @@ public enum OpenPanelWarmPolicy {
     /// No panel is made until a click asks for one: the launch's and the views' warm-ups make none. The click's
     /// panel is kept for later clicks and released `releaseAfter` after its last use, on `deadline` (a background
     /// deadline on the app's one placer), at a fire where no sheet or window shows it, so the panel service can
-    /// exit. After a release, warm-ups again wait for a click.
-    case afterFirstUse(releaseAfter: Duration, deadline: MainDeadline)
+    /// exit. After a release, warm-ups again wait for a click. With `memory` (the app's memory coordinator) a free
+    /// panel goes at warning or critical pressure too (``OverlayPageRelease``).
+    case afterFirstUse(releaseAfter: Duration, deadline: MainDeadline, memory: (any MemoryConsumerRegistry)? = nil)
 
     /// Whether a warm-up may make a panel now, given whether a click asked for one since the last release.
     func allowsWarmUp(usedSinceRelease: Bool) -> Bool {

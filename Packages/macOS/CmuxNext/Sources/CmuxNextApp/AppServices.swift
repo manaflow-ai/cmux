@@ -175,7 +175,8 @@ final class AppServices {
     /// panel service process runs at Home idle.
     private(set) lazy var openPanel = MadeAheadOpenPanel(policy: features.isEnabled(.memoryOpenPanelOnFirstUse)
         ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300),
-                         deadline: MainDeadline(owner: "openPanel.release", workClass: .background, scheduler: mainDeadlines)) : .ahead)
+                         deadline: MainDeadline(owner: "openPanel.release", workClass: .background, scheduler: mainDeadlines),
+                         memory: memoryCoordinator) : .ahead)
     /// The agent page WebKit warm-up.
     private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
@@ -462,7 +463,13 @@ final class AppServices {
     private(set) lazy var pageScriptFrame: PageScriptFrame? = features.isEnabled(.pageScriptFrames)
         ? FrameBatchQueue(owner: "pages.scripts", budgeted: .visible, on: mainWork).pageScriptFrame(causes: mainWork.causes) : nil
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
-    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
+    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI, release: overlayPageRelease)
+    /// When overlay content (the icon picker, the update card's highlights, each Extensions bubble) is made and
+    /// released: feature `memoryOverlayPagesOnFirstUse` (default off) makes none before its first open and lets it go
+    /// after it goes unused or at memory pressure (p07-memory-086); nil keeps each for good.
+    private(set) lazy var overlayPageRelease: OverlayPageReleaseTerms? = features.isEnabled(.memoryOverlayPagesOnFirstUse)
+        ? OverlayPageReleaseTerms(releaseAfter: Feature.memoryOverlayPagesOnFirstUse.durationParam("releaseAfter") ?? OverlayPageRelease.defaultReleaseAfter,
+                                  deadlines: mainDeadlines, memory: memoryCoordinator) : nil
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // built by its start
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -806,6 +813,7 @@ final class AppServices {
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
+            if let overlayPageRelease { entry.chrome.releaseExtensionsMenuWhenUnused(overlayPageRelease) }
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }

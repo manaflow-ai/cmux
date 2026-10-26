@@ -9,6 +9,8 @@ import CmuxNextSignposts
 /// reports the outcome. One warm picker (S3 d): the first open loads the page
 /// into its panel; every later open reuses that panel, page
 /// and provider (a session swap, no cold load), and a close only hides the panel.
+/// With feature `memoryOverlayPagesOnFirstUse` (``OverlayPageRelease``) the launch makes no picker, and the
+/// warm one goes five minutes after its close, or at memory pressure: the next open makes it again.
 /// One picker at a time: a new open cancels the previous one. ``open`` is what
 /// `debug.popups` lists, so preflights prove it opened.
 @MainActor
@@ -55,10 +57,15 @@ final class IconPickerService {
 
     /// Makes the picker's page (the app's one ``WebUIHost``).
     private let webUI: WebUIHost
+    /// When the warm picker goes; nil keeps it for the process's life.
+    private(set) var release: OverlayPageRelease?
 
-    init(services: AppServices?, webUI: WebUIHost) {
+    /// - Parameter release: The app's overlay page terms (feature `memoryOverlayPagesOnFirstUse`); nil keeps the
+    ///   warm picker for good and lets the launch make it.
+    init(services: AppServices?, webUI: WebUIHost, release terms: OverlayPageReleaseTerms? = nil) {
         self.services = services
         self.webUI = webUI
+        release = terms?.release(owner: "iconPicker") { [weak self] in self?.releaseWarm() ?? true }
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -70,8 +77,13 @@ final class IconPickerService {
     var stallSignposter: Signposter = .stall
 
     /// Makes the warm picker ahead of the first open (the app calls it at an idle moment after
-    /// launch); `then` runs when it is ready.
+    /// launch); `then` runs when it is ready. Under ``release`` it makes none before an open since the
+    /// last release (``OverlayPageRelease/allowsPrewarm``).
     func prepare(then: (() -> Void)? = nil) {
+        if let release, !release.allowsPrewarm {
+            then?()
+            return
+        }
         guard let catalog else {
             loadCatalog { [weak self] in self?.prepare(then: then) }
             return
@@ -108,6 +120,7 @@ final class IconPickerService {
             completion(.cancel)
             return
         }
+        release?.didShow()
         let pageReady = ContinuousClock.now
         var session = IconPickerSession(id: UUID().uuidString, current: current)
         let dark = anchor.view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -158,7 +171,19 @@ final class IconPickerService {
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made
+        release?.didMake()
         return made
+    }
+
+    /// The release's call: ends the warm picker's page through its host and drops the panel and provider. False
+    /// while it is open or still fading out.
+    private func releaseWarm() -> Bool {
+        guard let warm else { return true }
+        guard open == nil, !fade.isClosing else { return false }
+        self.warm = nil
+        warm.panel.close()
+        webUI.close(warm.page)
+        return true
     }
 
     /// An anchor at workspace `id`'s sidebar row in the window that lists it, else the middle of
@@ -196,12 +221,13 @@ final class IconPickerService {
         return Anchor(view: content, rect: NSRect(x: bounds.midX - 1, y: bounds.maxY - 80, width: 2, height: 2))
     }
 
-    /// Fades the panel out; the page stays loaded for the next open.
+    /// Fades the panel out; the page stays loaded for the next open, until ``release`` lets it go.
     private func close() {
         guard let open else { return }
         self.open = nil
         open.panel.onDismiss = nil
         fade.close(open.panel, toward: open.anchor)
+        release?.didHide()
     }
 }
 

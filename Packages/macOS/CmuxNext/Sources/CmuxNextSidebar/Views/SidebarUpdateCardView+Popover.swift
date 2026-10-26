@@ -27,6 +27,7 @@ extension SidebarUpdateCardView {
         guard card != nil, let highlights, highlights.contentHeight > 0, let window, !isHiddenOrHasHiddenAncestor,
               let cards = hoverCards() else { return }
         let host = notesHost
+        highlights.willShow()
         wireNotes(highlights)
         host.adopt(highlights)
         host.fit(height: notesHeight(for: highlights.contentHeight))
