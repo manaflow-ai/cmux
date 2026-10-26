@@ -116,32 +116,35 @@ fn a_dead_terminal_counts_as_dead_not_attached() {
     assert_eq!((after.attached, after.detached, after.dead), (0, 0, 1));
 }
 
-/// I17's daemon source (p15-oracle-188): the loss log next to the record
-/// directory counts holder losses and replaced holders as holder exits, the
-/// owner's termination signals as daemon exits, in the rotated file too; a
-/// respawn, a torn line or a missing log is no exit.
+/// I17's daemon source (p15-oracle-188): `childExits.holder` is the holder
+/// exits this owner counted where it logged them. The loss log in the state
+/// root is not read: its lines from other sessions sharing the root, an owner
+/// stop on a requested signal and a rotation that drops the old file change
+/// nothing, and the count never falls while the owner runs.
 #[test]
-fn child_exits_count_the_loss_log_by_kind() {
+fn child_exits_are_this_owners_counted_holder_exits() {
     let dir = TempDir::new();
     let root = dir.0.join("terminal-hosts-x");
-    assert_eq!(child_exits(None), BTreeMap::from([("daemon", 0), ("holder", 0)]));
-    assert_eq!(child_exits(Some(&root)), BTreeMap::from([("daemon", 0), ("holder", 0)]));
     let line = |value: Value| format!("{value}\n");
-    let current = [
-        line(json!({"terminal_id": "t1", "end": {"kind": "host_lost"}})),
-        line(json!({"event": "terminal_respawned", "terminal_id": "t1"})),
-        line(json!({"event": "host_replaced", "terminal_id": "t2"})),
+    let other_session = [
+        line(json!({"terminal_id": "other", "end": {"kind": "host_lost"}})),
+        line(json!({"event": "host_replaced", "terminal_id": "other"})),
         line(json!({"event": "daemon_signal", "signal": 15})),
-        "{\"terminal_id\": \"t3\", \"end\"".to_string(),
     ]
     .concat();
-    std::fs::write(dir.0.join("terminal-losses.jsonl"), current).unwrap();
-    std::fs::write(
-        dir.0.join("terminal-losses.jsonl.1"),
-        line(json!({"terminal_id": "t0", "end": {"kind": "host_lost"}})),
-    )
-    .unwrap();
-    assert_eq!(child_exits(Some(&root)), BTreeMap::from([("daemon", 1), ("holder", 3)]));
+    std::fs::write(dir.0.join("terminal-losses.jsonl"), &other_session).unwrap();
+    let options = SurfaceOptions { terminal_host_root: Some(root), ..SurfaceOptions::default() };
+    let mux = Mux::new_for_test("oracle-state-exits", options);
+    let exits = |mux: &Mux| oracle_state(mux, NO_CLIENT).unwrap().child_exits;
+    assert_eq!(exits(&mux), BTreeMap::from([("holder", 0)]));
+    mux.note_holder_exit();
+    mux.note_holder_exit();
+    assert_eq!(exits(&mux), BTreeMap::from([("holder", 2)]));
+    // A rotation renames the current file over the old one.
+    std::fs::rename(dir.0.join("terminal-losses.jsonl"), dir.0.join("terminal-losses.jsonl.1"))
+        .unwrap();
+    assert_eq!(exits(&mux), BTreeMap::from([("holder", 2)]));
+    assert_eq!(child_exits(5), BTreeMap::from([("holder", 5)]));
 }
 
 /// A state root of one test, removed after it.

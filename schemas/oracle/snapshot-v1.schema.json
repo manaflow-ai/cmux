@@ -3360,14 +3360,14 @@
           ]
         },
         "crashes": {
-          "description": "Child-process exits by kind: totals since the app launched (holder and daemon: since the daemon's terminal loss log began). The runner and I17 take the rise between checkpoints.",
+          "description": "Child-process exits by kind: totals since the app launched (holder: since the daemon owner started; a new owner counts from 0, which I17 reads as a reset). renderer counts each renderer process once, not each tab it hosted. daemon counts the owner ends the app's connection saw without daemon-shutdown (a crash or a kill, not a requested stop). The runner and I17 take the rise between checkpoints.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/crashes",
             "v0": null,
             "provider": "OracleCrashesFacet",
             "task": "p15-oracle-188",
-            "from": "CEFChildProcessMonitor and CEF's renderer ends (BrowserCrashLog), CrashRecoveryService's previous run, and the daemon's oracle-state childExits (terminal-losses.jsonl)"
+            "from": "CEFChildProcessMonitor's helper exits (BrowserCrashLog tallies), CrashRecoveryService's previous run, the daemon connection's drops without daemon-shutdown, and the daemon's oracle-state childExits (holders its owner counted ending)"
           },
           "oneOf": [
             {

@@ -10,12 +10,9 @@ impl Mux {
         self.subscribers.live_subscriber_count()
     }
 
-    /// The terminal-host record directory, next to which the owner logs
-    /// holder losses (`crate::terminal_loss_log`); none for a test mux.
-    pub(crate) fn oracle_terminal_host_root(&self) -> Option<std::path::PathBuf> {
-        let options =
-            self.surface_options.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        options.terminal_host_root.clone()
+    /// The holders of this session that ended since this owner started.
+    pub(crate) fn oracle_holder_exits(&self) -> u64 {
+        self.oracle_holder_exits.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The daemon's refactor switch arms: the launch value, frozen at the

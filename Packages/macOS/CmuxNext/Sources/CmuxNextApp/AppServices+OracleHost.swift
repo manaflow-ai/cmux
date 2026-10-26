@@ -23,7 +23,8 @@ import Foundation
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
 /// bench builds only: a Release build compiles neither this conformance nor any provider in the list. The
 /// facet tasks (p15-oracle-027, 033 to 044, 188, 215, 216) add theirs to the list; until then each facet
-/// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).extension AppServices: OracleHost {
+/// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).
+extension AppServices: OracleHost {
     func makeOracleFacets() -> OracleFacets { makeOracleFacets(lanes: [AgentLaneStore.shared, AgentLaneStore.chief]) }
 
     /// - Parameter lanes: The acpmux lane mirrors the agents facet reads a session's lane from, the first that has it
@@ -84,7 +85,7 @@ import Foundation
                 guard let self else { return nil }
                 let log = cache.chromium.built?.crashLog, previous = crashRecovery.recovery.previous
                 return OracleCrashesFacet.AppExits(previous: previous.map { .init(signal: $0.signal, raisedException: $0.exception != nil) },
-                                                   records: log?.records ?? [], total: log?.total ?? 0)
+                                                   tallies: log?.tallies ?? [:], records: log?.records ?? [])
             }, daemon: { [weak self] () async throws(OracleFacetError) -> [String: Int]? in
                 try await OracleCrashesFacet.daemonChildExits(self?.daemon.connection)
             }),

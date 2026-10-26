@@ -6,8 +6,8 @@
 //! from the `session.snapshot` builder (`resource_session_snapshot_at_cut`,
 //! which also fills the connection's `clients`) and adds only what the public
 //! reads lack: the refactor switch arms, terminal attach counts, live runtime
-//! object counts, the owner's panic log and the child exits the state root
-//! recorded (task 188, invariant I17). The counts are read from the
+//! object counts, the owner's panic log and the holder exits this owner
+//! counted (task 188, invariant I17). The counts are read from the
 //! cut's own `State`, except `liveObjects.subscriptions` (event bus state,
 //! read just after the cut). It is Blink's `InstanceCounters` read through `internals` in web tests
 //! (third_party/blink/renderer/platform/instrumentation/instance_counters.h,
@@ -17,15 +17,18 @@
 //!
 //! The child exits are Chromium's `NoRendererCrashesAssertion`
 //! (content/public/test/browser_test_base.h) for the daemon's children: the
-//! terminal holders whose loss the owner logged in `terminal-losses.jsonl`
-//! (`crate::terminal_loss_log`), and the owner stops on a termination signal
-//! it logged there. The log is the existing record; nothing new observes.
+//! terminal holders of this session that ended (lost, or replaced on their
+//! running shell), counted by this owner where it logs them
+//! (`Mux::note_holder_exit`). The count is this owner's own, so it never
+//! falls with the loss log's rotation and never takes another session's
+//! holders; it restarts at zero with the owner. The owner's own abnormal end
+//! is not here: the app counts it (a connection lost without
+//! `daemon-shutdown`), since a crashed owner cannot.
 //!
 //! Every map is a `BTreeMap`, so the reply's keys are sorted and two daemons
 //! in the same state reply with the same bytes.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -65,8 +68,8 @@ pub(crate) struct OracleState {
     pub(crate) live_objects: BTreeMap<&'static str, u64>,
     #[serde(rename = "panicLog")]
     pub(crate) panic_log: PanicLog,
-    /// Child exit kind (`holder`, `daemon`, the crashes facet's kinds) to the
-    /// exits the state root's loss log records.
+    /// Child exit kind (`holder`, one of the crashes facet's kinds) to the
+    /// exits this owner counted since it started.
     #[serde(rename = "childExits")]
     pub(crate) child_exits: ChildExits,
 }
@@ -74,12 +77,9 @@ pub(crate) struct OracleState {
 /// Child exit kind to count.
 pub(crate) type ChildExits = BTreeMap<&'static str, u64>;
 
-/// A holder (terminal host) ended without its terminal's exit: the loss log's
-/// lines with no `event`, and `host_replaced` lines (the shell kept running
-/// under a new host, but the old host still died).
+/// A holder (terminal host) ended without its terminal's exit: a host loss,
+/// or a host replaced on its still-running shell (the old host still died).
 const HOLDER: &str = "holder";
-/// The owner daemon stopped on a termination signal (`daemon_signal`).
-const DAEMON: &str = "daemon";
 
 /// The terminal catalog by attach state. A terminal whose process ended is
 /// `dead`; a live one shown in at least one pane tab is `attached`; a live one
@@ -116,7 +116,7 @@ pub(crate) fn oracle_state(mux: &Mux, client: u64) -> anyhow::Result<OracleState
         terminal_attach,
         live_objects,
         panic_log: panic_log(&mux.session),
-        child_exits: child_exits(mux.oracle_terminal_host_root().as_deref()),
+        child_exits: child_exits(mux.oracle_holder_exits()),
     })
 }
 
@@ -161,29 +161,9 @@ fn panic_log(session: &str) -> PanicLog {
     PanicLog { path: path.map(|path| path.to_string_lossy().into_owned()), bytes }
 }
 
-/// The exits `terminal-losses.jsonl` records next to the terminal-host record
-/// directory `root` (the rotated file, then the current one); none without a
-/// root. A line that does not parse is a torn append, not an exit.
-pub(crate) fn child_exits(root: Option<&Path>) -> ChildExits {
-    let mut exits = BTreeMap::from([(DAEMON, 0), (HOLDER, 0)]);
-    #[cfg(any(unix, windows))]
-    if let Some(dir) = root.and_then(Path::parent) {
-        let log = dir.join(crate::terminal_loss_log::LOSS_LOG_FILE);
-        for path in [log.with_extension("jsonl.1"), log] {
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            for line in text.lines().filter_map(|line| serde_json::from_str::<Value>(line).ok()) {
-                let kind = match line.get("event").and_then(Value::as_str) {
-                    None | Some("host_replaced") => HOLDER,
-                    Some("daemon_signal") => DAEMON,
-                    Some(_) => continue,
-                };
-                *exits.entry(kind).or_default() += 1;
-            }
-        }
-    }
-    #[cfg(not(any(unix, windows)))]
-    let _ = root;
-    exits
+/// The child exits this owner counted, by kind.
+pub(crate) fn child_exits(holders: u64) -> ChildExits {
+    BTreeMap::from([(HOLDER, holders)])
 }
 
 fn count(value: usize) -> u64 {

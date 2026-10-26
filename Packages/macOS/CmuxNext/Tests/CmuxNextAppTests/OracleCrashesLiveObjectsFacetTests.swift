@@ -2,7 +2,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextBridge
-import CmuxNextBrowser
+@testable import CmuxNextBrowser
 @testable import CmuxNextBrowserTabs
 @testable import CmuxNextDaemon
 import CmuxNextOracle
@@ -10,26 +10,34 @@ import Foundation
 import Testing
 
 /// The oracle's `crashes` and `liveObjects` facets (p15-oracle-188). Crashes counts child exits by kind from the
-/// records the app and the daemon already keep (Chromium's crash log, the previous run, `oracle-state` childExits);
-/// a log that dropped records or a daemon without childExits is not-comparable, never a zero. Live objects counts
+/// records the app and the daemon already keep (Chromium's crash log tallies, the previous run, `oracle-state`
+/// childExits); a daemon that is lost or has no childExits is not-comparable, never a zero. Live objects counts
 /// the owners' tables in the snapshot's turn. Neither adds an observer: the app's list builds them and nothing
 /// runs until a snapshot asks. Run: `swift test --filter OracleCrashesLiveObjectsFacetTests`.
 @MainActor @Suite(.serialized) struct OracleCrashesLiveObjectsFacetTests {
     private static func record(_ type: String, _ source: BrowserCrashRecord.Source, _ reason: BrowserProcessExit.Reason = .crashed,
-                               code: Int? = 11) -> BrowserCrashRecord {
-        BrowserCrashRecord(processType: type, reason: reason, code: code, source: source)
+                               code: Int? = 11, pid: Int32? = nil) -> BrowserCrashRecord {
+        BrowserCrashRecord(processType: type, pid: pid, reason: reason, code: code, source: source)
     }
 
-    /// A renderer counts once, from CEF's per-tab record (the child monitor's record of the same process is skipped);
-    /// an extension renderer counts as a renderer, the GPU process as gpu, any other helper as utility, and the run
-    /// this launch follows as the browser. The daemon's kinds come from its childExits.
-    @Test func eachRecordCountsOnceUnderItsKind() async throws {
+    private static func log(_ records: [BrowserCrashRecord]) -> BrowserCrashLog {
+        let log = BrowserCrashLog()
+        for record in records { log.append(record) }
+        return log
+    }
+
+    /// A renderer counts once per process, from the child monitor's record: two tabs of one renderer (two CEF
+    /// records, one process record with its pid) are one exit, as Chrome counts `RenderProcessExited`. An extension
+    /// renderer counts as a renderer, the GPU process as gpu, any other helper as utility, and the run this launch
+    /// follows as the browser. The daemon's kinds come from its childExits.
+    @Test func eachProcessCountsOnceUnderItsKind() async throws {
         let previous = OracleCrashesFacet.PreviousEnd(signal: 11, raisedException: false)
-        let records = [Self.record("renderer", .engine), Self.record("renderer", .process),
-                       Self.record("extension", .process), Self.record("gpu-process", .process, .killed, code: 9),
-                       Self.record("utility", .process, .abnormal, code: 256)]
-        let app = try #require(OracleCrashesFacet.AppExits(previous: previous, records: records, total: records.count))
-        #expect(app.exits.map(\.kind) == [.browser, .renderer, .renderer, .gpu, .utility])
+        let log = Self.log([Self.record("renderer", .engine), Self.record("renderer", .engine),
+                            Self.record("renderer", .process, pid: 41),
+                            Self.record("extension", .process, pid: 42), Self.record("gpu-process", .process, .killed, code: 9),
+                            Self.record("utility", .process, .abnormal, code: 256)])
+        let app = OracleCrashesFacet.AppExits(previous: previous, tallies: log.tallies, records: log.records)
+        #expect(app.counts == [.browser: 1, .renderer: 2, .gpu: 1, .utility: 1])
         let facet = OracleCrashesFacet(app: { app }, daemon: { () async throws(OracleFacetError) -> [String: Int]? in
             ["holder": 2, "daemon": 1]
         })
@@ -42,18 +50,44 @@ import Testing
         #expect(exits.last == ["kind": "utility", "reason": "abnormal", "exitCode": 256])
     }
 
-    /// A ring that dropped records would undercount: not-comparable. So is a daemon with no childExits.
-    @Test func aShortLogOrAnOlderDaemonIsNotComparable() async throws {
-        let records = [Self.record("renderer", .engine)]
-        #expect(OracleCrashesFacet.AppExits(previous: nil, records: records, total: 65) == nil)
-        let dropped = OracleCrashesFacet(app: { nil }, daemon: { () async throws(OracleFacetError) -> [String: Int]? in [:] })
-        let first = try await OracleFacets([dropped]).beginCapture([.crashes]).finish()
-        #expect(first["crashes"]?["status"] == "not-comparable")
-        #expect(first["crashes"]?["task"] == "p15-oracle-188")
-        let older = OracleCrashesFacet(app: { OracleCrashesFacet.AppExits(exits: []) },
+    /// A renderer that hosted no tab (a spare, or an orphan's) has only the process record, and still counts.
+    @Test func aRendererWithNoTabCounts() {
+        let log = Self.log([Self.record("renderer", .process, pid: 7)])
+        #expect(OracleCrashesFacet.AppExits(previous: nil, tallies: log.tallies, records: log.records).counts == [.renderer: 1])
+    }
+
+    /// The counts come from the log's tallies, so they stay exact after the 64-record ring drops records.
+    @Test func countsStayExactPastTheRing() {
+        let log = Self.log((0..<(BrowserCrashLog.capacity + 6)).map { Self.record("renderer", .process, pid: Int32($0)) })
+        #expect(log.records.count == BrowserCrashLog.capacity)
+        let app = OracleCrashesFacet.AppExits(previous: nil, tallies: log.tallies, records: log.records)
+        #expect(app.counts[.renderer] == BrowserCrashLog.capacity + 6)
+        #expect(app.exits.count == BrowserCrashLog.capacity)
+    }
+
+    /// A daemon with no childExits, or one whose connection was lost (a kill step's reconnect), is not-comparable.
+    @Test func aLostOrOlderDaemonIsNotComparable() async throws {
+        let older = OracleCrashesFacet(app: { OracleCrashesFacet.AppExits(counts: [:], exits: []) },
                                        daemon: { () async throws(OracleFacetError) -> [String: Int]? in nil })
-        let second = try await OracleFacets([older]).beginCapture([.crashes]).finish()
-        #expect(second["crashes"]?["status"] == "not-comparable")
+        let snapshot = try await OracleFacets([older]).beginCapture([.crashes]).finish()
+        #expect(snapshot["crashes"]?["status"] == "not-comparable")
+        #expect(snapshot["crashes"]?["task"] == "p15-oracle-188")
+        let gone = OracleCrashesFacet(app: { nil }, daemon: { () async throws(OracleFacetError) -> [String: Int]? in [:] })
+        let goneSnapshot = try await OracleFacets([gone]).beginCapture([.crashes]).finish()
+        #expect(goneSnapshot["crashes"]?["status"] == "not-comparable")
+        #expect(DaemonError.notConnected.isLostConnection)
+        #expect(DaemonError.connectionClosed(reason: "eof").isLostConnection)
+    }
+
+    /// cefBrowsers counts the registered tabs and the browsers Chromium created that wait for a pane (a popup never
+    /// adopted is the leak I18 catches), but not a closed one or a registered one twice.
+    @Test func cefBrowsersCountWaitingOrphans() {
+        var ledger = CEFAdoptionLedger()
+        #expect(CEFEngine.liveBrowsers(registered: [1, 2], ledger: ledger, unplaced: []) == 2)
+        ledger.enqueue(Orphan(browser: 3, window: 9))
+        #expect(CEFEngine.liveBrowsers(registered: [1, 2], ledger: ledger, unplaced: [4, 2]) == 4)
+        ledger.closedUnregistered(3)
+        #expect(CEFEngine.liveBrowsers(registered: [1, 2], ledger: ledger, unplaced: [4]) == 3)
     }
 
     /// Workspace models and holders come from the stores: a provisional workspace is no model yet, and a dead

@@ -25,12 +25,18 @@ detector compares InstanceCounters after a web test with the counts before it
 (third_party/blink/renderer/core/testing/internals.cc; I18). A failed check names its value, as gtest's
 EXPECT_EQ prints both sides; here every violation names its JSON pointer.
 
-I17 reads `crashes.counts`, totals since the app (or the daemon's loss log) began: an exit is a rise of a
-kind's total from one checkpoint to the next. A rise first seen at a step's turn or settled checkpoint
-happened during that step; one first seen at its before checkpoint happened after the previous step,
-and belongs to it. A total that falls was reset (a restart, a rotated log): its value is the rise.
-I18 compares the counts of `liveObjects` and `daemon.oracle.liveObjects` at the teardown checkpoint with
-those at the case's first checkpoint, the fixture baseline.
+I17 reads `crashes.counts`, totals since the app launched (holder: since the owner started): an exit is
+a rise of a kind's total from one comparable reading to the next. A rise first seen at a step's turn or
+settled checkpoint happened during that step; one first seen at its before checkpoint happened after the
+previous step, and belongs to it. When checkpoints between two readings are missing or not comparable
+(a kill step's reconnect), the rise belongs to every step it could have happened in, and an entry that
+covers any of them accepts it. The baseline is the first step's before checkpoint; without it the
+first step's exits are not checked. A total that falls was reset (a new owner counts from 0): its value
+is the rise.
+I18 compares the owned-object counts of `liveObjects` and `daemon.oracle.liveObjects` at the teardown
+checkpoint with those at the case's first checkpoint, the fixture baseline. `subscriptions` and `tasks`
+are timing state (armed observations, pending deadlines), not owned objects: a difference there is
+reported as not checked, never a failure.
 
 The checks run on raw checkpoints, before normalize.py: I4 pairs the cut by the raw sequences that the
 canonical form drops (x-oracle-volatile), and ids of one run need no relabeling to be compared with
@@ -106,6 +112,9 @@ READ_CAPABLE_OPS = frozenset({"resource.call", "cli", "mcp"})
 KEY_OPS = frozenset({"key", "tui.key"})
 # Facets that count the pipeline, not the model: a pending intent at the turn becomes applied at the
 # settle, tasks finish, hit counters move. I3 compares the other facets.
+# liveObjects members that count timing state, not owned objects (I18): armed observations and the main
+# thread's pending deadlines (app), live event subscriptions (daemon).
+TIMING_LIVE_KINDS = frozenset({"subscriptions", "tasks"})
 BOOKKEEPING_FACETS = frozenset({"intents", "switches", "liveObjects", "crashes", "invariants"})
 # The crash kinds of the crashes facet and case-v1 `crashKind`, in schema order.
 CRASH_KINDS = ("renderer", "gpu", "browser", "utility", "daemon", "holder")
@@ -877,23 +886,50 @@ class Checker:
             return state.step
         return self.trace.steps[state.step.index - 1] if state.step.index > 0 else None
 
+    def exit_span(self, previous: State, skipped: List[State], state: Optional[State]) -> List[Optional[Step]]:
+        """Every step an exit between the reading at `previous` and the one at `state` (None: the teardown)
+        could have happened in, in case order: the step each skipped checkpoint and the reading names, and
+        the steps between with no checkpoint at all. The teardown is a None at the end. A reading follows
+        the first one, which is at or before its own step, so only the teardown gives None."""
+        last = state.step.index if state is not None else len(self.trace.steps)
+        steps = [self.exit_step(s) for s in skipped] + self.trace.steps[previous.step.index + 1:last]
+        if state is not None:
+            steps.append(self.exit_step(state))
+        by_index = {step.index: step for step in steps if step is not None}
+        span: List[Optional[Step]] = [by_index[i] for i in sorted(by_index)]
+        return span if state is not None else [*span, None]
+
+    @staticmethod
+    def span_text(span: List[Optional[Step]]) -> str:
+        names = ["the teardown" if s is None else f"step {s.id}" for s in span]
+        return names[0] if len(names) == 1 else f"one of {', '.join(names)}"
+
     def i17(self) -> None:
-        readings: List[Tuple[Optional[State], Mapping[str, Any]]] = [
-            (state, value) for state in self.states if (value := facet(state.snapshot, "crashes")) is not None]
+        states = self.states
+        readings = [(i, value) for i, state in enumerate(states) if (value := facet(state.snapshot, "crashes")) is not None]
         if not readings:
             self.skip("I17", None, "no checkpoint has the crashes facet")
             return
-        teardown = facet((self.trace.teardown or {}).get("checkpoint"), "crashes")
-        if teardown is not None:
-            readings.append((None, teardown))  # an exit during the teardown: only a whole-case entry covers it
+        first, previous = readings[0]
+        if states[first].step.index != 0 or states[first].checkpoint != "before":
+            unchecked = self.trace.steps[:states[first].step.index + 1]
+            self.skip("I17", states[first].step,
+                      f"no crashes reading before {unchecked[0].id}: exits up to {states[first].checkpoint} of "
+                      f"{states[first].step.id} are not checked")
         allowances = [{"kind": e["kind"], "steps": set(e["steps"]) if e.get("steps") else None,
                        "left": int(e.get("max", 1))} for e in self.trace.allow_crashes]
         self.checked("I17")
-        previous = readings[0][1]
-        for state, value in readings[1:]:
-            step = self.exit_step(state) if state is not None else None
+        teardown = facet((self.trace.teardown or {}).get("checkpoint"), "crashes")
+        later: List[Tuple[Optional[int], Mapping[str, Any]]] = list(readings[1:])
+        if teardown is not None:
+            later.append((None, teardown))  # an exit during the teardown: only a whole-case entry covers it
+        last = first
+        for index, value in later:
+            state = states[index] if index is not None else None
+            skipped = states[last + 1:index if index is not None else len(states)]
+            span = self.exit_span(states[last], skipped, state)
+            step = span[-1]
             checkpoint = state.checkpoint if state is not None else "teardown"
-            during = "the teardown" if state is None else f"step {step.id}" if step else "the fixture setup"
             exits = value.get("exits") or []
             seen = len(previous.get("exits") or [])
             counts, before = value.get("counts") or {}, previous.get("counts") or {}
@@ -902,20 +938,24 @@ class Checker:
                 rise = now if now < then else now - then
                 listed = [i for i in range(seen, len(exits)) if exits[i].get("kind") == kind]
                 for n in range(rise):
-                    if self.allow(allowances, kind, step):
+                    if self.allow(allowances, kind, span):
                         continue
                     named = listed[n] if n < len(listed) else None
                     at = pointer("crashes", "counts", kind) if named is None else pointer("crashes", "exits", named)
                     reason = "" if named is None else f" ({exits[named].get('reason')})"
-                    self.violate("I17", step if state is not None else None, checkpoint, at,
+                    during = self.span_text(span)
+                    self.violate("I17", step, checkpoint, at,
                                  f"{kind} exit{reason} during {during} that no allow_crashes entry covers")
             previous = value
+            if index is not None:
+                last = index
 
     @staticmethod
-    def allow(allowances: List[Dict[str, Any]], kind: str, step: Optional[Step]) -> bool:
-        """Takes one exit of `kind` from the first entry that covers `step` and has some left."""
+    def allow(allowances: List[Dict[str, Any]], kind: str, span: List[Optional[Step]]) -> bool:
+        """Takes one exit of `kind` from the first entry that covers a step of `span` and has some left."""
+        ids = {step.id for step in span if step is not None}
         for entry in allowances:
-            covers = entry["steps"] is None or (step is not None and step.id in entry["steps"])
+            covers = entry["steps"] is None or bool(ids & entry["steps"])
             if entry["kind"] == kind and covers and entry["left"] > 0:
                 entry["left"] -= 1
                 return True
@@ -957,8 +997,11 @@ class Checker:
                     continue
                 what = (f"{now - base} more" if now > base else f"{base - now} fewer") \
                     if isinstance(base, int) and isinstance(now, int) else "a different count"
-                self.violate("I18", None, "teardown", pointer(*path, kind),
-                             f"{kind}: {now} after teardown, {base} at the fixture baseline ({what})")
+                message = f"{kind}: {now} after teardown, {base} at the fixture baseline ({what})"
+                if kind in TIMING_LIVE_KINDS:
+                    self.skip("I18", None, f"{pointer(*path, kind)} is timing state, not compared: {message}")
+                    continue
+                self.violate("I18", None, "teardown", pointer(*path, kind), message)
 
     def run(self) -> Report:
         for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i17, self.i18):
@@ -1493,13 +1536,26 @@ class InvariantsSelfTest(unittest.TestCase):
         self.assertEqual([(n.invariant, n.step) for n in self.core(report)], [("I7", "tab-in-hidden")])
 
     # I17
-    def crash_trace(self, *rises: Tuple[str, str, Dict[str, int]], allow: Optional[List[Dict[str, Any]]] = None,
+    def crash_trace(self, *rises: Tuple[str, str, Optional[Dict[str, int]]], allow: Optional[List[Dict[str, Any]]] = None,
                     exits: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-        """A settle step per (step id, checkpoint, counts); each later snapshot also lists `exits` seen so far."""
+        """A settle step per (step id, checkpoint, counts); each later snapshot also lists `exits` seen so far.
+        None counts is a not-comparable crashes facet (the daemon reconnecting); "-" a step with no checkpoint."""
         steps = []
         seen: List[Dict[str, Any]] = []
         for step_id, checkpoint, counts in rises:
+            if checkpoint == "-":
+                steps.append({"id": step_id, "op": "snapshot", "checkpoints": {}})
+                continue
             snap = copy.deepcopy(self.base)
+            if counts is None:
+                snap["facets"]["crashes"] = {"status": "not-comparable", "reason": "the daemon is not connected",
+                                             "task": "p15-oracle-188"}
+                existing = next((s for s in steps if s["id"] == step_id), None)
+                if existing is None:
+                    existing = {"id": step_id, "op": "snapshot", "checkpoints": {}}
+                    steps.append(existing)
+                existing["checkpoints"][checkpoint] = snap
+                continue
             total = {kind: counts.get(kind, 0) for kind in CRASH_KINDS}
             for e in exits or []:
                 if len([x for x in seen if x["kind"] == e["kind"]]) < total[e["kind"]] and e not in seen:
@@ -1559,6 +1615,39 @@ class InvariantsSelfTest(unittest.TestCase):
         doc = self.crash_trace(("kill", "settled", {}), ("next", "before", {"holder": 1}), allow=allow)
         self.assertEqual(self.check(doc).violations, [])
 
+    def test_i17_a_rise_after_unread_checkpoints_belongs_to_every_step_it_spans(self) -> None:
+        allow = [{"kind": "holder", "reason": "the kill step ends a holder", "steps": ["kill"]}]
+        # The kill step's settled crashes facet is not comparable (the daemon reconnects); the rise first
+        # shows at the next step's settled checkpoint.
+        reconnect = self.crash_trace(("open", "before", {}), ("kill", "settled", None), ("next", "settled", {"holder": 1}),
+                                     allow=allow)
+        self.assertEqual(self.check(reconnect).violations, [])
+        # The kill step has no checkpoint at all.
+        unread = self.crash_trace(("open", "before", {}), ("kill", "-", None), ("next", "settled", {"holder": 1}), allow=allow)
+        self.assertEqual(self.check(unread).violations, [])
+        # Without an entry for any step of the span the exit fails, and the message names the span.
+        report = self.check(self.crash_trace(("open", "before", {}), ("kill", "settled", None),
+                                             ("next", "settled", {"holder": 1})))
+        self.assertEqual([(v.step, v.pointer) for v in report.violations], [("next", "/crashes/counts/holder")])
+        self.assertIn("during one of step kill, step next", report.violations[0].message)
+        # Adjacent readings keep the step's own scope: an entry for kill does not cover next.
+        adjacent = self.crash_trace(("open", "before", {}), ("kill", "settled", {}), ("next", "settled", {"holder": 1}),
+                                    allow=allow)
+        self.assertEqual([v.step for v in self.check(adjacent).violations], ["next"])
+
+    def test_i17_the_baseline_is_before_the_first_step(self) -> None:
+        crash = {"kind": "renderer", "reason": "crashed", "exitCode": 11}
+        # The first step's exit is in its own first reading: not checked, never taken as the baseline silently.
+        late = self.crash_trace(("crash", "settled", {"renderer": 1}), ("read", "settled", {"renderer": 1}), exits=[crash])
+        report = self.check(late)
+        self.assertEqual([v for v in report.violations if v.invariant == "I17"], [])
+        self.assertIn(("I17", "crash"), [(n.invariant, n.step) for n in report.not_checked])
+        # With a before checkpoint of the first step, the same exit fails.
+        early = self.crash_trace(("crash", "before", {}), ("crash", "settled", {"renderer": 1}), exits=[crash])
+        report = self.check(early)
+        self.assertEqual([(v.step, v.pointer) for v in report.violations], [("crash", "/crashes/exits/0")])
+        self.assertNotIn(("I17", "crash"), [(n.invariant, n.step) for n in report.not_checked])
+
     def test_i17_totals_since_launch_count_only_their_rise_and_a_reset(self) -> None:
         doc = self.crash_trace(("open", "settled", {"renderer": 4, "daemon": 2}), ("read", "settled", {"renderer": 4, "daemon": 2}))
         self.assertEqual(self.check(doc).violations, [])
@@ -1589,6 +1678,19 @@ class InvariantsSelfTest(unittest.TestCase):
         report = self.check(doc)
         self.assertEqual(report.violations, [])
         self.assertEqual(report.checked["I18"], 1)
+
+    def test_i18_timing_counts_are_reported_not_failed(self) -> None:
+        pending = copy.deepcopy(self.base)
+        pending["facets"]["liveObjects"]["tasks"] += 1
+        pending["facets"]["liveObjects"]["subscriptions"] += 2
+        pending["facets"]["daemon"]["oracle"]["liveObjects"]["subscriptions"] += 1
+        doc = _trace({"id": "close-tab", "op": "snapshot", "checkpoints": {"before": self.base}})
+        doc["teardown"]["checkpoint"] = pending
+        report = self.check(doc)
+        self.assertEqual([v for v in report.violations if v.invariant == "I18"], [])
+        skipped = [n.reason for n in report.not_checked if n.invariant == "I18"]
+        self.assertEqual(len(skipped), 3)
+        self.assertTrue(any("/liveObjects/tasks is timing state" in r and "1 more" in r for r in skipped))
 
     def test_i18_without_a_teardown_checkpoint_is_not_checked(self) -> None:
         report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": self.base}}))
