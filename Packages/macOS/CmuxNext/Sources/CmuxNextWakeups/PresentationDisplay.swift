@@ -1,24 +1,30 @@
 public import AppKit
 
-/// The refresh range of a display (`NSScreen`'s minimum and maximum refresh intervals).
+/// A display and its refresh range (`NSScreen`'s minimum and maximum refresh intervals). Two values
+/// are equal only for the same display with the same range: a vsync phase belongs to one of them.
 public struct PresentationDisplay: Sendable, Hashable {
+    /// The display (`CGDirectDisplayID`, as DisplayClock keys its links); nil when unknown.
+    public let displayID: CGDirectDisplayID?
     /// The shortest refresh interval (the fastest rate), in seconds.
     public let minimumRefreshInterval: Double
     /// The longest refresh interval (the slowest rate), in seconds.
     public let maximumRefreshInterval: Double
 
-    public init(minimumRefreshInterval: Double, maximumRefreshInterval: Double) {
+    public init(displayID: CGDirectDisplayID? = nil, minimumRefreshInterval: Double, maximumRefreshInterval: Double) {
+        self.displayID = displayID
         self.minimumRefreshInterval = minimumRefreshInterval
         self.maximumRefreshInterval = maximumRefreshInterval
     }
 
-    /// The range of `screen`.
+    /// The display of `screen`.
     @MainActor
     public init(screen: NSScreen) {
-        self.init(minimumRefreshInterval: screen.minimumRefreshInterval, maximumRefreshInterval: screen.maximumRefreshInterval)
+        let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        self.init(displayID: number?.uint32Value, minimumRefreshInterval: screen.minimumRefreshInterval,
+                  maximumRefreshInterval: screen.maximumRefreshInterval)
     }
 
-    /// The range of the screen of `scheduler`'s window, or the main screen; nil with no screen.
+    /// The display of `scheduler`'s window, or the main screen; nil with no screen.
     @MainActor
     public init?(screenOf scheduler: FrameScheduler) {
         guard let screen = scheduler.window?.screen ?? NSScreen.main else { return nil }

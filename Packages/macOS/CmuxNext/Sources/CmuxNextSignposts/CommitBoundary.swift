@@ -70,7 +70,7 @@ public struct CommitBoundary: Sendable {
 
     /// Runs `body` once, after the Core Animation commit that ends this main run-loop turn, with
     /// the time the commit ended: the start of a presented estimate (CmuxNextWakeups'
-    /// `PresentationClock.presented(commitEndNanos:on:)`).
+    /// `PresentationClock.presented(commitEndNanos:on:_:)`, resolved by the next real vsync).
     ///
     /// - Parameter body: Main-actor work, as for ``after(_:)``.
     @MainActor
