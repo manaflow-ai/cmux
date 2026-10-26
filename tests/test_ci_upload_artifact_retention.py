@@ -36,6 +36,10 @@ ALLOWLIST = ROOT / "tests/upload_artifact_retention_allowlist.json"
 MAX_DAYS = 3
 LARGE_TOKENS = {"app", "dsym", "dsyms", "xcresult", "capture", "captures", "zip", "dmg",
                 "ipa", "xcframework"}
+# Path words that name an archive or a bundle: a shell step may build `<name>.app.zip` and upload it
+# through an expression (`${{ steps.dogfood-artifact.outputs.archive }}`, `media-app/app.tar`).
+LARGE_PATH_TOKENS = LARGE_TOKENS | {"archive", "tar", "tgz", "xcarchive"}
+SMALL_SUFFIXES = (".log", ".json", ".txt", ".md", ".sha256", ".patch")
 LARGE_SUFFIXES = (".app", ".zip", ".dmg", ".ipa", ".xcresult", ".dsym", ".xcframework", ".xcarchive")
 
 
@@ -84,6 +88,9 @@ def is_large(options: dict) -> bool:
         for segment in line.split("/"):
             if segment.rstrip("*").endswith(LARGE_SUFFIXES):
                 return True
+        # A word counts unless the path ends in a small text file (an archive's log or receipt).
+        if tokens(line) & LARGE_PATH_TOKENS and not line.endswith(SMALL_SUFFIXES):
+            return True
     return False
 
 
@@ -129,12 +136,17 @@ class RuleTests(unittest.TestCase):
                         {"name": "ui-tests-xcresult"}, {"name": "cmux-next-capture-1"},
                         {"name": "out", "path": "build/cmux.zip"}, {"name": "out", "path": "a.dSYM/"},
                         {"name": "out", "path": "x/cmux.xcarchive/dSYMs"}, {"name": "out", "path": "b/cmux.app/Contents/**"},
-                        {"name": "out", "path": "out/*.dmg"}, {"name": "receipt-${{ inputs.app }}"}):
+                        {"name": "out", "path": "out/*.dmg"}, {"name": "receipt-${{ inputs.app }}"},
+                        {"name": "${{ steps.dogfood-artifact.outputs.artifact_name }}",
+                         "path": "${{ steps.dogfood-artifact.outputs.archive }}"},
+                        {"name": "${{ steps.build_base.outputs.artifact }}", "path": "${{ runner.temp }}/media-app/app.tar"},
+                        {"name": "products", "path": "${{ runner.temp }}/cmux-release-product.tar.gz"}):
             options["retention-days"] = 1
             self.assertTrue(problems(options), options)
         self.assertEqual(problems({"name": "approval-receipt", "retention-days": 1}), [])
         self.assertEqual(problems({"name": "happy-path", "retention-days": 1}), [])
         self.assertEqual(problems({"name": "out", "path": "!x.zip\nreport.json", "retention-days": 1}), [])
+        self.assertEqual(problems({"name": "archive-log", "path": "x/ios-archive.log", "retention-days": 1}), [])
 
     def test_a_repeated_name_in_one_job_is_listed_per_step(self):
         import tempfile
