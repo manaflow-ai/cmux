@@ -444,7 +444,7 @@
               }
             ]
           },
-          "strip": {"columns": 0, "firstVisibleColumn": null},
+          "strip": {"columns": 1},
           "canvas": null
         },
         {
@@ -496,7 +496,7 @@
               }
             ]
           },
-          "strip": {"columns": 1, "firstVisibleColumn": null},
+          "strip": {"columns": 1},
           "canvas": {"order": ["pane_000000000000000000000000000000d4", "pane_000000000000000000000000000000d3"], "zoom": 1.25, "overview": false}
         }
       ]

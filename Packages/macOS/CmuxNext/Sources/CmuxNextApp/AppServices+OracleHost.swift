@@ -1,5 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
-import CmuxNextLayout
+import CmuxNextBridge
 import CmuxNextOracle
 
 /// The app's oracle facet providers (p15-oracle.md section 3A), registered as `debug.oracle.*` in DEV and
@@ -9,14 +9,13 @@ import CmuxNextOracle
 extension AppServices: OracleHost {
     func makeOracleFacets() -> OracleFacets {
         OracleFacets([
-            // The workspace each window shows (`LayoutModel.oracleScreens`); a parked one defers its layout.
-            OracleFacetSource(.layout, .mainActor { [weak self] () throws(OracleFacetError) -> OracleValue in
+            // Every workspace each window shows, the focused one and the ones `sidebar.multiView` puts beside it.
+            OracleLayoutFacet { [weak self] () throws(OracleFacetError) -> [OracleLayoutFacet.Shown] in
                 guard let self else { throw OracleFacetError("the app services are gone") }
-                let screens = windows.controllers.compactMap(\.content).flatMap { content in
-                    content.layoutModel.oracleScreens(workspace: content.workspace.resourceID?.rawValue ?? content.workspace.id)
+                return windows.controllers.flatMap(\.onScreenContents).map { content in
+                    OracleLayoutFacet.Shown(workspace: content.workspace.resourceID?.rawValue ?? content.workspace.id, model: content.layoutModel)
                 }
-                return ["screens": .array(screens)]
-            }),
+            },
         ])
     }
 }
