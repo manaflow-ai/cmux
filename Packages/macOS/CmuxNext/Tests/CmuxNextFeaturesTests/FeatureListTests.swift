@@ -80,6 +80,31 @@ struct FeatureListTests {
         #expect(FeatureList(registry: registry, channel: .release).enabledChromiumFeatures.isEmpty)
     }
 
+    /// CEF's `--disable-features` gets the Chromium name of each off `chromium` feature (p12-perf-process-153):
+    /// a remote off of a feature that is on by default is off in Chromium, not left to Chromium's own default,
+    /// and a name on both environment lists is off.
+    @Test func disabledChromiumFeaturesNameEveryOffOne() {
+        func chromium(_ index: Int, _ name: String, _ chromiumName: String, on: Bool) -> Feature {
+            Feature(index: index, name: name, owner: "PL-test", description: "A test feature.", kind: .perfPath,
+                    process: .chromium, chromiumFeature: chromiumName, defaults: FeatureDefaults(all: on),
+                    expires: nil, params: [], stories: [], sticky: false, runtimeMutable: false)
+        }
+        let cache = chromium(3, "cacheThing", "BackForwardCache", on: true)
+        let slack = chromium(4, "slackThing", "TimerSlackMac", on: false)
+        let align = chromium(5, "alignThing", "AlignWakeUps", on: false)
+        let registry = FeatureRegistry([Self.perf, Self.kill, Self.labs, cache, slack, align])
+        let remoteOff = FeatureList(registry: registry, channel: .release, overrides: FeatureOverrides(remote: ["cacheThing": false]))
+        #expect(remoteOff.resolution(of: cache) == Feature.Resolution(isEnabled: false, source: .remote))
+        #expect(remoteOff.disabledChromiumFeatures == ["BackForwardCache", "TimerSlackMac", "AlignWakeUps"])
+        #expect(remoteOff.enabledChromiumFeatures.isEmpty)
+        let both = FeatureList(registry: registry, channel: .release, overrides: FeatureOverrides(environment: [
+            FeatureOverrides.enableVariable: "alignThing,slackThing",
+            FeatureOverrides.disableVariable: "alignThing",
+        ]))
+        #expect(both.enabledChromiumFeatures == ["BackForwardCache", "TimerSlackMac"])
+        #expect(both.disabledChromiumFeatures == ["AlignWakeUps"])
+    }
+
     @Test func aLocalOverrideIsIgnoredInRelease() {
         let local = RecordingLocalOverrides(["labsThing": true, "killThing": false])
         let list = FeatureList(registry: Self.registry, channel: .release, local: local)

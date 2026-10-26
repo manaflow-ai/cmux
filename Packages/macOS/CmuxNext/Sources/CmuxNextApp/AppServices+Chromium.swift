@@ -109,7 +109,8 @@ extension AppServices {
         let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
-                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
+                                           chromiumFeatures = features.enabledChromiumFeatures,
+                                           disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
                                            attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
                                            everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
@@ -118,7 +119,8 @@ extension AppServices {
                                       return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                        contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
-                                                       chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork,
+                                                       chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
+                                                       prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
                                   },
