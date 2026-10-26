@@ -8,7 +8,7 @@ import Foundation
 /// names an `agent` claims the tab for that agent; while the claim lasts,
 /// another agent's write answers `lease_held` with the holder's name, so two
 /// agents never race on one page. Reads (``rightReadVerbs`` and the cookie
-/// and storage getters) never claim or wait. `browser.page.state` names the
+/// and storage getters, the downloads list and its wait) never claim or wait. `browser.page.state` names the
 /// current `driver`; `browser.page.right` `release` hands the tab on. A
 /// request without an agent name (the person's script, an older CLI) is not
 /// leased.
@@ -22,6 +22,7 @@ extension BrowserPageService {
     /// leases on its own), and the cookie and storage getters.
     static let leaseFreeMethods: Set<String> = rightReadVerbs.union([
         "browser.page.right", "browser.page.cookies.get", "browser.page.storage.get",
+        "browser.page.downloads", "browser.page.download.wait",
     ])
 
     /// `method`, claiming its tab for the request's agent first when it writes.
