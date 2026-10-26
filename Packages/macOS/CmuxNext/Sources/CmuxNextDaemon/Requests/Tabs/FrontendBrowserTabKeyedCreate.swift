@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -25,15 +26,25 @@ extension NewFrontendBrowserTabRequest {
         var keyed = self
         keyed.idempotencyKey = (DaemonCommandScope.current?.nextDerivedUUID("frontend-browser-tab") ?? UUID()).uuidString.lowercased()
         let giveUp = ContinuousClock.now + Self.lateReplyBudget
-        // wakeup-allow: each pass waits for one reply or its deadline; the keyed retry ends at the budget, on a reply, or on another error
+        // A missed deadline already waited a whole deadline; a closed or absent connection fails at once, so that
+        // retry waits a Backoff step (the reconnect needs time) instead of spinning until the budget.
+        var backoff = Self.reconnectBackoff
+        // wakeup-allow: backoff: each pass waits for one reply or its deadline, or a Backoff step; it ends at the budget, on a reply, or on another error
         while true {
             do {
                 return try await connection.request(keyed)
             } catch let error as DaemonError where Self.asksAgain(after: error) && ContinuousClock.now < giveUp && !Task.isCancelled {
                 Self.logger.info("\(Self.command, privacy: .public): \(String(describing: error), privacy: .public); asking again with its key")
+                if case .timedOut = error { continue }
+                // concurrency-allow: Backoff.wait is an async sleep on the connection's clock after a failure, not a blocking wait.
+                try await backoff.wait(owner: "NewFrontendBrowserTabRequest.keyedRetry", clock: connection.clock)
             }
         }
     }
+
+    /// The spacing of a keyed retry after the connection closed or is not up: 50 ms growing to 1 s, well inside
+    /// ``lateReplyBudget``.
+    static let reconnectBackoff = Backoff(initial: .milliseconds(50), maximum: .seconds(1))
 
     /// The reply may still come (or the tab may exist) after these: the same key is safe to send again.
     private static func asksAgain(after error: DaemonError) -> Bool {

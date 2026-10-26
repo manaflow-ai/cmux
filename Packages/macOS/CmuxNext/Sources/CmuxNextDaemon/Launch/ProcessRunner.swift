@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 import Dispatch
 
@@ -80,17 +81,20 @@ public struct ProcessRunner {
                     }
                 }
                 group.addTask {
+                    // Each wait is a flexible, never-early deadline (WakeLeeway: 10% up to 1 s from 1 s on).
                     guard let progressIdle, let progress else {
-                        // wakeup-allow: one-shot deadline (child process timeout)
-                        try await clock.sleep(for: timeout)
+                        // wakeup-allow: deadline of the child process (timeout)
+                        try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance)
                         return Int32.min
                     }
                     var seen = progress.count
                     var waited = Duration.zero
+                    // wakeup-allow: bounded: the silence deadline re-arms only after stdout progress, until the hard cap
+                    // (a lazily reset one-shot, as Chromium's base/timer/timer.cc re-posts when the run time moved)
                     while waited < timeout {
                         let window = min(progressIdle, timeout - waited)
-                        // wakeup-allow: one wake per idle window (no stdout progress = timeout), bounded by the hard cap
-                        try await clock.sleep(for: window)
+                        // wakeup-allow: deadline of one silence window (no stdout progress in it = timeout)
+                        try await clock.sleep(for: window, tolerance: WakeLeeway.window(delay: window).tolerance)
                         waited += window
                         let now = progress.count
                         if now == seen { return Int32.min }

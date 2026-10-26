@@ -307,7 +307,7 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
-        // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only)
+        // wakeup-allow: backoff: each iteration waits in RetryWake (capped backoff, then events only)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).

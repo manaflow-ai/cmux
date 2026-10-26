@@ -310,7 +310,7 @@ public final class DaemonService {
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
-            // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
+            // wakeup-allow: backoff: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {

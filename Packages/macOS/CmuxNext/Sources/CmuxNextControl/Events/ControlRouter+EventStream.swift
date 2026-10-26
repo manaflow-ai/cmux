@@ -1,4 +1,5 @@
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// `events.stream`: the one streaming method. The connection writes an
@@ -29,9 +30,13 @@ extension ControlRouter {
             }
             if heartbeats {
                 group.addTask {
-                    // wakeup-allow: client-requested keepalive (include_heartbeats, 15 s) only while an events.stream client is connected; ends on hangup
+                    let period = Duration.seconds(ControlEventBus.heartbeatIntervalSeconds)
+                    // 15 s may fire up to 1 s late, so the kernel can coalesce it with other wakes.
+                    let tolerance = WakeLeeway.window(delay: period).tolerance
+                    // wakeup-allow: periodic ControlEventBus.heartbeat: client-requested keepalive (include_heartbeats) only while an events.stream client is connected; ends on hangup
                     while !Task.isCancelled {
-                        do { try await clock.sleep(for: .seconds(ControlEventBus.heartbeatIntervalSeconds)) } catch { return } // wakeup-allow: keepalive period above
+                        // wakeup-allow: periodic ControlEventBus.heartbeat: the keepalive period above
+                        do { try await clock.sleep(for: period, tolerance: tolerance) } catch { return }
                         emit(bus.heartbeat(subscription: subscription).compactText)
                     }
                 }
