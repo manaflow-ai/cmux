@@ -39,7 +39,9 @@ export const sessionStatus = (child: StartedSession): SubagentStatus =>
 /// its row says it, and whether it works (the turning ring) while acpmux retries it.
 export function sessionStateText(t: Translate, child: StartedSession): { text: string; working: boolean } {
   const retry = retryOf(child);
-  return retry ? { text: retryLabel(t, retry), working: true } : { text: t(SESSION_STATE[child.state].word), working: false };
+  return retry
+    ? { text: retryLabel(t, retry), working: true }
+    : { text: t(SESSION_STATE[child.state].word), working: false };
 }
 
 /// The started chats in list order: waiting on the person first, then running, failed and idle,
