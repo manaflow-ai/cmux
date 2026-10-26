@@ -503,8 +503,10 @@ impl Hub {
                 {
                     let mut m = session.meta.lock().unwrap();
                     m.harness = to.clone();
-                    // The last harness's /context breakdown is not the fallback's.
+                    // The last harness's /context breakdown is not the fallback's, nor its
+                    // account's usage limits.
                     m.context_breakdown = None;
+                    m.usage_limits = None;
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);

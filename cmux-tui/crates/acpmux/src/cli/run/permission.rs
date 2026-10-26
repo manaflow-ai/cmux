@@ -80,10 +80,10 @@ pub(crate) async fn answer_question(session: &str, args: &[String]) -> Result<()
     };
     let request = first.get("request").unwrap_or(&Value::Null);
     let Some(question) = question_answer::question(request) else {
-        return Err(AppError::usage(format!(
-            "the pending permission is not a question: use `acpmux allow {session}` or `acpmux deny {session}`"
-        ))
-        .into());
+        let hint = question_answer::pending_hint(request, session);
+        return Err(
+            AppError::usage(format!("the pending permission is not a question: {hint}")).into()
+        );
     };
     if args.is_empty() {
         print!("{}", question_answer::usage(question, session));

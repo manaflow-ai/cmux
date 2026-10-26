@@ -5,8 +5,9 @@ use super::*;
 /// The steers of a session's running turn that Send now can hurry (`Session::steer_now`).
 #[derive(Default)]
 pub(super) struct SteerNow {
-    /// Sent to the agent and not answered yet: it reads them when its current step ends.
-    pub(super) waiting: std::collections::HashSet<String>,
+    /// Sent to the agent and not answered yet: it reads them when its current step ends. Each
+    /// with the person who sent it (`author.rs`), `None` for the owner.
+    pub(super) waiting: std::collections::HashMap<String, Option<String>>,
     /// Queued prompts sent now: their steer stops the agent's current step.
     pub(super) step: std::collections::HashSet<String>,
 }
