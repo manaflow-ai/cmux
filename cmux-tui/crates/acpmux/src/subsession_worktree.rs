@@ -587,6 +587,28 @@ fn after_add(root: &Path) {
     }
 }
 
+/// The identity of the folder `up` levels above the open folder `start`, walked by its handle
+/// (`..` of each), never by path; None when one cannot be opened.
+#[cfg(unix)]
+fn ancestor_pin(start: &std::fs::File, up: usize) -> Option<crate::cwd_pin::CwdPin> {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::fs::MetadataExt;
+    let mut dir: Option<std::fs::File> = None;
+    for _ in 0..up {
+        let from = dir.as_ref().unwrap_or(start).as_raw_fd();
+        let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC;
+        // SAFETY: `from` is an open directory for the call; the new descriptor is owned below.
+        let fd = unsafe { libc::openat(from, c"..".as_ptr(), flags) };
+        if fd < 0 {
+            return None;
+        }
+        // SAFETY: `fd` was just opened and nothing else owns it.
+        dir = Some(std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fd) }));
+    }
+    let m = dir.as_ref().unwrap_or(start).metadata().ok()?;
+    Some(crate::cwd_pin::CwdPin { dev: m.dev(), ino: m.ino() })
+}
+
 /// Ok when `at` (a folder held open in the new worktree, its sub-session's start folder) is in the
 /// very worktree [`make_worktree`] made of `source`'s repository: the folder at `made.root` is the
 /// one git added (`root_pin`), `at` is inside it (its top level), it shares `source`'s repository,
@@ -605,6 +627,22 @@ pub fn verify_made(source: Dir<'_>, made: &Worktree, at: Dir<'_>) -> Result<(), 
     }
     #[cfg(test)]
     after_root_check(&made.root);
+    // The held start folder itself, not whatever is at a path now: the folder as many levels up
+    // from it as made.cwd is below made.root must be the folder made.
+    #[cfg(unix)]
+    {
+        let up = match made.cwd.strip_prefix(&made.root) {
+            Ok(rest) => rest.components().count(),
+            Err(_) => return moved("its start folder is outside it"),
+        };
+        let held = match at.held {
+            Some(held) => ancestor_pin(held, up),
+            None => std::fs::File::open(at.path).ok().and_then(|f| ancestor_pin(&f, up)),
+        };
+        if held.is_none() || held != made.root_pin {
+            return moved("the start folder is not in the folder that was made");
+        }
+    }
     let top = git(at, &["rev-parse", "--path-format=absolute", "--show-toplevel"])?;
     if canonical(&top) != std::fs::canonicalize(&made.root).ok() {
         return moved("the start folder is not inside it");
