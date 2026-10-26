@@ -209,8 +209,13 @@ nonisolated struct OmnibarStep {
 
     // MARK: Suggestions
 
-    /// Asks for rows for the typed text, or closes the popup when it is blank.
+    /// Asks for rows for the typed text, or closes the popup when it is blank. Every query pass (a typed key,
+    /// a keyword session's start or end) comes through here, so each is one `key.omnibar_suggest` slice.
     mutating func query() {
+        suggestionPass(.query) { $0.startQuery() }
+    }
+
+    private mutating func startQuery() {
         if let keyword = state.keyword { return keywordQuery(keyword) }
         guard !state.edit.userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             closePopup()
@@ -226,17 +231,15 @@ nonisolated struct OmnibarStep {
     /// highlight returns to the default row (the field shows the typed
     /// text); `keepSelection` keeps an arrowed row (engine switch).
     mutating func refreshSuggestions(keepSelection: Bool = false) { // perf-hot: 2ms omnibar-key (every typed key)
-        suggestionPass(.query) { step in
-            if !step.state.popup.rows.isEmpty {
-                step.state.popup.stale = true
-                if !keepSelection {
-                    step.state.popup.selected = 0
-                    step.state.popup.hover = nil
-                    step.state.popup.source = .keyboard
-                }
+        if !state.popup.rows.isEmpty {
+            state.popup.stale = true
+            if !keepSelection {
+                state.popup.selected = 0
+                state.popup.hover = nil
+                state.popup.source = .keyboard
             }
-            step.query()
         }
+        query()
     }
 
     /// Runs one suggestion pass inside a `key.omnibar_suggest` slice whose end holds the popup's rows.

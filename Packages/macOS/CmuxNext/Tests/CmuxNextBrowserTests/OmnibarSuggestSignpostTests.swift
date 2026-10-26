@@ -60,4 +60,26 @@ import Testing
         _ = OmnibarReducer.reduce(state, Self.field("ex"), resolver: OmniboxResolver(), signposter: signposter)
         #expect(log.slices.suffix(2).map { $0.1 } == [query, 3])
     }
+
+    /// A keyword session's start (Opt-Cmd-F, Tab to search) and its end (Backspace at the start) each start a query
+    /// without a typed key's edit: each is one query slice too, as Chrome traces every AutocompleteController::Start.
+    @Test func aKeywordSessionsStartAndEndAreOneQuerySliceEach() {
+        let log = RecordLog()
+        let signposter = log.signposter()
+        var resolver = OmniboxResolver()
+        resolver.keywords = OmnibarKeyword.searchEngines(default: resolver.searchEngine)
+        var state = OmnibarReducer.reduce(OmnibarState(), .focusGained(.keyboard), resolver: resolver,
+                                          signposter: signposter).state
+        let query = Signposter.KeySearchPass.query.rawValue
+
+        state = OmnibarReducer.reduce(state, .key(.searchWithDefaultEngine), resolver: resolver, signposter: signposter).state
+        #expect(state.keyword != nil)
+        #expect(log.slices.map { $0.0 } == [.begin, .end])
+        #expect(log.slices.map { $0.1 } == [query, 0])
+
+        state = OmnibarReducer.reduce(state, .key(.backspaceAtStart), resolver: resolver, signposter: signposter).state
+        #expect(state.keyword == nil)
+        #expect(log.slices.map { $0.0 } == [.begin, .end, .begin, .end])
+        #expect(log.slices.suffix(2).map { $0.1 } == [query, 0])
+    }
 }
