@@ -52,11 +52,20 @@ fn open_connections_add_no_dispatcher_threads() {
         .into_iter()
         .filter(|row| row.name == "mux-control-dispatch")
         .count();
+    let pool = &mux.sequenced_pool;
+    let (workers, fixed) = (
+        pool.total_workers(),
+        pool.config().workers(super::super::sequenced_pool::SequencePriority::Control),
+    );
     for scheduler in &schedulers {
         scheduler.finish_and_wait();
     }
     assert!(
         dispatchers < CONNECTIONS,
         "{dispatchers} dispatcher threads for {CONNECTIONS} open connections"
+    );
+    assert!(
+        workers <= fixed.min(CONNECTIONS),
+        "{workers} pool workers for {CONNECTIONS} connections"
     );
 }

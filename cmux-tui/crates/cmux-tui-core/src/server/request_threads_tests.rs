@@ -82,12 +82,12 @@ fn a_request_thread_disallows_blocking_and_records_the_site() {
     assert!(cmux_threads::snapshot().iter().all(|row| row.name != NAME), "the row leaves");
 }
 
-/// A connection's queued requests run on `mux-control-dispatch`, a
-/// UserInitiated request thread that disallows blocking: the registry read
-/// `list-workspaces` makes there is a recorded `sqlite` site in server.rs
-/// (`list_workspaces_reply`).
+/// A connection's queued requests run on the sequenced pool's
+/// `mux-seq-control` workers, UserInitiated request threads that disallow
+/// blocking: the registry read `list-workspaces` makes there is a recorded
+/// `sqlite` site in server.rs (`list_workspaces_reply`).
 #[test]
-fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
+fn the_control_sequence_runs_on_request_threads_that_record_their_blocking() {
     let mux =
         crate::Mux::new_for_test("request-threads-dispatch", crate::SurfaceOptions::default());
     let outbound = Arc::new(BoundedOutbound::default());
@@ -98,14 +98,14 @@ fn the_connection_dispatcher_is_a_request_thread_that_records_its_blocking() {
     let before = site_count("src/server.rs", BlockingKind::Sqlite);
     let mut list = Some(Request { id: Some(json!(1)), cmd: Command::ListWorkspaces });
     assert_eq!(scheduler.dispatch(mux, client, &mut list, 0, writer), Some(true));
-    // The dispatcher stays up until the scheduler finishes.
-    assert_declared("mux-control-dispatch", ThreadQos::UserInitiated);
+    // The pool's workers stay up with the mux.
+    assert_declared("mux-seq-control", ThreadQos::UserInitiated);
     scheduler.finish_and_wait();
     let reply: Value = serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap();
     assert_eq!(reply["ok"], true, "{reply}");
     assert!(
         site_count("src/server.rs", BlockingKind::Sqlite) > before,
-        "list-workspaces on mux-control-dispatch records no sqlite site"
+        "list-workspaces on mux-seq-control records no sqlite site"
     );
 }
 
