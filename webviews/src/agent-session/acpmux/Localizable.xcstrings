@@ -25148,6 +25148,402 @@
         }
       }
     },
+    "host.restart": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إعادة تشغيل acpmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovo pokreni acpmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genstart acpmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux neu starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart acpmux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciar acpmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redémarrer acpmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riavvia acpmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux を再起動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាប់ផ្ដើម acpmux ឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 다시 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start acpmux på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uruchom ponownie acpmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciar o acpmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапустить acpmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีสตาร์ต acpmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux'u yeniden başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапустити acpmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khởi động lại acpmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重启 acpmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "重新啟動 acpmux"
+          }
+        }
+      }
+    },
+    "host.restarting": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ إعادة تشغيل acpmux…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovno pokretanje acpmuxa…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genstarter acpmux…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux wird neu gestartet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restarting acpmux…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciando acpmux…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redémarrage d'acpmux…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riavvio di acpmux…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux を再起動中…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្ដើម acpmux ឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 다시 시작 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter acpmux på nytt …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponowne uruchamianie acpmux…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciando o acpmux…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапуск acpmux…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรีสตาร์ต acpmux…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux yeniden başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапуск acpmux…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động lại acpmux…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重启 acpmux…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重新啟動 acpmux…"
+          }
+        }
+      }
+    },
+    "host.restartHint": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تؤدي إعادة تشغيل acpmux إلى إيقاف ذلك الـ acpmux وتشغيل الموجود في هذا التطبيق. تبقى محادثاتك محفوظة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovno pokretanje acpmuxa zaustavlja taj acpmux i pokreće onaj iz ove aplikacije. Vaši razgovori ostaju sačuvani."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genstart acpmux stopper den acpmux og starter den i denne app. Dine chats bevares."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„acpmux neu starten“ beendet dieses acpmux und startet das dieser App. Deine Chats bleiben erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart acpmux stops that acpmux and starts the one in this app. Your chats are kept."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciar acpmux detiene ese acpmux e inicia el de esta app. Tus chats se conservan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redémarrer acpmux arrête cet acpmux et lance celui de cette app. Vos conversations sont conservées."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riavvia acpmux ferma quell'acpmux e avvia quello di questa app. Le chat restano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「acpmux を再起動」は、その acpmux を停止して、このアプリの acpmux を起動します。チャットは残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចាប់ផ្ដើម acpmux ឡើងវិញ បញ្ឈប់ acpmux នោះ ហើយចាប់ផ្ដើមមួយក្នុងកម្មវិធីនេះ។ ការជជែករបស់អ្នកត្រូវបានរក្សាទុក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 다시 시작은 그 acpmux를 멈추고 이 앱의 acpmux를 시작합니다. 채팅은 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Start acpmux på nytt stopper den acpmux-en og starter den i denne appen. Chattene dine beholdes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponowne uruchomienie acpmux zatrzyma tamten acpmux i uruchomi ten z tej aplikacji. Twoje czaty zostaną zachowane."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciar o acpmux para aquele acpmux e inicia o deste app. Seus chats são mantidos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Перезапустить acpmux» остановит тот acpmux и запустит acpmux этого приложения. Чаты сохранятся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รีสตาร์ต acpmux จะหยุด acpmux ตัวนั้นและเริ่มตัวที่อยู่ในแอปนี้ แชตของคุณยังอยู่ครบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux'u yeniden başlatmak o acpmux'u durdurur ve bu uygulamadakini başlatır. Sohbetlerin korunur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Перезапустити acpmux» зупинить той acpmux і запустить acpmux цієї програми. Чати збережуться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khởi động lại acpmux sẽ dừng acpmux đó và chạy acpmux của ứng dụng này. Các cuộc trò chuyện vẫn được giữ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“重启 acpmux”会停止那个 acpmux,并启动此应用自带的 acpmux。你的聊天会保留。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「重新啟動 acpmux」會停止那個 acpmux,並啟動此 App 內建的 acpmux。你的聊天會保留。"
+          }
+        }
+      }
+    },
     "host.retrying": {
       "comment": "Agent pane",
       "extractionState": "manual",
