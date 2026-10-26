@@ -106,21 +106,25 @@ struct DeepLinkNavigator {
     /// with no question. Then the page scrolls to the turn, a page not loaded yet once its row renders.
     private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent, asking: Bool) throws {
         let tabs = services.agentTabs
-        let reveal = { () -> Bool in
+        let reveal = { @MainActor () -> Bool in
             guard let shown = tabs.tab(showing: id), services.revealTab(shown, intent: intent) else { return false }
             if let turn { tabs.revealTurn(turn, in: shown) }
             return true
         }
         if reveal() { return }
         guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-        // The store commits the tab first; the turn waits for its page.
-        let openNew: @MainActor () -> Void = { [weak pane] in
-            pane?.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
+        // The store commits the tab first; the turn waits for its page. A pane that left its
+        // window while the question was up opens nothing.
+        let openNew: @MainActor () -> Bool = { [weak pane] in
+            guard let pane, pane.view.window != nil else { return false }
+            pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
+            return true
         }
-        guard asking else { return openNew() }
-        let window = services.windows.active?.window
+        guard asking else { _ = openNew(); return }
+        // The question, and a refusal, show in the window of the pane the tab would open in.
+        let window = pane.view.window
         let hud = services.refusalHUD
-        let outcome = services.sessionLinks.open(id, reveal: { false }, openNew: openNew)
+        let outcome = services.sessionLinks.open(id, in: window, reveal: reveal, openNew: openNew)
         Task { if await outcome.value == .refused { hud.show(Self.gone.message, in: window) } }
     }
 

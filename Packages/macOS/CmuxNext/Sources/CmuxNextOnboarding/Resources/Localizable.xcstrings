@@ -9170,6 +9170,32 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器：%@"}}
       }
     },
+    "dialog.sessionLink.session": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Session: %@"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الجلسة: %@"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sesija: %@"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Session: %@"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Sitzung: %@"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Sesión: %@"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Session : %@"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sessione: %@"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "セッション: %@"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "វគ្គ៖ %@"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "세션: %@"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Økt: %@"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Sesja: %@"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Sessão: %@"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сеанс: %@"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เซสชัน: %@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Oturum: %@"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Сеанс: %@"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Phiên: %@"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "会话：%@"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工作階段：%@"}}
+      }
+    },
     "dialog.sessionLink.open": {
       "extractionState": "manual",
       "localizations": {
