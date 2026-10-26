@@ -272,8 +272,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var keyRowCollapsed: NSLayoutConstraint!
     /// The composer is closed or hidden: its height is 0.
     private var composerCollapsed: NSLayoutConstraint!
-    /// The 8 pt gap between the key row and the composer, while both show.
+    /// The gap between the key row and the composer: 8 pt while both show,
+    /// else 0. Always active (only its constant changes), so the stack's
+    /// height stays fully determined.
     private var keyRowGap: NSLayoutConstraint!
+    /// The stack's 8 pt bottom margin; 0 once Hide Toolbar folds everything.
+    private var dockBottomMargin: NSLayoutConstraint!
     /// A drag that began while following the prompt with the keyboard up:
     /// a downward drag dismisses the keyboard and the content stays pinned
     /// to the composer, row for row (SPEC M6).
@@ -459,6 +463,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyRowCollapsed = keyBarClip.heightAnchor.constraint(equalToConstant: 0)
         composerCollapsed = composer.view.heightAnchor.constraint(equalToConstant: 0)
         keyRowGap = composer.view.topAnchor.constraint(equalTo: keyBarClip.bottomAnchor, constant: TerminalDockMetrics.keyRowGap)
+        dockBottomMargin = composer.view.bottomAnchor.constraint(equalTo: bottomStack.bottomAnchor, constant: -8)
         guide.setConstraints([
             bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
@@ -491,10 +496,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             keyBar.view.trailingAnchor.constraint(equalTo: keyBarClip.trailingAnchor),
             keyBar.view.heightAnchor.constraint(equalToConstant: TerminalDockMetrics.keyRowHeight),
             keyRowGap,
-            composer.view.topAnchor.constraint(greaterThanOrEqualTo: keyBarClip.bottomAnchor),
             composer.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             composer.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
-            composer.view.bottomAnchor.constraint(equalTo: bottomStack.bottomAnchor, constant: -8),
+            dockBottomMargin,
 
             tuiTop,
             tuiClip.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
@@ -870,7 +874,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard keyRowCollapsed != nil else { return }
         keyRowCollapsed.isActive = !dock.showsKeyRow
         composerCollapsed.isActive = !dock.showsComposer
-        keyRowGap.isActive = dock.showsKeyRow && dock.showsComposer
+        keyRowGap.constant = dock.showsKeyRow && dock.showsComposer ? TerminalDockMetrics.keyRowGap : 0
+        dockBottomMargin.constant = dock.showsKeyRow || dock.showsComposer ? -8 : 0
         keyBarClip.isHidden = !dock.showsKeyRow
         composerHost.view.isHidden = !dock.showsComposer
         bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer
