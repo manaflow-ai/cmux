@@ -463,7 +463,6 @@ public final class LayoutRootView: NSView {
             // Pan events that waited in the last frame show first, then the springs step.
             if view.displayFrameBegan() { panning = true }
             if view.step(dt, policy: policy) { moving = true }
-            if view.stepCanvasCamera(dt, policy: policy) { moving = true }
         }
         let screenSpring = policy.spring(.screen)
         for id in Array(screenFrames.keys) {

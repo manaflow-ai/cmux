@@ -7,7 +7,7 @@ extension ScreenContentView {
     /// (the screen's kinds: ``RenderMotionKind``). A task that moves a kind to the render server writes
     /// its variant in its own file and adds its one line here; a kind not listed, or every kind while
     /// `motion.renderServer` is off (the default), steps on the main thread in ``step(_:policy:)``.
-    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [SplitRenderMotion(), ZoomRenderMotion()] }
+    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [SplitRenderMotion(), ZoomRenderMotion(), CanvasRenderMotion()] }
 
     /// What an open change turn held back from ``applyPresentation(force:)``.
     struct HeldPresentation {
@@ -61,10 +61,12 @@ extension ScreenContentView {
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.
     func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
+        // The canvas camera, when the main thread steps it (not on the render server: `CanvasRenderMotion`).
+        let cameraMoving = stepCanvasCamera(dt, policy: policy)
         guard hasMotion || reportScrollOnSettle else {
             // A close on the render server keeps the camera on its spring until it lands (`renderSpringLanded`).
             if renderClose == nil { scrollRidesFrames = false }
-            return false
+            return cameraMoving
         }
         var moving = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
@@ -108,7 +110,7 @@ extension ScreenContentView {
         applyPresentation()
         // A zoom that landed in this frame lets go of the panes it covered.
         releaseCovered()
-        return moving
+        return moving || cameraMoving
     }
     /// A close's first frame of the pane, divider and (riding them) camera springs, the strip's and
     /// each row column's, at the end of the change turn that starts them, once `syncScroll` placed
