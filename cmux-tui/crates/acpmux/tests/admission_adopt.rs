@@ -29,6 +29,10 @@ use tokio::sync::mpsc;
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
 fn hub() -> Arc<Hub> {
+    hub_gated(None)
+}
+
+fn hub_gated(folder_gate: Option<acpmux::config::folder_profiles::FolderGate>) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fakecodex": {"argv": ["python3", FAKE], "family": "codex"},
@@ -39,6 +43,7 @@ fn hub() -> Arc<Hub> {
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
+    cfg.folder_gate = folder_gate;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     Hub::new(cfg, store)
 }
@@ -102,6 +107,7 @@ async fn adopts_at_the_cap() {
     an_adopt_of_an_id_another_family_holds_is_admitted_like_a_new_session().await;
     an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_session().await;
     a_refused_adopt_whose_holder_ended_makes_no_worktree().await;
+    an_adopt_whose_worktree_names_another_family_is_refused_and_leaves_no_worktree().await;
 }
 
 async fn concurrent_adopts_of_one_conversation_at_the_cap_get_the_one_session() {
@@ -186,6 +192,84 @@ async fn an_adopt_whose_holder_ends_before_the_create_is_admitted_like_a_new_ses
     assert_eq!(r["error"]["data"]["reason"], "admission_refused", "{r}");
     assert_eq!(r["error"]["data"]["why"], "under_floor", "{r}");
     assert!(hub.sessions().is_empty(), "no session past the floor: {r}");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_AUTHOR_NAME", "t")
+        .env("GIT_AUTHOR_EMAIL", "t@example.com")
+        .env("GIT_COMMITTER_NAME", "t")
+        .env("GIT_COMMITTER_EMAIL", "t@example.com")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
+/// A folder profile `fp` of `family` (the stand-in agent) in `folder`.
+fn folder_profile(folder: &Path, family: &str) {
+    let dir = acpmux::config::folder_profiles::profile_dir(folder);
+    std::fs::create_dir_all(&dir).unwrap();
+    let text = format!(
+        "schema = 1\nid = \"fp\"\nfamily = \"{family}\"\ncommand = \"python3\"\nargs = [{FAKE:?}]\n"
+    );
+    std::fs::write(dir.join("fp.toml"), text).unwrap();
+}
+
+/// Trusts `folder` and enables its folder profile `fp` as its bytes are now.
+fn trust_and_enable(hub: &Arc<Hub>, gate: &acpmux::config::folder_profiles::FolderGate, folder: &Path) {
+    use acpmux::config::folder_profiles as fp;
+    acpmux::trust::set(&gate.trust, &folder.to_string_lossy(), "trusted").unwrap();
+    let cfg = hub.config.try_read().unwrap().clone();
+    let sha = fp::load_one(&cfg, gate, folder, "fp").and_then(|p| p.sha256).expect("sha256");
+    fp::enable(&cfg, gate, folder, "fp", &sha).unwrap();
+}
+
+async fn an_adopt_whose_worktree_names_another_family_is_refused_and_leaves_no_worktree() {
+    let root = std::env::temp_dir().join(format!("acpmux-admfp-{}", uuid::Uuid::now_v7()));
+    at_the_cap_of_one(&root);
+    let gate = acpmux::config::folder_profiles::FolderGate {
+        enable_record: root.join("acpmux/harness-enable.json"),
+        trust: acpmux::trust::Paths {
+            claude_json: root.join("claude.json"),
+            codex_config: root.join("config.toml"),
+            record: root.join("acpmux/trust.json"),
+            agent_home: None,
+            cmux_worktrees: None,
+        },
+    };
+    // The repository commits `fp` as a Claude harness; its working copy makes it Codex.
+    let project = root.join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    git(&project, &["init", "-q"]);
+    folder_profile(&project, "claude");
+    git(&project, &["add", "-A"]);
+    git(&project, &["commit", "-q", "-m", "fp"]);
+    folder_profile(&project, "codex");
+    let hub = hub_gated(Some(gate.clone()));
+    hub.set_harness_homes(HarnessHomes { claude: root.join("claude"), codex: root.join("codex") });
+    trust_and_enable(&hub, &gate, &project);
+    // Its worktree lane-x (made and removed here) is trusted with `fp` enabled as committed.
+    let worktree = root.join("home/.cmux/worktrees/project/lane-x");
+    git(&project, &["worktree", "add", "-q", &worktree.to_string_lossy()]);
+    trust_and_enable(&hub, &gate, &worktree);
+    git(&project, &["worktree", "remove", "--force", &worktree.to_string_lossy()]);
+    git(&project, &["branch", "-D", "lane-x"]);
+    // A Codex conversation, adopted with `fp` into worktree lane-x: admitted as Codex
+    // in the repository, its worktree's `fp` is Claude. Refused, with no session and
+    // no worktree left.
+    let chat = uuid::Uuid::now_v7().to_string();
+    codex_rollout(&root, &chat, &project);
+    let mut adopt = adopt_of("fp", &chat);
+    adopt["cwd"] = json!(project);
+    adopt["_meta"]["acpmux"]["worktree"] = json!({"name": "lane-x"});
+    let r = new_session(&hub, adopt).await;
+    assert_eq!(r["error"]["data"]["reason"], "adopt.family_changed", "{r}");
+    assert!(hub.sessions().is_empty(), "no session under another family's admission: {r}");
+    assert!(!worktree.exists(), "the refused adopt left {}: {r}", worktree.display());
 
     let _ = std::fs::remove_dir_all(&root);
 }
