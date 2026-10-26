@@ -33,7 +33,7 @@
     },
     "motion-frame": {
       "what": "one split/close/zoom/column motion frame",
-      "bench": "scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), then pane-perf-terminal.py and anim-perf-terminal.py (panes.* rows, with and without Chromium, light and --layouts stress)",
+      "bench": "scripts/cmux-next/motion-main-work.py --vdisplay 120 (counts: RenderStats frame_sets, layouts, window_calls, tracking_area_adds in frames 2..n, light and STRESS), then scripts/cmux-next/motion-hitches.py (time: main ms per spring frame and hitches, RenderStats disarmed); scripts/measure/split-spring.sh --suite=pane-bench (PaneMotionBench, PaneMotionWorkTests), pane-perf-terminal.py and anim-perf-terminal.py stay for the panes.* rows",
       "owner": "PL-motion-core"
     },
     "frame-tick": {

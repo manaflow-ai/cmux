@@ -13,7 +13,7 @@ public import Darwin
 /// each seam passes its caller's `#fileID` and `#line`, which name the call site.
 ///
 /// A violation: Debug records it once per call site (one unified-log line, the Debug menu and
-/// `debug.blocking`), or stops the process when it was started with `CMUX_BLOCKING_TRAP=1`. Bench
+/// `debug.blocking`), or stops the process when it was started with `CMUX_BLOCKING_TRAP=1`. Bench-checks
 /// builds (`-DCMUX_BLOCKING_CHECKS`) record it for `debug.blocking`. To come: a Nightly built with
 /// `-DCMUX_BLOCKING_CHECKS` will record it and continue, and send it to the opt-in hang reports once
 /// their sink is installed.

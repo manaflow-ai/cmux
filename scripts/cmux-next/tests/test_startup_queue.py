@@ -30,7 +30,7 @@ FLEET = {"CMUX_CI_STEP_KEY": "step-1"}
 
 def blocking_run(complete, sites, overflow=0, **marks):
     return {"marks": {"startup_complete": complete, **marks},
-            "result": {"mode": "record", "overflow": overflow, "sites": sites}}
+            "result": {"compiled_in": True, "mode": "record", "overflow": overflow, "sites": sites}}
 
 
 def census_run(first_frame=200.0, complete=900.0, **result):
@@ -128,7 +128,8 @@ class BlockingTests(unittest.TestCase):
         self.assertTrue(any("not proved" in w for w in read_doc(out)["warnings"]))
 
     def test_a_run_without_the_until_mark_is_left_out(self):
-        late = {"result": {"sites": [{"kind": "fileRead", "location": "Late.swift:1", "count": 1, "first_ms": 9999}]}}
+        late = {"result": {"compiled_in": True,
+                           "sites": [{"kind": "fileRead", "location": "Late.swift:1", "count": 1, "first_ms": 9999}]}}
         hits, warnings, used = sq.blocking_hits(sq.capture_runs([late]), "startup_complete")
         self.assertEqual((hits, used), ([], 0))
         self.assertIn("no startup_complete mark", warnings[0])
@@ -153,8 +154,22 @@ class BlockingTests(unittest.TestCase):
 
     def test_a_clean_launch_passes_check(self):
         files = Files()
-        raw = files.json("raw.json", [{"marks": {"startup_complete": 1}, "result": {"sites": []}}])
+        raw = files.json("raw.json", [{"marks": {"startup_complete": 1}, "result": {"compiled_in": True, "sites": []}}])
         self.assertEqual(run_cli(["blocking", raw, "--check"])[0], 0)
+
+    def test_a_report_from_a_build_without_the_detector_is_refused_not_clean(self):
+        # p12-perf-process-147: a `--config bench` app answers debug.blocking with no detector, so its empty
+        # sites are no evidence; only `compiled_in: true` (Debug, `--config bench-checks`) counts.
+        files = Files()
+        for result in ({"compiled_in": False, "mode": "record", "overflow": 0, "sites": []},
+                       {"mode": "record", "overflow": 0, "sites": []}):
+            run = {"marks": {"startup_complete": 1}, "result": result}
+            hits, warnings, used = sq.blocking_hits([run], "startup_complete")
+            self.assertEqual((hits, used), ([], 0), result)
+            self.assertIn("--config bench-checks", warnings[0])
+            code, _, err = run_cli(["blocking", files.json("nodetector.json", [run]), "--check"])
+            self.assertEqual(code, 2, "no usable run: refused, never a pass")
+            self.assertIn("no blocking detector", err)
 
 
 class GapsTests(unittest.TestCase):
@@ -479,7 +494,8 @@ class CollectTests(unittest.TestCase):
         self.addCleanup(quiet.__exit__, None, None, None)
 
     def test_each_run_is_read_at_the_mark_and_a_daemon_from_before_is_left_running(self):
-        bench = FakeBench(lambda method: {"ok": True, "result": {"method": method, "sites": []}})
+        bench = FakeBench(lambda method: {"ok": True, "result": {"method": method, "compiled_in": True,
+                                                                 "sites": []}})
         runs = sq.collect(bench, "/x/cmux DEV t1.app", 3, "warm", "startup_complete", 5, "debug.blocking")
         self.assertEqual([r["result"]["method"] for r in runs], ["debug.blocking"] * 3)
         self.assertEqual(runs[0]["marks"]["startup_complete"], 800.0)
@@ -488,6 +504,15 @@ class CollectTests(unittest.TestCase):
         self.assertEqual(bench.pids, [11])
         hits, _, used = sq.blocking_hits(runs, "startup_complete")
         self.assertEqual((hits, used), ([], 3))
+
+    def test_a_live_report_without_the_detector_stops_at_the_first_launch(self):
+        bench = FakeBench(lambda method: {"ok": True, "result": {"compiled_in": False, "mode": "record", "sites": []}})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), self.assertRaises(sq.QueueError) as caught:
+            sq.collect(bench, "/x/cmux DEV t1.app", 3, "warm", "startup_complete", 5, "debug.blocking")
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn("--config bench-checks", err.getvalue())
+        self.assertEqual(len(bench.launched), 1, "refused at the first launch, not after every run")
 
     def test_launches_are_activated_and_scratch_folders_removed(self):
         bench = FakeBench(lambda method: {"result": {}}, daemon=False)

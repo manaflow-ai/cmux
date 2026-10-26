@@ -1,0 +1,177 @@
+# cmux pages work like Chrome WebUI
+
+Status: design (p13-webui, chrome-parity program, 2026-10-25). Area doc for fault F3 in
+[perf-lead.md](perf-lead.md). The full program spec, with counts, machine queues and the task list, is
+[chrome-parity/p13-webui.md](chrome-parity/p13-webui.md); this file keeps the decisions a change in the area must
+respect. Owner: PL-webui ([OWNERS.md](OWNERS.md)). `P/` = `Packages/macOS/CmuxNext/Sources/`. Chromium paths are in
+chromium/src at main.
+
+## 1. Goal
+
+Every first-party page (Settings, History, New Tab, chats, viewers and the rest) shares a renderer with pages of the
+same capability, is built only when it first shows, is told when it hides, freezes and later discards while off
+screen (with Chrome's keep rules), and never wakes the app or the daemon while hidden. At Home idle, cmux holds at
+most one parked preload (frozen or rendered-parked, per spike 090) in one renderer.
+
+Pages stay in Chromium (Lawrence, F3: "we want a bunch of stuff in chromium"). The fix is cost, not engine. Every
+rule below applies to WebKit pages too (F12: both engines stay).
+
+## 2. Today
+
+Measured in [speed-of-sound-DESIGN.md](speed-of-sound-DESIGN.md) sections 5 and 7: Home has 3 Chromium renderers
+(185 MB, 1.78-2.02 % idle CPU), the whole tree is 793 MB against a floor of about 70 MB, and a hidden WebKit tab
+(a browser tab, measured) wakes 11 times a second. The 3 Home renderers are probably the about:blank spare, the New
+Tab spare and the built-in uBlock Origin MV2 background page; task 001 must confirm them. The causes:
+
+- Each Chromium page has its own CEF window, its own renderer (each page id is its own site) and its own DevTools
+  session, which also ends renderer reuse on the pinned fork. So every page tab opened after Home adds a renderer.
+  Each WebKit page has its own non-persistent data store, so its own WebContent process.
+- Four warmers run at launch: the about:blank CEF spare, NewTabSparePool (a full agent page off screen that is
+  never told it is hidden), the PageHostPool WebKit Settings spare and the AgentPaneView WebKit warmup page.
+- `TabContent.page` has no freeze and no discard. PageRouter delivers every event to hidden pages, and 33 native
+  pushes (theme, wallpaper, scale, pointer, dictation, transport) skip the router.
+- Closed page tabs can leak their engine page (four providers have no `tabClosed`; CEFPaneHost keeps page hosts).
+
+## 3. Design
+
+### 3.1 One owner: WebUIHost
+
+The composition root builds one `WebUIHost` (`P/CmuxNextPages/WebUI/`). `open(PageOpenRequest)` is the only way to
+make a page view; `close(view)` and `retire(view)` are the only ways to end one. The host tracks every page it
+opened, so a closed tab always ends its engine page. It owns the one WKProcessPool (kept: it saves about 25 ms per
+page build), the process groups, the lifecycle controller, the preload slot, the page relay channels and one
+memory-pressure subscription shared with BrowserHibernation. Page statics move into it or are deleted.
+
+### 3.2 Process groups by capability
+
+A page shares a renderer only with pages of the same capability class, computed from its descriptor's namespaces,
+native ops, actions, confirmed ops, CSP remote sources and dynamic prefixes. A unit test computes the table; when it
+disagrees with this table, the test wins.
+
+| Group | Pages | Why |
+| --- | --- | --- |
+| `agent` | agent (New Tab and every chat, one origin `cmux-page://cmux.agent`) | Same op set on every instance, as Chrome's NTP runs process-per-site |
+| `privileged` | settings, cloud, apps, coderouter, keybindings, debugSettings, mobilePairing, history, stats, chiefUsage | Write ops on app state, no repository text or remote content |
+| `viewer` | markdown, files, iconPicker, chiefViews, homeChannels, agentActivity, chiefInspector | Read or display ops only; they render repository text or remote images |
+| `solo` | diff (`git.push`), editor (file save), changelog (remote media) | Host power or remote content with no peer of the same class: one process per page kind, each with a host label of its own (section 3.2) |
+| `secrets` | passwords | Never shared (own host label, no process-per-site); discarded 60 s after it hides |
+
+The group is not "renders untrusted text": that grouping put the agent page (`shell.run`, `git.push`) in one process
+with markdown and changelog, which is weaker than one process per page.
+
+Chromium mechanism. Chrome computes the process lock from the real URL, not the effective URL
+(`content/browser/site_info.cc`, `MakeProcessLockComparisonKey`), and shares WebUI renderers through the TLD lock
+rule (`IsWebUIAndUsesTLDForProcessLockURL`: `chrome://foo.bar/` locks to `bar`). A fork spike (task 091) builds that
+rule and the effective-URL option side by side and records, for each group, the renderer count with two or more of
+its pages open, and any bad-message kill; its result goes in section 5.
+
+If the TLD rule wins, the last host label is the process lock, so only a shared group may own a last label. Pages of
+`privileged` and `viewer` get `<page>.<group>` (`settings.privileged`, `markdown.viewer`), and the agent page keeps
+`cmux.agent`. A `solo` or `secrets` page gets a single-label host of its own (`diff`, `editor`, `changelog`,
+`passwords`), never `<page>.solo` or `<page>.secrets`: those would lock every page of the class to one label and share
+one renderer. Hosts are built only in `PageDescriptor.origin`.
+
+A process lock only allows sharing; it does not cause it. Page tabs in different browsers or BrowsingInstances get
+new processes unless process-per-site picks the existing process for the site key. Chrome gets this for WebUI
+because `RenderProcessHostImpl::ShouldUseProcessPerSite` (`content/browser/renderer_host/render_process_host_impl.cc`)
+returns true for WebUI URLs. So every shared group (`agent`, `privileged`, `viewer`) needs process-per-site keyed on
+its group lock: register `cmux-page` as a WebUI scheme (`ContentBrowserClient::GetAdditionalWebUISchemes`) or add the
+same rule in the fork. The agent group caps it with `ProcessPerSiteUpToMainFrameThreshold` (cap 8). `secrets` never
+uses process-per-site.
+
+The page bridge leaves DevTools: the host takes the sender's browser, frame and origin from the CEF frame that
+delivered the message, never from the payload.
+
+WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
+`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
+
+### 3.3 Lifecycle: Active, Hidden, Frozen, Discarded
+
+- One visibility source: ContentLifecycle (TabContentCache+Lifecycle) for `.page` content and agent tabs. No
+  polling; one DemandTimer for the next deadline. The planner lives in CmuxNextHibernation next to
+  HibernationPlanner, with one urgent-discard ranker for browser tabs, chats and pages
+  (`components/performance_manager/policies/page_discarding_helper.cc` order).
+- Hidden: the engine is told at once and the page sees `visibilitychange`. The page saves its state and native
+  takes the snapshot of the last shown frame while the view is still attached. The router holds delivery.
+- Frozen after 10 s hidden: Chromium SetPageFrozen; WebKit stays hidden in the window (suspend SPI if a spike shows
+  it measures better). Providers stop their native sources and daemon relays. A thaw runs in the show's own turn,
+  before the page is visible and before the held events, which go out as one batch. A built-in command or
+  `evaluate()` to a frozen page thaws it first in the same turn.
+- Discarded after 300 s hidden (60 s at warning, 10 s at critical): Chromium in-place discard, WebKit drops the
+  view. Discard makes no call into the page. Show draws the snapshot in the key's frame and loads behind it.
+- Keep reasons that block freeze and discard: visible, loading, recently visible (10 s), most recently used (the
+  last hidden page), inspector open, focused, file drop pending, popup or sheet open, dictation or capture, an agent
+  turn running. Block discard only: user edits, form interaction, a `beforeunload` listener, an unsent agent draft,
+  pinned, a shell command ran, waiting on the person, a remote chat, and every Memory Saver reason that applies.
+  Page JS can only add keep reasons.
+- Each provider declares its frozen delivery policy (`.latest`, `.resync`, `.queue(limit)` or `.ordered`); the
+  requirement has no default. Pages use `document.visibilityState` and the standard `freeze`/`resume` events, not a
+  custom stream.
+- A renderer crash marks every page of its group: shown pages reload once, hidden pages reload when shown, with a
+  crash budget of 3 per 600 s per group.
+
+### 3.4 Why cmux freezes WebUI when Chrome does not
+
+Chrome never freezes WebUI: `CannotFreezeReason::kWebUI`
+(`components/performance_manager/public/freezing/cannot_freeze_reason.h`) blocks it, beside `kLoading`,
+`kRecentlyVisible` and `kMostRecentlyUsed`. The hazard it guards against: browser features call into WebUI pages and
+wait for an answer, and a frozen page cannot answer. Chrome can accept the cost because a browser holds few WebUI
+tabs at once. A hidden Chrome WebUI tab keeps its message handlers, observers and Mojo pushes live; hiding does not
+disallow JavaScript (`WebUIImpl::DisallowJavascriptOnAllHandlers`, `content/browser/webui/web_ui_impl.cc`, runs only
+when the renderer goes away or the page navigates or reloads).
+
+cmux is different. A session holds many page tabs, each with a daemon subscription stream and native pushes, and
+the targets ask for at most 1 idle wakeup a second and hidden memory near zero. A hidden page that keeps its timers,
+streams and pushes misses both targets. So cmux freezes pages, and removes the kWebUI hazard: every built-in
+command, `evaluate()` and held delivery to a frozen page thaws it first, in the same turn (section 3.3). Two more
+rules keep a hidden page quiet: the router holds delivery while a page is hidden or frozen, and providers stop their
+native sources on freeze. Chrome's three other reasons (loading, recently visible, most recently used) stay as keep
+reasons, so a page the person just left never freezes under them.
+
+### 3.5 One preload slot
+
+At most one preloaded page document in the app, as Chrome's
+`chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.h`. It replaces NewTabSparePool, PageHostPool
+and the AgentPaneView warmup. It preloads New Tab by default (or a recently opened Settings, History or Cloud), none
+under warning or critical pressure, after the first non-empty paint or a 3 s deadline, then 750 ms of quiet input,
+so the off-screen load and first paint never run while the person types. It loads visible off screen at the target
+pane size, keeps its first frame as the cover, then parks: frozen-hidden or rendered-parked (JS paused through
+visibility, 0 wakeups), as spike 090 decides. Chrome's preload is never frozen; a frozen park is a cmux choice that
+the spike must justify. A claim in the key's turn shows the cover in
+that frame, then thaws and shows the page; open handlers stay `registry.bindEffect` handlers that return `.done`.
+CEF spare windows keep the window with no renderer.
+
+### 3.6 Lazy loading, shared chunks and the Home floor
+
+No page view until its tab first shows, and no WKWebView in Chromium mode until a fallback needs it. Every page is
+built against one shared, content-hashed chunk set served from `cmux-page://cmux.shared/`; Settings renders its
+navigation and the shown section first (`chrome/browser/resources/settings/lazy_load.ts`). One web abi bump covers
+the program.
+
+Allowed at Home idle: app, daemon, the Chromium engine processes when Chromium is the default, and one renderer
+(the agent group) with the parked New Tab preload (frozen or rendered-parked, per spike 090). Not allowed: the
+about:blank renderer, the WebKit Settings spare, the WebKit warmup page, a WebKit process for the update card, and
+the ad-blocker background page before the first browser tab.
+
+### 3.7 Observability
+
+`debug.webui` (DEBUG and bench builds) lists each page, spare and renderer with group, engine, pid, state, held
+events, keep reasons and preload. Release signposts: `webui.lifecycle`, `webui.open`, `webui.preload`,
+`webui.scheme`. `scripts/cmux-next/bench-webui.py` drives the existing benches; agents run it on the fleet. No CI
+gate and no budget rows.
+
+## 4. Rules for a change in this area
+
+1. A hidden page gets 0 native pushes and 0 router deliveries (the router holds them); its timers run only as the
+   engine throttles a hidden page. A frozen page also gets 0 timer ticks.
+2. Groups never mix capability classes. Only a shared group (`agent`, `privileged`, `viewer`) owns a last host label;
+   a `solo` or `secrets` page has a host label of its own, never `<page>.solo`. A change to a descriptor's ops reruns
+   the capability test; group changes are `risk:high`.
+3. Every WebKit SPI and optional shim symbol is gated, and the old-fork path keeps working.
+4. Layers this area adds (cover, snapshot, stand-in) run with actions disabled.
+
+## 5. Spike results
+
+Spikes write their results here: the process-lock mechanism (fork, task 091, with the renderer count per group),
+the preload park state (task 090), the WebKit suspend SPI (task 029) and the code cache (task 052). None has run
+yet.

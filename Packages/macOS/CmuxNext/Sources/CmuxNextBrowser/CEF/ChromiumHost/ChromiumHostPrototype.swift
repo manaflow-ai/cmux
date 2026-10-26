@@ -1,20 +1,39 @@
+#if DEBUG
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 public import AppKit
+public import CmuxNextDesign
+import Observation
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
 /// (DEBUG builds, `browserHost.helperPrototype` on): one
 /// ``ChromiumHostSession`` shown over a pane's content view.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
+///
+/// The host lives no longer than its pane and the tunable: the session
+/// closes (`quit`, then SIGKILL at the quit limit) when the page view leaves
+/// its window (the pane closed or moved out of every window) and when
+/// `browserHost.helperPrototype` goes off. A later `open` starts a new host.
 @MainActor
 public final class ChromiumHostPrototype {
     private var session: ChromiumHostSession?
     private let makeConfiguration: () -> ChromiumHostConfiguration?
+    /// ``open(_:over:focus:)`` moves the page view to another pane: AppKit may
+    /// take it out of the window on the way, which does not end the host.
+    private var movingPageView = false
 
-    /// - Parameter makeConfiguration: the host app of this build, or nil when it has none.
-    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?) {
+    /// The Debug Settings `browserHost.helperPrototype` is read from (off by default: every Chromium
+    /// tab runs in process; only `debug.chromium_host` uses the host, and only with it on).
+    private let tunables: TunableStore
+
+    /// - Parameters:
+    ///   - makeConfiguration: the host app of this build, or nil when it has none.
+    ///   - tunables: Debug Settings: the app's store, passed by the composition root (tests pass one of their own).
+    public init(makeConfiguration: @escaping () -> ChromiumHostConfiguration?, tunables: TunableStore) {
         self.makeConfiguration = makeConfiguration
+        self.tunables = tunables
     }
 
-    /// The bundled host of this app (`<App> Chromium Host.app`), its data under
+    /// The bundled host of this app (`Contents/MacOS/<App> Chromium Host`), its data under
     /// `<Application Support>/<bundle id>/ChromiumHost`.
     public static func bundledConfiguration(bundle: Bundle = .main, environment: [String: String] = ProcessInfo.processInfo.environment,
                                             fileManager: FileManager = .default) -> ChromiumHostConfiguration? {
@@ -26,7 +45,8 @@ public final class ChromiumHostPrototype {
     }
 
     /// `debug.chromium_host` {op: open {url, pane?, focus?} | close | kill | report}:
-    /// `container` is the pane content view `open` shows the page over.
+    /// `container` is the pane content view `open` shows the page over; `focus`
+    /// (false unless the call asks) makes the page first responder.
     public func handle(op: String?, url: String?, over container: NSView?, focus: Bool) -> [String: Any] {
         switch op {
         case "open":
@@ -46,8 +66,9 @@ public final class ChromiumHostPrototype {
     /// Starts the host (or navigates it) and shows its page over `container`,
     /// first responder of `window` when `focus`.
     public func open(_ url: String, over container: NSView, focus: Bool) -> [String: Any] {
-        guard BrowserHostTunables.helperPrototype.value else { return ["error": "browserHost.helperPrototype is off"] }
+        guard BrowserHostTunables.helperPrototype.value(in: tunables) else { return ["error": "browserHost.helperPrototype is off"] }
         guard !url.isEmpty else { return ["error": "pass url"] }
+        guard container.window != nil else { return ["error": "the pane is not in a window"] }
         let session: ChromiumHostSession
         if let existing = self.session {
             session = existing
@@ -56,14 +77,20 @@ public final class ChromiumHostPrototype {
                 return ["error": "this build has no Chromium host app (Debug builds with CEF only)"]
             }
             session = ChromiumHostSession(configuration: configuration)
+            session.view.onLeftWindow = { [weak self, weak session] in
+                guard self?.movingPageView != true else { return }
+                session?.close()
+            }
             self.session = session
+            watchTunable()
         }
         if session.view.superview !== container {
-            session.view.removeFromSuperview()
             session.view.frame = container.bounds
+            movingPageView = true
             container.addSubview(session.view, positioned: .above, relativeTo: nil)
+            movingPageView = false
         }
-        session.open(url)
+        guard session.open(url) else { return report }  // lastError says why
         if focus { container.window?.makeFirstResponder(session.view) }
         return report
     }
@@ -75,6 +102,15 @@ public final class ChromiumHostPrototype {
         return report
     }
 
+    /// Closes the host when the tunable goes off; re-armed on every change of it.
+    /// Armed once, with the session (which this prototype keeps for its life).
+    private func watchTunable() {
+        let on = withObservationTracking { BrowserHostTunables.helperPrototype.value(in: tunables) } onChange: {
+            Task { @MainActor [weak self] in self?.watchTunable() }
+        }
+        if !on { _ = close() }
+    }
+
     /// SIGKILL to the host (the crash check).
     public func kill() -> [String: Any] {
         ["killed_pid": Int(session?.killHost() ?? 0)]
@@ -82,7 +118,7 @@ public final class ChromiumHostPrototype {
 
     public var report: [String: Any] {
         var fields = session?.report ?? ["phase": "none"]
-        fields["tunable"] = BrowserHostTunables.helperPrototype.value
+        fields["tunable"] = BrowserHostTunables.helperPrototype.value(in: tunables)
         fields["app_pid"] = Int(ProcessInfo.processInfo.processIdentifier)
         return fields
     }
@@ -103,3 +139,4 @@ public final class ChromiumHostPrototype {
         return stats.mapValues(Double.init)
     }
 }
+#endif
