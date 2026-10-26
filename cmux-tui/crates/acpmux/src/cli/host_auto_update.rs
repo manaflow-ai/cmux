@@ -49,6 +49,29 @@ Persistent=true
 WantedBy=timers.target
 ";
 
+/// Starts the line [`install_script`] prints, on stdout, when it leaves the
+/// host without its self-update (a unit someone else wrote, a failed write):
+/// why, and what to do. `host setup`, `host update` and `host enroll --fix`
+/// take it out of the script's output ([`take_auto_update_off`]) and put it
+/// in their rows.
+pub(super) const AUTO_UPDATE_OFF: &str = "ACPMUX_AUTO_UPDATE_OFF=";
+
+/// `out` without its [`AUTO_UPDATE_OFF`] lines, and the reason the last one gave.
+pub(super) fn take_auto_update_off(out: &str) -> (String, Option<String>) {
+    let mut off = None;
+    let rest: Vec<&str> = out
+        .lines()
+        .filter(|line| match line.strip_prefix(AUTO_UPDATE_OFF) {
+            Some(why) => {
+                off = Some(why.trim().to_owned());
+                false
+            }
+            None => true,
+        })
+        .collect();
+    (rest.join("\n"), off)
+}
+
 /// The two unit files, as [`install_script`] names them.
 const UNITS: &str = "acpmux-update.service acpmux-update.timer";
 
@@ -72,7 +95,7 @@ esac
 /// (staged, then copied beside and renamed, so a cut-off copy is never
 /// taken for theirs; a failed write starts nothing); one with the same text is kept; one with
 /// other text was written by someone else and is theirs, so neither file is
-/// written and the timer is not started (the reason goes to stderr). The
+/// written and the timer is not started (the reason goes to stdout, as [`AUTO_UPDATE_OFF`]). The
 /// same holds when the running user manager has either unit from anywhere
 /// else, or is masked, or cannot say ([`MANAGER_HAS_UNIT`]): a file written
 /// here would shadow theirs. With [`NO_AUTO_UPDATE`] the timer is stopped
@@ -92,14 +115,14 @@ if [ -e "$au_d/$au_f" ] && ! cmp -s "$au_t/$au_f" "$au_d/$au_f"; then au_c=$au_d
 {MANAGER_HAS_UNIT}if [ -n "$au_c" ]; then [ "$au_f" != acpmux-update.timer ] || au_ct=$au_c; else au_c=$au_o; fi
 done
 if [ -e {REMOTE_HOME}/{NO_AUTO_UPDATE} ]; then [ -n "$au_ct" ] || systemctl --user disable --now acpmux-update.timer >/dev/null 2>&1 || :
-elif [ -n "$au_c" ]; then echo "$au_c is a unit acpmux did not write, so this host does not update itself: remove it, then run host update again" >&2
+elif [ -n "$au_c" ]; then echo "{AUTO_UPDATE_OFF}$au_c is a unit acpmux did not write, so this host does not update itself: remove it, then run host update again"
 else
 for au_f in {UNITS}; do if [ ! -e "$au_d/$au_f" ]; then if mkdir -p "$au_d" && cp "$au_t/$au_f" "$au_d/.$au_f.part" && mv -f "$au_d/.$au_f.part" "$au_d/$au_f"; then au_w=1; else rm -f "$au_d/.$au_f.part"; au_e=1; fi; fi; done
-if [ -n "$au_e" ]; then echo "writing the acpmux-update units in $au_d failed, so this host does not update itself yet: the next host update tries again" >&2
+if [ -n "$au_e" ]; then echo "{AUTO_UPDATE_OFF}writing the acpmux-update units in $au_d failed, so this host does not update itself yet: the next host update tries again"
 elif [ -z "$au_w" ] || systemctl --user daemon-reload; then systemctl --user enable --now acpmux-update.timer >/dev/null 2>&1 || :; fi
 fi
 rm -rf "$au_t"
-else echo "staging the acpmux-update units failed, so this host does not update itself yet: the next host update tries again" >&2; [ -z "$au_t" ] || rm -rf "$au_t"
+else [ -e {REMOTE_HOME}/{NO_AUTO_UPDATE} ] || echo "{AUTO_UPDATE_OFF}staging the acpmux-update units failed, so this host does not update itself yet: the next host update tries again"; [ -z "$au_t" ] || rm -rf "$au_t"
 fi
 "#
     )

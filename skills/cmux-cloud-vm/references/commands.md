@@ -20,7 +20,8 @@ no `vm.*` socket method on the CLI, and no `cmux rpc`.
 - **Results** come back in the action result's `result` object (`--json` prints it);
   nothing opens on the person's screen. `cloud exec` returns `exit_code`, `stdout` and
   `stderr`; `new-machine` returns `machine_id` and `target` (or `pending: true` while
-  the server still provisions); `new-terminal-on-machine` returns `workspace_id`;
+  the server still provisions); `ssh` and `new-terminal-on-machine` return `machine_id`,
+  `workspace_id` and, when known, the new terminal's `surface_id` (see [Terminals](#terminals));
   `machine-status`, `machine-ports`, `machine-tools`, `hand-off-machine`,
   `snapshot-machine` (`snapshot_id`, or `pending`), the file actions, `prepare-scp`
   and the network, firewall, domain and publication lists return `text` and their fields.
@@ -78,7 +79,8 @@ cmux cloud list-machines --json
 cmux cloud list-machines                                    # the app's Cloud machines
 cmux cloud new-machine                                      # answers machine_id (or pending)
 cmux cloud new-workspace                                    # New Cloud Workspace
-cmux cloud new-terminal-on-machine --target machine:vm-…
+cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspace with a terminal
+cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>
 cmux cloud resize-machine --target machine:vm-… --size small|medium|large|xlarge
 cmux cloud machine-status --target machine:vm-…              # stats, plus hourly_rate_usd, running_since, estimated_cost_usd
@@ -111,7 +113,7 @@ resumes it. `set-idle-pause` changes the timeout per machine.
 ## Shell, commands and files
 
 ```bash
-cmux cloud ssh --target machine:vm-…                           # opens an SSH terminal
+cmux cloud ssh --target machine:vm-…                           # opens an SSH terminal; surface_id
 cmux cloud exec --target machine:vm-… --command '<cmd>'        # exit_code, stdout, stderr (25 s cap)
 cmux cloud setup-github --target machine:vm-…                  # this Mac's git identity + gh device-flow sign-in
 cmux cloud files-list --target machine:vm-… --path <dir>
@@ -147,6 +149,35 @@ Cloud link the tab opens in the machine's first workspace, where its `localhost`
 the machine's (`browser.remoteLocalhost`), and it also answers `workspace_id`.
 `port-forward`, `port-list` and `port-close` need the Cloud app link; on a classic
 link machine they say so and name `open-browser` and `machine-link` instead.
+
+## Terminals
+
+`cloud ssh` opens a terminal tab in the machine's first workspace.
+`cloud new-terminal-on-machine` (New Terminal Workspace on Machine) makes a new workspace with a
+terminal; with `--workspace <id>` it adds a terminal tab to that workspace of the machine instead.
+The id is the `workspace_id` an earlier run answered (or the workspace's `ws_…` id).
+From the CLI both answer the new terminal's ids, and nothing moves on the person's screen unless
+you pass `--focus`:
+
+```bash
+cmux cloud new-terminal-on-machine --target machine:vm-… --json
+cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id> --json
+cmux cloud ssh --target machine:vm-… --json
+```
+
+```json
+{"machine_id": "vm-…", "workspace_id": "…", "surface_id": "12", "terminal_id": "term_…"}
+```
+
+- `surface_id` is the tab's handle on the machine's own daemon; `terminal_id` comes from
+  daemons that report one. A new workspace's terminal ids are there once the app has the
+  workspace's first tab, so a script should not count on them there.
+- A paused machine resumes first. If that takes longer than about 30 s, the answer is
+  `{"machine_id": "vm-…", "resuming": true, "pending": true}` and the terminal still opens;
+  run `cmux cloud machine-status --target machine:vm-…` to see when the machine is running.
+- An unknown `--workspace` is refused: "Machine `vm-…` has no workspace `<id>`.
+  `cmux cloud new-terminal-on-machine --target machine:vm-…` makes one." A workspace the app
+  has no pane of yet (after a short wait) is refused the same way, naming it; run it again.
 
 ## Networks, domains and chat moves
 

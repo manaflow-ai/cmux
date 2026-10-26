@@ -236,6 +236,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"],
                           title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
                 GroupSpec(group: "settings.group.hangReports"),
+                // The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate).
+                GroupSpec(group: "settings.group.sshLinks"),
             ],
             actions: [.home], aliases: [.home]),
         CategorySpec(
