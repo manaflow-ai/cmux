@@ -116,6 +116,28 @@ final class CloudStartSessionAsks {
         }
     }
 
+    /// The run ended with the session started: the card says where, with Open Chat and Dismiss, so
+    /// the asking chat links to the new chat on the machine; the chat may ask again. Open Chat calls
+    /// `reveal`, which shows the new chat and answers false when no connected machine lists it any
+    /// more: the card then says `gone`, with Dismiss.
+    func started(tab: String, token: UUID, text: String, gone: String, reveal: @escaping @MainActor () -> Bool) {
+        guard open[tab]?.token == token else { return }
+        open[tab] = nil
+        let actions = [AgentPaneToolCard.Action(id: "open", title: CloudStartSessionStrings.openChat),
+                       AgentPaneToolCard.Action(id: "dismiss", title: CloudMoveAskStrings.dismiss)]
+        _ = set([card(tab, .done, text, actions)], tab: tab) { [weak self] _, action, _ in
+            // A later ask in this chat owns the card from then on; its buttons are its own.
+            guard let self, open[tab] == nil else { return }
+            guard action == "open" else { return _ = set([], tab: tab) { _, _, _ in } }
+            if reveal() { return _ = set([], tab: tab) { _, _, _ in } }
+            let dismiss = AgentPaneToolCard.Action(id: "dismiss", title: CloudMoveAskStrings.dismiss)
+            _ = set([card(tab, .failed, gone, [dismiss])], tab: tab) { [weak self] _, _, _ in
+                guard let self, open[tab] == nil else { return }
+                _ = set([], tab: tab) { _, _, _ in }
+            }
+        }
+    }
+
     /// The account the asks were made in ended: a card still asking ends its ask (which removes
     /// it), and one whose run goes on says the run stopped. Called by ``CloudService`` on a
     /// sign-out or team switch, beside ``CloudStartSessionRuns/forgetAll()``.
