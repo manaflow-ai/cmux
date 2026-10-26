@@ -456,6 +456,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Files and Screenshots thumbnails and app bundle images join the memory coordinator: Files thumbnails are held to a share of the Mac's image cache budget, and at critical memory pressure these caches are emptied in short background slices; a thumbnail or image is drawn again when next shown.
+    public static let memoryFileHomeCaches = Feature(
+        index: 25,
+        name: "memoryFileHomeCaches",
+        owner: "PL-memory",
+        description: "Files and Screenshots thumbnails and app bundle images join the memory coordinator: Files thumbnails are held to a share of the Mac's image cache budget, and at critical memory pressure these caches are emptied in short background slices; a thumbnail or image is drawn again when next shown.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Picture caches take sizes from the Mac's memory and follow memory pressure: terminal previews shrink at warning; at critical the caches empty, only the pictures of tabs beside a shown tab stay, and other woken or discarded tabs may show loading first.
     public static let memoryImageCaches = Feature(
         index: 26,
@@ -935,6 +952,7 @@ nonisolated extension Feature {
         .memoryDiscardParkedIdleTimeout,
         .memoryDiscardParkedWorkspaces,
         .memoryDiscardRemoteTabs,
+        .memoryFileHomeCaches,
         .memoryImageCaches,
         .memorySaverBackgroundActivity,
         .memoryTerminalLastFrames,
@@ -991,6 +1009,7 @@ nonisolated extension Feature {
         .memoryDiscardParkedIdleTimeout,
         .memoryDiscardParkedWorkspaces,
         .memoryDiscardRemoteTabs,
+        .memoryFileHomeCaches,
         .memoryImageCaches,
         .memorySaverBackgroundActivity,
         .memoryTerminalLastFrames,
