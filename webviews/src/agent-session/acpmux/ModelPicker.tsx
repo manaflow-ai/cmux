@@ -705,7 +705,12 @@ export function ModelPicker(props: ModelPickerProps) {
     const groupOf = new Map<ModelChoice, ModelChoice>();
     for (const entry of new Set(found.map((match) => match.entry))) {
       const matches = found.filter((match) => match.entry === entry).map((match) => match.model);
-      for (const group of groupChoices(matches, entry.ids.includes(harness ?? "") ? props.model : undefined))
+      // The running provider's row leads its model only while it is available: a search has no
+      // Provider row, so an unavailable one would leave the model's other providers out of reach.
+      const running = entry.ids.includes(harness ?? "")
+        ? matches.find((match) => match.id === props.model && !match.unavailable)?.id
+        : undefined;
+      for (const group of groupChoices(matches, running))
         for (const member of group.offers ?? [group])
           groupOf.set(
             matches.find((match) => match.id === member.id)!,
