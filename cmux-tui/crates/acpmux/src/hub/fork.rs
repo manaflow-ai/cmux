@@ -239,7 +239,11 @@ impl Hub {
             // The chat's own mode, model and effort, which the fork's agent is told again when it
             // loads (`replay_config`): an agent may answer session/fork with its defaults
             // instead (Codex), and the fork would then run another model than the chat.
-            mode_set_by_cmux: None,
+            // A mode cmux set on the chat stays cmux's on its fork, which runs it too; the fork's
+            // agent gets the mark back once it is put in that mode (`restore_mode_mark`).
+            mode_set_by_cmux: parent_meta.mode_set_by_cmux.clone().filter(|mode| {
+                crate::web_modes::mode_of(&parent_meta).as_deref() == Some(mode.as_str())
+            }),
             modes: parent_meta
                 .modes
                 .clone()
@@ -261,6 +265,7 @@ impl Hub {
             event_count: 0,
             turn_count,
             usage: None,
+            context_breakdown: None,
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
             permission_rules: None,

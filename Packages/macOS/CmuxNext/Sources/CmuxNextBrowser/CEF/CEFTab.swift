@@ -9,7 +9,8 @@ import CmuxNextWakeups
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering,
+    BrowserAgentFileChoosing {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -36,6 +37,16 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var passwordFill = PasswordFillState()
     /// The browser host's raw DevTools relay of this page.
     @ObservationIgnored public private(set) lazy var agentRelay = CEFAgentRelay(tab: self)
+    /// Files an agent offered this page's next file chooser; Chromium sends choosers to the app while one
+    /// stands (`CEFRuntime+FileDialogs`).
+    @ObservationIgnored public private(set) lazy var agentFiles: BrowserAgentFiles = {
+        let files = BrowserAgentFiles()
+        files.onArmedChange = { [weak self] armed in
+            guard let self else { return }
+            runtime.agentFileOfferChanged(self, armed: armed)
+        }
+        return files
+    }()
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -460,6 +471,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         isClosed = true
         agentRelay.resumeWaiters(false)
+        agentFiles.withdraw()
         titleTimer.cancel()
         faviconTask?.cancel()
         dismissPrompts()

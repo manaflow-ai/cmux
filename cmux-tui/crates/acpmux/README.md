@@ -11,14 +11,27 @@ connects to it.
 
 ## Build
 
+Install the Rust toolchain and Zig version listed in the
+[cmux-tui build prerequisites](../../README.md#build). From the repository root,
+initialize the submodules before building:
+
 ```sh
+git submodule update --init ghostty ghostty-next
 cd cmux-tui
 cargo build --release -p acpmux
-rm -f ~/.local/bin/acpmux && cp target/release/acpmux ~/.local/bin/
+mkdir -p "$HOME/.local/bin"
+rm -f "$HOME/.local/bin/acpmux"
+cp target/release/acpmux "$HOME/.local/bin/acpmux"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Remove the old binary first. On macOS, copying over an existing binary in place keeps the
 inode, the kernel keeps the stale code-signature cache, and the new binary dies with signal 9.
+The shell export lasts for this shell only; a service supervisor needs its own
+PATH containing acpmux and the installed harness. `host doctor` checks
+`~/.local/bin/acpmux` by default, so leaving the executable only in
+`target/release` is not enough for that check. For SSH peering, harness login
+and remote project access, follow [Remote agents and cmux Cloud](../../../docs/remote-agents-and-cloud.md).
 
 ## Quick start
 
@@ -115,12 +128,12 @@ Five everyday commands, three groups for the rest:
 | --- | --- |
 | `acpmux` | Open the TUI. Starts the daemon if needed. |
 | `new [-m harness[/model]] [-n name] [--cwd dir] [--policy p] [prompt]` | Create a session. Opens the TUI unless `-d`. |
-| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. |
+| `send NAME "text" [--steer\|--no-steer] [--no-wait] [-q]` | Prompt and stream the reply. With `--no-wait` it hands the message to this daemon and returns at once with a delivery id, for a session here or on a peer ([the outbox](#messages-to-other-sessions-the-outbox)); it steers into a running turn by default (read at the agent's next tool boundary, never stopping it) and queues when the agent does not steer. `--supersede KEY` replaces the sender's own prompt still queued under KEY (never one whose turn started); with `--no-wait` it prints `replaced N queued` once delivered (`?` from a daemon that predates it) and `--json` adds `replaced` and `replacedPromptIds`. The sender is the agent (`--from`, or the session `send` runs in) or, for anything else, the person. `--attach FILE` (repeatable) sends files with it, to a peer's session too: an image (its type read from its bytes) reaches the agent and the transcript as an image, any other file as a link to its copy, saved owner-only under the session's `uploads` on the host that runs it; at most 8 MiB a file and 10 MiB and 16 files a message (the message is one frame on every hop). |
 | `send --status ID` | A `--no-wait` delivery's state: `queued`, `delivering` (attempt n), `delivered` (the target's turn, steered or queued), `held` (a paused agent pair holds it until the person resumes the pair) or `failed` (the last error). |
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. |
+| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME [URL]` / `host ls` / `host status [NAME]` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…` (default `ssh://NAME`: the machine's one daemon as your ssh config reaches it). `ls` names an `ssh://` entry with a user or another port as not the canonical endpoint. `status` (also `peer status`) asks each peer's health live: reachable, round trip, disk, load, live sessions, build. |
 | `host enroll HOST [--harness ID]… [--reverse]` / `host doctor NAME\|HOST [--fix] [--reverse]` | Add a machine step by step (reach, install, daemon, harness, peer, peer-back, identity), one JSON line per step with `--json`; `peer-back` (this machine as the host's peer) runs only with `--reverse`; `doctor` changes nothing without `--fix`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
@@ -793,6 +806,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 ```sh
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
+acpmux peer status [HOST]              # each peer asked live: reachable, round trip, disk, load, live sessions, build
 acpmux host update --all               # push the current binary to every ssh peer and restart it
 acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn (not counting the one running this)
 acpmux ls                              # HOST/session-name next to local sessions
@@ -831,6 +845,21 @@ session on that peer, and the `Ctrl-l` picker lists remote harnesses as `HOST/ha
 picking one starts the session there. Peers reconnect with backoff, the tunnel included; while
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
+
+`acpmux peer status` (also `host status`, `--json`) is the check to run before remote work
+and after a peer request fails. It asks every connected peer `_acpmux/host_health` at once,
+with 5 s each, and lists this machine first. Each row has:
+- whether the peer is reachable, and the round trip (`latencyMs`);
+- free and total space on the disk that holds acpmux's home;
+- load (1/5/15 minutes) and CPU count;
+- live sessions;
+- version, build and `outdated`.
+
+An offline peer's row gives its link state and the next command (`acpmux host doctor HOST`).
+A peer on an older build that lacks the method shows as reachable, and names
+`acpmux host update HOST`. A remote session's `--cwd` and worktrees are on the peer's disk
+(`~/.cmux/worktrees/<project>/<name>` there). There is no move from one peer to another:
+`session export HOST/name` and `session import DIR` bring a session here.
 
 A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
 daemon with a bare environment, so every daemon reads the login shell's environment
