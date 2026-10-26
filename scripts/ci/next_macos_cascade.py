@@ -139,6 +139,11 @@ CASCADE_JOBS = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-com
 # The jobs a feat-cmux-next push runs on the promotion mini (PROMOTE_LABEL) instead of the side label.
 PROMOTE_JOBS = ("release-compile",)
 MAX_PER_RUN = 2
+# Jobs a feed's freshness waits on (FRESH_JOBS: a feat-cmux-next push's Release compile, a DEV daily's
+# Release compile). When the counts cannot be read they take SMALL, the last resort, instead of the owned
+# label: on 2026-10-26 the route token read 403 and the queue snapshot was stale, so every DEV compile from
+# 20:15Z on queued behind ~260 jobs on glaeda-side/std and the DEV feed fell 100 minutes behind (Leo,
+# 2026-10-24: a feed is never more than 30 minutes behind its branch).
 # The step has two minutes, and the placement's own reads come first.
 READ_BUDGET_SECONDS = 45
 QUEUE_SNAPSHOT_MINUTES = 15
@@ -351,13 +356,18 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     empty = {label: () for label in (*LABELS, HOSTED)}
     if skipped(env):
         return Placement(empty, "", skipped(env))
-    if live is None:
-        return Placement(empty, "", "Blacksmith's runner groups could not be read; no job leaves the minis' queue")
-    stall = stalled(live, waiting or {}, seen.waits, seen.age) if seen is not None else ()
-    if waiting is None:
-        # Without the queue count no slot is known free, so the overflow keeps the owned label too.
-        return Placement(empty, "", f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count "
-                                    "Blacksmith's queue; no job leaves the minis' queue")
+    if live is None or waiting is None:
+        why = ("Blacksmith's runner groups could not be read" if live is None else
+               f"no pool snapshot under {QUEUE_SNAPSHOT_MINUTES} min old to count Blacksmith's queue")
+        # Without the counts no slot is known free, so the overflow keeps the owned label, and so does
+        # every job but a feed's: those take the last resort rather than an owned queue nobody measured.
+        fresh = unread_fresh_jobs(env, owned)
+        if fresh:
+            return Placement({**empty, SMALL: fresh}, "", f"{why}; {', '.join(fresh)} gate a feed's freshness, "
+                                                          f"so they take `{SMALL}`, the last resort; the rest "
+                                                          "stay on the minis' queue")
+        return Placement(empty, "", f"{why}; no job leaves the minis' queue")
+    stall = stalled(live, waiting, seen.waits, seen.age) if seen is not None else ()
     runs = set((env.get("CASCADE_RUNS") or "").split())
     # idle_placement() hands the idle minis to the first JOBS, running or not, and
     # every side job takes the side label whatever owned_jobs says: so the idle
@@ -399,6 +409,16 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
         why += f"; {', '.join(left)} stay queued on the owned label"
     return Placement(placed, retry, why + (f"; overflow goes to `{retry}`" if retry
                                            else "; no free Blacksmith slot, so overflow stays on the owned label"))
+
+
+def unread_fresh_jobs(env: Mapping[str, str], owned: Sequence[str]) -> tuple[str, ...]:
+    """The FRESH_JOBS that run here and that no idle mini took (`owned` counts against the run's other jobs
+    first, as in place()), at most MAX_PER_RUN."""
+    runs = set((env.get("CASCADE_RUNS") or "").split())
+    running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
+    fresh = [job for job in running if job in set((env.get("FRESH_JOBS") or "").split())]
+    others = len(running) - len(fresh)
+    return tuple(fresh[max(0, len(owned) - others):][:MAX_PER_RUN])
 
 
 class Api:
@@ -444,11 +464,18 @@ def read(env: Mapping[str, str], pool: Any, *, now: dt.datetime, log: Callable[[
     if clock() - started > READ_BUDGET_SECONDS:
         log("::warning title=macOS cascade::the runner groups took too long; the pool snapshot is not read")
         return live, None, None
-    if live is not None and snapshot_token and repository:
+    if snapshot_token and repository:
         try:
             snapshot = pool.GitHub(snapshot_token, repository).snapshot(now=now)
             waiting, found = queued(snapshot, now), seen(snapshot, now)
-            live = with_running(live, snapshot, now)
+            if live is None and waiting is not None:
+                # The route token's runner read was refused (403s on 2026-10-26 from 22:47Z): the fresh
+                # snapshot's own running counts stand in, read with the snapshot's token, a second identity.
+                log("::notice title=macOS cascade::in flight counted from the pool snapshot, since the runner "
+                    "groups could not be read")
+                live = {label: 0 for label in LABELS} | with_running({}, snapshot, now)
+            elif live is not None:
+                live = with_running(live, snapshot, now)
         except Exception as error:  # noqa: BLE001 - fail closed, as above
             log(f"::warning title=macOS cascade::could not read the pool snapshot ({error})")
     return live, waiting, found

@@ -1144,6 +1144,11 @@ jobs:
           # A feat-cmux-next push's Release compile gates the nightly-next request, so the cascade
           # places it ahead of the run's other jobs (next_macos_cascade.FIRST_JOBS).
           FIRST_JOBS: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'release-compile' || '' }}
+          # The jobs a feed's freshness waits on: when the counts cannot be read (a 403 on the route token, a
+          # stale snapshot) they take Blacksmith 6 vCPU, the last resort, instead of an owned queue nobody
+          # measured (next_macos_cascade.unread_fresh_jobs()). A DEV daily's Release compile feeds the DEV
+          # channel, a feat-cmux-next push's gates nightly-next.
+          FRESH_JOBS: ${{ github.run_attempt == 1 && (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && 'release-compile' || github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && 'cmux-scheme-compile') || '' }}
         run: |
           python3 scripts/ci/side_lane_placement.py
           # The trusted checkout may still be on a base branch that predates
