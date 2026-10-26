@@ -7,6 +7,12 @@ G3/G5/G8 (the agreed binary attach frame), [terminal-host-model-DESIGN.md](termi
 (holder, daemon is the one parser), [remote-state-ownership.md](remote-state-ownership.md) 1.3 item 4 and 3.2
 (the per-view connection costs 3 round trips over SSH).
 
+Amended 2026-10-26 by the chrome-parity IPC program
+([chrome-parity/p05-ipc.md](chrome-parity/p05-ipc.md), task 193). Section 3.6 adds the page-relay connection,
+the reply/event rule, the daemon-wide sequences, frames in both directions and the reason for a Unix socket instead
+of Mach messages. Section 4.6 adds the ring consumer cursor. Where those sections replace earlier text, that text
+is marked "amended". PL-conn review of the amendment: requested with task 193, not given yet.
+
 Code read at feat-cmux-next fbbf611f7b4. `app:` = `Packages/macOS/CmuxNext/Sources/`, `core:` =
 `cmux-tui/crates/cmux-tui-core/src/`.
 
@@ -42,6 +48,7 @@ Code read at feat-cmux-next fbbf611f7b4. `app:` = `Packages/macOS/CmuxNext/Sourc
 - Remote daemons, and any stream whose ring is not mapped, carry output in binary frames on the stream.
   No base64 and no JSON for output, replays or snapshots on a client that negotiated frames (D4).
 - A slow stream never stalls another stream or the control plane, in either direction (D5).
+- Pages get at most one more connection per daemon, the page-relay connection (3.6.1), never one per page.
 
 Targets (perf-lead): attach handshakes per split 0; output bytes copied app-side 0 for local terminals; key
 echo and output frame latency no worse, better at STRESS; every daemon op < 2 ms p95.
@@ -105,6 +112,9 @@ This is the agreed G3/G5 header (`\xFFCO` + kind u8 + len u32 + offset u64, also
 spare magic bytes carrying the stream id: on one shared connection a frame must name its stream, and the
 one byte that matters for the framing is `0xFF`. No code sends `\xFFCO` yet.
 
+Amended (3.6.4): the client also sends frames to the daemon, the u64 field is `aux` (its meaning depends on the
+kind), and kinds 9-20 are added.
+
 | kind | name | payload | offset |
 |---|---|---|---|
 | 1 | OUTPUT | raw PTY bytes | offset of the first payload byte |
@@ -140,7 +150,8 @@ Daemon to client, per stream:
 - At most two frames of one stream wait in the connection's outbound queue (existing backpressure,
   `bounded_outbound.rs` `push_regular_backpressured`). The queue is FIFO across streams, so it round-robins
   the busy streams frame by frame; control replies and events have their own reserve and go first
-  (`pop_locked`: initial, control, regular).
+  (`pop_locked`: initial, control, regular). Amended (3.6.2): replies and control events are one FIFO, and a
+  reply never passes an event that its own request emitted.
 - With the ring, output bytes do not travel on the socket at all: a stream sends one 16-byte RING_ADVANCE per
   drained batch; the viewer queue merges advances (keeps the newest end), so one is in flight at a time.
 
@@ -160,6 +171,8 @@ Client to daemon (requests), per stream lane:
   the control lane (the existing dispatcher, unchanged order). Lanes are independent FIFOs, exactly the
   ordering domains that separate connections gave: requests of one view stay in order, views and the
   control plane do not wait for each other.
+- Amended (3.6.3): the lanes are sequences of one daemon-wide pool, not of a pool per connection. The next item
+  is the original rule.
 - Lane workers: a per-connection pool of threads that park on a condvar when no lane is runnable (no timer,
   no polling, D6). A lane runs on at most one worker at a time. A worker is spawned only when a lane becomes
   runnable and every worker is busy, so the thread count is the high-water of concurrently busy lanes
@@ -192,6 +205,108 @@ offset on continue it exactly.
 
 The client decides by endpoint (it knows which path it opened); the daemon never grants `attach-frames-v1`
 to the remote entry transport (`ClientTransport::Remote`) or a WebSocket.
+
+### 3.6 Changes from the chrome-parity IPC program (2026-10-26)
+
+These sections replace the text marked "amended" above. Each one names its Chromium reference. Where cmux
+differs from Chromium, the reason is given.
+
+#### 3.6.1 The page-relay connection
+
+Today each page that talks to the daemon opens its own `DaemonConnection` (`PageRelayChannel.swift:177`). Home's
+channel list does the same (`ChiefProfilePageRelay.swift:180`). Page streams cannot go on the control connection.
+The control connection is proven role `main`, and a request on it acts as the person. If a page request on it
+lost its stream tag, or had a false one, it would get the person's rights. That reverses the fail-safe default
+of [request-origin.md](request-origin.md).
+
+- Per daemon, the app has one control connection and at most one page-relay connection. The page-relay
+  connection gives role `page_relay` in its hello. Each request on it is judged as page origin at minimum, for
+  all contents. The default stays fail-safe.
+- Each page is a stream on that connection. `open-stream {page}` binds the origin `page:<id>` to the stream for
+  the life of the stream. The origin does not change. Stream 0 of the page-relay connection accepts only
+  open-stream and close-stream. It refuses an untagged request.
+- Confirmation tokens are bound to (op, params hash, stream). A token issued for stream X fails on stream Y.
+  The daemon continues to refuse `origin.confirmation.issue` on a page-relay connection. The control connection
+  never accepts `open-stream {page}`.
+- Home channels (ChiefProfilePageRelay) open a `home-channels` stream on the same connection. The owner
+  pid/generation check stays.
+- Old daemons: for that daemon, the app keeps one connection per page (tasks 103, 104, 108).
+
+Chrome reference: `BrowserInterfaceBrokerImpl` (`content/browser/browser_interface_broker_impl.h`) binds the
+interfaces of a renderer frame, and the browser checks the committed origin of the frame
+(`content/browser/child_process_security_policy_impl.cc`, `CanAccessDataForOrigin`). The origin belongs to the
+endpoint. Chrome never reads it from a message. A page stream does the same: its origin is set when the stream
+opens.
+
+#### 3.6.2 Reply and event order
+
+- The ordering domain is the sequence. A connection has one control sequence. Control replies and control events
+  are ONE FIFO in that sequence.
+- A reply goes into the queue after every event that its request emitted. When the app sees a reply, it has
+  already seen the events of that request (the event barrier of the app).
+- Each stream is its own sequence, and its items stay in its FIFO. Priority sets the order between sequences.
+  Priority never changes the order inside one sequence.
+- App side: `routedEventCount` counts only the stream-0 (control) events. Stream events do not move the barrier.
+- Red tests (task 007): a Rust test sends new-tab during a stream flood; its layout-changed is written before
+  its reply. A Swift test reads `eventSequence()` after a reply, with 10 streams active; the value is at least
+  the sequence of the echo event of that reply.
+
+This rule replaces the separate control reserve of 3.3. With a reserve, a reply could pass an event of its own
+request. Chrome reference: a message pipe gives "reliable in-order delivery", and associated interfaces run
+"multiple interfaces over a single message pipe while preserving message ordering"
+(`mojo/public/cpp/bindings/README.md`; `mojo/public/cpp/bindings/lib/multiplex_router.cc` dispatches one pipe
+in order). `[SupportsUrgent]` changes when the receiver runs a message, but it does not change the order on the
+channel. cmux priority obeys the same rule.
+
+#### 3.6.3 Sequences on one daemon-wide pool
+
+- One daemon-wide sequenced pool replaces the lane workers per connection of 3.3. The control sequence of each
+  connection and each stream are sequences, each with a priority. Each priority has a fixed number of workers
+  (input 2, control cores-2, utility 2, background 1). While a task is in a blocking `RequestPathScope` kind,
+  the pool adds one temporary worker. The thread count does not change with the number of connections.
+- Stream barrier: a control command whose target surface has an open stream on this connection waits until the
+  sequence of that stream is empty. Exception: a command that the schema marks `crosses_stream_ok`, with a
+  reason.
+- One PTY input FIFO per surface, across connections, so that a paste and keys from two clients do not mix.
+- One IO reactor thread reads, frames and flushes all connections (tasks 155, 156). It only routes. The typed
+  decode runs on the sequence. Connections of the person (proven role main) go before automation, with a
+  starvation bound (task 143).
+
+Chrome reference: `docs/threading_and_tasks.md` ("We prefer sequences to threads"; the IO thread is "each
+process's thread for receiving IPC", and each message is "dispatched as a scheduled task" on its bound
+sequence); `base/task/thread_pool/thread_group.h` (a fixed pool that adds workers for blocking work marked with
+`base/threading/scoped_blocking_call.h`).
+
+#### 3.6.4 Frames in both directions
+
+- The header stays 16 bytes, little endian: magic `0xFF`, kind u8, stream u16, len u32 (32 MiB maximum), aux u64.
+  Kinds 1-8 keep their meanings from 3.2 and 4. For them, aux is the absolute PTY offset.
+- New kinds: INPUT (9; aux = flow id; raw bytes go into the input FIFO of the surface; no reply), SHARED_BUFFER
+  (10; aux = size of the attached descriptor), RING_ACK (11; aux = parsed offset, see 4.6), and REQUEST, REPLY,
+  ERROR, TYPED_EVENT, CANCEL (16-20). For kinds 16-20, aux is: u32 request id, u16 method id, u8 priority hint,
+  u8 flags (binary, fds, flow, urgent, more).
+- The daemon takes the priority from its own method table. A header hint that is different is `bad_message`.
+  Routing never parses the payload. A bad frame closes the connection with `bad_message+1` and a reason.
+- The daemon grants frames only when the api_revision of the client is the same as its own. All other clients
+  keep JSON lines.
+
+#### 3.6.5 Why a Unix socket and not Mach messages
+
+On macOS, the Chrome channel uses Mach messages (`mojo/core/channel_mac.cc`). On Linux and ChromeOS it uses a
+Unix socket with SCM_RIGHTS (`mojo/core/channel_posix.cc`). cmux keeps the Unix socket on macOS too:
+
+- The daemon is cross-platform Rust. The same wire runs on Linux Cloud VMs and through `DaemonBridge`, and the
+  SSH bridge (3.5) carries its JSON-line form. A Mach transport would be a second transport for macOS only, and
+  each wire test would have to run on both.
+- The socket already does what cmux needs from Mach ports: descriptors pass with SCM_RIGHTS (ring and shared
+  buffers, 4.3), and `getpeereid` identifies the peer (4.5).
+- The bulk bytes of a local terminal do not go through the socket. The output ring carries them (section 4).
+  Thus the remaining socket cost is per message, not per byte.
+- The cost is measured, not assumed. `bench-daemon-latency.py` (task 002) records syscalls per message.
+  `bench-typing.py` records the hops app.send -> daemon.pty_write and daemon.output -> app.output_decoded.
+  Section 9 has the rows. If the socket makes those hops miss the IPC-9 bound (p99 <= 1 ms), this decision is
+  opened again with those numbers. Before frames, the daemon writer makes 2 `write_all` calls per message (the
+  text, then `\n`). With frames, it makes one `writev` per batch (task 140).
 
 ## 4. The output ring (`terminal-output-ring-v1`)
 
@@ -226,7 +341,9 @@ Writer, per chunk of n bytes at `e = end`: `reserve.store(e+n)`; release fence; 
 read: a gap. This is the seqlock rule; the reader detects every overwrite, the writer never waits.
 
 Capacity: 1 MiB, the holder's per-terminal ring size (resident only as it fills; one copy of the pages,
-shared by daemon and app). A reader 1 MiB behind resyncs by snapshot. Slice 3 measures resyncs per minute
+shared by daemon and app). A reader 1 MiB behind resyncs by snapshot. Amended (4.6): the writer also never
+writes past the acknowledged offset of the readers plus the capacity, so the reserve check finds a lap only when
+that rule fails. Slice 3 measures resyncs per minute
 in the STRESS flood (10 printing terminals) and the 50 MB/s `cat` flood; if any appear with a healthy app,
 the size is raised with that number as its reason.
 
@@ -285,6 +402,34 @@ the size is raised with that number as its reason.
   a relay, a WebSocket, or a `DaemonBridge` link.
 - The reader's descriptor is read-only (opened `O_RDONLY` before the unlink), so a reader cannot change the
   ring. The daemon never reads the data area back, so nothing a reader does reaches the parser.
+
+### 4.6 Consumer cursor (`RING_ACK`)
+
+The seqlock rule of 4.2 finds an overwrite, but it does not prevent one. The writer can lap a span while Ghostty
+parses it; the deallocator check then finds a torn span that Ghostty already parsed. The cursor prevents this.
+
+- When the output lane of Ghostty releases a span, the app sends RING_ACK with aux = the parsed offset (the end
+  of the released spans). It sends a maximum of one per display frame, from the output lane, never from the main
+  thread.
+- The daemon keeps the acknowledged offset of each reader. Before it writes a chunk that ends at `e`, it checks
+  `e <= min(acked) + capacity` over the live readers of the ring. If the check fails, the daemon does not write
+  the chunk into the ring and marks the ring gap-pending. The next RING_ADVANCE of each reader is a gap (3.4),
+  and the stream resyncs with a READY.
+- A reader in a gap drops its queued spans. When the lane releases the span that it parses, the reader sends a
+  last RING_ACK for the spans before the gap. Until that ack, the reader still bounds the writer, so no span in
+  parse is overwritten. After that ack and until its READY, the reader does not bound the writer. After the
+  READY, its acknowledged offset is the offset of the READY.
+- The PTY and the writer never wait. A slow or stopped reader costs a resync. It never applies back-pressure to
+  the terminal.
+- The readers of one ring are the views of one terminal in one app (local same-euid peers only). A skipped chunk
+  is a gap for all of them. A ring per reader prevents that, but costs a copy per reader. The shared result is
+  accepted because the views of one app stall together (one output lane).
+- The release-time reserve check of 4.4 stays, as the counter `release_laps`. IPC-7 requires it to be 0.
+
+Chrome reference: the producer of a data pipe cannot write past unread data. The consumer gives space back with
+`DATA_WAS_READ` (`mojo/core/data_pipe_control_message.h`, `mojo/core/data_pipe_producer_dispatcher.cc`), and a
+full producer gets `MOJO_RESULT_SHOULD_WAIT`. cmux is different at one point: the PTY must never wait, so a full
+ring skips the chunk and the reader resyncs.
 
 ## 5. App side
 
@@ -350,6 +495,39 @@ touched: `CmuxNextTerminal` (TerminalSession, TerminalOutputLane, TerminalSurfac
 
 ## 9. Measurements
 
-| Date | Row | Host / sha / Hz | Light | STRESS | Note |
-|---|---|---|---|---|---|
-| | | | | | |
+Proof rows of the chrome-parity IPC program (p05-ipc done check IPC-17). Each row gives host, sha, macOS, Hz and
+the command. "n/a" in Hz: the row measures no frame. "pending" in a value: the run has not been made, and the
+row tells which task and batch makes it. A row moves from pending only with the output of its command on the fleet
+(VM timing is not evidence). The perf-lead.md section 5 has the same rows in short form.
+
+### 9.1 Before and after (done checks)
+
+Before = batch B0 (after tasks 002 and 005, before task 094 sets streams on). After = the head after task 194.
+Both on the same fleet M4 Pro mini, light and STRESS (`perf-stress-session.py`), p50/p95/p99/max from raw
+samples.
+
+| Check | Metric and target | Command | Host | sha | macOS | Hz | Before light / STRESS | After light / STRESS |
+|---|---|---|---|---|---|---|---|---|
+| IPC-2 | attach_handshake_rtts == 0 and 1 request per new view, local and SSH | `python3 scripts/cmux-next/split-latency-bench.py --tag ipc-base --streams` (then `--machine ssh`) | pending (fleet M4 Pro mini; SSH peer aws-m4pro-*) | pending (B0) / pending (after 194) | pending | 120 | pending (B0) | pending |
+| IPC-5 | every listed op p95 < 2.0 ms send to reply, small, scale and STRESS | `cd cmux-tui && cargo build --release -p cmux-tui && python3 scripts/bench-daemon-latency.py --bin target/release/cmux-tui --ops all --scenario scale --out artifacts/daemon-latency-base.json` (and `--scenario small`) | pending (fleet M4 Pro mini) | pending (B0) / pending (B3, after 120-127) | pending | n/a | pending (B0) | pending (B3) |
+| IPC-7 | `DaemonWireStats.outputBytesCopiedApp` == 0 after `cat` of 50 MB; release_laps == 0; ring resyncs/min == 0 in the STRESS flood | `python3 scripts/cmux-next/bench-typing.py --tag ipc-113 --flood 10 --stress`, then `debug.daemon.wire` | pending (fleet M4 Pro mini) | pending (B0) / pending (B2, after 113) | pending | 120 | pending (B0) | pending (B2) |
+| IPC-8 | ping p99 < 2.0 ms during a 256 MiB flood on the same connection; focused echo p95 <= single-terminal p95 + 0.5 ms beside 10 floods | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin target/release/cmux-tui --bulk-interference`; `python3 scripts/cmux-next/bench-typing.py --tag ipc-base --flood 10` | pending (fleet M4 Pro mini) | pending (B0) / pending (B1, before 094) | pending | 120 | pending (B0) | pending (B1) |
+| IPC-9 | key to frame p50 <= 8.3 ms, p99 <= 16.7 ms; hops app.send -> daemon.pty_write and daemon.output -> app.output_decoded p99 <= 1 ms | `python3 scripts/cmux-next/bench-typing.py --tag ipc-base --stress` (light: without `--stress`); hops from `python3 scripts/cmux-next/trace.py` on the same run | pending (fleet M4 Pro mini) | pending (B0) / pending (after 194) | pending | 120 | pending (B0) | pending |
+| IPC-10 | daemon threads with 50 attached views and 20 extra CLI connections, minus with 0: <= 2; `--queue Q8` empty | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin target/release/cmux-tui --ops all --streams 50`; `python3 scripts/cmux-next/ipc-census.py --queue Q8` | pending (fleet M4 Pro mini) | pending (B0) / pending (after 156) | pending | n/a | pending (B0) | pending |
+| IPC-11 | connection layer 0 wakeups/s on both sides (10 terminals, 1 Chromium tab, 10 hidden printing terminals); ConnectionHeartbeat <= 0.07/s; daemon idle 0/s | `scripts/cmux-next/bench-idle.sh` (connection-layer rows) | pending (fleet M4 Pro mini) | pending (B0) / pending (after 194) | pending | 120 | pending (B0) | pending |
+| IPC-16 | with `--automation-storm 8`: key echo p95 <= idle + 1 ms, split p95 < 2 ms, automation >= 50 % of its idle throughput | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin target/release/cmux-tui --automation-storm 8` | pending (fleet M4 Pro mini) | pending (B0) / pending (after 143) | pending | n/a | pending (B0) | pending |
+| 3.6.5 | syscalls per message (socket cost for the Mach decision) | `python3 cmux-tui/scripts/bench-daemon-latency.py --bin target/release/cmux-tui --ops all --scenario small` (syscalls per message from server-stats) | pending (fleet M4 Pro mini) | pending (B0) / pending (after 140) | pending | n/a | pending (B0); code read: 2 `write_all` per message | pending |
+| IPC-12, IPC-14 | 30-minute STRESS soak: 0 crashes, 0 stream-end{overflow} on visible terminals, daemon RSS within +-5 %, slow_requests == 0 | `python3 scripts/cmux-next/ipc-soak.py --minutes 30 --flood 10 --stress` (task 192) | pending (fleet M4 Pro mini) | pending (after 192) | pending | 120 | n/a (soak has no before) | pending |
+| Build | incremental build after a leaf edit < 30 s; schema-edit time and rebuilt targets | `cmux-ci run --class isolated --ref SHA --script 'scripts/cmux-next/build-timing.sh --leaf-edit --schema-edit'` (task 194) | pending (fleet isolated class) | pending (before 025) / pending (after 027) | pending | n/a | pending | pending |
+
+### 9.2 Earlier numbers (other benches, context only)
+
+These are not the done-check commands, so they do not close a row of 9.1. They show the size of the problem.
+
+| Check | Metric | Command | Host | sha | macOS | Hz | Value |
+|---|---|---|---|---|---|---|---|
+| IPC-2 | new connection (stream open + `identify` + `set-client-info`), then `attach-surface`, p50 / p95 ms | raw daemon client, hq `.cmux-scratch/ffre/split_bench.py` ([remote-state-ownership.md](remote-state-ownership.md) 1.2) | m1max (loaded) and aws-m4pro-1 | 64d57f35a20f | not recorded | n/a | local 2 / 20 then 1 / 23; on aws-m4pro-1 0.2 / 0.4 then 0.2 / 0.2; over SSH 137 / 173 (2 RTT) then 67 / 94 (1 RTT) |
+| IPC-5 | send to reply p50 / p95 ms, 40 rounds, 50 background workspaces | `perf-10x-lifecycle` part=daemon ([perf-lead.md](perf-lead.md) section 5, PL-daemon batch 1) | cmuxs-Mac-mini.local (M4 Pro) | 15b43c2c2c3 (before) / b52efda096b (after) | 27.0.1 | n/a | after: new-tab terminal 23.2 / 36.8, split right 21.6 / 30.0, new-workspace 19.9 / 32.2, new browser tab 3.4 / 14.4, close-pane 5.2 / 10.1 |
+| IPC-10 | daemon threads per idle terminal | same run as the IPC-5 row | cmuxs-Mac-mini.local (M4 Pro) | b52efda096b | 27.0.1 | n/a | 2.96 |
+| IPC-11 | idle wakeups, whole tree, Home (connection layer not split out) | fleet step e44e5f2fc0a2cca452b71dee, standard scenario, Release ([speed-of-sound-DESIGN.md](speed-of-sound-DESIGN.md) section 5) | cmux20 (Apple M6) | e8af890de1 | 27.0 | not recorded | 51.9/s (main 42.6/s) |
+| IPC-1, 3, 4, 10 | static census: Q4 side connections outside the allowlist 19 (29 found); Q1 hand-written Swift commands 235; Q2 sniffers 16; Q5 schema gaps 27; Q8 threads without QoS 81; Q14 hand-built `"cmd"` 190; Q15 Command variants 285 | `python3 scripts/cmux-next/ipc-census.py` | Linux VM (static, no build) | fe8a528b785 (perf/chrome-parity) | n/a | n/a | as listed; targets 0 |
