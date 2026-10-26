@@ -1,0 +1,21 @@
+{
+  "id": "daemon-ops",
+  "tier": "T1",
+  "description": "Daemon op latency in the STRESS storm: trace.py's daemon debug spans (CMUX_TUI_DEBUG_SPANS) grouped by op, arrival to reply per request; per-op series feed the monitored aggregate.",
+  "command": ["scripts/perf-lab/stories/daemon_ops.py"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "daemon\\.(?!ops\\.)[a-z0-9_-]+\\.ms", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/perf-lab/stories/daemon_ops.py", "key": "OP_P95_BUDGET_MS"}},
+    {"name": "daemon\\.ops\\.ms", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/perf-lab/stories/daemon_ops.py", "key": "OP_P95_BUDGET_MS"}},
+    {"name": "daemon\\.ops\\.over_budget", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["file:scripts/cmux-next/trace.py", "file:cmux-tui/crates/cmux-tui-util/src/debug_spans.rs"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Requests"
+}
