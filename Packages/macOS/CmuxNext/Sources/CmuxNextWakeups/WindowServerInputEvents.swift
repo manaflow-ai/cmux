@@ -1,7 +1,8 @@
 public import AppKit
 
 /// The production ``SessionInputEvents``: `CGEventSource`'s combined session state, `NSApp`, the
-/// main screen, and one local event monitor for the input events AppKit dispatches.
+/// key window's screen, the window under the pointer, and one local event monitor for the input
+/// events AppKit dispatches.
 @MainActor
 public final class WindowServerInputEvents: SessionInputEvents {
     private var monitor: Any?
@@ -23,7 +24,16 @@ public final class WindowServerInputEvents: SessionInputEvents {
 
     public var isAppActive: Bool { NSApp?.isActive ?? false }
 
-    public var refreshInterval: TimeInterval { NSScreen.main?.minimumRefreshInterval ?? 1.0 / 60 }
+    public var refreshInterval: TimeInterval {
+        (NSApp?.keyWindow?.screen ?? NSScreen.main)?.minimumRefreshInterval ?? 1.0 / 60
+    }
+
+    public var pointerIsOverAppWindow: Bool {
+        guard let app = NSApp else { return false }
+        // 0: the topmost window at the point, of any app.
+        let number = NSWindow.windowNumber(at: NSEvent.mouseLocation, belowWindowWithWindowNumber: 0)
+        return number > 0 && app.window(withWindowNumber: number) != nil
+    }
 
     public func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) -> Bool {
         guard monitor == nil else { return true }
@@ -43,17 +53,11 @@ public final class WindowServerInputEvents: SessionInputEvents {
 /// What ``SessionInputPending`` needs to know about a dispatched event.
 private func kind(of event: NSEvent) -> SessionInputPending.Dispatched.Kind {
     switch event.type {
-    case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown: .keyOrClick
+    case .keyDown, .rightMouseDown, .otherMouseDown: .keyOrClick
+    case .leftMouseDown: .leftMouseDown
+    case .leftMouseUp: .leftMouseUp
     case .leftMouseDragged: .leftDrag
-    case .scrollWheel: .scroll(gestureContinues: gestureContinues(phase: event.phase, momentum: event.momentumPhase))
+    case .scrollWheel: .scroll(phase: event.phase, momentum: event.momentumPhase)
     default: .other
     }
-}
-
-/// Whether a scroll with these phases leaves a gesture running, so the next tick is part of it: a
-/// began, changed or stationary phase or momentum phase. May-begin, ended, cancelled and a wheel
-/// notch (no phase) end it: the next scroll begins one.
-private func gestureContinues(phase: NSEvent.Phase, momentum: NSEvent.Phase) -> Bool {
-    let running: NSEvent.Phase = [.began, .changed, .stationary]
-    return !phase.isDisjoint(with: running) || !momentum.isDisjoint(with: running)
 }

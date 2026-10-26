@@ -13,9 +13,13 @@ public protocol SessionInputEvents: AnyObject {
     func secondsSinceLastEvent(_ type: CGEventType) -> TimeInterval
     /// Whether this app is active (the session's keys and clicks are its own).
     var isAppActive: Bool { get }
-    /// The main screen's refresh interval in seconds (`NSScreen.minimumRefreshInterval`): an
-    /// undispatched event stops counting after two of them.
+    /// The refresh interval in seconds of the display the person works on (the key window's
+    /// screen, else the main screen: `NSScreen.minimumRefreshInterval`): an undispatched event
+    /// stops counting after two of them.
     var refreshInterval: TimeInterval { get }
+    /// Whether the topmost window under the pointer is one of this app's: macOS sends a scroll
+    /// there, so only then can a scroll on its way be this app's.
+    var pointerIsOverAppWindow: Bool { get }
     /// Starts reporting every input event AppKit dispatches in this app (keys, modifier changes,
     /// mouse buttons, pointer motion, scrolls): its timestamp (seconds since boot) and kind.
     /// Returns false while it cannot yet (no `NSApp`): the caller asks again on its next check.

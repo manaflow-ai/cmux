@@ -1,23 +1,31 @@
-public import Foundation
+public import AppKit
 import CoreGraphics
 
 /// The production check: the window server's time of the last input event of each kind that counts
 /// in this login session, against the timestamp of the last such event AppKit dispatched in this app.
 ///
 /// An event that the HID system generated after the last one the app dispatched is still on its
-/// way through the event queue: the app is active, so it is ours. What counts (``Kinds``):
-/// - a key-down or a mouse-button-down: what a person waits on;
-/// - a scroll that begins a gesture (phase began after the last gesture ended, or a wheel notch
-///   with no phase); ticks in the middle of a gesture do not count. Chrome holds only the first
-///   wheel of a sequence the same way (`components/input/mouse_wheel_event_queue.h`);
-/// - an active left drag, at most one refresh interval in two: after a drag counted for one
-///   interval, drags do not count for the next, so a batch that yielded to a drag in one frame
-///   runs in the next. Chrome aligns drags to the frame (`third_party/blink/renderer/platform/
-///   widget/input/main_thread_event_queue.h`, IsRafAlignedEvent).
+/// way through the event queue. What counts (``Kinds``), and why it is this app's:
+/// - a key-down or a mouse-button-down: what a person waits on; the app is active, so it is ours;
+/// - a scroll that begins a sequence, while the pointer is over one of the app's windows (macOS
+///   sends a scroll to the window under the pointer, not to the active app). A tick inside the
+///   sequence the last dispatched scroll left open (``ScrollLatching``: a running gesture, its
+///   momentum, a wheel notch's latching window) does not count. Chrome holds only the first wheel
+///   of a sequence the same way (`components/input/mouse_wheel_event_queue.h`);
+/// - a left drag while the left button that started it is down in this app.
 ///
-/// Mouse moves and other drags stream at the pointer's rate and never count. An event the app never
-/// dispatches (taken by another process while the app turns inactive) stops counting after
-/// ``staleAfter``, two refresh intervals of the main screen, so it cannot hold batches back.
+/// Mouse moves and other drags stream at the pointer's rate and never count. A drag counts in
+/// every check it is on its way; ``MainFrameBudget``'s own progress rule (a class that yielded in
+/// one frame runs in the next) aligns its yields to the frame, as Chrome aligns drags to the
+/// begin-frame (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.h`,
+/// IsRafAlignedEvent).
+///
+/// Two bounds keep an event the app never dispatches from holding batches back:
+/// - an event older than ``staleAfter`` does not count (taken by another process while the app
+///   turns inactive);
+/// - a scroll begin or a drag counts for ``staleAfter`` from the first check that saw it
+///   undispatched, then not until one is dispatched: the stream goes to another window (a gesture
+///   macOS latched there) or to a tracking loop (a window move, a dragging session).
 ///
 /// Each check is one window-server query in the common case: the newest input event of any type
 /// (``SessionInputEvents/secondsSinceLastInput()``). When that event is no newer than the last one
@@ -49,13 +57,16 @@ public final class SessionInputPending: InputPendingSource {
     /// One input event AppKit dispatched in this app.
     public struct Dispatched: Sendable, Equatable {
         public enum Kind: Sendable, Equatable {
-            /// A key-down or a mouse-button-down.
+            /// A key-down, or a right or other mouse-button-down.
             case keyOrClick
+            /// A left mouse-button-down: a click, and the start of the left drag after it.
+            case leftMouseDown
+            /// A left mouse-button-up: the end of the left drag.
+            case leftMouseUp
             /// A left-button drag.
             case leftDrag
-            /// A scroll; `gestureContinues` when its phase leaves a gesture running (the next tick
-            /// is part of it).
-            case scroll(gestureContinues: Bool)
+            /// A scroll, with its gesture phase and momentum phase (both empty for a wheel notch).
+            case scroll(phase: NSEvent.Phase, momentum: NSEvent.Phase)
             /// Anything else (key-up, modifiers, moves, other drags).
             case other
         }
@@ -70,50 +81,79 @@ public final class SessionInputPending: InputPendingSource {
         }
     }
 
+    /// The shortest ``staleAfter``: two 60 Hz frames. A real key must not go stale while the main
+    /// thread finishes a task the budget let run (a class's first task of a frame always runs, and
+    /// a render pass may take ``MainFrameBudget/Budgets/passTarget``), also on a 120 Hz or faster
+    /// display.
+    public static let minimumStaleAfter: TimeInterval = 2.0 / 60
+
     private static let keyOrClickTypes: [(CGEventType, Kinds)] = [
         (.keyDown, .key), (.leftMouseDown, .click), (.rightMouseDown, .click), (.otherMouseDown, .click),
     ]
     private let events: any SessionInputEvents
+    private let latching: ScrollLatching
     /// The newest key-down or mouse-button-down AppKit dispatched here.
     private var lastDispatchedKeyOrClick: TimeInterval = 0
     /// The newest scroll AppKit dispatched here.
     private var lastDispatchedScroll: TimeInterval = 0
-    /// The newest left drag AppKit dispatched here.
+    /// Until when (seconds since boot) the last dispatched scroll keeps its sequence open.
+    private var scrollSequenceOpenUntil: TimeInterval = -.infinity
+    /// The newest left-button-down or left drag AppKit dispatched here.
     private var lastDispatchedDrag: TimeInterval = 0
+    /// The left button went down in this app and AppKit has not dispatched its mouse-up.
+    private var leftButtonDown = false
     /// The newest input event of any type AppKit dispatched here.
     private var lastDispatchedAny: TimeInterval = 0
-    /// The last dispatched scroll left a gesture running: a pending scroll is a mid-gesture tick.
-    private var scrollGestureRunning = false
-    /// When a drag last started counting (seconds since boot); nil before the first.
-    private var dragCountedSince: TimeInterval?
+    /// When a check first saw an undispatched scroll begin (seconds since boot); nil while none is
+    /// on its way. An observation of the event stream: the same whichever caller checks.
+    private var undispatchedScrollSeen: TimeInterval?
+    /// When a check first saw an undispatched left drag; nil while none is on its way.
+    private var undispatchedDragSeen: TimeInterval?
     private var observing = false
 
-    /// - Parameter events: The window server and AppKit (tests: a fake that reports its own event
-    ///   times, dispatches and refresh interval).
-    public init(events: any SessionInputEvents = WindowServerInputEvents()) {
+    /// - Parameters:
+    ///   - events: The window server and AppKit (tests: a fake that reports its own event times,
+    ///     dispatches, pointer and refresh interval).
+    ///   - latching: How long a dispatched scroll keeps its sequence open.
+    public init(events: any SessionInputEvents = WindowServerInputEvents(), latching: ScrollLatching = ScrollLatching()) {
         self.events = events
+        self.latching = latching
     }
 
-    /// How long an undispatched event counts as pending: two refresh intervals of the main screen
-    /// (33.3 ms at 60 Hz, 16.7 ms at 120 Hz), longer than any dispatch delay the budget allows, so
-    /// a real pending event is never missed while a lost one defers at most two frames of batches.
-    public var staleAfter: TimeInterval { 2 * refreshInterval }
+    /// How long an undispatched event counts as pending: two refresh intervals of the display the
+    /// person works on, never less than ``minimumStaleAfter`` (33.3 ms at 60 Hz and faster, 41.7 ms
+    /// at 48 Hz).
+    public var staleAfter: TimeInterval { max(2 * refreshInterval, Self.minimumStaleAfter) }
 
-    /// The main screen's refresh interval; 60 Hz when the screen reports none.
+    /// The display's refresh interval; 60 Hz when it reports none.
     private var refreshInterval: TimeInterval {
         let interval = events.refreshInterval
         return interval.isFinite && interval > 0 ? interval : 1.0 / 60
     }
 
     private func dispatched(_ event: Dispatched) {
-        lastDispatchedAny = max(lastDispatchedAny, event.timestamp)
+        let time = event.timestamp
+        lastDispatchedAny = max(lastDispatchedAny, time)
         switch event.kind {
-        case .keyOrClick: lastDispatchedKeyOrClick = max(lastDispatchedKeyOrClick, event.timestamp)
-        case .leftDrag: lastDispatchedDrag = max(lastDispatchedDrag, event.timestamp)
-        case let .scroll(gestureContinues):
-            lastDispatchedScroll = max(lastDispatchedScroll, event.timestamp)
-            scrollGestureRunning = gestureContinues
-        case .other: break
+        case .keyOrClick:
+            lastDispatchedKeyOrClick = max(lastDispatchedKeyOrClick, time)
+        case .leftMouseDown:
+            lastDispatchedKeyOrClick = max(lastDispatchedKeyOrClick, time)
+            lastDispatchedDrag = max(lastDispatchedDrag, time)
+            leftButtonDown = true
+            undispatchedDragSeen = nil
+        case .leftMouseUp:
+            leftButtonDown = false
+            undispatchedDragSeen = nil
+        case .leftDrag:
+            lastDispatchedDrag = max(lastDispatchedDrag, time)
+            undispatchedDragSeen = nil
+        case let .scroll(phase, momentum):
+            lastDispatchedScroll = max(lastDispatchedScroll, time)
+            scrollSequenceOpenUntil = latching.sequenceOpen(after: time, phase: phase, momentum: momentum)
+            undispatchedScrollSeen = nil
+        case .other:
+            break
         }
     }
 
@@ -121,8 +161,10 @@ public final class SessionInputPending: InputPendingSource {
         !scan(uptime: uptime, firstOnly: true).isEmpty
     }
 
-    /// Every kind of input pending at `uptime` (seconds since boot): what the run-loop turn's
-    /// observer publishes into the pending-input state. Empty when the app is inactive.
+    /// Every kind of input pending at `uptime` (seconds since boot), for the pending-input state's
+    /// once-per-run-loop-turn publisher (InputPendingState, p04-input-021). Empty when the app is
+    /// inactive. Safe next to the budget's checks: the only state a check keeps is when it first
+    /// saw an undispatched scroll begin or drag, which is the same whoever looks.
     public func pendingKinds(uptime: TimeInterval) -> Kinds {
         scan(uptime: uptime, firstOnly: false)
     }
@@ -132,43 +174,72 @@ public final class SessionInputPending: InputPendingSource {
             observing = events.observeDispatch { [weak self] event in self?.dispatched(event) }
         }
         guard events.isAppActive else {
-            // A gesture the app lost to another app never sends its end here.
-            scrollGestureRunning = false
+            // A gesture or a drag the app lost to another app never sends its end here.
+            scrollSequenceOpenUntil = -.infinity
+            leftButtonDown = false
+            undispatchedScrollSeen = nil
+            undispatchedDragSeen = nil
             return []
         }
-        let interval = refreshInterval
-        let stale = 2 * interval
+        let stale = staleAfter
         // One query: nothing generated after the last dispatched event, or nothing recent, means
         // nothing that counts is on its way either (the event queue is first in, first out).
         // Events a tracking loop takes (a drag, a menu) never reach the monitor, so during one
         // this answers "maybe" and the per-type queries decide.
-        guard Self.isPending(age: events.secondsSinceLastInput(), after: lastDispatchedAny, now: uptime, staleAfter: stale) else { return [] }
+        guard Self.isPending(age: events.secondsSinceLastInput(), after: lastDispatchedAny, now: uptime, staleAfter: stale) else {
+            undispatchedScrollSeen = nil
+            undispatchedDragSeen = nil
+            return []
+        }
         var kinds: Kinds = []
         for (type, kind) in Self.keyOrClickTypes where !kinds.contains(kind) {
             guard Self.isPending(age: events.secondsSinceLastEvent(type), after: lastDispatchedKeyOrClick, now: uptime, staleAfter: stale) else { continue }
             kinds.insert(kind)
             if firstOnly { return kinds }
         }
-        if !scrollGestureRunning,
-           Self.isPending(age: events.secondsSinceLastEvent(.scrollWheel), after: lastDispatchedScroll, now: uptime, staleAfter: stale) {
+        if scrollBeginCounts(now: uptime, staleAfter: stale) {
             kinds.insert(.scrollBegin)
             if firstOnly { return kinds }
         }
-        if dragMayCount(now: uptime, interval: interval),
-           Self.isPending(age: events.secondsSinceLastEvent(.leftMouseDragged), after: lastDispatchedDrag, now: uptime, staleAfter: stale) {
-            // A new counting interval starts; inside the current one the start stays.
-            if dragCountedSince.map({ uptime - $0 >= 2 * interval }) ?? true { dragCountedSince = uptime }
-            kinds.insert(.drag)
-        }
+        if dragCounts(now: uptime, staleAfter: stale) { kinds.insert(.drag) }
         return kinds
     }
 
-    /// A drag counts for one refresh interval from when it started counting, then not for the next
-    /// interval, then may start again.
-    private func dragMayCount(now: TimeInterval, interval: TimeInterval) -> Bool {
-        guard let since = dragCountedSince else { return true }
-        let elapsed = now - since
-        return elapsed < interval || elapsed >= 2 * interval
+    /// Whether a scroll that begins a sequence is on its way to one of the app's windows.
+    private func scrollBeginCounts(now: TimeInterval, staleAfter: TimeInterval) -> Bool {
+        let age = events.secondsSinceLastEvent(.scrollWheel)
+        guard Self.isPending(age: age, after: lastDispatchedScroll, now: now, staleAfter: staleAfter) else {
+            undispatchedScrollSeen = nil
+            return false
+        }
+        // A tick of the sequence the last dispatched scroll left open streams with it.
+        guard now - age >= scrollSequenceOpenUntil, events.pointerIsOverAppWindow else { return false }
+        return Self.stillCounts(firstSeen: &undispatchedScrollSeen, now: now, staleAfter: staleAfter)
+    }
+
+    /// Whether a left drag of a button that went down in this app is on its way.
+    private func dragCounts(now: TimeInterval, staleAfter: TimeInterval) -> Bool {
+        guard leftButtonDown else { return false }
+        let age = events.secondsSinceLastEvent(.leftMouseDragged)
+        guard Self.isPending(age: age, after: lastDispatchedDrag, now: now, staleAfter: staleAfter) else {
+            undispatchedDragSeen = nil
+            return false
+        }
+        guard Self.stillCounts(firstSeen: &undispatchedDragSeen, now: now, staleAfter: staleAfter) else {
+            // A tracking loop took the drag (a window move, a dragging session): its mouse-up never
+            // comes here either, so the drag is over for this app.
+            leftButtonDown = false
+            return false
+        }
+        return true
+    }
+
+    /// Whether an undispatched stream still counts: for `staleAfter` from the first check that saw
+    /// it (`firstSeen`, set here by that check).
+    private static func stillCounts(firstSeen: inout TimeInterval?, now: TimeInterval, staleAfter: TimeInterval) -> Bool {
+        let seen = firstSeen ?? now
+        firstSeen = seen
+        return now - seen < staleAfter
     }
 
     /// Whether an event generated `age` seconds before `now` (seconds since boot) is newer than
