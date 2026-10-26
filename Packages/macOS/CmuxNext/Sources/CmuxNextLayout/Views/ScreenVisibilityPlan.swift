@@ -71,6 +71,26 @@ struct PanePresenceReport {
     /// Passes, cumulative (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
     private(set) var passes: UInt64 = 0
 
+    /// Whether the last pass read `screen`'s plan as it is now (nil: the root is not live).
+    func isCurrent(for screen: ScreenContentView?) -> Bool { // perf-hot: 4ms motion-frame
+        guard let screen else { return plan == nil }
+        return plan?.matches(screen) == true
+    }
+
+    /// One pass over `screen` (nil while the root is not live: no pane shows): its presence changes, as
+    /// ``record(visible:keepAlive:plan:)`` returns them.
+    mutating func pass(_ screen: ScreenContentView?) -> [(PaneID, PanePresence)]? {
+        var visible: Set<PaneID> = [], keepAlive: Set<PaneID> = []
+        if let screen {
+            let sweeps = screen.displayedSweeps()
+            visible = screen.visiblePanes(sweeps)
+            keepAlive = screen.keepAlivePanes(sweeps).union(visible)
+            // A strip pan event inside this span reports nothing: it skips the pass (`LayoutRootView+Scroll`).
+            screen.recordVisibilitySpan(sweeps)
+        }
+        return record(visible: visible, keepAlive: keepAlive, plan: screen.map { ScreenVisibilityPlan($0) })
+    }
+
     /// One pass read `plan` and found `visible` and `keepAlive`: the presence changes, losses first (content
     /// leaving the band frees room before new content attaches), or nil when nothing changed.
     mutating func record(visible: Set<PaneID>, keepAlive: Set<PaneID>, plan: ScreenVisibilityPlan?) -> [(PaneID, PanePresence)]? {

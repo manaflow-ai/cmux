@@ -600,32 +600,17 @@ public final class LayoutRootView: NSView {
     public var visibilityUpdates: UInt64 { presence.passes }
 
     /// A visibility pass when the active screen's plan (`ScreenVisibilityPlan`) changed since the last one. A display
-    /// frame asks this: the check builds no plan (``ScreenVisibilityPlan/matches(_:)``).
+    /// frame asks this: the check builds no plan (``PanePresenceReport/isCurrent(for:)``).
     func updateVisibilityIfPlanChanged() { // perf-hot: 4ms motion-frame
-        let screen = visibilityScreen
-        if let plan = presence.plan, let screen, plan.matches(screen) { return }
-        if presence.plan == nil, screen == nil { return }
-        updateVisibility()
+        if !presence.isCurrent(for: visibilityScreen) { updateVisibility() }
     }
 
     /// The screen a visibility pass reads: the active one, while the root is live.
-    private var visibilityScreen: ScreenContentView? {
-        isLive ? model.activeScreenID.flatMap { screenViews[$0] } : nil
-    }
+    private var visibilityScreen: ScreenContentView? { isLive ? model.activeScreenID.flatMap { screenViews[$0] } : nil }
 
     func updateVisibility() {
-        var visible: Set<PaneID> = []
-        var keepAlive: Set<PaneID> = []
-        let screen = visibilityScreen
-        if let view = screen {
-            let sweeps = view.displayedSweeps()
-            visible = view.visiblePanes(sweeps)
-            keepAlive = view.keepAlivePanes(sweeps).union(visible)
-            // A strip pan event inside this span reports nothing: it skips the pass (`LayoutRootView+Scroll`).
-            view.recordVisibilitySpan(sweeps)
-        }
-        guard let changes = presence.record(visible: visible, keepAlive: keepAlive, plan: screen.map { ScreenVisibilityPlan($0) }) else { return }
-        model.reportVisiblePanes(visible, keepAlive: keepAlive)
+        guard let changes = presence.pass(visibilityScreen) else { return }
+        model.reportVisiblePanes(presence.visible, keepAlive: presence.keepAlive)
         for (pane, now) in changes { context.provider?.panePresenceDidChange(pane, presence: now) }
     }
 
