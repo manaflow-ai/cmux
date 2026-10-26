@@ -85,12 +85,13 @@ import Testing
             == ["cosmic-gray", "build.example.com", "fe80::2"])
     }
 
-    /// The link carries only where to connect: an option-like host or login, a look-alike letter
-    /// or a shell word never routes to a terminal.
+    /// The link carries only where to connect: an option-like host or login, a non-ASCII letter
+    /// (a look-alike of a trusted host's) or a shell word never routes to a terminal. (URL itself
+    /// maps the Kelvin sign to `k`, so ssh would connect to the ASCII host the dialog names.)
     @Test func aCraftedLinkNeverRoutes() throws {
-        for link in ["ssh://-oProxyCommand=evil", "ssh://-l@host", "ssh://h%C3%B6st.example", "ssh://\u{212A}ey.example",
+        for link in ["ssh://-oProxyCommand=evil", "ssh://-l@host", "ssh://h%C3%B6st.example", "ssh://%D0%B0pple.example",
                      "ssh://host;rm%20-rf", "ssh://host:0", "ssh://us%27er@host"] {
-            let url = try #require(URL(string: link) ?? URL(string: link.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed) ?? ""))
+            let url = try #require(URL(string: link))
             #expect(ExternalOpenRouter().route(url) == .unsupported, "\(link)")
         }
     }
