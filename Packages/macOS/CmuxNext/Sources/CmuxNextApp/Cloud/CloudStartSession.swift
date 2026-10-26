@@ -186,7 +186,7 @@ struct CloudStartSession {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
         try still(name)
         let started: AgentTabRemoteStart.Started
@@ -214,7 +214,7 @@ struct CloudStartSession {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw ActionFailure(message: Self.startFailure(error, name: name, id: id, agent: agent))
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
         }
         // Where a hook that saves the session's trajectory off the machine (hq#4381) would go, once
         // acpmux has one: the session started, so its id is known here. None exists on base yet.
@@ -245,6 +245,13 @@ struct CloudStartSession {
     static func check(_ account: [String?], now: [String?], _ asked: CloudStartSessionStrings.Asked) throws {
         try Task.checkCancellation()
         guard account == now else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) }
+    }
+
+    /// A step's failure as `message`, unless the run was cancelled or its account ended meanwhile:
+    /// a wait that ended for that (its own nil or error) is never reported as the step failing.
+    static func failed(_ account: [String?], now: [String?], _ asked: CloudStartSessionStrings.Asked, _ message: String) throws -> Never {
+        try checked(account, now: now, asked)
+        throw ActionFailure(message: message)
     }
 
     /// Between steps: the refusal itself.
@@ -318,7 +325,8 @@ struct CloudStartSession {
             throw changed.failure
         } catch {
             let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
-            throw ActionFailure(message: CloudStartSessionStrings.createFailed(name, quoted: Self.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
+            try Self.failed(account, now: cloud.account, request.asked(machine: name),
+                            CloudStartSessionStrings.createFailed(name, quoted: Self.shellQuoted(name), agent: request.agent, reason: Self.reason(detail)))
         }
     }
 

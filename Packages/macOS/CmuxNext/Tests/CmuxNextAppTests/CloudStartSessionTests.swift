@@ -375,6 +375,22 @@ struct CloudStartSessionTests {
         #expect(error is CancellationError)
     }
 
+    /// A step that failed while the run was cancelled or its account ended says that, never that
+    /// the step itself failed (a machine that didn't connect, an agent that didn't start).
+    @Test func aStepFailureAfterCancellationOrAnAccountChangeSaysSo() async throws {
+        let asked = Self.asked, step = CloudStartSessionStrings.notConnected("dev", id: "vm-x", agent: "claude")
+        #expect(throws: ActionFailure(message: step)) { try CloudStartSession.failed(Self.account, now: Self.account, asked, step) }
+        #expect(throws: ActionFailure(message: CloudStartSessionStrings.accountChanged(asked))) {
+            try CloudStartSession.failed(Self.account, now: ["user-1", "team-2"], asked, step)
+        }
+        let cancelled = Task { @MainActor () -> (any Error)? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do { try CloudStartSession.failed(Self.account, now: Self.account, asked, step) } catch { return error }
+        }
+        let error = await cancelled.value
+        #expect(error is CancellationError, "a cancelled run's step failure: \(String(describing: error))")
+    }
+
     /// `--name` takes or creates only from a list the server answered just now for this account.
     @Test func onlyAFreshListOfThisAccountIsCurrent() {
         let now = ContinuousClock.now
