@@ -70,6 +70,29 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         )
     }
 
+    /// Whether the Keychain can currently answer whether a session is stored.
+    ///
+    /// A read that fails for any reason other than "no item" comes back as a
+    /// nil token, which is indistinguishable from a signed-out store. Session
+    /// restore asks this first so a Keychain that is briefly unreadable (locked,
+    /// or busy right after the app was replaced by an update) keeps the session
+    /// instead of signing the user out. A missing entitlement is permanent and
+    /// means ``FallbackTokenStore``'s file store is authoritative, so it counts
+    /// as readable.
+    public func isReadable() async -> Bool {
+        if cachedRefreshToken != nil { return true }
+        return Self.isDefinitiveReadStatus(keychainProbeStatus(account: Self.refreshTokenAccount))
+    }
+
+    /// Whether a Keychain read status says what is (or is not) stored.
+    static func isDefinitiveReadStatus(_ status: Int32) -> Bool {
+#if canImport(Security)
+        return status == errSecSuccess || status == errSecItemNotFound || status == errSecMissingEntitlement
+#else
+        return true
+#endif
+    }
+
     public func setTokens(accessToken: String?, refreshToken: String?) async {
         _ = await trySetTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
@@ -219,6 +242,20 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return String(data: data, encoding: .utf8)
     }
 
+    private func keychainProbeStatus(account: String) -> Int32 {
+        var query = baseQuery(account: account)
+        // Ask for the data, like a real read: a protected item's data can be
+        // unavailable while its attributes are not.
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if !Self.isDefinitiveReadStatus(status) {
+            log.log("keychain PROBE status=\(status) account=\(account)")
+        }
+        return status
+    }
+
     private func keychainWrite(_ value: String, account: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
         let lookup = baseQuery(account: account)
@@ -267,6 +304,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private func readOrAdoptLegacyToken(account: String, legacyAccount: String?) -> String? { nil }
     private func deleteLegacyTokens() {}
     private func keychainRead(account: String) -> String? { nil }
+    private func keychainProbeStatus(account: String) -> Int32 { 0 }
     private func keychainWrite(_ value: String, account: String) -> Bool { false }
     private func keychainDelete(account: String) {}
 #endif

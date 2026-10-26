@@ -381,8 +381,10 @@ actor APIClient {
     enum RefreshOutcome {
         /// The server minted a new access token.
         case success(accessToken: String)
-        /// The server rejected the refresh token (HTTP 400/401, e.g. `invalid_grant`).
-        /// The refresh token will never work again; clearing is correct.
+        /// The server rejected the refresh token itself (HTTP 400/401 naming the
+        /// token, e.g. `REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED` or `invalid_grant`;
+        /// see ``RefreshRejection``). The refresh token will never work again;
+        /// clearing is correct.
         case definitivelyRejected
         /// The refresh could not be completed for a reason that is not the token's
         /// fault (network/server). Tokens must be preserved and the caller retried.
@@ -432,11 +434,15 @@ actor APIClient {
                 return .success(accessToken: newAccessToken)
             }
 
-            // The OAuth token endpoint returns 400 (e.g. `invalid_grant`) or 401
-            // when the refresh token itself is no longer valid. Those are the only
-            // codes that mean "this token will never work again". Everything else
-            // (5xx, 429, redirects, unexpected) is treated as transient.
-            if httpResponse.statusCode == 400 || httpResponse.statusCode == 401 {
+            // The token endpoint answers 400/401 both for a dead refresh token and
+            // for a rejected client (publishable key, project, request shape).
+            // Only the first means "this token will never work again"; a client
+            // rejection, like 5xx, 429 or a redirect, is transient.
+            if RefreshRejection.isDefinitive(
+                statusCode: httpResponse.statusCode,
+                knownErrorCode: httpResponse.hexclaveHeader("known-error"),
+                body: data
+            ) {
                 return .definitivelyRejected
             }
             if httpResponse.statusCode == 429 {
