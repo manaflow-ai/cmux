@@ -1,0 +1,38 @@
+{
+  "$schema": "../../../schemas/oracle/refactor-switches.schema.json",
+  "name": "motion-on",
+  "owner": "Performance Lead",
+  "plan": "plans/cmux-next/chrome-parity/p15-oracle.md#b-settle-and-waits",
+  "read": "launch",
+  "config_key": "ui.animations.enabled",
+  "config_arms": {"old": false, "new": true},
+  "readback": "/facets/settings/motion/enabled",
+  "default": "old",
+  "planned": "old",
+  "created": "2026-10-26",
+  "expires": "2026-11-09",
+  "suites": ["actions", "journeys"],
+  "expected_differences": [
+    {
+      "pointer": "/facets/settings/motion/enabled",
+      "reason": "the arm under test (readback): each arm's receipt switch_readback, read from this value, proves it ran its own arm",
+      "task": "p15-oracle-233"
+    },
+    {
+      "pointer": "/facets/settings/effectiveSha256",
+      "reason": "the arms write different ui.animations.enabled values into the launch config, so the effective config hash differs",
+      "task": "p15-oracle-233"
+    },
+    {
+      "pointer": "/facets/settings/nonDefaultKeys",
+      "reason": "ui.animations.enabled defaults to true: it is a non-default key on the motion-off arm only",
+      "task": "p15-oracle-233"
+    },
+    {
+      "pointer": "",
+      "checkpoint": "turn",
+      "reason": "spec 3B compares the motion arms at settled checkpoints only: a turn checkpoint of the motion-on arm can land while an animation runs",
+      "task": "p15-oracle-233"
+    }
+  ]
+}
