@@ -137,6 +137,14 @@ class Cascade(unittest.TestCase):
 
 
 class Place(unittest.TestCase):
+    def test_bot_rerun_can_place_after_a_refusal_but_a_person_rerun_stays_owned(self):
+        result = cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR=BOT), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertTrue(result.jobs[LARGE] or result.jobs[SMALL])
+        person = cascade.place(env(GITHUB_RUN_ATTEMPT="2", GITHUB_TRIGGERING_ACTOR="teamleaderleo"), (),
+                               {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(person.why, "a person re-run keeps its own route")
+
     def test_jobs_an_idle_mini_took_and_gui_jobs_stay_off_blacksmith(self):
         result = cascade.place(env(), ("fast-tier",), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("swift-canary", "cmux-scheme-compile")}))
