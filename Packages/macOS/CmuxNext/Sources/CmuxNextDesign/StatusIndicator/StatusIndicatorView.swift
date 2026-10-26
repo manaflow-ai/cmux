@@ -76,7 +76,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public var showsGlyph: Bool { indicator.plan.glyph != .none }
 
     /// The broadcast comes on a changed config only; ``refresh()`` repaints when this indicator's own
-    /// config changed (a scale it ignores did not) and tells the host when the mark shows or hides.
+    /// config changed (a scale it ignores did not) and tells the host when the mark shows, hides or
+    /// changes shape.
     public func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         refresh()
     }
@@ -120,18 +121,28 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// for no layout and no paint (the layer starts or stops its loop itself).
     private func refresh() {
         let config = currentConfig
-        let showed = showsGlyph
         let drawnPlan = indicator.plan, drawnConfig = indicator.config
         nameState()
         // Shown or hidden before the plan applies, so AppKit's unhide reaches ``visibilityNode`` and the
         // loop starts in this pass (whether a glyph shows does not depend on the loop).
         isHidden = plan(config, animates: false).glyph == .none
         applyPlan(config)
-        // The host reserves trailing space only for a visible glyph: it lays out when that flips.
-        if showed != showsGlyph { superview?.needsLayout = true }
+        // The host lays out around the mark: its trailing space shows only for a visible glyph, and a
+        // corner badge sizes its ring to the glyph's kind (RowBadgeView: the Codex set's dot). A
+        // progress step keeps the shape, so it lays the host out no more.
+        if !Self.sameShape(indicator.plan.glyph, drawnPlan.glyph) { superview?.needsLayout = true }
         guard indicator.plan != drawnPlan || indicator.config != drawnConfig else { return }
         // invalidate: another plan or config (the guard above): the mark's geometry and colors.
         needsLayout = true; needsDisplay = true
+    }
+
+    /// Whether two glyphs take the same room: the same kind (none is a kind: no room), whatever ring
+    /// progress each shows.
+    private static func sameShape(_ lhs: StatusIndicatorPlan.Glyph, _ rhs: StatusIndicatorPlan.Glyph) -> Bool {
+        switch (lhs, rhs) {
+        case (.ring, .ring): true
+        default: lhs == rhs
+        }
     }
 
     /// Applies the plan with its loop only while ``visibilityNode`` is visible: a hidden indicator
