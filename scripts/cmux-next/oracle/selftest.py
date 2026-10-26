@@ -93,8 +93,7 @@ def _real_schema_errors() -> FrozenSet[str]:
                 "agents/items/properties/updated_at_ms", "frontend_projections/items/properties/projection_revision",
                 "cursor/properties/revision")
     kind_lists = (f"{daemon}/tabs/items/properties/content_id",
-                  "/properties/facets/properties/overlays/oneOf/0/properties/hoverCard/properties/target",
-                  "/properties/facets/properties/intents/oneOf/0/properties/pending/items/properties/target")
+                  "/properties/facets/properties/overlays/oneOf/0/properties/hoverCard/properties/target")
     decimal_times = ("terminals/items/properties/exit/properties/exited_at",
                      "notifications/items/properties/created_at_ms", "agents/items/properties/updated_at_ms")
     return frozenset((
@@ -112,7 +111,7 @@ KNOWN_RED: Dict[str, KnownRed] = {
         "p15-oracle-011), so no real snapshot canonicalizes. It does not implement three things that "
         "schemas/oracle/README.md specifies: (1) the keywords x-oracle-open-keys and x-oracle-id-unpatterned "
         "(schema root) and x-oracle-decimal (9 fields) are refused as unknown; (2) a list x-oracle-id-kind "
-        "(tabs[].content_id, hoverCard.target, intents.pending[].target) fails the one-kind-name rule; (3) "
+        "(tabs[].content_id, hoverCard.target) fails the one-kind-name rule; (3) "
         "x-oracle-time on the decimal strings exit.exited_at, notifications[].created_at_ms and "
         "agents[].updated_at_ms fails 'x-oracle-time marks a number', but README normalization step 1 parses "
         "x-oracle-decimal strings to integers before step 4 changes times. All three are normalize.py's; the "

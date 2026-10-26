@@ -101,6 +101,12 @@ class LinuxRunCase(unittest.TestCase):
         cls.mutant = cls.write_mutant(mutants / "daemon" / "index-off-by-one.patch", "    i\n", "    i + 1\n")
         cls.stale_mutant = cls.write_mutant(mutants / "daemon" / "stale-context.patch", "    i\n", "    i - 1\n",
                                             context="    j\n")
+        # patch_mutants.parse takes `Key:value` with no space after the colon; the receipt must record it too.
+        cls.tight_mutant = mutants / "daemon" / "tight-header.patch"
+        cls.tight_mutant.write_text(cls.mutant.read_text()
+                                    .replace("Mutant: daemon/index-off-by-one", "Mutant:daemon/tight-header")
+                                    .replace("Fault: off by one.", "Fault:off by one.")
+                                    .replace("i + 1", "i + 2"))
         cls.app_mutant = mutants / "app" / "index-off-by-one.patch"
         cls.app_mutant.parent.mkdir(parents=True)
         cls.app_mutant.write_text(cls.mutant.read_text().replace("daemon/", "app/"))
@@ -324,6 +330,15 @@ class MutantTests(LinuxRunCase):
         self.assertEqual(Path(self.receipt(clean)["targetDir"]).name, f"{self.base_sha}-oracle-feat-oracle")
         lib = self.repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
         self.assertNotIn("i + 1", lib.read_text(), "the submitter's checkout stays clean")
+
+    def test_the_receipt_records_the_header_as_the_validator_parses_it(self) -> None:
+        result = self.linux_run("build", self.base_sha, "--mutant", str(self.tight_mutant))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        mutant = self.receipt(result)["mutant"]
+        self.assertEqual(mutant["id"], "daemon/tight-header")
+        self.assertEqual(mutant["fault"], "off by one.")
+        self.assertEqual(mutant["exercises"], "index")
+        self.assertEqual(mutant["files"], ["cmux-tui/crates/core/src/lib.rs"])
 
     def test_a_mutant_that_does_not_apply_fails_its_build(self) -> None:
         result = self.linux_run("build", self.base_sha, "--mutant", str(self.stale_mutant))

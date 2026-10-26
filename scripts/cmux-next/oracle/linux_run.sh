@@ -159,8 +159,11 @@ job_build() {
   "${update[@]}" ghostty-next >&2
   [[ "$(git -C "$JOB_WT/ghostty-next" rev-parse HEAD)" == "$gitlink" ]] || die "ghostty-next is not at its gitlink $gitlink"
   # The seeded fault goes into this job's worktree only; the copy in the job output is what was built.
-  local mutant_copy=""
+  # The receipt stores patch_mutants.py's own parse of the header, so validation and the record cannot disagree.
+  local mutant_copy="" mutant_json=""
   if [[ "$mutant" != - ]]; then
+    mutant_json="$(python3 -I "$HERE/patch_mutants.py" validate "$mutant" --product daemon --json)" \
+      || die "mutant $mutant is no longer a valid daemon mutant"
     mutant_copy="$RUNNERD_OUT/mutant.patch"
     cp "$mutant" "$mutant_copy"
     git -C "$JOB_WT" apply --check "$mutant_copy" >&2 || die "mutant $(basename "$mutant") does not apply at $sha"
@@ -198,10 +201,10 @@ job_build() {
   git -C "$JOB_WT" ls-tree -r HEAD | awk '$2 == "commit" { print $4 "\t" $3 }' > "$RUNNERD_OUT/gitlinks.tsv"
   python3 -I - "$RUNNERD_OUT/build.json" "$sha" "$gitlink" "$profile" "$features" "$target" "$state" \
     "$build_ms" "$leaf_ms" "$binary" "$RUNNERD_OUT/gitlinks.tsv" "$(cd "$JOB_WT/cmux-tui" && rustc --version)" \
-    "$mutant_copy" <<'PY'
+    "$mutant_copy" "$mutant_json" <<'PY'
 import hashlib, json, os, platform, sys
 (out, sha, gitlink, profile, features, target_dir, state, build_ms, leaf_ms, binary, gitlinks,
- rustc, mutant) = sys.argv[1:]
+ rustc, mutant, mutant_json) = sys.argv[1:]
 def sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -210,9 +213,9 @@ def sha256(path):
     return digest.hexdigest()
 mutant_record = None
 if mutant:
-    with open(mutant, encoding="utf-8") as handle:
-        header = dict(line.split(": ", 1) for line in handle.read().partition("\n\n")[0].splitlines())
-    mutant_record = {"id": header["Mutant"], "suite": header["Suite"], "patch": mutant, "sha256": sha256(mutant)}
+    parsed = json.loads(mutant_json)
+    mutant_record = {key: parsed[key] for key in ("id", "suite", "exercises", "fault", "files")}
+    mutant_record.update(patch=mutant, sha256=sha256(mutant))
 with open(gitlinks, encoding="utf-8") as handle:
     links = dict(line.rstrip("\n").split("\t") for line in handle if line.strip())
 receipt = {

@@ -12,7 +12,9 @@ Stdlib only, Python 3.9+, safe under `python3 -I`:
 
     patch_mutants.py list [--product P] [--json]
     patch_mutants.py check [--ref REF] [--root DIR]     every patch is well formed and applies at REF (default HEAD)
-    patch_mutants.py validate PATCH [--product P]       one patch's header and scope; prints product/name
+    patch_mutants.py validate PATCH [--product P] [--json]
+                                                        one patch's header and scope; prints product/name (or
+                                                        its parsed record, the one receipts store)
 
 Patch format: `Key: value` header lines, a blank line, then `git diff` output. `git apply` skips the header.
 
@@ -271,6 +273,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     validating = sub.add_parser("validate", help="one patch's header and scope; prints product/name")
     validating.add_argument("patch", type=Path)
     validating.add_argument("--product", choices=PRODUCTS, help="the product the build is for")
+    validating.add_argument("--json", action="store_true", help="print the parsed record instead of the id")
     args = parser.parse_args(argv)
     try:
         if args.command == "list":
@@ -302,7 +305,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"error: {error}", file=sys.stderr)
         if mutant is None or errors:
             return 1
-        print(mutant.id)
+        print(json.dumps(mutant.record(), sort_keys=True) if args.json else mutant.id)
         return 0
     except UsageError as error:
         print(f"patch_mutants: {error}", file=sys.stderr)
