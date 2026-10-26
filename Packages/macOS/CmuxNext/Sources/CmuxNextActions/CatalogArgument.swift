@@ -130,6 +130,14 @@ nonisolated enum CatalogArgument {
                        isRequired: false)
     }
 
+    /// `cloud new-terminal-on-machine --workspace <id>`: a workspace on the Cloud machine's own
+    /// daemon (the `workspace_id` an earlier run answered). Plain text: `.target(.workspace)`
+    /// resolves this Mac's workspaces, not a Cloud machine's.
+    static var cloudWorkspaceString: ActionArgument {
+        ActionArgument(name: "workspace", title: String(localized: "argument.workspace", defaultValue: "Workspace", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var contentsString: ActionArgument {
         ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
     }
@@ -156,6 +164,31 @@ nonisolated enum CatalogArgument {
 
     static var sizeChoice: ActionArgument {
         ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .enumeration([choice("small"), choice("medium"), choice("large"), choice("xlarge")]))
+    }
+
+    /// `cloud new-machine --size small|medium|large|xlarge`: plain text, not a choice, so New Cloud
+    /// Machine stays one menu item and one palette row (a choice argument becomes a submenu).
+    static var newMachineSizeString: ActionArgument {
+        ActionArgument(name: "size", title: String(localized: "argument.size", defaultValue: "Size", bundle: .module), kind: .string, isRequired: false)
+    }
+
+    /// `cloud new-machine --persistent`: the new machine's idle auto-pause is Off from its create.
+    static var persistentBool: ActionArgument {
+        ActionArgument(name: "persistent", title: String(localized: "argument.persistent", defaultValue: "Persistent", bundle: .module),
+                       kind: .bool, isRequired: false)
+    }
+
+    /// `cloud new-machine --bootstrap none|lane` (with `--bootstrap-script FILE`): the setup the
+    /// new machine runs; `lane` also gives it its lane host name (leo-workspace machines/lane-vms.md).
+    static var bootstrapString: ActionArgument {
+        ActionArgument(name: "bootstrap", title: String(localized: "argument.bootstrap", defaultValue: "Bootstrap", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
+    /// The bootstrap script file on this Mac (the CLI makes a relative path absolute).
+    static var bootstrapScriptString: ActionArgument {
+        ActionArgument(name: "bootstrapScript", title: String(localized: "argument.bootstrapScript", defaultValue: "Bootstrap Script", bundle: .module),
+                       kind: .string, isRequired: false)
     }
 
     /// The idle auto-pause choice (`cloudSetIdlePause`): Off, or the minutes

@@ -56,8 +56,8 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        dir.display()
+        "{}",
+        writable_refusal(dir, metadata.mode(), "700")
     );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
@@ -77,6 +77,24 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         dir.display()
     );
     Ok(())
+}
+
+/// Why a state path another account may write is refused, and the exact
+/// `chmod` (to `owner_only`, 700 or 600) that fixes it. Such a path is never
+/// narrowed here: another account may have changed what is in it, and it came
+/// from elsewhere (a `mkdir` or a shell redirect under umask 002), since acpmux
+/// makes its own state owner-only whatever the umask.
+#[cfg(unix)]
+fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
+    let text = path.display().to_string();
+    let plain = !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b));
+    let word = if plain { text } else { format!("'{}'", text.replace('\'', r"'\''")) };
+    format!(
+        "{} is writable by another user (mode {:o}): check that nothing in it was changed, then make it owner-only with `chmod {owner_only} {word}`",
+        path.display(),
+        mode & 0o777
+    )
 }
 
 /// Every namespace owner above an acpmux state directory must be this user
@@ -157,8 +175,8 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        path.display()
+        "{}",
+        writable_refusal(path, metadata.mode(), "600")
     );
     refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {
@@ -325,20 +343,63 @@ pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
+    let cwd = std::env::current_dir().ok();
+    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
-        &home(),
+        &home,
         uid,
     ));
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
     let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
     if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
-        return absolute(
-            configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock")),
-        );
+        return absolute(configured.map(PathBuf::from).unwrap_or_else(|| home.join("acpmux.sock")));
     }
     absolute(resolved)
+}
+
+/// The configured socket and the home [`socket_path`] derives the socket from.
+#[cfg(unix)]
+fn socket_inputs(
+    configured: Option<&str>,
+    home: &Path,
+    cwd: Option<&Path>,
+) -> (Option<String>, PathBuf) {
+    // Both absolute before the short alias is derived from them: a started daemon gets them
+    // absolute (`daemon/login_placement.rs` `daemon_env`) and must derive the same one.
+    let absolute = |p: &Path| match cwd {
+        Some(cwd) if p.is_relative() => cwd.join(p),
+        _ => p.to_path_buf(),
+    };
+    let configured = configured.map(|c| absolute(Path::new(c)).to_string_lossy().into_owned());
+    (configured, absolute(home))
+}
+
+#[cfg(all(test, unix))]
+mod socket_input_tests {
+    use super::*;
+
+    /// A daemon a command starts is handed its home and socket absolute
+    /// (`daemon/login_placement.rs` `daemon_env`): from relative ones, the command must derive
+    /// the same socket, short alias included, or it waits on one the daemon never binds.
+    #[test]
+    fn a_long_relative_home_or_socket_uses_the_same_socket_alias() {
+        let cwd = Path::new("/work/a-folder-long-enough-that-its-socket-needs-a-short-alias");
+        let long = "x".repeat(80);
+        let alias = |configured: Option<&str>, home: &Path, cwd: &Path| {
+            let (configured, home) = socket_inputs(configured, home, Some(cwd));
+            cmux_agent_pane_policy::environment::socket_path(configured.as_deref(), &home, 501)
+        };
+        let elsewhere = Path::new("/elsewhere");
+        assert_eq!(alias(None, Path::new(&long), cwd), alias(None, &cwd.join(&long), elsewhere));
+        let sock = format!("{long}/a.sock");
+        let abs_sock = cwd.join(&sock).to_string_lossy().into_owned();
+        assert_eq!(
+            alias(Some(&sock), Path::new("/h"), cwd),
+            alias(Some(&abs_sock), Path::new("/h"), elsewhere)
+        );
+    }
 }
 
 /// A relative `ACPMUX_SOCKET` against this process's folder: the daemon
@@ -767,24 +828,14 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
-    /// `defaultPermissionMode`: the permission mode a new chat starts in when
-    /// the person has not picked one for its harness (`hub/start_mode.rs`):
-    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
-    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
-    /// the cmux app, and for hermetic tests.
+    /// `defaultPermissionMode`: the permission mode a new chat starts in
+    /// (`hub/start_mode.rs`): `fullAccess`, `standard` or `ask`. Absent: the
+    /// cmux setting `agents.defaultPermissionMode`, else `fullAccess`. For
+    /// acpmux without the cmux app, and for hermetic tests. A
+    /// `lastPermissionMode` an older build wrote beside it is ignored and
+    /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`, `lastPermissionModeChange`: the level of the latest mode pick
-    /// from the app pane, and how many changes to the cmux setting acpmux had counted then,
-    /// in which count (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode_change: Option<PermissionModeChange>,
-    /// `lastPermissionModeSetting`: an older build's record beside a pick (the setting's value
-    /// then). Read once to upgrade the pick (`Hub::start_level`), never written.
-    #[serde(default, skip_serializing)]
-    pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -804,6 +855,10 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// Free bytes on acpmux's disk under which `daemon status` says `disk.low`
+    /// (`recovery.rs`; 1 GiB when unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_low_bytes: Option<u64>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -827,7 +882,7 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
@@ -1227,17 +1282,6 @@ impl Config {
     }
 }
 
-/// `lastPermissionModeChange`: where acpmux's count of changes to the cmux
-/// setting `agents.defaultPermissionMode` stood at a mode pick
-/// (`hub/start_mode_state.rs`). `epoch` names the count: a count started
-/// again (its state file lost) has another, so an older pick never matches it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PermissionModeChange {
-    pub epoch: String,
-    pub changes: u64,
-}
-
 fn is_default_kind(k: &HarnessKind) -> bool {
     *k == HarnessKind::Acp
 }
@@ -1246,6 +1290,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = write_then_rename(&tmp, path, bytes);
+    // A failed write (a full disk) leaves no partial temporary file to hold
+    // the space it ran out of; every retry uses a new name.
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
+fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
     #[cfg(unix)]
     {
@@ -1257,7 +1311,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .truncate(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
+            .open(tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         // On disk before the rename: a power loss never leaves an empty
@@ -1269,10 +1323,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     {
         use std::io::Write;
         // A file a crashed process left under a reused pid is stale.
-        let mut f = match crate::owner_only::create_new(&tmp) {
+        let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
-                crate::owner_only::create_new(&tmp)
+                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(tmp)
             }
             other => other,
         }
@@ -1280,7 +1334,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
-    std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    std::fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     // The rename itself is durable once its directory is synced.
     #[cfg(unix)]
     if let Some(dir) = path.parent()

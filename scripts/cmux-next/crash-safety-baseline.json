@@ -38,7 +38,7 @@
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
-   "cmux-tui-core": 1150,
+   "cmux-tui-core": 1149,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,
@@ -110,7 +110,7 @@
  "waived": {
   "rust": {
    "exit": {
-    "acpmux": 1,
+    "acpmux": 4,
     "cmux-browser-host": 4,
     "cmux-tui-core": 3
    },

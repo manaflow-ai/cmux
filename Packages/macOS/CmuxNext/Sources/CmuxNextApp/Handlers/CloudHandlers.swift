@@ -18,10 +18,12 @@ enum CloudHandlers {
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
+        bindBrowserActions(into: registry, context: context, reason: signedInReason)
         CloudGitHubHandlers.bind(into: registry, context: context, reason: signedInReason)
         bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindDomainActions(into: registry, context: context, reason: signedInReason)
         bindListActions(into: registry, context: context)
+        CloudStartSession.bind(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         bindMove(into: registry, context: context)
@@ -54,7 +56,7 @@ enum CloudHandlers {
             // resource id `cmux machine list` prints for a connected one.
             guard let session = machines.session(target.id)
                 ?? machines.cloud.first(where: { $0.daemon.identity?.machineResourceID?.rawValue == target.id }) else {
-                throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description))
+                throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id))
             }
             return session
         }
@@ -107,7 +109,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(error)")
+                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
             }
         }
         context.services.registry.track(task)
@@ -165,18 +167,14 @@ enum CloudHandlers {
         return id
     }
 
-    /// The existing workspace and pane where a Cloud terminal should land.
-    /// Keep the durable workspace key on the spawn request so terminals stay
-    /// attached to the machine after daemon handle ids are recycled.
     /// Open Desktop (`cloud open-desktop`): the machine's desktop, as cmux Classic shows it, in a
     /// Chromium tab of a new workspace on this Mac at a URL that names the machine
     /// (``RemoteLocalhostService/cloudDesktopURL(machine:)``). Remote localhost routes that page
     /// by its URL through the peer-checked proxy and this Mac's own WireGuard tunnel to the
     /// machine's noVNC (6901 on its loopback), with no TCP port opened on this Mac.
     /// `viewer`: `web` (the default) shows the machine's noVNC page in a Chromium tab; `rd`
-    /// shows the remote view pane on the machine's `cmux-rd` host (H.264 over the daemon link);
-    /// `native`
-    /// shows the remote view pane, the app's own VNC client over the same Cloud tunnel. The pane
+    /// shows the remote view pane on the machine's `cmux-rd` host (H.264 over the Cloud tunnel);
+    /// `native` shows the remote view pane, the app's own VNC client over the same tunnel. The pane
     /// viewers connect at once for a person and ask first for an agent or the CLI; the web viewer
     /// opens for any local caller (who can already run `cloud exec` on the machine).
     @MainActor static func openDesktop(_ session: CloudMachineSession, _ context: AppActionContext, viewer: String? = nil) throws {
@@ -234,8 +232,14 @@ enum CloudHandlers {
     static let desktopRdStart = "bash /home/cmux/.cache/cmux-rd/start-rd.sh"
     static let desktopRdTokenPath = "/home/cmux/.cache/cmux-rd/token"
 
-    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
+    /// The existing workspace and pane where a Cloud terminal should land.
+    /// Keep the durable workspace key on the spawn request so terminals stay
+    /// attached to the machine after daemon handle ids are recycled.
+    /// `proceed` runs right before each workspace this creates: its throw creates nothing.
+    @MainActor static func terminalAnchor(on session: CloudMachineSession, _ context: AppActionContext,
+                                          proceed: () throws -> Void = {}) async throws -> (id: String, key: WorkspaceKey, pane: PaneModel) {
         let hadWorkspace = !session.daemon.store.workspaces.isEmpty
+        if !hadWorkspace { try proceed() }
         let id = try await firstWorkspace(on: session, context)
         if let anchor = anchor(id: id, on: session) { return anchor }
         if let anchor = await mirroredAnchor(id: id, on: session) { return anchor }
@@ -243,6 +247,7 @@ enum CloudHandlers {
         // store was empty. Do not issue a second create if that mirror is
         // unexpectedly late.
         guard hadWorkspace else { throw ActionFailure(message: CloudStrings.notConnected) }
+        try proceed()
         guard let created = await context.services.windows.createWorkspace(on: session.daemon) else {
             throw ActionFailure(message: CloudStrings.notConnected)
         }
@@ -252,7 +257,7 @@ enum CloudHandlers {
         return anchor
     }
 
-    @MainActor private static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+    @MainActor static func mirroredAnchor(id: String, on session: CloudMachineSession) async -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
             group.addTask { await waitForAnchor(id: id, on: session) }
@@ -267,7 +272,7 @@ enum CloudHandlers {
         return mirrored ? anchor(id: id, on: session) : nil
     }
 
-    @MainActor private static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
+    @MainActor static func anchor(id: String, on session: CloudMachineSession) -> (id: String, key: WorkspaceKey, pane: PaneModel)? {
         guard let workspace = session.daemon.store.workspaces.first(where: { $0.id == id }),
               let key = workspace.key,
               let pane = workspace.screens.first?.panes.first else { return nil }

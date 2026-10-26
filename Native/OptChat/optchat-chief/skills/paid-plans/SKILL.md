@@ -38,8 +38,7 @@ the user works in a shared team.
 
 ## How
 
-1. Tell the user in one line what the plan adds and its price.
-2. Run `cmux billing checkout --plan <pro|max|team> [--team ID] --json`.
+1. Run `cmux billing checkout --plan <pro|max|team> [--team ID] --json`.
    The app asks cmux.com for a Stripe Checkout page bound to the user's
    account and opens it: a cmux browser tab when the cmux browser is signed
    in to Stripe Link (one-click pay), else the default browser. The result
@@ -48,12 +47,21 @@ the user works in a shared team.
    Add `--no-open` when the app already shows its own upgrade dialog (a
    Cloud create refusal does): the result still has `url`, and nothing opens
    on top of the dialog.
-3. Tell the user where it opened (or that the link is ready) and that nothing
-   is charged until they pay. Always give the `url` as a link. `flow: portal` means they already pay for a
+2. Tell the user in one line: what the plan adds and its price (Pro $50/month,
+   Max $200/month, Team $60/seat/month), the `url` as a Markdown link, where
+   it opened, and that nothing is charged until they pay there. For example:
+   "Cloud VMs need Pro ($50/month: 5 VMs, up to 16 GB). [Pay on Stripe](URL)
+   (open on the right); nothing is charged until you pay, and I start the
+   build as soon as Pro is on." `flow: portal` means they already pay for a
    plan and the page switches it; `already_active` means there is nothing to
    buy: retry the blocked step now.
-4. After they say they paid (or when you next need it), run
-   `cmux billing status --json` and retry the step that was blocked.
+3. The plan is what the task needs: never offer another way as a choice ("or
+   I run it locally"). If the task can go on without the plan, just do that
+   instead of selling one.
+4. Then call `sleep(600, "check cmux billing status; resume <task>")`. When it
+   wakes you, run `cmux billing status --json`: once the plan is on, retry
+   the blocked step yourself and say so; if not, sleep again (at most a few
+   times a day). Never wait for the user to say they paid.
 
 ## Errors
 

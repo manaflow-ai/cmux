@@ -26,7 +26,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.toggleWorkspacePin", "workspace.toggleArchive", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
         "palette.workspaceColor", "palette.resetWorkspaceColor", "workspace.removeAllColors", "workspaceGroup.clearColor", "reconnectWorkspace", "disconnectWorkspace", "disconnectRemoteTab",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.newSubgroup", "workspaceGroup.rename",
-        "workspaceGroup.togglePin", "workspaceGroup.toggleArchive", "workspaceGroup.markRead", "workspaceGroup.markUnread",
+        "workspaceGroup.togglePin", "workspaceGroup.toggleArchive", "workspace.archiveIdle", "workspace.restoreArchived", "workspaceGroup.setAutoArchive", "workspaceGroup.markRead", "workspaceGroup.markUnread",
         "workspaceGroup.clearNotifications", "workspaceGroup.ungroup", "workspaceGroup.delete", "saveLayoutTemplate",
         "palette.layout.open", "workspace.newAbove", "workspace.newBelow", "workspace.newAtTop",
         "workspace.newAtBottom", "workspace.newLikeThis", "workspace.newInNewGroup", "workspace.newOnMachine",

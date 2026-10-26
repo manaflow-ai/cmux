@@ -67,7 +67,11 @@ on:
         required: false
         default: ""
       parts:
-        description: "Comma-separated GUI parts (transcript-scroll,sidebar,startup); manual Blacksmith mode only"
+        description: "GUI parts (transcript-scroll,sidebar,startup) or pane-overflow-fade; manual Blacksmith mode only"
+        required: false
+        default: ""
+      product_sha:
+        description: "Exact landed product SHA for pane-overflow-fade (default tip_sha)"
         required: false
         default: ""
       runner_class:
@@ -111,10 +115,17 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      - name: Set up Bun for the native fade proof
+        if: inputs.parts == 'pane-overflow-fade'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
       - name: Run the exact tip's GUI parts
         env:
           TIP_SHA: ${{ inputs.tip_sha }}
           PARTS: ${{ inputs.parts }}
+          PRODUCT_SHA: ${{ inputs.product_sha }}
           RUNNER_CLASS: ${{ inputs.runner_class == 'blacksmith-6vcpu-macos-26' && 'blacksmith-6vcpu-macos-26' || inputs.runner_class == 'blacksmith-12vcpu-macos-26' && 'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}
           CI_SHARED_CACHE_DIR: ${{ runner.temp }}/tipguard-cache
         run: |
@@ -128,6 +139,30 @@ jobs:
           branch_tip="$(git rev-parse FETCH_HEAD)"
           git merge-base --is-ancestor "$actual" "$branch_tip" || { echo "requested SHA is not an ancestor of feat-cmux-next" >&2; exit 2; }
           started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          if [ "$PARTS" = pane-overflow-fade ]; then
+            product="${PRODUCT_SHA:-$TIP_SHA}"
+            [[ "$product" =~ ^[0-9a-f]{40}$ ]] || { echo "product_sha must be a full commit SHA" >&2; exit 2; }
+            # This fixed script records its own source fences and the product's
+            # actual parent; neither a fleet reservation nor a full app build is used.
+            bash scripts/measure/pane-overflow-fade.sh "$product" >"$out/pane-fade.log" 2>&1 || {
+              cat "$out/pane-fade.log"
+              if [ -f artifacts/pane-overflow-fade.tar.gz ]; then
+                cp artifacts/pane-overflow-fade.tar.gz "$out/"
+              fi
+              exit 1
+            }
+            cat "$out/pane-fade.log"
+            cp artifacts/pane-overflow-fade.tar.gz "$out/"
+            python3 - "$out" "$actual" "$product" "$RUNNER_CLASS" "$started" <<'PY2'
+          import json, pathlib, sys
+          out, script, product, runner, started = sys.argv[1:]
+          pathlib.Path(out, "receipt.json").write_text(json.dumps({
+              "script_sha": script, "product_sha": product, "runner_class": runner,
+              "started_at": started, "archive": "pane-overflow-fade.tar.gz"}, indent=2) + "\n")
+          PY2
+            cat "$out/receipt.json" >>"$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           scripts/measure/split-spring.sh --build-only >"$out/build.log" 2>&1
           python3 - "$out" "$actual" "$RUNNER_CLASS" "$started" <<'PY2'
           import json, pathlib, sys
@@ -168,7 +203,7 @@ jobs:
 
       - name: Keep exact receipts and rows
         if: always()
-        uses: actions/upload-artifact@043fb46a1d93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tipguard-blacksmith-${{ inputs.tip_sha }}-${{ github.run_id }}
           path: ${{ runner.temp }}/tipguard-blacksmith
@@ -392,7 +427,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install webview dependencies
         working-directory: webviews
