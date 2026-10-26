@@ -1281,6 +1281,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_rcodesign_sign_bundle_dev.py
 
+      - name: Validate that no Sparkle private key reaches a command line
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_sparkle_private_key_not_on_argv.py
+
       - name: Validate the Linux DEV app tools (archive, plist, Sparkle key, signed-app checks)
         if: ${{ matrix.group == 'release-notary' }}
         run: |

@@ -752,7 +752,10 @@ jobs:
           # The feed key must be the key the app inside this DMG trusts:
           # sparkle_generate_appcast.sh's sign_update fallback would otherwise
           # sign with a key installed tip apps reject.
-          signing_key="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+          signing_key="$(
+            printf '%s' "$SPARKLE_PRIVATE_KEY" |
+              env -u SPARKLE_PRIVATE_KEY swift scripts/derive_sparkle_public_key.swift --stdin
+          )"
           mount="$(mktemp -d "$RUNNER_TEMP/tip-dmg.XXXXXX")"
           hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount" "tip-new/cmux-NEXT-DEV-$TIP_BUILD.dmg"
           app_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$mount/cmux NEXT DEV.app/Contents/Info.plist")"
