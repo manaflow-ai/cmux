@@ -662,8 +662,10 @@ SKIPS = [
 ]
 MASS_DESTROY = r"(?i)(closeAll|closeOther|close.*Others|closeTabsTo|merge|ungroupAll|stashAll|stash.*Others|resetLayout)"
 WINDOW_CLOSERS = r"(?i)^(closeWindow|closeAllWindows|closeOtherWindows|window\.close.*)$"
+# textBoxFocused is a terminal's TextBox composer with the keyboard, not the omnibar: the misc family sets it up
+# (oracle/action_fixtures/misc.py).
 CONTEXT_SETUP = {"terminalFocused": "terminal", "browserFocused": "chromium", "webViewFocused": "chromium",
-                 "omnibarFocused": "omnibar", "textBoxFocused": "omnibar", "agentPaneFocused": "chat", "signedOut": None}
+                 "omnibarFocused": "omnibar", "agentPaneFocused": "chat", "signedOut": None}
 
 # What each checked action does, by exact catalog id (plans/cmux-next/action-surfaces.json). Exact ids, not prefixes:
 # a prefix also caught newWorkspaceGroup (makes a group, not a workspace), nextWorkspaceGroup (no move without groups)
