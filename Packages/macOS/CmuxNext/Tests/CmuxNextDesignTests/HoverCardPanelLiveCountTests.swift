@@ -48,20 +48,24 @@ private nonisolated final class WindowCount: Sendable {
 
 /// Hands the one strong reference to a background task, which drops it there.
 private nonisolated final class PanelBox: Sendable {
-    private struct Slot {
-        var panel: HoverCardPanel?
-        weak var watched: HoverCardPanel?
+    private let lock = Mutex(())
+    // A main-actor init's panel stays in main's region, so a `sending` or Mutex hand-off is refused.
+    // crash-allow: test only; the box holds the only strong reference and reads or drops it under `lock` alone
+    private nonisolated(unsafe) var panel: HoverCardPanel?
+    // crash-allow: test only; read under `lock` alone, after the strong reference is dropped
+    private nonisolated(unsafe) weak var watched: HoverCardPanel?
+
+    /// Takes the panel; the caller keeps no other reference to it.
+    @MainActor init(_ panel: HoverCardPanel) {
+        self.panel = panel
+        watched = panel
     }
-
-    private let slot: Mutex<Slot>
-
-    init(_ panel: sending HoverCardPanel) { slot = Mutex(Slot(panel: panel, watched: panel)) }
 
     /// Drops the strong reference on the calling thread; true when that freed the window there.
     func release() -> Bool {
-        slot.withLock { slot in
-            slot.panel = nil
-            return slot.watched == nil
+        lock.withLock { _ in
+            unsafe panel = nil
+            return unsafe watched == nil
         }
     }
 }

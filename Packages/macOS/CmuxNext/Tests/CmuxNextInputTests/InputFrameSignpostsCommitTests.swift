@@ -27,7 +27,7 @@ struct InputFrameSignpostsCommitTests {
         #expect((seen.first ?? 0) >= 80_000, "from the key-down: its 80 ms in the queue counts")
 
         signposts.committedKey = nil
-        signposts.begin(InputLatencyToken(rawValue: 2), .key, target: .view, eventTimestamp: 100)
+        signposts.begin(InputLatencyToken(rawValue: 2), .key, target: .other, eventTimestamp: 100)
         keyFrames.runLoopReached(.beforeWaiting)
         #expect(seen.count == 1, "cleared after the first key: nothing gets the second")
         #expect(made == 1)
