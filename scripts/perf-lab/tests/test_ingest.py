@@ -276,6 +276,16 @@ class IngestTests(StoreCase):
         self.assertEqual(report.added_runs, 1)
         self.assertEqual(self.db.series_points(self.key()), [])
 
+    def test_runs_link_to_the_lab_job_that_produced_them(self):
+        job_id = self.db._db.execute(
+            "INSERT INTO jobs (kind, state, created_at, updated_at) VALUES ('bisect', 'running', 'now', 'now')").lastrowid
+        pr.write_ndjson(self.results, [result(run_id="run1"), result(run_id="run2", started="2026-10-25T12:00:01Z")])
+        report = self.ingest(kind="bisect", job_id=job_id)
+        self.assertEqual(report.added_runs, 2)
+        linked = self.db._db.execute("SELECT kind, job_id FROM runs ORDER BY id").fetchall()
+        self.assertEqual([tuple(row) for row in linked], [("bisect", job_id), ("bisect", job_id)])
+        self.assertEqual(self.ingest(kind="bisect", job_id=job_id).unchanged_runs, 2)  # a replay adds nothing
+
     def test_missing_path_is_rejected(self):
         report = self.ingest(self.root / "nope")
         self.assertEqual(report.rejected[0].reason, "no such file or folder")
