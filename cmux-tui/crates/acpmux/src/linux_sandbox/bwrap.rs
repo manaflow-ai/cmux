@@ -910,7 +910,6 @@ mod tests {
         fs::write(&secret, "secret").unwrap();
         let snapshot = denied_paths_pinned(&p.home, &[]).unwrap();
         let mut swapped = false;
-        let mut restored = false;
         let result =
             home::rebuild(&p.home, &snapshot.inside, Some(&snapshot), &mut |path, before| {
                 if path == p.home && !before && !swapped {
@@ -918,14 +917,18 @@ mod tests {
                     fs::rename(&secret, &public).unwrap();
                     fs::rename(f.0.join("public-held"), &secret).unwrap();
                     swapped = true;
-                } else if path == public && !before && swapped && !restored {
+                } else if path == public && !before && swapped {
                     fs::rename(&public, f.0.join("public-held")).unwrap();
                     fs::rename(&secret, &public).unwrap();
                     fs::rename(f.0.join("public-held"), &secret).unwrap();
-                    restored = true;
                 }
             });
-        assert!(swapped && restored, "enumeration swap hook was not reached");
+        if swapped {
+            fs::rename(&public, f.0.join("public-held")).unwrap();
+            fs::rename(&secret, &public).unwrap();
+            fs::rename(f.0.join("public-held"), &secret).unwrap();
+        }
+        assert!(swapped, "enumeration swap hook was not reached");
         assert!(result.is_err(), "child identity race was accepted");
     }
 

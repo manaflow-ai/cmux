@@ -252,6 +252,9 @@ pub(super) fn rebuild(
             Err(e) => Err(e),
         }
         .map_err(|e| format!("cannot snapshot {}: {e}", dir.display()))?;
+        children.sort_by(|(left, _), (right, _)| {
+            left.as_os_str().as_bytes().cmp(right.as_os_str().as_bytes())
+        });
         #[cfg(test)]
         hook(dir, false);
         if children.len() > 512 {
