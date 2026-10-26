@@ -8,9 +8,14 @@ import CmuxNextHistory
 /// Vault section). Resolves the list colors in this view's theme scope, again
 /// on every theme change. Row gestures run the `vault*` actions through the
 /// registry with the row's session.
-final class VaultHostView: NSView {
+final class VaultHostView: NSView, VisibilityGatedContent {
     let vault: SessionVault
     private let appearanceState = VaultAppearance()
+    private var gate: VisibilityGatedHostingView?
+
+    /// Its SwiftUI leaves the hierarchy while the vault tab is hidden (``VisibilityGatedHostingView``); the
+    /// right sidebar's section follows no node.
+    var visibilityGate: VisibilityGatedHostingView? { gate }
 
     init(vault: SessionVault, registry: ActionRegistry) {
         self.vault = vault
@@ -23,15 +28,17 @@ final class VaultHostView: NSView {
                 registry?.perform(id, invocation: ActionInvocation(arguments: ["session": .string(session)]))
             },
             select: { [weak vault] id in vault?.selection = id })
-        let hosting = NSHostingView(rootView: VaultListView(vault: vault, appearance: appearanceState, actions: actions))
-        hosting.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(hosting)
+        let appearance = appearanceState
+        let gate = VisibilityGatedHostingView(owner: "VaultHostView") { VaultListView(vault: vault, appearance: appearance, actions: actions) }
+        gate.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(gate)
         NSLayoutConstraint.activate([
-            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
-            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
-            hosting.topAnchor.constraint(equalTo: topAnchor),
-            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+            gate.leadingAnchor.constraint(equalTo: leadingAnchor),
+            gate.trailingAnchor.constraint(equalTo: trailingAnchor),
+            gate.topAnchor.constraint(equalTo: topAnchor),
+            gate.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        self.gate = gate
         setAccessibilityIdentifier("cmux.vault")
     }
 

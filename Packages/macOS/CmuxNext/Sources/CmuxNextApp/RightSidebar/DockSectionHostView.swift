@@ -20,6 +20,7 @@ final class DockSectionHostView: NSView, RightSidebarRefreshing {
             focus: { [weak controller] pane in controller?.focus.send(.focusPane(pane, source: .intent)) },
             undock: { id in registry.perform("column.undock", invocation: ActionInvocation(target: ActionTargetRef(kind: .column, id: id))) },
             dockFocused: { registry.perform("column.dock", invocation: ActionInvocation()) })
+        // hosting-gate: opt-out a right sidebar section, not tab content: it shows while the sidebar does.
         let hosting = NSHostingView(rootView: DockSectionListView(model: model, actions: actions))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)

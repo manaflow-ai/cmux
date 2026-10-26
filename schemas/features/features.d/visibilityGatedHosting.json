@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "visibilityGatedHosting",
+  "owner": "Performance Lead",
+  "description": "A hidden native page tab takes its SwiftUI hosting view out of the window, so its bodies do not run, and puts it back with its focus when the tab shows.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["script-storm", "tab-switch"],
+  "sticky": false,
+  "runtimeMutable": false
+}
