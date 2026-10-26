@@ -180,7 +180,7 @@ import Testing
         let folder = try Self.folder()
         let (release, releasing) = AsyncStream<Void>.makeStream()
         var hidden = false
-        var shown = folder.appendingPathComponent("blue.png")
+        let shown = folder.appendingPathComponent("blue.png")
         let watch = DesktopWallpaperWatch(read: { Self.reading(shown, folder: folder) }, sample: { _ in
             await Task.detached { for await _ in release {} }.value
             return Self.blue
@@ -192,10 +192,8 @@ import Testing
         await watch.settled()
         #expect(watch.tint == nil, "nothing shows: the color waits")
         hidden = false
-        shown = folder.appendingPathComponent("blue.png")
-        watch.tintEnabled = false
-        watch.tintEnabled = true
-        #expect(watch.tint == Self.blue && watch.sampleCount == 1)
+        watch.refresh()
+        #expect(watch.tint == Self.blue && watch.sampleCount == 1, "the same picture's kept color shows on the next read")
     }
 
     /// A picture overwritten at the same path is a new picture: it is sampled again, and the
