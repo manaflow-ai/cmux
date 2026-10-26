@@ -320,60 +320,69 @@ Target <= 3 (cache, windows, keyRouter).
 024 gave Q1-7 its daemon-start reader, so with 020's auth split for Q1-1, Q1 is 3 (cache, keyRouter, windows). Without the auth split Q1-1 stays built before the
 first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
-## 7. Q1b stored initializers (42)
+## 7. Q1b stored initializers (46)
 
 Queue command: `grep -n -E '^    (let|var|private\(set\) (var|let)) [a-zA-Z]+(: [^=]+)? = [A-Z][A-Za-z.]*[(.]' Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppServices.swift`.
-42 hits at `cf1f106ddbe`; the spec's 43 were at `772cdfc45ac`. Since then `inputTap` (p04-input) and
-`energyMonitor` (p14-energy) are made outside `AppServices` and passed by init, so they are no longer stored
-initializers, and `appEvents` (p06-scheduler-021) was added. Line numbers at `cf1f106ddbe`. Mark: `value-only` (the initializer stores values, no I/O, no observer, no
-source), `lazy` (becomes a lazy var built on first use), `posted` (the work in its initializer moves to a
-post). The "Init does" column comes from reading each initializer; 098 checks each and changes the
-`lazy` and `posted` rows.
+46 hits at `5ac4dd1680c` (task 070); 42 at `cf1f106ddbe` (task 015); the spec's 43 at `772cdfc45ac`. Between
+`772cdfc45ac` and `cf1f106ddbe`, `inputTap` (p04-input) and `energyMonitor` (p14-energy) moved out of `AppServices`
+(passed by init) and `appEvents` (p06-scheduler-021) was added. Between `cf1f106ddbe` and `5ac4dd1680c`, 5 left
+the queue: `openPanel` and `terminalTheme` are lazy vars now, and `mobile`, `chromiumRuntime` and `hoverCards` are
+built in `init` (so the queue command no longer matches them). 9 were added: `hiddenLayoutWork`,
+`workspaceEvents`, `motionLateCommits`, `oracleTurns`, `switchHits`, `inputFrameSignposts`, `overlayChanges`,
+`terminalScreenChanges` and `tabSwitch`. Line numbers at `5ac4dd1680c`. Mark: `value-only` (the initializer
+stores values, no I/O, no observer, no source), `lazy` (becomes a lazy var built on first use), `posted` (the
+work in its initializer moves to a post). The "Init does" column comes from reading each initializer; 098
+checks each and changes the `lazy` and `posted` rows. Of the 9 new rows, only `motionLateCommits` is not
+value-only: it adds a main run-loop observer during `AppServices.init`.
 
 | # | Line | Property | Init does | Mark | Owner |
 |---|---|---|---|---|---|
-| B1 | 49 | `themeStore = ThemeScope.app.store` | A reference to the app store. | value-only | - |
-| B2 | 51 | `recoveryDrafts = RecoveryDraftStore(directory:)` | Stores the directory; reads on `load`. | value-only | - |
-| B3 | 78 | `autoNameHold = WorkspaceAutoNameHold()` | Empty. | value-only | - |
-| B4 | 90 | `machineAsks = SidebarAsks()` | Empty. | value-only | - |
-| B5 | 98 | `showcase = ShowcaseState()` | Value. | value-only | - |
-| B6 | 109 | `machineHealth = MachineHealthStore()` | Empty. | value-only | - |
-| B7 | 112 | `appEvents = AppEvents(center: .default)` | Stores the notification center; observers subscribe per name on use. | value-only | - |
-| B8 | 113 | `mobile = MobileHostService(displayName:)` | Stores a closure; the listener starts on `follow`. | value-only | - |
-| B9 | 115 | `iphone = IPhoneHostService()` | Starts a task that follows the supervisor's states. | lazy | 098 |
-| B10 | 122 | `blocking = BlockingDetector.forProcess()` | A handle to the process table. | value-only | - |
-| B11 | 128 | `openPanel = MadeAheadOpenPanel()` | Stores a factory; the panel is made at idle (Q2 69). | value-only | - |
-| B12 | 138 | `chromiumRuntime = ChromiumRuntimeService.make()` | Locates the CEF layout and reads the runtime pin file. | lazy (with 024's engine factory); the pin read becomes a LaunchRead | 098, 024 |
-| B13 | 140 | `browserStores = BrowserSharedStores.application()` | File-backed site settings and zoom levels per profile. | lazy; any read on `.files` | 098 |
-| B14 | 142 | `signInCallbacks = CEFSignInCallbacks()` | Empty. | value-only | - |
-| B15 | 144 | `resizes = ResizeCoordinator()` | Stores a closure; its frame client is lazy. | value-only | - |
-| B16 | 170 | `surfaceInvariant = SurfaceInvariantMonitor()` | A DemandTimer value; the observer starts in S6. | value-only | 031 |
-| B17 | 172 | `input = InputVerificationService()` | Values; observers start in S8. | value-only | 031 |
-| B18 | 181 | `workContext = WorkContextTrail()` | Value. | value-only | - |
-| B19 | 284 | `browserNativeInputs = BrowserNativeInputs()` | Values. | value-only | - |
-| B20 | 286 | `paneTabBars = PaneTabBarChoices()` | One `UserDefaults` array read; every pane build reads it. | value-only (the defaults domain is loaded once per process; 038 if Q5 lists it) | 038 |
-| B21 | 288 | `paneFullWidthTabs = PaneFullWidthTabs()` | One `UserDefaults` array read; every pane build reads it. | value-only (as B19) | 038 |
-| B22 | 290 | `paneMounts = PaneMounts()` | Value. | value-only | - |
-| B23 | 292 | `newTabChoices = NewTabChoiceMemory()` | Stores the defaults; reads on use. | value-only | - |
-| B24 | 294 | `newTabWeather = NewTabWeather()` | A `UserDefaults` data read and a JSON decode. | lazy | 098 |
-| B25 | 296 | `chiefModelRecents = HomeChiefModelRecents(defaults:)` | Stores the defaults. | value-only | - |
-| B26 | 297 | `newTabTypeAhead = NewTabTypeAhead()` | Empty. | value-only | - |
-| B27 | 299 | `homeSwitchKeys = HomeSwitchKeysSource()` | Stores the defaults and a reader. | value-only | - |
-| B28 | 301 | `memoryPressure = MemoryPressureEvents(source:)` | Starts the kernel memory-pressure source. | posted: afterFirstFrame, main (the level reads normal until then; the restored-page loader runs after startup) | 098 |
-| B29 | 331 | `terminalDelegate = TerminalHostDelegate()` | Value. | value-only | - |
-| B30 | 333 | `notifications = NotificationCenterService()` | Values; starts in S10. | value-only | 031 |
-| B31 | 362 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
-| B32 | 364 | `chiefMascotPicks = ChiefMascotPicks(defaults:defaultChief:)` | A `UserDefaults` dictionary read. | lazy | 098 |
-| B33 | 387 | `terminalTheme = TerminalThemeSetting(backdropScope:)` | Stores the scope; `follow` is critical. | value-only | - |
-| B34 | 421 | `linkHints = LinkHintController()` | Values. | value-only | - |
-| B35 | 423 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
-| B36 | 425 | `windowHints = WindowHintController()` | Values. | value-only | - |
-| B37 | 442 | `pages = InternalPageTabStore()` | Values. | value-only | - |
-| B38 | 446 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
-| B39 | 449 | `hoverCards = HoverCardCoordinator()` | A DemandTimer value; observers with the first source. | value-only | - |
-| B40 | 451 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
-| B41 | 461 | `burstTrace = BurstTrace()` | Empty. | value-only | - |
-| B42 | 463 | `vscodeServeWeb = VSCodeServeWebService(...)` | Stores a planner (home directory, environment) and a launcher. | lazy (only the VS Code page uses it; quit calls it only when built) | 098 |
+| B1 | 57 | `themeStore = ThemeScope.app.store` | A reference to the app store. | value-only | - |
+| B2 | 59 | `recoveryDrafts = RecoveryDraftStore(directory:)` | Stores the directory; reads on `load`. | value-only | - |
+| B3 | 91 | `autoNameHold = WorkspaceAutoNameHold()` | Empty. | value-only | - |
+| B4 | 103 | `machineAsks = SidebarAsks()` | Empty. | value-only | - |
+| B5 | 115 | `showcase = ShowcaseState()` | Value. | value-only | - |
+| B6 | 127 | `machineHealth = MachineHealthStore()` | Empty. | value-only | - |
+| B7 | 129 | `hiddenLayoutWork = HiddenLayoutWork()` | Two counters. | value-only | - |
+| B8 | 132 | `appEvents = AppEvents(center: .default)` | Stores the notification center; observers subscribe per name on use. | value-only | - |
+| B9 | 136 | `workspaceEvents = AppEvents(center: NSWorkspace.shared.notificationCenter)` | Stores the workspace notification center; observers subscribe per name on use (as `appEvents`). | value-only | - |
+| B10 | 150 | `iphone = IPhoneHostService()` | Starts a task that follows the supervisor's states. | lazy | 098 |
+| B11 | 155 | `motionLateCommits = MotionLateCommits(displays:)` | The convenience init calls `start()`: adds a `CFRunLoopObserver` (after waiting, before waiting, exit) to the main run loop in common modes, so it runs on every main turn of the launch. | posted: afterFirstFrame, main (it judges commits only while a Motion animation runs; none runs before the first frame) | assigned here (no task yet) |
+| B12 | 161 | `oracleTurns = OracleActionTurns()` | An `OracleTurnRecorder` with a 256-slot ring (one array of 256 empty optionals). | value-only | - |
+| B13 | 164 | `blocking = BlockingDetector.forProcess()` | A handle to the process table. | value-only | - |
+| B14 | 199 | `browserStores = BrowserSharedStores.application()` | File-backed site settings and zoom levels per profile. | lazy; any read on `.files` | 098 |
+| B15 | 201 | `signInCallbacks = CEFSignInCallbacks()` | Empty. | value-only | - |
+| B16 | 203 | `resizes = ResizeCoordinator()` | Stores a closure; its frame client is lazy. | value-only | - |
+| B17 | 221 | `switchHits = SwitchHits(counting:)` | Stores a compile-time flag (`ControlRouter.debugMethodsAllowed`); counters are made on first hit. | value-only | - |
+| B18 | 241 | `surfaceInvariant = SurfaceInvariantMonitor()` | A DemandTimer value; the observer starts in S6. | value-only | 031 |
+| B19 | 243 | `input = InputVerificationService()` | Values; observers start in S8. | value-only | 031 |
+| B20 | 254 | `workContext = WorkContextTrail()` | Value. | value-only | - |
+| B21 | 399 | `browserNativeInputs = BrowserNativeInputs()` | Values. | value-only | - |
+| B22 | 401 | `paneTabBars = PaneTabBarChoices()` | One `UserDefaults` array read; every pane build reads it. | value-only (the defaults domain is loaded once per process; 038 if Q5 lists it) | 038 |
+| B23 | 403 | `paneFullWidthTabs = PaneFullWidthTabs()` | One `UserDefaults` array read; every pane build reads it. | value-only (as `paneTabBars`) | 038 |
+| B24 | 405 | `paneMounts = PaneMounts()` | Value. | value-only | - |
+| B25 | 407 | `newTabChoices = NewTabChoiceMemory()` | Stores the defaults; reads on use. | value-only | - |
+| B26 | 409 | `newTabWeather = NewTabWeather()` | A `UserDefaults` data read and a JSON decode. | lazy | 098 |
+| B27 | 411 | `chiefModelRecents = HomeChiefModelRecents(defaults:)` | Stores the defaults. | value-only | - |
+| B28 | 412 | `newTabTypeAhead = NewTabTypeAhead()` | Empty. | value-only | - |
+| B29 | 414 | `homeSwitchKeys = HomeSwitchKeysSource()` | Stores the defaults and a reader. | value-only | - |
+| B30 | 416 | `memoryPressure = MemoryPressureEvents(source:)` | Starts the kernel memory-pressure source. | posted: afterFirstFrame, main (the level reads normal until then; the restored-page loader runs after startup) | 098 |
+| B31 | 467 | `terminalDelegate = TerminalHostDelegate()` | Value. | value-only | - |
+| B32 | 469 | `notifications = NotificationCenterService()` | Values; starts in S10. | value-only | 031 |
+| B33 | 491 | `inputFrameSignposts = InputFrameSignposts()` | Values and one `reserveCapacity`; the `KeyFrameSignpost` is made at the first key. | value-only | - |
+| B34 | 521 | `chiefPetHomes = ChiefPetHomes()` | Empty. | value-only | - |
+| B35 | 523 | `chiefMascotPicks = ChiefMascotPicks(defaults:defaultChief:)` | A `UserDefaults` dictionary read. | lazy | 098 |
+| B36 | 593 | `linkHints = LinkHintController()` | Values. | value-only | - |
+| B37 | 595 | `reactGrab = ReactGrab(scripts:)` | Stores the loader; loads on use. | value-only | - |
+| B38 | 597 | `windowHints = WindowHintController()` | Values. | value-only | - |
+| B39 | 617 | `pages = InternalPageTabStore()` | Values. | value-only | - |
+| B40 | 621 | `favicons = TabFaviconStore(loader:)` | Stores the loader. | value-only | - |
+| B41 | 626 | `overlayChanges = OverlayChangeFeed()` | A `Mutex` around an empty subscriber table. | value-only | - |
+| B42 | 630 | `terminalScreenChanges = OverlayChangeFeed()` | As `overlayChanges`. | value-only | - |
+| B43 | 636 | `refusalHUD = RefusalHUD()` | Stores the toast center. | value-only | - |
+| B44 | 654 | `burstTrace = BurstTrace()` | Empty. | value-only | - |
+| B45 | 658 | `tabSwitch = TabSwitchSignpost()` | Stores the signposter and a `CommitBoundary` closure. | value-only | - |
+| B46 | 660 | `vscodeServeWeb = VSCodeServeWebService(...)` | Stores a planner (home directory, environment) and a launcher. | lazy (only the VS Code page uses it; quit calls it only when built) | 098 |
 
 ## 8. How to check
 
@@ -669,3 +678,48 @@ the same A/B on a fleet Mac (aarch64-apple-darwin), where the profile is pinned:
 when that A/B meets the target. As for refresh.sh (section 11), `cmux-ci run` takes the script only after the
 controller's ci-step allowlist (cmuxterm-hq) lists `scripts/cmux-next/pgo/rust-pgo.sh`. Result of the first
 fleet run: not run.
+
+## 13. After numbers: the 15 done checks at the tip (070)
+
+Task 070 of [p08-startup.md](chrome-parity/p08-startup.md): one row per done check of its section 5, read at
+`5ac4dd1680c` (origin/perf/chrome-parity, 2026-10-26). The perf-lead.md results log has the same 15 rows.
+
+Verdicts: `PASS` and `FAIL` are checked here, from the tree (static counts, files, switches), on a Linux VM
+with no build. `FAIL (tree)` means that no run at this sha can pass the check, because a probe, a tool or a pin
+that the check reads is not in the tree. `not measured` means that the check needs a run on a fleet GUI mini
+with a `--config bench` app of this sha, and that run was not done.
+
+Why the runs were not done: (1) The baseline of task 069 is not on perf/chrome-parity (no `cp/p08-startup-069`
+branch, no 069 rows in perf-lead.md), so an A/B against the base has no "before" side. (2) Task 070 ran on a
+Linux VM, with no fleet build and no GUI host (the round's one fleet compile belongs to the lead). (3) Checks
+3, 4, 9, 10 and 13 fail on the tree, so a run does not change their verdict. Checks 1, 2, 5, 6, 7, 11, 12, 14
+and 15 have their tools in the tree; one fleet session runs them with the commands below.
+
+| # | Done check | Verdict at `5ac4dd1680c` | Evidence | The run that gives the verdict |
+|---|---|---|---|---|
+| 1 | Warm launch (first frame p50 <= 150 ms, p95 <= 180 ms; `window_display` p50 <= 140 ms; live p50 <= 300 / 450 ms; `startup_complete` p50 <= 800 ms) | not measured | No 069 baseline. The last number on record is from before this program: issue #17587 (perf-lead.md row 18), first frame 217-263 ms, live tree 351-936 ms at 24 workspaces. | `python3 scripts/cmux-next/bench-startup.py --app "$NX_APP" --mode warm --profile realistic --runs 20 --require-optimized --json warm.json` |
+| 2 | Cold launch (first frame p50 <= 300 ms, p95 <= 360 ms; live p50 <= 600 ms; `startup_complete` p50 <= 1500 ms; cold in >= 8 of 10) | not measured | No 069 baseline. The host must allow `sudo -n purge`. | `bench-startup.py ... --mode cold --temperature cold --runs 10 --json cold.json` |
+| 3 | First frame is the picture (`first_commit_layer_tree`, `views_built == 0`, mark order) | FAIL (tree) | `debug.startup` has no `first_commit_layer_tree` field and no `views_built` field: 0 hits for either name in `Packages/`. The order part can be measured: `launch_picture_shown` (CmuxNextLaunch) and `launch.non_paint_services` (bench-startup.py) are marks. | When the two fields are in the tree: `debug.startup` after each warm run of check 1. |
+| 4 | Main thread at launch (`main_cpu_ms_to_first_frame <= 60`, `critical_violations == 0`, allowlist <= 15, no early afterStartup task, never `failsafe`, startup-lint 0) | FAIL (tree) | Allowlist: 14 names in `StartupScheduler.criticalAllowlist` (<= 15, PASS). `critical_violations` is in `debug.startup` (StartupTaskLog.swift). `main_cpu_ms_to_first_frame` is not a field (0 hits; `debug.main_cpu` is a per-frame probe, not a launch total). `scripts/cmux-next/startup-lint.py` (task 104) is not in the tree. | When 104 and the field are in the tree: `debug.startup` after each warm run of check 1, and `python3 scripts/cmux-next/startup-lint.py`. |
+| 5 | No hangs at launch (0 stalls > 250 ms; 0 main turns > 16 ms except the named turns; main turn p99 <= 4 ms) | not measured | - | `debug.hangs` from process start to `startup_complete + 5 s` on the 20 warm runs of check 1 and the 10 cold runs of check 2. |
+| 6 | No blocking at launch (0 sites on main before `startup_complete`; 0 raw calls before the first frame) | not measured | The tools are in the tree: `startup-queue.py blocking` (it refuses a `--config bench` app) and `scripts/measure/blocking-probe.sh --until-mark NAME`. | On a `--config bench-checks` app: `python3 scripts/cmux-next/startup-queue.py blocking --app "$NX_APP" --runs 5`; `nx-remote --needs gui -- scripts/measure/blocking-probe.sh --until-mark first_window_frame_committed`. |
+| 7 | Chromium in STRESS (CEF starts after `startup_complete` with no visible page, and <= first frame + 20 ms with one, reason `visiblePaneLoadedIdle`; no hidden renderer; loader cap; F2 host kill) | not measured | `visiblePaneLoadedIdle` is a reason in the tree. The check names a `RestoredPageLoader`; at this sha there is no type of that name, and the deferral is `TabContentCache.defersRestoredPages`. | 20 STRESS runs of bench-startup.py, each with the `debug.startup` and `debug.cef` reads; the F2 part needs F2 on. |
+| 8 | Static counts (Q1 <= 3; every Q1b initializer marked here; Q3 = 0; startup-lint 0) | FAIL | Q1: 3 (`cache`, `keyRouter`, `windows`), PASS. Q1b: 46 of 46 marked (section 7, refreshed by this task; 41 of 46 before), PASS. Q3: 1 call, `launchSettle.settled(within: .seconds(4), ...)` at `AppDelegate.swift:397`, and 1 timer, `DemandTimer(owner: "LaunchSettle.settled")` at `LaunchSettle.swift:59` (target 0; owners 016 and 018), FAIL. startup-lint.py: not in the tree, FAIL. The script of section 8 stops at its Q2 assertion: the 82 Q2 rows are at `cf1f106ddbe`, and the awk range now gives 41 calls, because the other calls moved into launch lists (for example `HomeService+LaunchList.swift` and the `AppControl.swift` groups). After 014 that check belongs to startup-lint.py. | Static: run the section 6 queue commands again. |
+| 9 | Order file (>= 90 % of order symbols resolved; profdata sha in the header matches; cold A/B pageins -30 %, first frame p50 -10 %) | FAIL (tree) | The Release link uses the order file (`ORDER_FILE` and `LD_GENERATE_MAP_FILE = YES` in the cmux-next Release block, task 051). But `Resources/build/cmux-next.order` has 0 symbol lines and no profdata sha in its header, so coverage is 0 of 0 and no sha can match. The refresh (054, `scripts/cmux-next/pgo/refresh.sh`) has not run. | When a refresh commits the order: `python3 scripts/cmux-next/pgo/check.py --app "$NX_APP" --order Resources/build/cmux-next.order --link-map MAP`, then the cold A/B (purge, 10 runs each, same host) with and without the order. |
+| 10 | PGO (`-profile-use` on every CmuxNext Swift target, `-Cprofile-use` on cmux-tui and cmux-app-ffi; first frame p50 -5 %; no typing or motion p95 regression > 2 %; Nightly only with the switch on) | FAIL (tree) | `Resources/build/cmux-next.pgo.conf` has `use=0`; `Resources/build/cmux-next.profdata.sha256` has no sha line; `cmux-tui/crates/cmux-tui/pgo.txt` and `cmux-tui/crates/cmux-app-ffi/pgo.txt` do not exist. So no Release build gets either flag. The wiring is in the tree (052: `Package.swift` reads `CMUX_PGO_PROFDATA`; 056: `build-app-ffi.sh` calls `rust-pgo.sh rustflags`). The Linux Rust A/B of section 12 showed no gain (the target needs a fleet Mac). | When a profile is pinned: the Release log of `scripts/cmux-next/check-release-compile.sh`, then 20 warm runs plus `bench-typing.py` and `pane-perf-terminal.py`, with `CMUX_NEXT_PGO_USE=1` and with `CMUX_NEXT_PGO_USE=0`. |
+| 11 | Startup tracing (`CMUX_TRACE_STARTUP=5` file loads in Perfetto with app, daemon and CEF tracks; parseable after `kill -9` at 1 s; unset: `trace_ring_bytes == 0`, no CEF switch; `trace.py record --scenario launch-cold`) | not measured | `CMUX_TRACE_STARTUP` is read in the tree (StartupTrace.swift, trace.py); `trace_ring_bytes` is in `DebugTimings.swift`. On Linux, `test_trace_launch` has 1 error at this sha: `test_trace_app_launch_environment` gives `trace.TraceApp` a namespace with no `release` field, and `trace.py` reads that field since `6f8e82441cf` (p09-observability-023). The fault is in the test fixture, not in the tool. | `python3 scripts/cmux-next/trace.py record --scenario launch-cold --app "$NX_APP"` x5, and a `CMUX_TRACE_STARTUP=5` launch killed at 1 s. |
+| 12 | Field (the Nightly opt-in report has `launchFirstFrame` and `launchStartupComplete` by temperature, no interrupted launches, the slow-launch ring only after a forced slow launch; PrivacyLeakScanner; off allocates nothing) | not measured | The histograms and their tests are in the tree (`LaunchHistogramTests` and `MetricKitPayloadFuzzTests` in CmuxNextHangReportsTests). Swift does not build here, so they did not run. | A fleet `swift test` of the CmuxNextHangReportsTests filter, then a NIGHTLY-config app with reports on: 10 launches and one forced slow launch, then read the report. |
+| 13 | Launch correctness matrix (16 cases, macOS 26 and 27, Tart 14 and 15) | FAIL (tree) | Task 071 is not on perf/chrome-parity: `relaunch-e2e.py` and `restore-trace.py` do not have the done-check-13 cases (1 line of relaunch-e2e.py and 0 lines of restore-trace.py match a case name). | When 071 is in the tree: `relaunch-e2e.py` and `restore-trace.py` on aws-m4pro-5 (26) and aws-m4pro-1 (27), and `scripts/cmux-next/os-matrix.sh --build JOB --os 14,15`. |
+| 14 | Idle after launch (3 restored Chromium tabs, from `startup_complete + 5 s` for 30 s: app + daemon <= 1 wakeup/s, main <= 0.5/s; no launch-only timer armed) | not measured | `scripts/cmux-next/bench-idle.sh` and `startup-queue.py arms` (Q13) are in the tree. | bench-idle on a session with 3 restored Chromium tabs, then `startup-queue.py arms`. |
+| 15 | Edge launches (`CMUX_NEXT_NO_ACTIVATE=1` completes with reason `noWindow`, p50 < 1 s; a quit 100 ms after launch runs 0 afterStartup tasks) | not measured | `noWindow` is a completion reason in the tree (CmuxNextWakeups). | 10 launches with `CMUX_NEXT_NO_ACTIVATE=1` and the `debug.startup` read; 10 launches that quit at 100 ms, with the startup task log read. |
+
+Totals at `5ac4dd1680c`: 0 PASS, 6 FAIL (3, 4, 8, 9, 10, 13), 9 not measured (1, 2, 5, 6, 7, 11, 12, 14, 15).
+The program is not done. What blocks it, in order: the 069 baseline at the base sha; the `debug.startup`
+fields of checks 3 and 4; startup-lint.py (104); the Q3 deferral (016, 018); a PGO and order refresh with a
+pinned profile (054, then the switch); the correctness cases (071); then one fleet GUI session for this table.
+
+Tool tests run here (Linux, `python3 -m unittest` in `scripts/cmux-next/tests`, 11 modules: bench_launch,
+bench_startup, bench_startup_daemon_marks, bench_startup_milestones, launch_journey_results, pgo_check,
+pgo_page_fault_order, pgo_scenarios, rust_pgo_scenarios, startup_queue, trace_launch): 336 tests, 24 skipped,
+1 error (the `trace_launch` fixture of check 11), 1 failure (`test_bench_launch`: `bench_tagged.py` does not
+import under `python3 -I`, `No module named 'bench_launch'`).
